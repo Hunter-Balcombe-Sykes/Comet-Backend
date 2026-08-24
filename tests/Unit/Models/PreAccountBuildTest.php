@@ -37,3 +37,18 @@ it('does not mass-assign tenancy FKs', function () {
     expect((new PreAccountBuild)->isFillable('user_id'))->toBeFalse()
         ->and((new PreAccountBuild)->isFillable('built_by_staff_id'))->toBeFalse();
 });
+
+it('treats a VIA_STAFF build as outreach even with no built_by_staff_id', function () {
+    // built_by_staff_id is ON DELETE SET NULL — deleting the staff row that
+    // created a build must not silently un-gate it. built_via survives that
+    // deletion, so isOutreach() must check it too, not just the FK.
+    $build = new PreAccountBuild(['built_via' => PreAccountBuild::VIA_STAFF]);
+
+    expect($build->isOutreach())->toBeTrue();
+});
+
+it('does not treat a VIA_SIGNUP build as outreach', function () {
+    $build = new PreAccountBuild(['built_via' => PreAccountBuild::VIA_SIGNUP]);
+
+    expect($build->isOutreach())->toBeFalse();
+});

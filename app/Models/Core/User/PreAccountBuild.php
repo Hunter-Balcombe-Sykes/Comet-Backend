@@ -118,10 +118,18 @@ class PreAccountBuild extends BaseModel
      * is ApproveEarlyAccessBuildJob, behind staff approval. If that ever
      * changes, this arm must go — an anonymous caller able to set `built_via`
      * would use it to exempt themselves.
+     *
+     * VIA_STAFF is checked in addition to `built_by_staff_id` (not instead of
+     * it) because `built_by_staff_id` is ON DELETE SET NULL: deleting the
+     * staff row that created a build silently un-gates it. Both come from the
+     * same `$staff ? VIA_STAFF : VIA_SIGNUP` expression at creation time, so
+     * `built_via` is exactly as trustworthy and survives the staff row going
+     * away.
      */
     public function isOutreach(): bool
     {
         return $this->built_by_staff_id !== null
+            || $this->built_via === self::VIA_STAFF
             || $this->built_via === self::VIA_EARLY_ACCESS;
     }
 

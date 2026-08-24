@@ -114,6 +114,59 @@ it('staff builds record the staff id, skip the IP cap, and honour expires_days',
         ->and($result['build']->expires_at->isAfter(now()->addDays(59)))->toBeTrue();
 });
 
+// Finding 9: a self-serve build has contact_email NULL by construction — a
+// person mid-signup on their own source. A staff CSV/import naming the same
+// source (e.g. a coincidental duplicate) must not attach its address here:
+// that would silently hand the build's invite-gate to staff's address and
+// lock the actual signer-upper out.
+it('does not attach a staff-provided contact_email to a self-serve build on dedupe', function () {
+    $svc = app(PreAccountBuildService::class);
+    $selfServe = $svc->requestBuild('partna', 'instagram', 'selfserve', null, hash('sha256', 'x'));
+    expect($selfServe['build']->built_via)->toBe(PreAccountBuild::VIA_SIGNUP);
+
+    $reused = $svc->requestBuild(
+        'partna', 'instagram', 'selfserve', null, null,
+        staff: makePartnaStaff(), contactEmail: 'staff@example.com',
+    );
+
+    expect($reused['reused'])->toBeTrue()
+        ->and($reused['build']->id)->toBe($selfServe['build']->id)
+        ->and($reused['build']->fresh()->contact_email)->toBeNull();
+});
+
+it('attaches a staff-provided contact_email to an outreach build on dedupe', function () {
+    $staff = makePartnaStaff();
+    $svc = app(PreAccountBuildService::class);
+    $outreach = $svc->requestBuild('partna', 'instagram', 'outreach1', null, null, staff: $staff);
+    expect($outreach['build']->contact_email)->toBeNull();
+
+    $reused = $svc->requestBuild(
+        'partna', 'instagram', 'outreach1', null, null,
+        staff: $staff, contactEmail: 'lead@example.com',
+    );
+
+    expect($reused['build']->fresh()->contact_email)->toBe('lead@example.com');
+});
+
+it('throws CONTACT_EMAIL_CONFLICT when a staff request disagrees with the address on file', function () {
+    $staff = makePartnaStaff();
+    $svc = app(PreAccountBuildService::class);
+    $svc->requestBuild(
+        'partna', 'instagram', 'outreach2', null, null,
+        staff: $staff, contactEmail: 'first@example.com',
+    );
+
+    try {
+        $svc->requestBuild(
+            'partna', 'instagram', 'outreach2', null, null,
+            staff: $staff, contactEmail: 'second@example.com',
+        );
+        expect(false)->toBeTrue('Expected a PreAccountBuildException.');
+    } catch (PreAccountBuildException $e) {
+        expect($e->errorCode)->toBe(PreAccountBuildException::CONTACT_EMAIL_CONFLICT);
+    }
+});
+
 // LIFE-2: the IP abuse-cap check now runs INSIDE the build transaction, guarded by
 // a pg_advisory_xact_lock keyed on the IP hash — mirrors
 // tests/Unit/Services/Site/InsertWithSortOrderTest.php's SQL-emission assertion.
