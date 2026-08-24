@@ -133,6 +133,32 @@ class PreAccountBuild extends BaseModel
             || $this->built_via === self::VIA_EARLY_ACCESS;
     }
 
+    /**
+     * "Dark Until Claimed" — deliberately NARROWER than isOutreach(). An
+     * unclaimed build is only safe to make publicly routable before it's
+     * claimed if someone with authority actually vetted it: staff-built, or
+     * an early-access lead staff has approved.
+     *
+     * A raw VIA_EARLY_ACCESS row does NOT qualify on its own: requestBuild()
+     * gives every early-access build expires_at = NULL at creation, and only
+     * ApproveEarlyAccessBuildJob re-stamps a real expiry once staff approve
+     * it — so expires_at !== null IS the "staff approved this" signal here.
+     * (isOutreach() trusts built_via === VIA_EARLY_ACCESS alone for the claim
+     * gate, which is a different, looser question: "does claiming this need
+     * an invite" — an unapproved lead still shouldn't be first-come
+     * claimable. Visibility is stricter: an unapproved lead's site must not
+     * be live on the internet at all yet.)
+     *
+     * `POST /api/public/signup/build` (self-serve) never sets built_via —
+     * PreAccountBuildService derives 'signup' for it — so this is exactly as
+     * unforgeable from a public request as isOutreach().
+     */
+    public function isVisibleWhileUnclaimed(): bool
+    {
+        return $this->built_by_staff_id !== null
+            || ($this->built_via === self::VIA_EARLY_ACCESS && $this->expires_at !== null);
+    }
+
     /** Live = not yet claimed (the partial-unique-index predicate). */
     public function scopeLive(Builder $query): Builder
     {
