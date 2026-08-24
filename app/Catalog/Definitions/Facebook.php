@@ -22,10 +22,13 @@ use App\Catalog\SurfaceBuilder;
  * Facebook's own vanity-URL branch has no charset check at all
  * (FacebookNormalizer.php:99-101 takes the raw segment); the capture
  * charset here is a reasonable invented bound, not a translated one.
- * reservedPaths mirrors WebsiteLinkHarvester::looksLikeProfile()'s facebook
- * branch verbatim (WebsiteLinkHarvester.php:490-493) — the sharer/share/
- * intent/dialog widget paths that are the classic false positives on
- * business sites.
+ * reservedPaths covers the sharer/share/intent/dialog widget paths that are the
+ * classic false positives on business sites. It NO LONGER mirrors
+ * WebsiteLinkHarvester::looksLikeProfile(): that rule stopped being per-host on
+ * 2026-08-24 and now also reserves sharing/intents/submit with an explicit
+ * `(/|.|$)` boundary. The two lists agree on this brand's real widgets and are
+ * consulted by different lanes (catalog routing vs. anchor classification), so
+ * they are ALLOWED to differ — do not "re-sync" one to the other.
  */
 class Facebook
 {

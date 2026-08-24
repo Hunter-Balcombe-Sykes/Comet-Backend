@@ -11,4 +11,16 @@ class PreAccountBuildPolicy extends BasePolicy
     {
         return true;
     }
+
+    /**
+     * Re-pointing contact_email on an outreach build hands control of the
+     * claim invite to whoever's address is set there — a site-takeover
+     * primitive, not routine triage. Admin only; the route also sits behind
+     * the staff.admin middleware (defence-in-depth, same pattern as
+     * FeedbackPolicy::staffDelete).
+     */
+    public function staffAttachContactEmail(PartnaStaff $actor): bool
+    {
+        return $actor->isAdmin();
+    }
 }

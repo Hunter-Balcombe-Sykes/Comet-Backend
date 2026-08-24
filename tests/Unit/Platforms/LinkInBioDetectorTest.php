@@ -15,6 +15,12 @@ it('matches each of the curated link-in-bio hosts', function (string $url) {
     'https://linkin.bio/supernormal_180',
     'https://www.linkin.bio/venue',
     'https://lnk.bio/venue',
+    // 2026-08-24 (themetapunter live): clk.bio is Lnk.Bio's mirror and is NOT
+    // behind the Cloudflare block that makes lnk.bio itself unfetchable —
+    // 200 + 32 server-rendered anchors where lnk.bio answers 403.
+    'https://clk.bio/venue',
+    // sprout.link joined HOSTS on 2026-08-21 without joining this dataset.
+    'https://sprout.link/venue',
     'https://bio.link/venue',
     'https://campsite.bio/venue',
     'https://snipfeed.co/venue',

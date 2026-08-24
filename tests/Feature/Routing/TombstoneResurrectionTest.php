@@ -30,6 +30,13 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupRoutingTables();
+    // The importer reads the custom_links pool on its SUCCESS path too now
+    // (2026-08-24: retiring a floor card the same page no longer needs), so
+    // the content lane must exist even here, where only routing rows are
+    // asserted — the same reason LinkInBioImporterTest provisions it.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
 });
 
 /** The connection a user connected and then deleted, as the legacy pipeline left it. */

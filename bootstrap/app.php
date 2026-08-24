@@ -69,10 +69,38 @@ return Application::configure(basePath: dirname(__DIR__))
         // Redis, so every request starts with a clean breaker state.
         $middleware->prepend(ArmRedisRequestBreaker::class);
 
-        // Trust all proxy IPs — the app is exclusively behind Cloudflare, so every
-        // inbound connection is from a Cloudflare edge node. Without this, $request->ip()
-        // returns the Cloudflare edge IP and all rate-limit keys collapse to the same value.
-        $middleware->trustProxies(at: '*');
+        // The app is exclusively behind Cloudflare, so every inbound connection's
+        // REMOTE_ADDR should be a Cloudflare edge node (confirmed by the comment
+        // this replaced: "$request->ip() returns the Cloudflare edge IP" describes
+        // observed behaviour, not a hypothetical). `at: '*'` trusted EVERY immediate
+        // peer's X-Forwarded-For unconditionally — an attacker who reaches the origin
+        // directly (bypassing Cloudflare) could set X-Forwarded-For to anything and
+        // have it believed, which is also what made CF-Connecting-IP unsafe to read
+        // directly elsewhere (AppServiceProvider's rate limiters, PreAccountBuild
+        // Controller) — that header has no trust boundary of its own; it is only
+        // as trustworthy as knowing the request actually came via Cloudflare.
+        //
+        // Restricting to Cloudflare's published ranges (cloudflare.com/ips-v4,
+        // /ips-v6, fetched 2026-08-24 — refetch and diff periodically, Cloudflare
+        // adds ranges occasionally) makes $request->ip() the single source of
+        // truth: correct via X-Forwarded-For when REMOTE_ADDR really is Cloudflare,
+        // and safely falls back to the untrusted-but-real REMOTE_ADDR otherwise —
+        // never an attacker-supplied header. A wrong or stale range list here
+        // breaks per-IP rate limiting for everyone (REMOTE_ADDR would no longer be
+        // trusted, collapsing every key to itself) rather than opening a hole, but
+        // it is still verified against a live request's CF-Connecting-IP before and
+        // after landing this (see the handoff), and lands as its own revertible
+        // commit for exactly that reason.
+        $middleware->trustProxies(at: [
+            // IPv4
+            '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
+            '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20',
+            '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13',
+            '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
+            // IPv6
+            '2400:cb00::/32', '2606:4700::/32', '2803:f800::/32', '2405:b500::/32',
+            '2405:8100::/32', '2a06:98c0::/29', '2c0f:f248::/32',
+        ]);
 
         $middleware->append(SecureHeaders::class);
 

@@ -41,8 +41,15 @@ class PublicIntegrationController extends ApiController
             return $this->error('Not found.', 404);
         }
 
-        $user = User::query()->where('handle_lc', $handleLc)->first(['id']);
+        $user = User::query()->where('handle_lc', $handleLc)->first(['id', 'status']);
         if (! $user) {
+            return $this->error('Not found.', 404);
+        }
+
+        // Dark Until Claimed: the second ungated public read path
+        // (IndividualProfileController::show gates the other). Same
+        // predicate — an unclaimed build is only resolvable if vetted.
+        if ($user->isUnclaimed() && ! $user->preAccountBuild?->isVisibleWhileUnclaimed()) {
             return $this->error('Not found.', 404);
         }
         $userId = $user->id;

@@ -321,10 +321,18 @@ All ids are UUID strings. Timestamps are ISO 8601 strings when returned by the A
 
 ### Public visibility vs. `is_published`
 
-`is_published` is a dashboard-level flag, not a public-visibility control. Pre-account sites (post-signup,
-pre-claim) render publicly at `<handle>.partna.au` and via `GET /api/public/profiles/{handle}` regardless
-of `is_published` — deliberate, so a visitor can see their site before claiming it. Some public-facing
+`is_published` is a dashboard-level flag, not a public-visibility control. Some public-facing
 paths gate on it and some do not; there is no single rule, so check this table rather than assuming:
+
+**"Dark Until Claimed" (2026-08-24) is a SEPARATE gate, checked first.** A pre-account (unclaimed)
+site is only publicly resolvable at all — regardless of `is_published` — if its build has been vetted:
+staff-built, or a staff-approved early-access lead (`PreAccountBuild::isVisibleWhileUnclaimed()`). An
+unvetted unclaimed build (the ordinary self-serve signup case) 404s at both
+`IndividualProfileController::show` and `PublicIntegrationController::show`, and never gets a
+`SyncSubdomainToKvJob` KV entry in the first place — so it isn't reachable pre-claim any more. This
+replaces the older "pre-account sites render publicly pre-claim, deliberately" statement that used to
+sit here: that was true before Dark Until Claimed and is no longer true for self-serve builds. The
+`is_published` table below is about a DIFFERENT, orthogonal flag and is unaffected by this gate.
 
 | Path | Gates on `is_published`? |
 |---|---|
