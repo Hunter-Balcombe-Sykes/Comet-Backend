@@ -795,3 +795,62 @@ it('keeps the bio platform\'s hidden anchors out of the harvest entirely', funct
 
     expect($links)->toHaveCount(23);
 });
+
+// A floor card is only correct while the page yields nothing. A user can
+// re-paste the same aggregator through POST /routing/links (RoutingController
+// dispatches LinkInBioScanJob), so a host that was rate-limited on the first
+// try — or one we have only just learned to read, as clk.bio was on
+// 2026-08-24 — leaves the owner holding BOTH the inert card and the links it
+// contains.
+//
+// The fake is a CLOSURE over a flag, not two Http::fake() calls: repeated
+// fake(['*' => …]) stacks stubs and the first match wins, so the 403 would
+// answer both runs. A fakeSequence() is wrong too — SafeUrlFetcher retries a
+// 403 with a second User-Agent, so one logical fetch eats two entries.
+it('retires the floor card once the same page finally unrolls', function () {
+    $pro = createTenant('bio-refloor');
+    $readable = false;
+    $html = '<html><body>
+        <a href="https://www.instagram.com/refloor">IG</a>
+        <a href="https://open.spotify.com/artist/3TVXtAsR1Inumwj472S9r4">Spotify</a>
+    </body></html>';
+    // NB `use (&$readable)`: an arrow fn captures by VALUE, so fn() would
+    // freeze the flag at false and answer 403 to both runs.
+    Http::fake(function () use (&$readable, $html) {
+        return $readable
+            ? Http::response($html, 200, ['Content-Type' => 'text/html'])
+            : Http::response('', 403);
+    });
+
+    $first = app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/refloor');
+
+    expect($first['outcome'])->toBe('unavailable')
+        ->and($first['bio_url_seeded'])->toBeTrue()
+        ->and(DB::table('content.items')->where('kind', 'link')->whereNull('removed_at')->count())->toBe(1);
+
+    $readable = true;
+    $second = app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/refloor');
+
+    expect($second['outcome'])->toBe('ok');
+    expect(DB::table('content.items')->where('kind', 'link')->whereNull('removed_at')->count())->toBe(0);
+});
+
+// The retire is keyed on the page we just unrolled, not "tidy up the pool".
+it('leaves a card the owner holds for some other page alone', function () {
+    $pro = createTenant('bio-keepother');
+    $unrollable = false;
+    Http::fake(function () use (&$unrollable) {
+        return $unrollable
+            ? Http::response('<html><body><a href="https://www.instagram.com/keepother">IG</a></body></html>', 200, ['Content-Type' => 'text/html'])
+            : Http::response('', 403);
+    });
+
+    app(LinkInBioImporter::class)->import($pro, 'https://beacons.ai/keepother');
+    expect(DB::table('content.items')->where('kind', 'link')->whereNull('removed_at')->count())->toBe(1);
+
+    $unrollable = true;
+    app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/different');
+
+    // The beacons card survives — nothing unrolled THAT url.
+    expect(DB::table('content.items')->where('kind', 'link')->whereNull('removed_at')->count())->toBe(1);
+});

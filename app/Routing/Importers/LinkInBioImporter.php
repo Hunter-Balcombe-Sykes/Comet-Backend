@@ -8,6 +8,7 @@ use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
 use App\Routing\SecretParams;
 use App\Routing\ShortLinkExpander;
+use App\Services\Content\LinkPoolReader;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Notifications\FindingsNotifier;
 use App\Services\Platforms\CustomLinkSeeder;
@@ -83,6 +84,7 @@ class LinkInBioImporter
         private readonly MediaSeeder $media,
         private readonly ShortLinkExpander $expander,
         private readonly LinkInBioDetector $bioDetector,
+        private readonly LinkPoolReader $linkReader,
     ) {}
 
     /**
@@ -178,6 +180,15 @@ class LinkInBioImporter
         if ($observations === 0) {
             $this->seeder->seedCustom($user, $pages[0]);
             $bioUrlSeeded = true;
+        } else {
+            // The floor's mirror image. A card is only right while the page
+            // yields nothing, and the same URL can be imported again — the
+            // paste lane (RoutingController) dispatches LinkInBioScanJob on
+            // demand — so a host that was rate-limited on the first try, or one
+            // we have only just learned to read (clk.bio, 2026-08-24), would
+            // otherwise leave the owner holding the inert card AND the links
+            // that came out of it.
+            $this->retireFloorCards($user, $pages);
         }
 
         // Every page down is the same failure the single-page path always
@@ -316,6 +327,36 @@ class LinkInBioImporter
         }
 
         return false;
+    }
+
+    /**
+     * Drop any custom card standing for a page this run just unrolled.
+     *
+     * Compares scheme-/www-/trailing-slash-insensitively, the same $pageKey
+     * idiom InstagramAutoSync dedupes bio links with — seedCustom() stores a
+     * canonicalised form, so an exact string match would miss its own card.
+     * LinkPoolReader::remove() discharges all three cache lanes.
+     *
+     * @param  list<string>  $pages
+     */
+    private function retireFloorCards(User $user, array $pages): void
+    {
+        $keys = [];
+        foreach ($pages as $page) {
+            $keys[$this->pageKey($page)] = true;
+        }
+
+        foreach ($this->linkReader->cards($user) as $card) {
+            $url = $card['url'] ?? null;
+            if (is_string($url) && isset($keys[$this->pageKey($url)])) {
+                $this->linkReader->remove($user, $card['id']);
+            }
+        }
+    }
+
+    private function pageKey(string $url): string
+    {
+        return strtolower(rtrim(preg_replace('~^https?://(?:www\.)?~i', '', $url) ?? $url, '/'));
     }
 
     private function unroll(string $baseUrl, string $body, RoutingContext $context, array &$tally, array &$seen, array &$probedHosts, array &$placedKeys, array &$droppedReasons): void
