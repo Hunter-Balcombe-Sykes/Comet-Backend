@@ -189,6 +189,17 @@ return [
         '829c9554911e', // ComputeContentPopularityScores — driver-conditional day expr
         '3e38e942b939', // ComputeContentPopularityScores — driver-conditional day expr
         '7c06737326a6', // ComputeContentPopularityScores — driver-conditional day expr
+        // Vetted 2026-08-24: 623ede983 (A4/A5 — lander taps count as item clicks,
+        // media dwell) added three more queries to the same file, interpolating the
+        // same $day = dayBucketExpr(). That method returns one of exactly two
+        // hardcoded literals chosen on getDriverName() — "strftime('%Y-%m-%d',
+        // occurred_at)" or "(occurred_at::date)::text" — with no parameter and no
+        // caller-supplied input. Every value on these lines still travels as a
+        // binding. The four hashes above are unaffected and still live (two-way
+        // census, 58 config / 67 live, zero dead).
+        '4e9c7786a8d6', // ComputeContentPopularityScores — driver-conditional day expr
+        '8b917c6a4e49', // ComputeContentPopularityScores — driver-conditional day expr
+        'ea1a37cc2567', // ComputeContentPopularityScores — driver-conditional day expr
         // Re-minted 2026-08-03 (COV-LANE): both files moved to tests/Schema/ and had
         // their per-test savepointSuiteIsPostgres()/markTestSkipped() driver-check
         // stripped out (SchemaTestCase::setUp() already gates the whole class), which
