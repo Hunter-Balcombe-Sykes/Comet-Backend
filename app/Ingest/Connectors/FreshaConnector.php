@@ -157,7 +157,10 @@ class FreshaConnector implements Connector
                 $resolvedFresh = $currency !== null;
             }
 
-            $employeeId = ($selectionRef === null || $selectionRef === 'storewide') ? null : $selectionRef;
+            // Non-null here: the guard above returns early when this stream is
+            // 'services' and nothing has been chosen. (The dropped null arm was
+            // redundant regardless — a null $selectionRef falls through to null.)
+            $employeeId = $selectionRef === 'storewide' ? null : $selectionRef;
             yield from $this->servicesMessages($decoded, $slug, $employeeId, $currency);
 
             if ($resolvedFresh || $rotatedTo !== null) {

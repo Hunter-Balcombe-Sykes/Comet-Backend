@@ -298,7 +298,7 @@ class PoolResolver
 
     /**
      * @param  array<string, object>  $sections  keyed by pool (preloadSections)
-     * @return array<string, Collection<int, object>> curation rows keyed by SECTION id
+     * @return array<string, Collection<int, \stdClass>> curation rows keyed by SECTION id
      */
     public function preloadCuration(array $sections): array
     {

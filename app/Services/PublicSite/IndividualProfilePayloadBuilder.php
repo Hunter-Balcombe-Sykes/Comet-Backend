@@ -596,7 +596,7 @@ class IndividualProfilePayloadBuilder
         // rather than the pool wire, whose STORE_KEYS allowlist withholds
         // linkMode on purpose so the affiliate suffix stays unreadable.
         // Nothing about the affiliate composition becomes public here.
-        $config['shopLinkMode'] = $pro->site?->shop_link_mode ?? Site::DEFAULT_SHOP_LINK_MODE;
+        $config['shopLinkMode'] = $pro->site->shop_link_mode ?? Site::DEFAULT_SHOP_LINK_MODE;
 
         // displayGalleryPage (2026-08-24): the owner's Site → "Display a
         // gallery page?" switch. It has been accepted and stored since
