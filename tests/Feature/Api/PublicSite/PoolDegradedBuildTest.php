@@ -11,6 +11,7 @@ use App\Site\Pools\PoolResolver;
 use App\Site\Pools\PoolSectionProvisioner;
 use App\Site\Sections\SectionCandidates;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -102,7 +103,7 @@ function degradedPoolResolver(string $failingPool, array $answers): PoolResolver
             return [];
         }
 
-        public function plan(Site $site, string $pool, ?object $section = null, ?Illuminate\Support\Collection $curation = null): array
+        public function plan(Site $site, string $pool, ?object $section = null, ?Collection $curation = null): array
         {
             return ['pinned' => [], 'ruleIds' => [], 'autoSet' => [], 'selectionIds' => [], 'libraryIds' => []];
         }
@@ -112,7 +113,7 @@ function degradedPoolResolver(string $failingPool, array $answers): PoolResolver
             return [[], collect()];
         }
 
-        public function assemble(Site $site, string $pool, array $plan, array $payloads, Illuminate\Support\Collection $stores): array
+        public function assemble(Site $site, string $pool, array $plan, array $payloads, Collection $stores): array
         {
             if ($pool === $this->failingPool) {
                 throw new QueryException('pgsql', 'select * from content.items', [], new RuntimeException('server closed the connection unexpectedly'));
