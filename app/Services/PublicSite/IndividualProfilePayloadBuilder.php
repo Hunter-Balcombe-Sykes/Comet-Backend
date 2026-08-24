@@ -587,6 +587,17 @@ class IndividualProfilePayloadBuilder
             'analyticsEndpoint' => config('partna.public_profile.analytics_endpoint'),
         ];
 
+        // shopLinkMode (2026-08-24): 'checkout' | 'product' — the owner's
+        // Shop → link-mode choice, site-wide. The COMPOSED url already bakes
+        // this in (ShopOutboundUrl), and that stays true; what the renderer
+        // could not know is which SHAPE to draw — a "View product" link or a
+        // variant-select + Checkout bar. That is a presentation question, so
+        // the flag rides publicConfig (site-level, like the setting itself)
+        // rather than the pool wire, whose STORE_KEYS allowlist withholds
+        // linkMode on purpose so the affiliate suffix stays unreadable.
+        // Nothing about the affiliate composition becomes public here.
+        $config['shopLinkMode'] = $pro->site?->shop_link_mode ?? Site::DEFAULT_SHOP_LINK_MODE;
+
         if ($pro->isUnclaimed()) {
             $config['claim'] = ['unclaimed' => true];
         }
