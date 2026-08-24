@@ -1068,10 +1068,9 @@ class PoolResolver
                 continue;
             }
 
-            $links = $this->linkSet(
-                $sourceLinks->get($itemId, collect()),
-                $manualLinks->get($itemId, collect()),
-            );
+            $sourceLinksForItem = $sourceLinks->get($itemId, collect());
+            $manualLinksForItem = $manualLinks->get($itemId, collect());
+            $links = $this->linkSet($sourceLinksForItem, $manualLinksForItem);
             $primary = $links[0] ?? null;
             if ($primary === null && isset($sourcePlatforms[$itemId])) {
                 $fallback = $sourcePlatforms[$itemId];
@@ -1108,6 +1107,54 @@ class PoolResolver
                     : $fallback;
             };
 
+            // #SEC-2 regression fix: ActionCandidates::itemCandidate() (app/Site/Actions/
+            // ActionCandidates.php) reads the item's DIRTY url as its own drop signal — a
+            // present-but-unsafe string means "not a candidate at all", while a null/absent
+            // url means "no outbound link, fall through to a page-anchor candidate". Those
+            // are two different cases with the same wire value if we null the url here, so
+            // safeHref()'s rejection has to be handled at THIS seam, the only place that
+            // still holds the raw string — dropping the item from the pool selection
+            // entirely, not just nulling its url field. Do not "simplify" this back to a
+            // plain safeHref() assignment: that silently un-drops the item everywhere else
+            // that reads pool payloads (actions rail included), it just makes the button
+            // point at a useless internal anchor instead of the rejected href.
+            //
+            // The predicate is NOT "was the raw top-priority link unsafe" — linkSet()
+            // (also #SEC-2) already walks every source/manual row in priority order and
+            // drops only the unsafe ones, falling through to a lower-priority row. A
+            // high-priority javascript: row with a safe fallback beneath it must still
+            // publish that fallback, not vanish the item. So the drop decision needs two
+            // separate signals: did this item ever carry stored link intent at all (raw,
+            // ungated — same priority walk linkSet() uses, source row first then manual),
+            // and did the item's OWN link — linkSet()'s already-safety-filtered $primary,
+            // with the owner's override substituted on top exactly as $ov() does for the
+            // emitted field — survive. Only "intent present AND nothing of its own survived"
+            // is a drop; "no intent" is a legitimate anchor-only item and must not be dropped.
+            //
+            // Deliberately NOT $outboundUrl here. For a product, $outboundUrl is
+            // ShopOutboundUrl::compose($primary['url'], …, $primaryStore, …) — it can fold
+            // in the STORE's own url/discount_code/referral_query (content.storefronts,
+            // independently hand-editable) on top of an already-safe bare item link. A
+            // poisoned store field is that store's data-quality problem, not this item's:
+            // the store card already degrades its own url/favicon/logo to null without
+            // disappearing (see the #SEC-2 gate below), and a product with a perfectly
+            // good bare link must degrade the same way — emit url=>null — not vanish from
+            // the catalog because an unrelated field on a different row was bad.
+            $rawPrimaryUrl = $sourceLinksForItem->first()->url ?? $manualLinksForItem->first()?->url;
+            $rawOutboundUrl = $ov('f_link.url', $rawPrimaryUrl);
+            $hadLinkIntent = is_string($rawOutboundUrl) && $rawOutboundUrl !== '';
+            $ownUrl = $ov('f_link.url', $primary['url'] ?? null);
+            $ownLinkSurvives = is_string($ownUrl) && UrlSafety::safeHref($ownUrl) !== null;
+            if ($hadLinkIntent && ! $ownLinkSurvives) {
+                continue;
+            }
+            // Same expression as the emitted `url` field below — computed once here and
+            // reused there. Deliberately a DIFFERENT input from $ownLinkSurvives above
+            // (routes through $outboundUrl/compose()) — it can be null on a surviving
+            // item (a product whose store-composed link failed), which is fine: the wire
+            // value degrading to null is not the same event as the drop decision above.
+            $emittedUrl = UrlSafety::safeHref($ov('f_link.url', $outboundUrl));
+
             $out[$itemId] = [
                 'id' => (string) $itemId,
                 'kind' => $item->kind,
@@ -1119,8 +1166,13 @@ class PoolResolver
                 'headlineEdited' => is_string($overrideHeadline) && $overrideHeadline !== '',
                 // #SEC-2: the last gate before the CDN. f_link.url is hand-overridable
                 // (UpsertManualOverrideRequest validates only `present`), so the owner's
-                // own stored string reaches the public wire here unless it passes.
-                'url' => UrlSafety::safeHref($ov('f_link.url', $outboundUrl)),
+                // own stored string reaches the public wire here unless it passes. An
+                // item whose OWN stored link is present-but-unsafe with no safe fallback
+                // never reaches this line — it is dropped above. $emittedUrl is this same
+                // expression, computed once and reused; it CAN still be null here for a
+                // surviving item — a product whose store-composed link failed degrades to
+                // url=>null rather than vanishing (see the drop-decision comment above).
+                'url' => $emittedUrl,
                 'platform' => $primary['platform'] ?? null,
                 'creator' => $ov('f_authored.creator', $creators[$itemId]->creator ?? $channels[$itemId]->handle ?? null),
                 'publishedAt' => self::iso($ov('f_published.published_from', $published[$itemId] ?? null)),
