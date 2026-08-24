@@ -461,6 +461,66 @@ it('every migration in supabase/migrations/ states a reverse path', function () 
         ."\nexists is worse than no note.");
 });
 
+// ─── #MIG-1: the unified-actions data cleanup moved out of the migration ───
+//
+// 20260823100000_unified_actions.sql used to bundle two full-table DML
+// statements (action_events / site.sites.settings) alongside its DDL. Both
+// migrations in this pair are ALREADY APPLIED on dev (the Supabase CLI keys
+// its ledger on version, not content, so editing an applied file is a no-op
+// there) — the fix moved the re-runnable half to
+// `php artisan partna:scrub-unified-actions-legacy` so prod (which has not
+// applied this file's data yet) can still get it without re-running the
+// whole migration. (b) below is the one that matters: it pins that the
+// content_type = 'page' DELETE — which CANNOT move, because the ADD
+// CONSTRAINT ... NOT VALID right after it starts enforcing on new writes
+// immediately, and ComputeContentPopularityScores would crash on a surviving
+// 'page' row — stays inline, ahead of the VALIDATE CONSTRAINT that runs in
+// the companion file.
+
+it('MIG-1: 20260823100000_unified_actions.sql no longer contains the action_events/site.sites.settings DML', function () {
+    $sql = migrationBoundaryStripComments(migrationBoundaryReadSql('20260823100000_unified_actions.sql'));
+
+    expect($sql)->not->toMatch('/DELETE\s+FROM\s+analytics\.action_events/i',
+        'Expected the action_events legacy-vocabulary DELETE to have moved to '
+        .'php artisan partna:scrub-unified-actions-legacy (ScrubUnifiedActionsLegacyCommand).')
+        ->and($sql)->not->toMatch('/UPDATE\s+site\.sites\s+SET/i',
+            'Expected the site.sites.settings legacy-key UPDATE to have moved to '
+            .'php artisan partna:scrub-unified-actions-legacy (ScrubUnifiedActionsLegacyCommand).');
+});
+
+it('MIG-1: the content_popularity_scores page DELETE stays inline, before ADD CONSTRAINT, and 20260823100001 still VALIDATEs', function () {
+    $sql = migrationBoundaryStripComments(migrationBoundaryReadSql('20260823100000_unified_actions.sql'));
+
+    expect(preg_match(
+        "/DELETE\s+FROM\s+analytics\.content_popularity_scores\s+WHERE\s+content_type\s*=\s*'page'/i",
+        $sql,
+        $deleteMatch,
+        PREG_OFFSET_CAPTURE,
+    ))->toBe(1, 'Expected the content_type = \'page\' DELETE to still be present and inline in 20260823100000 — '
+        .'it must never be extracted into a re-runnable command (see the file\'s own header).');
+
+    expect(preg_match('/ADD\s+CONSTRAINT\s+content_popularity_scores_content_type_check/i', $sql, $addMatch, PREG_OFFSET_CAPTURE))
+        ->toBe(1);
+
+    expect($deleteMatch[0][1])->toBeLessThan($addMatch[0][1],
+        'The page DELETE must run before ADD CONSTRAINT ... NOT VALID -- once the constraint is added it '
+        .'enforces on every new write, and a surviving page row would fail it.');
+
+    $validateSql = migrationBoundaryReadSql('20260823100001_unified_actions_validate.sql');
+    expect($validateSql)->toMatch('/VALIDATE\s+CONSTRAINT\s+content_popularity_scores_content_type_check/i',
+        'Expected 20260823100001 to still VALIDATE the constraint added by 20260823100000.');
+});
+
+it('MIG-1: 20260823120000_item_scores_keyed_by_id.sql keeps its DELETE (comment-only edit, not a behaviour change)', function () {
+    $sql = migrationBoundaryStripComments(migrationBoundaryReadSql('20260823120000_item_scores_keyed_by_id.sql'));
+
+    expect($sql)->toMatch(
+        "/DELETE\s+FROM\s+analytics\.content_popularity_scores\s+WHERE\s+content_type\s+IN\s*\(\s*'shop_product'\s*,\s*'link_item'\s*\)/i",
+        'This migration is a one-shot bounded by "the scoring job had not yet run" -- it must not be '.
+        're-expressed as a re-runnable command (non-item-id keys are still being written today).'
+    );
+});
+
 it('the reverse-path matcher rejects prose that merely mentions reverting', function () {
     expect(migrationBoundaryHasRollbackNote("-- editing one field freezes it; reverting is deleting the row\n"))->toBeFalse()
         ->and(migrationBoundaryHasRollbackNote("-- DINT-16's revert bug can leave two rows behind\n"))->toBeFalse()

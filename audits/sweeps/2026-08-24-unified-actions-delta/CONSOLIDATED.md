@@ -55,14 +55,14 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 1 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#MIG-1** · P1 — Inline full-table DML scrubs bundled with DDL in `unified_actions.sql`, contrary to the project's own `#SCHEMA-2` guidance; the same anti-pattern recurs in the companion migration
+- [x] **#MIG-1** · P1 — Inline full-table DML scrubs bundled with DDL in `unified_actions.sql`, contrary to the project's own `#SCHEMA-2` guidance; the same anti-pattern recurs in the companion migration
     - **Where:** supabase/migrations/20260823100000_unified_actions.sql:28-47; supabase/migrations/20260823120000_item_scores_keyed_by_id.sql:16-17
     - **Affects:** `analytics.content_popularity_scores` (read on every public-sitepage pool-ordering resolution) and `analytics.action_events` (write-heavy analytics ingest path); deploy-time availability of the migration itself.
     - **Effort:** M (~2–4h)
@@ -737,7 +737,7 @@ None.
 
 ## Progress
 
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 19 complete
 - P3 Low: 0 of 5 complete
 
@@ -745,7 +745,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#TEST-1** · P1 — Design-kit cache-rotation test claims it exercises the HTTP controller path but replays the controller's logic by hand instead
+- [x] **#TEST-1** · P1 — Design-kit cache-rotation test claims it exercises the HTTP controller path but replays the controller's logic by hand instead
     - **Where:** tests/Feature/Cache/DesignKitCacheInvalidationTest.php:26-101
     - **Affects:** Confidence that a design-kit-only save rotates the public sitepage cache key. A regression in `UserSiteController::update()`'s touch block would go undetected by CI.
     - **Effort:** M (~2–4h)

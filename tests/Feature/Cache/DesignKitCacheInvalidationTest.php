@@ -6,13 +6,13 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\SiteCacheService;
-use App\Services\Site\UpdateSiteAction;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     Cache::flush();
+    config(['partna.throttle.enabled' => false]); // PATCH /api/site carries throttle:authenticated
     setupUsersTable();
     setupSitesTable();
     // ActionCandidates reads the pools for item actions (was: the `custom:`
@@ -21,7 +21,54 @@ beforeEach(function () {
     setupSubdomainAliasesTable();
     setupHandleAliasesTable();
     setupDesignKitsTable();
+    seedCacheTestDesignKitInformationSchema();
 });
+
+/**
+ * Mirror the live site.design_kits column list into a stand-in
+ * information_schema.columns table so UserSiteController::writeDesignKit()'s
+ * catalog query resolves on SQLite. Column names are read from the real table
+ * via PRAGMA, so the mirror can never drift from setupDesignKitsTable().
+ *
+ * Deliberately NOT the global seedDesignKitInformationSchema() from
+ * tests/Feature/Api/User/SiteManagement/WriteDesignKitTest.php — that
+ * function is only defined when that file happens to load, so calling it
+ * from a path-targeted run of this file alone would fatal on "undefined
+ * function", and declaring a second global with the SAME name would fatal on
+ * "cannot redeclare" whenever both files load together (e.g. a full suite
+ * run). Distinctly named, file-local copy instead.
+ */
+function seedCacheTestDesignKitInformationSchema(): void
+{
+    $conn = DB::connection('pgsql');
+
+    try {
+        $conn->statement("ATTACH DATABASE ':memory:' AS information_schema");
+    } catch (Throwable $e) {
+        if (! str_contains($e->getMessage(), 'already in use')) {
+            throw $e;
+        }
+    }
+
+    $conn->statement('CREATE TABLE IF NOT EXISTS information_schema.columns (
+        table_schema TEXT NULL,
+        table_name TEXT NULL,
+        column_name TEXT NULL
+    )');
+
+    $conn->table('information_schema.columns')
+        ->where('table_schema', 'site')
+        ->where('table_name', 'design_kits')
+        ->delete();
+
+    foreach ($conn->select('PRAGMA site.table_info(design_kits)') as $col) {
+        $conn->table('information_schema.columns')->insert([
+            'table_schema' => 'site',
+            'table_name' => 'design_kits',
+            'column_name' => $col->name,
+        ]);
+    }
+}
 
 // ── CCH-4 Test 1 ──────────────────────────────────────────────────────────────
 // Confirms that a design-kit-only PATCH advances sites.updated_at so the next
@@ -30,8 +77,12 @@ beforeEach(function () {
 // to serve the pre-design-kit payload for up to 60 s.
 //
 // This test goes through the full HTTP controller path (PATCH /api/site) so
-// that deleting the touch() block in UserSiteController::update() would cause
-// it to fail — unlike a direct $site->touch() call which always passes.
+// that deleting the touch() block in UserSiteController::update() turns it
+// RED — proven by mutation (delete the block, run the test, confirm it fails;
+// restore, confirm it passes again). An earlier version of this test called
+// UpdateSiteAction::execute() directly and replicated the controller's touch()
+// logic in the test body itself — which stayed green under that same deletion,
+// because the touch happened in the test, not the controller.
 
 it('advances updated_at on a design-kit-only update so the public profile cache key rotates', function () {
     // Backdate updated_at by 5 minutes so the touch() advance is unambiguous
@@ -75,29 +126,30 @@ it('advances updated_at on a design-kit-only update so the public profile cache 
     // Load the user with site eager-loaded.
     $pro = User::query()->with('site')->findOrFail($userId);
     $originalTs = $pro->site->updated_at->timestamp;
+    $originalSettings = $pro->site->settings;
 
-    // Call UpdateSiteAction::execute() directly with empty $data — this is the
-    // same code path the controller takes (sans HTTP layer overhead).
-    // With no site-column fields in $data, the action does not dirty the site row.
-    $action = app(UpdateSiteAction::class);
-    $returnedSite = $action->execute($pro, []);
+    // The real request path: a design-kit-only PATCH, no site-column fields.
+    // corners is a real site.design_kits column (setupDesignKitsTable()) and a
+    // legal value under DesignKitValidationRules::designKitRules().
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['design_kit' => ['corners' => 'rounded']])
+        ->assertOk();
 
-    // wasChanged() must be false after a no-op save — this is the precondition
-    // the controller checks before calling touch().
-    expect($returnedSite->wasChanged())->toBeFalse('UpdateSiteAction::execute([]) must not dirty the site row');
-
-    // Replicate the controller's touch logic exactly. If the controller's
-    // touch() block were deleted, this assertion would remain but the
-    // HTTP-layer test (which exercises the full controller path) would fail.
-    if (! $returnedSite->wasChanged()) {
-        $returnedSite->touch();
-    }
-
-    $updatedTs = Site::query()->findOrFail($siteId)->updated_at->timestamp;
+    $freshSite = Site::query()->findOrFail($siteId);
+    $updatedTs = $freshSite->updated_at->timestamp;
 
     expect($updatedTs)->toBeGreaterThan($originalTs,
-        "touch() should have advanced updated_at from $past (ts=$originalTs) to now (ts=$updatedTs)"
+        "The PATCH should have advanced updated_at from $past (ts=$originalTs) to now (ts=$updatedTs)"
     );
+
+    // Proves this really was a design-kit write, not an empty-payload
+    // short-circuit that happened to still touch the row for some other reason.
+    $kitCorners = DB::connection('pgsql')->table('site.design_kits')
+        ->where('site_id', $siteId)->value('corners');
+    expect($kitCorners)->toBe('rounded');
+
+    // Proves nothing else dirtied the row alongside the kit write.
+    expect($freshSite->settings)->toBe($originalSettings);
 });
 
 // ── CCH-4 Test 2 ──────────────────────────────────────────────────────────────

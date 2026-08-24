@@ -271,6 +271,32 @@ those tables. Note the asymmetry the rest of this document already establishes: 
 cheap, the migrations are not revertible, and the backfill is forward-only (re-running it is safe;
 un-running it is not a thing).
 
+### MIG-1 — unified-actions legacy scrub
+
+`20260823100000_unified_actions.sql` used to bundle two full-table DML statements (an
+`analytics.action_events` DELETE and a `site.sites.settings` key-removal UPDATE) alongside its DDL.
+Both migrations in that pair are already applied on dev — the CLI keys its ledger on version, not
+content, so editing an applied file is a no-op there — but **neither is applied on prod**, so the data
+half moved to a re-runnable command: `php artisan partna:scrub-unified-actions-legacy`
+(`App\Console\Commands\ScrubUnifiedActionsLegacyCommand`). The `content_type = 'page'` DELETE stayed
+inline in the migration (see that file's header) — this command does not duplicate it, only nets it as
+a belt-and-braces check.
+
+**Run it once after the migration lands, whatever environment you're deploying.** Dry run, then run,
+then re-run to prove idempotence — same shape as the shop backfill above:
+
+```bash
+~/.composer/vendor/bin/cloud command:run <env> 'php artisan partna:scrub-unified-actions-legacy --dry-run'
+~/.composer/vendor/bin/cloud command:run <env> 'php artisan partna:scrub-unified-actions-legacy'
+~/.composer/vendor/bin/cloud command:run <env> 'php artisan partna:scrub-unified-actions-legacy'
+#    Second run must report 0 rows affected across all three steps — that's the idempotence proof.
+```
+
+**PROD IS A NO-OP TODAY — verified 2026-08-24: 0 rows in `analytics.action_events`, `site.sites.settings`
+and `analytics.content_popularity_scores` (content_type = 'page') on the prod ledger.** Say so from
+evidence, not assumption: run it anyway and read the counts. It stops being a no-op the moment prod
+takes its first real accounts through the unified-actions surface.
+
 ---
 
 ## Verify — after every deploy
