@@ -90,6 +90,36 @@ it('retries a failed live build on dedupe hit (F3)', function () {
     Queue::assertPushed(GeneratePreAccountSiteJob::class, 2);
 });
 
+// Task 4: reserve() re-dispatches a paid scrape for a failed/stuck build,
+// reached from the dedupe early-return that sits ABOVE the per-IP cap — so a
+// public caller re-serving a failed build never counted against anything.
+it('meters re-serving a failed build against the same per-IP cap as new builds', function () {
+    config(['partna.pre_account.max_unclaimed_per_ip' => 1]);
+    $svc = app(PreAccountBuildService::class);
+    $ip = hash('sha256', 'reserve-cap-ip');
+
+    $result = $svc->requestBuild('partna', 'instagram', 'reservecap', null, $ip);
+    $result['build']->forceFill(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => 'scrape_failed'])->save();
+
+    // This caller is already at the cap (their one build, now failed but
+    // still "live" — claimed_at is what drops it, not build_state) — the
+    // re-serve must be metered exactly like a new build would be.
+    $svc->requestBuild('partna', 'instagram', 'reservecap', null, $ip);
+})->throws(PreAccountBuildException::class);
+
+it('does not meter a staff re-serve of a failed build', function () {
+    $staff = makePartnaStaff();
+    $svc = app(PreAccountBuildService::class);
+    $result = $svc->requestBuild('partna', 'instagram', 'staffreservecap', null, null, staff: $staff);
+    $result['build']->forceFill(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => 'scrape_failed'])->save();
+
+    config(['partna.pre_account.max_unclaimed_per_ip' => 0]); // would block ANY public caller
+    $second = $svc->requestBuild('partna', 'instagram', 'staffreservecap', null, null, staff: $staff);
+
+    expect($second['reused'])->toBeTrue()
+        ->and($second['build']->fresh()->build_state)->toBe(PreAccountBuild::STATE_PENDING);
+});
+
 it('rejects a wrong account_type/source_type pairing from the config map', function () {
     app(PreAccountBuildService::class)->requestBuild('partna', 'google_business', 'x', 'Cafe', hash('sha256', 'a'));
 })->throws(PreAccountBuildException::class);
