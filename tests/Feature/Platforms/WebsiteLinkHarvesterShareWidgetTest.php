@@ -29,3 +29,25 @@ it('still reads a real profile on the same hosts', function (string $url, string
     ['https://www.instagram.com/themetapunter', 'instagram'],
     ['https://www.tiktok.com/@joe__o', 'tiktok'],
 ]);
+
+// The guard's real consumer. harvest()/harvestHtml() feed
+// GoogleBusinessAutoSync::seed(), so before this fix a "share this page"
+// button on ANY business website was seeded as that business's own account —
+// the bio-link lane just happened to be where it was noticed.
+it('does not seed a share widget as the business\'s social account', function () {
+    $harvested = app(WebsiteLinkHarvester::class)->harvestHtml('<html><body>
+        <a href="https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Facme.test">Share on LinkedIn</a>
+        <a href="https://www.reddit.com/submit?url=https%3A%2F%2Facme.test">Share on Reddit</a>
+    </body></html>', 'https://acme.test/');
+
+    expect($harvested)->toBe([]);
+});
+
+it('still seeds the real accounts alongside those buttons', function () {
+    $harvested = app(WebsiteLinkHarvester::class)->harvestHtml('<html><body>
+        <a href="https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Facme.test">Share</a>
+        <a href="https://www.linkedin.com/company/acme">Our LinkedIn</a>
+    </body></html>', 'https://acme.test/');
+
+    expect($harvested['socials']['linkedin'] ?? null)->toBe('https://www.linkedin.com/company/acme');
+});

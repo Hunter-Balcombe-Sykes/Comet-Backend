@@ -740,3 +740,51 @@ it('folds a second URL that canonicalizes identically instead of carding it (FI-
     expect(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->where('kind', 'link')->count())->toBe(0)
         ->and(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1);
 });
+
+// The whole chain against the page that exposed it (themetapunter, 2026-08-24):
+// clk.bio is recognised, its four owner links are PLACED, its seven share
+// widgets and five hidden SEO backlinks are not.
+it('unrolls a real Lnk.Bio page to the owner\'s links and nothing else', function () {
+    $pro = createTenant('bio-clkbio');
+    bioPage(Tests\Support\Fixtures\Recorded::html('linkinbio/lnkbio.clkbio.html'));
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/TheMetaPunter');
+
+    $placed = DB::table('routing.link_observations')
+        ->where('source', 'link_in_bio')->where('verdict', 'place')
+        ->pluck('surface_key')->sort()->values()->all();
+
+    expect($result['outcome'])->toBe('ok')
+        ->and($placed)->toBe(['instagram.profile', 'kick.channel', 'tiktok.profile', 'youtube.channel']);
+});
+
+// Split from the routing assertion above: a chained expect() aborts on its
+// first failure, so bundling these would prove only whichever ran first.
+// Lnk.Bio's five display:none backlinks must never reach the harvest at all —
+// unlike the share widgets they are not "observed and declined", they are gone.
+it('never even observes the bio platform\'s hidden SEO backlinks', function (string $domain) {
+    $pro = createTenant('bio-clkbio-hidden-'.substr(md5($domain), 0, 6));
+    bioPage(Tests\Support\Fixtures\Recorded::html('linkinbio/lnkbio.clkbio.html'));
+
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/TheMetaPunter');
+
+    expect(DB::table('routing.link_observations')->pluck('registrable_key')->all())
+        ->not->toContain($domain);
+})->with(['cruciverba.io', 'petrolprice.sg', 'mediakit.bio', 'menoo.me', 'calcio.dev']);
+
+// Independent of the routing assertions above, because a negative assertion
+// that passes for the wrong reason is invisible: this pins that the harvest
+// itself hands the importer 4 classifiable links, not 16.
+it('hands the importer only the links a visitor could click', function () {
+    $harvester = app(App\Services\Platforms\WebsiteLinkHarvester::class);
+
+    $classified = array_values(array_filter(
+        $harvester->allOutboundLinks(
+            Tests\Support\Fixtures\Recorded::html('linkinbio/lnkbio.clkbio.html'),
+            'https://clk.bio/TheMetaPunter'
+        ),
+        fn (string $u): bool => $harvester->classify($u) !== null
+    ));
+
+    expect($classified)->toHaveCount(4);
+});
