@@ -4,6 +4,7 @@ use App\Jobs\Platforms\LinkInBioScanJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\InstagramAutoSync;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -146,10 +147,10 @@ it('seeds only the FIRST booking platform from a bio listing both fresha and squ
     expect($fresha)->toMatchArray(['url' => 'https://www.fresha.com/a/doc-cuts', 'selection' => null, 'source' => 'instagram']);
 
     $squareConflict = $result['findings'][1];
-    // Decision 10 widened the XOR set: every non-Fresha/Square brand (Booksy,
-    // Timely, Vagaro, …) lives on the shared 'booking' key, so a swap must
-    // remove that too or it would leave two live booking providers.
-    expect($squareConflict['apply']['remove'])->toBe(['fresha', 'square', 'booking']);
+    // The XOR set covers the real booking providers only now: the 'booking'
+    // pseudo-platform left the enum 2026-08-19 and no row can carry it, so
+    // the swap has nothing of that name left to remove.
+    expect($squareConflict['apply']['remove'])->toBe(['fresha', 'square']);
     expect($squareConflict['apply']['write']['platform'])->toBe('square');
 });
 
@@ -190,7 +191,7 @@ it('never writes a second live booking provider — an existing Square connectio
     expect($result['findings'])->toHaveCount(1);
     expect($result['findings'][0]['outcome'])->toBe('conflict');
     expect($result['findings'][0]['platform'])->toBe('fresha');
-    expect($result['findings'][0]['apply']['remove'])->toBe(['fresha', 'square', 'booking']); // Decision 10 XOR set
+    expect($result['findings'][0]['apply']['remove'])->toBe(['fresha', 'square']); // XOR set — real providers only since 2026-08-19
     expect($result['findings'][0]['apply']['write']['platform'])->toBe('fresha');
 
     $square = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'square')->firstOrFail()->payload;
@@ -533,4 +534,26 @@ it('seed() produces the same findings/unmatched split through LinkRouter as it d
     // itself, so routing it would be self-referential — it stays a suggestion.
     expect(collect($result['findings'])->pluck('platform')->all())->toBe(['instagram', 'facebook', 'fresha']);
     expect($result['unmatched'])->toBe([]);
+});
+
+it('routes one page once when the bio carries scheme variants of the same URL (FI-12)', function () {
+    // T6 live (livplumbarber): externalUrl said http://…square.site, the
+    // bio-text regex yielded https://… — the second pass hit the
+    // seenPlatforms slot and carded the page whose connection had just been
+    // made.
+    setupContentTables();
+    $pro = createTenant('fi12-dedupe');
+    Http::fake([
+        '*square.site*' => Http::response('<html><head><title>Appointments | Tough Luck</title></head></html>', 200, ['Content-Type' => 'text/html']),
+        '*' => Http::response('', 404),
+    ]);
+    Queue::fake();
+
+    app(InstagramAutoSync::class)->seed((string) $pro->id, [
+        'http://tough-luck-barbershop.square.site/',
+        'https://tough-luck-barbershop.square.site',
+    ]);
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1)
+        ->and(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->where('kind', 'link')->count())->toBe(0);
 });

@@ -51,6 +51,36 @@ it('previews what a pasted link would become', function () {
     ]);
 });
 
+it('offers the store connect when the previewed page carries storefront markers (T4)', function () {
+    // The natalieanne.com repro: a Shopify store on a merchant domain pasted
+    // into Links got NO store suggestion — the pure grammar can't know a
+    // merchant domain, but the preview just READ the page, and its HTML says
+    // Shopify. The wire now carries that answer.
+    [$pro] = poolTenant();
+
+    $this->mock(LinkCardScraper::class, function ($m) {
+        $m->shouldReceive('normalizeUrl')->with('natalieanne.com')->andReturn('https://natalieanne.com');
+        $m->shouldReceive('snapshotOrMinimal')->with('https://natalieanne.com')->andReturn([
+            'url' => 'https://natalieanne.com/',
+            'name' => 'Natalie Anne',
+            'description' => null,
+            'favicon' => null,
+            'logo' => null,
+            'storefront' => 'shopify',
+        ]);
+    });
+
+    $request = Request::create('/api/content/links/preview', 'POST', ['url' => 'natalieanne.com']);
+    $request->attributes->set('professional', $pro);
+    $data = app(LinkPreviewController::class)->show($request)->getData(true);
+
+    expect($data['store'])->toBe([
+        'provider' => 'shopify',
+        'label' => 'Shopify',
+        'url' => 'https://natalieanne.com/',
+    ]);
+});
+
 it('previews a product page with its price when asked for a product', function () {
     [$pro] = poolTenant();
 
@@ -151,4 +181,30 @@ it('enriches a link added without a card, and never clobbers typed words', funct
     expect($item['headline'])->toBe('Example page')
         ->and($item['description'])->toBe('A page about examples.')
         ->and($item['thumbnail'])->toBe('https://example.com/og2.png');
+});
+
+it('reads the page for any lane that writes a bare link, and never loops on a title-only page', function () {
+    // Owner, 2026-08-19. Every writer used to decide enrichment for itself and
+    // most did not, so a link pooled by the ordering fallback or the Google
+    // harvest sat with no favicon, no picture and no words beside a
+    // dashboard-added link that had all three. The decision moved into
+    // LinkPoolWriter::add(), which is the one door they all come through.
+    [$pro] = poolTenant();
+
+    app(LinkPoolWriter::class)->add($pro, 'https://harvested.example/store');
+    Queue::assertPushed(EnrichPoolLinkJob::class, fn ($job) => $job->url === 'https://harvested.example/store');
+
+    // A caller that already read the page brings its own words and images —
+    // fetching again would learn nothing.
+    app(LinkPoolWriter::class)->add(
+        $pro, 'https://checked.example/page', 'Checked', 'Already described.',
+        'https://checked.example/favicon.ico', 'https://checked.example/og.png',
+    );
+    Queue::assertNotPushed(EnrichPoolLinkJob::class, fn ($job) => $job->url === 'https://checked.example/page');
+
+    // The job's OWN write-back must not re-dispatch: a page that yields a
+    // title and nothing else would otherwise queue the job that just ran, for
+    // ever. `enrich: false` is that guard.
+    app(LinkPoolWriter::class)->add($pro, 'https://titleonly.example/x', 'Title only', null, null, null, enrich: false);
+    Queue::assertNotPushed(EnrichPoolLinkJob::class, fn ($job) => $job->url === 'https://titleonly.example/x');
 });

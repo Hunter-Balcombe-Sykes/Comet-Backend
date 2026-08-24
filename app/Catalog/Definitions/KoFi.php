@@ -30,6 +30,7 @@ class KoFi
     {
         return [
             SurfaceBuilder::for('ko_fi.page')
+                ->legacyPlatform('ko-fi')
                 ->displayName('Ko-fi')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

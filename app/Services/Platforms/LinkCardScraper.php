@@ -39,9 +39,11 @@ class LinkCardScraper
 
     /**
      * Fetch the page and snapshot its public identity. Null when the page can't
-     * be fetched.
+     * be fetched. `storefront` names the store platform whose runtime markers
+     * the HTML carries (T4 — the preview offers "connect it as a store" off
+     * the page already in hand), null for a plain page.
      *
-     * @return array{url:string, name:?string, description:?string, favicon:?string, logo:?string}|null
+     * @return array{url:string, name:?string, description:?string, favicon:?string, logo:?string, storefront?:?string, productMarkup?:bool}|null
      */
     public function snapshot(string $url): ?array
     {
@@ -76,6 +78,13 @@ class LinkCardScraper
             'description' => $description,
             'favicon' => $favicon,
             'logo' => $logo,
+            'storefront' => StorefrontMarkers::detect($res['body']),
+            // T8: the page CARRIES product markup — a hint only (the Sell
+            // lane's own read is the authority and refuses dishonest pages);
+            // enough for the sheet to offer "add it on your Sell page".
+            'productMarkup' => (bool) (preg_match('~"@type"\s*:\s*"Product"~', $res['body'])
+                || preg_match('~og:type["\'][^>]*content=["\'][^"\']*product~i', $res['body'])
+                || str_contains($res['body'], 'product:price:amount')),
         ];
     }
 
@@ -86,7 +95,7 @@ class LinkCardScraper
      * attached as a branded card. The server never re-fetches a stored link, so
      * skipping the fetch here introduces no SSRF surface.
      *
-     * @return array{url:string, name:?string, description:?string, favicon:?string, logo:?string}
+     * @return array{url:string, name:?string, description:?string, favicon:?string, logo:?string, storefront?:?string, productMarkup?:bool}
      */
     public function snapshotOrMinimal(string $url): array
     {
@@ -99,7 +108,7 @@ class LinkCardScraper
      * doesn't load). Public so the async connect flow can call it directly to
      * return an immediate placeholder card before the snapshot job runs.
      *
-     * @return array{url:string, name:?string, description:?string, favicon:?string, logo:?string}
+     * @return array{url:string, name:?string, description:?string, favicon:?string, logo:?string, storefront?:?string, productMarkup?:bool}
      */
     public function minimalCard(string $url): array
     {
@@ -115,6 +124,8 @@ class LinkCardScraper
             // a brand icon for any domain; a miss degrades to a glyph in the UI.
             'favicon' => $domain !== '' ? 'https://www.google.com/s2/favicons?domain='.urlencode($domain).'&sz=64' : null,
             'logo' => null,
+            'storefront' => null,
+            'productMarkup' => false,
         ];
     }
 

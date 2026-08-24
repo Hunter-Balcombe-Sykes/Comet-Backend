@@ -17,8 +17,13 @@ use App\Catalog\SurfaceBuilder;
  */
 class Ticketek
 {
-    /** @var list<string> */
-    private const TLDS = ['com', 'com.au', 'co.nz', 'com.ar'];
+    /**
+     * Single source of truth for this brand's regional TLDs — consumed by
+     * WebsiteLinkHarvester::classify() and ItemLinkRules, never re-listed.
+     *
+     * @var list<string>
+     */
+    public const TLDS = ['com', 'com.au', 'co.nz', 'com.ar'];
 
     public static function brand(): Brand
     {
@@ -30,7 +35,12 @@ class Ticketek
     {
         return [
             SurfaceBuilder::for('ticketek.tickets')
+                ->legacyPlatform('ticketek')
                 ->displayName('Ticketek')
+                // Not a limited kind of link (owner, 2026-08-19): a content or events
+                // page is one of several a person may run — the 1-account default is for
+                // bookings/reservations/ordering (one provider) and socials (one profile).
+                ->multiAccount(10)
                 ->routing(RoutingClass::Events)
                 ->shelf(Shelf::Events)
                 ->identifier(IdentifierKind::Url)

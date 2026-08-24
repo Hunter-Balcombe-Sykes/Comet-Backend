@@ -98,13 +98,13 @@ it('issues one tombstone query per import run, not one per link (SCALE-20)', fun
     // 18 matched links go through gates/confidence as normal; the 2 refused
     // ones are rejected and counted 'noted' (WebsiteImporter has no separate
     // reject bucket). Under the 2026-08-18 ruling (harvest origins auto-apply
-    // the suggest band) the first links PLACE until the instagram.profile
-    // account cap holds the rest — so the 18 split into connected-up-to-cap
-    // plus cap-held suggestions instead of the pre-ruling 18 suggested / 0
-    // connected.
-    expect($result['suggested'])->toBe(13)
+    // the suggest band) the first link PLACES until the instagram.profile
+    // account cap holds the rest — and FI-1 (2026-08-20) made socials
+    // single-account, so exactly ONE connects and 17 cap-hold as suggestions
+    // (this split was 5/13 while instagram was multiAccount(5)).
+    expect($result['suggested'])->toBe(17)
         ->and($result['noted'])->toBe(2)
-        ->and($result['connected'])->toBe(5);
+        ->and($result['connected'])->toBe(1);
 
     // No intent is written for either refused link — a Hold would put the
     // platform back in front of the user as a suggestion, which is the

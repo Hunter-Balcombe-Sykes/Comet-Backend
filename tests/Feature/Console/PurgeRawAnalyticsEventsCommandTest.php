@@ -2,7 +2,8 @@
 
 // #CFG-1 — BATCH_SIZE moved from a hardcoded const to config('partna.analytics.purge_batch_size').
 // #SLOP-1 — the command's docblock/$description no longer claim a (nonexistent) hourly/daily
-// aggregate is preserved; site_metrics_daily/_hourly have no reader/writer.
+// aggregate is preserved. Those rollups (site_metrics_daily/_hourly) never had a
+// reader or a writer and were dropped on 2026-08-19.
 
 use App\Console\Commands\PurgeRawAnalyticsEvents;
 use Illuminate\Support\Facades\DB;

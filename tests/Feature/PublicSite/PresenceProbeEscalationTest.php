@@ -403,7 +403,7 @@ it('LIFE-1 end-to-end: a services-probe fault degrades /api/public/profiles/{han
         // the rest of the payload is intact.
         expect($res->json('data.pageOrder'))->not->toContain('services')
             ->and($res->json('data.pageOrder'))->toContain('home')
-            ->and($res->json('data.profile.services'))->toBe([])
+            ->and($res->json('data.profile.pools.services'))->toBeNull()
             ->and($res->json('data.profile.site_id'))->not->toBeNull();
     }
 

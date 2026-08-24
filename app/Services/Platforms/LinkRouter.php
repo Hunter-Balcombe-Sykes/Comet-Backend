@@ -6,11 +6,14 @@ use App\Catalog\LegacyPlatformMap;
 use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Routing\LinkRoutingService;
+use App\Routing\RoutingContext;
+use App\Routing\ShortLinkExpander;
+use App\Routing\SourceReconciler;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Profile\SectorTaxonomy;
-use Illuminate\Support\Str;
 
 /**
  * Single classification+routing gateway for every link entering the system.
@@ -34,6 +37,8 @@ class LinkRouter
     public function __construct(
         private readonly WebsiteLinkHarvester $harvester,
         private readonly EventsSeeder $events,
+        private readonly MediaSeeder $media,
+        private readonly ShortLinkExpander $expander,
     ) {}
 
     /**
@@ -43,6 +48,12 @@ class LinkRouter
      */
     public function route(User $user, string $url, RouteContext $ctx): RouteResult
     {
+        // FI-3 (2026-08-20): the legacy lane gets the same short-link
+        // expansion as LinkRoutingService — a bio's on.soundcloud.com /
+        // spotify.link short URL classifies as its real destination, not as
+        // an opaque code that falls to a card.
+        $url = $this->expander->expandIfShort($url);
+
         $key = $this->reentrancyKey($user, $url);
         if (isset(self::$routing[$key])) {
             return RouteResult::skipped();
@@ -90,7 +101,19 @@ class LinkRouter
         // second LTK link, a "watch this video" beside a channel link) was written
         // NOWHERE. custom() routes it to the caller's card write, which is what
         // every other dead end in this method already does.
-        if (isset($ctx->seenPlatforms[$platform])) {
+        // Item categories bypass the slot on BOTH sides (F2, both halves —
+        // the critic reproduced the asymmetry: an artist link consuming the
+        // slot degraded the SAME bio's track link to a card, order-dependent).
+        $itemCategory = $category === 'event' || $category === 'content-item';
+        // M-5 (matrix run 2, chinchin live): reservations and ordering manage
+        // their own family slot INSIDE their seeders (incumbent check →
+        // recordCapBlock Swap, idempotent per identifier) — short-circuiting
+        // them here turned the SECOND OpenTable link on a restaurant's own
+        // website (two venues, or just footer + button) into a junk card the
+        // seeder never got to cap. Socials/booking/shop keep the short-circuit:
+        // their seeders assume the slot check happened.
+        $slotSelfManaged = $category === 'reservations' || $category === 'online-ordering';
+        if (! $itemCategory && ! $slotSelfManaged && isset($ctx->seenPlatforms[$platform])) {
             return RouteResult::custom();
         }
 
@@ -104,15 +127,25 @@ class LinkRouter
                 'social' => $this->seedSocial($user, $platform, $url, $classified),
                 'booking' => $this->seedBooking($user, $platform, $url, $classified, $ctx),
                 'event', 'event-organiser' => $this->seedEvent($user, $platform, $url, $classified),
+                'content-item' => $this->seedMediaItem($user, $url),
                 'shop' => $this->seedShop($user, $url, $ctx),
-                // Recognised, deliberately not connected — a marketplace or
-                // board (Amazon, LTK, Pinterest). custom() with handled:false so
-                // the platform slot stays open and a creator's second LTK link
-                // gets its own card instead of being skipped. Spends no probe:
-                // that is the entire reason these hosts are classified at all.
-                'link' => RouteResult::custom(),
+                // Recognised host with no legacy arm of its own. Two flavours
+                // share this category: marketplaces/boards that must NEVER
+                // connect (Amazon, LTK — LINK_ONLY_HOSTS), and CONNECTABLE
+                // catalog brands the legacy tables simply never learned
+                // (Apple Music artist, Tidal, Booksy…). F6 (2026-08-20, the
+                // the_046_official trace): the second flavour was CARDED here
+                // while the same URL through the P8 importer or the paste
+                // lane became a connection/suggestion. Ask Engine 1 first —
+                // the narrow slice of the gap-9 P8 promotion, done at the one
+                // call site every Engine-2 lane shares.
+                'link' => $this->seedCatalogLink($user, $url),
                 'reservations' => $this->seedReservation($user, $platform, $url, $classified),
-                'online-ordering' => $this->seedOnlineOrdering($user, $platform, $url, $classified),
+                // 'bio_harvest': route() is the SCAN gateway (Instagram bio,
+                // link-in-bio unroll). routeOrdering() below is the Google
+                // listing's own door and says so itself — the origin has to be
+                // one routing.source_intents' CHECK constraint accepts.
+                'online-ordering' => $this->seedOnlineOrdering($user, $platform, $url, $classified, 'bio_harvest'),
                 default => RouteResult::custom(),
             };
 
@@ -120,7 +153,13 @@ class LinkRouter
             // link. A gate denial or a thrown seeder must leave it open so a
             // later same-platform link in this run still gets its attempt —
             // the rule the deleted handleClassifiedLink() followed.
-            if ($result->handled) {
+            //
+            // ITEM categories never consume the slot (F2, 2026-08-20): the
+            // slot rule is about CONNECTIONS ("you have one Fresha account"),
+            // and an event/video is not a connection — consuming it turned
+            // the SECOND event or video from one platform in a run into a
+            // bare card. Issue M's own words: "never about links".
+            if ($result->handled && ! $itemCategory) {
                 $ctx->seenPlatforms[$platform] = true;
             }
 
@@ -135,8 +174,8 @@ class LinkRouter
     /**
      * Route ONE url through the ordering arm only, for a caller that already
      * knows it is handling an ordering link and has run its own capability gate
-     * (OnlineOrderingController::addEntry, GoogleBusinessAutoSync's ordering
-     * seed). Convergence Phase 6.
+     * (GoogleBusinessAutoSync's ordering seed; the retired ordering category
+     * controller was the other caller). Convergence Phase 6.
      *
      * Deliberately not route(): that classifies freely, so an Instagram URL
      * pasted into the ordering box would be SEEDED as a social connection before
@@ -149,7 +188,7 @@ class LinkRouter
      * through gateAllows() would be a second, differently-shaped answer to a
      * question the capability set already owns (Decision 6).
      */
-    public function routeOrdering(User $user, string $url): RouteResult
+    public function routeOrdering(User $user, string $url, string $origin = 'google_business'): RouteResult
     {
         if ($user->isPendingDeletion()) {
             return RouteResult::custom();
@@ -161,7 +200,7 @@ class LinkRouter
         }
 
         try {
-            return $this->seedOnlineOrdering($user, $classified['platform'], $url, $classified);
+            return $this->seedOnlineOrdering($user, $classified['platform'], $url, $classified, $origin);
         } catch (\Throwable $e) {
             report($e);
 
@@ -207,6 +246,8 @@ class LinkRouter
             'social' => true, // Decision 8: everyone
             'booking' => $isBusiness ? ! $isFood : true, // partna always, business non-food only
             'event', 'event-organiser' => true,
+            'content-item' => true, // T6: a video/track/episode is the owner's own content
+
             'shop' => true,
             'link' => true, // recognised-but-never-connected; its arm returns custom() and the caller writes the card
             'reservations' => $isBusiness && $isFood, // business food only
@@ -290,32 +331,76 @@ class LinkRouter
     {
         $category = $classified['category'];
 
-        $resourceId = match ($category) {
-            'event' => $this->events->seedStandalone($user, $platform, $url),
-            'event-organiser' => $this->events->seedAccount($user, $platform, $url),
-            default => null,
-        };
+        // R7 (owner, 2026-08-19): a pasted EVENT link writes an events-pool
+        // item and nothing else — no connection row, no finding (the synced
+        // modal that read the finding is retired). handled:true so no caller
+        // files a link card for something the events pool now carries.
+        if ($category === 'event') {
+            $written = $this->events->seedStandalone($user, $platform, $url);
+
+            return $written !== null ? RouteResult::custom(handled: true) : RouteResult::custom();
+        }
+
+        $resourceId = $category === 'event-organiser'
+            ? $this->events->seedAccount($user, $platform, $url)
+            : null;
 
         if ($resourceId === null) {
             return RouteResult::custom();
         }
 
-        // F8: this used to seed with no finding at all, so a connected Eventbrite
-        // never appeared in the synced modal. The resourceId must be the row's
-        // OWN id, not the platform name every other category uses:
-        // shapeFinding() resolves a seeded finding by "platform|resourceId" and
-        // drops what it can't match, and an events platform holds many rows
-        // ('event-<id>' / 'acct-<hash>'). Same reason the remove path can't be
-        // the platform's forget route — that would delete every event the user
-        // has, not the one this finding is about. removeEvent() re-adds the
-        // 'event-' prefix itself; removeAccount() matches the full id.
-        $removePath = $category === 'event'
-            ? '/platforms/'.$platform.'/events/'.Str::after($resourceId, 'event-')
-            : '/platforms/'.$platform.'/accounts/'.$resourceId;
+        // F8: the resourceId must be the row's OWN id ('acct-<hash>'), not the
+        // platform name — an events platform holds many rows, and the remove
+        // path can't be the forget route (that would delete every account the
+        // user has, not the one this finding is about).
+        $removePath = '/platforms/'.$platform.'/accounts/'.$resourceId;
 
         return RouteResult::seeded($platform, $resourceId, $category, [
             $this->seededFinding($platform, $resourceId, $category, $classified['label'], $url, $removePath),
         ]);
+    }
+
+    /**
+     * T6 (2026-08-20): a scanned VIDEO/TRACK/RELEASE/EPISODE link writes a
+     * watch/listen-pool item and nothing else — the media twin of the
+     * 'event' arm above. handled:true so no caller files a link card for
+     * something the pool now carries; a failed read falls through to the
+     * caller's card write. Lands in the LIBRARY, never auto-pinned.
+     */
+    private function seedMediaItem(User $user, string $url): RouteResult
+    {
+        $written = $this->media->seedItem($user, $url);
+
+        return $written !== null ? RouteResult::custom(handled: true) : RouteResult::custom();
+    }
+
+    /**
+     * F6: run a catalog-recognised URL through the P8 pipeline. A placement
+     * or suggestion rides the reconciler (tombstones, caps, aliases all
+     * apply exactly as for a paste); anything Engine 1 can't place falls
+     * back to the card this arm always wrote. A 'choose'/'hold' answers
+     * handled — the suggestions inbox owns the link now, and a card beside
+     * an open question would double it (the same reason F3 exists).
+     */
+    private function seedCatalogLink(User $user, string $url): RouteResult
+    {
+        try {
+            $result = app(LinkRoutingService::class)
+                ->route($url, RoutingContext::forUser($user, 'bio_harvest'));
+        } catch (\Throwable $e) {
+            report($e);
+
+            return RouteResult::custom();
+        }
+
+        return match ($result['verdict']) {
+            'place' => RouteResult::seeded('catalog', (string) ($result['connectionId'] ?? ''), 'link', []),
+            'choose', 'hold' => RouteResult::custom(handled: true),
+            // note/reject: the card path — LINK_ONLY_HOSTS land here by
+            // construction (their catalog class refuses placement), so the
+            // Amazon/LTK behaviour is byte-identical.
+            default => RouteResult::custom(),
+        };
     }
 
     private function seedShop(User $user, string $url, RouteContext $ctx): RouteResult
@@ -339,16 +424,51 @@ class LinkRouter
      */
     private function seedReservation(User $user, string $platform, string $url, array $classified): RouteResult
     {
+        // Reservations stay SINGLE-SLOT across the whole family. The legacy
+        // clear-then-write (ReservationsController::clearReservations) was
+        // deleted 2026-08-19 with the pseudo-platform lane, and this auto
+        // lane must neither silently replace the incumbent nor duplicate it
+        // — a taken family slot becomes a Swap offer in the inbox, exactly
+        // like the ordering arm below. routing_class is the family key, so
+        // this spans brands the classifier has never heard of.
+        $incumbent = IntegrationConnection::query()
+            ->where('user_id', (string) $user->id)
+            ->where('routing_class', 'reservations')
+            ->orderBy('created_at')
+            ->get()
+            ->first(fn (IntegrationConnection $row) => ! $this->sameUrl(
+                (string) (CardPayload::fromArray($row->payload)->url() ?? ''), $url,
+            ));
+
+        if ($incumbent !== null) {
+            // M-4 (matrix run 2, chinchin live): this passed origin 'auto',
+            // which routing.source_intents' origin CHECK constraint has never
+            // accepted — the insert threw 23514, route()'s catch-all turned
+            // the answer into custom(), and the two extra OpenTable links on
+            // the business's own website CARDED instead of filing the Swap
+            // this arm promises. Invisible to the suite because SQLite doesn't
+            // enforce the PG CHECK. 'bio_harvest' is route()'s own origin —
+            // the same literal the ordering arm below already passes.
+            app(SourceReconciler::class)->recordCapBlock(
+                $user,
+                LegacyPlatformMap::surfaceFor($platform) ?? $platform,
+                'reservations',
+                $this->brandResourceId($platform),
+                $url,
+                (string) $incumbent->id,
+                'bio_harvest',
+            );
+
+            return RouteResult::custom(handled: true);
+        }
+
         $payload = [
             'url' => $url,
             'provider' => $classified['label'],
             'source' => 'auto',
         ];
 
-        // Phase 6: the brand's own key, not the retired 'reservations' pseudo
-        // key. Reservations stay SINGLE-SLOT across the family — that invariant
-        // lives in ReservationsController::clearReservations() and now keys on
-        // routing_class, which is what lets it span brands it has never heard of.
+        // Phase 6: the brand's own key, not the retired 'reservations' pseudo key.
         $resourceId = $this->brandResourceId($platform);
         $this->write((string) $user->id, $platform, $resourceId, $payload);
 
@@ -360,27 +480,53 @@ class LinkRouter
     /**
      * @param  array{platform:string, category:string, label:string}  $classified
      */
-    private function seedOnlineOrdering(User $user, string $platform, string $url, array $classified): RouteResult
+    private function seedOnlineOrdering(User $user, string $platform, string $url, array $classified, string $origin): RouteResult
     {
         $surface = LegacyPlatformMap::surfaceFor($platform) ?? $platform;
 
         // ONE store per ordering brand (owner ruling 2026-08-16). A second Uber
-        // Eats store for the same user does not get a second connection — it
-        // falls through to a links-pool card. The alternative was widening the
-        // `order:{platform}` collection natural key, which slice 4 declined to
-        // touch because it rewrites every collection's key.
+        // Eats store for the same user does not get a second connection. The
+        // alternative was widening the `order:{platform}` collection natural
+        // key, which slice 4 declined to touch because it rewrites every
+        // collection's key.
         //
         // Same URL is not a second store: that is a re-sync, and write() below
         // is an updateOrCreate on it.
-        $occupied = IntegrationConnection::query()
+        $incumbent = IntegrationConnection::query()
             ->where('user_id', (string) $user->id)
             ->where('surface_key', $surface)
+            ->orderBy('created_at')
             ->get()
-            ->contains(fn (IntegrationConnection $row) => ! $this->sameUrl(
+            ->first(fn (IntegrationConnection $row) => ! $this->sameUrl(
                 (string) (CardPayload::fromArray($row->payload)->url() ?? ''), $url,
             ));
 
-        if ($occupied) {
+        if ($incumbent !== null) {
+            // It becomes a SWAP OFFER, not a links-pool card (owner,
+            // 2026-08-19). The old fall-through published a link the owner
+            // never asked for and gave them no way to say "use that one
+            // instead"; a cap-blocked intent naming the incumbent is exactly
+            // what the suggestions inbox renders as Swap. `handled: true`
+            // still, so no caller writes a card for it.
+            // M-6 (critic on M-5, 2026-08-21): key the intent on the STORE
+            // (host|path), not the full URL. With M-5 letting every ordering
+            // link reach this arm, a page carrying N query-string variants of
+            // one store's link (?pickup, ?diningMode…) minted N distinct
+            // identifiers → N duplicate Swap rows in the inbox (the live
+            // dedup index is (user, surface, identifier)). Distinct stores
+            // still get distinct offers; variants of one store coalesce.
+            $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+            $storePath = rtrim((string) parse_url($url, PHP_URL_PATH), '/');
+            app(SourceReconciler::class)->recordCapBlock(
+                $user,
+                $surface,
+                'ordering',
+                'order-'.substr(sha1($host.'|'.$storePath), 0, 16),
+                $url,
+                (string) $incumbent->id,
+                $origin,
+            );
+
             return RouteResult::custom(handled: true);
         }
 
@@ -393,7 +539,7 @@ class LinkRouter
 
         // Ordering is a MULTI-entry family across brands, so the resource id is
         // url-derived rather than the brand — and it is byte-identical to
-        // OnlineOrderingController::entryResourceId(), because SiteActionsService
+        // OnlineOrderingController::entryResourceId(), because the actions layer
         // emits `ordering:<resource_id>` action ids that users store preferences
         // against. A different shape here would fork those ids by write path.
         $resourceId = 'order-'.substr(sha1(strtolower($url)), 0, 16);

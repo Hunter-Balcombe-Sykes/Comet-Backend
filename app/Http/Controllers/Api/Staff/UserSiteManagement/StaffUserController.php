@@ -136,12 +136,9 @@ class StaffUserController extends ApiController
                 'id' => $professional->site->id,
                 'subdomain' => $professional->site->subdomain,
                 'is_published' => (bool) $professional->site->is_published,
-                // architecture_id replaces theme — architectures are code constants, not DB rows.
-                'architecture_id' => $professional->site->architecture_id,
             ] : null,
             'integrations' => $integrations,
             'design_summary' => $professional->site ? [
-                'architecture_id' => $professional->site->architecture_id,
                 'stored_var_count' => count($designKitVars),
                 // The high-signal identity vars for an at-a-glance summary; the
                 // full partial kit ships too for the staff design editor.

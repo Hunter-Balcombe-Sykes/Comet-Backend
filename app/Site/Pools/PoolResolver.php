@@ -4,12 +4,14 @@ namespace App\Site\Pools;
 
 use App\Models\Core\Site\Site;
 use App\Services\Analytics\ContentPopularityReader;
+use App\Services\Analytics\ItemFamily;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\Content\ContentItemSlugAllocator;
 use App\Services\Media\MediaUrlResolver;
 use App\Services\Platforms\ConnectionDisplayName;
 use App\Services\Platforms\DisplaySettingsFilter;
+use App\Site\Actions\ActionSettings;
 use App\Site\Sections\SectionCandidates;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
@@ -32,11 +34,10 @@ use Illuminate\Support\Facades\DB;
  * located / priced facets (null off events), the public URL slug + its 301
  * aliases, and the full per-platform link set (synced source links +
  * hand-saved item_links).
- * popularityRank carries a real rank for products (analytics.content_popularity_scores,
- * content_type='shop_product', keyed by f_catalog.handle — slice 5b, inherited
- * from the retiring /integrations wire); on every other kind it is null until
- * watch_item/listen_item beacons compute. The wire carries the field either
- * way so the shape doesn't change under the FE.
+ * popularityRank carries the item's rank in its kind's family
+ * (analytics.content_popularity_scores, keyed by item id for every family
+ * since 2026-08-23), null until the scoring job has ranked it. The wire
+ * carries the field either way so the shape doesn't change under the FE.
  */
 class PoolResolver
 {
@@ -73,7 +74,7 @@ class PoolResolver
     /** Public fields of one store card in a pool's `collections` map. */
     public const STORE_KEYS = [
         'externalRef', 'provider', 'url', 'name', 'currency',
-        'favicon', 'logo', 'discountCode', 'position',
+        'favicon', 'logo', 'discountCode', 'position', 'popularityRank',
     ];
 
     /** Public fields of one product variant. */
@@ -189,9 +190,44 @@ class PoolResolver
      */
     public function resolve(Site $site, string $pool): array
     {
-        $section = $this->provisioner->ensure($site, $pool);
+        // plan → hydrate → assemble (split 2026-08-24 for the actions
+        // endpoint): a single pool resolves exactly as it always did, and
+        // PoolWire::forSite runs the SAME three steps with every pool's ids
+        // in ONE hydrate pass — ~20 facet queries total instead of ~20 per
+        // pool, which is what took GET /site/actions past 60s of round trips
+        // on a high-latency link (measured 2026-08-24: 244 queries, 58.8s of
+        // it pools hydration).
+        $plan = $this->plan($site, $pool);
+        [$payloads, $stores] = $this->itemPayloads(
+            $site,
+            array_values(array_unique([...$plan['selectionIds'], ...$plan['libraryIds']])),
+        );
 
-        $curation = DB::connection('pgsql')->table('site.section_items')
+        return $this->assemble($site, $pool, $plan, $payloads, $stores);
+    }
+
+    /**
+     * Step 1 of resolve(): which item ids this pool would publish and list —
+     * curation, rule candidates, the library, live-pin filtering. No item
+     * hydration happens here, so a caller batching several pools can union
+     * the ids and hydrate once.
+     *
+     * @return array{
+     *   pinned: list<string>,
+     *   ruleIds: list<string>,
+     *   autoSet: array<string, int>,
+     *   selectionIds: list<string>,
+     *   libraryIds: list<string>,
+     * }
+     */
+    public function plan(Site $site, string $pool, ?object $section = null, ?Collection $curation = null): array
+    {
+        // Both pre-reads are injectable so a batching caller (PoolWire) can
+        // supply every pool's sections and curation from two shared queries;
+        // a lone resolve() fetches its own exactly as before.
+        $section ??= $this->provisioner->ensure($site, $pool);
+
+        $curation ??= DB::connection('pgsql')->table('site.section_items')
             ->where('section_id', $section->id)
             ->get();
 
@@ -238,13 +274,88 @@ class PoolResolver
             }
         }
 
-        // Tuple, not a private property: collectionsFor() needs the store rows
-        // itemPayloads() already fetched, and stashing them on $this would make
-        // resolve() order-dependent (and unsafe under a reused instance).
-        [$payloads, $stores] = $this->itemPayloads(
-            $site,
-            array_values(array_unique([...$selectionIds, ...$libraryIds])),
-        );
+        return [
+            'pinned' => $pinned,
+            'ruleIds' => $ruleIds,
+            'autoSet' => $autoSet,
+            'selectionIds' => $selectionIds,
+            'libraryIds' => $libraryIds,
+        ];
+    }
+
+    /**
+     * The batched pre-reads plan() accepts (2026-08-24): every pool's section
+     * in one ensureMany, and every section's curation rows in one whereIn —
+     * PoolWire's per-pool loop stops paying a round trip apiece for them.
+     *
+     * @param  list<string>  $pools
+     * @return array<string, object> keyed by pool
+     */
+    public function preloadSections(Site $site, array $pools): array
+    {
+        return $this->provisioner->ensureMany($site, $pools);
+    }
+
+    /**
+     * @param  array<string, object>  $sections  keyed by pool (preloadSections)
+     * @return array<string, Collection<int, object>> curation rows keyed by SECTION id
+     */
+    public function preloadCuration(array $sections): array
+    {
+        $ids = array_values(array_unique(array_map(
+            static fn (object $section): string => (string) $section->id,
+            $sections,
+        )));
+        if ($ids === []) {
+            return [];
+        }
+
+        return DB::connection('pgsql')->table('site.section_items')
+            ->whereIn('section_id', $ids)
+            ->get()
+            ->groupBy('section_id')
+            ->all();
+    }
+
+    /**
+     * Step 2, exposed for batching: render-ready payloads for a set of item
+     * ids spanning ANY number of pools — itemPayloads() is pool-agnostic (it
+     * gates its shop/menu-only reads on the kinds actually present).
+     * Tuple, not a private property: collectionsFor() needs the store rows
+     * this already fetched, and stashing them on $this would make resolve()
+     * order-dependent (and unsafe under a reused instance).
+     *
+     * @param  list<string>  $ids
+     * @return array{array<string, array<string, mixed>>, Collection<string, object>}
+     */
+    public function hydrateItems(Site $site, array $ids): array
+    {
+        return $this->itemPayloads($site, $ids);
+    }
+
+    /**
+     * Step 3 of resolve(): the pool's wire shape from its plan and an
+     * (possibly shared) payload map. Only reads $payloads entries for its own
+     * plan's ids, so a superset map from a batched hydrate changes nothing.
+     *
+     * @param  array{pinned: list<string>, ruleIds: list<string>, autoSet: array<string, int>, selectionIds: list<string>, libraryIds: list<string>}  $plan
+     * @param  array<string, array<string, mixed>>  $payloads
+     * @param  Collection<string, object>  $stores
+     * @return array{
+     *   selection: list<array<string, mixed>>,
+     *   library: list<array<string, mixed>>,
+     *   latestItemId: string|null,
+     *   collections: array<string, array<string, mixed>>,
+     *   stats: array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string}|null,
+     *   diningModes: list<string>|null,
+     * }
+     */
+    public function assemble(Site $site, string $pool, array $plan, array $payloads, Collection $stores): array
+    {
+        $pinned = $plan['pinned'];
+        $autoSet = $plan['autoSet'];
+        $selectionIds = $plan['selectionIds'];
+        $libraryIds = $plan['libraryIds'];
 
         $selectedSet = array_flip($selectionIds);
 
@@ -260,6 +371,24 @@ class PoolResolver
                     ? 'auto'
                     : 'manual',
             ];
+        }
+
+        // Per-pool ordering mode (spec §5.4): pins and auto reorder together
+        // in newest/smart; manual keeps pins-then-rule. Events always keep
+        // occurrence order; reviews never rank.
+        $settings = ActionSettings::fromSite($site);
+        $mode = in_array($pool, ['events', 'reviews'], true) ? 'manual' : $settings->poolMode($pool);
+        $selection = PoolOrdering::order($mode, $selection);
+        $collections = PoolOrdering::orderCollections($mode, $this->collectionsFor($pool, $site, $selection, $stores), $selection);
+        if ($mode !== 'manual') {
+            // Owner locks (settings.pool_locks) hold items in place while the
+            // mode fills the rest — the dashboard's "Lock in position". A
+            // category pool (menus / services) displays grouped by category
+            // (D4), so its locks hold a position WITHIN the item's category
+            // and the wire is flattened in category order.
+            $selection = isset(ItemFamily::CATEGORY_FAMILIES[$pool])
+                ? PoolOrdering::applyLocksPerCollection($selection, $settings->poolLocksFor($pool), $collections)
+                : PoolOrdering::applyLocks($selection, $settings->poolLocksFor($pool));
         }
 
         $library = [];
@@ -282,13 +411,48 @@ class PoolResolver
             'latestItemId' => PoolRegistry::carriesLatestTag($pool)
                 ? $this->latestItemId($selection)
                 : null,
-            'collections' => $this->collectionsFor($selection, $stores),
+            'collections' => $collections,
             'stats' => $this->statsFor($pool, $selection),
             'diningModes' => $this->diningModesFor($pool, $site),
             // W8: the platforms a manual link may be added for on this pool —
             // ItemLinkRules::ROSTER, so the dashboard stops hand-copying it.
             'linkRoster' => ItemLinkRules::rosterFor($pool),
         ];
+    }
+
+    /**
+     * A public timestamp, as ISO-8601 in UTC (#API-1).
+     *
+     * The query builder hands back naive "Y-m-d H:i:s" strings, which a
+     * browser's Date() reads as LOCAL time — a +10h error on an AEST reader,
+     * silently, with no parse failure to notice. The nested sources[] array got
+     * this fix; the three TOP-LEVEL fields visitors actually see (publishedAt,
+     * firstSeenAt, startsAt) did not.
+     *
+     * ->utc() is not decoration. latestFor() compares publishedAt/firstSeenAt
+     * as STRINGS inside a tuple, so the ordering is only correct while every
+     * value renders in one offset; mixed offsets would sort "2026-01-01T12:00:00+11:00"
+     * after "2026-01-01T09:00:00+00:00" despite being the earlier instant.
+     *
+     * NOT applied to startsAtLocal / endsAtLocal. Those are deliberately wall
+     * clock — an event at 7pm local stays 7pm local across a DST rule change,
+     * which is the whole reason content.f_occurrence stores both.
+     *
+     * Returns null rather than a guess when the value will not parse: these
+     * fields can carry a manual override, and emitting an unparseable string to
+     * the wire is worse than admitting we have no date.
+     */
+    private static function iso(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse((string) $value)->utc()->toIso8601String();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
@@ -312,14 +476,28 @@ class PoolResolver
             return null;
         }
 
-        $row = DB::connection('pgsql')->table('content.source_stats as ss')
+        // #LIFE-2: the aggregates are SOURCE-level, and this query had no
+        // liveness filter of any kind — no removed_at, no connection check. So
+        // disconnecting a Google listing because the reviews are bad left the
+        // 4.8 and the review count publishing on the page indefinitely: the
+        // items went (LiveSourceScope covers those) and the badge summarising
+        // them stayed. Same predicate as everywhere else, from the same helper.
+        $query = DB::connection('pgsql')->table('content.source_stats as ss')
             ->join('content.source_items as si', 'si.source_id', '=', 'ss.source_id')
+            ->join('content.sources as stats_src', 'stats_src.id', '=', 'ss.source_id')
+            ->leftJoin('site.platform_connections as stats_conn', 'stats_conn.id', '=', 'stats_src.connection_id')
             ->whereIn('si.item_id', array_column($selection, 'id'))
+            // A source_item retired by absence folding does not carry the badge
+            // either — the same reading LiveSourceScope takes for the items.
+            ->whereNull('si.removed_at')
             // Two connected places would be unusual, but the busiest listing is
             // the defensible one to show and ordering makes that a decision
             // rather than whatever row Postgres returned first.
-            ->orderByDesc('ss.rating_count')
-            ->first(['ss.rating_avg', 'ss.rating_count', 'ss.summary_text']);
+            ->orderByDesc('ss.rating_count');
+
+        LiveSourceScope::constrainToLiveSource($query, 'stats_src', 'stats_conn');
+
+        $row = $query->first(['ss.rating_avg', 'ss.rating_count', 'ss.summary_text']);
 
         if ($row === null) {
             return null;
@@ -413,7 +591,11 @@ class PoolResolver
         $stores = collect();
         $catalog = collect();
         $variantsByItem = collect();
-        $ranks = [];
+        // Popularity ranks for EVERY item (2026-08-23, pool smart order): one
+        // cached read of every item family, each keyed by item id. The lookup
+        // is FAMILY-AWARE — an item only reads its own kind's family — so a
+        // watch_item row can never leak onto a product.
+        $ranks = $this->popularityRanks($site);
         $linkMode = (string) ($site->shop_link_mode ?? 'checkout');
 
         if ($groupsIntoCollections) {
@@ -496,11 +678,6 @@ class PoolResolver
                 ->get(['item_id', 'label', 'sku', 'image_url'])
                 ->groupBy('item_id');
 
-            // Spec §3.6: the legacy shop wire carried a real popularityRank
-            // (analytics.content_popularity_scores, content_type='shop_product',
-            // keyed by product HANDLE). Retiring that lane without this drops
-            // live computed data to null.
-            $ranks = $this->popularityRanks($site);
         }
 
         // Manual overrides: the user's edit beats every cache. ONE read for
@@ -520,11 +697,19 @@ class PoolResolver
 
         // Source links, each carrying its connection's platform key. Ordered
         // by source priority so ->first() per item IS the primary source.
-        $sourceLinks = DB::connection('pgsql')->table('content.f_link')
+        // #LIFE-4: no liveness filter at all. An item kept alive by ONE live
+        // source could still publish a "book now" link belonging to a platform
+        // the owner had disconnected — the item survives LiveSourceScope
+        // legitimately, and then this query hands it the dead platform's url.
+        $sourceLinksQuery = DB::connection('pgsql')->table('content.f_link')
             ->join('content.sources', 'content.sources.id', '=', 'content.f_link.source_id')
             ->leftJoin('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
             ->whereIn('content.f_link.item_id', $ids)
-            ->orderByDesc('content.sources.priority')
+            ->orderByDesc('content.sources.priority');
+
+        LiveSourceScope::constrainToLiveSource($sourceLinksQuery);
+
+        $sourceLinks = $sourceLinksQuery
             ->get([
                 'content.f_link.item_id',
                 'content.f_link.url',
@@ -540,16 +725,24 @@ class PoolResolver
         // url it came from contributes a synced link for that ordering
         // platform (host → roster platform), so a dish on Uber Eats AND
         // DoorDash shows both. Menu items had no f_link at all before this.
-        $offerLinks = DB::connection('pgsql')->table('content.offers')
+        // #LIFE-4 again. This path landed AFTER the audit was taken and carries
+        // the identical gap — it never joined platform_connections at all, so
+        // there was nothing to filter on. Same helper, so the two cannot drift.
+        $offerLinksQuery = DB::connection('pgsql')->table('content.offers')
             ->join('content.sources', 'content.sources.id', '=', 'content.offers.source_id')
+            ->leftJoin('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
             ->whereIn('content.offers.item_id', $ids)
             ->whereNotNull('content.offers.url')
-            ->orderByDesc('content.sources.priority')
-            ->get(['content.offers.item_id', 'content.offers.url'])
+            ->orderByDesc('content.sources.priority');
+
+        LiveSourceScope::constrainToLiveSource($offerLinksQuery);
+
+        $offerLinks = $offerLinksQuery
+            ->get(['content.offers.item_id', 'content.offers.url', 'content.sources.kind as source_kind'])
             ->map(function (object $row): ?object {
                 $platform = ItemLinkRules::platformForUrl((string) $row->url);
 
-                return $platform === null ? null : (object) ['item_id' => $row->item_id, 'url' => (string) $row->url, 'source_kind' => 'connection', 'platform' => $platform];
+                return $platform === null ? null : (object) ['item_id' => $row->item_id, 'url' => (string) $row->url, 'source_kind' => (string) $row->source_kind, 'platform' => $platform];
             })
             ->filter()
             ->groupBy('item_id');
@@ -557,9 +750,10 @@ class PoolResolver
             $sourceLinks[$itemId] = ($sourceLinks[$itemId] ?? collect())->concat($rows);
         }
 
-        // A connection-fed item with NO url of its own (a Fresha service —
-        // the vendor has no per-service page, only the venue's booking page)
-        // still came FROM a platform: derive it from the item's live
+        // A connection-fed item with NO url of its own (a connection whose
+        // connector lands no per-item link; Fresha services HAVE one since
+        // 2026-08-24 — FreshaConnector::bookingDeepLink — so they no longer
+        // reach this) still came FROM a platform: derive it from the item's live
         // connection source so the source badge and the item sheet's platform
         // row can name it, and lend the connection's own url as the link
         // (overnight 2026-08-18 W6). Highest-priority connection wins.
@@ -610,7 +804,20 @@ class PoolResolver
                 $ingestByConnection = [];
             }
         }
-        $sourcesByItem = $sourceRows->map(function ($rows) use ($ingestByConnection): array {
+        // Where a manual-lane item came from. The manual source is one row per
+        // user (partial unique index), so it cannot say "found in your bio
+        // link" vs "typed by you" itself; the writer records that as a typed
+        // item tag (tag_type 'origin', e.g. 'link_in_bio') and the sheet reads
+        // it here. Absent = added by hand.
+        $originByItem = DB::connection('pgsql')->table('content.item_tags')
+            ->whereIn('item_id', $ids)
+            ->where('tag_type', 'origin')
+            ->get(['item_id', 'tag'])
+            ->groupBy('item_id')
+            ->map(fn ($rows) => (string) $rows->first()->tag)
+            ->all();
+
+        $sourcesByItem = $sourceRows->map(function ($rows, $itemId) use ($ingestByConnection, $originByItem): array {
             $seen = [];
             $out = [];
             foreach ($rows as $row) {
@@ -624,7 +831,7 @@ class PoolResolver
                 // Date() would read as LOCAL time (a +10h badge — review).
                 $iso = fn ($v) => $v === null ? null : Carbon::parse((string) $v)->toIso8601String();
                 if ($row->source_kind === 'manual') {
-                    $out[] = ['kind' => 'manual', 'platform' => null, 'accountName' => null, 'lastSeenAt' => $iso($row->last_seen_at), 'lastSyncedAt' => null, 'autoSync' => false, 'active' => true];
+                    $out[] = ['kind' => 'manual', 'platform' => null, 'accountName' => null, 'origin' => $originByItem[(string) $itemId] ?? null, 'lastSeenAt' => $iso($row->last_seen_at), 'lastSyncedAt' => null, 'autoSync' => false, 'active' => true];
 
                     continue;
                 }
@@ -642,9 +849,19 @@ class PoolResolver
 
             return $out;
         });
+        // #LIFE-3: the liveness filter belongs HERE, not on $sourceRows. That
+        // query also feeds the item sheet's Sources list, which deliberately
+        // KEEPS a paused connection so it can badge it `active: false` — the
+        // owner needs to see the source it paused. This map is the public-wire
+        // consumer: it supplies an item's fallback platform/url when the item
+        // has no link of its own, so a paused connection reaching it publishes
+        // exactly what LiveSourceScope hides everywhere else (owner ruling
+        // 2026-08-19: pause = hide). The #LIFE-4 fix makes this path HOTTER,
+        // not colder — dropping a paused source's f_link is precisely what
+        // leaves $primary null and falls through to here.
         $sourcePlatforms = $sourceRows
             ->map(function ($rows): ?object {
-                $rows = $rows->filter(fn ($r) => $r->source_kind !== 'manual' && $r->connection_id !== null);
+                $rows = $rows->filter(fn ($r) => $r->source_kind !== 'manual' && $r->connection_id !== null && (bool) $r->is_active);
                 $row = $rows->first();
                 if ($row === null || ! is_string($row->platform) || $row->platform === '') {
                     return null;
@@ -890,8 +1107,8 @@ class PoolResolver
                 'url' => $ov('f_link.url', $outboundUrl),
                 'platform' => $primary['platform'] ?? null,
                 'creator' => $ov('f_authored.creator', $creators[$itemId]->creator ?? $channels[$itemId]->handle ?? null),
-                'publishedAt' => $ov('f_published.published_from', $published[$itemId] ?? null),
-                'firstSeenAt' => $item->first_seen_at,
+                'publishedAt' => self::iso($ov('f_published.published_from', $published[$itemId] ?? null)),
+                'firstSeenAt' => self::iso($item->first_seen_at),
                 'durationSeconds' => (function () use ($ov, $durations, $itemId): ?int {
                     $v = $ov('f_duration.seconds', isset($durations[$itemId]) ? (int) $durations[$itemId] : null);
 
@@ -916,7 +1133,7 @@ class PoolResolver
                 // Dated / located / priced facets. Present on every pool item
                 // and null off events, so the wire shape does not change with
                 // kind — same contract durationSeconds already has.
-                'startsAt' => $occursAt[$itemId] ?? null,
+                'startsAt' => self::iso($occursAt[$itemId] ?? null),
                 'startsAtLocal' => $ov('f_occurrence.starts_at_local', $occurrenceDetail[$itemId]->starts_at_local ?? null),
                 'endsAtLocal' => $ov('f_occurrence.ends_at_local', $occurrenceDetail[$itemId]->ends_at_local ?? null),
                 'timezone' => $ov('f_occurrence.timezone', $occurrenceDetail[$itemId]->timezone ?? null),
@@ -935,7 +1152,7 @@ class PoolResolver
                 // then disagree with the price it sits next to.
                 'availability' => $offers[$itemId]->availability ?? null,
                 'links' => $links,
-                'popularityRank' => $handle !== '' ? ($ranks[$handle] ?? null) : null,
+                'popularityRank' => self::rankFor($ranks, (string) $item->kind, $itemId),
                 // Additive and nullable on EVERY item, never a kind-shaped
                 // sub-object — the same contract startsAt / venue / price
                 // already follow, so the wire shape does not vary with kind.
@@ -994,7 +1211,15 @@ class PoolResolver
                     'authorName' => $reviews[$itemId]->author_name,
                     'authorPhotoUrl' => $reviews[$itemId]->author_photo_url,
                     'authorUri' => $reviews[$itemId]->author_uri,
-                    'reviewedAt' => $reviews[$itemId]->reviewed_at,
+                    // #API-1 applies here too — content.f_review.reviewed_at is
+                    // timestamptz, `review` is a PUBLIC wire field (ITEM_KEYS,
+                    // and not dashboard-only), and pdo_pgsql hands it back as
+                    // "2026-07-01 10:00:00+00" whose rendering also shifts with
+                    // the session TimeZone. Missed on the first pass because the
+                    // audit named only the three top-level fields and the
+                    // existing assertion passes on SQLite, which returns the
+                    // seeded string verbatim and cannot see the difference.
+                    'reviewedAt' => self::iso($reviews[$itemId]->reviewed_at),
                 ] : null,
             ];
         }
@@ -1061,13 +1286,29 @@ class PoolResolver
     }
 
     /**
-     * The shop-product popularity ranks for a site, keyed by product handle.
+     * The rank an item carries on the wire: its kind's family, keyed by the
+     * item id (every family, 2026-08-23). Null when unranked.
+     *
+     * @param  array<string, array<string, int>>  $ranks  family => item id => rank
+     */
+    private static function rankFor(array $ranks, string $kind, string $itemId): ?int
+    {
+        $family = ItemFamily::forKind($kind);
+        if ($family === null || $itemId === '') {
+            return null;
+        }
+
+        return $ranks[$family][$itemId] ?? null;
+    }
+
+    /**
+     * Popularity ranks for a site across every item family (family => key => rank).
      *
      * Same key and TTL as PublicIntegrationController (CCG-102) on purpose:
      * two different keys would silently halve a single-flight cache that
      * exists because this read used to hit Postgres on every public request.
      *
-     * @return array<string, int>
+     * @return array<string, array<string, int>>
      */
     private function popularityRanks(Site $site): array
     {
@@ -1077,7 +1318,7 @@ class PoolResolver
             fn () => $this->popularity->forSite((string) $site->id),
         );
 
-        return $ranks['shop_product'] ?? [];
+        return $ranks;
     }
 
     /**
@@ -1194,9 +1435,15 @@ class PoolResolver
      * @param  Collection<string, object>  $stores
      * @return array<string, array<string, mixed>>
      */
-    private function collectionsFor(array $selection, Collection $stores): array
+    private function collectionsFor(string $pool, Site $site, array $selection, Collection $stores): array
     {
         $referenced = collect($selection)->flatMap(fn (array $i) => $i['collectionIds'] ?? [])->unique();
+        // A category's own rank (menu_category / service_category — the SUM
+        // of its members' scores, D2); null on a storefront or when unranked.
+        $categoryFamily = ItemFamily::CATEGORY_FAMILIES[$pool] ?? null;
+        $categoryRanks = $categoryFamily === null || $referenced->isEmpty()
+            ? []
+            : ($this->popularityRanks($site)[$categoryFamily] ?? []);
 
         $out = [];
         foreach ($referenced as $collectionId) {
@@ -1248,6 +1495,7 @@ class PoolResolver
                 'logo' => $row->logo_url === null ? null : (string) $row->logo_url,
                 'discountCode' => $row->discount_code === null ? null : (string) $row->discount_code,
                 'position' => (int) $row->position,
+                'popularityRank' => $row->provider === null ? ($categoryRanks[(string) $collectionId] ?? null) : null,
             ];
         }
 
@@ -1278,31 +1526,65 @@ class PoolResolver
         return $platform === null || $platform === '' ? $platform : str_replace('_', '-', $platform);
     }
 
+    /**
+     * `source` on each link (the sheet's badge + whether it can be removed):
+     *   synced — a connection's source listed it; the platform keeps it current
+     *   own    — the manual lane's own f_link (a hand-added or bio-found item's
+     *            URL); it is the item, not a per-platform extra, and there is
+     *            no item_links row to delete
+     *   manual — a hand-saved item_links row for a platform no source covers
+     *
+     * A manual-source row carries no connection, so its platform is derived
+     * from the URL host (roster match) rather than left NULL — NULL drew a
+     * blank glyph, titled the row by its host, and slipped past the
+     * per-platform dedupe, so the same eventbrite URL listed twice (once from
+     * f_link, once synthesised from the offer). Dedupe is by platform AND by
+     * URL, so an unrostered host cannot double up either.
+     */
     private function linkSet(Collection $sourceRows, Collection $manualRows): array
     {
         $links = [];
         $seen = [];
+        $seenUrls = [];
 
         foreach ($sourceRows as $row) {
-            $platform = $row->platform !== null ? (string) $row->platform : null;
-            if ($platform !== null && isset($seen[$platform])) {
+            $url = (string) $row->url;
+            $isOwn = ($row->source_kind ?? null) === 'manual';
+            $platform = $row->platform !== null && $row->platform !== '' ? (string) $row->platform : null;
+            if ($platform === null && $isOwn) {
+                $platform = ItemLinkRules::platformForUrl($url);
+            }
+            $urlKey = self::linkUrlKey($url);
+            if (($platform !== null && isset($seen[$platform])) || isset($seenUrls[$urlKey])) {
                 continue;
             }
             if ($platform !== null) {
                 $seen[$platform] = true;
             }
-            $links[] = ['platform' => $platform, 'url' => (string) $row->url, 'source' => 'synced'];
+            $seenUrls[$urlKey] = true;
+            $links[] = ['platform' => $platform, 'url' => $url, 'source' => $isOwn ? 'own' : 'synced'];
         }
 
         foreach ($manualRows as $row) {
-            if (isset($seen[$row->platform])) {
+            $urlKey = self::linkUrlKey((string) $row->url);
+            if (isset($seen[$row->platform]) || isset($seenUrls[$urlKey])) {
                 continue;
             }
             $seen[$row->platform] = true;
+            $seenUrls[$urlKey] = true;
             $links[] = ['platform' => (string) $row->platform, 'url' => (string) $row->url, 'source' => 'manual'];
         }
 
         return $links;
+    }
+
+    /** Case-insensitive, scheme- and trailing-slash-insensitive dedupe key. */
+    private static function linkUrlKey(string $url): string
+    {
+        $key = strtolower(trim($url));
+        $key = preg_replace('#^https?://(www\.)?#', '', $key) ?? $key;
+
+        return rtrim($key, '/');
     }
 
     /**

@@ -511,11 +511,12 @@ function setupUsersTable(): void
         -- Deliberately stricter than prod, which still tolerates \'staff\'.
         account_type TEXT NOT NULL DEFAULT \'partna\' CHECK (account_type IN (\'partna\',\'business\')),
         status TEXT NOT NULL DEFAULT \'active\' CHECK (status IN (\'active\',\'suspended\',\'disabled\',\'pending_deletion\',\'unclaimed\')),
-        -- bio: dropped from prod by 20260705120002_drop_dead_profile_columns_tables.
+        -- bio: RE-ADDED 20260819140000 (identity plan) — the About Me
+        -- paragraph, with live consumers now. (It was dropped as dead by
+        -- 20260705120002; this is a deliberate re-add, not drift.)
         -- icon_bucket/icon_path/headshot_bucket/headshot_path: dropped pre-baseline
         -- (see baseline:313-315 comment) and never existed in any migration here.
-        -- All five were phantom here with zero read/write consumers, caught by
-        -- FixtureSchemaParityTest (#FFLAG-1 sibling finding).
+        bio TEXT NULL,
         country_code TEXT NULL,
         timezone TEXT NULL,
         onboarding_step INTEGER NOT NULL DEFAULT 0,
@@ -535,8 +536,9 @@ function setupUsersTable(): void
 
     // Defensive ALTERs for suites that created core.users before the sector
     // columns existed (SQLite's CREATE TABLE IF NOT EXISTS won't add columns to
-    // an already-created table within a run). Mirrors migration 20260705150100.
-    foreach (['sector', 'sector_source'] as $col) {
+    // an already-created table within a run). Mirrors migrations 20260705150100
+    // and 20260819140000 (bio).
+    foreach (['sector', 'sector_source', 'bio'] as $col) {
         try {
             DB::connection('pgsql')->statement("ALTER TABLE core.users ADD COLUMN {$col} TEXT NULL");
         } catch (Throwable $e) {
@@ -1139,7 +1141,7 @@ function setupSitesTable(): void
         is_active INTEGER NOT NULL DEFAULT 1,
         last_visited_at TEXT NULL,
         last_refreshed_at TEXT NULL,
-        last_refresh_status TEXT NULL CHECK (last_refresh_status IN (\'ok\',\'unavailable\',\'error\',\'pending\')),
+        last_refresh_status TEXT NULL CHECK (last_refresh_status IN (\'ok\',\'unavailable\',\'error\',\'pending\',\'action_needed\')),
         last_refresh_error TEXT NULL,
         consecutive_failures INTEGER NOT NULL DEFAULT 0,
         apify_status TEXT NULL CHECK (apify_status IS NULL OR apify_status IN (\'pending\',\'ok\',\'unavailable\')),
@@ -1353,43 +1355,6 @@ function setupSitesTable(): void
     // Wire in workplace table so any test calling setupSitesTable() has the
     // full site-owned schema. Idempotent (CREATE IF NOT EXISTS).
     setupWorkplacesTable();
-}
-
-/**
- * site.item_slugs — URL-slug registry for events + menu items.
- * Mirrors migration 20260724120000. SQLite supports partial unique indexes,
- * so the production constraints port directly; is_current stored as 0/1.
- */
-function setupItemSlugsTable(): void
-{
-    attachTestSchemas();
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.item_slugs (
-        id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-        user_id TEXT NOT NULL,
-        item_type TEXT NOT NULL,
-        item_key TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        is_current INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT NULL,
-        retired_at TEXT NULL
-    )');
-    // SQLite's CREATE INDEX grammar puts the schema qualifier on the INDEX
-    // name (not the table name) — an index must live in the same attached
-    // database as its table.
-    try {
-        DB::connection('pgsql')->statement(
-            'CREATE UNIQUE INDEX IF NOT EXISTS site.item_slugs_unique_slug ON item_slugs (user_id, slug)'
-        );
-    } catch (Throwable $e) {
-        // already exists / unsupported — ignore
-    }
-    try {
-        DB::connection('pgsql')->statement(
-            'CREATE UNIQUE INDEX IF NOT EXISTS site.item_slugs_one_current ON item_slugs (user_id, item_type, item_key) WHERE is_current = 1'
-        );
-    } catch (Throwable $e) {
-        // already exists / unsupported — ignore
-    }
 }
 
 /**
@@ -2824,7 +2789,11 @@ function setupSectionsTables(): void
  */
 function pinPoolPresence(Site $site): void
 {
-    foreach (['watch', 'listen', 'events'] as $pool) {
+    // custom_links joined the presence loop 2026-08-19 (pool-only links must
+    // flip the Links page) — pinned here for the same reason as the others:
+    // the probe tests need every pool probe short-circuited so only the
+    // probe under test faults.
+    foreach (['watch', 'listen', 'events', 'custom_links'] as $pool) {
         $section = app(PoolSectionProvisioner::class)->ensure($site, $pool);
         DB::connection('pgsql')->table('site.section_items')->insert([
             'id' => (string) Str::uuid(),
@@ -3061,6 +3030,7 @@ function setupContentTables(): void
         variant_family TEXT NULL CHECK (variant_family IS NULL OR variant_family IN (\'google\', \'shopify\', \'ytimg\', \'native\', \'proxy\')),
         blurhash TEXT NULL,
         attribution TEXT NULL,
+        mirror_eligible INTEGER NULL,
         mirror_attempts INTEGER NOT NULL DEFAULT 0,
         mirror_last_attempt_at TEXT NULL,
         mirror_last_reason TEXT NULL,
@@ -3222,6 +3192,7 @@ function setupContentTables(): void
         connect_status TEXT NULL,
         connect_error TEXT NULL,
         products_curated_at TEXT NULL,
+        products_autoselected_at TEXT NULL,
         logo_url TEXT NULL,
         favicon_url TEXT NULL,
         logo_mark_url TEXT NULL,
@@ -3274,6 +3245,7 @@ function setupIngestTables(): void
         health TEXT NOT NULL DEFAULT \'ok\' CHECK (health IN (\'ok\',\'degraded\',\'unavailable\',\'shape\',\'suppressed\',\'dead\')),
         consecutive_failures INTEGER NOT NULL DEFAULT 0,
         auto_sync INTEGER NOT NULL DEFAULT 1,
+        needs_eager_run INTEGER NOT NULL DEFAULT 0,
         scope TEXT NOT NULL DEFAULT \'all\' CHECK (scope IN (\'all\',\'latest_n\')),
         scope_n INTEGER NULL,
         selection_ref TEXT NULL,
@@ -3395,6 +3367,48 @@ function setupIngestTables(): void
  * a single table with the same columns. Partition routing itself is covered
  * by the Postgres lane, not here.
  */
+/**
+ * catalog runtime tables (migration 20260727100000) — SQLite mirror.
+ *
+ * "Runtime" as opposed to the compiled half (brands/surfaces/detectors/…),
+ * which `catalog:sync` upserts from the artefact and which no test needs a
+ * table for because CompiledCatalog reads the PHP artefact directly. These two
+ * are the ACCUMULATED half — written by the router, never by the compiler, and
+ * not re-derivable from a recompile.
+ *
+ * Column types follow the SQLite mirror convention used throughout this file
+ * (timestamps as TEXT); the NOT NULLs and the primary keys are copied verbatim
+ * from the migration, because those are what a write path can actually
+ * violate.
+ */
+function setupCatalogRuntimeTables(): void
+{
+    attachTestSchemas();
+    $pg = DB::connection('pgsql');
+
+    // supabase/migrations/20260727100000_catalog_schema.sql:132-138.
+    // No FK to catalog.detectors, deliberately — a suspension must outlive the
+    // detector being recompiled or tombstoned.
+    $pg->statement('CREATE TABLE IF NOT EXISTS catalog.detector_suspensions (
+        detector_id TEXT PRIMARY KEY NOT NULL,
+        reason TEXT NOT NULL,
+        set_by TEXT NULL,
+        set_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+    )');
+
+    // supabase/migrations/20260727100000_catalog_schema.sql:143-152.
+    $pg->statement('CREATE TABLE IF NOT EXISTS catalog.unmatched_domains (
+        registrable_key TEXT PRIMARY KEY NOT NULL,
+        sample_path_shape TEXT NULL,
+        hits INTEGER NOT NULL DEFAULT 1,
+        has_detectors INTEGER NOT NULL DEFAULT 0,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        triaged_at TEXT NULL
+    )');
+}
+
 function setupRoutingTables(): void
 {
     attachTestSchemas();

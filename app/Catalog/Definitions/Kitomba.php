@@ -27,6 +27,7 @@ class Kitomba
     {
         return [
             SurfaceBuilder::for('kitomba.book')
+                ->legacyPlatform('kitomba')
                 ->displayName('Kitomba')
                 ->routing(RoutingClass::Booking)
                 ->shelf(Shelf::Booking)

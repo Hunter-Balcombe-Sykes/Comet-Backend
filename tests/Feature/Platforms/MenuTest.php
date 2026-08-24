@@ -27,10 +27,6 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
-    // MenuFetchJob + MenuItemObserver both write site.item_slugs. Without the
-    // table their best-effort try/catch swallows a "no such table" and any slug
-    // assertion below would silently pass against nothing.
-    setupItemSlugsTable();
     // Slice 7 Task 5: MenuPayloadComposer reads content.* for the dishes and
     // only falls back to site.menu_* when that lane holds nothing for the
     // owner. The tables have to EXIST for the fallback to be reachable — the
@@ -982,44 +978,6 @@ it('unions both platforms and persists a per-platform availability list', functi
 
 // ── Online-ordering store consolidation (one store = one entry) ────────
 
-it('collapses a pickup and delivery link for one store into a single entry', function () {
-    $user = menuUser('m15');
-    // The Google-harvest scenario: same Uber Eats store, two typed rows (the
-    // diningMode query param differs, so they were two rows / a visible dupe).
-    ordering($user, 'https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP', 'pickup', '2026-06-17 09:00:00');
-    ordering($user, 'https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY', 'delivery', '2026-06-17 10:00:00');
-
-    $res = actingAsUser($user)->getJson('/api/platforms/online-ordering/entries')->assertOk();
-
-    // ONE consolidated entry carrying both mode URLs.
-    expect($res->json('entries'))->toHaveCount(1);
-    $entry = $res->json('entries.0');
-    expect($entry['data']['pickupUrl'])->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP');
-    expect($entry['data']['deliveryUrl'])->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY');
-});
-
-it('merges a second mode link for the same store into the existing entry on add', function () {
-    Queue::fake();
-    $user = menuUser('m16');
-    fakeEchoOrderingScraper();
-
-    // First add — a pickup-typed Uber Eats link. Returns 202 (async JOB-1).
-    actingAsUser($user)->postJson('/api/platforms/online-ordering/entries', [
-        'url' => 'https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP',
-    ])->assertStatus(202)->assertJsonCount(1, 'entries');
-
-    // Second add — the SAME store, delivery variant — folds into the same row.
-    $res = actingAsUser($user)->postJson('/api/platforms/online-ordering/entries', [
-        'url' => 'https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY',
-    ])->assertStatus(202);
-
-    // Still ONE row in the DB (no duplicate) and one consolidated entry.
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->count())->toBe(1);
-    expect($res->json('entries'))->toHaveCount(1);
-    expect($res->json('entries.0.data.pickupUrl'))->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP');
-    expect($res->json('entries.0.data.deliveryUrl'))->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY');
-});
-
 // ── DoorDash locale address — data minimisation (PRIV-2) ─────────────
 // The full street address must never leave the backend towards Apify.
 // Only city + state are forwarded; when neither is stored the field is null
@@ -1713,32 +1671,15 @@ it('serves an explicit platforms:[] (not an omitted key) for a scanned item on a
     expect($items['Scraped Dish']['platforms'])->toHaveCount(1);
 });
 
-// ── 271-DINT-1: the wholesale rebuild must keep site.item_slugs in step ──
+// ── 271-DINT-1: the wholesale rebuild must keep item slugs in step ──
 // persist() writes items through the query builder (bulk insert + mass
-// delete), which bypasses MenuItemObserver entirely — so pre-fix a scraped
-// dish never got a pretty URL at all, and a dropped dish squatted its slug
-// forever (item_slugs_unique_slug is NOT partial, so even a retired row
-// blocks reuse). The reconcile still runs AFTER the rebuild transaction
-// commits — best-effort per-dish work that must not be able to roll the
-// rebuild back — though the allocator is now safe inside a transaction too
-// (insertOrIgnore behind a savepoint; see ItemSlugAllocator::insertUnique).
-
-/** The live item_slugs row (id + slug) for a menu item, or null. */
-function menuSlugRow(User $user, string $itemId): ?object
-{
-    return DB::connection('pgsql')->table('site.item_slugs')
-        ->where('user_id', $user->id)->where('item_type', 'menu_item')
-        ->where('item_key', $itemId)->where('is_current', 1)
-        ->first(['id', 'slug']);
-}
-
-/** Every item_slugs row for a menu item, current and retired. */
-function menuSlugRowCount(User $user, string $itemId): int
-{
-    return DB::connection('pgsql')->table('site.item_slugs')
-        ->where('user_id', $user->id)->where('item_type', 'menu_item')
-        ->where('item_key', $itemId)->count();
-}
+// delete), so pre-fix a scraped dish never got a pretty URL at all, and a
+// dropped dish squatted its slug forever (idx_item_slugs_unique is NOT
+// partial, so even a retired row blocks reuse). The reconcile still runs
+// AFTER the rebuild transaction commits — best-effort per-dish work that must
+// not be able to roll the rebuild back — though the allocator is safe inside a
+// transaction too (insertOrIgnore behind a savepoint; see
+// ContentItemSlugAllocator::insertUnique).
 
 /**
  * Slice 7 Task 7: a scraped dish's permalink lives in content.item_slugs now,
@@ -1795,8 +1736,6 @@ it('mints an item_slugs row for a brand-new scraped dish', function () {
 
     expect(menuContentSlugRow($user, menuContentId($user, 'Fish Tacos'))?->slug)->toBe('fish-tacos');
     expect(menuContentSlugRow($user, menuContentId($user, 'Beef Tacos'))?->slug)->toBe('beef-tacos');
-    // The scrape no longer touches the legacy lane at all.
-    expect(DB::connection('pgsql')->table('site.item_slugs')->where('item_type', 'menu_item')->count())->toBe(0);
 });
 
 it('frees a dropped dish slug on the next scrape and leaves the survivor row untouched', function () {

@@ -58,6 +58,8 @@ final class SurfaceBuilder
     /** @var list<string> */
     private array $reservedPaths = [];
 
+    private ?string $legacyPlatform = null;
+
     private ?string $note = null;
 
     private function __construct(private readonly string $key)
@@ -168,6 +170,17 @@ final class SurfaceBuilder
         return $this;
     }
 
+    /**
+     * Owner decree 2026-08-20 (scan-refinement run, FI-1): SOCIAL surfaces are
+     * single-account — none of them calls this any more, so the builder default
+     * (1) holds and SourceReconciler::capReached() turns a scan-detected second
+     * account into a Hold with conflicting_connection_id → a Swap suggestion in
+     * the inbox, matching the legacy Instagram lane's own 1-account behaviour.
+     * The engines diverged here before (Engine 1 auto-created up to 5 Instagram
+     * connections from a Linktree while Engine 2 raised a conflict) — that
+     * divergence is why a second Instagram rendered as "Instagram +1". Content
+     * and store surfaces keep their explicit multiAccount(10).
+     */
     public function multiAccount(int $max): self
     {
         $this->isMultiAccount = true;
@@ -243,6 +256,18 @@ final class SurfaceBuilder
         return $this;
     }
 
+    /**
+     * The legacy `platform` slug, for the handful of surfaces where it is not
+     * the brand prefix. Changing one is a migration (the SQL alias column is
+     * GENERATED ... STORED) — see CatalogLegacyMapTest.
+     */
+    public function legacyPlatform(string $slug): self
+    {
+        $this->legacyPlatform = $slug;
+
+        return $this;
+    }
+
     public function note(string $note): self
     {
         $this->note = $note;
@@ -272,6 +297,7 @@ final class SurfaceBuilder
             contracts: $this->contracts,
             embed: $this->embed,
             reservedPaths: $this->reservedPaths,
+            legacyPlatform: $this->legacyPlatform,
             note: $this->note,
         );
     }

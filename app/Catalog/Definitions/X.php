@@ -32,6 +32,7 @@ class X
     {
         return [
             SurfaceBuilder::for('x.profile')
+                ->legacyPlatform('x')
                 ->displayName('X')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)
@@ -39,7 +40,6 @@ class X
                 ->refreshEvery(0)
                 ->canonicalUrl('https://x.com/{handle}')
                 ->connect('connect.x.url.v1')
-                ->multiAccount(5)
                 ->detect(
                     Detector::url('x.com')
                         ->path('#^/(?!(?:'.self::RESERVED.')(?:/|$))(?<handle>[A-Za-z0-9_]{1,15})/?$#')

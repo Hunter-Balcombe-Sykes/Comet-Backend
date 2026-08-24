@@ -4,6 +4,7 @@ use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Routing\Importers\LinkInBioImporter;
 use App\Services\Content\LinkPoolReader;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -120,7 +121,7 @@ it('never leaves a bio page with only chrome looking like a successful haul', fu
 // ── Batch (P8 blocker 3) ────────────────────────────────────────────────────
 // An Instagram bio harvest hands over every URL it found on one profile. That
 // is ONE acquisition of one account, so it must be one run — N runs would burn
-// N of the user's 3 daily slots and misreport what happened.
+// N of the user's daily slots and misreport what happened.
 
 it('unrolls a list of bio pages as ONE run, not one run per page', function () {
     $pro = createTenant('bio-batch');
@@ -240,7 +241,7 @@ it('spends one link budget across the whole batch', function () {
     $pro = createTenant('bio-batch-budget');
     $page = function (string $prefix): string {
         $links = '';
-        for ($i = 0; $i < 80; $i++) {
+        for ($i = 0; $i < 170; $i++) {
             $links .= '<a href="https://'.$prefix.$i.'.test/x">L</a>';
         }
 
@@ -256,9 +257,9 @@ it('spends one link budget across the whole batch', function () {
         'https://example.com/two',
     ]);
 
-    // 80 distinct links per page, two pages, cap 100 — the second page is cut
-    // off rather than doubling the spend to 160.
-    expect($result['observations'])->toBe(100);
+    // 170 distinct links per page, two pages, cap 300 (T9) — the second page
+    // is cut off rather than doubling the spend to 340.
+    expect($result['observations'])->toBe(300);
 });
 
 // ── #R2: nothing the owner published leaves without a trace ──────────────────
@@ -365,8 +366,377 @@ it('records why each link was dropped in the import run detail', function () {
         <a href="https://bit.ly/xyz">Short</a>
     </body></html>');
 
-    app(LinkInBioImporter::class)->import($pro, 'https://example.com/dropper');
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/dropper');
 
+    // FI-3 (2026-08-20): the shortener is no longer a drop. Expansion is
+    // attempted (here the fake answers 200 with no redirect, so it fails)
+    // and the unexpandable short link becomes a CARD — zero-loss — leaving
+    // own-infra as the one genuine drop.
     $detail = json_decode(DB::table('routing.import_runs')->where('user_id', $pro->id)->value('detail'), true);
-    expect($detail['dropped_reasons'])->toBe(['own-infra' => 1, 'shortener' => 1]);
+    expect($detail['dropped_reasons'])->toBe(['own-infra' => 1])
+        ->and($result['noted'])->toBe(1)
+        ->and($result['dropped'])->toBe(1);
+});
+
+// ── N2: pages that ship no anchors ──────────────────────────────────────────
+// linkin.bio delivers an empty Ember shell, so the anchor harvest returned zero
+// for every one of these accounts and the floor was all that stood between the
+// user and an empty site. LinkInBioApiUnroller reads the same public API the
+// page's own JavaScript calls. Shell below is the real 2026-08-19 response body,
+// trimmed — what matters is that it has no <a> at all.
+
+it('unrolls a client-rendered linkin.bio page through its API, not its empty shell', function () {
+    $pro = createTenant('bio-linkinbio');
+    Http::fake([
+        'api-prod.linkin.bio/*' => Http::response(['linkinbio_page' => ['linkinbio_blocks' => [
+            ['block_type' => 'button_list', 'block_data' => ['enabled' => true, 'buttons' => [
+                ['url' => 'https://www.sevenrooms.com/explore/supernormalaustralia/reservations/create/search', 'title' => 'RESERVATIONS', 'enabled' => true],
+                ['url' => 'https://supernormal.net.au/menu', 'title' => 'MENU', 'enabled' => true],
+            ]]],
+        ]]], 200),
+        'linkin.bio/*' => Http::response('<html><head><title>Linkin.bio</title></head><body><script src="/assets/linkinbio.js"></script></body></html>', 200),
+    ]);
+    Queue::fake();
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://linkin.bio/supernormal_180');
+
+    expect($result['observations'])->toBe(2)
+        // The floor is the tell. It fires only when the unroll yielded nothing,
+        // so a false here IS the regression pin: the page unrolled for real.
+        ->and($result['bio_url_seeded'])->toBeFalse();
+});
+
+it('merges the shell\'s footer social anchors into an API unroll (F12)', function () {
+    // F12 (2026-08-20, the natalieannehair stan.store trace): the API unroll
+    // returns the platform's TILE links only, and her TikTok and Facebook sat
+    // as plain anchors in the delivered shell, unseen. The social-classified
+    // anchors merge back in; the shell's own asset/legal links must NOT ride
+    // along (they don't classify as social).
+    $pro = createTenant('bio-stan-socials');
+    Http::fake([
+        'api.stanwith.me/*' => Http::response(['store' => ['pages' => [
+            ['type' => 'link', 'status' => 2, 'data' => ['product' => ['link' => [
+                'url' => 'https://supernormal.net.au/menu',
+            ]]]],
+        ]]], 200),
+        'stan.store/*' => Http::response('<html><body>
+            <a href="https://www.tiktok.com/@natalieannehair">TikTok</a>
+            <a href="https://www.facebook.com/natalieannehairstylist">Facebook</a>
+            <a href="https://assets.stanwith.me/legal/terms-of-service.pdf">Terms</a>
+        </body></html>', 200),
+        '*' => Http::response('<html><body>ok</body></html>', 200),
+    ]);
+    Queue::fake();
+
+    app(LinkInBioImporter::class)->import($pro, 'https://stan.store/Natalieanne');
+
+    $observations = DB::table('routing.link_observations')->where('source', 'link_in_bio')->get();
+    expect($observations->pluck('surface_key')->all())
+        ->toContain('tiktok.profile', 'facebook.profile')
+        ->and($observations->filter(fn ($o) => str_contains((string) $o->raw_url, 'assets.stanwith.me')))
+        ->toHaveCount(0)
+        // The merge is ADDITIVE: the API tile must still route. An
+        // implementation that replaced tiles with the anchor socials would
+        // satisfy every assertion above — this one is the additive pin.
+        ->and($observations->filter(fn ($o) => str_contains((string) $o->raw_url, 'supernormal.net.au/menu')))
+        ->toHaveCount(1);
+});
+
+it('finds footer socials even when the stan API answers zero outward tiles (F12)', function () {
+    // The empty-array answer is the COMMON one for stan (hosted products
+    // only). Before F12 it also silenced the shell's social anchors entirely —
+    // the ?? chain treats [] as a real answer, so the anchor pass never ran
+    // and the zero-yield floor fired on a page with links in plain sight.
+    $pro = createTenant('bio-stan-empty');
+    Http::fake([
+        'api.stanwith.me/*' => Http::response(['store' => ['pages' => []]], 200),
+        'stan.store/*' => Http::response('<html><body>
+            <a href="https://www.tiktok.com/@natalieannehair">TikTok</a>
+        </body></html>', 200),
+        '*' => Http::response('<html><body>ok</body></html>', 200),
+    ]);
+    Queue::fake();
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://stan.store/Natalieanne');
+
+    expect(DB::table('routing.link_observations')->where('source', 'link_in_bio')->pluck('surface_key')->all())
+        ->toContain('tiktok.profile')
+        ->and($result['bio_url_seeded'])->toBeFalse();
+});
+
+it('falls back to the anchor harvest when the linkin.bio API cannot be read', function () {
+    // Later going down, or revving its API, must cost the user nothing they had
+    // before: the anchor pass still runs and the zero-yield floor still fires.
+    $pro = createTenant('bio-linkinbio-down');
+    Http::fake([
+        'api-prod.linkin.bio/*' => Http::response('', 503),
+        'linkin.bio/*' => Http::response('<html><body><script src="/assets/linkinbio.js"></script></body></html>', 200),
+    ]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://linkin.bio/supernormal_180');
+
+    expect($result['observations'])->toBe(0)
+        ->and($result['bio_url_seeded'])->toBeTrue();
+});
+
+// ── Cloudflare-blocked hosts (2026-08-19) ────────────────────────────────────
+// Five detector hosts — bio.link, heylink.me, direct.me, lnk.bio, beacons.ai —
+// answer 403 to BOTH of SafeUrlFetcher's User-Agent attempts: three behind a
+// managed JS challenge, two behind a hard WAF rule. Nothing we can send passes
+// them, so the only question is what the user is left with.
+
+it('cards the bio URL when the host refuses us outright, instead of dropping it', function () {
+    // The regression this pins: the floor used to require $fetched > 0, so a
+    // wholly unreachable page skipped it. Combined with InstagramAutoSync
+    // dispatching this job and continuing ("Nothing about the bio-link URL
+    // itself is persisted"), the user's bio link vanished entirely — no links
+    // AND no card, strictly worse than the inert card linkin.bio produced.
+    $pro = createTenant('bio-cf-blocked');
+    Http::fake(['*' => Http::response('<html><head><title>Just a moment...</title></head></html>', 403)]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/blocked');
+
+    expect($result['outcome'])->toBe('unavailable')
+        ->and($result['pages'])->toBe(0)
+        ->and($result['pages_unavailable'])->toBe(1)
+        ->and($result['observations'])->toBe(0)
+        ->and($result['bio_url_seeded'])->toBeTrue();
+
+    expect(array_column(app(LinkPoolReader::class)->cards($pro->refresh()), 'url'))
+        ->toContain('https://example.com/blocked');
+});
+
+it('cards the first page when an entire batch is refused', function () {
+    $pro = createTenant('bio-cf-batch');
+    Http::fake(['*' => Http::response('', 403)]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, [
+        'https://example.com/a',
+        'https://example.com/b',
+    ]);
+
+    // One card for the acquisition, not one per dead page — the batch is the unit.
+    expect($result['bio_url_seeded'])->toBeTrue()
+        ->and(array_column(app(LinkPoolReader::class)->cards($pro->refresh()), 'url'))
+        ->toBe(['https://example.com/a']);
+});
+
+// ── The other three client-rendered hosts (2026-08-19) ───────────────────────
+// taplink.cc and stan.store join linkin.bio on the API seam; liinks.co needs no
+// request at all — its links are inlined in the body we already fetched.
+
+it('unrolls a client-rendered taplink.cc page through its API', function () {
+    $pro = createTenant('bio-taplink');
+    Http::fake([
+        'taplink.cc/*/api/page/get.json' => Http::response(['result' => 'success', 'response' => [
+            'fields' => [['items' => [
+                ['block_type_name' => 'link', 'options' => ['title' => 'IG', 'value' => 'https://www.instagram.com/theartist']],
+            ]]],
+        ]], 200),
+        'taplink.cc/*' => Http::response('<html><body><div id="app"></div></body></html>', 200),
+    ]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://taplink.cc/theartist');
+
+    expect($result['observations'])->toBe(1)
+        ->and($result['bio_url_seeded'])->toBeFalse();
+});
+
+it('unrolls a client-rendered liinks.co page from the body it already has', function () {
+    $pro = createTenant('bio-liinks');
+    $context = json_encode(['USER_DATA' => ['links' => [
+        ['linkType' => 'LINK', 'target' => 'https://www.instagram.com/theartist', 'isHidden' => false, 'isDeleted' => false],
+    ]]]);
+    // Zero anchors, links inlined — exactly the shape that read as an empty page.
+    Http::fake(['*' => Http::response(
+        '<html><body><div id="root"></div><script>window.CONTEXT = '.$context.';</script></body></html>',
+        200,
+        ['Content-Type' => 'text/html']
+    )]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://liinks.co/theartist');
+
+    expect($result['observations'])->toBe(1)
+        ->and($result['bio_url_seeded'])->toBeFalse();
+});
+
+// ── Telling a bot-block apart from a dead page (2026-08-19) ──────────────────
+// `pages_unavailable: 1` was the ONLY signal, and it reads identically whether
+// the host refused us, the page 404'd, or the domain is dead. Four detector
+// hosts serve a Cloudflare refusal at the edge, so that difference decides
+// whether a fix is even possible — and nothing surfaced it.
+
+it('names a Cloudflare challenge as a bot block, not a generic failure', function () {
+    $pro = createTenant('bio-reason-challenge');
+    Http::fake(['*' => Http::response('<html><head><title>Just a moment...</title></head></html>', 403)]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/blocked');
+
+    expect($result['unavailable_reasons'])->toBe(['bot_challenge' => 1]);
+});
+
+it('names a hard Cloudflare WAF block as a bot block too', function () {
+    // beacons.ai's shape — a firewall rule, not a solvable challenge, but the
+    // same conclusion for us: the host is refusing this caller.
+    $pro = createTenant('bio-reason-waf');
+    Http::fake(['*' => Http::response('<html><title>Attention Required! | Cloudflare</title></html>', 403)]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/blocked');
+
+    expect($result['unavailable_reasons'])->toBe(['bot_challenge' => 1]);
+});
+
+it('does NOT call a missing page a bot block', function () {
+    // The whole point of the split. A 404 is the page's problem, not ours, and
+    // must not raise a signal that says "a host is refusing us".
+    $pro = createTenant('bio-reason-404');
+    Http::fake(['*' => Http::response('<html><body>Not found</body></html>', 404)]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/gone');
+
+    expect($result['unavailable_reasons'])->toBe(['not_found' => 1]);
+});
+
+it('does not mistake a plain 403 with no challenge markers for a bot block', function () {
+    // A genuinely private page is forbidden, not fighting us.
+    $pro = createTenant('bio-reason-403');
+    Http::fake(['*' => Http::response('<html><body>This page is private.</body></html>', 403)]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/private');
+
+    expect($result['unavailable_reasons'])->toBe(['refused' => 1]);
+});
+
+it('logs a distinct, greppable line when a host refuses us', function () {
+    // The "would I ever notice?" test. This line is the trigger to revisit a
+    // residential-proxy vendor; without it the block stays invisible.
+    Log::spy();
+    $pro = createTenant('bio-reason-log');
+    Http::fake(['*' => Http::response('<html><title>Just a moment...</title></html>', 403)]);
+
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/blocked');
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($message, $context) => $message === 'platforms.link_in_bio.host_blocked_us'
+            && $context['host'] === 'example.com'
+            && $context['status'] === 403)
+        ->once();
+});
+
+it('stays quiet for an ordinary dead page', function () {
+    // The counter-check: if this warning fired on every 404 it would be noise,
+    // and noise is how a real signal gets ignored.
+    Log::spy();
+    $pro = createTenant('bio-reason-quiet');
+    Http::fake(['*' => Http::response('', 404)]);
+
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/gone');
+
+    // Bare, on purpose. `shouldNotHaveReceived('warning', [$message])` matches
+    // a call whose FULL arg list is that one string — which never happens, so
+    // it passes vacuously; and `shouldHaveReceived(...)->never()` asserts >=1
+    // call before never() is reached. A 404 import warns about nothing at all,
+    // so "no warnings" is both true and the thing worth pinning.
+    // Pin the MESSAGE with a wildcard context. A bare shouldNotHaveReceived
+    // ('warning') is too strict — the test env emits an unrelated
+    // `feature_availability.resolve_overrides_failed` — while passing only the
+    // message string matches a one-arg call that never happens, so it passes
+    // vacuously. Two args, message fixed, context any.
+    Log::shouldNotHaveReceived('warning', ['platforms.link_in_bio.host_blocked_us', Mockery::any()]);
+});
+
+it('records the reasons on the run itself, so they can be counted in SQL', function () {
+    // A log line answers "did it happen"; the run detail answers "how often,
+    // and to whom" without shipping logs anywhere.
+    $pro = createTenant('bio-reason-detail');
+    Http::fake([
+        'example.com/up*' => Http::response('<html><body><a href="https://www.instagram.com/a">IG</a></body></html>', 200),
+        'example.com/blocked*' => Http::response('<html><title>Just a moment...</title></html>', 403),
+        'example.com/gone*' => Http::response('', 404),
+    ]);
+
+    app(LinkInBioImporter::class)->import($pro, [
+        'https://example.com/up',
+        'https://example.com/blocked',
+        'https://example.com/gone',
+    ]);
+
+    $detail = json_decode((string) DB::table('routing.import_runs')
+        ->where('user_id', $pro->id)->value('detail'), true);
+
+    expect($detail['unavailable_reasons'])->toBe(['bot_challenge' => 1, 'not_found' => 1]);
+});
+
+it('reads Linktree music-embed links from __NEXT_DATA__ — the full sammy.pdf replay (FI-5)', function () {
+    // The real linktr.ee/samakhurst shape: 6 published links, 3 of them
+    // embed types that render as players with NO anchors. Pre-FI-5 the
+    // anchor harvest saw only 3; the __NEXT_DATA__ arm reads all 6.
+    Queue::fake();
+    Cache::flush();
+    $pro = createTenant('fi5-linktree');
+
+    $nextData = json_encode(['props' => ['pageProps' => ['links' => [
+        ['title' => 'Open Your Eyes (And Dance)', 'url' => 'https://open.spotify.com/track/5WOkoJzd6nDzKJXlVgVU5q', 'type' => 'SPOTIFY_SONG'],
+        ['title' => 'Are You The One (Sam Akhurst Remix)', 'url' => 'https://soundcloud.com/sam-akhurst/are-you-the-one-remix', 'type' => 'SOUNDCLOUD_SONG'],
+        ['title' => 'Spotify', 'url' => 'https://open.spotify.com/artist/4WoNQlu21ftnkouDsSUtmS', 'type' => 'SPOTIFY_ARTIST'],
+        ['title' => 'Apple Music', 'url' => 'https://music.apple.com/au/artist/sam-akhurst/1810969283', 'type' => 'CLASSIC'],
+        ['title' => 'SoundCloud', 'url' => 'https://on.soundcloud.com/fh433tMk6lU9xgP3TM', 'type' => 'CLASSIC'],
+        ['title' => 'Instagram', 'url' => 'https://www.instagram.com/ssml.wav', 'type' => 'INSTAGRAM_PROFILE'],
+    ]]]]);
+
+    Http::fake([
+        'linktr.ee/*' => Http::response('<html><body><script id="__NEXT_DATA__" type="application/json">'.$nextData.'</script></body></html>', 200, ['Content-Type' => 'text/html']),
+        'open.spotify.com/oembed*' => Http::response(json_encode(['title' => 'Open Your Eyes (And Dance)', 'thumbnail_url' => null]), 200, ['Content-Type' => 'application/json']),
+        'open.spotify.com/embed/track/*' => Http::response('{"artists":[{"uri":"artist/4WoNQlu21ftnkouDsSUtmS"}]}', 200),
+        'soundcloud.com/oembed*' => Http::response(json_encode(['title' => 'Are You The One (Sam Akhurst Remix)', 'thumbnail_url' => null, 'author_url' => 'https://soundcloud.com/sam-akhurst']), 200, ['Content-Type' => 'application/json']),
+        'on.soundcloud.com/*' => Http::response('', 302, ['Location' => 'https://soundcloud.com/sam-akhurst?ref=clipboard']),
+        '*' => Http::response('', 404),
+    ]);
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/samakhurst', 'bio_harvest');
+
+    // The expected best-case outcome from the run plan, verbatim: four
+    // connections (Spotify artist, Apple Music artist, SoundCloud artist via
+    // short-link expansion, Instagram), two Listen items, nothing carded.
+    expect($result['items'])->toBe(2)
+        ->and($result['connected'])->toBe(4)
+        ->and($result['noted'])->toBe(0)
+        ->and($result['dropped'])->toBe(0);
+
+    $connections = IntegrationConnection::where('user_id', $pro->id)->get()
+        ->map(fn ($c) => $c->surface_key.':'.$c->resource_id)->sort()->values()->all();
+    expect($connections)->toBe([
+        'apple_music.artist:1810969283',
+        'instagram.profile:ssml.wav',
+        'soundcloud.player:sam-akhurst',
+        'spotify.player:4WoNQlu21ftnkouDsSUtmS',
+    ]);
+
+    $items = DB::connection('pgsql')->table('content.items')
+        ->where('user_id', $pro->id)->whereIn('kind', ['track'])->get();
+    expect($items)->toHaveCount(2)
+        ->and($items->pluck('headline_cache')->sort()->values()->all())
+        ->toBe(['Are You The One (Sam Akhurst Remix)', 'Open Your Eyes (And Dance)']);
+});
+
+it('folds a second URL that canonicalizes identically instead of carding it (FI-8)', function () {
+    // Round 3 live shape: the same Spotify artist arrived as a __NEXT_DATA__
+    // tile AND as the shell's own anchor, differing only in tracking params.
+    // Same canonical → silent fold; a card here duplicated the connection.
+    Queue::fake();
+    $pro = createTenant('fi8-canonical-fold');
+    bioPage('<html><body>
+        <a href="https://www.instagram.com/theartist?utm_source=a">One</a>
+        <a href="https://instagram.com/theartist?utm_source=b">Two</a>
+    </body></html>');
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/theartist');
+
+    // 'folded', its own bucket (critic pass 2): 'noted' claims a card
+    // exists, and a same-canonical fold deliberately writes none.
+    expect($result['connected'])->toBe(1)
+        ->and($result['folded'])->toBe(1)
+        ->and($result['noted'])->toBe(0);
+    expect(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->where('kind', 'link')->count())->toBe(0)
+        ->and(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1);
 });

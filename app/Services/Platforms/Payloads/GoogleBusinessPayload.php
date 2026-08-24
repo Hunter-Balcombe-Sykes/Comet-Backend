@@ -40,7 +40,12 @@ final readonly class GoogleBusinessPayload
         return is_string($this->raw['website'] ?? null) ? $this->raw['website'] : null;
     }
 
-    /** The Places primaryTypeDisplayName (e.g. "Barber shop"), or null. */
+    /**
+     * The business category (e.g. "Barber shop"), or null. Usually the Places
+     * primaryTypeDisplayName; when that primary is a generic bucket ("Store")
+     * it is the most specific types[] entry, humanized ("Body art service") —
+     * see GoogleBusinessService::categoryFrom() (M-10).
+     */
     public function category(): ?string
     {
         return is_string($this->raw['category'] ?? null) ? $this->raw['category'] : null;

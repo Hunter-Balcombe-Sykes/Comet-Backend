@@ -63,9 +63,7 @@ class PublicIntegrationConnectionResource extends ApiResource
         // publishes an event any more.
         'eventbrite' => [],
         'humanitix' => [],
-        'events-custom' => [],
         // custom: one row per user-attached link.
-        'custom' => ['kind', 'url', 'name', 'description', 'favicon', 'logo'],
         'facebook' => ['username', 'url'],
         'tiktok' => ['username', 'url'],
         'x' => ['username', 'url'],
@@ -97,7 +95,10 @@ class PublicIntegrationConnectionResource extends ApiResource
         'dribbble' => ['username', 'url'],
         'behance' => ['username', 'url'],
         'gumroad' => ['username', 'url'],
-        'fresha' => ['url', 'selection'],
+        // `selection` LEFT the public allowlist 2026-08-19: it carried the whole
+        // scraped service list (and, in team mode, the chosen staff member) —
+        // the sitepage reads services from `pools.services`, never from here.
+        'fresha' => ['url'],
         'spotify' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         'soundcloud' => ['url', 'name', 'thumbnail', 'embedUrl', 'link'],
         // mixcloud + tidal share MusicEmbedConnectionResource — same five-key contract.
@@ -154,13 +155,10 @@ class PublicIntegrationConnectionResource extends ApiResource
         // to shared-key rows so non-Fresha/Square/Vagaro etc. bookings render
         // as "Book with {provider}" on the sitepage. Still fail-closed: only
         // explicitly listed keys emit.
-        'booking' => ['url', 'provider'],
-        'reservations' => ['url', 'provider'],
         // online-ordering (2026-07-23 actions rebuild): entries now feed the
-        // public ordering:<resource_id> actions (SiteActionsService::pool()
+        // public ordering:<resource_id> actions (ActionCandidates (platform:<key> actions)
         // reads url + name from this exact payload). id/provider/source/data
         // stay private — internal bookkeeping the sitepage doesn't need.
-        'online-ordering' => ['url', 'name', 'favicon', 'logo', 'provider'],
         // ── Named provider cards (registered 265f9aa4, entries added 2026-07-26) ──
         // 27 branded link cards across booking / reservations / events /
         // online-ordering, every one on CardPayload. They shipped registered but
@@ -339,9 +337,9 @@ class PublicIntegrationConnectionResource extends ApiResource
         // Phase 4). Slice 2 kept it because a standalone row had no connector
         // and so no pool representation — emptying it would have made
         // add-an-event-by-URL publicly inert rather than migrating it. Slice
-        // 0b's manual write lane closed that gap: StandaloneEventBackfiller
+        // 0b's manual write lane closed that gap: the standalone-event backfill (retired 2026-08-19)
         // carried the existing rows onto content.* and
-        // EventsCatalog::storeStandalone() lands every new one there, so BOTH
+        // the standalone-event lane lands every new one there, so BOTH
         // row kinds now fall through to the platform's empty allowlist and
         // events reach the wire only through `profile.pools.events`.
         //

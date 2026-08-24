@@ -41,7 +41,7 @@ final class AnalyticsEvent
     // Fired by the sitepage's action-surface IntersectionObserver (seen) and
     // capture-phase click listener (tap); writes analytics.action_events.
     // Mirrors TYPE_ITEM_VIEW's shape but swaps item_type/item_id for the single
-    // actionId field (App\Services\PublicSite\Actions\ActionVocabulary id).
+    // actionId field (App\Site\Actions\ActionId — `<kind>:<ref>`).
     public const TYPE_ACTION_SEEN = 'action_seen';
 
     public const TYPE_ACTION_TAP = 'action_tap';
@@ -82,7 +82,7 @@ final class AnalyticsEvent
         // Per-section dwell (TYPE_SECTION_DWELL only): cumulative visible-time in ms.
         public readonly ?int $durationMs = null,
         // Action grain (TYPE_ACTION_SEEN / TYPE_ACTION_TAP only): the
-        // ActionVocabulary id ('<static-id>' or '<family>:<key>').
+        // ActionId — `<kind>:<ref>` (page|platform|item|category).
         public readonly ?string $actionId = null,
     ) {}
 

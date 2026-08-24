@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms\Strategies\Fetch;
 
+use App\Jobs\Platforms\LinkFreshaVenueToGoogleJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
@@ -19,6 +20,7 @@ use App\Services\Site\AdvisoryLockTimeoutException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 // CA-W6/CA-W7: completes a pending Fresha connect (either mode) by scraping
@@ -141,7 +143,34 @@ final readonly class FreshaConnectFetch implements FetchStrategy
         $next = $payload;
         unset($next['connectMode']);
 
+        $this->offerVenueToGoogle($user, $menu);
+
+        // The venue block is for the linker, not the stored snapshot. `venue` is a
+        // real optional key — offerVenueToGoogle() reads it just above — so the unset
+        // is live, not dead code.
+        /** @var array<string, mixed> $menu */
+        unset($menu['venue']);
+
         return [...$next, 'teamMenu' => $menu, 'connectPendingAt' => null];
+    }
+
+    /**
+     * A partna account's Fresha venue is probably their workplace (owner,
+     * 2026-08-19): hand its identity to LinkFreshaVenueToGoogleJob, which
+     * looks it up on Google and connects Google Business when the match is
+     * corroborated. Fire-and-forget; the linker applies its own gates.
+     */
+    private function offerVenueToGoogle(?User $user, array $menu): void
+    {
+        $venue = $menu['venue'] ?? null;
+        if ($user === null || ! is_array($venue) || ($venue['name'] ?? null) === null) {
+            return;
+        }
+        try {
+            LinkFreshaVenueToGoogleJob::dispatch((string) $user->id, $venue);
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /**
@@ -154,8 +183,8 @@ final readonly class FreshaConnectFetch implements FetchStrategy
      * as ConnectFetchJob itself). The re-assert + projection run inside
      * CacheKeyGenerator::bookingXorLock — NOT the per-platform key
      * (ConnectFetchJob takes that one for its own write, sequentially after
-     * this returns) — because forget() / BookingController::clearBooking()
-     * take the SAME booking-XOR lock for their delete. The lock is still
+     * this returns) — because forget() takes the SAME booking-XOR lock
+     * for its delete. The lock is still
      * mandatory: the closure re-checks that the connection row survived the
      * scrape and re-asserts the Square XOR, and a disconnect landing between
      * the scrape and the write would otherwise be resurrected by
@@ -215,6 +244,28 @@ final readonly class FreshaConnectFetch implements FetchStrategy
         if ($menu['services'] === []) {
             throw new FetchUnavailableException('fresha_empty_menu');
         }
+
+        // Fresha rotates venue slugs, and fetchLocation() absorbs that silently —
+        // 404, resolve, retry — exposing what it landed on via lastResolvedSlug().
+        // FreshaController::team() has always persisted that for the dashboard
+        // lane; this lane never did, so a rotated venue re-resolved on EVERY
+        // refresh and handed the stale slug to the employee leg (which is why
+        // FreshaAutoSelector now retries). Write it down once and the stale slug
+        // stops being the starting point.
+        //
+        // Only on a real resolution: null means either no rotation or a cache hit
+        // where fetchMenu never ran, and neither is a reason to touch the url.
+        // AUTO ONLY: the dashboard lanes already handle rotation their own way
+        // (FreshaController::team() writes both payload.url and canonical_key),
+        // and widening this would change a flow nobody reported a problem with.
+        $rotated = $auto ? $this->scraper->lastResolvedSlug() : null;
+        if ($rotated !== null && $rotated !== $this->scraper->slugFromUrl($url)) {
+            Log::info('fresha.auto_connect.slug_persisted', ['to' => $rotated, 'connection_id' => (string) $connection->id]);
+            $url = 'https://www.fresha.com/a/'.rawurlencode($rotated);
+        }
+
+        $this->offerVenueToGoogle($user, $menu);
+        unset($menu['venue']);
 
         try {
             $projected = Cache::lock(CacheKeyGenerator::bookingXorLock((string) $user->id), 10)
@@ -297,7 +348,15 @@ final readonly class FreshaConnectFetch implements FetchStrategy
             'url' => $url,
             'selection' => $selection,
             'raw' => ['services' => $rawServices],
-            ...($auto ? ['matchTier' => $matchTier] : []),
+            // autoSelected rides WITH matchTier and only on the auto branch: it is
+            // the discriminator the dashboard needs at claim time. matchTier alone
+            // cannot carry it — a null tier means "storewide because nothing
+            // matched", which is indistinguishable from a storewide the owner chose
+            // deliberately in the picker. Cleared for free by saveSelection() /
+            // saveStorewide(), which persist through writeConnection() with
+            // mergePayload: false and so REPLACE the payload — no unset needed, and
+            // FreshaMarkerClearingTest pins that.
+            ...($auto ? ['matchTier' => $matchTier, 'autoSelected' => true] : []),
         ];
     }
 }

@@ -119,10 +119,12 @@ it('applies the public cache contract to a 304 revalidation on an allow-listed p
     $middleware = new AddPublicCacheHeaders;
     $response = $middleware->handle($request, fn () => new Response('', 304));
 
+    // The profile wire's OWN short TTL (public_profile_max_age, default 5 —
+    // owner plan 2026-08-19), not the generic 900.
     $cacheControl = (string) $response->headers->get('Cache-Control', '');
     expect($cacheControl)->toContain('public')
-        ->toContain('max-age=900')
-        ->toContain('s-maxage=900');
+        ->toContain('max-age=5')
+        ->toContain('s-maxage=5');
     expect((string) $response->headers->get('Vary', ''))->toContain('Accept-Encoding');
 });
 
@@ -153,7 +155,9 @@ it('never adds public cache headers to a 304 on a no-store path', function () {
 it('omits stale-while-revalidate when the config value is 0', function () {
     config(['partna.cache.public_max_age' => 30, 'partna.cache.public_swr' => 0]);
 
-    $request = Request::create('/api/public/profiles/someone', 'GET');
+    // site-by-slug: the generic knob. (Profiles take their own TTL and never
+    // carry SWR — pinned separately below.)
+    $request = Request::create('/api/public/site-by-slug', 'GET');
 
     $middleware = new AddPublicCacheHeaders;
     $response = $middleware->handle($request, fn () => new Response('{}', 200));
@@ -168,13 +172,28 @@ it('omits stale-while-revalidate when the config value is 0', function () {
 it('appends stale-while-revalidate when the config value is positive', function () {
     config(['partna.cache.public_max_age' => 30, 'partna.cache.public_swr' => 60]);
 
-    $request = Request::create('/api/public/profiles/someone', 'GET');
+    $request = Request::create('/api/public/site-by-slug', 'GET');
 
     $middleware = new AddPublicCacheHeaders;
     $response = $middleware->handle($request, fn () => new Response('{}', 200));
 
     expect($response->headers->get('Cache-Control'))
         ->toBe('max-age=30, public, s-maxage=30, stale-while-revalidate=60');
+});
+
+it('gives the profile wire its own short TTL and never SWR (owner plan, 2026-08-19)', function () {
+    config(['partna.cache.public_max_age' => 900, 'partna.cache.public_swr' => 60, 'partna.cache.public_profile_max_age' => 5]);
+
+    $request = Request::create('/api/public/profiles/someone', 'GET');
+
+    $middleware = new AddPublicCacheHeaders;
+    $response = $middleware->handle($request, fn () => new Response('{}', 200));
+
+    // The router's HTML cache is purged the instant an edit lands; the render
+    // that follows reads this wire through an edge outside our purge reach, so
+    // this TTL bounds how stale that render can be. Exact equality: no SWR.
+    expect($response->headers->get('Cache-Control'))
+        ->toBe('max-age=5, public, s-maxage=5');
 });
 
 it('applies stale-while-revalidate to site-by-slug as well as profiles', function () {

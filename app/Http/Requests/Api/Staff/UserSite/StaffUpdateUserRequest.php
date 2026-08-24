@@ -13,6 +13,7 @@ class StaffUpdateUserRequest extends BaseFormRequest
         return [
             // profile-ish fields
             'display_name' => ['sometimes', 'required', 'string', 'max:255'],
+            'bio' => ['sometimes', 'nullable', 'string', 'max:1000'],
             'first_name' => ['sometimes', 'required', 'string', 'max:255'],
             'last_name' => ['sometimes', 'nullable', 'string', 'max:255'],
 

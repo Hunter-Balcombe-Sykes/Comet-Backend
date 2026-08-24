@@ -41,6 +41,7 @@ class Facebook
     {
         return [
             SurfaceBuilder::for('facebook.profile')
+                ->legacyPlatform('facebook')
                 ->displayName('Facebook')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)
@@ -48,7 +49,6 @@ class Facebook
                 ->refreshEvery(0)
                 ->canonicalUrl('https://www.facebook.com/{handle}')
                 ->connect('connect.facebook.url.v1')
-                ->multiAccount(5)
                 ->detect(
                     Detector::url('facebook.com')
                         ->path('#^/(?!(?:'.self::RESERVED.')(?:/|$|\?))(?<handle>[A-Za-z0-9.]{1,100})/?$#i')

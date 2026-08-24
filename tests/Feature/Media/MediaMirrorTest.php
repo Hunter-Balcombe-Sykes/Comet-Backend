@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\Media\ImagePixelBudget;
 use App\Services\Media\MediaMirror;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -321,4 +322,218 @@ it('still warns gave_up when the counter overshoots the cap', function () {
     Log::shouldHaveReceived('warning')
         ->withArgs(fn ($message, $context) => $message === 'media_mirror.gave_up' && $context['attempts'] === 7)
         ->once();
+});
+
+/**
+ * A PNG whose IHDR DECLARES enormous dimensions while weighing almost nothing.
+ *
+ * This is the decompression bomb in its honest form, and it is why a byte cap
+ * cannot stand in for a pixel cap: 20000x20000 is 400 million pixels — about
+ * 1.6 GB once GD rasterises it to a truecolour canvas — in well under 100 bytes
+ * on the wire. Built by rewriting a real 4x4 PNG's IHDR and recomputing that
+ * chunk's CRC, so getimagesizefromstring() reads it as a genuine header rather
+ * than refusing it as corrupt.
+ */
+function mirrorPixelBombBytes(int $w = 20000, int $h = 20000): string
+{
+    $img = imagecreatetruecolor(4, 4);
+    ob_start();
+    imagepng($img);
+    $png = (string) ob_get_clean();
+    imagedestroy($img);
+
+    $start = 8;                                               // PNG signature
+    $len = unpack('N', substr($png, $start, 4))[1];           // IHDR is always first
+    $type = substr($png, $start + 4, 4);
+    $data = pack('NN', $w, $h).substr($png, $start + 8 + 8, $len - 8);
+
+    return substr($png, 0, $start)
+        .pack('N', $len).$type.$data.pack('N', crc32($type.$data))
+        .substr($png, $start + 8 + $len + 4);
+}
+
+it('refuses a decompression bomb before the decoder ever allocates for it (SEC-1)', function () {
+    $user = createTenant('bomb-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:BOMB:0'));
+    $bomb = mirrorPixelBombBytes();
+
+    // The premise, asserted rather than assumed: this sails past every check
+    // MediaMirror had before SEC-1.
+    expect(strlen($bomb))->toBeLessThan(15728640);
+    expect(getimagesizefromstring($bomb)[0] * getimagesizefromstring($bomb)[1])
+        ->toBeGreaterThan(ImagePixelBudget::maxPixels());
+
+    Http::fake(['*' => Http::response($bomb, 200, ['Content-Type' => 'image/png'])]);
+    Log::spy();
+
+    $ok = app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/bomb.png');
+
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+
+    expect($ok)->toBeFalse()
+        ->and($row->storage_path)->toBeNull()
+        // The specific reason, not a generic 'undecodable' — an operator
+        // reading the row must be able to tell a hostile file from a broken one.
+        ->and($row->mirror_last_reason)->toBe('pixel_budget')
+        ->and((int) $row->mirror_attempts)->toBe(1);
+});
+
+it('still mirrors a large-but-legitimate photo, so the budget is a ceiling and not a blanket refusal', function () {
+    $user = createTenant('big-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:BIG:0'));
+
+    // Comfortably the largest thing Instagram serves, and comfortably under
+    // 24 MP. A guard that rejected this would be a regression, not a fix.
+    Http::fake(['*' => Http::response(mirrorImageBytes(2048, 2048), 200, ['Content-Type' => 'image/jpeg'])]);
+
+    expect(app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/big.jpg'))->toBeTrue();
+    expect(DB::table('content.media_assets')->where('id', $assetId)->value('storage_path'))->not->toBeNull();
+});
+
+it('honours a lowered partna.image_max_pixels rather than a hardcoded constant', function () {
+    config()->set('partna.image_max_pixels', 1_000_000);   // 1 MP
+    $user = createTenant('cfg-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:CFG:0'));
+
+    Http::fake(['*' => Http::response(mirrorImageBytes(1500, 1500), 200, ['Content-Type' => 'image/jpeg'])]); // 2.25 MP
+
+    expect(app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/cfg.jpg'))->toBeFalse();
+    expect(DB::table('content.media_assets')->where('id', $assetId)->value('mirror_last_reason'))->toBe('pixel_budget');
+});
+
+it('will not land one user\'s bytes on another user\'s asset row, and says so rather than reporting success (SEC-5)', function () {
+    $owner = createTenant('own-'.Str::lower(Str::random(6)));
+    $other = createTenant('oth-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($owner->id, 'url-'.sha1('instagram:OWN:0'));
+
+    Http::fake(['*' => Http::response(mirrorImageBytes(400, 400), 200, ['Content-Type' => 'image/jpeg'])]);
+
+    // A job dispatched with a mismatched (userId, assetId) pair. Before SEC-5
+    // the UPDATE keyed on id alone and this wrote the bytes anyway.
+    $ok = app(MediaMirror::class)->mirror($other->id, $assetId, 'https://scontent.cdninstagram.com/v/x.jpg');
+
+    expect(DB::table('content.media_assets')->where('id', $assetId)->value('storage_path'))->toBeNull();
+
+    // The half a review caught: scoping the UPDATE on user_id gave it a way to
+    // match nothing, and returning true there would report a mirror that never
+    // happened — no bytes, no reason, nothing to retry, nothing to see.
+    expect($ok)->toBeFalse();
+
+    // And the victim's row is untouched in every column, counter included:
+    // bumping THEIR attempt counter would be the same cross-tenant write this
+    // finding is about.
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+    expect((int) $row->mirror_attempts)->toBe(0)
+        ->and($row->mirror_last_reason)->toBeNull();
+});
+
+/**
+ * Bytes in a format GD may decode but `getimagesize*` cannot parse.
+ *
+ * GD2 is the specimen — but **GD2 support is a PHP BUILD OPTION**, present on a
+ * stock macOS build and DISABLED on CI's (`imagegd2(): GD2 image support has
+ * been disabled`). So the fixture is produced by `imagegd2()` where the build
+ * allows it, and hand-written from the GD2 header format where it does not.
+ *
+ * That distinction is deliberate rather than a convenience: what the guard has
+ * to do is REFUSE bytes finfo does not recognise as jpeg/png/webp, and that
+ * obligation does not depend on whether the machine running the test happens to
+ * be able to produce or decode the attack. Skipping the case where GD2 is
+ * unavailable would disable the assertion precisely on CI, which is the one
+ * place it needs to hold.
+ *
+ * @return array{0: string, 1: bool} the bytes, and whether GD can really decode them here
+ */
+function mirrorGd2Bytes(): array
+{
+    $depth = ob_get_level();
+    $img = imagecreatetruecolor(64, 64);
+    imagefill($img, 0, 0, imagecolorallocate($img, 1, 2, 3));
+
+    $bytes = '';
+    try {
+        ob_start();
+        $ok = @imagegd2($img);
+        $bytes = $ok ? (string) ob_get_clean() : '';
+        if (! $ok && ob_get_level() > $depth) {
+            ob_end_clean();
+        }
+    } catch (Throwable) {
+        // Laravel turns warnings into ErrorException; a build without GD2 write
+        // support lands here rather than returning false.
+        while (ob_get_level() > $depth) {
+            ob_end_clean();
+        }
+        $bytes = '';
+    } finally {
+        imagedestroy($img);
+    }
+
+    if ($bytes === '') {
+        // Minimal GD2 header: signature, version 2, 64x64, chunk size, format.
+        // Enough for finfo to decline to call it an image, which is all the
+        // allowlist is asked about.
+        $bytes = "gd2\x00".pack('nnnnn', 2, 64, 64, 128, 2).str_repeat("\x00", 32);
+    }
+
+    $decoded = @imagecreatefromstring($bytes);
+    $gdCanDecode = $decoded !== false;
+    if ($decoded !== false) {
+        imagedestroy($decoded);
+    }
+
+    return [$bytes, $gdCanDecode];
+}
+
+it('refuses a format getimagesize cannot read, whether or not GD can decode it (SEC-1, review follow-up)', function () {
+    // The bypass an independent review found in the first cut of this guard.
+    // imagecreatefromstring() decodes strictly MORE formats than
+    // getimagesizefromstring() can parse — GD's own GD2 among them — so a guard
+    // that treats "unreadable header" as "harmless" is bypassable by choosing a
+    // format the header reader does not know. Measured at the time: a 12000x12000
+    // GD2 image is ~854 KB on the wire, getimagesizefromstring() returns false
+    // for it, and GD decodes it into 144 million pixels.
+    //
+    // Asserted at 64x64 deliberately: the fix is a FORMAT allowlist, so it
+    // refuses GD2 at any size and this needs no half-gigabyte fixture.
+    [$gd2, $gdCanDecode] = mirrorGd2Bytes();
+
+    // Premise that holds on every build: the header reader cannot see it.
+    expect(@getimagesizefromstring($gd2))->toBeFalse();
+
+    // Premise that holds only where the build kept GD2 READ support. Where it
+    // does, this is the bypass in its literal form — bytes GD would happily
+    // rasterise. Where it does not, the refusal below still has to hold, which
+    // is the whole point of asserting it unconditionally.
+    if ($gdCanDecode) {
+        expect(ImagePixelBudget::decodable($gd2))->toBeFalse();
+    }
+
+    $user = createTenant('gd2-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:GD2:0'));
+    // A lying content-type, because finfo byte-sniffs and does not trust it.
+    Http::fake(['*' => Http::response($gd2, 200, ['Content-Type' => 'image/png'])]);
+
+    $ok = app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/x.gd2');
+
+    expect($ok)->toBeFalse();
+    expect(DB::table('content.media_assets')->where('id', $assetId)->value('storage_path'))->toBeNull();
+    expect(DB::table('content.media_assets')->where('id', $assetId)->value('mirror_last_reason'))->toBe('undecodable');
+});
+
+it('the pixel-budget guard fails CLOSED on an allowlisted mime whose header will not parse', function () {
+    // A truncated PNG: finfo still calls it image/png, getimagesizefromstring
+    // cannot read dimensions from it. The old guard returned "not over budget"
+    // and handed it to GD; it must refuse instead.
+    $img = imagecreatetruecolor(8, 8);
+    ob_start();
+    imagepng($img);
+    $png = (string) ob_get_clean();
+    imagedestroy($img);
+    $truncated = substr($png, 0, 20);
+
+    expect(ImagePixelBudget::decodable($truncated))->toBeTrue();
+    expect(@getimagesizefromstring($truncated))->toBeFalse();
+    expect(ImagePixelBudget::exceeds($truncated))->toBeTrue();
+    expect(ImagePixelBudget::safeToDecode($truncated))->toBeFalse();
 });

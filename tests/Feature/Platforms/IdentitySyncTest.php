@@ -211,10 +211,13 @@ it('partna google connect only fills blank fields and never clobbers manual valu
     expect($workplace->field_sources['website']['source'])->toBe('google-business');
     expect($workplace->opening_hours['mon'])->toBe([['open' => '0900', 'close' => '1730']]);
 
-    // Sector was blank → filled. Phone was manual → NOT mirrored over.
+    // 2026-08-19 identity plan: NOTHING mirrors onto a partna's user row from
+    // a workplace sync. Sector stays blank (Instagram is their one automated
+    // source now) and the public contact number is untouched — the workplace
+    // is where they WORK, not who they are.
     $user->refresh();
-    expect($user->sector)->toBe('barber');
-    expect($user->sector_source)->toBe('google-business');
+    expect($user->sector)->toBeNull();
+    expect($user->sector_source)->toBeNull();
     expect($user->public_contact_number)->toBe('(03) 1111 1111');
 });
 
@@ -324,9 +327,10 @@ it('overwrites an instagram-sourced sector on a business google resync', functio
         ->and($user->sector_source)->toBe('google-business');
 });
 
-it('overwrites an instagram-sourced sector on a partna account too', function () {
-    // The account type Instagram pre-account builds actually produce.
-    // Site before forceFill+save — see the comment on the test above.
+it('leaves a partna sector alone entirely — Google no longer writes it (2026-08-19 identity plan)', function () {
+    // Reverses the pre-plan rule this test used to pin: a partna's industry
+    // must not be set by where they WORK. Instagram (their own account) is
+    // the sole automated source now; the Google fold is business-only.
     $user = idsyncUser('partnagooglesector', 'partna');
     idsyncSite($user);
     $user->forceFill(['sector' => 'artist', 'sector_source' => 'instagram'])->save();
@@ -334,8 +338,8 @@ it('overwrites an instagram-sourced sector on a partna account too', function ()
     app(IdentitySync::class)->applyFromGooglePayload($user, ['category' => 'Barber shop']);
 
     $user->refresh();
-    expect($user->sector)->toBe('barber')
-        ->and($user->sector_source)->toBe('google-business');
+    expect($user->sector)->toBe('artist')
+        ->and($user->sector_source)->toBe('instagram');
 });
 
 it('never overwrites a manual sector pick, on either account type', function (string $accountType) {
@@ -421,7 +425,9 @@ it('never writes contact_email from a google connect, even for business', functi
 
 // ── (d) Manual upsert: manual provenance + mirrors + (business) display_name ─
 
-it('manual upsert stamps manual source and mirrors public contact fields', function () {
+it('manual upsert stamps manual source and mirrors NOTHING onto a partna user row', function () {
+    // 2026-08-19 identity plan: the workplace's contact pair no longer
+    // mirrors for partna — workplace fields and user fields are independent.
     $user = idsyncUser('manualp', 'partna');
     idsyncSite($user);
 
@@ -438,29 +444,37 @@ it('manual upsert stamps manual source and mirrors public contact fields', funct
     expect($workplace->field_sources['contact_email']['source'])->toBe('manual');
     expect($workplace->field_sources['website']['source'])->toBe('manual');
 
-    // Mirrored onto the user's public contact columns.
+    // The user's own public pair stays untouched — TWO of each thing.
     $user->refresh();
-    expect($user->public_contact_number)->toBe('(03) 2222 2222');
-    expect($user->public_contact_email)->toBe('hello@handtyped.example');
+    expect($user->public_contact_number)->toBeNull();
+    expect($user->public_contact_email)->toBeNull();
     // partna account → display_name NOT adopted from the workplace name.
     expect($user->display_name)->toBe('Manualp');
 });
 
-it('manual upsert on a business account mirrors the name to display_name', function () {
+it('manual upsert on a business account mirrors identity fields but NOT display_name', function () {
+    // Decision 8 (2026-08-19): display_name is user-owned after Google's
+    // initial seed — the manual workplace-name mirror is gone. The identity
+    // mirror (contact, description, address) still runs for business.
     $user = idsyncUser('manualbiz', 'business');
     idsyncSite($user);
 
-    // Manual entry is capped at 15 chars by UpsertWorkplaceRequest (unlike
-    // the auto-adopted Google path, which word-trims instead of rejecting).
     actingAsUser($user)->putJson('/api/site/workplace', [
         'name' => 'Trading Name',
         'phone' => '(03) 3333 3333',
+        'contact_email' => 'shop@trading.example',
+        'description' => 'A very fine shop.',
+        'address_line1' => '1 Mirror Lane',
+        'city' => 'Melbourne',
     ])->assertOk();
 
     $user->refresh();
-    // Business capability google_business_sets_display_name → name adopted.
-    expect($user->display_name)->toBe('Trading Name');
+    expect($user->display_name)->toBe('Manualbiz');
     expect($user->public_contact_number)->toBe('(03) 3333 3333');
+    expect($user->public_contact_email)->toBe('shop@trading.example');
+    expect($user->bio)->toBe('A very fine shop.');
+    expect($user->location_street_address)->toBe('1 Mirror Lane');
+    expect($user->location_city)->toBe('Melbourne');
 });
 
 it('manual upsert preserves a google-business badge on a field the user did not send', function () {
@@ -551,4 +565,124 @@ it('a scheduled refresh that changes the payload folds identity for a business a
     expect($workplace->opening_hours['mon'])->toBe([['open' => '0900', 'close' => '1730']]);
     $user->refresh();
     expect($user->sector)->toBe('barber');
+});
+
+// ── Resync (owner, 2026-08-19): an overridden partna field goes back under Google ──
+
+it('partna resync puts a hand-edited field back under google and reports google_fields', function () {
+    idsyncFakePlaces();
+    $user = idsyncUser('resyncme', 'partna');
+    $siteId = idsyncSite($user);
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJidsync',
+        'name' => 'Fade Lab',
+        'lat' => -37.0,
+        'lng' => 144.0,
+    ])->assertOk();
+
+    // The user overrides the phone by hand — provenance flips to manual.
+    actingAsUser($user)->putJson('/api/site/workplace', [
+        'name' => 'Fade Lab',
+        'phone' => '+61 400 000 000',
+    ])->assertOk();
+    $workplace = Workplace::query()->where('site_id', $siteId)->firstOrFail();
+    expect($workplace->phone)->toBe('+61 400 000 000');
+    expect(($workplace->field_sources ?? [])['phone']['source'] ?? null)->toBe('manual');
+
+    // show advertises what Google can supply.
+    $show = actingAsUser($user)->getJson('/api/site/workplace')->assertOk()->json();
+    expect($show['google_fields'])->toContain('phone')->toContain('name')->toContain('address_line1');
+
+    // Resync the phone: Google's value returns, stamped google-business; the
+    // hand-typed name is untouched.
+    $response = actingAsUser($user)->postJson('/api/site/workplace/resync', ['fields' => ['phone']])->assertOk()->json();
+    expect($response['resynced'])->toBe(['phone']);
+    $workplace->refresh();
+    expect($workplace->phone)->toBe('(03) 9123 4567');
+    expect(($workplace->field_sources ?? [])['phone']['source'] ?? null)->toBe('google-business');
+    expect($workplace->name)->toBe('Fade Lab');
+});
+
+it('resync of any address column moves the whole address unit', function () {
+    idsyncFakePlaces();
+    $user = idsyncUser('resyncaddr', 'partna');
+    $siteId = idsyncSite($user);
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJidsync', 'name' => 'Fade Lab', 'lat' => -37.0, 'lng' => 144.0,
+    ])->assertOk();
+    actingAsUser($user)->putJson('/api/site/workplace', [
+        'name' => 'Fade Lab', 'address_line1' => '1 Nowhere Rd', 'city' => 'Elsewhere', 'postcode' => '9999',
+    ])->assertOk();
+
+    $response = actingAsUser($user)->postJson('/api/site/workplace/resync', ['fields' => ['address_line1']])->assertOk()->json();
+    expect($response['resynced'])->toContain('address_line1')->toContain('city')->toContain('postcode');
+    $workplace = Workplace::query()->where('site_id', $siteId)->firstOrFail();
+    expect($workplace->address_line1)->toBe('12 Example St');
+    expect($workplace->city)->toBe('Melbourne');
+    expect($workplace->postcode)->toBe('3000');
+});
+
+it('resync 422s when google has nothing for the field', function () {
+    $user = idsyncUser('resyncnone', 'partna');
+    idsyncSite($user);
+    actingAsUser($user)->postJson('/api/site/workplace/resync', ['fields' => ['phone']])->assertStatus(422);
+});
+
+// ── (f) The partna fill-only contract reaches core.users, not just workplaces ──
+//
+// IdentitySync's docblock promises: "partna ($overwrite = false) → Google fills
+// gaps only; never clobbers a value the user set by hand." That guard is applied
+// per-field on site.workplaces (IdentitySync::applyWorkplaceFields), then the row
+// is saved — which fires WorkplaceObserver::mirrorContactFields BEFORE
+// applyUserIdentityFields is ever reached. The observer carries no $overwrite
+// notion, so it re-published Google's number over the hand-typed one and
+// IdentitySync's own guard then no-opped, having nothing left to protect.
+//
+// The distinction matters because core.users.public_contact_number is the column
+// the PUBLIC PAGE renders (profile.publicContact) — the workplace card being
+// correct is no consolation if the number visitors call is Google's.
+
+it('a partna google connect does not clobber a hand-typed public contact number', function () {
+    idsyncFakePlaces();
+    $user = idsyncUser('partnakeepsphone', 'partna');
+    $siteId = idsyncSite($user);
+
+    // Hand-typed, exactly as PATCH /api/me would leave it. No workplace row yet,
+    // so workplaces.phone is BLANK — Google filling it is legitimate fill-if-empty
+    // and the workplace write under test is NOT itself a violation.
+    $user->update(['public_contact_number' => '+61400111222']);
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJidsync',
+        'name' => 'Fade Lab',
+        'lat' => -37.0,
+        'lng' => 144.0,
+    ])->assertOk();
+
+    // The workplace card legitimately takes Google's number (it was empty)...
+    expect(Workplace::query()->where('site_id', $siteId)->value('phone'))->toBe('(03) 9123 4567');
+
+    // ...but the user's own public number is theirs and must survive.
+    $user->refresh();
+    expect($user->public_contact_number)->toBe('+61400111222');
+});
+
+it('a business google connect still replaces the public contact number', function () {
+    idsyncFakePlaces();
+    $user = idsyncUser('bizkeepsgoogle', 'business');
+    idsyncSite($user);
+    $user->update(['public_contact_number' => '+61400111222']);
+
+    actingAsUser($user)->postJson('/api/platforms/google-business/connect', [
+        'placeId' => 'ChIJidsync',
+        'name' => 'Fade Lab',
+        'lat' => -37.0,
+        'lng' => 144.0,
+    ])->assertOk();
+
+    // Business grants Google authority (google_business_full_sync) — the fix must
+    // not turn the partna guard into a blanket one.
+    $user->refresh();
+    expect($user->public_contact_number)->toBe('(03) 9123 4567');
 });

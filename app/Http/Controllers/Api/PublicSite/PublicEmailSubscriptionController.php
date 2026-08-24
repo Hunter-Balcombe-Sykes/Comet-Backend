@@ -11,6 +11,7 @@ use App\Http\Requests\Api\PublicSite\PublicEmailSubscribeRequest;
 use App\Jobs\Notifications\SendSubscriptionConfirmationJob;
 use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\User\Customer;
+use App\Services\Analytics\AnalyticsEventSanitizer;
 use App\Services\PublicSite\PublicSiteResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
@@ -92,10 +93,14 @@ class PublicEmailSubscriptionController extends ApiController
         $resolvedName = $providedName !== '' ? $providedName : $this->inferNameFromEmail($email);
         $overwriteName = $providedName !== '';
 
+        // email_lc is the indexed, already-lower-cased column (unique per
+        // user_id+list_key and per list_key globally) — $email is already
+        // lower-cased above, so this can match it directly instead of a
+        // whereRaw lower(email) scan.
         $subscription = EmailSubscription::query()
             ->where('user_id', $site->user_id)
             ->where('list_key', $listKey)
-            ->whereRaw('lower(email) = ?', [$email])
+            ->where('email_lc', $email)
             ->first();
 
         if (! $subscription) {
@@ -134,7 +139,10 @@ class PublicEmailSubscriptionController extends ApiController
         $subscription->markSubscribed([
             'source' => 'site_subscribe',
             'ip_hash' => $this->hashIp($request->ip()),
-            'user_agent' => $request->userAgent(),
+            // PGR-19: coarse UA token (Family/MajorVersion), matching
+            // PublicCustomerLeadController's PRIV-2 pattern — was stored fully
+            // raw and uncapped here.
+            'user_agent' => AnalyticsEventSanitizer::userAgent($request->userAgent()),
         ]);
 
         // A genuine re-subscribe should confirm again — clear the prior stamp.

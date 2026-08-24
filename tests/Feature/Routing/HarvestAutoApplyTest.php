@@ -8,8 +8,10 @@
 // where two rules matched too closely (margin < minMargin) stays Choose, or
 // we would be guessing WHICH surface to connect, not whether.
 
+use App\Jobs\Platforms\ConnectFetchJob;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -18,6 +20,13 @@ beforeEach(function () {
     setupSitesTable();
     setupRoutingTables();
     setupContentTables();
+    // Same latent network dependence ConnectionIdentityAliasTest carried:
+    // F9's reconciler-dispatched ConnectFetchJob runs inline under the sync
+    // driver with no Http::fake, so applied content connections were being
+    // enriched against the REAL youtube/bandcamp — slow always, and
+    // outcome-flipping the day a vendor endpoint flakes (F26 removes a
+    // never-fetched row). These tests pin verdict/placement semantics only.
+    Bus::fake([ConnectFetchJob::class]);
 });
 
 // Bare Bandcamp measured 60 pre-penalty on 2026-08-18: suggest band for

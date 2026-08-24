@@ -16,6 +16,7 @@ use App\Http\Requests\Platforms\UpdateShopSettingsRequest;
 use App\Http\Resources\Platforms\ShopBrandResource;
 use App\Jobs\Platforms\ProcessShopBrandLogoJob;
 use App\Jobs\Platforms\ShopBrandConnectJob;
+use App\Jobs\Platforms\ShopInitialFillJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
@@ -40,6 +41,7 @@ use App\Services\Shop\ShopContentWriter;
 use App\Services\Shop\StoreRecord;
 use App\Site\Documents\BuildState;
 use App\Site\Pools\AutoSyncSetting;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -100,7 +102,7 @@ class ShopController extends ApiController
     use ResolveCurrentSite;
     use ResolveCurrentUser;
 
-    private const MAX_BRANDS = 5;
+    private const MAX_BRANDS = 10;
 
     // How long the picker-warmed product catalog stays cached, so a PUT
     // /selection right after the picker opened reuses it instead of re-scraping.
@@ -493,6 +495,16 @@ class ShopController extends ApiController
         if ($deferred) {
             // AFTER the lock has released — see the sentinel comment above.
             ShopBrandConnectJob::dispatch($collectionId)->afterCommit();
+        } else {
+            // The synchronous lane (generic/client-detected) never passes
+            // through ShopBrandConnectJob, so without this it was the ONE
+            // connect lane with no initial catalogue fill and no first-connect
+            // auto-select (T1 critic pass, 2026-08-20). The job's fill +
+            // ShopAutoSelector are both idempotent, and its settle() CAS
+            // no-ops here (connect_status is already null) — only the
+            // post-settle tail... which is exactly why ShopInitialFillJob
+            // exists rather than reusing ShopBrandConnectJob.
+            ShopInitialFillJob::dispatch($collectionId)->afterCommit();
         }
 
         return $lockResponse;
@@ -569,11 +581,10 @@ class ShopController extends ApiController
     // discount code and the referral URL (stored as its parsed query suffix).
     // Every field is optional; only what's present is applied.
     //
-    // linkMode is still ACCEPTED here for backward compatibility but is DORMANT
-    // as of 2026-07-08: it became one GLOBAL site setting (site.sites.shop_link_mode
-    // via /platforms/shop/settings), and the public payload always stamps linkMode
-    // from the global — so a per-brand write to it is inert on the wire. The
-    // dashboard no longer sends it.
+    // The per-brand linkMode was DELETED 2026-08-19 (dormant since
+    // 2026-07-08): link mode is one GLOBAL site setting
+    // (site.sites.shop_link_mode via /platforms/shop/settings). The request
+    // no longer accepts the key and the resource no longer echoes it.
     //
     // selectionMode is NOT dormant — #SEM-1: setting it to 'latest' clears
     // products_curated_at (the opt-BACK-IN path after setProducts() curated the
@@ -1227,17 +1238,38 @@ class ShopController extends ApiController
     }
 
     /**
-     * shop_product ranks (keyed by product HANDLE), the same annotation the
-     * public wire carries — the dashboard's Smart order switch sorts on
-     * popularityRank, and until 2026-08-04 the dashboard path omitted the
-     * key entirely, so "engagement order" silently meant "stored order".
-     * Fail-open: a read fault degrades to null ranks. Every caller must pass an
-     * array (never null) so popularityRank stays PRESENT (not omitted) on every
-     * dashboard read, matching ShopContentReader::brandMap()'s own contract.
+     * shop_product ranks re-keyed by product HANDLE for the legacy catalogue
+     * shape (ShopContentReader carries handle, not item id). The stored rows
+     * key by content.items.id since 2026-08-23, so the id → handle map comes
+     * from f_catalog. Fail-open: a read fault degrades to null ranks. Every
+     * caller must pass an array (never null) so popularityRank stays PRESENT
+     * (not omitted) on every dashboard read, matching brandMap()'s contract.
+     *
+     * @return array<string, int> handle => rank
      */
     private function productRanksFor(User $user): array
     {
-        return $this->popularity->forSite($user->site?->id)['shop_product'] ?? [];
+        $byId = $this->popularity->forSite($user->site?->id)['shop_product'] ?? [];
+        if ($byId === []) {
+            return [];
+        }
+        $out = [];
+        try {
+            DB::table('content.items as i')
+                ->join('content.f_catalog as fc', 'fc.item_id', '=', 'i.id')
+                ->where('i.user_id', (string) $user->id)
+                ->where('i.kind', 'product')
+                ->whereIn('i.id', array_keys($byId))
+                ->whereNotNull('fc.handle')
+                ->get(['i.id', 'fc.handle'])
+                ->each(function ($row) use (&$out, $byId): void {
+                    $out[(string) $row->handle] ??= $byId[(string) $row->id];
+                });
+        } catch (QueryException) {
+            return [];
+        }
+
+        return $out;
     }
 
     /**

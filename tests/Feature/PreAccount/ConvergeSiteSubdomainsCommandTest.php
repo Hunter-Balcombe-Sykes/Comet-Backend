@@ -8,11 +8,17 @@ use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\SiteCacheService;
+use Illuminate\Cache\Repository;
+use Illuminate\Console\Command;
+use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
+use Illuminate\Support\Testing\Fakes\QueueFake;
 
 beforeEach(function () {
     setupUsersTable();
@@ -185,4 +191,218 @@ it('ignores soft-deleted users', function () {
     $this->artisan('partna:converge-site-subdomains')
         ->expectsOutputToContain('0 diverged row(s)')
         ->assertSuccessful();
+});
+
+// ---------------------------------------------------------------------------
+// #PGR-11: invalidation-failure containment (change 1) + resolve-floor raise
+// (change 2). Rows are ordered by `s.subdomain` (old_subdomain) ascending, so
+// with old subdomains 'brian-b' and 'errol-s', brianb's row is processed
+// FIRST — that's the row these tests force to fail, proving the SECOND row
+// (errols) still converges.
+// ---------------------------------------------------------------------------
+
+/** Cache decorator whose deleteMultiple() throws exactly once, then delegates normally. */
+function cacheThatThrowsOnceOnDeleteMultiple(): Repository
+{
+    return new class(Cache::getFacadeRoot()->store()->getStore()) extends Repository
+    {
+        private bool $thrown = false;
+
+        public function deleteMultiple($keys): bool
+        {
+            if (! $this->thrown) {
+                $this->thrown = true;
+
+                throw new RuntimeException('forced cache failure');
+            }
+
+            return parent::deleteMultiple($keys);
+        }
+    };
+}
+
+it('continues past a cache-invalidation failure, converges the remaining row, and exits non-zero', function () {
+    $failingUser = divergedUser('brianb', 'brian-b');
+    $okUser = divergedUser('errols', 'errol-s');
+
+    $originalRoot = Cache::getFacadeRoot();
+    Cache::swap(cacheThatThrowsOnceOnDeleteMultiple());
+
+    $exitCode = Artisan::call('partna:converge-site-subdomains', ['--apply' => true]);
+    $output = Artisan::output();
+
+    Cache::swap($originalRoot);
+
+    expect($exitCode)->toBe(Command::FAILURE);
+    expect($output)->toContain('WRITTEN BUT NOT INVALIDATED — subdomain is now brianb');
+    expect($output)->toContain('retry KV:    php artisan partna:backfill-subdomain-kv '.$failingUser->id);
+    expect(substr_count($output, "\n  written.\n"))->toBe(1);
+
+    // Row 1 (brianb): the raw UPDATE happens BEFORE the try block, so the
+    // write itself is unaffected by the invalidation failure — WRITTEN BUT
+    // NOT INVALIDATED, not un-written.
+    expect(DB::connection('pgsql')->table('site.sites')->where('user_id', $failingUser->id)->value('subdomain'))
+        ->toBe('brianb');
+
+    // Row 2 (errols): proves `continue`, not an abort of the whole run.
+    expect(DB::connection('pgsql')->table('site.sites')->where('user_id', $okUser->id)->value('subdomain'))
+        ->toBe('errols');
+});
+
+it('continues past a KV-dispatch failure, converges the remaining row, and exits non-zero', function () {
+    $failingUser = divergedUser('brianb', 'brian-b');
+    DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $failingUser->id,
+        'handle' => 'brian-b-old',
+        'expires_at' => now()->addDays(90),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    $okUser = divergedUser('errols', 'errol-s');
+
+    // Bypass the queue subsystem entirely and force the Bus dispatcher itself
+    // to throw — SyncSubdomainToKvJob::dispatch() resolves this contract
+    // directly (see PendingDispatch::__destruct), so this reaches exactly the
+    // call the command makes without needing to fight ShouldBeUniqueUntilProcessing
+    // lock machinery or QueueFake internals.
+    $throwingDispatcher = new class implements BusDispatcher
+    {
+        public function dispatch($command)
+        {
+            throw new RuntimeException('forced dispatch failure');
+        }
+
+        public function dispatchSync($command, $handler = null)
+        {
+            throw new RuntimeException('forced dispatch failure');
+        }
+
+        public function dispatchNow($command, $handler = null)
+        {
+            throw new RuntimeException('forced dispatch failure');
+        }
+
+        public function hasCommandHandler($command)
+        {
+            return false;
+        }
+
+        public function getCommandHandler($command)
+        {
+            return null;
+        }
+
+        public function pipeThrough(array $pipes)
+        {
+            return $this;
+        }
+
+        public function map(array $map)
+        {
+            return $this;
+        }
+    };
+    $originalDispatcher = app(BusDispatcher::class);
+    app()->instance(BusDispatcher::class, $throwingDispatcher);
+
+    $exitCode = Artisan::call('partna:converge-site-subdomains', ['--apply' => true]);
+    $output = Artisan::output();
+
+    app()->instance(BusDispatcher::class, $originalDispatcher);
+
+    expect($exitCode)->toBe(Command::FAILURE);
+    expect($output)->toContain('WRITTEN BUT NOT INVALIDATED — subdomain is now brianb');
+    expect($output)->toContain('retry KV:    php artisan partna:backfill-subdomain-kv '.$failingUser->id);
+    expect(substr_count($output, "\n  written.\n"))->toBe(1);
+
+    expect(DB::connection('pgsql')->table('site.sites')->where('user_id', $failingUser->id)->value('subdomain'))
+        ->toBe('brianb');
+    expect(DB::connection('pgsql')->table('site.sites')->where('user_id', $okUser->id)->value('subdomain'))
+        ->toBe('errols');
+});
+
+// Pins "the dispatch is not inside a transaction" as a test-enforced
+// invariant (the plan's rejected-transaction reasoning), so nobody re-adds a
+// DB::transaction() wrapper around the per-row write + invalidation later.
+it('never dispatches SyncSubdomainToKvJob from inside an open transaction', function () {
+    $user = divergedUser('errols', 'errol-s');
+    DB::connection('pgsql')->table('core.user_handle_aliases')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id,
+        'handle' => 'errol-s-old',
+        'expires_at' => now()->addDays(90),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $fakeQueue = new class(app()) extends QueueFake
+    {
+        public ?int $transactionLevelAtPush = null;
+
+        public function push($job, $data = '', $queue = null)
+        {
+            $this->transactionLevelAtPush = DB::connection('pgsql')->transactionLevel();
+
+            return parent::push($job, $data, $queue);
+        }
+    };
+    Queue::swap($fakeQueue);
+
+    $this->artisan('partna:converge-site-subdomains', ['--apply' => true])->assertSuccessful();
+
+    Queue::assertPushed(SyncSubdomainToKvJob::class);
+    expect($fakeQueue->transactionLevelAtPush)->toBe(0);
+});
+
+// Proves the command calls the REAL SiteCacheService::raiseResolveFloor —
+// not a local reimplementation — for the NEW subdomain specifically (the
+// user's unchanged handle_lc, the only one that should still resolve to this
+// site going forward). If the command ever stopped calling this method (e.g.
+// someone "simplified" it back out, or reimplemented the Cache::put logic
+// inline), this mock expectation fails.
+it('raises the resolve floor via SiteCacheService for the NEW subdomain, not the old one', function () {
+    divergedUser('errols', 'errol-s');
+
+    $this->partialMock(SiteCacheService::class, function ($mock) {
+        $mock->shouldReceive('raiseResolveFloor')
+            ->once()
+            ->withArgs(fn (string $handle, ?int $ts) => $handle === 'errols' && $ts !== null && $ts > 0);
+    });
+
+    $this->artisan('partna:converge-site-subdomains', ['--apply' => true])->assertSuccessful();
+});
+
+// Exercises the REAL (unmocked) SiteCacheService::raiseResolveFloor and
+// reproduces IndividualProfileController::show's read-side formula
+// (ts = max(resolved.updated_at_ts, floor)) against the same cache keys the
+// command and that controller share. This proves the floor mechanically
+// closes the race — a stale, lower timestamp re-installed into handle.resolve
+// after the command's delete cannot win the max().
+//
+// NOT proven here: the full HTTP round trip through IndividualProfileController
+// itself. That route needs the design-kit/media/services/content fixture
+// stack carried by tests/Feature/Api/PublicSite/IndividualProfileControllerTest.php,
+// which this command's test file deliberately does not pull in — the formula
+// reproduction below is the honest substitute for that in this lane.
+it('writes a resolve floor that out-maxes a stale re-put of handle.resolve', function () {
+    divergedUser('errols', 'errol-s');
+    $floorKey = CacheKeyGenerator::handleResolveFloor('errols');
+
+    expect(Cache::get($floorKey))->toBeNull();
+
+    $before = now()->timestamp;
+    $this->artisan('partna:converge-site-subdomains', ['--apply' => true])->assertSuccessful();
+
+    $floor = (int) Cache::get($floorKey);
+    expect($floor)->toBeGreaterThanOrEqual($before);
+
+    // Simulate the race: an in-flight reader that queried the DB pre-commit
+    // re-puts a STALE (lower) timestamp into handle.resolve after the
+    // command's Cache::deleteMultiple() already ran.
+    $staleReinstalledTs = $floor - 100;
+    $effectiveTs = max($staleReinstalledTs, (int) Cache::get($floorKey, 0));
+
+    expect($effectiveTs)->toBe($floor);
+    expect($effectiveTs)->not->toBe($staleReinstalledTs);
 });

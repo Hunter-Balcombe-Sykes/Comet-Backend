@@ -88,8 +88,8 @@ it('public profiles route returns Cache-Control: public with CDN TTL and an ETag
 
     $cacheControl = (string) $response->headers->get('Cache-Control', '');
     expect($cacheControl)->toContain('public');
-    expect($cacheControl)->toContain('max-age=900');
-    expect($cacheControl)->toContain('s-maxage=900');
+    expect($cacheControl)->toContain('max-age=5');
+    expect($cacheControl)->toContain('s-maxage=5');
     expect($response->headers->has('ETag'))->toBeTrue();
 });
 
@@ -163,7 +163,7 @@ it('a conditional GET on the profile route returns 304 still carrying the public
 
     $cacheControl = (string) $second->headers->get('Cache-Control', '');
     expect($cacheControl)->toContain('public')
-        ->toContain('s-maxage=900');
+        ->toContain('s-maxage=5');
     expect((string) $second->headers->get('Vary', ''))->toContain('Accept-Encoding');
 });
 

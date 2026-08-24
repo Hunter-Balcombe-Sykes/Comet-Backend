@@ -59,6 +59,8 @@ class FreshaServiceProjector implements Projector
             'headline' => $name,
             'facets' => array_filter([
                 'f_text' => $view->string('description') === null ? null : ['body' => $view->string('description')],
+                // The service's booking deep link (FreshaConnector::bookingDeepLink).
+                'f_link' => $view->string('url') === null ? null : ['url' => $view->string('url')],
                 'f_duration' => $duration === null ? null : ['seconds' => $duration],
             ]),
             // Kept alongside 'collections': the tag is what SectionCandidates

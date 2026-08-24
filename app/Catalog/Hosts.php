@@ -17,10 +17,23 @@ class Hosts
             'music.youtube.com' => 'youtube.com',
             'wa.me' => 'whatsapp.com',
             't.me' => 'telegram.org',
-            'fb.me' => 'facebook.com',
             'm.facebook.com' => 'facebook.com',
-            'spoti.fi' => 'spotify.com',
-            'on.soundcloud.com' => 'soundcloud.com',
+            // fb.me / spoti.fi / on.soundcloud.com were aliases here until
+            // FI-3 (2026-08-20). An alias rewrites only the registrable key
+            // and keeps the PATH — but these hosts carry opaque short CODES,
+            // not platform paths, so a lowercase code could match a profile
+            // detector and mint a fake account (reproduced with
+            // on.soundcloud.com in the sammy.pdf baseline). They are redirect
+            // shorteners, handled by ShortLinkExpander now; wa.me and t.me
+            // stay aliases because their paths ARE the identity (phone
+            // number / channel name), not codes to dereference.
+            // RA's legacy domain still resolves and circulates in old bios;
+            // its links are the same pages ra.co serves (events-parity).
+            'residentadvisor.net' => 'ra.co',
+            // Luma rebranded onto luma.com — lu.ma now 301s there, and the
+            // event pages people copy carry the new host (found live,
+            // events-parity 2026-08-19). Same pages, same path grammar.
+            'luma.com' => 'lu.ma',
         ];
     }
 
@@ -31,12 +44,29 @@ class Hosts
      *
      * @return list<string>
      */
+    /**
+     * The SHOP subset of the tenant suffixes below. LinkProbeWorker still
+     * probes these (M-9, 2026-08-21): the projector knows WHAT a tenant shop
+     * host is, but StoreBrandSeeder needs the storefront's own evidence
+     * (shop name, currency, origin) that only the probe fetches. Booking
+     * tenants keep the probe refusal — their seeders need no evidence.
+     *
+     * @var list<string>
+     */
+    public const SHOP_TENANT_SUFFIXES = [
+        'myshopify.com',
+        'bigcartel.com',
+        // NOT square.site (critic, 2026-08-21): both classifiers route it to
+        // square.book (Booking) — Square Online sites book, they don't shop
+        // here — and the probe cascade has no Square Online probe, so listing
+        // it would only spend budget on a guaranteed miss.
+    ];
+
     public static function suffixOverrides(): array
     {
         return [
-            'myshopify.com',
-            'square.site',
-            'bigcartel.com',
+            ...self::SHOP_TENANT_SUFFIXES,
+            'square.site', // tenant suffix for canonicalization; BOOKING class, so not in the shop subset
             'nowbookit.com',
             'gettimely.com',
             'setmore.com',

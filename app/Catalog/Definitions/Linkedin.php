@@ -31,6 +31,7 @@ class Linkedin
     {
         return [
             SurfaceBuilder::for('linkedin.profile')
+                ->legacyPlatform('linkedin')
                 ->displayName('LinkedIn')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)
@@ -38,7 +39,6 @@ class Linkedin
                 ->refreshEvery(0)
                 ->canonicalUrl('https://www.linkedin.com/in/{handle}/')
                 ->connect('connect.linkedin.url.v1')
-                ->multiAccount(5)
                 ->detect(
                     Detector::url('linkedin.com')
                         ->path('#^/(?:in|company|school|pub)/(?<handle>[\p{L}\p{N}._-]{2,100})/?$#u')

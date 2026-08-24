@@ -122,17 +122,37 @@ it('claims the daily cap through DailyCounterClaim, not a private counter', func
     // between the two round trips, INCRBY recreates it with NO TTL, which under
     // instance-wide volatile-lru is permanent inevictable ballast.
     //
-    // Asserted against the TRAIT, which is where the counter lives now that both
-    // LinkRouter and GoogleBusinessAutoSync claim from one install-wide ceiling.
-    $trait = file_get_contents(base_path('app/Services/Platforms/Concerns/BuildsAutoSyncFindings.php'));
+    // Asserted against AutoBookingConnectDispatcher, which is where the counter
+    // lives since 2026-08-19. It moved out of the trait when a THIRD producer
+    // (SourceReconciler, for unclaimed pre-account sites) needed the dispatch and
+    // could not take the trait; the trait's two methods now delegate there. The
+    // invariant this test defends is unchanged and in fact stronger — ONE
+    // install-wide ceiling, now shared by three producers rather than two.
+    $dispatcher = file_get_contents(base_path('app/Services/Platforms/AutoBookingConnectDispatcher.php'));
 
     $this->assertStringContainsString(
         'DailyCounterClaim::claim(CacheKeyGenerator::freshaAutoConnectDaily(',
-        $trait,
+        $dispatcher,
         'The daily cap must claim through DailyCounterClaim with a CacheKeyGenerator key.'
     );
 
+    // ...and exactly once in the codebase: a second claim site is a second
+    // ceiling, which is the per-route budget this whole design rejects.
     foreach ([
+        'app/Services/Platforms/Concerns/BuildsAutoSyncFindings.php',
+        'app/Services/Platforms/LinkRouter.php',
+        'app/Services/Platforms/GoogleBusinessAutoSync.php',
+        'app/Routing/SourceReconciler.php',
+    ] as $file) {
+        $this->assertStringNotContainsString(
+            'DailyCounterClaim::claim(',
+            file_get_contents(base_path($file)),
+            "{$file}: the daily ceiling must be claimed in AutoBookingConnectDispatcher alone, or it stops being install-wide."
+        );
+    }
+
+    foreach ([
+        'app/Services/Platforms/AutoBookingConnectDispatcher.php',
         'app/Services/Platforms/Concerns/BuildsAutoSyncFindings.php',
         'app/Services/Platforms/LinkRouter.php',
         'app/Services/Platforms/GoogleBusinessAutoSync.php',

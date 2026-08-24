@@ -265,7 +265,7 @@ it('a partial update does not blank out fields it did not send', function () {
 // B1 (final whole-branch review): projectionFor() built the content.* facet
 // projection with array_filter(), which dropped a null/empty 'body' or the
 // whole 'f_duration' facet from the payload — ProjectionWriter::
-// upsertSingletonFacet() only touches columns actually present in what it's
+// the singleton-facet write path only touches columns actually present in what it's
 // given, so an omitted facet key left the EXISTING row untouched. An
 // explicit PATCH {"description": null} therefore silently no-opped instead
 // of clearing the field.

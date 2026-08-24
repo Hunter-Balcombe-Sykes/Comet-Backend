@@ -83,12 +83,14 @@ const OUTBOUND_HTTP_ALLOWLIST = [
     // ── Pattern D — FixedHostVariablePath (Rule 3 applies) ──────────────────
     'app/Services/Platforms/YoutubeThumbnailResolver.php' => ['D', 'i.ytimg.com; $videoId validated by VIDEO_ID_PATTERN'],
     'app/Services/Platforms/GoogleBusinessService.php' => ['D', 'places.googleapis.com; $ref validated by PHOTO_REF_PATTERN'],
+    'app/Services/Platforms/LinkInBioApiUnroller.php' => ['D', 'api-prod.linkin.bio + taplink.cc + api.stanwith.me + sprout.link, all class consts; $slug validated by NICKNAME_PATTERN'],
 ];
 
 /** Pattern D files must constrain their interpolated segment before building a URL. */
 const OUTBOUND_HTTP_PATTERN_D_VALIDATORS = [
     'app/Services/Platforms/YoutubeThumbnailResolver.php' => 'VIDEO_ID_PATTERN',
     'app/Services/Platforms/GoogleBusinessService.php' => 'PHOTO_REF_PATTERN',
+    'app/Services/Platforms/LinkInBioApiUnroller.php' => 'NICKNAME_PATTERN',
 ];
 
 it('has exactly one outbound HTTP door — no curl, no direct Guzzle, no URL file reads (Rule 1)', function () {

@@ -24,6 +24,7 @@ class Vagaro
     {
         return [
             SurfaceBuilder::for('vagaro.book')
+                ->legacyPlatform('vagaro')
                 ->displayName('Vagaro')
                 ->routing(RoutingClass::Booking)
                 ->shelf(Shelf::Booking)

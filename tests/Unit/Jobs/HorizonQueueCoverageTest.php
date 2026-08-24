@@ -4,6 +4,7 @@ use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Jobs\Ingest\RunSourceJob;
+use App\Jobs\Media\MirrorMediaAssetJob;
 use App\Jobs\Notifications\SendStaffBroadcastEmailsJob;
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
@@ -16,6 +17,7 @@ use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Mail\SendQueuedMailable;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
@@ -66,6 +68,70 @@ it('analytics is listed AFTER images on supervisor-1, so a visitor spike cannot 
             $imagesIndex,
             'analytics must drain after images — it is high-volume and fire-and-forget, images is low-volume and user-visible'
         );
+});
+
+// The mirror split (2026-08-18). 'images' is a MIXED queue: ProcessImageVariantsJob
+// has a user watching an upload spinner, MirrorMediaAssetJob is background work on
+// bytes that already render from their source_url. Under balance=>false two jobs on
+// one queue name are declared equally urgent, so a build wave's ~300 mirrors sat in
+// front of every real upload — a priority inversion no reordering of the lane can
+// reach, because the contention is INSIDE the queue.
+it('media-mirror is listed AFTER images, so background mirroring cannot delay a user upload', function () {
+    $horizon = require base_path('config/horizon.php');
+    $queue = $horizon['defaults']['supervisor-1']['queue'];
+
+    $imagesIndex = array_search('images', $queue, true);
+    $mirrorIndex = array_search('media-mirror', $queue, true);
+
+    expect($imagesIndex)->not->toBeFalse()
+        ->and($mirrorIndex)->not->toBeFalse()
+        ->and($mirrorIndex)->toBeGreaterThan(
+            $imagesIndex,
+            'media-mirror must drain after images — a user waits on an upload, nobody waits on a mirror'
+        );
+});
+
+// The other half of the placement, and the reason it is NOT simply appended last:
+// 'analytics' is the highest-volume queue in the system and floods in 20,000-job
+// bursts. Ranked below it, a mirror would wait out an entire visitor spike — trading
+// the inversion above for a worse one, and pushing latency past the point where an
+// Instagram signed URL expires and the mirror fails for real.
+it('media-mirror is listed BEFORE analytics, so a visitor spike cannot strand a mirror for an hour', function () {
+    $horizon = require base_path('config/horizon.php');
+    $queue = $horizon['defaults']['supervisor-1']['queue'];
+
+    $mirrorIndex = array_search('media-mirror', $queue, true);
+    $analyticsIndex = array_search('analytics', $queue, true);
+
+    expect($mirrorIndex)->not->toBeFalse()
+        ->and($analyticsIndex)->not->toBeFalse()
+        ->and($analyticsIndex)->toBeGreaterThan(
+            $mirrorIndex,
+            'analytics is a 20k-job firehose — a mirror ranked below it waits out the whole spike'
+        );
+});
+
+it('media-mirror queue is covered in every Horizon environment', function () {
+    foreach (['production', 'development', 'local'] as $env) {
+        expect(envCoversQueue($env, 'media-mirror'))->toBeTrue(
+            "media-mirror queue must appear in at least one {$env} supervisor queue list"
+        );
+    }
+});
+
+it('MirrorMediaAssetJob is dispatched onto the media-mirror queue, not images', function () {
+    // The config key and the horizon lane have to agree; a job routed to a queue
+    // no supervisor drains strands silently, which is the exact regression the
+    // rest of this file exists to prevent.
+    Queue::fake();
+
+    MirrorMediaAssetJob::dispatch(
+        (string) Str::uuid(),
+        (string) Str::uuid(),
+        'https://scontent.cdninstagram.com/v/one.jpg',
+    );
+
+    Queue::assertPushedOn('media-mirror', MirrorMediaAssetJob::class);
 });
 
 it('cloudflare_bulk queue is covered in every Horizon environment', function () {
@@ -734,7 +800,7 @@ it('the four Unit F wait-time thresholds have the expected values', function () 
 
     // Exact equality, not a range — so a "tidy up" pass can't silently loosen
     // one of these back toward the accidental-60s failure mode.
-    expect($waits['redis:moderation_high,default,cloudflare,cache-warm,images,streaming,platform_refresh,platform_connect,analytics,cloudflare_bulk'])->toBe(900)
+    expect($waits['redis:moderation_high,default,cloudflare,cache-warm,images,media-mirror,streaming,platform_refresh,platform_connect,analytics,cloudflare_bulk'])->toBe(900)
         ->and($waits['redis:ingest'])->toBe(1800)
         ->and($waits['redis:notifications,mail'])->toBe(300)
         ->and($waits['redis_scraping:scraping,gdpr'])->toBe(3600)

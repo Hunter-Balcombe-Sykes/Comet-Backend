@@ -58,7 +58,6 @@ use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Payloads\ShopPayload;
-use App\Services\Platforms\Payloads\StandaloneEventPayload;
 use App\Services\Platforms\Registry\DerivedDescriptorFactory;
 use App\Services\Platforms\Registry\PlatformCategory as Cat;
 use App\Services\Platforms\Registry\PlatformDescriptor as PD;
@@ -300,7 +299,9 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // flag<=>instanceof for every descriptor).
             $r->get('eventbrite')->connectFetchError('Could not load that Eventbrite page.');
             $r->get('humanitix')->connectFetchError('Could not load that Humanitix page.');
-            $r->register(PD::make('events-custom')->label('Custom Event')->category(Cat::Events)->resource(TileConnectionResource::class)->payload(StandaloneEventPayload::class));
+            // 'events-custom' left the registry 2026-08-19 with the
+            // pseudo-platform retirement: a standalone event is an events-pool
+            // item (ManualEventWriter), never a connection row.
 
             // ── Picker / booking / reservations (no cron refresh) ──
             $r->register(PD::make('fresha')->label('Fresha')->category(Cat::Booking)->resource(FreshaSelectionResource::class)->refreshable()->payload(SelectionPayload::class));
@@ -469,10 +470,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
 
                 return $site !== null && app(PoolResolver::class)->hasSelection($site, 'shop');
             });
-            $r->register(PD::make('custom')->label('Custom Link')->category(Cat::Content)->resource(LinkConnectionResource::class)->payload(CardPayload::class));
-            $r->register(PD::make('booking')->label('Booking')->category(Cat::Booking)->payload(CardPayload::class));
-            $r->register(PD::make('reservations')->label('Reservations')->category(Cat::Reservations)->payload(CardPayload::class));
-            $r->register(PD::make('online-ordering')->label('Online Ordering')->category(Cat::OnlineOrdering)->payload(CardPayload::class));
+            // The custom / booking / reservations / online-ordering pseudo
+            // descriptors left the registry 2026-08-19 (pseudo-platform
+            // retirement): zero rows carry those platform keys and every
+            // routed link lives on its real brand surface.
 
             // ── Connect-request validation contract (FOUND-19) ──────────────────
             // The single source of truth for each reducible platform's connect input

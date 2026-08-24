@@ -99,3 +99,64 @@ it('merges settings against a locked re-read of the on-disk value, not the stale
         'some_other' => 'x',
     ]);
 });
+
+it('merges pool_order BY POOL — saving one pool\'s ordering mode leaves every other pool\'s alone', function () {
+    // Found live 2026-08-24: the ordering fieldset PATCHes {pool_order: {services: manual}}
+    // and the whole map was replaced, so watch silently fell back to newest.
+    // pool_order is a MAP keyed by pool, not a list — the positional-merge
+    // hazard LIST_SETTINGS_KEYS exists for does not apply to it.
+    $proId = (string) Str::uuid();
+    $siteId = (string) Str::uuid();
+    $now = now()->toDateTimeString();
+
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId, 'handle' => 'order-owner', 'handle_lc' => 'order-owner',
+        'display_name' => 'Order Owner', 'first_name' => 'Order',
+        'primary_email' => 'order@example.test', 'status' => 'active',
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId, 'user_id' => $proId, 'subdomain' => 'order-owner',
+        'settings' => json_encode(['pool_order' => ['watch' => 'manual', 'listen' => 'smart']]),
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    $pro = User::query()->with('site')->findOrFail($proId);
+    app(UpdateSiteAction::class)->execute($pro, [
+        'settings' => ['pool_order' => ['services' => 'manual', 'listen' => 'newest']],
+    ]);
+
+    $settings = json_decode(DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->value('settings'), true);
+    expect($settings['pool_order'])->toBe([
+        'watch' => 'manual',
+        'listen' => 'newest',
+        'services' => 'manual',
+    ]);
+});
+
+it('still replaces pool_locks atomically — a lock write carries the whole map', function () {
+    $proId = (string) Str::uuid();
+    $siteId = (string) Str::uuid();
+    $now = now()->toDateTimeString();
+
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId, 'handle' => 'lock-owner', 'handle_lc' => 'lock-owner',
+        'display_name' => 'Lock Owner', 'first_name' => 'Lock',
+        'primary_email' => 'lock@example.test', 'status' => 'active',
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => $siteId, 'user_id' => $proId, 'subdomain' => 'lock-owner',
+        'settings' => json_encode(['pool_locks' => ['watch' => [['position' => 0, 'id' => 'a'], ['position' => 1, 'id' => 'b']]]]),
+        'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    $pro = User::query()->with('site')->findOrFail($proId);
+    app(UpdateSiteAction::class)->execute($pro, [
+        'settings' => ['pool_locks' => ['watch' => [['position' => 0, 'id' => 'b']]]],
+    ]);
+
+    $settings = json_decode(DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->value('settings'), true);
+    // Not [b, b] — the shorter incoming list must not inherit the old tail.
+    expect($settings['pool_locks'])->toBe(['watch' => [['position' => 0, 'id' => 'b']]]);
+});

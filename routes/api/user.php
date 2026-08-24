@@ -78,7 +78,7 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // preview() writes nothing and is called on every keystroke pause, so it
         // gets its own tighter throttle than the shared authenticated bucket.
         Route::post('/routing/preview', [RoutingController::class, 'preview'])
-            ->middleware('throttle:60,1')
+            ->middleware('throttle:180,1')
             ->name('user.routing.preview');
         Route::post('/routing/links', [RoutingController::class, 'store'])
             ->name('user.routing.links');
@@ -88,10 +88,16 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // writes if the suggestions land somewhere a person can resolve them.
         Route::get('/routing/suggestions', [SuggestionsController::class, 'index'])
             ->name('user.routing.suggestions');
+        // Not whereUuid since 2026-08-19: the inbox also carries rows folded
+        // from ledgers that have no uuid of their own — a legacy payload
+        // finding is addressed `sync:{holder}:{platform}`, and the standing
+        // Google-listing offer is `listing:opentable`. The controller resolves
+        // the shape and 404s an id that matches nothing, which is the same
+        // answer a bogus uuid got.
         Route::post('/routing/suggestions/{intent}/accept', [SuggestionsController::class, 'accept'])
-            ->whereUuid('intent')->name('user.routing.suggestions.accept');
+            ->where('intent', '[A-Za-z0-9:_.-]{1,120}')->name('user.routing.suggestions.accept');
         Route::post('/routing/suggestions/{intent}/dismiss', [SuggestionsController::class, 'dismiss'])
-            ->whereUuid('intent')->name('user.routing.suggestions.dismiss');
+            ->where('intent', '[A-Za-z0-9:_.-]{1,120}')->name('user.routing.suggestions.dismiss');
 
         // Connections with per-class is_primary, and the SetPrimarySheet's
         // write: one primary CTA per (user, routing_class), swapped in a
@@ -190,8 +196,13 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // What a pasted link would become — read-only, per paste, so its own
         // throttle like /routing/preview.
         Route::post('/content/links/preview', [LinkPreviewController::class, 'show'])
-            ->middleware('throttle:60,1')
+            ->middleware('throttle:180,1')
             ->name('content.links.preview');
+        // The pure-grammar half of the preview alone (no page fetch) — the
+        // pool add sheets ask it as the URL settles, for step-1 guidance.
+        Route::post('/content/links/classify', [LinkPreviewController::class, 'classify'])
+            ->middleware('throttle:300,1')
+            ->name('content.links.classify');
         Route::delete('/content/items/{item}', [ItemController::class, 'destroy'])
             ->whereUuid('item')->name('content.items.destroy');
 
@@ -310,6 +321,7 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         Route::post('/me/site/reclaim-handle', [HandleReclaimController::class, 'store'])
             ->name('professional.site.reclaim-handle');
         Route::put('/site/workplace', [UserWorkplaceController::class, 'upsert']);
+        Route::post('/site/workplace/resync', [UserWorkplaceController::class, 'resync']);
         Route::delete('/site/workplace', [UserWorkplaceController::class, 'destroy']);
         Route::patch('/site/workplace/previous-website', [UserWorkplaceController::class, 'setPreviousWebsite']);
         Route::patch('/site/visibility', [SiteVisibilityController::class, 'update']);

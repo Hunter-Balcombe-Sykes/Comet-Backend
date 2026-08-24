@@ -54,6 +54,11 @@ const PARTNA_DOMAIN = "partna.au";
 // above), and there is deliberately no non-prod Worker environment to be driven
 // by (EDGE-102 removed [env.staging] from wrangler.toml). One const, one edit.
 const DASHBOARD_ORIGIN = `https://app.${PARTNA_DOMAIN}`;
+// The dashboard's dev server may frame a sitepage too (the Design page's live
+// preview on localhost, owner 2026-08-19) — a bare origin, no path, so this
+// allow-lists nothing a visitor could reach.
+const DASHBOARD_DEV_ORIGIN = "http://localhost:3000";
+const FRAME_ANCESTORS = `'self' ${DASHBOARD_ORIGIN} ${DASHBOARD_DEV_ORIGIN}`;
 
 // Mirrors `reserved_subdomains` in config/partna.php (EDGE-6/EDGE-11). KEEP IN
 // SYNC: a subdomain missing here is sent to KV and 404s instead of passing
@@ -411,7 +416,7 @@ const SITEPAGE_CSP =
     "font-src 'self' https: data:; " +
     "script-src 'self' 'unsafe-inline' https:; " +
     "connect-src 'self' https:; " +
-    `frame-ancestors 'self' ${DASHBOARD_ORIGIN}; ` +
+    `frame-ancestors ${FRAME_ANCESTORS}; ` +
     "base-uri 'self'; " +
     "object-src 'none'";
 
@@ -581,7 +586,7 @@ function finalize(response, opts = {}) {
         // on the dashboard origin can embed the sitepage, while every other origin
         // stays refused. The rest of the policy remains Report-Only until validated.
         headers.delete("X-Frame-Options");
-        headers.set("Content-Security-Policy", `frame-ancestors 'self' ${DASHBOARD_ORIGIN}`);
+        headers.set("Content-Security-Policy", `frame-ancestors ${FRAME_ANCESTORS}`);
         headers.set("Content-Security-Policy-Report-Only", SITEPAGE_CSP);
     }
     // EDGE-12: don't let a misconfigured origin error page get cached by browsers.

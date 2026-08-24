@@ -166,27 +166,31 @@ class GenericShopScraper extends PlatformScraper
 
     /**
      * Deterministic storefront-tech markers for the platforms we can connect
-     * as a brand. Asset/runtime signatures only (not prose mentioning a
-     * platform), so a positive means a brand connect is likely to work.
+     * as a brand. The signatures live in StorefrontMarkers (T4) so the Links
+     * preview reads the same list; behaviour here is unchanged.
      */
     private function looksLikeStorefront(string $html): bool
     {
-        return (bool) preg_match(
-            '~cdn\.shopify\.com|/cdn/shop/|window\.Shopify|Shopify\.theme'
-            .'|plugins/woocommerce|class=["\'][^"\']*\bwoocommerce'
-            .'|Static\.SQUARESPACE_CONTEXT|assets\.squarespace\.com'
-            .'|bigcartel\.com~i',
-            $html,
-        );
+        return StorefrontMarkers::detect($html) !== null;
     }
 
     /**
      * OpenGraph product fallback — many storefronts (Shopify product pages,
      * WooCommerce, custom) emit og:title/og:image + product:price:amount even
-     * when the page carries no Product JSON-LD. Requires a deterministic
-     * product signal (og:type contains "product", or an explicit price meta):
-     * og:title alone is ANY webpage — a brand homepage must not become a
+     * when the page carries no Product JSON-LD.
+     *
+     * Two gates, and they are separate questions:
+     *
+     * DECLARATION — og:type contains "product", or an explicit price meta.
+     * og:title alone is ANY webpage; a brand homepage must not become a
      * "product" (WS-B1.1, abovetheground.co regression).
+     *
+     * SUBSTANCE — a price or an image. N3: og:type is *self-declared* by
+     * whatever plugin wrote the markup, exactly as @type is on the JSON-LD
+     * side, so the declaration cannot also serve as the evidence. R7 stopped
+     * trusting a bare @type and this is the same rule on this door: a page
+     * with a product-ish og:type, no price, no image and no description is a
+     * page, not a product.
      *
      * @return array{productId:string, title:string, handle:string, vendor:?string, image:?string, price:?string, currency:?string, variantId:string, available:bool, url:string}|null
      */
@@ -195,8 +199,15 @@ class GenericShopScraper extends PlatformScraper
         $price = $this->metaContent($html, 'product:price:amount')
             ?? $this->metaContent($html, 'og:price:amount');
         $ogType = strtolower((string) $this->metaContent($html, 'og:type'));
+        $image = $this->metaContent($html, 'og:image');
 
-        if (! str_contains($ogType, 'product') && ($price === null || trim($price) === '')) {
+        $hasPrice = $price !== null && trim($price) !== '';
+        $hasImage = $image !== null && trim($image) !== '';
+
+        if (! str_contains($ogType, 'product') && ! $hasPrice) {
+            return null;
+        }
+        if (! $hasPrice && ! $hasImage) {
             return null;
         }
 
@@ -204,12 +215,11 @@ class GenericShopScraper extends PlatformScraper
             ?? (preg_match('~<title[^>]*>([^<]+)</title>~i', $html, $m)
                 ? html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_HTML5)
                 : null);
-        if (! is_string($title) || trim($title) === '') {
+        if (! is_string($title) || $this->isPlaceholderTitle($title)) {
             return null;
         }
         $title = trim($title);
 
-        $image = $this->metaContent($html, 'og:image');
         $currency = $this->metaContent($html, 'product:price:currency')
             ?? $this->metaContent($html, 'og:price:currency');
         $url = $this->absoluteUrl($this->metaContent($html, 'og:url') ?? $pageUrl, $origin);
@@ -269,7 +279,7 @@ class GenericShopScraper extends PlatformScraper
             $title = is_string($node['name'] ?? null)
                 ? html_entity_decode(trim($node['name']), ENT_QUOTES | ENT_HTML5)
                 : '';
-            if ($title === '' || ! $this->hasCommerceSignal($node)) {
+            if ($this->isPlaceholderTitle($title) || ! $this->hasCommerceSignal($node)) {
                 continue;
             }
 
@@ -311,6 +321,28 @@ class GenericShopScraper extends PlatformScraper
         }
 
         return $out;
+    }
+
+    /**
+     * A CMS placeholder title is not a product name.
+     *
+     * N3: WordPress prefixes a non-published post's title with `Private: ` or
+     * `Protected: `, and those prefixes reached the wire verbatim — the live
+     * case was a product literally called "Private: Demo" on crucibletattooco
+     * (2026-08-18). Same class of problem `categoryOrNull()` already solved
+     * for Instagram's literal "None".
+     *
+     * Deliberately narrow: the prefixes are matched as prefixes and "draft"
+     * only as a WHOLE title, so a real "Draft Beer Glass" still reads as a
+     * product. Widening this list makes it a censor, not a placeholder filter.
+     */
+    private function isPlaceholderTitle(string $title): bool
+    {
+        $title = trim($title);
+
+        return $title === ''
+            || (bool) preg_match('~^(private|protected)\s*:(\s|$)~i', $title)
+            || (bool) preg_match('~^(draft|untitled|auto ?draft|\(no title\))$~i', $title);
     }
 
     /**

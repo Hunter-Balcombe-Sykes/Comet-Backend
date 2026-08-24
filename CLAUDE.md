@@ -2,7 +2,7 @@
 
 Laravel 12 + Supabase + PostgreSQL backend for individual professionals' public site pages.
 Full business context: `AI_CONTEXT.md`. API reference: `docs/api.md`.
-⚠️ **Dangling pointer — for the repo owner.** This line used to read *"Cross-project rules (git, tool routing, STOP gates) live in `../CLAUDE.md`"*. **That file does not exist** (checked 2026-08-17: no `CLAUDE.md` at the `Side Street/` root, at `~/Herd/`, or at `~/`; `~/.claude/CLAUDE.md` exists but is empty). So either those cross-project rules were never written, or they were lost — and every session reading this file has been told to consult a document it cannot open. Phase 8 flags it rather than inventing the content: **owner to either write `../CLAUDE.md` or delete this pointer.**
+Cross-repo rules (repo lanes, git workflow, tool routing, STOP gates) live in `~/Developer/CLAUDE.md` — the hub file, written 2026-08 (the old dangling-pointer warning here described a pre-hub state and was resolved 2026-08-19).
 
 ## Environments
 
@@ -63,6 +63,15 @@ cloud env:logs partna production --tail 50                # prod — confirm fir
 
 App = `partna`. Environments: `development` (default), `production` (gated).
 
+⚠️ **Never call `cloud env:logs` bare from a loop or in the background.** It has no guaranteed exit path — it can wedge on a dead connection and sleep forever, parentless and socketless, and `--live` backlogs-then-exits rather than streaming. On 2026-08-19 an 11-minute poll loop left **70 orphaned `php` processes alive for 6 hours**, driving load average to 45 on a 10-core machine and pinning `kernel_task` at 67% (macOS thermal throttle). Use the bounded wrapper instead — it kills the wedge and leaves no orphans:
+
+```bash
+scripts/env/cloud-logs.sh development --minutes 2 --json      # 60s bound by default
+CLOUD_LOGS_TIMEOUT=120 scripts/env/cloud-logs.sh production --tail 50
+```
+
+Exit 124 means it timed out and was killed — that is the guard working, not a log failure.
+
 **FORBIDDEN:** `mcp__laravel-boost__read-log-entries`, `mcp__laravel-boost__last-error`.
 
 **Debugging — check logs FIRST.** Before code: `cloud env:logs partna development --minutes 10`.
@@ -72,7 +81,7 @@ App = `partna`. Environments: `development` (default), `production` (gated).
 ### Database — Supabase Only
 - **Never create Laravel migration files.** Composer guard rejects them.
 - All schema changes in `supabase/migrations/` as raw SQL. Baseline: `20260726000000_baseline_pilot.sql` (snapshot of the verified dev schema, 2026-07-26). Historical in `supabase/migrations-archive/`.
-- Schemas: `public` (Laravel infra), `core` (users, staff, flags, handles, config), `site` (sites, blocks, design_kits, media, customers, enquiries, aliases, section_items), `notifications`, `analytics`, `audit` (append-only — `app_backend` SELECT/INSERT only), `moderation`, `catalog` (platform surface registry — surfaces, brands, detectors), `content` (**the curation store** — items, collections, sources, source_items, manual_overrides, item_slugs, storefronts), `ingest` (connector ingest pipeline — runs, sources, streams, record_versions), `routing` (link routing — link_observations, source_intents). No `brand`, `commerce`, `billing`.
+- Schemas: `public` (Laravel infra), `core` (users, staff, flags, handles, config), `site` (sites, blocks, design_kits, media, customers, enquiries, aliases, section_items), `notifications`, `analytics`, `audit` (append-only — `app_backend` SELECT/INSERT only), `moderation`, `catalog` (platform surface registry — surfaces, brands, detectors, plus the two RUNTIME tables: detector_suspensions, unmatched_domains), `content` (**the curation store** — items, collections, sources, source_items, manual_overrides, item_slugs, storefronts), `ingest` (connector ingest pipeline — runs, sources, streams, record_versions), `routing` (link routing — link_observations, source_intents). No `brand`, `commerce`, `billing`.
 - **`site` no longer owns services, menus or shop content** — all of it lives in `content.*`. See "Content pools" below for the drop list and the rules.
 
 ### Code Organization
@@ -121,6 +130,20 @@ All resource authorization via Laravel Policies in `app/Policies/`. Every policy
 - **D — FixedHostVariablePath** — host hardcoded, path variable; the variable segment MUST be validated against a strict pattern const.
 
 Adding an allowlist entry is **not** the default fix — if the URL is externally influenced, the answer is B. Laravel's `url` validation rule does NOT prevent SSRF (`http://169.254.169.254/` passes it). Spec: `docs/superpowers/specs/2026-07-30-outbound-http-guard-design.md`.
+
+### Catalog runtime tables — the two the compiler never touches
+
+`catalog.*` is mostly the compiled artefact projected by `catalog:sync` (upsert + tombstone). Two tables are **accumulated at runtime instead**, are not re-derivable from a recompile, and were wired on 2026-08-19 after shipping writerless since 2026-07-27:
+
+- **`catalog.detector_suspensions`** — the staff kill-switch for one detector. Read by `App\Catalog\DetectorSuspensions`, folded onto the `Rulepack` singleton in `AppServiceProvider` via `withSuspensions()`, honoured in `LinkProjector::project()`. Operated with `php artisan catalog:suspend-detector <id> --reason=… [--hours=24] [--release] [--list]` (window capped at 720h; the id is validated against the compiled catalog because a typo would otherwise suspend nothing silently).
+- **`catalog.unmatched_domains`** — the triage queue ranking domains the router could not place. Written by `App\Catalog\UnmatchedDomains` from `LinkObserver::record()`. Read with `php artisan catalog:unmatched [--all] [--triage=<key>]`.
+
+Hard rules:
+- **The suspension set reaches the projector as DATA, never as a query.** `LinkProjector` is `f(Iri, Rulepack) → Projection` with no I/O — that purity is what makes `routing:reproject` a real diff tool. Resolve suspensions when the singleton is built; never read the table inside `project()`.
+- **A suspended detector still sets `anyRuleExists`**, so the no-match reason stays `no-rule-matched`, not `unknown-domain`. Those two strings are what `unmatched_domains.has_detectors` is derived from.
+- **Both lookups FAIL OPEN and log.** Production has no `catalog` schema at all, so both throw there on every call; a kill-switch that 500s the paste preview is worse than the detector it disables. While the read is broken, a suspension is not in force — stated, not hidden.
+- **`unmatched_domains` stores a registrable key and a MASKED path shape only** — never a raw path, never a query string. It carries no `user_id`, so it has no account-deletion cascade and anything identifying written there outlives its owner. The raw URL belongs in `routing.link_observations`, which is user-scoped and cascade-deleted.
+- `catalog:sync` / `catalog:compile` still never touch either table, and `Rulepack::fromCompiledCatalog()` without `withSuspensions()` is the PURE pack that compile/reproject/corpus deliberately use.
 
 ### MFA / AAL2
 
@@ -225,10 +248,10 @@ Partna is an individual-user-only platform. The model is `App\Models\Core\User\U
 (DB table `core.users`; FK columns on other tables use `user_id`).
 `account_type` is one of `'partna'` (standard) or `'business'` ("Business Partna"), chosen at signup (migration `20260612120000`). The `AccountType` enum has exactly two cases (`Partna`, `Business`), mirroring the `users_account_type_check` constraint. The two types behave identically EXCEPT where a capability says otherwise; never branch on `account_type` directly outside `AccountCapabilities`.
 
-- `site.sites.architecture_id` TEXT NOT NULL, CHECK (`'staple'`), default `'staple'`. Write paths collapse all historical ids via `LEGACY_ARCHITECTURE_IDS` — effectively vestigial.
+- `site.sites.architecture_id` TEXT NOT NULL, CHECK (`'staple'`), default `'staple'` — vestigial. `LEGACY_ARCHITECTURE_IDS` was **removed 2026-08-05**; the column left the **dashboard wire 2026-08-20** (no resource ships it, no request validates it, not fillable) and is now written only by the DB default. It still reaches the PUBLIC payload as `architectureId`/`skeletonId` via `IndividualProfileResource` — that half, and the column drop itself, are pending: `docs/superpowers/specs/2026-08-20-legacy-lane-retirement-design.md`.
 - `site.themes` → DROPPED. `set_default_theme_for_site()` → DROPPED with CASCADE. `settings.design.*` → STRIPPED.
 - `site.design_kits` 1:1 with `site.sites` (PK = site_id, FK CASCADE, all columns NULLABLE). Auto-insert trigger on site create. New var = new NULLABLE column, no DB default — code-side defaults fill nulls.
-- `GET /api/public/profiles/{handle}` → `designKit` (partial) + `architectureId` (always `staple`, `skeletonId` transitional alias). `PATCH /api/professional/site` → writes `design_kits` columns; legacy `skeleton_id` accepted/collapsed. `settings.design.*` rejected.
+- `GET /api/public/profiles/{handle}` → `designKit` (partial) + `architectureId` (always `staple`, `skeletonId` transitional alias). `PATCH /api/professional/site` → writes `design_kits` columns; `architecture_id` and legacy `skeleton_id` are both IGNORED (unknown keys — accepted, dropped, never persisted; deliberately not `prohibited` so an old client is not 422'd). `settings.design.*` rejected.
 
 **Hard rules:**
 - New design kit var = new migration (NULLABLE, no DB default).
@@ -250,7 +273,7 @@ The Content Pool Convergence programme closed on dev 2026-08-17. **`content.*` i
 
 **Models without tables are DTO carriers — do not "tidy" them away.** `MenuItem`, `MenuCategory`, `MenuItemPlatform`, `Service`, `ServiceCategory` and `ShopBrand` survive their dropped tables because `ManualMenuItems`/`ManualServiceItems` hydrate them unpersisted (`exists = false`) for the dashboard shape. Deleting them breaks the surviving content lane. They MUST stay in `PurgeSoftDeleted::PURGE_EXEMPT` — a table-less model in `PURGE_HANDLED` makes that nightly 03:20 command throw `42P01` (it did; `d8beab929` fixed it, spec §28.3).
 
-**Cache invalidation is a THREE-lane contract** on any owner-initiated pool mutation (owner ruling 2026-08-17, spec §12.6): `BuildState::bump()` + `DB::table('site.sites')->update(['updated_at' => now()])` + conditional `CloudflareCachePurgeJob`. Lane 2 is the one people forget — the public payload cache keys off `site.sites.updated_at`, so skipping it serves stale content for the TTL while the CDN is correctly purged. `App\Site\Documents\SiteCacheLanes::bust()` is the shared seam for all three; `PoolController::poolChanged()`, `PoolItemCreateController::pin()`, `ItemController::destroy()`, `ItemLinkController::upsert()/destroy()` and `ProvisionShopPinsCommand::invalidate()` all route through it, pinned by `tests/Feature/Content/PoolCacheLanesTest.php`, `tests/Feature/Content/ShopPinProvisioningTest.php` and `tests/Feature/Architecture/PoolCacheLaneSeamTest.php`. `ProjectionWriter::bumpSite()` fires lane 1 ONLY, by design — it is a per-item primitive that batch callers invoke once per row, so lanes 2+3 are discharged once at the request boundary instead (see its docblock). `ManualOverrideController::bumpSites`, `ItemMerger::bumpSites` and `SectionItemController::upsert()/destroy()` still fire lane 1 only and are a known follow-up (P2), deliberately out of scope for #PGR-6.
+**Cache invalidation is a THREE-lane contract** on any owner-initiated pool mutation (owner ruling 2026-08-17, spec §12.6): `BuildState::bump()` + `DB::table('site.sites')->update(['updated_at' => now()])` + conditional `CloudflareCachePurgeJob`. Lane 2 is the one people forget — the public payload cache keys off `site.sites.updated_at`, so skipping it serves stale content for the TTL while the CDN is correctly purged. `App\Site\Documents\SiteCacheLanes::bust()` is the shared seam for all three; `PoolController::poolChanged()`, `PoolItemCreateController::pin()`, `ItemController::destroy()`, `ItemLinkController::upsert()/destroy()` and `ProvisionShopPinsCommand::invalidate()` all route through it, pinned by `tests/Feature/Content/PoolCacheLanesTest.php`, `tests/Feature/Content/ShopPinProvisioningTest.php` and `tests/Feature/Architecture/PoolCacheLaneSeamTest.php`. `ProjectionWriter::bumpSite()` fires lane 1 ONLY, by design — it is a per-item primitive that batch callers invoke once per row, so lanes 2+3 are discharged once at the request boundary instead (see its docblock). `ManualOverrideController::bumpSites`, `ItemMerger::bumpSites` and `SectionItemController::upsert()/destroy()` were the last lane-1-only writers; #PGR-36 (2026-08-18) routed all three through `SiteCacheLanes::bust()`, so every owner-initiated pool mutation now goes through the seam. Keep it that way — a new owner-write path calls `bust()`, never `BuildState::bump()` alone.
 
 **Gotchas that have each cost a session:**
 - A **live coverage gate is valid only until the next write.** This programme watched readings go stale mid-verification four times. Timestamp every figure; never gate on totals (net counts can FALL while uncovered rows appear).
@@ -275,6 +298,8 @@ DIY k6 harness against dev only (README + plan: `docs/superpowers/plans/2026-07-
 - Over-engineer simple fixes
 - Reintroduce `site.themes` or `settings.design.*`
 - Reintroduce any of the ten dropped legacy tables, or write a new read path against one — curated content lives in `content.*`
+- Reintroduce the pseudo-platform link lane (retired 2026-08-19): no `custom`/`booking`/`reservations`/`online-ordering`/`events-custom` category controllers or `partna.*_link`/`partna.manual_event` surfaces. Every routed link goes `LinkRouter`/`LinkRoutingService` → `SourceReconciler` → its real brand surface; a taken single-slot brand answers 422 `slot_taken` (manual) or a Swap suggestion in the `/routing/suggestions` inbox (auto); a standalone event is an events-POOL item (`ManualEventWriter`), never a connection row
 - Delete a table-less DTO model (`MenuItem`, `MenuCategory`, `MenuItemPlatform`, `Service`, `ServiceCategory`, `ShopBrand`) or move one into `PurgeSoftDeleted::PURGE_HANDLED`
 - Mutate a pool without all three cache lanes (build state + `site.sites.updated_at` + edge purge)
 - Assume dev's schema says anything about production's — prod lacks four whole schemas
+- Re-add `analytics.site_metrics_daily`/`_hourly`, `content.source_routes` or `content.item_refs` — dropped 2026-08-19 (`20260819140000`), all four writerless. `content.f_file` looks identical and is NOT dead: it is a live facet in `ProjectionWriter`/`KindRegistry`/`FacetRegistry`, empty only because the `document` kind is poolless

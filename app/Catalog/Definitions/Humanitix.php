@@ -13,7 +13,7 @@ use App\Catalog\Surface;
 use App\Catalog\SurfaceBuilder;
 
 /**
- * Humanitix. Bespoke connect (EventsCatalog/EventsPlatformController, same
+ * Humanitix. Bespoke connect (EventsPlatformController, same
  * shape as Eventbrite) — no connect capability. Path capture translated
  * from config('partna.social_platforms').humanitix's url_path_extractor
  * (config/partna.php:675-685): /host/<org> — the same organiser-page
@@ -34,6 +34,7 @@ class Humanitix
     {
         return [
             SurfaceBuilder::for('humanitix.organiser')
+                ->legacyPlatform('humanitix')
                 ->displayName('Humanitix')
                 ->routing(RoutingClass::Events)
                 ->shelf(Shelf::Events)
@@ -41,7 +42,7 @@ class Humanitix
                 ->refreshEvery(21600)
                 ->canonicalUrl('https://humanitix.com/host/{org}')
                 ->fetch('fetch.humanitix.scrape.v1')
-                ->multiAccount(5)
+                ->multiAccount(10)
                 ->detect(
                     Detector::url('humanitix.com')
                         ->path('#^/host/(?<org>[a-zA-Z0-9-]{3,80})/?$#')

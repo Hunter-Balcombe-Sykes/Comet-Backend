@@ -73,3 +73,18 @@ it('puts no CHECK constraint on the reason vocabulary', function () {
 
     expect($checks)->toBeEmpty();
 })->group('postgres');
+
+it('records mirror eligibility as a nullable boolean with no default', function () {
+    $col = mirrorStateColumn('mirror_eligible');
+
+    expect($col)->not->toBeNull('content.media_assets.mirror_eligible is missing');
+    expect($col->data_type)->toBe('boolean');
+
+    // NULLABLE and DEFAULTLESS on purpose. A default would have to guess for
+    // every row minted before the column, and both guesses are wrong: `false`
+    // hides real owned assets from the backlog query, `true` fills it with
+    // borrowed artwork that is unmirrored by design. NULL says "this row
+    // predates the column", and ProjectionWriter heals it on the next sync.
+    expect($col->is_nullable)->toBe('YES');
+    expect($col->column_default)->toBeNull();
+})->group('postgres');

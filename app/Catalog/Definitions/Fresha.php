@@ -36,6 +36,7 @@ class Fresha
     {
         return [
             SurfaceBuilder::for('fresha.book')
+                ->legacyPlatform('fresha')
                 ->displayName('Fresha')
                 ->routing(RoutingClass::Booking)
                 ->shelf(Shelf::Booking)

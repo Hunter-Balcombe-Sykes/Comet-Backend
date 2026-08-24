@@ -14,10 +14,17 @@
 // (acct-77bc9a9984e6786c = casey, resource_id 'youtube' = @dvlpmnttv), which is
 // how we know the over-merge is a real shape and not a hypothetical.
 
+use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Routing\ConnectionIdentity;
+use App\Routing\IriCanonicalizer;
 use App\Routing\LinkRoutingService;
+use App\Routing\Placement;
 use App\Routing\RoutingContext;
+use App\Routing\SourceReconciler;
+use App\Routing\Verdict;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
@@ -25,6 +32,14 @@ beforeEach(function () {
     setupSitesTable();
     setupRoutingTables();
     setupContentTables();
+    // These tests pin IDENTITY-FOLD semantics, not enrichment. Without this
+    // fake, F9's reconciler-dispatched ConnectFetchJob ran INLINE (sync
+    // driver, afterCommit) with no Http::fake — a real network fetch to
+    // youtube.com whose outcome decided the assertions: the suite passed
+    // while YouTube's feed served 200 and started failing the day its RSS
+    // endpoint flaked (2026-08-21 — a vendor incident, F26 removed the
+    // never-fetched row, and the connection counts changed under the test).
+    Bus::fake([ConnectFetchJob::class]);
 });
 
 /**
@@ -96,9 +111,9 @@ it('keeps two genuinely different channels apart when one wears the legacy marke
     expect(liveConnections($pro, 'youtube.channel'))->toHaveCount(2);
 });
 
-it('creates a new connection when a marker row carries no derivable identity', function () {
+it('holds a distinct handle behind an unresolvable marker as a swap, never a merge', function () {
     $pro = createTenant('r4-fail-open');
-    seedMarkerConnection($pro, 'instagram.profile', 'social', 'instagram', [
+    $marker = seedMarkerConnection($pro, 'instagram.profile', 'social', 'instagram', [
         // No url, no username — a pending placeholder exactly as
         // InstagramSourceGenerator writes it before the scrape lands.
     ]);
@@ -108,17 +123,26 @@ it('creates a new connection when a marker row carries no derivable identity', f
         RoutingContext::forUser($pro, 'bio_harvest'),
     );
 
-    // Fail OPEN, never fail-merged: an unresolvable incumbent must not
-    // swallow a link whose identity we can read perfectly well.
-    expect($out['verdict'])->toBe('place');
-    expect(liveConnections($pro, 'instagram.profile'))->toHaveCount(2);
+    // Never fail-MERGED: an unresolvable incumbent must not swallow a link
+    // whose identity we can read perfectly well. Under FI-1 (2026-08-20,
+    // socials are single-account) the open door is no longer a second
+    // connection — it is the cap Hold, surfaced as a Swap against the
+    // incumbent, with the marker row untouched. (This expected 'place' + a
+    // second row when instagram.profile was multiAccount(5).)
+    expect($out['verdict'])->toBe('hold');
+    $intent = DB::table('routing.source_intents')->where('user_id', $pro->id)->first();
+    expect(liveConnections($pro, 'instagram.profile'))->toHaveCount(1)
+        ->and($intent->block_reason)->toBe('cap_reached')
+        ->and($intent->conflicting_connection_id)->toBe((string) $marker->id);
 });
 
 it('does not let a marker row that IS this identity consume a cap slot', function () {
     $pro = createTenant('r4-cap');
-    // instagram.profile is multiAccount(5). Four unrelated accounts plus the
-    // marker row for OUR identity fills the cap only if the marker is counted
-    // as a fifth, distinct account — which is the bug, one surface over.
+    // Four unrelated accounts (over-cap legacy data now that FI-1 made
+    // instagram.profile single-account) plus the marker row for OUR identity.
+    // Re-routing our own link must fold into the marker — recognising an
+    // account we already hold adds no account, so the cap (whatever its size,
+    // and however far over it the legacy rows sit) must not block the fold.
     $marker = seedMarkerConnection($pro, 'instagram.profile', 'social', 'instagram', [
         'url' => 'https://instagram.com/crucibletattooco',
         'username' => 'crucibletattooco',
@@ -183,4 +207,130 @@ it('is idempotent — a second scan of the same bio page adds nothing', function
 
     expect(liveConnections($pro, 'instagram.profile'))->toHaveCount(1)
         ->and(DB::table('routing.source_intents')->where('user_id', $pro->id)->count())->toBe(1);
+});
+
+it('matches a Fresha link carrying the ROTATED slug to the row healed by /team (canonical_key alias), and the OLD-slug link by resource_id', function () {
+    // Slug rotation (2026-08-18): FreshaController::team() heals a rotated
+    // venue by rewriting payload.url and stamping the current slug into
+    // canonical_key, leaving resource_id on the slug the bio link carries.
+    // Both link shapes must land on that one row — never a second Fresha
+    // connection, never a Hold against itself.
+    $pro = createTenant('r4-fresha-rot');
+    $healed = new IntegrationConnection([
+        'surface_key' => 'fresha.book',
+        'routing_class' => 'booking',
+        'resource_id' => 'anseo-studio-v0v92jna',
+        'canonical_key' => 'anseo-studio-melbourne-140a-chapel-street-w8ajp04r',
+        'payload' => ['url' => 'https://www.fresha.com/a/anseo-studio-melbourne-140a-chapel-street-w8ajp04r', 'source' => 'link_in_bio'],
+        'is_active' => true,
+    ]);
+    $healed->user_id = $pro->id;
+    $healed->save();
+
+    $new = app(LinkRoutingService::class)->route(
+        'https://www.fresha.com/a/anseo-studio-melbourne-140a-chapel-street-w8ajp04r/booking?menu=true&pId=2835260',
+        RoutingContext::forUser($pro, 'bio_harvest'),
+    );
+    $old = app(LinkRoutingService::class)->route(
+        'https://www.fresha.com/book-now/anseo-studio-v0v92jna/all-offer?share=true&pId=2835260',
+        RoutingContext::forUser($pro, 'bio_harvest'),
+    );
+
+    expect($new['verdict'])->toBe('place')->and($new['connectionId'])->toBe((string) $healed->id);
+    expect($old['verdict'])->toBe('place')->and($old['connectionId'])->toBe((string) $healed->id);
+    expect(liveConnections($pro, 'fresha.book'))->toHaveCount(1);
+});
+
+it('M-7: matches a handle-surface identifier case-insensitively, keeps opaque ids exact', function () {
+    // thejunglegiants live: youtube.com/@TheJungleGiants vs /@thejunglegiants
+    // are one channel — the case-sensitive compare re-proposed the user's own
+    // connected channel as a suggestion.
+    $pro = createTenant('m7-handles');
+
+    $yt = new IntegrationConnection([
+        'surface_key' => 'youtube.channel', 'routing_class' => 'content',
+        'resource_id' => 'thejunglegiants', 'payload' => ['url' => 'https://www.youtube.com/@thejunglegiants'],
+        'is_active' => true,
+    ]);
+    $yt->user_id = $pro->id;
+    $yt->save();
+
+    $identity = app(ConnectionIdentity::class);
+    expect($identity->matchExisting($pro, 'youtube.channel', 'TheJungleGiants'))->toBe((string) $yt->id)
+        ->and($identity->matchExisting($pro, 'youtube.channel', 'someoneelse'))->toBeNull();
+
+    // Opaque numeric-id surface keeps the exact compare.
+    $ot = new IntegrationConnection([
+        'surface_key' => 'opentable.reserve', 'routing_class' => 'reservations',
+        'resource_id' => '49820', 'payload' => ['url' => 'https://www.opentable.com/restaurant/profile/49820'],
+        'is_active' => true,
+    ]);
+    $ot->user_id = $pro->id;
+    $ot->save();
+    expect($identity->matchExisting($pro, 'opentable.reserve', '49820'))->toBe((string) $ot->id);
+});
+
+it('M-8: a Choose-band alias of an already-connected channel folds instead of proposing the user their own account', function () {
+    // thejunglegiants live: linktree carried @thejunglegiants (connected),
+    // the website carried @TheJungleGiants — same channel, and the Choose
+    // band skipped the alias lookup, filing the user's OWN channel as a
+    // suggestion in the inbox. Driven through reconcile() with an explicit
+    // Choose placement (critic catch on the first version: the URL scores 75
+    // ≥ the content auto threshold, so routing it end-to-end lands on Place
+    // and never exercises the Choose arm at all).
+    $pro = createTenant('m8-choose-fold');
+    $existing = seedMarkerConnection($pro, 'youtube.channel', 'content', 'thejunglegiants', [
+        'url' => 'https://www.youtube.com/@thejunglegiants',
+    ]);
+
+    $iri = app(IriCanonicalizer::class)->canonicalize('https://www.youtube.com/@TheJungleGiants');
+    $placement = new Placement(Verdict::Choose, 'youtube.channel', 'TheJungleGiants');
+    $out = app(SourceReconciler::class)->reconcile(
+        $placement,
+        RoutingContext::forUser($pro, 'link_in_bio'),
+        $iri,
+    );
+
+    // The aliased Choose upgraded to Place and folded into the existing row —
+    // one connection, no proposal.
+    expect($out['verdict'])->toBe('place')
+        ->and($out['connection_id'])->toBe((string) $existing->id)
+        ->and(liveConnections($pro, 'youtube.channel'))->toHaveCount(1);
+
+    $proposed = DB::table('routing.source_intents')
+        ->where('user_id', $pro->id)
+        ->where('surface_key', 'youtube.channel')
+        ->where('state', 'proposed')
+        ->count();
+    expect($proposed)->toBe(0);
+});
+
+it('M-8 reverse order: a Place supersedes an earlier mis-cased proposal for the same account', function () {
+    // Live verify round: the website's @TheJungleGiants arrived (and
+    // proposed) BEFORE the linktree's @thejunglegiants connected — the stale
+    // proposal survived the connect. A newly applied Place now supersedes
+    // live proposals with a case-insensitively equal identifier.
+    $pro = createTenant('m8-reverse');
+    $ctx = RoutingContext::forUser($pro, 'link_in_bio');
+    $reconciler = app(SourceReconciler::class);
+    $canon = app(IriCanonicalizer::class);
+
+    // 1. Mis-cased link first, Choose band, no existing row → proposed.
+    $reconciler->reconcile(
+        new Placement(Verdict::Choose, 'youtube.channel', 'TheJungleGiants'),
+        $ctx,
+        $canon->canonicalize('https://www.youtube.com/@TheJungleGiants'),
+    );
+    expect(DB::table('routing.source_intents')->where('user_id', $pro->id)->where('state', 'proposed')->count())->toBe(1);
+
+    // 2. The canonical-cased link connects.
+    $reconciler->reconcile(
+        new Placement(Verdict::Place, 'youtube.channel', 'thejunglegiants'),
+        $ctx,
+        $canon->canonicalize('https://www.youtube.com/@thejunglegiants'),
+    );
+
+    expect(liveConnections($pro, 'youtube.channel'))->toHaveCount(1)
+        ->and(DB::table('routing.source_intents')->where('user_id', $pro->id)->where('state', 'proposed')->count())->toBe(0)
+        ->and(DB::table('routing.source_intents')->where('user_id', $pro->id)->where('state', 'superseded')->count())->toBe(1);
 });

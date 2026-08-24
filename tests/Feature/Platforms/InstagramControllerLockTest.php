@@ -131,7 +131,7 @@ it('applySync (mark-seeded write) is blocked by a held platform lock and the fin
     expect($lock->get())->toBeTrue();
 
     try {
-        actingAsUser($user)->postJson('/api/platforms/instagram/synced/apply', ['platform' => 'facebook'])
+        actingAsUser($user)->postJson('/api/routing/suggestions/sync:instagram:facebook/accept')
             ->assertStatus(423);
     } finally {
         $lock->release();

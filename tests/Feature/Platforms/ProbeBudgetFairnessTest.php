@@ -6,6 +6,8 @@ use App\Models\Core\User\User;
 use App\Services\Content\LinkPoolReader;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\RouteContext;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
 /**
@@ -24,6 +26,14 @@ beforeEach(function () {
     setupContentTables();
     setupSectionsTables();
     setupNotificationsTable();
+    // FI-3 (2026-08-20): LinkRouter::route() now attempts short-link
+    // expansion, so the bit.ly fixtures below would otherwise fire REAL
+    // requests (and a code that happens to resolve would legitimately become
+    // its destination and change the eligibility counts). A universal 404
+    // keeps every shortener unexpandable — the ineligible shape this file
+    // exists to test.
+    Http::fake(['*' => Http::response('', 404)]);
+    Cache::flush();
 });
 
 /**

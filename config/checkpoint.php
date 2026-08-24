@@ -178,16 +178,13 @@ return [
         '25644227c885', // AnalyticsQueryService — driver-conditional dow expr
         'b480d73a6c7d', // AnalyticsQueryService — code-built CASE expr
         'cc081b49615e', // AnalyticsQueryService — code-built CASE expr
-        // Re-vetted 2026-07-25: the demand-rate rewrite (07d5d515) changed the SQL
-        // TEXT of both queries ("platform, … COUNT(*)" → "action_id, event, …
-        // COUNT(DISTINCT COALESCE(…))"), so the old :290/:291 hashes went dead.
-        // $day is still dayBucketExpr() — two hardcoded literals chosen on driver
-        // name, never request input.
-        'a70c32075dec', // RankedActionsComputer:132 — driver-conditional day expr
-        '4e294d3c9300', // RankedActionsComputer:133 — driver-conditional day expr
-        '73b44016b226', // ComputeContentPopularityScores — driver-conditional day expr
-        '82d53234faf4', // ComputeContentPopularityScores — driver-conditional day expr
-        'e1a9fc731742', // ComputeContentPopularityScores — driver-conditional day expr
+        // Re-vetted 2026-08-23: RankedActionsComputer became ActionScorer (same
+        // two queries, same $day = dayBucketExpr() — two hardcoded literals
+        // chosen on driver name, never request input) and the page-score
+        // aggregate left ComputeContentPopularityScores, so its three hashes
+        // went dead.
+        '9bd6a68c795e', // ActionScorer:167 — driver-conditional day expr
+        '3bf37267320b', // ActionScorer:168 — driver-conditional day expr
         'dd810a95df0c', // ComputeContentPopularityScores — driver-conditional day expr
         '829c9554911e', // ComputeContentPopularityScores — driver-conditional day expr
         '3e38e942b939', // ComputeContentPopularityScores — driver-conditional day expr

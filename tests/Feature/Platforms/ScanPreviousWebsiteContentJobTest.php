@@ -60,7 +60,6 @@ beforeEach(function () {
     setupSiteMediaTable();
     // Slice 7 Task 8: the menu half of this scan lands in content.* through
     // MenuScanApplier → ManualMenuWriter, not in site.menu_items.
-    setupItemSlugsTable();
     setupContentTables();
 });
 
@@ -365,7 +364,9 @@ it('does not notify when the website scan finds nothing conflicting', function (
 
 it('dispatches ResolveSiteAccentJob twice, carrying the extracted theme-color candidate', function () {
     Queue::fake();
-    [$user, $site] = spwcjUser('spwcj7', 'partna');
+    // A BUSINESS: the workplace's website IS the site's brand, so its colours
+    // are design evidence. (A partna account's are not — see the test below.)
+    [$user, $site] = spwcjUser('spwcj7', 'business');
     Workplace::create(['site_id' => (string) $site->id]);
 
     Http::fake(['example.com' => Http::response('<meta name="theme-color" content="#ff5500">', 200)]);
@@ -379,7 +380,7 @@ it('dispatches ResolveSiteAccentJob twice, carrying the extracted theme-color ca
 
 it('still dispatches ResolveSiteAccentJob when an accent already exists (fill-if-empty is the resolver job\'s call, not this one\'s)', function () {
     Queue::fake();
-    [$user, $site] = spwcjUser('spwcj7b', 'partna');
+    [$user, $site] = spwcjUser('spwcj7b', 'business');
     Workplace::create(['site_id' => (string) $site->id]);
     DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => (string) $site->id, 'color_accent' => '#000000']);
 
@@ -392,6 +393,18 @@ it('still dispatches ResolveSiteAccentJob when an accent already exists (fill-if
     // never writes anything (ResolveSiteAccentJobTest pins the actual guard).
     $row = DB::connection('pgsql')->table('site.design_kits')->where('site_id', (string) $site->id)->first();
     expect($row->color_accent)->toBe('#000000');
+});
+
+it('skips the design evidence (accent, logo, font) for a partna account — the workplace website is someone else\'s brand (owner, 2026-08-19)', function () {
+    Queue::fake();
+    [$user, $site] = spwcjUser('spwcj7c', 'partna');
+    Workplace::create(['site_id' => (string) $site->id]);
+
+    Http::fake(['example.com' => Http::response('<meta name="theme-color" content="#ff5500"><link rel="icon" href="/favicon.ico">', 200)]);
+
+    spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
+
+    Queue::assertNotPushed(ResolveSiteAccentJob::class);
 });
 
 it('does nothing when the fetch fails, without throwing', function () {

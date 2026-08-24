@@ -27,6 +27,7 @@ class Hungrypanda
     {
         return [
             SurfaceBuilder::for('hungrypanda.order')
+                ->legacyPlatform('hungrypanda')
                 ->displayName('HungryPanda')
                 ->routing(RoutingClass::Ordering)
                 ->shelf(Shelf::Food)

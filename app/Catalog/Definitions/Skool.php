@@ -32,7 +32,12 @@ class Skool
     {
         return [
             SurfaceBuilder::for('skool.community')
+                ->legacyPlatform('skool')
                 ->displayName('Skool')
+                // Not a limited kind of link (owner, 2026-08-19): a content or events
+                // page is one of several a person may run — the 1-account default is for
+                // bookings/reservations/ordering (one provider) and socials (one profile).
+                ->multiAccount(10)
                 ->routing(RoutingClass::Content)
                 ->shelf(Shelf::Community)
                 ->identifier(IdentifierKind::Slug)

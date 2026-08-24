@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Catalog\DetectorSuspensions;
 use App\Http\Middleware\Throttle\FailOpenThrottleRequests;
 use App\Ingest\Runtime\Effects\BilledEffectDriverRegistry;
 use App\Ingest\Runtime\Effects\InstagramActorDriver;
@@ -113,7 +114,24 @@ class AppServiceProvider extends ServiceProvider
         // process is right. A deploy swaps the artefact and the process
         // restarts, which is exactly when these should change.
         $this->app->singleton(PublicSuffixList::class, fn () => PublicSuffixList::instance());
-        $this->app->singleton(Rulepack::class, fn () => Rulepack::fromCompiledCatalog());
+
+        // The one exception to "immutable, derived from the artefact": the
+        // staff kill-switch (catalog.detector_suspensions) is runtime state a
+        // deploy does not carry. It is folded in HERE, at singleton-build
+        // time, rather than read inside LinkProjector::project() — the
+        // projector's no-I/O contract is what makes `routing:reproject` a real
+        // diff tool, so a suspension has to reach it as data.
+        //
+        // Consequence worth knowing: the fold happens once per process, so the
+        // memo TTL in DetectorSuspensions is not the only staleness window —
+        // a long-lived worker holds its pack until it restarts. Acceptable for
+        // an operator control on the web tier (fresh container per request);
+        // stated here so nobody reads the 60s TTL as the whole story.
+        $this->app->singleton(
+            Rulepack::class,
+            fn ($app) => Rulepack::fromCompiledCatalog()
+                ->withSuspensions($app->make(DetectorSuspensions::class)->active()),
+        );
 
         // Ordered, explicit driver list rather than a discovery scan: this decides
         // which (kind, name) pairs may spend money, so it should be a list someone

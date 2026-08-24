@@ -429,7 +429,7 @@ it('publishes nothing for a retired events row, ACCOUNT or STANDALONE', function
     // retired the STANDALONE half. Both kinds now publish `[]`, and every
     // event reaches the wire through profile.pools.events instead — the
     // standalone ones because StandaloneEventBackfiller carried them onto
-    // content.* and EventsCatalog::storeStandalone() lands new ones there.
+    // content.* and the standalone-event lane lands new ones there.
     IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => 'eventbrite',
@@ -820,7 +820,7 @@ it('keeps a completed team-mode fresha connection\'s scraped teamMenu (staff dat
     // with no schema change available to relocate it. That leaves the
     // ALLOWLIST below as the ONLY thing keeping scraped staff-member data off
     // this CDN-cached public wire ("one filter away from a leak" per the R3
-    // brief). Prove today's ['url', 'selection'] entry actually holds the line.
+    // brief). Prove today's ['url'] entry actually holds the line.
     $user = allowlistUser('allowfreshateam');
 
     IntegrationConnection::create([
@@ -848,7 +848,6 @@ it('keeps a completed team-mode fresha connection\'s scraped teamMenu (staff dat
 
     expect($response->json('data.platforms.fresha.0.payload'))->toBe([
         'url' => 'https://www.fresha.com/a/ollies-salon',
-        'selection' => null,
     ]);
 
     // Belt-and-suspenders: assert the scraped staff data doesn't ride anywhere

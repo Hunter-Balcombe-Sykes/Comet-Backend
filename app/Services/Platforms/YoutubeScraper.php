@@ -123,7 +123,34 @@ class YoutubeScraper extends PlatformScraper
         // the freshness win no longer exists to trade for. Every connect
         // attempt failed with a resolved-but-unfetchable channel until this
         // swapped back. Do not "restore" the UU feed without re-checking it live.
-        $rss = $this->fetcher->tryFetch('https://www.youtube.com/feeds/videos.xml?channel_id='.$channelId, $headers);
+        $feedUrl = 'https://www.youtube.com/feeds/videos.xml?channel_id='.$channelId;
+        $rss = $this->fetcher->tryFetch($feedUrl, $headers);
+
+        // M-13 (B7 live): the feed endpoint intermittently serves 404/500 for
+        // channels that verifiably exist — measured live 2026-08-21: three
+        // consecutive identical requests answered 500, 404, 200. On the
+        // auto-route path a terminal miss permanently drops the channel
+        // (ConnectFetchJob catches the exception, so job tries never engage,
+        // and F26 removes the never-fetched row with nobody watching a modal
+        // to retry). Up to four spaced re-requests before giving up — during
+        // the measured incident roughly every second request failed, so five
+        // attempts put recovery near-certain while three still lost the
+        // channel twice in one afternoon. Bounded costs: total added sleep is
+        // ~5s only when attempts keep FAILING (the interactive connect path —
+        // youtube isn't in PARTNA_CONNECT_DEFERRED, so this can run
+        // in-request — pays nothing on a first-try 200), and a permanently
+        // dead channel stops being refreshed at the consecutive-failures
+        // circuit breaker. Transport-level null deliberately does NOT retry:
+        // SafeUrlFetcher's null covers SSRF/DNS/timeout, where an immediate
+        // second attempt is noise. 304 is a healthy answer, not an error.
+        foreach ([500_000, 1_000_000, 1_500_000, 2_000_000] as $delay) {
+            if (! is_array($rss) || in_array($rss['status'], [200, 304], true)) {
+                break;
+            }
+            usleep($delay);
+            $rss = $this->fetcher->tryFetch($feedUrl, $headers) ?? $rss;
+        }
+
         if ($rss === null) {
             // LIFE-26: transport-level failure (SSRF/timeout/DNS) reaching the feed.
             Log::warning('youtube.uploads_feed_failed', ['channelId' => $channelId, 'reason' => 'fetch_null']);
@@ -199,12 +226,50 @@ class YoutubeScraper extends PlatformScraper
         return ['title' => $feedTitle, 'videos' => $out];
     }
 
+    /**
+     * The channel's own identity off its page: the canonical UC… id and, where
+     * the page carries one, its avatar (the largest `avatar.thumbnails` URL —
+     * YouTube lists them ascending). One fetch; the connect strategy reads
+     * both so the stored connection can show the channel's face rather than
+     * its latest video's frame (owner, 2026-08-23). Null when the page can't
+     * be fetched or holds no id — logged like resolveChannelId().
+     *
+     * @return array{id: string, avatar: ?string}|null
+     */
+    public function fetchChannelProfile(string $handle): ?array
+    {
+        $page = $this->fetchChannelPage($handle, ['User-Agent' => self::USER_AGENT]);
+        if ($page === null) {
+            return null;
+        }
+        $id = $this->channelIdFromPage($page, $handle);
+        if ($id === null) {
+            return null;
+        }
+
+        $avatar = null;
+        if (preg_match('~"avatar":\{"thumbnails":\[(.*?)\]~s', $page, $block)
+            && preg_match_all('~"url":"(https://[^"]+)"~', $block[1], $urls)) {
+            $avatar = str_replace('\/', '/', end($urls[1]));
+        }
+
+        return ['id' => $id, 'avatar' => $avatar];
+    }
+
     // Channel page → the channel's OWN canonical ID. A channel page lists several
     // "channelId" values (featured/related channels, video owners) and the first
     // is NOT reliably the channel itself — so prefer "externalId" / the canonical
     // /channel/<id> URL (both the page owner's ID). Falls back to the first
     // channelId only if neither is present. (Fixes @casey → wrong side-channel.)
     private function resolveChannelId(string $handle, array $headers): ?string
+    {
+        $page = $this->fetchChannelPage($handle, $headers);
+
+        return $page === null ? null : $this->channelIdFromPage($page, $handle);
+    }
+
+    /** The channel page's body on a 200; null (logged) otherwise. */
+    private function fetchChannelPage(string $handle, array $headers): ?string
     {
         $page = $this->fetcher->tryFetch('https://www.youtube.com/@'.rawurlencode($handle), $headers);
         if ($page === null || $page['status'] !== 200) {
@@ -218,9 +283,14 @@ class YoutubeScraper extends PlatformScraper
             return null;
         }
 
-        if (! preg_match('/"externalId":"(UC[A-Za-z0-9_-]{22})"/', $page['body'], $m)
-            && ! preg_match('~/channel/(UC[A-Za-z0-9_-]{22})~', $page['body'], $m)
-            && ! preg_match('/"channelId":"(UC[A-Za-z0-9_-]{22})"/', $page['body'], $m)) {
+        return $page['body'];
+    }
+
+    private function channelIdFromPage(string $body, string $handle): ?string
+    {
+        if (! preg_match('/"externalId":"(UC[A-Za-z0-9_-]{22})"/', $body, $m)
+            && ! preg_match('~/channel/(UC[A-Za-z0-9_-]{22})~', $body, $m)
+            && ! preg_match('/"channelId":"(UC[A-Za-z0-9_-]{22})"/', $body, $m)) {
             // LIFE-25: page fetched fine (200) but none of the three id patterns
             // matched — a page-layout change, not a transport failure.
             Log::warning('youtube.channel_resolve_failed', [

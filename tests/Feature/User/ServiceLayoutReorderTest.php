@@ -97,6 +97,36 @@ it('reorders a layout across two categories that each hold a service without a 5
         ->toEqualCanonicalizing([0.0, 1.0]);
 });
 
+it('accepts the SAME service in two category blocks — multi-category is the owner\'s rule, not a 422', function () {
+    // Found live 2026-08-24: the request rule `distinct` on
+    // categories.*.service_ids.* applies across EVERY block in Laravel, so a
+    // service the owner filed under two categories (ServiceCategoryAssignment
+    // "stores BOTH memberships") made every layout save 422 "Validation
+    // failed" — the Categories sheet could not reorder anything.
+    $pro = createTenant('svc-layout-multi');
+
+    $collections = app(ServiceCollections::class);
+    $catA = $collections->create($pro->id, 'Cat A');
+    $catB = $collections->create($pro->id, 'Cat B');
+    $shared = svcLayoutReorderFreshaItem($pro, 'Shared', 's:shared');
+    $only = svcLayoutReorderFreshaItem($pro, 'Only B', 's:only');
+
+    actingAsUser($pro)->postJson('/api/services/reorder-layout', [
+        'categories' => [
+            ['id' => $catA, 'service_ids' => [$shared]],
+            ['id' => $catB, 'service_ids' => [$only, $shared]],
+        ],
+    ])->assertOk();
+
+    // Twice in ONE block is still a malformed payload.
+    actingAsUser($pro)->postJson('/api/services/reorder-layout', [
+        'categories' => [
+            ['id' => $catA, 'service_ids' => [$shared, $shared]],
+            ['id' => $catB, 'service_ids' => [$only]],
+        ],
+    ])->assertStatus(422);
+});
+
 it('does NOT persist a re-filed category, and still orders globally', function () {
     $pro = createTenant('svc-layout-move');
 

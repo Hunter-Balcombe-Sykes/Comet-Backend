@@ -2,6 +2,7 @@
 
 use App\Jobs\Platforms\ProcessShopBrandLogoJob;
 use App\Jobs\Platforms\ShopBrandConnectJob;
+use App\Jobs\Platforms\ShopInitialFillJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
@@ -136,7 +137,6 @@ it('T1: with the deferred flag empty, addBrand returns the pre-change 200 shape 
             // already accepted for brand-b. A real dashboard user always has a
             // site by the time they can connect a shop, so this never surfaces
             // in production.
-            'linkMode' => 'checkout',
             'referralQuery' => '',
             'individual' => false,
             'products' => [],
@@ -207,6 +207,12 @@ it('T25: generic still returns 200 with a complete brand when shop is deferred, 
 
     expect($res->json())->not->toHaveKey('status');
     Bus::assertNotDispatched(ShopBrandConnectJob::class);
+
+    // T1 critic pass (2026-08-20): "dispatches nothing" above means no
+    // DEFERRED-connect job — the synchronous lane still owes the one-shot
+    // catalogue fill + first-connect auto-select, or it is the only connect
+    // lane a store can enter with neither.
+    Bus::assertDispatched(ShopInitialFillJob::class);
 });
 
 it('T25: client-assisted woocommerce still returns 200 with a complete brand when shop is deferred, and dispatches nothing', function () {
@@ -559,7 +565,6 @@ it('T5: a pending brand settles to ready after the job runs, and the poll report
                 // fallback needed) — same site-default divergence as T1
                 // above ('checkout' vs the legacy per-brand 'product'
                 // default), shopAsyncUser() has no site row.
-                'linkMode' => 'checkout',
                 'referralQuery' => '',
                 'individual' => false,
                 'products' => [],
@@ -610,17 +615,17 @@ it('T10: the 6th store still 422s synchronously, and dispatches nothing new', fu
 
     Bus::fake();
 
-    foreach (['a', 'b', 'c', 'd', 'e'] as $s) {
+    foreach (['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'] as $s) {
         actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => "https://{$s}.t10cap.example.com"])
             ->assertStatus(202);
     }
-    Bus::assertDispatchedTimes(ShopBrandConnectJob::class, 5);
+    Bus::assertDispatchedTimes(ShopBrandConnectJob::class, 10);
 
-    actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://f.t10cap.example.com'])
+    actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://k.t10cap.example.com'])
         ->assertStatus(422)
-        ->assertJsonPath('message', 'You can connect up to 5 stores.');
+        ->assertJsonPath('message', 'You can connect up to 10 stores.');
 
-    Bus::assertDispatchedTimes(ShopBrandConnectJob::class, 5);
+    Bus::assertDispatchedTimes(ShopBrandConnectJob::class, 10);
 });
 
 // ── T11 — re-adding a settled brand while deferred is non-destructive ───────
@@ -757,7 +762,7 @@ it('T13: the public payload carries no brand at all and never exposes connectSta
         'price' => null, 'currency' => null, 'available' => true, 'image' => null, 'images' => [], 'variants' => [],
     ]], null);
 
-    $response = $this->getJson('/api/public/profiles/t13pub/platforms')->assertOk();
+    $response = $this->getJson('/api/public/profiles/t13pub/integrations')->assertOk();
 
     expect($response->json('data.platforms.shopify.0.payload'))->toBe([]);
 

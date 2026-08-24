@@ -25,10 +25,6 @@ class StaffUpdateSiteRequest extends BaseFormRequest
         $currentSiteId = $professional?->site?->id;
 
         return [
-            // Architecture — always 'staple' (shares UpdateSiteRequest::ALLOWED_ARCHITECTURES;
-            // legacy ids collapse in prepareForValidation).
-            'architecture_id' => ['sometimes', 'string', Rule::in(UpdateSiteRequest::ALLOWED_ARCHITECTURES)],
-
             // Per-user design kit. Defined in DesignKitValidationRules trait so
             // this class and UpdateSiteRequest share a single source of truth
             // (TEST-5 / LIFE-4). Any design_kit column change must be made in the
@@ -56,6 +52,7 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             'settings.show_branding' => ['sometimes', 'boolean'],
             'settings.charlie_enabled' => ['sometimes', 'boolean'],
             'settings.services_auto_sync_enabled' => ['sometimes', 'boolean'],
+            'settings.display_gallery_page' => ['sometimes', 'boolean'],
             'settings.booking_mode' => [
                 'sometimes',
                 'string',
@@ -83,7 +80,6 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             'subdomain.min' => 'The subdomain must be at least 3 characters.',
             'subdomain.max' => 'The subdomain cannot exceed 63 characters.',
             'settings.design.prohibited' => 'settings.design.* is no longer accepted. Use the design_kit field instead.',
-            'architecture_id.in' => 'Unknown layout.',
         ];
     }
 }

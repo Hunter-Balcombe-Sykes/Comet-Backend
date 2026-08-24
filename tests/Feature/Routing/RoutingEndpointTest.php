@@ -146,10 +146,9 @@ it('keeps an unrecognised link as a real link card, not a vanished pending', fun
     expect($cards)->toHaveCount(1)
         ->and($cards[0]['url'])->toBe($response->json('canonicalUrl'));
 
-    // Visible where the dashboard and sitepage actually read links from.
-    $links = actingAsUser($pro)->getJson('/api/platforms/custom/links')->assertOk()->json('links');
-    expect($links)->toHaveCount(1)
-        ->and($links[0]['name'])->toBe('joesplumbing.com.au');
+    // Visible where every live reader gets its cards (the /platforms/custom
+    // read left 2026-08-19; LinkPoolReader::cards is the shape underneath).
+    expect($cards[0]['name'])->toBe('joesplumbing.com.au');
 
     // The enrichment job upgrades the minimal card, same as a legacy add.
     Queue::assertPushed(EnrichPoolLinkJob::class, fn ($j) => $j->userId === (string) $pro->id);
@@ -181,7 +180,7 @@ it('answers a structured 422 when the link cap is full', function () {
     $pro = createTenant('routing-note-cap');
 
     $writer = app(LinkPoolWriter::class);
-    foreach (range(1, 20) as $i) {
+    foreach (range(1, 50) as $i) {
         $writer->add($pro, "https://example{$i}.com.au");
     }
 
@@ -189,7 +188,7 @@ it('answers a structured 422 when the link cap is full', function () {
         ->assertStatus(422)
         ->assertJsonPath('code', 'link_cap_reached');
 
-    expect(app(LinkPoolReader::class)->cards($pro->refresh()))->toHaveCount(20);
+    expect(app(LinkPoolReader::class)->cards($pro->refresh()))->toHaveCount(50);
 });
 
 it('sends a below-auto-threshold link to review rather than connecting or noting it', function () {

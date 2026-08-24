@@ -29,6 +29,7 @@ class Tiktok
     {
         return [
             SurfaceBuilder::for('tiktok.profile')
+                ->legacyPlatform('tiktok')
                 ->displayName('TikTok')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)
@@ -36,7 +37,6 @@ class Tiktok
                 ->refreshEvery(0)
                 ->canonicalUrl('https://www.tiktok.com/@{handle}')
                 ->connect('connect.tiktok.url.v1')
-                ->multiAccount(5)
                 ->detect(
                     Detector::url('tiktok.com')
                         ->path('#^/@(?<handle>[A-Za-z0-9._]+)/?$#')

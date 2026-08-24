@@ -55,6 +55,9 @@ beforeEach(function () {
         health text NOT NULL DEFAULT \'ok\',
         consecutive_failures integer NOT NULL DEFAULT 0,
         auto_sync boolean NOT NULL DEFAULT true,
+        -- LIFE-5: SourceScheduler::scoreDue() selects on this, so a
+        -- stand-in without it fails the whole lane with 42703.
+        needs_eager_run boolean NOT NULL DEFAULT false,
         scope text NOT NULL DEFAULT \'all\',
         scope_n integer,
         created_at timestamptz NOT NULL DEFAULT now(),

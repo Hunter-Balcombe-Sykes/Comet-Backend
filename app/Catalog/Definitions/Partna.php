@@ -11,12 +11,13 @@ use App\Catalog\Surface;
 use App\Catalog\SurfaceBuilder;
 
 /**
- * Partna's own reserved surfaces — the structural replacement for the pseudo
- * platforms (plan §1). The three *_link surfaces exist so legacy pseudo-bucket
- * rows keep a valid surface (aliasing back verbatim to booking/reservations/
- * online-ordering) until P2's reproject upgrades them to real brand surfaces;
- * they are Hidden, never in pickers. partna.storefront is the shop-probe
- * connection's surface (real stores, brand identified per-probe in payload);
+ * Partna's own reserved surfaces. The pseudo-bucket bridge surfaces
+ * (partna.custom_link / manual_event / booking_link / reserve_link /
+ * order_link) were DELETED 2026-08-19 with the pseudo-platform retirement —
+ * zero live rows carried any of them, every routed link lands on its real
+ * brand surface, and standalone events write events-pool items via
+ * ManualEventWriter. partna.storefront is the shop-probe connection's
+ * surface (real stores, brand identified per-probe in payload);
  * partna.manual_product is the manual product add-path (§16), dormant until P4.
  */
 class Partna
@@ -39,22 +40,14 @@ class Partna
             ->lifecycle(Lifecycle::Hidden);
 
         return [
-            $hidden('partna.custom_link', 'Custom link', RoutingClass::Link, Shelf::Social)
-                ->multiAccount(20)
-                ->build(),
-            $hidden('partna.manual_event', 'Custom event', RoutingClass::Events, Shelf::Events)
-                ->multiAccount(20)
-                ->build(),
             $hidden('partna.manual_product', 'Manual product', RoutingClass::Shop, Shelf::Commerce)
                 ->multiAccount(20)
                 ->build(),
+            // Legacy slug 'shop', not the 'partna' brand prefix — the one
+            // surviving pseudo-bucket alias (the link-lane ones retired
+            // 2026-08-19 and live on only in LegacyPlatformMap::RETIRED).
             $hidden('partna.storefront', 'Online store', RoutingClass::Shop, Shelf::Commerce)
-                ->build(),
-            $hidden('partna.booking_link', 'Booking link', RoutingClass::Booking, Shelf::Booking)
-                ->build(),
-            $hidden('partna.reserve_link', 'Reservation link', RoutingClass::Reservations, Shelf::Food)
-                ->build(),
-            $hidden('partna.order_link', 'Ordering link', RoutingClass::Ordering, Shelf::Food)
+                ->legacyPlatform('shop')
                 ->build(),
         ];
     }

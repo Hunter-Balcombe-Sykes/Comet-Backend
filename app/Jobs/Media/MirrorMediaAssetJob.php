@@ -52,7 +52,12 @@ class MirrorMediaAssetJob implements ShouldBeUnique, ShouldQueue
         public readonly string $assetId,
         public readonly string $sourceUrl,
     ) {
-        $this->onQueue(config('partna.queues.images', 'images'));
+        // NOT 'images'. That queue carries ProcessImageVariantsJob, which a user is
+        // watching a spinner for; a mirror is background work on bytes that already
+        // render from their source_url until it lands. Sharing a queue name declared
+        // them equally urgent under supervisor-1's strict priority, so a build wave's
+        // ~300 mirrors delayed every real upload behind them.
+        $this->onQueue(config('partna.queues.media_mirror', 'media-mirror'));
         // Fire only after the projection transaction commits — the asset row
         // must exist before the worker looks for it. Set on the INSTANCE, not
         // redeclared as a property: Queueable already declares $afterCommit

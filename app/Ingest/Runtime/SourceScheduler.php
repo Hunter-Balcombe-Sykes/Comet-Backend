@@ -115,7 +115,17 @@ class SourceScheduler
 
         $due = DB::table('ingest.sources')
             ->whereNull('in_flight_since')
-            ->where('auto_sync', true)
+            // #LIFE-5: `auto_sync` OR an undischarged eager obligation. The
+            // connect run is a one-shot that nothing retried, and auto_sync is
+            // false on exactly the paid connectors it matters most for — so a
+            // dispatch lost to a queue blip meant that user's media never
+            // arrived at all. Reading the flag HERE rather than from a separate
+            // reconcile command is the point of the design: every guard around
+            // it already exists and applies unchanged — next_attempt_at honours
+            // a deferral or a failure backoff, health != 'dead' stops a source
+            // that keeps failing, and the in_flight claim below stops two
+            // workers taking it at once.
+            ->where(fn ($q) => $q->where('auto_sync', true)->orWhere('needs_eager_run', true))
             ->where('health', '!=', 'dead')
             ->where('next_attempt_at', '<=', now())
             ->limit($limit * 2)
@@ -185,6 +195,12 @@ class SourceScheduler
             // `degraded` is a non-`dead` health, so the source stays claimable.
             $update['health'] = $outcome === 'degraded' ? 'degraded' : 'ok';
             $update['next_attempt_at'] = now()->addSeconds($this->intervalFor($source, $rate));
+            // #LIFE-5: the eager obligation is discharged the moment content
+            // actually lands, after which the row is governed by auto_sync
+            // alone. Cleared ONLY on a qualifying outcome — a failed or
+            // deferred run leaves it set, which is what makes the retry a
+            // retry rather than a single second chance.
+            $update['needs_eager_run'] = false;
         } else {
             $failures = (int) $source->consecutive_failures + 1;
             $update['consecutive_failures'] = $failures;

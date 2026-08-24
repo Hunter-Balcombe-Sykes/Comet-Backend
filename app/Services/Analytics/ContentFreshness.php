@@ -2,131 +2,106 @@
 
 namespace App\Services\Analytics;
 
-use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
-use App\Services\PublicSite\SitepageDataResolverService;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Freshness boost — an ADDITIVE, decaying score term for newly-added content,
- * so new pages/items surface before they have earned engagement (cold start),
- * then fade back to pure engagement ranking over ~a month.
+ * Freshness boost — an ADDITIVE, decaying score term for newly-added pool
+ * items, so new content surfaces before it has earned engagement (cold
+ * start), then fades back to pure engagement ranking.
  *
- *   boost = W · 2^(-age_days / HALF_LIFE_DAYS)
+ *   boost = w_fresh(family) · 2^(-age_days / half_life_days(family))
  *
- * age comes from the owning row's created_at — the only grains with a STABLE
- * per-entity created_at (recon 2026-07-10):
- *   - page      : newest ACTIVE platform connection mapping to the page
- *                 (PLATFORM_TO_PAGE), plus live service content items
- *                 (content.items kind='service', either source) → 'services'.
- *                 Disconnect→reconnect resets created_at, which reads as
- *                 "re-added = fresh again" — acceptable semantics.
- *   - link_item : each custom link is its own connection row; payload.url is
- *                 byte-stable (enrichment never rewrites it) and equals the
- *                 item's content_key.
- * NOT freshness-eligible (no stable per-item created_at — documented, not
- * half-built): shop_product / listen_item / watch_item (items live inside one
- * connection's payload — a uniform boost can't change intra-page order) and
- * Fresha services (payload.selection.services[] is rewritten wholesale on sync).
+ * aged from publishedAt ?? firstSeenAt (content.f_published.published_from,
+ * else content.items.first_seen_at). Every scored family is eligible since
+ * 2026-08-23 (smart ordering v2) with its own weight and half-life from
+ * config/partna.php `pools.smart` (ItemFamily::weightsFor); a family whose
+ * w_fresh is 0 yields nothing. Events never score and so never appear.
  *
- * Consumed by ComputeContentPopularityScores (score = base·recency + boost;
- * zero-signal keys are seeded so brand-new content ranks at all) and surfaced
- * by DevInsightsController so the boost is visible in the score breakdown.
+ * The page family this used to carry was retired 2026-08-23: pages are
+ * actions now and get their freshness from ActionScorer.
+ *
+ * Consumed by ComputeContentPopularityScores (zero-signal keys are seeded so
+ * a brand-new item ranks at all) and surfaced by DevInsightsController.
  */
 class ContentFreshness
 {
+    /** Kept for the dev-insights surface; link_item's half-life in config matches. */
     public const HALF_LIFE_DAYS = 14.0;
 
-    // A brand-new PAGE starts at +15 — visible against typical page scores
-    // (~90-420 on an engaged site; dominant on a quiet one, which is the point).
-    public const W_PAGE = 15.0;
-
-    // A brand-new ITEM starts at +3 — exactly one click's head start.
+    /** The link_item boost at age 0 (config `pools.smart.link_item.fresh`). */
     public const W_ITEM = 3.0;
 
-    // Below this the boost is noise; skipping keeps zero-signal seeding bounded
-    // (a connection stops seeding score rows ~4 months after it was added).
+    // Below this the boost is noise; skipping keeps zero-signal seeding bounded.
     private const MIN_BOOST = 0.05;
 
     /**
-     * Freshness boosts for one site, keyed like the scoring job's content grains.
+     * Freshness boosts for one site, family => item id => boost, for every
+     * family with a live (>= MIN_BOOST) boost. Families with no fresh item
+     * are absent from the map.
      *
-     * @return array{page: array<string, float>, link_item: array<string, float>}
+     * @return array<string, array<string, float>>
      */
     public function boostsForSite(Site $site): array
     {
         $now = now();
+        $out = [];
 
-        // Newest created_at per page from active connections (SoftDeletes global
-        // scope excludes trashed; scopeActive excludes is_active=false).
-        $pageNewest = [];
-        $linkItems = [];
+        try {
+            $rows = DB::connection('pgsql')->table('content.items as i')
+                ->leftJoin('content.f_published as fp', 'fp.item_id', '=', 'i.id')
+                ->where('i.user_id', $site->user_id)
+                ->whereIn('i.kind', array_keys(ItemFamily::KIND_TO_FAMILY))
+                ->whereNull('i.removed_at')
+                ->get(['i.id', 'i.kind', 'i.first_seen_at', 'fp.published_from']);
+        } catch (QueryException) {
+            // content.* lane absent (partial test envs) — no boosts.
+            return [];
+        }
 
-        IntegrationConnection::query()
-            ->where('user_id', $site->user_id)
-            ->active()
-            ->get(['platform', 'resource_kind', 'payload', 'created_at'])
-            ->each(function (IntegrationConnection $conn) use (&$pageNewest, &$linkItems): void {
-                $page = SitepageDataResolverService::PLATFORM_TO_PAGE[$conn->platform] ?? null;
-                if ($page !== null) {
-                    if (! isset($pageNewest[$page]) || $conn->created_at->gt($pageNewest[$page])) {
-                        $pageNewest[$page] = $conn->created_at;
-                    }
+        // f_published is per (item, source): take the earliest published_from
+        // any source knows, and fall back to first_seen_at.
+        $dated = [];
+        foreach ($rows as $row) {
+            $id = (string) $row->id;
+            $dated[$id] ??= ['kind' => (string) $row->kind, 'published' => null, 'seen' => $row->first_seen_at];
+            if ($row->published_from !== null && $row->published_from !== '') {
+                $at = (string) $row->published_from;
+                if ($dated[$id]['published'] === null || strcmp($at, $dated[$id]['published']) < 0) {
+                    $dated[$id]['published'] = $at;
                 }
-
-                // Custom link rows: content_key = payload.url (byte-stable).
-                if ($conn->platform === 'custom') {
-                    $url = is_array($conn->payload) ? ($conn->payload['url'] ?? null) : null;
-                    if (is_string($url) && $url !== '') {
-                        $linkItems[$url] = $conn->created_at;
-                    }
-                }
-            });
-
-        // Services are content items with a stable created_at; a newly added
-        // one freshens the Book page. Services cutover (carried open since
-        // 3a): this read moves to content.items and covers BOTH source kinds
-        // — the legacy row's created_at carried exactly this signal, and a
-        // connector-landed service is no less new than an owner-authored one.
-        // A removed item contributes nothing, matching the old is_active bar
-        // closely enough for a freshness heuristic.
-        $newestService = DB::connection('pgsql')->table('content.items')
-            ->where('user_id', $site->user_id)
-            ->where('kind', 'service')
-            ->whereNull('removed_at')
-            ->max('created_at');
-        if ($newestService !== null) {
-            $serviceAt = Carbon::parse($newestService);
-            if (! isset($pageNewest['services']) || $serviceAt->gt($pageNewest['services'])) {
-                $pageNewest['services'] = $serviceAt;
             }
         }
 
-        $pages = [];
-        foreach ($pageNewest as $page => $createdAt) {
-            $boost = $this->boost(self::W_PAGE, $createdAt, $now);
+        foreach ($dated as $id => $row) {
+            $family = ItemFamily::forKind($row['kind']);
+            if ($family === null) {
+                continue;
+            }
+            $weights = ItemFamily::weightsFor($family);
+            if ($weights['fresh'] <= 0.0) {
+                continue;
+            }
+            $at = $row['published'] ?? $row['seen'];
+            if ($at === null || $at === '') {
+                continue;
+            }
+            $boost = $this->boost($weights['fresh'], $weights['half_life_days'], Carbon::parse($at), $now);
             if ($boost !== null) {
-                $pages[$page] = $boost;
+                $out[$family][$id] = $boost;
             }
         }
 
-        $links = [];
-        foreach ($linkItems as $url => $createdAt) {
-            $boost = $this->boost(self::W_ITEM, $createdAt, $now);
-            if ($boost !== null) {
-                $links[$url] = $boost;
-            }
-        }
-
-        return ['page' => $pages, 'link_item' => $links];
+        return $out;
     }
 
     /** Decayed boost, or null once it has faded below MIN_BOOST. */
-    private function boost(float $weight, Carbon $createdAt, Carbon $now): ?float
+    private function boost(float $weight, float $halfLifeDays, Carbon $from, Carbon $now): ?float
     {
-        $ageDays = max(0.0, $now->getTimestamp() - $createdAt->getTimestamp()) / 86400.0;
-        $boost = $weight * 2 ** (-$ageDays / self::HALF_LIFE_DAYS);
+        $ageDays = max(0.0, $now->getTimestamp() - $from->getTimestamp()) / 86400.0;
+        $boost = $weight * 2 ** (-$ageDays / $halfLifeDays);
 
         return $boost >= self::MIN_BOOST ? $boost : null;
     }

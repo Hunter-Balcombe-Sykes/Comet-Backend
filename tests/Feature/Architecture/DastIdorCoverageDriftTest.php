@@ -130,8 +130,9 @@ const IDOR_COVERED_BY = [
     'Platforms\GenericPlatformController@removeAccount' => 'platform-account',
     'Platforms\EventbriteController@removeAccount' => 'platform-events-account',
     'Platforms\EventbriteController@removeEvent' => 'platform-events-event',
-    'Platforms\CustomLinksController@removeLink' => 'platform-custom-link',
-    'Platforms\EventsController@removeCustom' => 'platform-custom-event',
+    // platform-custom-link / platform-custom-event left with the retired
+    // pseudo-platform controllers (2026-08-19) — their probes went from
+    // zap-active.sh in the same change.
 ];
 
 /**
@@ -304,10 +305,6 @@ const IDOR_VERB_VARIANT_OF = [
         'Platforms\EventbriteController@removeEvent',
         'Inherits EventsPlatformController::removeEvent (:251) unchanged; the subclass binds only a scraper.',
     ],
-    'Platforms\CustomLinksController@linkStatus' => [
-        'Platforms\CustomLinksController@removeLink',
-        'Same linkRows() -> connectionsFor() -> where(user_id) scoping; a read-only status projection of the row removeLink deletes.',
-    ],
 ];
 
 /**
@@ -323,9 +320,6 @@ const IDOR_VERB_VARIANT_OF = [
  * @var array<string, string>
  */
 const IDOR_UNSAFE_TO_PROBE = [
-    'Platforms\OnlineOrderingController@removeEntry' => 'The 200 path dispatches MenuFetchJob after a successful delete, which runs a real MenuApifyScraper '.
-        'menu scrape INLINE under the lane\'s QUEUE_CONNECTION=sync. Looks like a local DELETE; is not.',
-    'Platforms\OnlineOrderingController@entryStatus' => 'Read-only, but it belongs to the surface above and is left with it rather than half-covering it.',
 
     // 'shop' is one of exactly two hasCompletenessPredicate() platforms
     // (PlatformRegistryServiceProvider:479, the other is fresha), so

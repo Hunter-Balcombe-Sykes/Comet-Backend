@@ -32,6 +32,7 @@ class Behance
     {
         return [
             SurfaceBuilder::for('behance.profile')
+                ->legacyPlatform('behance')
                 ->displayName('Behance')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

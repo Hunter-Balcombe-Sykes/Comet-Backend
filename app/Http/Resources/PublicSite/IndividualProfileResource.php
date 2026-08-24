@@ -49,8 +49,7 @@ class IndividualProfileResource extends ApiResource
      *     architecture_id?: string|null,
      *     public_config?: array<string, mixed>,
      *     page_order?: list<string>,
-     *     ranked_actions?: list<array<string, mixed>>,
-     *     ordering?: array<string, mixed>,
+     *     actions?: array{mode: string, entries: list<array<string, mixed>>},
      *     links?: list<array<string, mixed>>,
      *     pools?: array<string, array{items: list<array<string, mixed>>, latestItemId: string|null}>,
      *     brand?: array{logoFull: array<string, mixed>|null, logoSquare: array<string, mixed>|null},
@@ -59,7 +58,9 @@ class IndividualProfileResource extends ApiResource
      *     newsletter?: array<string, mixed>|null,
      *     contact?: array<string, mixed>|null,
      *     publicContact?: array{email: string|null, phone: string|null}|null,
+     *     bio?: string|null,
      *     workplace?: array<string, mixed>|null,
+     *     policies?: array<string, mixed>|null,
      * }  $sections
      */
     public function __construct(
@@ -84,9 +85,9 @@ class IndividualProfileResource extends ApiResource
 
         // Engine fields preserve null-vs-array distinction precisely:
         //   - document/newsletter: null when no data is authored.
-        //   - links/services: always emitted as an array.
-        //   (bio was removed with the dead-profile-features cleanup,
-        //   migration 20260705120000.)
+        //   - links/services (the pre-pool engine lists) LEFT the wire
+        //     2026-08-19: `pools.custom_links` / `pools.services` are the
+        //     public truth and the sitepage never read the old keys.
         return [
             // Content data — the profile itself + engine outputs. camelCase
             // keys for engine fields per spec §5 wire convention.
@@ -96,8 +97,6 @@ class IndividualProfileResource extends ApiResource
                 'accountType' => $this->account_type?->value,
                 'site_id' => $this->sections['site_id'] ?? null,
 
-                // Engine outputs (phase 8).
-                'links' => $this->sections['links'] ?? [],
                 // The content pools (platforms-as-sources, 2026-08-05):
                 // {watch|listen|media: {items: [...], latestItemId}} — the
                 // SELECTION each pool renders publicly, resolved LIVE (owner
@@ -111,11 +110,13 @@ class IndividualProfileResource extends ApiResource
                 // each {url, urlHd, urlSvg, urlIcon} | null. Null when the
                 // owner never uploaded one — name-as-type is the fallback.
                 'brand' => $this->sections['brand'] ?? ['logoFull' => null, 'logoSquare' => null],
-                'services' => $this->sections['services'] ?? [],
                 'document' => $this->sections['document'] ?? null,
                 'newsletter' => $this->sections['newsletter'] ?? null,
                 'contact' => $this->sections['contact'] ?? null,
                 'publicContact' => $this->sections['publicContact'] ?? null,
+                // Owner-authored About Me (users.bio, re-added 2026-08-19) —
+                // string | null; the renderer owns the mount.
+                'bio' => $this->sections['bio'] ?? null,
                 'workplace' => $this->sections['workplace'] ?? null,
             ],
 
@@ -124,23 +125,8 @@ class IndividualProfileResource extends ApiResource
             // render-time concern, not profile content). Always an array.
             'pageOrder' => $this->sections['page_order'] ?? [],
 
-            // Full popularity map { content_type: { content_key: rank } } — the ONE
-            // theme orders items of any type by looking up their rank here (cast to
-            // object so an empty map serializes as {} not []). Top-level.
-            'popularity' => (object) ($this->sections['popularity'] ?? []),
-
-            // Unified ranked actions — ordered best-first, the lander renders the
-            // top 6. Entries: {kind: page|item|button|custom, ref, label, url,
-            // pageId, itemType, itemKey, score}. Already override-applied (when
-            // the owner disabled smart actions this IS their manual list, customs
-            // included) — consumers render, never re-derive. Always an array.
-            'rankedActions' => $this->sections['ranked_actions'] ?? [],
-
-            // Ordering preferences (defaults applied server-side): {smartPageOrder,
-            // manualPageOrder, smartActions, manualActions}. pageOrder/rankedActions
-            // above already reflect these — this object is for transparency +
-            // dashboard/preview surfaces. Always an object.
-            'ordering' => (object) ($this->sections['ordering'] ?? []),
+            // Unified action list (2026-08-23) — always present, entries may be [].
+            'actions' => $this->sections['actions'] ?? ['mode' => 'newest', 'entries' => []],
 
             // Per-user design kit. Partial — only contains stored (non-null)
             // columns from site.design_kits, mapped from flat snake_case DB

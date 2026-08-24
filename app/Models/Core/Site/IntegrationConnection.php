@@ -25,12 +25,12 @@ use Illuminate\Validation\ValidationException;
  * @property string $resource_id
  * @property string|null $canonical_key Normalized identity key for account-row dedupe (FOUND-14); NULL for event- and link- prefixed resource rows.
  * @property string|null $resource_kind One of 'event'|'link', or NULL for account rows (platform_connections_resource_kind_check).
- * @property array<string, mixed> $payload User-curated selection + last-fetched upstream snapshot; shape varies per platform archetype — see the typed read boundaries in App\Services\Platforms\Payloads (FeedPayload, SelectionPayload, CardPayload, etc.), each a DIFFERENT subset/union of keys. NOT NULL in Postgres (default '{}'), unlike the nullable SQLite test mirror.
+ * @property array<string, mixed> $payload User-curated selection + last-fetched upstream snapshot; shape varies per platform archetype — see the typed read boundaries in App\Services\Platforms\Payloads (FeedPayload, SelectionPayload, CardPayload, etc.), each a DIFFERENT subset/union of keys. NOT NULL with default '{}' in Postgres AND in the SQLite test mirror.
  * @property int $sort_order
  * @property bool $is_active
  * @property Carbon|null $last_visited_at
  * @property Carbon|null $last_refreshed_at
- * @property string|null $last_refresh_status One of 'ok'|'unavailable'|'error'|'pending' (platform_connections_last_refresh_status_check).
+ * @property string|null $last_refresh_status One of 'ok'|'unavailable'|'error'|'pending'|'action_needed' (platform_connections_last_refresh_status_check). 'action_needed' = the ingest run finished cleanly but the owner must choose something before the connection can publish (IngestStatusWriteback); a resting state, not a fault.
  * @property string|null $last_refresh_error
  * @property int $consecutive_failures
  * @property string|null $apify_status One of 'pending'|'ok'|'unavailable' — Google Business async enrichment state, a separate state machine from last_refresh_status (platform_connections_apify_status_check).
@@ -101,7 +101,7 @@ class IntegrationConnection extends BaseModel
     // Mass-assignment posture (SEC-1): `user_id` is KEPT fillable on purpose —
     // mirrors the User.handle precedent. The updateOrCreate() idiom in
     // ManagesIntegrationConnection::writeConnection() (and the analogous calls
-    // in GoogleBusinessAutoSync/CustomLinkSeeder/EventsCatalog/InstagramController)
+    // in GoogleBusinessAutoSync/CustomLinkSeeder/InstagramController)
     // passes `user_id` in the lookup-attributes array, which Eloquent
     // mass-assigns through create() on the not-found path — removing it from
     // $fillable would silently null out the tenant on every new connection.
@@ -340,6 +340,14 @@ class IntegrationConnection extends BaseModel
         return $query->active()
             ->where('consecutive_failures', '<', $maxFailures)
             ->excludingPending()
+            // 'action_needed' is waiting on the OWNER, not on a fetch. Letting
+            // the legacy refresher at it is how a Fresha row with nothing
+            // selected 304s into a falsely healthy 'ok' (FreshaFetch →
+            // recordNotModified). The next clean ingest run clears it.
+            ->where(function ($q) {
+                $q->whereNull('last_refresh_status')
+                    ->orWhere('last_refresh_status', '!=', 'action_needed');
+            })
             ->where(function ($q) use ($cutoff) {
                 $q->whereNull('last_refreshed_at')
                     ->orWhere('last_refreshed_at', '<', $cutoff);

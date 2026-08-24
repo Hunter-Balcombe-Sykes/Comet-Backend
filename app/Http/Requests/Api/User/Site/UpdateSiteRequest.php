@@ -18,15 +18,6 @@ class UpdateSiteRequest extends BaseFormRequest
 {
     use DesignKitValidationRules, NormalizesSiteUpdateInput, SiteOrderingValidationRules;
 
-    /**
-     * The platform is single-architecture: 'staple' is the only layout
-     * (2026-07-15 — replaced 'one', which replaced the bento/dock/flick/deck/
-     * atlas generation on 2026-07-10). Mirrors the DB CHECK constraint.
-     */
-    public const ALLOWED_ARCHITECTURES = [
-        'staple',
-    ];
-
     public function rules(): array
     {
         $professional = $this->attributes->get('professional');
@@ -36,11 +27,18 @@ class UpdateSiteRequest extends BaseFormRequest
             // Non-design settings — design moved to site.design_kits, all
             // settings.design.* paths are rejected outright.
             'settings' => ['sometimes', 'array'],
+            // architecture_id left the wire 2026-08-20 — no rule, so it is an
+            // unknown key: accepted and dropped, never persisted. Deliberately
+            // NOT 'prohibited', which would 422 any client still sending it.
             // settings.design.* is dead — reject any incoming key under it.
             'settings.design' => ['prohibited'],
             'settings.show_branding' => ['sometimes', 'boolean'],
             'settings.charlie_enabled' => ['sometimes', 'boolean'],
             'settings.services_auto_sync_enabled' => ['sometimes', 'boolean'],
+            // Owner switch over whether the sitepage carries a Gallery page.
+            // Absent = true (permissive-on-absent, like smart_page_order).
+            // Stored only for now — the resolver gate lands separately.
+            'settings.display_gallery_page' => ['sometimes', 'boolean'],
             'settings.booking_mode' => [
                 'sometimes',
                 'string',
@@ -98,7 +96,6 @@ class UpdateSiteRequest extends BaseFormRequest
 
             // Architecture — always 'staple' (every legacy id normalized to it
             // in prepareForValidation; only genuinely unknown strings 422).
-            'architecture_id' => ['sometimes', 'string', Rule::in(self::ALLOWED_ARCHITECTURES)],
 
             // Per-user design kit. Defined in DesignKitValidationRules trait so
             // this class and StaffUpdateSiteRequest share a single source of truth
@@ -140,7 +137,6 @@ class UpdateSiteRequest extends BaseFormRequest
             'subdomain.min' => 'The subdomain must be at least 3 characters.',
             'subdomain.max' => 'The subdomain cannot exceed 63 characters.',
             'settings.design.prohibited' => 'settings.design.* is no longer accepted. Use the design_kit field instead.',
-            'architecture_id.in' => 'Unknown layout.',
         ];
     }
 }

@@ -100,6 +100,8 @@ class PlatformDescriptor
     /** @var (Closure(IntegrationConnection): bool)|null Optional content predicate consulted by isComplete(). Null = an active row is always complete (every platform's default). */
     private ?Closure $completenessGate = null;
 
+    private ?bool $destination = null;
+
     private function __construct(private readonly string $key)
     {
         $this->label = $key;
@@ -138,6 +140,34 @@ class PlatformDescriptor
         $this->category = $category;
 
         return $this;
+    }
+
+    /**
+     * Is this platform a public DESTINATION in its own right (a profile,
+     * channel or artist page visitors should be sent to), as opposed to a
+     * pure SOURCE that powers a sitepage (booking, store, ticketing, menu,
+     * review)? Destinations get their own action on the lander; sources
+     * fold into their page's action (unified actions, spec §2.2). Defaults
+     * from the category — call to override either way.
+     */
+    public function destination(bool $on = true): self
+    {
+        $this->destination = $on;
+
+        return $this;
+    }
+
+    public function isDestination(): bool
+    {
+        if ($this->destination !== null) {
+            return $this->destination;
+        }
+
+        return match ($this->category) {
+            PlatformCategory::Social, PlatformCategory::Content, PlatformCategory::Streaming,
+            PlatformCategory::Music, PlatformCategory::Education, PlatformCategory::OnlineOrdering => true,
+            default => false,
+        };
     }
 
     public function resource(string $resourceClass): self
@@ -562,8 +592,8 @@ class PlatformDescriptor
     /**
      * Whether this connection has publishable content. Read by the public
      * page-presence gate (SitepageDataResolverService::presentPageIds), the
-     * Book-now fallback (SiteActionsService::pool), the dashboard status
-     * endpoint (BookingController::statusFor) and the reconcile command.
+     * Book-now fallback (ActionCandidates source fallback), the dashboard status
+     * endpoint (the retired booking category controller) and the reconcile command.
      *
      * A predicate MAY query — shop's does — so callers on the public render
      * path wrap it in safeQuery() and fail CLOSED (hide the page), matching the

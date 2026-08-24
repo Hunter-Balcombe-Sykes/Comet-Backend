@@ -171,7 +171,7 @@ class GoogleBusinessService extends PlatformScraper
     // place per refresh. Field additions here must also be mapped in
     // mapDetails() and allowlisted in PublicIntegrationConnectionResource if
     // they should reach the sitepage.
-    private const DETAILS_FIELD_MASK = 'id,displayName,formattedAddress,location,businessStatus,primaryTypeDisplayName,googleMapsUri,googleMapsLinks,utcOffsetMinutes,rating,userRatingCount,nationalPhoneNumber,internationalPhoneNumber,websiteUri,regularOpeningHours,currentOpeningHours,postalAddress,priceLevel,priceRange,photos,reviews,reviewSummary,editorialSummary,accessibilityOptions,parkingOptions,paymentOptions,outdoorSeating,reservable,delivery,takeout,dineIn,curbsidePickup,goodForChildren,goodForGroups,allowsDogs,restroom,liveMusic,servesCoffee,servesBreakfast,servesBrunch,servesLunch,servesDinner,servesDessert,servesVegetarianFood,servesBeer,servesWine,servesCocktails';
+    private const DETAILS_FIELD_MASK = 'id,displayName,formattedAddress,location,businessStatus,primaryTypeDisplayName,primaryType,types,googleMapsUri,googleMapsLinks,utcOffsetMinutes,rating,userRatingCount,nationalPhoneNumber,internationalPhoneNumber,websiteUri,regularOpeningHours,currentOpeningHours,postalAddress,priceLevel,priceRange,photos,reviews,reviewSummary,editorialSummary,accessibilityOptions,parkingOptions,paymentOptions,outdoorSeating,reservable,delivery,takeout,dineIn,curbsidePickup,goodForChildren,goodForGroups,allowsDogs,restroom,liveMusic,servesCoffee,servesBreakfast,servesBrunch,servesLunch,servesDinner,servesDessert,servesVegetarianFood,servesBeer,servesWine,servesCocktails';
 
     // Shape of a Places photo resource name, which resolvePhotoUrls() splices
     // into the media URL. Anything else is refused before it can carry path or
@@ -206,6 +206,64 @@ class GoogleBusinessService extends PlatformScraper
      * happens only after a transport failure, which means something already reached
      * places.googleapis.com and may have been billed.
      */
+    private const SEARCH_TEXT_URL = 'https://places.googleapis.com/v1/places:searchText';
+
+    private const SEARCH_TEXT_FIELD_MASK = 'places.id,places.displayName,places.formattedAddress,places.location,places.nationalPhoneNumber,places.internationalPhoneNumber,places.postalAddress,places.businessStatus';
+
+    /**
+     * Places Text Search (New) — the ONE keyed, budgeted search call (owner,
+     * 2026-08-19; FreshaWorkplaceLinker is its first caller). Same budget
+     * SKU as details ('details') so the per-user daily cap covers it. Null
+     * when the key is missing, the budget is spent, or Google didn't answer;
+     * otherwise the raw `places` list (possibly empty).
+     *
+     * @param  array{lat:float, lng:float, radiusMetres?:float}|null  $bias
+     * @return list<array<string,mixed>>|null
+     */
+    public function searchText(string $query, string $userId, ?array $bias = null, ?string $regionCode = null, int $maxResults = 5): ?array
+    {
+        $key = config('services.google_maps.server_api_key');
+        if (! is_string($key) || $key === '' || trim($query) === '') {
+            return null;
+        }
+        if ($this->budget->claim('details', $userId) !== PlacesClaim::Granted) {
+            return null;
+        }
+
+        $body = ['textQuery' => trim($query), 'maxResultCount' => max(1, min(20, $maxResults))];
+        if ($bias !== null) {
+            $body['locationBias'] = ['circle' => [
+                'center' => ['latitude' => $bias['lat'], 'longitude' => $bias['lng']],
+                'radius' => (float) ($bias['radiusMetres'] ?? 2000.0),
+            ]];
+        }
+        if (is_string($regionCode) && strlen($regionCode) === 2) {
+            $body['regionCode'] = strtolower($regionCode);
+        }
+
+        try {
+            $res = Http::timeout(6)
+                ->withHeaders([
+                    'X-Goog-Api-Key' => $key,
+                    'X-Goog-FieldMask' => self::SEARCH_TEXT_FIELD_MASK,
+                ])
+                ->post(self::SEARCH_TEXT_URL, $body);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return null;
+        }
+        if (! $res->ok()) {
+            Log::warning('google_business.search_text_failed', ['status' => $res->status()]);
+
+            return null;
+        }
+
+        $places = $res->json('places');
+
+        return is_array($places) ? array_values(array_filter($places, 'is_array')) : [];
+    }
+
     public function fetchPlaceDetailsRaw(string $placeId, string $userId): PlaceDetailsResult
     {
         $key = config('services.google_maps.server_api_key');
@@ -425,7 +483,7 @@ class GoogleBusinessService extends PlatformScraper
             // The canonical Maps URI beats the search deep link stored at connect.
             'url' => data_get($place, 'googleMapsUri'),
             'businessStatus' => data_get($place, 'businessStatus'),
-            'category' => data_get($place, 'primaryTypeDisplayName.text'),
+            'category' => $this->categoryFrom($place),
             'phone' => data_get($place, 'nationalPhoneNumber'),
             'phoneIntl' => data_get($place, 'internationalPhoneNumber'),
             'website' => data_get($place, 'websiteUri'),
@@ -461,6 +519,53 @@ class GoogleBusinessService extends PlatformScraper
         $mapped['detailsFetchedAt'] = now()->toIso8601String();
 
         return $mapped;
+    }
+
+    /**
+     * Types so broad they say nothing about what the business IS. Google
+     * happily marks a tattoo shop primaryType "store" (Vic Market Tattoo,
+     * M-10 live shape) while types[] carries body_art_service — so a generic
+     * primary yields to the most specific types[] entry, humanized from
+     * snake_case. The display name still wins whenever the primary type is
+     * specific, because Google's own label ("Barber shop") reads better than
+     * anything derived.
+     *
+     * @var list<string>
+     */
+    private const GENERIC_PLACE_TYPES = [
+        'store', 'service', 'establishment', 'point_of_interest',
+        'food', 'health', 'place_of_worship', 'finance',
+        // Same bug class for trades (critic, 2026-08-21): an electrician
+        // marked primaryType general_contractor would keep the useless
+        // "General contractor" label and never sector-sync while types[]
+        // carries `electrician`. Google files it under the broad Table B
+        // set; store/service above are formally Table A but behave generic
+        // in the wild (Vic Market Tattoo).
+        'general_contractor',
+    ];
+
+    /** @param array<string,mixed> $place */
+    private function categoryFrom(array $place): ?string
+    {
+        $display = data_get($place, 'primaryTypeDisplayName.text');
+        $primary = data_get($place, 'primaryType');
+
+        if (is_string($display) && $display !== ''
+            && ! in_array($primary, self::GENERIC_PLACE_TYPES, true)) {
+            return $display;
+        }
+
+        // Google documents no ordering for types[]; empirically the specific
+        // trade leads. First-non-generic is a heuristic with no tiebreak — a
+        // listing carrying two specific types takes whichever Google put
+        // first, which is still strictly better than the generic label.
+        foreach ((array) data_get($place, 'types') as $type) {
+            if (is_string($type) && $type !== '' && ! in_array($type, self::GENERIC_PLACE_TYPES, true)) {
+                return ucfirst(str_replace('_', ' ', $type));
+            }
+        }
+
+        return is_string($display) && $display !== '' ? $display : null;
     }
 
     /**

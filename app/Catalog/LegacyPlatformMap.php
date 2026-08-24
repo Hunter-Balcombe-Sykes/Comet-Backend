@@ -3,103 +3,27 @@
 namespace App\Catalog;
 
 /**
- * The P1 bridge between the legacy `platform` slug vocabulary and catalog
- * surface keys. Three consumers must stay in exact lockstep:
- *   1. IntegrationConnection's platform mutator/accessor (legacy writes),
- *   2. the 20260727110000 backfill migration's CASE (same table, SQL form),
- *   3. the generated `platform` alias column (surface → legacy, SQL form).
- * CatalogLegacyMapTest asserts 1↔2↔3 agreement and map ⊆ compiled artefact.
+ * The bridge between the legacy `platform` slug vocabulary and catalog surface
+ * keys. It holds NO data of its own: the slug is a field on the surface in the
+ * compiled catalog (`legacy_platform`, set only where the slug is not the brand
+ * prefix), and everything else derives from the prefix.
  *
- * Deliberate P1 policy: pseudo-bucket rows (booking/reservations/
- * online-ordering/custom/shop/events-custom) map to hidden partna.* surfaces
- * that alias back to EXACTLY their old value — zero behaviour change; the
- * provider-label upgrade to real brand surfaces is P2's reproject, where
- * gates and XOR move to routing_class.
+ * The vocabulary is still load-bearing — it is on the public wire and mirrored
+ * into SQL — so it has four representations that must agree:
+ *   1. this class, reading the compiled artefact (the AUTHORED source),
+ *   2. the 20260727110001 backfill CASE (historical record of a one-time run),
+ *   3. the LIVE generated `platform` column, 20260727110004 (GENERATED ALWAYS
+ *      ... STORED — Postgres cannot read the artefact, so this is emitted from
+ *      it by `catalog:emit-legacy-alias-sql`, not hand-maintained),
+ *   4. the SQLite mirror in tests/Pest.php.
+ * CatalogLegacyMapTest asserts 1 == 2 == 3 == 4.
+ *
+ * Changing a slug is therefore a MIGRATION with a full heap rewrite, not an
+ * edit to a definition. RETIRED below stays so the lockstep test can tell
+ * "retired on purpose" from "drifted by accident".
  */
 class LegacyPlatformMap
 {
-    /** Legacy platform slug => surface key. Covers every writable value (78). */
-    private const TO_SURFACE = [
-        'apple-music' => 'apple_music.artist',
-        'apple-podcast' => 'apple_podcasts.show',
-        'bandcamp' => 'bandcamp.artist',
-        'behance' => 'behance.profile',
-        'bella-booking' => 'bella_booking.book',
-        'booksy' => 'booksy.book',
-        'bopple' => 'bopple.order',
-        'boulevard' => 'boulevard.book',
-        'buymeacoffee' => 'buymeacoffee.page',
-        'codepen' => 'codepen.profile',
-        'discord' => 'discord.server',
-        'dribbble' => 'dribbble.profile',
-        'easi' => 'easi.order',
-        'eventbrite' => 'eventbrite.organiser',
-        'facebook' => 'facebook.profile',
-        'fresha' => 'fresha.book',
-        'github' => 'github.profile',
-        'gitlab' => 'gitlab.profile',
-        'glossgenius' => 'glossgenius.book',
-        'google-business' => 'google_business.listing',
-        'gumroad' => 'gumroad.store',
-        'humanitix' => 'humanitix.organiser',
-        'hungrypanda' => 'hungrypanda.order',
-        'instagram' => 'instagram.profile',
-        'kick' => 'kick.channel',
-        'kitomba' => 'kitomba.book',
-        'ko-fi' => 'ko_fi.page',
-        'linkedin' => 'linkedin.profile',
-        'mangomint' => 'mangomint.book',
-        'medium' => 'medium.profile',
-        'mindbody' => 'mindbody.book',
-        'mixcloud' => 'mixcloud.player',
-        'nowbookit' => 'nowbookit.reserve',
-        'opentable' => 'opentable.reserve',
-        'ovatu' => 'ovatu.book',
-        'oztix' => 'oztix.tickets',
-        'patreon' => 'patreon.page',
-        'phorest' => 'phorest.book',
-        'quandoo' => 'quandoo.reserve',
-        'reddit' => 'reddit.profile',
-        'resdiary' => 'resdiary.reserve',
-        'resident-advisor' => 'resident_advisor.tickets',
-        'resy' => 'resy.reserve',
-        'sevenrooms' => 'sevenrooms.reserve',
-        'shortcuts' => 'shortcuts.book',
-        'skool' => 'skool.community',
-        'snapchat' => 'snapchat.profile',
-        'soundcloud' => 'soundcloud.player',
-        'spotify' => 'spotify.player',
-        'square' => 'square.book',
-        'square-ordering' => 'square.order',
-        'strava' => 'strava.club',
-        'substack' => 'substack.publication',
-        'tablecheck' => 'tablecheck.reserve',
-        'telegram' => 'telegram.channel',
-        'threads' => 'threads.profile',
-        'ticketek' => 'ticketek.tickets',
-        'ticketmaster' => 'ticketmaster.tickets',
-        'tidal' => 'tidal.player',
-        'tiktok' => 'tiktok.profile',
-        'timely' => 'timely.book',
-        'tock' => 'tock.reserve',
-        'trybooking' => 'trybooking.tickets',
-        'twitch' => 'twitch.channel',
-        'vagaro' => 'vagaro.book',
-        'vimeo' => 'vimeo.account',
-        'whatsapp' => 'whatsapp.chat',
-        'x' => 'x.profile',
-        'youtube' => 'youtube.channel',
-        'youtube-music' => 'youtube_music.channel',
-        'zenoti' => 'zenoti.book',
-        // Pseudo buckets → hidden partna.* surfaces (alias back verbatim).
-        'custom' => 'partna.custom_link',
-        'events-custom' => 'partna.manual_event',
-        'shop' => 'partna.storefront',
-        'booking' => 'partna.booking_link',
-        'reservations' => 'partna.reserve_link',
-        'online-ordering' => 'partna.order_link',
-    ];
-
     /**
      * Platforms REMOVED from the product after the 20260727110000 migration
      * ran. Their rows are still in that migration's backfill CASE — it is a
@@ -119,132 +43,71 @@ class LegacyPlatformMap
         // Pinterest. Connector, catalog surface, legacy scraper and registry
         // entry all deleted in the same change.
         'pinterest' => 'pinterest.profile',
+        // Pseudo-platform link lane retired 2026-08-19 (owner): every routed
+        // link lands on its real brand surface via LinkRouter/SourceReconciler.
+        // Zero live rows carried any of these at deletion time (measured).
+        'custom' => 'partna.custom_link',
+        'events-custom' => 'partna.manual_event',
+        'booking' => 'partna.booking_link',
+        'reservations' => 'partna.reserve_link',
+        'online-ordering' => 'partna.order_link',
     ];
+
+    /** @var array<string, string>|null memoised legacy slug => surface key */
+    private static ?array $inverse = null;
+
+    /** @var array<string, string>|null memoised surface key => legacy slug */
+    private static ?array $forward = null;
 
     /**
-     * Surface key => legacy slug, ONLY where the legacy slug is not simply the
-     * surface's brand prefix. Everything else aliases via the prefix rule
-     * (split_part in Postgres). Keep this list mirrored in the generated
-     * `platform` column's CASE.
+     * Legacy slug => surface key, for exactly the surfaces that carry one.
+     *
+     * Deliberately NOT every surface: a surface with no `legacy_platform` was
+     * never addressable by a legacy slug, and widening this would change what
+     * callers doing `surfaceFor($p) ?? $p` resolve to.
      */
-    private const SPECIAL_TO_LEGACY = [
-        'apple_music.artist' => 'apple-music',
-        'apple_podcasts.show' => 'apple-podcast',
-        'bella_booking.book' => 'bella-booking',
-        'google_business.listing' => 'google-business',
-        'ko_fi.page' => 'ko-fi',
-        'resident_advisor.tickets' => 'resident-advisor',
-        'square.order' => 'square-ordering',
-        'youtube_music.channel' => 'youtube-music',
-        'partna.custom_link' => 'custom',
-        'partna.manual_event' => 'events-custom',
-        'partna.storefront' => 'shop',
-        'partna.booking_link' => 'booking',
-        'partna.reserve_link' => 'reservations',
-        'partna.order_link' => 'online-ordering',
-    ];
-
-    /** Surface key => routing class (P1 truth; must agree with the artefact). */
-    private const ROUTING_CLASS = [
-        // social
-        'x.profile' => 'social', 'tiktok.profile' => 'social', 'facebook.profile' => 'social',
-        'snapchat.profile' => 'social', 'linkedin.profile' => 'social', 'threads.profile' => 'social',
-        'reddit.profile' => 'social', 'discord.server' => 'social', 'telegram.channel' => 'social',
-        'kick.channel' => 'social', 'medium.profile' => 'social', 'instagram.profile' => 'social',
-        'whatsapp.chat' => 'social', 'substack.publication' => 'social', 'patreon.page' => 'social',
-        'ko_fi.page' => 'social', 'buymeacoffee.page' => 'social', 'github.profile' => 'social',
-        'gitlab.profile' => 'social', 'codepen.profile' => 'social', 'dribbble.profile' => 'social',
-        'behance.profile' => 'social',
-        // content (no gates, no XOR, no CTA class)
-        'strava.club' => 'content', 'skool.community' => 'content',
-        'youtube.channel' => 'content', 'vimeo.account' => 'content', 'twitch.channel' => 'content',
-        'spotify.player' => 'content', 'soundcloud.player' => 'content', 'mixcloud.player' => 'content',
-        'tidal.player' => 'content', 'apple_music.artist' => 'content', 'apple_podcasts.show' => 'content',
-        'bandcamp.artist' => 'content', 'youtube_music.channel' => 'content',
-        'google_business.listing' => 'content',
-        // events
-        'eventbrite.organiser' => 'events', 'humanitix.organiser' => 'events',
-        'ticketek.tickets' => 'events', 'ticketmaster.tickets' => 'events', 'oztix.tickets' => 'events',
-        'trybooking.tickets' => 'events', 'resident_advisor.tickets' => 'events',
-        'partna.manual_event' => 'events',
-        // booking
-        'fresha.book' => 'booking', 'square.book' => 'booking', 'booksy.book' => 'booking',
-        'vagaro.book' => 'booking', 'timely.book' => 'booking', 'kitomba.book' => 'booking',
-        'phorest.book' => 'booking', 'shortcuts.book' => 'booking', 'bella_booking.book' => 'booking',
-        'boulevard.book' => 'booking', 'glossgenius.book' => 'booking', 'mangomint.book' => 'booking',
-        'zenoti.book' => 'booking', 'mindbody.book' => 'booking', 'ovatu.book' => 'booking',
-        'partna.booking_link' => 'booking',
-        // reservations
-        'opentable.reserve' => 'reservations', 'resdiary.reserve' => 'reservations',
-        'nowbookit.reserve' => 'reservations', 'resy.reserve' => 'reservations',
-        'quandoo.reserve' => 'reservations', 'sevenrooms.reserve' => 'reservations',
-        'tock.reserve' => 'reservations', 'tablecheck.reserve' => 'reservations',
-        'partna.reserve_link' => 'reservations',
-        // ordering
-        'square.order' => 'ordering', 'bopple.order' => 'ordering', 'hungrypanda.order' => 'ordering',
-        'easi.order' => 'ordering', 'partna.order_link' => 'ordering',
-        // shop
-        'partna.storefront' => 'shop', 'gumroad.store' => 'shop',
-        // link
-        'partna.custom_link' => 'link',
-    ];
-
     public static function surfaceFor(string $legacyPlatform): ?string
     {
-        return self::TO_SURFACE[$legacyPlatform] ?? null;
+        return self::inverse()[$legacyPlatform] ?? null;
     }
 
     /**
      * Whether this surface may be written to a connection.
      *
-     * The COMPILED CATALOG is the authority — this map only covers the 78
-     * legacy platforms it exists to bridge, so validating against it alone
-     * would make every brand added since P1 (Shopify, Uber Eats, Menulog…)
-     * unconnectable. The map is consulted as a fallback for the one case the
-     * catalog cannot answer: an environment where the artefact is missing.
+     * The compiled catalog is the sole authority. It is a git-tracked artefact
+     * (bootstrap/catalog/compiled.php), so a missing one is a broken deploy,
+     * not a supported state — this deliberately throws rather than silently
+     * half-opening the write gate.
      */
     public static function isKnownSurface(string $surfaceKey): bool
     {
-        if (isset(self::ROUTING_CLASS[$surfaceKey])) {
-            return true;
-        }
-
-        try {
-            return CompiledCatalog::surface($surfaceKey) !== null;
-        } catch (CatalogNotCompiled) {
-            return false;
-        }
-    }
-
-    public static function legacyFor(string $surfaceKey): string
-    {
-        return self::SPECIAL_TO_LEGACY[$surfaceKey]
-            ?? explode('.', $surfaceKey, 2)[0];
+        return CompiledCatalog::surface($surfaceKey) !== null;
     }
 
     /**
-     * The routing class for a surface. Same authority order as
-     * isKnownSurface(): the map answers for legacy surfaces (where it is the
-     * lockstep-tested truth the migration's SQL mirrors), the catalog answers
-     * for everything added since.
+     * The legacy slug for a surface: the catalog's `legacy_platform` where the
+     * surface carries one, otherwise the brand prefix — the same rule as
+     * split_part(surface_key, '.', 1) in Postgres.
      */
-    public static function routingClassFor(string $surfaceKey): ?string
+    public static function legacyFor(string $surfaceKey): string
     {
-        if (isset(self::ROUTING_CLASS[$surfaceKey])) {
-            return self::ROUTING_CLASS[$surfaceKey];
-        }
-
-        try {
-            return CompiledCatalog::surface($surfaceKey)['routing_class'] ?? null;
-        } catch (CatalogNotCompiled) {
-            return null;
-        }
+        return self::forward()[$surfaceKey]
+            ?? explode('.', $surfaceKey, 2)[0];
     }
 
-    /** @return array<string, string> */
+    /** The routing class for a surface, per the compiled catalog. */
+    public static function routingClassFor(string $surfaceKey): ?string
+    {
+        return CompiledCatalog::surface($surfaceKey)['routing_class'] ?? null;
+    }
+
+    /** @return array<string, string> legacy slug => surface key */
     public static function toSurfaceMap(): array
     {
-        return self::TO_SURFACE;
+        $map = self::inverse();
+        ksort($map);
+
+        return $map;
     }
 
     /**
@@ -255,7 +118,7 @@ class LegacyPlatformMap
      */
     public static function historicalSurfaceMap(): array
     {
-        $all = self::TO_SURFACE + self::RETIRED;
+        $all = self::toSurfaceMap() + self::RETIRED;
         ksort($all);
 
         return $all;
@@ -267,15 +130,99 @@ class LegacyPlatformMap
         return self::RETIRED;
     }
 
-    /** @return array<string, string> */
+    /**
+     * Surface key => legacy slug, ONLY where the slug is not the brand prefix.
+     * These are the WHEN arms of the generated alias CASE; everything else
+     * falls through to its split_part ELSE.
+     *
+     * @return array<string, string>
+     */
     public static function specialToLegacyMap(): array
     {
-        return self::SPECIAL_TO_LEGACY;
+        $special = [];
+
+        foreach (self::forward() as $surfaceKey => $legacy) {
+            if ($legacy !== explode('.', $surfaceKey, 2)[0]) {
+                $special[$surfaceKey] = $legacy;
+            }
+        }
+
+        ksort($special);
+
+        return $special;
     }
 
-    /** @return array<string, string> */
-    public static function routingClassMap(): array
+    /**
+     * Live special aliases plus the retired pseudo-surface ones — what the
+     * APPLIED generated-column CASE (20260727110004, and the SQLite mirror in
+     * tests/Pest.php) still contains: an applied migration records what ran,
+     * and the retired surfaces alias harmlessly with zero rows to alias.
+     * Only the lockstep test should need this.
+     *
+     * @return array<string, string>
+     */
+    public static function historicalSpecialToLegacyMap(): array
     {
-        return self::ROUTING_CLASS;
+        $all = self::specialToLegacyMap();
+
+        foreach (self::RETIRED as $legacy => $surface) {
+            if (str_starts_with($surface, 'partna.')) {
+                $all[$surface] = $legacy;
+            }
+        }
+
+        return $all;
+    }
+
+    /** Test seam — drops the memoised projections after a catalog swap. */
+    public static function flush(): void
+    {
+        self::$inverse = null;
+        self::$forward = null;
+    }
+
+    /** @return array<string, string> surface key => legacy slug (explicit only) */
+    private static function forward(): array
+    {
+        if (self::$forward !== null) {
+            return self::$forward;
+        }
+
+        $forward = [];
+
+        foreach (CompiledCatalog::surfaces() as $key => $surface) {
+            $legacy = $surface['legacy_platform'] ?? null;
+
+            if (is_string($legacy) && $legacy !== '') {
+                $forward[$key] = $legacy;
+            }
+        }
+
+        return self::$forward = $forward;
+    }
+
+    /** @return array<string, string> legacy slug => surface key */
+    private static function inverse(): array
+    {
+        if (self::$inverse !== null) {
+            return self::$inverse;
+        }
+
+        $inverse = [];
+
+        foreach (self::forward() as $surfaceKey => $legacy) {
+            // A collision means two surfaces claim one legacy slug — the
+            // artefact is wrong, and silently keeping either would mis-route
+            // every write for that slug.
+            if (isset($inverse[$legacy])) {
+                throw new \LogicException(
+                    "Legacy slug '{$legacy}' is claimed by both '{$inverse[$legacy]}' and '{$surfaceKey}'.",
+                );
+            }
+
+            $inverse[$legacy] = $surfaceKey;
+        }
+
+        return self::$inverse = $inverse;
     }
 }

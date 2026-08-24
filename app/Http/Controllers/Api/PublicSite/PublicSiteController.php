@@ -46,10 +46,13 @@ class PublicSiteController extends ApiController
                     $host = $site->subdomain.'.'.config('partna.public_domain');
                     $url = $request->getScheme().'://'.$host.$request->getRequestUri();
 
-                    // EDGE-1/CFG-3 (audit): explicit Cache-Control so browsers
-                    // re-check after the TTL instead of heuristically caching this
-                    // 301 "forever" — an un-timed redirect can strand a visitor on
-                    // a later-renamed/reclaimed subdomain indefinitely.
+                    // EDGE-1/CFG-3 (audit): explicit Cache-Control so browsers don't
+                    // heuristically cache this 301 "forever". CFG-3 originally bounded
+                    // that to a 5-minute re-check window; PGR-17 (audit) tightens it
+                    // further to no caching at all — a rapid handle reclaim can hand
+                    // the old subdomain to a new owner inside that window, and a
+                    // browser that's still honouring the stale 301 would misdirect the
+                    // visitor to the new owner's site instead of re-checking.
                     //
                     // EDGE-2 (audit): deliberately preserves the visited path/query
                     // (unlike showByHeader() below, which always redirects to the
@@ -58,7 +61,7 @@ class PublicSiteController extends ApiController
                     // the Next.js proxy's path-based routing. Do not "unify" these;
                     // they legitimately serve different consumers.
                     return redirect()->to($url, 301)
-                        ->header('Cache-Control', 'public, max-age='.(int) config('partna.cache.alias_redirect_max_age', 300));
+                        ->header('Cache-Control', 'private, max-age=0, must-revalidate');
                 }
             }
         }
@@ -109,8 +112,12 @@ class PublicSiteController extends ApiController
                 // serve the right page itself. show() above preserves the full path
                 // because it serves a different (fixed-path, JSON) consumer. Do not
                 // "unify" these; see the matching comment there.
+                //
+                // PGR-17 (audit): see the matching Cache-Control comment in show()
+                // above — no caching, so a rapid handle reclaim can't strand a
+                // visitor on the previous owner's site for the old TTL window.
                 return redirect()->to($url, 301)
-                    ->header('Cache-Control', 'public, max-age='.(int) config('partna.cache.alias_redirect_max_age', 300));
+                    ->header('Cache-Control', 'private, max-age=0, must-revalidate');
             }
         }
 

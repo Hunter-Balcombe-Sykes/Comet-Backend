@@ -117,7 +117,7 @@ it('yields a record per entry plus a prefix coverage claim, never exhaustive', f
         'headers' => [],
     ]]);
 
-    $messages = iterator_to_array((new YoutubeRssConnector)->pull(youtubePull($channelId), $io));
+    $messages = iterator_to_array(app(YoutubeRssConnector::class)->pull(youtubePull($channelId), $io));
 
     $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
     $covered = array_values(array_filter($messages, fn ($m) => $m instanceof Covered));
@@ -138,7 +138,7 @@ it('reports a failed fetch as unavailable rather than as a channel with no uploa
     $channelId = 'UCinvented00000000000000';
     $io = youtubeIo([youtubeFeedUrl($channelId) => ['status' => 503, 'body' => '', 'headers' => []]]);
 
-    $messages = iterator_to_array((new YoutubeRssConnector)->pull(youtubePull($channelId), $io));
+    $messages = iterator_to_array(app(YoutubeRssConnector::class)->pull(youtubePull($channelId), $io));
 
     expect($messages)->toHaveCount(1)
         ->and($messages[0])->toBeInstanceOf(Unavailable::class)
@@ -153,7 +153,7 @@ it('reports unparseable xml as unavailable, distinct from a genuinely empty feed
         'headers' => [],
     ]]);
 
-    $messages = iterator_to_array((new YoutubeRssConnector)->pull(youtubePull($channelId), $io));
+    $messages = iterator_to_array(app(YoutubeRssConnector::class)->pull(youtubePull($channelId), $io));
 
     expect($messages)->toHaveCount(1)
         ->and($messages[0])->toBeInstanceOf(Unavailable::class);
@@ -167,7 +167,7 @@ it('emits no coverage for a well-formed but empty feed, so absence can never del
         'headers' => [],
     ]]);
 
-    $messages = iterator_to_array((new YoutubeRssConnector)->pull(youtubePull($channelId), $io));
+    $messages = iterator_to_array(app(YoutubeRssConnector::class)->pull(youtubePull($channelId), $io));
 
     expect($messages)->toHaveCount(1)
         ->and($messages[0])->toBeInstanceOf(Note::class)
@@ -212,7 +212,7 @@ it('resolves a bare handle to the channel id via the channel page and caches it 
         ],
     ]);
 
-    $messages = iterator_to_array((new YoutubeRssConnector)->pull(youtubePull('mkbhd'), $io));
+    $messages = iterator_to_array(app(YoutubeRssConnector::class)->pull(youtubePull('mkbhd'), $io));
 
     $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
     $bookmarks = array_values(array_filter($messages, fn ($m) => $m instanceof Bookmark));
@@ -245,7 +245,7 @@ it('resolves the handle to the page\'s OWN channel (externalId), not the first r
         ],
     ]);
 
-    $messages = iterator_to_array((new YoutubeRssConnector)->pull(youtubePull('mkbhd'), $io));
+    $messages = iterator_to_array(app(YoutubeRssConnector::class)->pull(youtubePull('mkbhd'), $io));
     $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
     $bookmarks = array_values(array_filter($messages, fn ($m) => $m instanceof Bookmark));
 
@@ -274,7 +274,7 @@ it('reuses a cursor-cached channel id without re-fetching the channel page', fun
         cursor: ['channel_id' => $channelId],
     );
 
-    $messages = iterator_to_array((new YoutubeRssConnector)->pull($pull, $io));
+    $messages = iterator_to_array(app(YoutubeRssConnector::class)->pull($pull, $io));
 
     $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
     $bookmarks = array_values(array_filter($messages, fn ($m) => $m instanceof Bookmark));
@@ -289,7 +289,7 @@ it('degrades to unavailable when a handle cannot be resolved, never to an empty 
         'https://www.youtube.com/@ghost' => ['status' => 200, 'body' => '<html>no id here</html>', 'headers' => []],
     ]);
 
-    $messages = iterator_to_array((new YoutubeRssConnector)->pull(youtubePull('ghost'), $io));
+    $messages = iterator_to_array(app(YoutubeRssConnector::class)->pull(youtubePull('ghost'), $io));
 
     expect($messages)->toHaveCount(1)
         ->and($messages[0])->toBeInstanceOf(Unavailable::class);

@@ -31,6 +31,7 @@ class Bandcamp
     {
         return [
             SurfaceBuilder::for('bandcamp.artist')
+                ->legacyPlatform('bandcamp')
                 ->displayName('Bandcamp')
                 ->routing(RoutingClass::Content)
                 ->shelf(Shelf::Music)
@@ -39,7 +40,7 @@ class Bandcamp
                 ->canonicalUrl('https://{handle}.bandcamp.com')
                 ->connect('connect.bandcamp.url.v1')
                 ->fetch('fetch.bandcamp.scrape.v1')
-                ->multiAccount(5)
+                ->multiAccount(10)
                 ->detect(
                     Detector::url('bandcamp.com')
                         ->subdomain('#^(?<handle>[a-z0-9][a-z0-9-]*)$#i')
@@ -49,6 +50,11 @@ class Bandcamp
                 )
                 ->build(),
             SurfaceBuilder::for('bandcamp.store')
+                // F7 (2026-08-20): in lockstep with the shop family's
+                // MAX_BRANDS (10, T9) — the catalog's default of 1 was
+                // blocking Engine-1 store placements at ONE store while every
+                // other door allowed ten (caught live: the046.com).
+                ->multiAccount(10)
                 ->displayName('Bandcamp')
                 ->routing(RoutingClass::Content)
                 ->shelf(Shelf::Commerce)

@@ -155,6 +155,9 @@ it('youtube-music: identify() and resolve() select the same identity key on succ
 
 it('youtube: identify() and resolve() select the same identity key on success, and share the parse-fail shape', function () {
     $this->partialMock(YoutubeScraper::class, function ($m) {
+        // resolve() reads id + avatar off the channel page first (2026-08-23),
+        // then the feed by the raw id — both are fetch-stage, both stubbed.
+        $m->shouldReceive('fetchChannelProfile')->andReturn(['id' => 'UC'.str_repeat('a', 22), 'avatar' => null]);
         $m->shouldReceive('fetchRecentVideos')->andReturn([
             ['videoId' => 'v1', 'name' => 'n', 'description' => 'd', 'link' => 'l', 'date' => null, 'thumbnail' => 't'],
         ]);

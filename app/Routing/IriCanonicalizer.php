@@ -165,6 +165,17 @@ class IriCanonicalizer
             return Iri::reject($input, 'shortener');
         }
 
+        // Platform-owned short HOSTS (on.soundcloud.com, spotify.link, …) —
+        // rejected exactly like the generic shorteners above. ShortLinkExpander
+        // expands these BEFORE canonicalize in every routing lane, so reaching
+        // this line means expansion failed (dead link, timeout) — and letting
+        // the host fall through would evaluate the parent platform's detectors
+        // against an opaque short code (on. is a real soundcloud.com
+        // subdomain), minting a fake profile from a lowercase code (FI-3).
+        if (in_array($host, ShortLinkExpander::platformShortHosts(), true)) {
+            return Iri::reject($input, 'shortener');
+        }
+
         // Alias rewrite (youtu.be → youtube.com): the alias host maps to the
         // registrable key whose detectors should evaluate.
         $aliasedFrom = null;

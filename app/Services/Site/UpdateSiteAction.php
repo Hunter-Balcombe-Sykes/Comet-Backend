@@ -19,9 +19,16 @@ class UpdateSiteAction
      * list would silently inherit the old list's tail entries (e.g. manual
      * page order [a,b,c] PATCHed with [b] must become [b], not [b,b,c]).
      *
+     * NOT pool_order (removed 2026-08-24): that one is a MAP keyed by pool,
+     * so recursive replace merges it BY KEY — which is what the ordering
+     * fieldset relies on when it PATCHes one pool's mode. Listing it here
+     * replaced the whole map, so saving services → manual silently reset
+     * watch to newest (found live on the dev dashboard). pool_locks stays:
+     * its values are lists and the dashboard sends the whole map on purpose.
+     *
      * @var list<string>
      */
-    public const LIST_SETTINGS_KEYS = ['manual_page_order', 'manual_actions', 'manual_order_pools'];
+    public const LIST_SETTINGS_KEYS = ['manual_page_order', 'actions', 'pool_locks'];
 
     public function __construct(private readonly RenameSubdomainAction $renameSubdomain) {}
 

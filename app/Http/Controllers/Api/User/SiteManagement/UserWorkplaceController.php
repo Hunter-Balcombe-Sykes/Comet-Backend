@@ -10,6 +10,8 @@ use App\Http\Resources\WorkplaceResource;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Platforms\IdentitySync;
+use App\Services\Platforms\PreviousWebsiteGate;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,6 +27,7 @@ class UserWorkplaceController extends ApiController
 
     public function __construct(
         private readonly SectionVisibilityService $visibilityService,
+        private readonly IdentitySync $identitySync,
     ) {}
 
     public function show(Request $request): JsonResponse
@@ -36,6 +39,54 @@ class UserWorkplaceController extends ApiController
 
         return $this->success([
             'workplace' => WorkplaceResource::forWorkplace($workplace),
+            'google_fields' => $this->identitySync->googleFieldsFor($professional),
+        ]);
+    }
+
+    /**
+     * Put fields back under Google (owner, 2026-08-19): a partna account's
+     * workplace is filled from Google once and then edited by hand — the
+     * badge on an overridden field offers Resync, and this is what it calls.
+     * Body: `fields` — workplace column names (address columns move as a
+     * unit). Answers with the fresh workplace, like show.
+     */
+    public function resync(Request $request): JsonResponse
+    {
+        $professional = $this->currentUser($request);
+        $site = $this->currentSite($professional);
+        $this->authorizeForUser($professional, 'update', $site);
+
+        $data = $request->validate([
+            'fields' => ['required', 'array', 'min:1'],
+            'fields.*' => ['string', 'in:name,address_line1,city,state,postcode,country,latitude,longitude,phone,website,category,description,opening_hours'],
+        ]);
+
+        $resynced = $this->identitySync->resyncFields($professional, $data['fields']);
+        if ($resynced === []) {
+            return $this->error('Google has nothing to sync for those fields.', 422);
+        }
+
+        // Same mirror upsert() keeps: an account whose workplace name IS its
+        // display name follows a resynced name too.
+        $workplace = Workplace::query()->where('site_id', $site->id)->first();
+        if ($workplace !== null
+            && in_array('name', $resynced, true)
+            && AccountCapabilities::for($professional)->google_business_sets_display_name
+            && $professional->display_name !== $workplace->name) {
+            $professional->display_name = $workplace->name;
+            $professional->save();
+        }
+
+        $this->visibilityService->reevaluateEnabled(
+            (string) $professional->id,
+            (string) $site->id,
+            'workplace',
+        );
+
+        return $this->success([
+            'workplace' => WorkplaceResource::forWorkplace($workplace),
+            'google_fields' => $this->identitySync->googleFieldsFor($professional),
+            'resynced' => $resynced,
         ]);
     }
 
@@ -102,14 +153,10 @@ class UserWorkplaceController extends ApiController
         // testing repairs: a scan/sync-written contact_email never used to
         // reach the public page until a manual save happened to touch it).
 
-        // Business accounts treat the workplace name as their public display
-        // name (same rule as GoogleBusinessController::maybeAdoptGoogleName),
-        // gated on the capability so the account_type read stays centralized.
-        if (AccountCapabilities::for($professional)->google_business_sets_display_name
-            && $professional->display_name !== $attributes['name']) {
-            $professional->display_name = $attributes['name'];
-            $professional->save();
-        }
+        // The manual display_name mirror is GONE (2026-08-19 identity plan,
+        // decision 8): display_name is user-owned after Google's initial seed
+        // (GoogleBusinessController::maybeAdoptGoogleName, which stays). A
+        // workplace-name edit no longer overwrites the public display name.
 
         // The 'workplace' section block reads its visibility from site.workplaces.
         // Re-evaluate is_enabled so the dashboard's Live toggle frees up the
@@ -122,6 +169,7 @@ class UserWorkplaceController extends ApiController
 
         return $this->success([
             'workplace' => WorkplaceResource::forWorkplace($workplace),
+            'google_fields' => $this->identitySync->googleFieldsFor($professional),
         ]);
     }
 
@@ -140,7 +188,7 @@ class UserWorkplaceController extends ApiController
 
         // Identity fields whose provenance the dashboard surfaces. `name` is
         // always present (required); the rest are stamped only when sent.
-        foreach (['name', 'address_line1', 'city', 'state', 'postcode', 'country', 'phone', 'website', 'category', 'contact_email', 'opening_hours'] as $field) {
+        foreach (['name', 'address_line1', 'city', 'state', 'postcode', 'country', 'phone', 'website', 'previous_website', 'category', 'description', 'contact_email', 'opening_hours'] as $field) {
             if ($request->has($field)) {
                 $existing[$field] = ['source' => 'manual', 'at' => $stamp];
             }
@@ -202,6 +250,18 @@ class UserWorkplaceController extends ApiController
         $this->authorizeForUser($professional, 'update', $site);
         $previousWebsite = trim_or_null($validated['previous_website'] ?? null);
 
+        // A platform page is not a previous website (owner, 2026-08-19): it
+        // goes to the router as a platform candidate and nothing is archived.
+        $diverted = null;
+        if ($previousWebsite !== null) {
+            $gate = app(PreviousWebsiteGate::class);
+            $diverted = $gate->platformFor($previousWebsite);
+            if ($diverted !== null) {
+                $gate->divert($professional, $previousWebsite, 'previous_website');
+                $previousWebsite = null;
+            }
+        }
+
         Workplace::updateOrCreate(
             ['site_id' => (string) $site->id],
             ['previous_website' => $previousWebsite],
@@ -209,6 +269,7 @@ class UserWorkplaceController extends ApiController
 
         return $this->success([
             'previousWebsite' => $previousWebsite,
+            'diverted' => $diverted,
         ]);
     }
 }

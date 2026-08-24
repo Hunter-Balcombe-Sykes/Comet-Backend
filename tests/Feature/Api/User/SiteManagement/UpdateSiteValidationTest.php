@@ -66,13 +66,18 @@ it('rejects an out-of-vocabulary selection on every selection column', function 
 // needs the seeded information_schema mirror, because a request that passes
 // validation goes on to run writeDesignKit().
 
-it('rejects an unknown architecture id', function () {
+it('ignores architecture_id entirely and never lets it reach the column', function () {
+    // architecture_id left the wire 2026-08-20 — now an unknown key, accepted
+    // and dropped. The column is what matters: an ignored field must not be
+    // able to write a value sites_architecture_id_check would reject.
     $pro = createTenant('skel-pro');
 
     actingAsUser($pro)
         ->patchJson('/api/site', ['architecture_id' => 'skeleton-9'])
-        ->assertStatus(422)
-        ->assertJsonValidationErrors(['architecture_id']);
+        ->assertOk();
+
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
+        ->toBe('staple');
 });
 
 it('rejects a reserved subdomain', function () {
@@ -115,7 +120,6 @@ it('accepts a valid architecture and settings (negative tests are not over-rejec
 
     actingAsUser($pro)
         ->patchJson('/api/site', [
-            'architecture_id' => 'staple',
             'settings' => ['booking_mode' => 'manual'],
         ])
         ->assertOk();
@@ -124,26 +128,27 @@ it('accepts a valid architecture and settings (negative tests are not over-rejec
         ->toBe('staple');
 });
 
-it('rejects a genuinely unknown architecture id', function () {
+it('drops a genuinely unknown architecture id instead of persisting it', function () {
     $pro = createTenant('unknown-architecture');
 
     actingAsUser($pro)
         ->patchJson('/api/site', ['architecture_id' => 'brutalist'])
-        ->assertStatus(422)
-        ->assertJsonValidationErrors(['architecture_id']);
+        ->assertOk();
+
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
+        ->toBe('staple');
 });
 
-it('rejects retired legacy architecture ids now the alias window is closed', function () {
+it('ignores retired legacy architecture ids and the dropped skeleton_id field', function () {
     // The skeleton_id field alias and LEGACY_ARCHITECTURE_IDS collapse were
-    // removed 2026-08-05 (platform audit: no client anywhere still sent them).
-    // A legacy VALUE now 422s like any other unknown id, and the legacy FIELD
-    // is simply ignored.
+    // removed 2026-08-05; architecture_id itself left the wire 2026-08-20.
+    // Both the legacy VALUE and the legacy FIELD are now unknown keys —
+    // accepted and dropped, and neither can move the column.
     $pro = createTenant('legacy-architecture-pro');
 
     actingAsUser($pro)
         ->patchJson('/api/site', ['architecture_id' => 'bento'])
-        ->assertStatus(422)
-        ->assertJsonValidationErrors(['architecture_id']);
+        ->assertOk();
 
     actingAsUser($pro)
         ->patchJson('/api/site', ['skeleton_id' => 'bento'])

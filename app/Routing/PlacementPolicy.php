@@ -205,6 +205,23 @@ class PlacementPolicy
      * see docs/superpowers/plans/2026-08-18-linkinbio-unroll-migration.md.
      * Pinned by TombstoneMemoTtlTest.
      */
+    /**
+     * The tombstone question, askable on its own (T9b critic fix,
+     * 2026-08-20): decide() skips the check for DIRECT requests — a person
+     * re-pasting a link they removed means "bring it back" — but a caller
+     * suggesting something DERIVED from what was pasted (the channel behind
+     * a video) must still honour the refusal, whatever the origin was. One
+     * implementation, exposed rather than copied.
+     */
+    public function tombstoned(User $user, string $surfaceKey, ?string $identifier, RoutingContext $context): bool
+    {
+        return $this->isTombstoned(
+            $user,
+            new Projection(surfaceKey: $surfaceKey, detectorId: null, captures: [], confidence: 0, margin: 0, identifier: $identifier, reason: null),
+            $context,
+        );
+    }
+
     private function isTombstoned(User $user, Projection $projection, RoutingContext $context): bool
     {
         $refs = [$projection->surfaceKey];

@@ -27,6 +27,7 @@ class Shortcuts
     {
         return [
             SurfaceBuilder::for('shortcuts.book')
+                ->legacyPlatform('shortcuts')
                 ->displayName('Shortcuts')
                 ->routing(RoutingClass::Booking)
                 ->shelf(Shelf::Booking)

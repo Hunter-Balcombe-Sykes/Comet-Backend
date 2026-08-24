@@ -35,13 +35,18 @@ it('rejects a non-hex design-kit colour', function () {
         ->assertJsonValidationErrors(['design_kit.color_accent']);
 });
 
-it('rejects an unknown architecture id', function () {
+it('ignores architecture_id entirely and never lets it reach the column', function () {
+    // architecture_id left the wire 2026-08-20. It is now an unknown key: the
+    // request succeeds and the value is dropped. The property that matters is
+    // the second one — an ignored field must not be able to write a value the
+    // DB CHECK would reject.
     $staff = PartnaStaff::factory()->admin()->create();
     $pro = createTenant('staff-skel');
 
-    patchStaffSite($staff, $pro, ['architecture_id' => 'skeleton-9'])
-        ->assertStatus(422)
-        ->assertJsonValidationErrors(['architecture_id']);
+    patchStaffSite($staff, $pro, ['architecture_id' => 'skeleton-9'])->assertOk();
+
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
+        ->toBe('staple');
 });
 
 it('rejects a reserved subdomain', function () {
@@ -73,12 +78,11 @@ it('rejects any settings.design.* path (skeleton-cleanup guard)', function () {
         ->assertJsonValidationErrors(['settings.design']);
 });
 
-it('accepts a valid architecture and settings (negative tests are not over-rejecting)', function () {
+it('accepts settings (negative tests are not over-rejecting)', function () {
     $staff = PartnaStaff::factory()->admin()->create();
     $pro = createTenant('staff-valid');
 
     patchStaffSite($staff, $pro, [
-        'architecture_id' => 'staple',
         'settings' => ['booking_mode' => 'manual'],
     ])->assertOk();
 
@@ -86,35 +90,33 @@ it('accepts a valid architecture and settings (negative tests are not over-rejec
         ->toBe('staple');
 });
 
-it('rejects retired legacy ids and ignores the dropped skeleton_id field', function () {
+it('ignores retired legacy ids and the dropped skeleton_id field', function () {
     // The skeleton_id alias + LEGACY_ARCHITECTURE_IDS collapse were removed
-    // 2026-08-05 (platform audit — no client sends either any more).
+    // 2026-08-05; architecture_id itself left the wire 2026-08-20. Both are now
+    // unknown keys — accepted and dropped, never persisted.
     $staff = PartnaStaff::factory()->admin()->create();
     $pro = createTenant('staff-legacy-field');
 
-    patchStaffSite($staff, $pro, ['architecture_id' => 'dock'])
-        ->assertStatus(422)
-        ->assertJsonValidationErrors(['architecture_id']);
-
+    patchStaffSite($staff, $pro, ['architecture_id' => 'dock'])->assertOk();
     patchStaffSite($staff, $pro, ['skeleton_id' => 'dock'])->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
         ->toBe('staple');
 });
 
-// ── OV-I: staff endpoint enforces the same ordering-payload rules as the user
+// ── Staff endpoint enforces the same ordering-payload rules as the user
 // endpoint (shared via SiteOrderingValidationRules) — a staff edit must not be
 // able to write an ordering payload PATCH /api/site would reject ───────────────
 
-it('rejects a custom action with a javascript: url (staff parity with the user endpoint)', function () {
+it('rejects a non-grammar action id in settings.actions.slots (staff parity with the user endpoint)', function () {
     $staff = PartnaStaff::factory()->admin()->create();
-    $pro = createTenant('staff-js-url');
+    $pro = createTenant('staff-bad-slot');
 
-    patchStaffSite($staff, $pro, ['settings' => ['manual_actions' => [
-        ['kind' => 'custom', 'label' => 'Gift cards', 'url' => 'javascript:alert(1)'],
-    ]]])
+    patchStaffSite($staff, $pro, ['settings' => ['actions' => ['mode' => 'smart', 'slots' => [
+        ['position' => 0, 'id' => 'custom:javascript:alert(1)'],
+    ]]]])
         ->assertStatus(422)
-        ->assertJsonValidationErrors(['settings.manual_actions.0.url']);
+        ->assertJsonValidationErrors(['settings.actions.slots.0.id']);
 });
 
 it('rejects an unknown page id in manual_page_order (staff parity)', function () {
@@ -126,35 +128,13 @@ it('rejects an unknown page id in manual_page_order (staff parity)', function ()
         ->assertJsonValidationErrors(['settings.manual_page_order.1']);
 });
 
-it('rejects label/url on a non-custom action entry (staff parity)', function () {
-    // Current-shape entry ({kind: action, ...}) — a LEGACY {kind: button, ...}
-    // entry with a stray label would instead be migrated by
-    // SiteOrderingValidationRules::normalizeManualActionEntry() before this
-    // rule ever runs (button+ref -> {kind: action, ref}, dropping the
-    // unrecognised label rather than rejecting it — that's the deliberate
-    // lenient-on-legacy-shapes posture; strict validation still applies in
-    // full to anything already in the current shape, which is what this test
-    // proves).
+it('rejects a pool_order mode for events (staff parity)', function () {
     $staff = PartnaStaff::factory()->admin()->create();
-    $pro = createTenant('staff-strict-order');
+    $pro = createTenant('staff-pool-events');
 
-    patchStaffSite($staff, $pro, ['settings' => ['manual_actions' => [
-        ['kind' => 'action', 'ref' => 'instagram', 'label' => 'Relabelled'],
-    ]]])
+    patchStaffSite($staff, $pro, ['settings' => ['pool_order' => ['events' => 'smart']]])
         ->assertStatus(422)
-        ->assertJsonValidationErrors(['settings.manual_actions.0']);
-});
-
-it('migrates a legacy page-kind action ref on the staff endpoint (staff parity)', function () {
-    $staff = PartnaStaff::factory()->admin()->create();
-    $pro = createTenant('staff-legacy-order');
-
-    patchStaffSite($staff, $pro, ['settings' => ['manual_actions' => [
-        ['kind' => 'page', 'ref' => 'book'],
-    ]]])->assertOk();
-
-    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('settings'))
-        ->toContain('booking-services');
+        ->assertJsonValidationErrors(['settings.pool_order']);
 });
 
 it('accepts a valid ordering payload on the staff endpoint (not over-rejecting)', function () {
@@ -162,12 +142,12 @@ it('accepts a valid ordering payload on the staff endpoint (not over-rejecting)'
     $pro = createTenant('staff-good-order');
 
     patchStaffSite($staff, $pro, ['settings' => [
-        'smart_actions' => false,
-        'manual_actions' => [
-            ['kind' => 'action', 'ref' => 'menu'],
-            ['kind' => 'custom', 'label' => 'Gift cards', 'url' => 'https://gifts.example/cards'],
-        ],
+        'actions' => ['mode' => 'manual', 'slots' => [['position' => 0, 'id' => 'page:menu'], ['position' => 1, 'id' => 'platform:instagram']]],
+        'pool_order' => ['menus' => 'manual'],
     ]])->assertOk();
+
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('settings'))
+        ->toContain('platform:instagram');
 });
 
 // ── B6/SEC-5: this is a mutating admin action (staff rename with force-publish

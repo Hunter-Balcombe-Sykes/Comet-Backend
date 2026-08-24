@@ -55,7 +55,7 @@ it('column wins over a stale residual JSONB value during dual-write', function (
 });
 
 // #API-1: manual_booking_url is rendered as a public href elsewhere in the
-// codebase (see SiteActionsService), so buildServicesData must gate it the
+// codebase (see ActionCandidates), so buildServicesData must gate it the
 // same way getLinks()/getBooking() do — a non-http(s) scheme must not reach
 // the wire as manual_booking_url, regardless of which writer populated it.
 it('gates manual_booking_url to null when it has a non-http(s) scheme', function () {

@@ -61,7 +61,41 @@ carried it forward in error.
   `links_seen: 0` on a *matched* bio host is already logged and is an unambiguous signal. Nothing
   alerts on it today; that alone is worth wiring up.
 
-- [ ] **N3** · the generic shop probe publishes junk products, publicly
+- [x] **N3** · the generic shop probe publishes junk products, publicly · **RESOLVED 2026-08-18**
+
+  **Resolution — two commits, one per door.** A page can declare itself a product two ways and
+  `readProductPage()` accepts either, so the finding needed closing at both:
+
+  - **JSON-LD** — `deaba1a2b` (R7). `hasCommerceSignal()`: a `@type":"Product"` node needs offers,
+    a sku/gtin, an image or its own url. `aggregateRating`/`review` deliberately excluded — they
+    are exactly what the WordPress rating-carrier plugins *do* have.
+  - **OpenGraph** — this commit. The gate was `og:type contains product **OR** a price meta`, so a
+    self-declared `og:type=product` with no price and no image passed on its own. Split into
+    DECLARATION (`og:type` or a price) **and** SUBSTANCE (a price or an image), which is R7's rule
+    applied to the door R7 left open: `og:type` is self-declared by the same class of plugin
+    `@type` is.
+  - **Placeholder titles** — this commit, at **both** doors. `isPlaceholderTitle()` rejects the
+    WordPress `Private: ` / `Protected: ` non-published prefixes and a whole-title `draft` /
+    `untitled` / `auto draft` / `(no title)`. Narrow on purpose: prefix-anchored and whole-title
+    only, so a real "Draft Beer Glass" still reads as a product.
+
+  **Nothing vanishes** — the finding's other requirement. A rejected read returns `no_product`,
+  and every consumer already degrades: `CommerceProbeJob::probe()` falls to `seedStore($url)`
+  (correct for `paytherent.net.au`, which genuinely runs WooCommerce), `ProductPageAdder::add()`
+  returns its `OUTCOME_NO_PRODUCT`, and `LinkPreviewController` falls through to a link card.
+
+  **One correction to the finding's premise.** By the 2026-08-18 re-run the *public* half had
+  already stopped reproducing: the junk item still existed in `content.items` but
+  `GET /api/public/profiles/crucibletattooco` carried no `shop` pool. The heading's "publicly" was
+  true when written and was no longer true when fixed. What these two commits stop is the
+  **manufacture** of the item, not its publication.
+
+  **Superseded note.** `bd593dfdf`'s N-C guard (single-Product storefront root → store page) was
+  written believing `paytherent.net.au` was a WooCommerce storefront. Its root carries none of
+  `looksLikeStorefront()`'s markers, so that guard never fired for this case. It stays for the
+  genuine single-product storefront homepage — it is not what closed N3.
+
+  <details><summary>Original finding</summary>
 
   **Plain English.** We scraped a site, decided a page was a product, and put it on someone's
   public page as a Shop tab — where the "product" was an unfinished draft with no price, no image
@@ -100,6 +134,8 @@ carried it forward in error.
 
   A page that fails both should still resolve as a **storefront** (`seedStore`) or fall through to
   a custom link — not vanish.
+
+  </details>
 
 - [ ] **F9** · expired unclaimed builds still hold a per-IP signup slot · **already triaged, no scheduled work**
 

@@ -52,8 +52,7 @@ class BackfillMediaPaletteCommand extends Command
             ->whereNull('deleted_at')
             ->whereNotNull('path')
             ->whereNull('palette')
-            ->when(is_string($site) && trim($site) !== '', fn ($q) => $q->where('site_id', trim($site)))
-            ->orderBy('id');
+            ->when(is_string($site) && trim($site) !== '', fn ($q) => $q->where('site_id', trim($site)));
 
         $total = (clone $query)->count();
         if ($total === 0) {
@@ -75,36 +74,60 @@ class BackfillMediaPaletteCommand extends Command
         $skipped = 0;
         $failed = 0;
 
-        foreach ($query->cursor() as $media) {
-            if ($limit > 0 && $processed >= $limit) {
-                break;
-            }
-            $processed++;
-
-            try {
-                $palette = $this->extractForRow($extractor, $disk, (string) $media->path);
-                if ($palette === null) {
-                    $skipped++;
-
-                    continue;
-                }
-
-                if (! $dryRun) {
-                    SiteMedia::query()
-                        ->where('id', $media->id)
-                        ->whereNull('deleted_at')
-                        ->update([
-                            'dominant_color' => $palette['dominant'],
-                            'palette' => json_encode($palette),
-                        ]);
-                }
-                $filled++;
-            } catch (\Throwable $e) {
-                report($e);
-                $failed++;
-                $this->warn("  ! {$media->id}: {$e->getMessage()}");
-            }
+        // chunkById, not chunk(): whereNull('palette') above is mutated by
+        // this loop's own writes, so as rows are filled they leave the
+        // filter mid-run. Offset-based chunk() would then skip every other
+        // page — CleanupStuckMediaProcessingCommand carries this exact
+        // reasoning for this exact model. cursor() is out for the same
+        // pdo_pgsql-has-no-unbuffered-fetch reason IngestProjectCommand
+        // documents.
+        //
+        // --limit is enforced INSIDE the per-row foreach, not at the chunk
+        // boundary, so processed rows overshoot by exactly zero (identical to
+        // the pre-chunking cursor() break above). The final chunk may still
+        // SELECT up to CHUNK-1 unprocessed rows past the limit — a narrow
+        // indexed SELECT, not the write cost --limit exists to cap; capping
+        // $chunk itself at $limit removes even that in the common case.
+        // Do NOT move this check to the chunk callback boundary.
+        $chunk = (int) config('partna.media.palette_backfill_chunk', 200);
+        if ($limit > 0) {
+            $chunk = min($chunk, $limit);
         }
+
+        $query->chunkById($chunk, function ($rows) use ($extractor, $disk, $dryRun, $limit, &$processed, &$filled, &$skipped, &$failed) {
+            foreach ($rows as $media) {
+                if ($limit > 0 && $processed >= $limit) {
+                    return false;
+                }
+                $processed++;
+
+                try {
+                    $palette = $this->extractForRow($extractor, $disk, (string) $media->path);
+                    if ($palette === null) {
+                        $skipped++;
+
+                        continue;
+                    }
+
+                    if (! $dryRun) {
+                        SiteMedia::query()
+                            ->where('id', $media->id)
+                            ->whereNull('deleted_at')
+                            ->update([
+                                'dominant_color' => $palette['dominant'],
+                                'palette' => json_encode($palette),
+                            ]);
+                    }
+                    $filled++;
+                } catch (\Throwable $e) {
+                    report($e);
+                    $failed++;
+                    $this->warn("  ! {$media->id}: {$e->getMessage()}");
+                }
+            }
+
+            return true;
+        });
 
         $this->info(sprintf(
             '%sDone. %d processed, %d %s, %d skipped (no usable palette), %d failed.',

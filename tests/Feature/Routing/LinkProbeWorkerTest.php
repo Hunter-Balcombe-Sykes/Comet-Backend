@@ -134,16 +134,34 @@ it('never spends a request on an IP literal', function () {
     Http::assertNothingSent();
 });
 
-it('does not probe a URL a detector already places', function () {
-    // acme.myshopify.com sits under a platform suffix and the projector places
-    // it for free. Spending a request to re-confirm a detector is pure waste.
+it('still refuses a BOOKING tenant host a detector already places', function () {
+    // acme.gettimely.com sits under a platform suffix and the projector
+    // places it for free — its seeder needs no probe evidence, so spending
+    // a request to re-confirm the detector is pure waste. (SHOP tenants are
+    // the M-9 exception below.)
     Http::fake();
 
-    $outcome = probeWorker()->probe(probeIri('https://acme.myshopify.com'), 'user-tenant');
+    $outcome = probeWorker()->probe(probeIri('https://acme.gettimely.com'), 'user-tenant');
 
     expect($outcome->wasRefused())->toBeTrue()
         ->and($outcome->reason)->toBe('already_matched');
     Http::assertNothingSent();
+});
+
+it('probes a SHOP tenant host even though the projector places it (M-9)', function () {
+    // tashsultanamerch live (matrix run 2): StoreBrandSeeder builds the
+    // brand row off the probe's evidence, so refusing shop tenant hosts
+    // left every scan-discovered myshopify/square.site/bigcartel store with
+    // no path to a storefront at all.
+    Http::fake([
+        '*/meta.json' => Http::response(['id' => 42, 'name' => 'Acme', 'currency' => 'AUD'], 200),
+        '*' => Http::response('', 404),
+    ]);
+
+    $outcome = probeWorker()->probe(probeIri('https://acme.myshopify.com'), 'user-tenant');
+
+    expect($outcome->isMatch())->toBeTrue()
+        ->and($outcome->surfaceKey)->toBe('shopify.store');
 });
 
 it('does not probe a deep page inside a site', function () {

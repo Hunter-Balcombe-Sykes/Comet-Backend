@@ -2,6 +2,7 @@
 
 use App\Ingest\Connectors\FreshaConnector;
 use App\Ingest\Manifest\SourceProfile;
+use App\Ingest\Message\Bookmark;
 use App\Ingest\Message\Covered;
 use App\Ingest\Message\Note;
 use App\Ingest\Message\Record;
@@ -126,8 +127,56 @@ it('yields a record per service plus an exhaustive coverage claim, since the who
         ->and($records[0]->key)->toBe('s:1')
         ->and($records[0]->doc['name'])->toBe('Fade')
         ->and($records[0]->doc['category'])->toBe('Cuts')
+        ->and($records[0]->doc['url'])->toBe('https://www.fresha.com/a/invented-salon/booking?offerItemId=s%3A1')
         ->and($covered)->toHaveCount(1)
         ->and($covered[0]->coverage->toArray()['type'])->toBe('exhaustive');
+});
+
+it('deep-links each service to the chosen team member\'s booking flow', function () {
+    $io = freshaIo([
+        'status' => 200,
+        'body' => freshaBookingFlowBody([[
+            'name' => 'Cuts',
+            'items' => [[
+                'name' => 'Fade', 'caption' => '30min', 'price' => ['formatted' => 'A$40'],
+                'primaryAction' => ['id' => '{"catalogId":"s:1"}'],
+            ], [
+                'name' => 'Cut + colour package', 'caption' => '2h', 'price' => ['formatted' => 'A$180'],
+                'primaryAction' => ['id' => 'bookable-1'],
+                'secondaryAction' => ['id' => '{"catalogId":"p:360081"}'],
+            ]],
+        ]]),
+        'headers' => [],
+    ]);
+
+    $pull = freshaPull('services', config: ['selection_ref' => '5182247']);
+    $records = array_values(array_filter(
+        iterator_to_array((new FreshaConnector)->pull($pull, $io)),
+        fn ($m) => $m instanceof Record,
+    ));
+
+    // The shape the design system shipped (platform-sections.ts
+    // buildBookingProviders): venue /booking + employeeId + offerItemId.
+    // Fresha mints the cartId itself. Packages (p:…) deep-link the same way.
+    expect($records[0]->doc['url'])
+        ->toBe('https://www.fresha.com/a/invented-salon/booking?employeeId=5182247&offerItemId=s%3A1')
+        ->and($records[1]->doc['url'])
+        ->toBe('https://www.fresha.com/a/invented-salon/booking?employeeId=5182247&offerItemId=p%3A360081');
+});
+
+it('builds the deep link on the ROTATED slug when Fresha has moved the venue', function () {
+    // The stale slug answers without a menu, the share alias redirects, the
+    // retry lands the menu — the link must name the slug a visitor can open.
+    $io = freshaRotatingIo('stale-salon', 'live-salon-xyz');
+    $pull = freshaPull('services', 'stale-salon', config: ['selection_ref' => 'storewide']);
+
+    $records = array_values(array_filter(
+        iterator_to_array((new FreshaConnector)->pull($pull, $io), false),
+        fn ($m) => $m instanceof Record,
+    ));
+
+    expect($records)->toHaveCount(1)
+        ->and($records[0]->doc['url'])->toBe('https://www.fresha.com/a/live-salon-xyz/booking?offerItemId=s%3A1');
 });
 
 it('reports a non-200 booking-flow response as unavailable', function () {
@@ -299,4 +348,101 @@ it('counts rows it could not map instead of dropping them silently', function ()
 
     expect($notes)->toHaveCount(1)
         ->and($notes[0]->code)->toBe('unmapped_rows');
+});
+
+// ── Slug rotation (live 2026-08-18) ─────────────────────────────────────────
+
+/** An Io whose booking flow answers per locationSlug and whose GET follows Fresha's share-alias redirect. */
+function freshaRotatingIo(string $old, string $new): Io
+{
+    return new class($old, $new) implements Io
+    {
+        public array $posts = [];
+
+        public array $gets = [];
+
+        public function __construct(private string $old, private string $new) {}
+
+        public function get(string $url, array $headers = []): array
+        {
+            $this->gets[] = $url;
+            if (str_contains($url, '/book-now/'.$this->old.'/')) {
+                // Fresha keeps the share alias redirecting to the current slug.
+                return ['status' => 200, 'body' => '<html></html>', 'headers' => ['final-url' => 'https://www.fresha.com/en-GB/a/'.$this->new.'/booking?menu=true']];
+            }
+            if (str_contains($url, '/a/'.$this->new)) {
+                return ['status' => 200, 'body' => '{"currency":"AUD"}', 'headers' => ['final-url' => $url]];
+            }
+
+            return ['status' => 410, 'body' => '', 'headers' => []];
+        }
+
+        public function post(string $url, array $body = [], array $headers = []): array
+        {
+            $this->posts[] = ['url' => $url, 'body' => $body];
+            $slug = $body['variables']['input']['locationSlug'] ?? '';
+            if ($slug === $this->new) {
+                return freshaResponseWith([['id' => '1', 'name' => 'Cuts', 'items' => [normalItem('s:1')]]]);
+            }
+
+            // Retired slug: a 200 with no menu on it — the same shape as a
+            // rotated persisted-query hash.
+            return ['status' => 200, 'body' => json_encode(['data' => ['bookingFlowInitialize' => ['screenServices' => []]]]), 'headers' => []];
+        }
+
+        public function getMany(array $urls, array $headers = []): array
+        {
+            return array_map(fn ($u) => $this->get($u), array_combine($urls, $urls));
+        }
+
+        public function effect(string $kind, string $name, array $input): array
+        {
+            return ['status' => 'ok', 'cached' => false, 'data' => null];
+        }
+    };
+}
+
+it('heals a rotated slug: retries the booking flow on the slug Fresha redirects to, and bookmarks it', function () {
+    $io = freshaRotatingIo('anseo-studio-v0v92jna', 'anseo-studio-melbourne-140a-chapel-street-w8ajp04r');
+    $pull = freshaPull('services', 'anseo-studio-v0v92jna', config: ['selection_ref' => 'storewide']);
+
+    $messages = iterator_to_array((new FreshaConnector)->pull($pull, $io), false);
+
+    $slugsAsked = array_map(fn ($p) => $p['body']['variables']['input']['locationSlug'], $io->posts);
+    expect($slugsAsked)->toBe(['anseo-studio-v0v92jna', 'anseo-studio-melbourne-140a-chapel-street-w8ajp04r']);
+
+    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
+    expect($records)->toHaveCount(1);
+
+    $bookmark = collect($messages)->first(fn ($m) => $m instanceof Bookmark);
+    expect($bookmark)->not->toBeNull()
+        ->and($bookmark->cursor['slug'])->toBe('anseo-studio-melbourne-140a-chapel-street-w8ajp04r')
+        ->and($bookmark->cursor['currency'])->toBe('AUD');
+});
+
+it('uses the bookmarked slug on later runs without probing again', function () {
+    $io = freshaRotatingIo('anseo-studio-v0v92jna', 'anseo-studio-melbourne-140a-chapel-street-w8ajp04r');
+    $pull = new Pull(
+        identifier: 'anseo-studio-v0v92jna',
+        stream: FreshaConnector::manifest()->stream('services'),
+        config: ['selection_ref' => 'storewide'],
+        cursor: ['slug' => 'anseo-studio-melbourne-140a-chapel-street-w8ajp04r', 'currency' => 'AUD'],
+    );
+
+    $messages = iterator_to_array((new FreshaConnector)->pull($pull, $io), false);
+
+    expect(array_map(fn ($p) => $p['body']['variables']['input']['locationSlug'], $io->posts))
+        ->toBe(['anseo-studio-melbourne-140a-chapel-street-w8ajp04r'])
+        ->and($io->gets)->toBe([])
+        ->and(array_filter($messages, fn ($m) => $m instanceof Record))->toHaveCount(1);
+});
+
+it('still reports unavailable when the slug is genuinely dead (no redirect answers)', function () {
+    // The probe 410s too: not a rotation, so the original diagnosis stands.
+    $io = freshaIo(['status' => 200, 'body' => json_encode(['data' => ['bookingFlowInitialize' => ['screenServices' => []]]]), 'headers' => []]);
+    $pull = freshaPull('services', config: ['selection_ref' => 'storewide']);
+
+    $messages = iterator_to_array((new FreshaConnector)->pull($pull, $io), false);
+
+    expect($messages)->toHaveCount(1)->and($messages[0])->toBeInstanceOf(Unavailable::class);
 });

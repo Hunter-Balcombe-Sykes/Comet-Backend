@@ -4,7 +4,7 @@ namespace App\Http\Requests\Api\PublicSite\Analytics;
 
 use App\Http\Requests\BaseFormRequest;
 use App\Http\Requests\Concerns\ResolvesPublicSiteSubdomain;
-use App\Services\PublicSite\Actions\ActionVocabulary;
+use App\Site\Actions\ActionId;
 use Illuminate\Validation\Rule;
 
 // Analytics v2 — public ingest for action-tap events fired by the sitepage's
@@ -26,11 +26,8 @@ class ActionTapRequest extends BaseFormRequest
         return [
             'site_id' => ['required_without:subdomain', 'uuid', Rule::exists('pgsql.site.sites', 'id')],
             'subdomain' => ['required_without:site_id', 'string', 'max:63'],
-            'action_id' => ['required', 'string', 'max:180', function (string $attribute, mixed $value, \Closure $fail): void {
-                if (! is_string($value) || ! ActionVocabulary::isValidId($value)) {
-                    $fail('The action_id is not a recognised action.');
-                }
-            }],
+            // action_id is the unified ActionId grammar — <kind>:<ref>, four kinds.
+            'action_id' => ['required', 'string', 'max:180', 'regex:/'.ActionId::PATTERN.'/'],
             'session_id' => ['nullable', 'uuid'],
             'visitor_id' => ['nullable', 'uuid'],
             'referrer' => ['nullable', 'string', 'max:2048'],

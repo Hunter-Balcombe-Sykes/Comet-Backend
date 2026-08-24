@@ -32,8 +32,6 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
  * @property-read User|null $user
- * @property-read Collection<int, MenuCategory> $categories
- * @property-read Collection<int, MenuItem> $items
  * @property-read Collection<int, MenuPlatformLink> $platformLinks
  */
 // A user's fetched food-ordering menu — the single source of truth for menu
@@ -109,22 +107,6 @@ class Menu extends BaseModel
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
-    }
-
-    /**
-     * Ordered categories for this menu.
-     *
-     * @return HasMany<MenuCategory, $this>
-     */
-    public function categories(): HasMany
-    {
-        return $this->hasMany(MenuCategory::class, 'menu_id')->orderBy('position');
-    }
-
-    /** All dishes across every category (denormalized menu_id for direct access). */
-    public function items(): HasMany
-    {
-        return $this->hasMany(MenuItem::class, 'menu_id');
     }
 
     /** Per-platform sync state (one row per delivery platform). */

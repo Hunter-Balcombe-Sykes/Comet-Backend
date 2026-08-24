@@ -31,6 +31,7 @@ class Patreon
     {
         return [
             SurfaceBuilder::for('patreon.page')
+                ->legacyPlatform('patreon')
                 ->displayName('Patreon')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

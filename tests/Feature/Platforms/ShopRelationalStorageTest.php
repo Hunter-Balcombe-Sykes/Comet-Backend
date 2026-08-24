@@ -240,11 +240,11 @@ it('re-adding a brand after forget creates a fresh row with no orphaned products
     expect(DB::table('content.collection_items')->where('collection_id', $collectionId)->count())->toBe(0);
 });
 
-it('addProduct dedupes by productId, keeps newest first, and caps at 20', function () {
+it('addProduct dedupes by productId, keeps newest first, and caps at 50', function () {
     $user = shopStorageUser('ind1');
 
     $this->mock(GenericShopScraper::class, function ($m) {
-        foreach (range(1, 21) as $n) {
+        foreach (range(1, 51) as $n) {
             $m->shouldReceive('readProductPage')
                 ->with("https://example.com/p{$n}")
                 ->andReturn([
@@ -255,7 +255,7 @@ it('addProduct dedupes by productId, keeps newest first, and caps at 20', functi
         }
     });
 
-    foreach (range(1, 21) as $n) {
+    foreach (range(1, 51) as $n) {
         actingAsUser($user)->postJson('/api/platforms/shop/products', ['url' => "https://example.com/p{$n}"])
             ->assertOk();
     }
@@ -273,9 +273,9 @@ it('addProduct dedupes by productId, keeps newest first, and caps at 20', functi
     // table was written" assertions retired with those tables; the content.*
     // ordering assertions below are the guarantee now.
     $ids = orderedProductIdsFor('individual');
-    expect($ids)->toHaveCount(20);
-    expect($ids[0])->toBe('p21'); // newest first
-    expect($ids)->not->toContain('p1'); // oldest evicted by the 20-cap
+    expect($ids)->toHaveCount(50);
+    expect($ids[0])->toBe('p51'); // newest first
+    expect($ids)->not->toContain('p1'); // oldest evicted by the 50-cap (T9)
 
     // Re-adding an already-present product moves it to the front without duplicating.
     actingAsUser($user)->postJson('/api/platforms/shop/products', ['url' => 'https://example.com/p10'])
@@ -283,7 +283,7 @@ it('addProduct dedupes by productId, keeps newest first, and caps at 20', functi
     $idsAfter = orderedProductIdsFor('individual');
     expect($idsAfter[0])->toBe('p10');
     expect(array_count_values($idsAfter)['p10'])->toBe(1);
-    expect(count($idsAfter))->toBe(20);
+    expect(count($idsAfter))->toBe(50);
 });
 
 it('removeProduct drops the individual bucket once it has no products left', function () {
@@ -355,7 +355,7 @@ it('publishes an empty shop payload even after a real connect + selection throug
     actingAsUser($user)->putJson('/api/platforms/shop/brands/pub-brand/selection', ['productIds' => ['p1']])
         ->assertOk();
 
-    $res = $this->getJson('/api/public/profiles/pubshop/platforms');
+    $res = $this->getJson('/api/public/profiles/pubshop/integrations');
     $res->assertOk();
 
     // The envelope survives; the contents are gone. Convergence Phase 6: the
@@ -420,16 +420,17 @@ it('makes ZERO popularity reads on the public platforms endpoint and publishes n
         'price' => null, 'currency' => null, 'available' => true, 'image' => null, 'images' => [], 'variants' => [],
     ]], null);
 
-    // content_popularity_scores keys shop_product by product HANDLE (test at
-    // "keys public popularityRank by product HANDLE" above pins this).
+    // content_popularity_scores keys shop_product by content.items.id
+    // (every family, 2026-08-23).
+    $mugId = (string) DB::table('content.f_catalog')->where('handle', 'mug')->value('item_id');
     DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
         'id' => (string) Str::uuid(), 'site_id' => $site->id, 'content_type' => 'shop_product',
-        'content_key' => 'mug', 'score' => 9.5, 'rank' => 1, 'computed_at' => now()->toDateTimeString(),
+        'content_key' => $mugId, 'score' => 9.5, 'rank' => 1, 'computed_at' => now()->toDateTimeString(),
     ]);
 
     DB::connection('pgsql')->enableQueryLog();
-    $first = $this->getJson('/api/public/profiles/pubshopcache/platforms')->assertOk();
-    $second = $this->getJson('/api/public/profiles/pubshopcache/platforms')->assertOk();
+    $first = $this->getJson('/api/public/profiles/pubshopcache/integrations')->assertOk();
+    $second = $this->getJson('/api/public/profiles/pubshopcache/integrations')->assertOk();
     $log = DB::connection('pgsql')->getQueryLog();
     DB::connection('pgsql')->disableQueryLog();
 
@@ -439,7 +440,7 @@ it('makes ZERO popularity reads on the public platforms endpoint and publishes n
     expect($first->getContent())->not->toContain('popularityRank');
 
     // The rank row is real and would have been found: content.* holds the
-    // product it is keyed to, by handle.
+    // product it is keyed to.
     expect(DB::table('content.f_catalog')->where('handle', 'mug')->exists())->toBeTrue();
 
     // The proof: content_popularity_scores is not read AT ALL by this endpoint
@@ -565,24 +566,22 @@ function modesBrandFor(User $user): void
     actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://m.example.com'])->assertOk();
 }
 
-it('updateBrand persists selectionMode/linkMode and parses the referral URL to its query suffix', function () {
+it('updateBrand parses the referral URL to its query suffix', function () {
     $user = shopStorageUser('modes1');
     modesBrandFor($user);
 
+    // The per-brand linkMode key is GONE from the wire (2026-08-19) — link
+    // mode is one site-wide value on /platforms/shop/settings, pinned by
+    // ShopGlobalSettingsTest.
     $res = actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', [
-        'linkMode' => 'checkout',
         'referralUrl' => 'https://m.example.com/landing?ref=abc123&utm_source=friend',
     ]);
     $res->assertOk()
-        ->assertJsonPath('linkMode', 'checkout')
+        ->assertJsonMissingPath('linkMode')
         ->assertJsonPath('referralQuery', 'ref=abc123&utm_source=friend');
 
-    // Re-home Task 7: of the three, only referral_query still has storage —
-    // it keeps its name on content.storefronts. linkMode is one SITE-wide
-    // setting (site.sites.shop_link_mode) and selectionMode is a derived
-    // constant ('manual', ShopContentReader gap 3), so the legacy per-store
-    // columns had nothing left reading them even before the DROP; the wire
-    // assertions above are what still pins those two.
+    // Re-home Task 7: referral_query keeps its storage on
+    // content.storefronts.
     expect(DB::table('content.storefronts')->where('external_ref', 'modes-brand')->value('referral_query'))
         ->toBe('ref=abc123&utm_source=friend');
 
@@ -765,8 +764,10 @@ it('rejects invalid mode values', function () {
 
     actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['selectionMode' => 'auto'])
         ->assertStatus(422);
+    // linkMode left the request contract 2026-08-19 — an unknown key is
+    // simply ignored, never validated.
     actingAsUser($user)->patchJson('/api/platforms/shop/brands/modes-brand', ['linkMode' => 'cart'])
-        ->assertStatus(422);
+        ->assertOk()->assertJsonMissingPath('linkMode');
 });
 
 // W9 unit 1: content-proxy for the connect_status column — the column must be

@@ -198,11 +198,11 @@ it('reports how much of the probe budget the scan spent, and cards the links it 
     Log::spy();
     $user = libSite(User::factory()->create(['account_type' => 'business']));
 
-    // Two more unknown-host links than the run's probe budget (6), each on its
+    // Two more unknown-host links than the run's probe budget (18, T9), each on its
     // own WEBSITE — the per-host probe dedupe means only distinct sites can
     // exhaust the budget.
     $starved = 2;
-    $total = 6 + $starved;
+    $total = 18 + $starved;
     $anchors = collect(range(1, $total))
         ->map(fn (int $i) => '<a href="https://someblog-'.$i.'.example/page">Page '.$i.'</a>')
         ->implode('');
@@ -210,17 +210,17 @@ it('reports how much of the probe budget the scan spent, and cards the links it 
 
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(app(LinkInBioImporter::class));
 
-    Queue::assertPushed(CommerceProbeJob::class, 6);
+    Queue::assertPushed(CommerceProbeJob::class, 18);
     Log::shouldHaveReceived('info')
         ->withArgs(fn (string $message, array $context) => $message === 'platforms.link_in_bio_scan.completed'
             && $context['observations'] === $total
-            && $context['probed'] === 6
+            && $context['probed'] === 18
             && $context['noted'] === $starved)
         ->once();
     // The starved links landed as cards — never vanished.
     $urls = array_column(app(LinkPoolReader::class)->cards($user->refresh()), 'url');
-    expect($urls)->toContain('https://someblog-7.example/page')
-        ->and($urls)->toContain('https://someblog-8.example/page');
+    expect($urls)->toContain('https://someblog-19.example/page')
+        ->and($urls)->toContain('https://someblog-20.example/page');
 });
 
 it('spends one probe per unknown host, and cards that host\'s other pages', function () {

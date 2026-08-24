@@ -87,11 +87,24 @@ class AddPublicCacheHeaders
                 if (str_starts_with($path, $prefix)) {
                     // CFG-3: CDN/edge TTL is config-driven (default 15 min) — tunable without a redeploy.
                     $maxAge = (int) config('partna.cache.public_max_age', 900);
-                    $directives = ['public', "max-age={$maxAge}", "s-maxage={$maxAge}"];
-
                     // 0 omits the directive rather than emitting `stale-while-revalidate=0`,
                     // which is a valid but meaningless header that would still be a wire change.
                     $swr = (int) config('partna.cache.public_swr', 0);
+                    // The sitepage's own wire (owner plan, 2026-08-19 — instant
+                    // freshness): the router's HTML cache is purged the moment an
+                    // edit lands, and the very next render reads THIS endpoint —
+                    // through Laravel Cloud's edge, which honours s-maxage and
+                    // sits outside our zone's purge reach. A long TTL here re-pins
+                    // pre-edit data under the router's 24 h key. Profiles take
+                    // their own short TTL (default 5 s, no SWR); the backend's 60 s
+                    // in-process payload cache keyed on updated_at keeps the
+                    // origin cheap.
+                    if ($prefix === 'api/public/profiles') {
+                        $maxAge = (int) config('partna.cache.public_profile_max_age', 5);
+                        $swr = 0;
+                    }
+                    $directives = ['public', "max-age={$maxAge}", "s-maxage={$maxAge}"];
+
                     if ($swr > 0) {
                         $directives[] = "stale-while-revalidate={$swr}";
                     }

@@ -10,6 +10,7 @@ use App\Services\Platforms\Payloads\StandaloneEventPayload;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 // Job-context seeding of Eventbrite/Humanitix rows from scanned links
@@ -29,26 +30,36 @@ use Illuminate\Support\Facades\Log;
 class EventsSeeder
 {
     /** Mirrors ManagesIntegrationConnection::maxAccounts() — keep in lockstep. */
-    private const MAX_ACCOUNTS = 5;
-
-    /**
-     * The scan lane's OWN cap, per platform, on CONNECTION rows — deliberately
-     * still this and not ManualEventWriter::MAX_STANDALONE_EVENTS.
-     *
-     * The two govern different things and always did: this bounds what an
-     * automatic scan may seed per platform, that bounds what an owner may add
-     * by hand. Slice 7 Phase 4 left the pool half of seedStandalone() UNCAPPED
-     * for exactly that reason — every row this seeder wrote used to publish, so
-     * capping the item while still writing the connection would resurrect the
-     * invisible-event bug this phase exists to fix.
-     */
-    private const MAX_STANDALONE_EVENTS = 10;
+    private const MAX_ACCOUNTS = 10;
 
     private const PLATFORMS = ['eventbrite', 'humanitix'];
+
+    /**
+     * Events-parity (2026-08-19): brands whose single-event pages seed the
+     * SAME pool-item lane through the generic schema.org reader — no bespoke
+     * scraper, no organiser/account arm (only the two bespoke platforms have
+     * an organiser scrape). 'events-custom' passes through for hosts classify
+     * recognises without a brand key (Meetup); the reader self-filters a page
+     * with no Event JSON-LD to null and the caller cards the link as before.
+     */
+    private const GENERIC_EVENT_PLATFORMS = [
+        'luma', 'partiful', 'ticketmaster', 'ticketek', 'oztix', 'trybooking',
+        'resident-advisor', 'events-custom',
+    ];
+
+    /** Handled-without-write count (tombstoned re-scans) — see MediaSeeder's
+     * twin: the importer surfaces it so suppression is read, not absorbed. */
+    private int $tombstonedThisRun = 0;
+
+    public function tombstonedThisRun(): int
+    {
+        return $this->tombstonedThisRun;
+    }
 
     public function __construct(
         private readonly EventbriteScraper $eventbrite,
         private readonly HumanitixScraper $humanitix,
+        private readonly EventPageReader $reader,
     ) {}
 
     /**
@@ -149,86 +160,101 @@ class EventsSeeder
      * ACCOUNT row became in slice 2. Both selection readers skip a connection
      * row whose canonical URL already has a pool card, so the pair is never
      * listed twice.
+     *
+     * $withConnectionRow = false is the NEW-LANE contract (LinkInBioImporter,
+     * owner ruling 2026-08-18): that path records no payload finding, so the
+     * connection row is not read by anyone — it only surfaced as a bogus
+     * "Eventbrite" platform beside the real event item (gsnwilliams). Same
+     * write as the interactive addEvent verb: the pool item and nothing else.
+     * Legacy callers (LinkRouter::seedEvent, CommerceProbeJob) still record a
+     * finding keyed to the row and keep the default. Returns the canonical
+     * event URL in that mode — a non-null "written" signal for the caller's
+     * tally, never a resource_id (there is none).
      */
-    public function seedStandalone(User $user, string $platform, string $url): ?string
+    public function seedStandalone(User $user, string $platform, string $url, ?string $origin = null): ?string
     {
-        if (! in_array($platform, self::PLATFORMS, true)) {
-            return null;
-        }
+        if (in_array($platform, self::PLATFORMS, true)) {
+            $canonical = $platform === 'eventbrite'
+                ? $this->eventbrite->normalizeEventUrl($url)
+                : $this->humanitix->normalizeEventUrl($url);
+            if ($canonical === null) {
+                return null;
+            }
 
-        $canonical = $platform === 'eventbrite'
-            ? $this->eventbrite->normalizeEventUrl($url)
-            : $this->humanitix->normalizeEventUrl($url);
-        if ($canonical === null) {
-            return null;
-        }
-
-        $event = $platform === 'eventbrite'
-            ? $this->eventbrite->fetchSingleEvent($canonical)
-            : $this->humanitix->fetchSingleEvent($canonical);
-        if ($event === null) {
+            $event = $platform === 'eventbrite'
+                ? $this->eventbrite->fetchSingleEvent($canonical)
+                : $this->humanitix->fetchSingleEvent($canonical);
+            if ($event === null) {
+                return null;
+            }
+        } elseif (in_array($platform, self::GENERIC_EVENT_PLATFORMS, true)) {
+            // Events-parity: every other events brand reads through the one
+            // generic schema.org lane — same stored shape, same pool write.
+            $read = $this->reader->read($url);
+            if ($read === null) {
+                return null;
+            }
+            [$canonical, $event] = [$read['canonical'], $read['event']];
+        } else {
             return null;
         }
 
         $payload = EventsPayload::standalonePayload($event);
-        $rid = 'event-'.$payload['id'];
 
-        if ($this->wasDisconnected($user, $platform, $rid)) {
+        // F4 (2026-08-20): a re-SCAN never resurrects a removed item.
+        // ManualEventWriter::write() un-deletes by design — a PERSON re-adding
+        // the link means "bring it back" — but this is the scan lane, and the
+        // next bio re-scan was quietly resurrecting events the owner removed.
+        // Returned as HANDLED (the canonical), not null: null sends the
+        // caller to its card write, and a link card for a removed event
+        // resurrects it in another pool. Origin 'paste' (the routing paste,
+        // T8) IS a person's direct request and wins the tombstone — same
+        // doctrine as RoutingContext::isDirectRequest.
+        if ($origin !== 'paste' && $this->itemTombstoned($user, $canonical)) {
+            Log::info('events_seeder.tombstoned', ['user_id' => (string) $user->id, 'platform' => $platform]);
+            $this->tombstonedThisRun++;
+
+            return $canonical;
+        }
+
+        // R7 (owner, 2026-08-19): a standalone event is an events-POOL item
+        // and nothing else — the dual-write `resource_kind='event'`
+        // connection row is retired for every lane (existing rows converted
+        // one-off by events:convert-standalone). No wasDisconnected() here:
+        // that tombstone is "the owner removed this CONNECTION row"; the pool
+        // item has its own remove semantics (removed_at on the item), which
+        // ManualEventWriter honours the same way for a hand re-add. Returns
+        // the canonical event URL as the caller's "written" signal — there is
+        // no resource_id.
+        // The only cap on this write is ManualEventWriter::MAX_STANDALONE_EVENTS
+        // — the owner's manual-add allowance, spent here too because a scanned
+        // event lands in the same pool a hand-add does. EventsSeeder::MAX_ACCOUNTS
+        // is a DIFFERENT cap (the scan lane's own limit on organiser ACCOUNT/
+        // connection rows, enforced in seedAccount() above) — there is no
+        // seeder-local standalone-event cap: the old one governed the
+        // `resource_kind='event'` connection row this method used to dual-write,
+        // retired by R7 above, and was deliberately not replaced — capping the
+        // pool item while a connection row still published would have
+        // resurrected the invisible-event bug Slice 7 Phase 4 exists to fix.
+        $writer = app(ManualEventWriter::class);
+        if ($writer->wouldExceedCap($user, $canonical)) {
+            Log::info('events_seeder.event_cap', ['user_id' => (string) $user->id, 'platform' => $platform, 'lane' => 'pool']);
+
             return null;
         }
 
-        $written = $this->locked($platform, $user, function () use ($user, $platform, $rid, $payload): ?string {
-            $events = $this->liveRows($user, $platform)
-                ->filter(fn (IntegrationConnection $r) => $r->resource_kind === 'event');
-
-            if ($events->firstWhere('resource_id', $rid) === null
-                && $events->count() >= self::MAX_STANDALONE_EVENTS) {
-                Log::info('events_seeder.event_cap', ['user_id' => (string) $user->id, 'platform' => $platform]);
-
-                return null;
-            }
-
-            IntegrationConnection::updateOrCreate(
-                ['user_id' => $user->id, 'platform' => $platform, 'resource_id' => $rid],
-                [
-                    'payload' => $payload,
-                    'resource_kind' => 'event',
-                    'is_active' => true,
-                    'last_refreshed_at' => now(),
-                    'last_refresh_status' => 'ok',
-                    'last_refresh_error' => null,
-                    'consecutive_failures' => 0,
-                ],
-            );
-
-            return $rid;
-        });
-
-        if ($written === null) {
-            return null;
-        }
-
-        // The publishing half, OUTSIDE the connection lock: it writes
-        // content.*, not site.platform_connections, so holding a
-        // platform-connection key across it would serialise two unrelated
-        // stores. Best-effort for the same reason the whole seeder is — a
-        // scan seed must never throw into its caller — and a siteless owner
-        // simply has nowhere to pin a pool item, which is an ordinary outcome
-        // here rather than a failure.
         try {
-            app(ManualEventWriter::class)->addStandalone(
-                $user,
-                $canonical,
-                StandaloneEventPayload::fromArray($payload)->event(),
-            );
+            $item = $writer->addStandalone($user, $canonical, StandaloneEventPayload::fromArray($payload)->event(), $origin);
         } catch (\Throwable $e) {
             report($e);
             Log::warning('events_seeder.pool_write_failed', [
                 'user_id' => (string) $user->id, 'platform' => $platform, 'error' => $e->getMessage(),
             ]);
+
+            return null;
         }
 
-        return $written;
+        return $item === null ? null : $canonical;
     }
 
     /** @return Collection<int, IntegrationConnection> */
@@ -238,6 +264,21 @@ class EventsSeeder
             ->where('user_id', $user->id)
             ->where('platform', $platform)
             ->get();
+    }
+
+    /** The owner removed this exact ITEM before (items.removed_at on the
+     * manual-source coord) — the pool-item twin of wasDisconnected(). */
+    private function itemTombstoned(User $user, string $canonical): bool
+    {
+        return DB::connection('pgsql')->table('content.items as i')
+            ->join('content.source_items as csi', 'csi.item_id', '=', 'i.id')
+            ->join('content.sources as cs', function ($join) {
+                $join->on('cs.id', '=', 'csi.source_id')->where('cs.kind', '=', 'manual');
+            })
+            ->where('i.user_id', (string) $user->id)
+            ->where('csi.coord', ManualEventWriter::coordFor($canonical))
+            ->whereNotNull('i.removed_at')
+            ->exists();
     }
 
     private function wasDisconnected(User $user, string $platform, string $resourceId): bool

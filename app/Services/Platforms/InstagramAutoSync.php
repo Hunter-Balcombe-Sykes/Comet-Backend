@@ -106,11 +106,25 @@ class InstagramAutoSync
         // ON for a run that said not to, which is the unsafe direction.
         $autoConnectBooking = $ctx->autoConnectBooking;
 
+        // FI-12 (T6 live, livplumbarber): one page, two harvest shapes —
+        // externalUrl carries http://…square.site, the bio-TEXT regex yields
+        // the same host which urlish() defaults to https:// — and the second
+        // pass hit the seenPlatforms slot and carded a page whose connection
+        // had just been made. Dedupe by scheme-/www-/slash-insensitive form
+        // before routing: one page routes once.
+        $seenPages = [];
+
         foreach ($bioLinks as $url) {
             if (! is_string($url) || trim($url) === '') {
                 continue;
             }
             $url = trim($url);
+
+            $pageKey = strtolower(rtrim(preg_replace('~^https?://(?:www\.)?~i', '', $url) ?? $url, '/'));
+            if (isset($seenPages[$pageKey])) {
+                continue;
+            }
+            $seenPages[$pageKey] = true;
 
             try {
                 if ($this->linkInBioDetector->matches($url)) {
@@ -159,7 +173,13 @@ class InstagramAutoSync
                 // A gate denial returns 'custom' with no unmatched entry of its
                 // own — surface it here so the link is still offered as a
                 // custom-link suggestion rather than silently dropped.
-                if ($result->outcome === 'custom' && $result->unmatched === []) {
+                // UNLESS the route says handled (F3, 2026-08-20): a seeded
+                // event/media POOL ITEM and a filed ordering/reservation Swap
+                // offer all return custom(handled: true), which per
+                // RouteResult's own contract means "carried elsewhere — no
+                // caller writes a card for it". Surfacing those built a
+                // duplicate link card beside the real item/offer.
+                if ($result->outcome === 'custom' && $result->unmatched === [] && ! $result->handled) {
                     $unmatched[] = ['url' => $url, 'label' => $classified['label']];
                 }
 

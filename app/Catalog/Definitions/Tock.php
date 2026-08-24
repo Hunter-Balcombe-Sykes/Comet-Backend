@@ -30,6 +30,7 @@ class Tock
     {
         return [
             SurfaceBuilder::for('tock.reserve')
+                ->legacyPlatform('tock')
                 ->displayName('Tock')
                 ->routing(RoutingClass::Reservations)
                 ->shelf(Shelf::Food)

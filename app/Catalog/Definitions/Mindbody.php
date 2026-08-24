@@ -27,6 +27,7 @@ class Mindbody
     {
         return [
             SurfaceBuilder::for('mindbody.book')
+                ->legacyPlatform('mindbody')
                 ->displayName('Mindbody')
                 ->routing(RoutingClass::Booking)
                 ->shelf(Shelf::Booking)

@@ -5,6 +5,7 @@ namespace App\Jobs\Platforms;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
+use App\Routing\Importers\WebsiteImporter;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Design\DesignKitAutopilot;
 use App\Services\Design\LogoAutoGrabber;
@@ -99,7 +100,7 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
     public int $uniqueFor = 300;
 
     /** Safety cap on how many PDFs get their own scan job from one page — not a "pick one" limit. */
-    private const MAX_PDF_SCANS = 5;
+    private const MAX_PDF_SCANS = 12;
 
     /** Checked against a PDF link's own text AND its URL path — either counts. */
     private const MENU_KEYWORDS = [
@@ -325,6 +326,61 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
             }
         }
 
+        // T8 (owner, 2026-08-20): route EVERY outbound link on the page
+        // through the P8 pipeline — WebsiteImporter was built for exactly
+        // this and sat dormant, which is why a shop link, an event page or a
+        // video on a scanned previous website left ZERO trace (no card, no
+        // probe, no observation). It records its own import run, respects
+        // its own daily cap, and its note arms seed real pool items.
+        //
+        // AFTER the harvestHtml seed above, deliberately (critic blocker,
+        // 2026-08-20): the importer running FIRST auto-placed a thin
+        // instagram.profile connection off the site's own Instagram link,
+        // which made seedInstagram()'s has() guard skip the rich Apify
+        // connect and emit a false 'clashes with one you have connected'
+        // bell on virtually every first scan. Seed first: the rich connect
+        // wins, and the importer's later route of the same link aliases onto
+        // it (the reconciler's #R4 identity resolution) instead of racing it.
+        try {
+            $imported = app(WebsiteImporter::class)->import($user, $baseUrl);
+            if ($imported['outcome'] !== 'ok') {
+                // A capped/unreachable import must not be invisible (the
+                // 10/day ImportRun cap writes no run row when it refuses).
+                Log::info('website_scan.importer_skipped', [
+                    'user_id' => $this->userId,
+                    'outcome' => $imported['outcome'],
+                ]);
+            }
+        } catch (Throwable $e) {
+            report($e);
+        }
+
+        // Gallery photos — its own dispatched job (like the PDF/HTML menu
+        // scans above): downloading+validating+uploading several candidate
+        // photos can run long, same rationale as those jobs being split out
+        // of this job's own 60s window. Fills an EMPTY gallery pool only.
+        $galleryCandidates = $galleryCandidateExtractor->extract($html, $baseUrl);
+        if ($galleryCandidates !== []) {
+            WebsiteGalleryScanJob::dispatch($this->userId, $this->siteId, $galleryCandidates)
+                ->delay(now()->addSeconds(30));
+        }
+
+        // Everything below is DESIGN evidence — the site's logo, accent and
+        // font read off this website. That only makes sense when the
+        // workplace's brand IS the site's identity (a business). A partna
+        // account's workplace website is someone else's brand (owner,
+        // 2026-08-19): its logo must never become the site's mark and its
+        // colours must never become the site's accent.
+        if (! AccountCapabilities::for($user)->workplace_brand_is_site_identity) {
+            Log::info('website_scan.design_evidence_skipped', [
+                'user_id' => $this->userId,
+                'site_id' => $this->siteId,
+                'reason' => 'workplace_brand_is_site_identity=false',
+            ]);
+
+            return;
+        }
+
         // Accent colour candidates + logo candidates — one shared favicon
         // fetch, no headless render, reuses the exact $html/$baseUrl already
         // fetched above (no second main-page request). Accent RESOLUTION
@@ -350,16 +406,6 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
                 'site_id' => $this->siteId,
                 'decisions' => $decisions,
             ]);
-        }
-
-        // Gallery photos — its own dispatched job (like the PDF/HTML menu
-        // scans above): downloading+validating+uploading several candidate
-        // photos can run long, same rationale as those jobs being split out
-        // of this job's own 60s window. Fills an EMPTY gallery pool only.
-        $galleryCandidates = $galleryCandidateExtractor->extract($html, $baseUrl);
-        if ($galleryCandidates !== []) {
-            WebsiteGalleryScanJob::dispatch($this->userId, $this->siteId, $galleryCandidates)
-                ->delay(now()->addSeconds(30));
         }
 
         // Accent resolution — dispatched TWICE, not run inline. Once now

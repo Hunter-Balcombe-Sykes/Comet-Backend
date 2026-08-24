@@ -14,8 +14,11 @@ use App\Jobs\Media\MirrorMediaAssetJob;
 use App\Routing\SecretParams;
 use App\Services\Content\ContentItemSlugAllocator;
 use App\Services\Media\MediaMirror;
+use App\Services\Site\AdvisoryLock;
+use App\Services\Site\AdvisoryLockTimeoutException;
 use App\Site\Documents\BuildState;
 use App\Site\Documents\SiteCacheLanes;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -54,7 +57,7 @@ class ProjectionWriter
         'f_catalog' => ['release_type', 'track_number', 'disc_number', 'isrc', 'gtin', 'sku', 'handle', 'vendor', 'variant_ref', 'collection_title'],
         'f_place' => ['venue_name', 'address', 'locality', 'region', 'country_code', 'latitude', 'longitude'],
         'f_rated' => ['rating', 'rating_max', 'ratings_count'],
-        // author_uri: slice 6 Task 1 (migration 20260813110000). upsertSingletonFacet
+        // author_uri: slice 6 Task 1 (migration 20260813110000). singletonFacetRow
         // filters against this list, so an unlisted column is dropped silently —
         // no error, no row.
         'f_review' => ['author_name', 'author_photo_url', 'author_uri', 'rating', 'text', 'reviewed_at'],
@@ -87,6 +90,37 @@ class ProjectionWriter
      * content.sources' own DDL comment claims. Connections sit at 100.
      */
     public const MANUAL_SOURCE_PRIORITY = 200;
+
+    /**
+     * Bound for the "identity:{user_id}:{kind}" advisory lock (#LIFE-1). Matches
+     * AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS: both bound an interactive dashboard write, and a
+     * caller that waits longer than this is better off failing loudly (423 / a failed run the
+     * scheduler retries) than holding a PHP-FPM worker open.
+     *
+     * MEASURED against a real Postgres on 2026-08-19, 2,000 live source items of one kind for
+     * one user: 120ms for a steady-state pass (every coord already anchored — the normal case,
+     * every scheduled run after the first), and 2,267ms for the cold pass that mints an item and
+     * an anchor for all 2,000 at once. The cold figure is the one to watch: it is roughly linear
+     * in unbound coords, so a first-ever projection of a ~4,500-item catalogue would sit on this
+     * bound, and a concurrent caller would take the 423 rather than wait. That is the intended
+     * failure — it happens once per catalogue, it retries, and the alternative is an unbounded
+     * wait on a pooled Supavisor connection. If it becomes a real complaint, the fix is to batch
+     * createItem()/the anchor insert across groups, not to widen this.
+     *
+     * NOTE the bound also applies to every subsequent row lock in the transaction: SET LOCAL
+     * lock_timeout persists for the rest of it (see AdvisoryLockTimeoutException's docblock).
+     *
+     * WHAT A TIMEOUT COSTS, per path. writeManualItem() runs its upsert, keys and resolve as ONE
+     * transaction under this lock, so a timeout there rolls everything back and the owner simply
+     * sees a 423 to retry. projectStream() cannot: it commits per record across a lazy(500) loop
+     * before it resolves, so a timeout there leaves live source items bound to nothing until the
+     * next scheduled run re-projects them — and RunExecutor catches the throw and writes an
+     * ingest.anomalies row with severity 'critical', which per that file's own comment PAGES once
+     * per failure. So on the connector lane this is not the quiet retry the paragraph above
+     * describes. Left that way deliberately: a connector run repeats on a schedule, and
+     * suppressing the page would hide genuine contention on the identity spine.
+     */
+    private const IDENTITY_LOCK_TIMEOUT_MS = 5000;
 
     public function __construct(
         private readonly Resolver $resolver,
@@ -126,10 +160,13 @@ class ProjectionWriter
         // LIMIT/OFFSET paging over a non-unique order silently skips and
         // duplicates rows. The rs.key tiebreak is mandatory, not cosmetic,
         // and must not be reordered ahead of first_seen_at: records are
-        // processed oldest-first so upsertSingletonFacet()'s upsert-on-
-        // (item_id, source_id) lets the LAST-processed record win each
-        // column (I1) — reordering the read silently changes which record's
-        // headline/facets a page shows.
+        // processed oldest-first, and writeFacets()'s per-column array_replace
+        // fold (#SCALE-5) lets the LAST-processed record win each column (I1)
+        // — reordering the read silently changes which record's
+        // headline/facets a page shows. NOTE the fold is where that invariant
+        // lives NOW: it used to be a property of one upsert per record landing
+        // in order, and batching moved it into writeFacets(). Ordering here is
+        // still load-bearing; the code that depends on it has moved.
         $records = DB::table('ingest.record_state as rs')
             ->join('ingest.record_versions as rv', function ($join) {
                 $join->on('rv.stream_id', '=', 'rs.stream_id')->on('rv.id', '=', 'rs.current_version_id');
@@ -214,8 +251,8 @@ class ProjectionWriter
         }
 
         // Slice 6 §5.2: source-level aggregates. Last record wins — they are
-        // identical across a run, mirroring upsertSingletonFacet's
-        // last-processed-record-wins column semantics.
+        // identical across a run, mirroring the last-processed-record-wins
+        // column semantics writeFacets()'s fold gives the singleton facets.
         //
         // EVERY column is written, including ones this run did not carry:
         // building the update list from the present keys alone would leave an
@@ -389,11 +426,27 @@ class ProjectionWriter
         $contentSourceId = $this->ensureManualSource($userId);
         $kind = (string) $projection['kind'];
 
-        // Same one-transaction-per-record boundary the connector path uses,
-        // and for the same reason: a committed source item visible with zero
-        // identity keys resolves as an unrelated singleton and mints a
-        // spurious item. See the long note at the projectStream() call site.
-        DB::transaction(function () use ($contentSourceId, $coord, $kind, $projection) {
+        // ONE transaction, opened with the identity lock, spanning the source-item upsert, its
+        // identity keys AND the resolve. The connector path splits those (a transaction per
+        // record, then one resolve) because it is a LOOP and must not hold a write transaction
+        // open across every page of it. There is no loop here — one record — and joining them is
+        // what makes a lock timeout leave nothing behind at all.
+        //
+        // It has to be all-or-nothing, and an earlier version of this that committed the source
+        // item first and compensated afterwards could not be made correct. The compensation has
+        // to decide whether retiring the row destroys anything, and by the time it runs the
+        // answer has changed: resolveItemsLocked() binds EVERY live source item of the
+        // (user, kind), not just this caller's coord, so the lock holder that made this caller
+        // time out has already bound this row — while writeFacets() only ever covers the
+        // caller's OWN projection. "Is it bound" therefore stops distinguishing "someone else
+        // finished my write" from "someone else bound my row and wrote no facets for it", and
+        // the second is the common case. Rolling the upsert back removes the question.
+        //
+        // The keys must still land in the same transaction as the source item, for the original
+        // reason: a committed source item visible with ZERO identity keys resolves as an
+        // unrelated singleton, so createItem() mints a spurious content.items row and anchors the
+        // coord to it. See the long note at the projectStream() call site.
+        $itemByCoord = $this->withIdentityLock($userId, $kind, function () use ($contentSourceId, $coord, $kind, $projection, $userId) {
             $sourceItemId = $this->upsertSourceItem(
                 contentSourceId: $contentSourceId,
                 coord: $coord,
@@ -406,9 +459,9 @@ class ProjectionWriter
                 projectorVersion: 0,
             );
             $this->writeIdentityKeys($sourceItemId, $coord, $projection);
-        });
 
-        $itemByCoord = $this->resolveItems($userId, $kind);
+            return $this->resolveItemsLocked($userId, $kind);
+        });
 
         if (! isset($itemByCoord[$coord])) {
             // Unreachable: the row was just written live and resolveItems()
@@ -592,6 +645,148 @@ class ProjectionWriter
      */
     private function resolveItems(string $userId, string $kind): array
     {
+        return $this->withIdentityLock($userId, $kind, fn (): array => $this->resolveItemsLocked($userId, $kind));
+    }
+
+    /**
+     * Run $work as the whole of one transaction, holding identity:{user_id}:{kind} (#LIFE-1).
+     *
+     * Until this existed, resolveItems() was read -> compute -> write with nothing around it, and
+     * a second caller could commit between the two ends. The damage is not theoretical:
+     * mergeInto() hard-DELETEs the discarded item, so the loser's own closing
+     * `source_items.item_id` UPDATE either takes a 23503 on a row that no longer exists, or —
+     * when curation spared the loser from the delete — silently reverts the merge and leaves a
+     * coord pointing at an item nothing else agrees with. Both are reproduced in
+     * tests/Postgres/ProjectionWriterIdentityRaceTest.php.
+     *
+     * Advisory rather than lockForUpdate(): the protected set is "every live source item of this
+     * (user, kind)", which the racing writer may GROW mid-computation, and you cannot lock rows
+     * that do not exist yet. It is also three tables (item_anchors, items, source_items), so one
+     * key beats an ordering discipline across all three.
+     *
+     * _xact_ rather than the session variant: it releases on COMMIT/ROLLBACK, so a killed worker
+     * cannot wedge a user's identity resolution until Supavisor reaps the connection.
+     *
+     * $work must span the WHOLE cycle — the reads, the resolve, bindGroup(), recordCandidates()
+     * AND the closing per-target UPDATE. A lock that covers the read but not the write looks
+     * right, tests green, and fixes nothing.
+     *
+     * Callers must NOT wrap this: DB::transaction() would degrade to a SAVEPOINT and the lock
+     * would silently take the OUTER transaction's lifetime. No caller does — projectStream()'s
+     * transactions are per-record and closed before it resolves, and every caller of
+     * writeManualItem() is forbidden from nesting one by that method's own docblock.
+     *
+     * No try/catch inside $work: a catch that RECOVERS in there poisons the transaction with
+     * 25P02 (this repo has shipped that three times — ItemSlugAllocatorSavepointTest). The
+     * lock-timeout path throws out through the transaction and surfaces as 423 via
+     * AdvisoryLockTimeoutException's HttpStatusCodeInterface contract.
+     *
+     * SQLite has neither pg_advisory_xact_lock nor hashtext, so the Feature lane cannot exercise
+     * the lock at all — a green `composer test` says nothing about it. tests/Postgres/ is where
+     * it is proven.
+     *
+     * WHAT THIS DOES NOT COVER. An advisory lock only serialises writers that take it, and four
+     * identity mutators still do not:
+     *   - writeFacets() and refreshItemCaches() run AFTER this commits, against item ids a later
+     *     resolve may already have merged away (pre-existing, unchanged here);
+     *   - ItemMerger::merge() repoints source_items, rewrites anchors and hard-deletes an item in
+     *     a plain transaction — currently unreachable, nothing in app/ or routes/ constructs it;
+     *   - StaffServiceManagementController::forceDestroy() (routed:
+     *     DELETE /professionals/{professional}/services/{service}/hard) deletes the source_items
+     *     and the content.items row outright. A resolve that has already computed a target on
+     *     that id takes a 23503 on its closing UPDATE;
+     *   - ContentRetireChannelKindCommand hard-deletes source_items and items for kind='channel'
+     *     in a plain transaction — inert in practice (dry-run by default, one-shot, and nothing
+     *     emits that kind any more), listed for completeness.
+     * The last three are hard-delete paths and belong in their own unit under fix-flow.md's
+     * "Standalone — do NOT bundle" rule, not in this one. That list of four is the complete set
+     * of unlocked writers that can leave a DANGLING reference — every hard delete of, or repoint
+     * across, content.{source_items,items,item_anchors} in app/. Several others (FreshaController,
+     * ContentRepairEventItemsCommand, RetireLegacyGooglePhotoRecordsCommand,
+     * PurgeReviewHeadlinePiiCommand) only set removed_at or clear a cache column: they change the
+     * resolve's INPUT SET and can make a resolution stale, which is a different and much smaller
+     * problem, and they are not enumerated exhaustively here.
+     *
+     * A 40P01 deadlock is NOT reclassified below, only 55P03. Deadlock detection fires at 1s,
+     * ahead of this 5s bound, and the manual path now holds its coord's source_items row lock
+     * for the whole resolve rather than a few milliseconds — so the window for a cycle with an
+     * unlocked bulk writer is wider than it was. Left as a 500 deliberately: a deadlock is a
+     * lock-ordering bug worth seeing, not contention worth retrying.
+     *
+     * @template TReturn
+     *
+     * @param  callable(): TReturn  $work
+     * @return TReturn
+     */
+    private function withIdentityLock(string $userId, string $kind, callable $work): mixed
+    {
+        $connection = DB::connection();
+        $key = "identity:{$userId}:{$kind}";
+
+        // The no-nesting rule above is load-bearing and, until this line, had nothing enforcing
+        // it: inside an outer transaction DB::transaction() degrades to a SAVEPOINT, the advisory
+        // lock silently takes the OUTER transaction's lifetime, and SET LOCAL lock_timeout
+        // stretches over it too. All of that is invisible — the tests stay green and the lock
+        // stops meaning what the docblock says. Loud beats silent on a path whose merges hard-
+        // delete. (Nothing nests today; verified across every call site of writeManualItem() and
+        // projectStream(). The test suites do not wrap either — RefreshDatabase is deliberately
+        // off in tests/Pest.php, and tests/TestCase.php forces database.default to 'pgsql' in
+        // every lane, so this and DB::connection('pgsql') are always the same instance.)
+        //
+        // How loud depends on the lane: on the HTTP paths this surfaces as a 500 and a Nightwatch
+        // exception, but RunExecutor catches \Throwable around projectStream() and converts it
+        // into a report() plus a critical ingest.anomalies row and a 'degraded' run — attributable
+        // and paged, but a demoted alert rather than a crash. Guarded by
+        // tests/Postgres/ProjectionWriterIdentityRaceTest.php.
+        if ($connection->transactionLevel() > 0) {
+            throw new \LogicException(
+                "resolveItems()/writeManualItem() must not run inside a transaction: the advisory lock {$key} would take the outer transaction's lifetime.",
+            );
+        }
+
+        try {
+            return $connection->transaction(function () use ($connection, $key, $work) {
+                if ($connection->getDriverName() === 'pgsql') {
+                    AdvisoryLock::acquire($key, self::IDENTITY_LOCK_TIMEOUT_MS, $connection->getName());
+                }
+
+                return $work();
+            });
+        } catch (QueryException $e) {
+            // OUTSIDE the transaction — DB::transaction() has already rolled back, so this cannot
+            // poison anything (25P02). It converts, it does not recover.
+            //
+            // SET LOCAL lock_timeout bounds every lock the transaction takes, not just the
+            // advisory one, and a ROW lock aborting raises the same SQLSTATE 55P03 as a bare
+            // QueryException rather than as AdvisoryLockTimeoutException — the closing
+            // `UPDATE content.source_items` waiting on a concurrent writer is the reachable case.
+            // Undistinguished, that path surfaces as a 500 for what is ordinary contention.
+            // ReorderService::reorder() already reclassifies its row-lock timeout through the
+            // same SQLSTATE for the same reason.
+            //
+            // SQLSTATE only, NOT AdvisoryLock::isLockTimeout(), whose second branch matches the
+            // substring 'lock timeout' anywhere in the message. QueryException interpolates
+            // bindings into that message, and the bindings here include coord — built from
+            // platform-supplied record keys (see projectStream()). A coord carrying that literal
+            // would turn any error on any statement in the resolve (a 23505, a 23503, a
+            // statement_timeout) into a false 423. The substring branch buys nothing here:
+            // Postgres reports 55P03 through getCode() for both the advisory lock and a row lock,
+            // which is the whole reachable set.
+            if ((string) $e->getCode() === AdvisoryLock::LOCK_NOT_AVAILABLE_SQLSTATE) {
+                throw new AdvisoryLockTimeoutException($key, $e);
+            }
+
+            throw $e;
+        }
+    }
+
+    /**
+     * The body of resolveItems(), which must only ever run under its lock and transaction.
+     *
+     * @return array<string, string> coord => item id
+     */
+    private function resolveItemsLocked(string $userId, string $kind): array
+    {
         // Deterministic group order (recommended, plan §b.3): no user-visible
         // change on its own (bindGroup() picks the winner by bound_at), but
         // makes fresh-item UUID mint order reproducible instead of
@@ -665,9 +860,32 @@ class ProjectionWriter
 
         $resolution = $this->resolver->resolve($sourceItems, $decisions);
 
+        // #SCALE-4: bindGroup() used to read content.item_anchors once PER GROUP, and in steady
+        // state every group is a singleton — one round trip per item, on every run. The read is
+        // hoisted here instead.
+        //
+        // It is only safe because of the lock above, and only THEN with the guard below. Under
+        // the lock no other writer can cross the loop, but the loop stales its own snapshot:
+        // mergeInto() runs
+        //   UPDATE item_anchors SET superseded_by = kept WHERE item_id = ? OR superseded_by = ?
+        // which is keyed on the ITEM, not on the current group's coords, so it can rewrite
+        // anchors that a LATER group is about to read. Groups are disjoint by coord, but the
+        // items they point at are not. So: any merge invalidates the snapshot outright and every
+        // remaining group re-reads exactly as it used to. Steady state is all-singleton groups
+        // with no merges at all, which is where the N+1 actually hurt.
+        //
+        // Mirroring that UPDATE's semantics onto the in-memory snapshot instead would keep the
+        // saving through a merge — and would mean reimplementing a WHERE clause in PHP against
+        // the identity spine, where mergeInto()'s hard delete makes a wrong answer only
+        // partially reversible. Not worth it for a case that barely happens.
+        $snapshot = $this->anchorSnapshot($userId, $resolution->groups);
+
         $itemByCoord = [];
         foreach ($resolution->groups as $group) {
-            $itemId = $this->bindGroup($userId, $kind, $group);
+            [$itemId, $merged] = $this->bindGroup($userId, $kind, $group, $snapshot);
+            if ($merged) {
+                $snapshot = null;
+            }
             foreach ($group as $coord) {
                 $itemByCoord[$coord] = $itemId;
             }
@@ -715,34 +933,128 @@ class ProjectionWriter
      * no curation is deleted (a bare duplicate row would keep rendering).
      *
      * @param  list<string>  $group
+     * @param  array<string, object>|null  $snapshot  the run-wide anchor
+     *                                                prefetch (#SCALE-4),
+     *                                                or null to read fresh
+     * @return array{0: string, 1: bool} [item id, whether this call merged and so staled $snapshot]
      */
-    private function bindGroup(string $userId, string $kind, array $group): string
+    private function bindGroup(string $userId, string $kind, array $group, ?array $snapshot = null): array
     {
-        $anchors = DB::table('content.item_anchors')
-            ->where('user_id', $userId)
-            ->whereIn('coord', $group)
-            ->orderBy('bound_at')
-            ->get(['coord', 'item_id', 'superseded_by', 'bound_at']);
+        // Unordered on purpose — sortAnchors() below is the ONE ordering, shared with the
+        // #SCALE-4 prefetch path. An `ORDER BY coord` here would sort under the DATABASE
+        // COLLATION while the snapshot path sorts byte-wise in PHP, so on a bound_at tie the two
+        // paths can rank the same pair differently ('yt:acct:AB-1' vs 'yt:acct:ab_1' invert
+        // between en_US.utf8 and byte order). Which path serves a group depends on whether an
+        // unrelated earlier group merged — so that would make the identity of the item
+        // mergeInto() HARD-DELETES depend on something the group has nothing to do with.
+        $anchors = $this->sortAnchors($snapshot === null
+            ? DB::table('content.item_anchors')
+                ->where('user_id', $userId)
+                ->whereIn('coord', $group)
+                ->get(['coord', 'item_id', 'superseded_by', 'bound_at'])
+            : $this->anchorsFromSnapshot($snapshot, $group));
+
+        // Set by every path that calls mergeInto() (or deletes an item): those rewrite anchors
+        // this call does not own, so the caller's prefetch cannot be trusted afterwards.
+        $merged = false;
 
         $effective = $anchors
             ->map(fn (object $a) => (string) ($a->superseded_by ?? $a->item_id))
             ->unique()
             ->values();
 
-        $winner = $this->preferOwnerAnchored($effective)
-            ?? $effective->first()
-            ?? $this->createItem($userId, $kind);
+        $winner = $this->preferOwnerAnchored($effective) ?? $effective->first();
 
-        foreach ($group as $coord) {
-            $existing = $anchors->firstWhere('coord', $coord);
-            if ($existing === null) {
-                DB::table('content.item_anchors')->insert([
-                    'coord' => $coord,
-                    'user_id' => $userId,
-                    'item_id' => $winner,
-                    'bound_at' => now(),
-                ]);
+        $mintedOwnItem = false;
+        if ($winner === null) {
+            $winner = $this->createItem($userId, $kind);
+            $mintedOwnItem = true;
+        }
+
+        // #PGR-7: this insert used to be bare. A concurrent bindGroup() call for the SAME coord
+        // (writeManualItem() double-submit — two tabs, or a double-clicked "Add" in
+        // PoolItemCreateController, both deriving the identical deterministic coord) can race
+        // it: both callers read an empty $anchors above, both mint their OWN $winner via
+        // createItem(), and both attempt to bind the same coord — content.item_anchors' PK is
+        // (user_id, coord), so at most one insert survives and the loser used to surface an
+        // uncaught 23505 plus an orphaned content.items row. insertOrIgnore turns the loser's
+        // insert into a no-op; $boundHere tracks which of THIS call's own coords actually landed
+        // under $winner, so a conflict elsewhere in the same multi-coord group can redirect them
+        // too, not just discard an item other rows already point at.
+        // #CACHE-5: one multi-row insertOrIgnore for the group, not one statement per coord.
+        // The reconciliation below is unchanged in outcome — it just learns WHICH coords lost
+        // from a single re-read instead of from the return value of each individual insert.
+        $missing = array_values(array_filter(
+            $group,
+            fn (string $coord) => $anchors->firstWhere('coord', $coord) === null,
+        ));
+
+        $boundHere = [];
+        $lostTo = null;
+        if ($missing !== []) {
+            // One timestamp for the whole group rather than one per row: they all bind the same
+            // winner, so bound_at cannot order them against each other in any way that matters.
+            $boundAt = now();
+            $inserted = DB::table('content.item_anchors')->insertOrIgnore(array_map(fn (string $coord) => [
+                'coord' => $coord,
+                'user_id' => $userId,
+                'item_id' => $winner,
+                'bound_at' => $boundAt,
+            ], $missing));
+
+            if ($inserted === count($missing)) {
+                $boundHere = $missing;
+            } else {
+                // At least one coord lost. Re-read what actually persisted and adopt ITS item id
+                // — never the locally-computed $winner, which by definition lost. Getting this
+                // backwards would leave this caller returning an item id nothing else agrees
+                // with, which is worse than the 500 it replaces. Iterating $missing in order
+                // keeps last-loss-wins, exactly as the per-coord loop did. (A second coord in
+                // the same group losing to a THIRD, different item is still not reconciled —
+                // one conflicting winner per call is the shape #PGR-7 fixes; that deeper case is
+                // not known to be reachable.)
+                $persisted = DB::table('content.item_anchors')
+                    ->where('user_id', $userId)
+                    ->whereIn('coord', $missing)
+                    ->pluck('item_id', 'coord');
+
+                foreach ($missing as $coord) {
+                    $persistedId = (string) ($persisted[$coord] ?? '');
+                    if ($persistedId === $winner) {
+                        $boundHere[] = $coord;
+
+                        continue;
+                    }
+                    $lostTo = $persistedId;
+                }
             }
+        }
+
+        if ($lostTo !== null && $lostTo !== $winner) {
+            if ($boundHere !== []) {
+                // Some of this group's OTHER coords already landed under our own (now-losing)
+                // $winner earlier in this same loop — redirect them to the agreed winner first,
+                // or the cascade delete below would take their anchor rows down with it.
+                DB::table('content.item_anchors')
+                    ->where('user_id', $userId)
+                    ->whereIn('coord', $boundHere)
+                    ->update(['item_id' => $lostTo]);
+            }
+
+            if ($mintedOwnItem) {
+                // $winner was minted fresh in this call. Nothing referenced it outside the
+                // item_anchors rows this loop just redirected away — no facets, no
+                // source_items.item_id, no curation exist yet — so it is safe to discard
+                // outright rather than route through the full mergeInto() ceremony.
+                DB::table('content.items')->where('id', $winner)->delete();
+            } else {
+                $this->mergeInto($userId, keptItemId: $lostTo, discardedItemId: $winner);
+            }
+
+            // Both branches touch anchors outside this group's coords (the delete cascades),
+            // so the caller's #SCALE-4 prefetch is stale from here on.
+            $merged = true;
+            $winner = $lostTo;
         }
 
         // Losers are "everything that is not the winner", NOT slice(1). Those
@@ -755,9 +1067,100 @@ class ProjectionWriter
         // first, which is every connection-only group.
         foreach ($effective->reject(fn (string $itemId) => $itemId === $winner) as $loser) {
             $this->mergeInto($userId, keptItemId: $winner, discardedItemId: (string) $loser);
+            $merged = true;
         }
 
-        return $winner;
+        return [$winner, $merged];
+    }
+
+    /**
+     * Every anchor for every coord this pass will bind, read once (#SCALE-4).
+     *
+     * Keyed by coord, which is exact rather than convenient: content.item_anchors' PK is
+     * (user_id, coord), so there is at most one row per coord. Unordered — chunking would split
+     * a single ORDER BY anyway, and bindGroup() applies sortAnchors() per group to whichever
+     * source served it.
+     *
+     * @param  list<list<string>>  $groups
+     * @return array<string, object>
+     */
+    private function anchorSnapshot(string $userId, array $groups): array
+    {
+        $coords = $groups === [] ? [] : array_values(array_unique(array_merge(...$groups)));
+
+        $snapshot = [];
+
+        // Chunked for the same reason every other bind list in this file is: BATCH_SIZE keeps the
+        // parameter count far under Postgres' 65,535 ceiling on a large catalogue.
+        foreach (array_chunk($coords, self::BATCH_SIZE) as $chunk) {
+            $rows = DB::table('content.item_anchors')
+                ->where('user_id', $userId)
+                ->whereIn('coord', $chunk)
+                ->get(['coord', 'item_id', 'superseded_by', 'bound_at']);
+
+            foreach ($rows as $row) {
+                $snapshot[(string) $row->coord] = $row;
+            }
+        }
+
+        return $snapshot;
+    }
+
+    /**
+     * This group's slice of the prefetch, unordered — bindGroup() sorts.
+     *
+     * @param  array<string, object>  $snapshot
+     * @param  list<string>  $group
+     * @return Collection<int, object>
+     */
+    private function anchorsFromSnapshot(array $snapshot, array $group): Collection
+    {
+        $rows = [];
+        foreach ($group as $coord) {
+            if (isset($snapshot[$coord])) {
+                $rows[] = $snapshot[$coord];
+            }
+        }
+
+        return collect($rows);
+    }
+
+    /**
+     * Oldest binding first — the order that decides which item survives a merge.
+     *
+     * This is load-bearing, not cosmetic: $effective's first element is the winner whenever
+     * preferOwnerAnchored() abstains, and mergeInto() HARD-DELETES every other item in the
+     * group. It lives in PHP, applied identically to the prefetched slice and to the fresh
+     * per-group read, because those two are served by different code paths within one pass and
+     * an ordering that differed between them would make a destructive choice depend on which
+     * path happened to run.
+     *
+     * TIES ARE ROUTINE. Laravel's query grammar formats every timestamp binding as
+     * 'Y-m-d H:i:s' (Grammar::getDateFormat(), not overridden by PostgresGrammar), so bound_at
+     * is stored truncated to WHOLE SECONDS whatever Carbon held — two anchors written a
+     * millisecond apart, by different calls, to different items, compare equal. coord breaks
+     * that tie: arbitrary, but the same arbitrary answer every time and on every path, where
+     * a bare `ORDER BY bound_at` left it to whatever the planner returned.
+     *
+     * So "oldest binding wins" is only true to the second. That is a property of the column
+     * rather than of this method, and it is written down because the hard delete rests on it.
+     *
+     * Comparing the timestamps AS STRINGS is chronological only while the session emits a single
+     * format with a constant offset. config/database.php sets no `timezone` for the pgsql
+     * connection, so that is the server default — UTC on Supabase and on the test container. A
+     * DST-observing session timezone would invert the local wall-clock strings for one hour a
+     * year during the fall-back overlap; if that ever changes, this comparison has to parse
+     * rather than compare.
+     *
+     * @param  Collection<int, object>  $anchors
+     * @return Collection<int, object>
+     */
+    private function sortAnchors(Collection $anchors): Collection
+    {
+        return $anchors
+            ->sort(fn (object $a, object $b) => [(string) $a->bound_at, (string) $a->coord]
+                <=> [(string) $b->bound_at, (string) $b->coord])
+            ->values();
     }
 
     /**
@@ -984,10 +1387,25 @@ class ProjectionWriter
 
         // SCALE-17/#CACHE-2: the batching boundary is HERE, not inside
         // replaceCollections() — $byItem is the batch. Called once for the
-        // whole run's items; the singleton-facet upserts below stay per
-        // (item, record) because each one targets a different row.
+        // whole run's items. The singleton facets below are batched too, on
+        // their own boundary (#SCALE-5, next block).
         $this->replaceCollections($contentSourceId, $userId, $byItem);
 
+        // #SCALE-5: collect first, write once per (facet, column-signature).
+        // This used to fire one upsert per facet per record, every run — the
+        // comment above conceded it, in those words: "the singleton-facet
+        // upserts below stay per (item, record)". For a catalogue sync that is
+        // one round trip per facet per item, and it dominated the run.
+        //
+        // The FOLD is per COLUMN, not per row. Sequentially, a second record for
+        // the same (item, source) overwrote only the columns it named, so the
+        // stored row ended up a per-column union with later values winning.
+        // Last-row-wins would silently drop columns only the earlier record
+        // carried; array_replace reproduces the old result exactly. It also
+        // removes the batching hazard: two rows with the same conflict target in
+        // ONE upsert payload raise Postgres 21000, which is precisely what
+        // LanderBatchLandingTest already pins for ingest.record_state.
+        $pending = [];
         foreach ($byItem as $itemId => $group) {
             foreach ($group as $projection) {
                 $facets = (array) ($projection['facets'] ?? []);
@@ -1001,18 +1419,80 @@ class ProjectionWriter
                 }
 
                 foreach ($facets as $facet => $columns) {
-                    $this->upsertSingletonFacet($itemId, $contentSourceId, (string) $facet, (array) $columns);
+                    $row = $this->singletonFacetRow((string) $facet, (array) $columns);
+                    if ($row === []) {
+                        continue;
+                    }
+
+                    $pending[(string) $facet][(string) $itemId] = array_replace(
+                        $pending[(string) $facet][(string) $itemId] ?? [],
+                        $row,
+                    );
                 }
+            }
+        }
+
+        $this->flushSingletonFacets($contentSourceId, $pending);
+    }
+
+    /**
+     * One upsert per (facet, column-signature) — #SCALE-5.
+     *
+     * Bucketed by signature and NOT unioned into one wide row, deliberately.
+     * Laravel's upsert() takes its column list from the FIRST row, so a union
+     * with null-fill would put columns a given record never mentioned into the
+     * update list and NULL them on conflict — clobbering a value another source
+     * legitimately wrote. Same-shaped rows batch; differently-shaped ones get
+     * their own statement, which is still a handful instead of one per record.
+     *
+     * @param  array<string, array<string, array<string, mixed>>>  $pending  facet => itemId => row
+     */
+    private function flushSingletonFacets(string $contentSourceId, array $pending): void
+    {
+        // ONE timestamp for the whole flush, mirroring the run-wide stamping the
+        // rest of this class uses — a row's updated_at should say "this run",
+        // not which microsecond inside it.
+        $now = now();
+
+        foreach ($pending as $facet => $rowsByItem) {
+            $buckets = [];
+            foreach ($rowsByItem as $itemId => $row) {
+                // ksort so the signature is order-independent: two records that
+                // carry the same columns in a different order belong in the same
+                // batch, not in two.
+                ksort($row);
+                $buckets[implode(',', array_keys($row))][] = $row + [
+                    'item_id' => (string) $itemId,
+                    'source_id' => $contentSourceId,
+                    'updated_at' => $now,
+                ];
+            }
+
+            foreach ($buckets as $rows) {
+                DB::table("content.{$facet}")->upsert(
+                    $rows,
+                    ['item_id', 'source_id'],
+                    array_values(array_diff(array_keys($rows[0]), ['item_id', 'source_id'])),
+                );
             }
         }
     }
 
-    /** @param array<string, mixed> $columns */
-    private function upsertSingletonFacet(string $itemId, string $contentSourceId, string $facet, array $columns): void
+    /**
+     * The storable row for one facet contribution: allowlisted columns only,
+     * URLs minimised, arrays encoded. Extracted from singletonFacetRow() by
+     * #SCALE-5 so the batching path and the single-row path cannot disagree
+     * about what a facet row IS — the allowlist and the URL denylist are
+     * security-relevant and a second copy of them is a liability.
+     *
+     * @param  array<string, mixed>  $columns
+     * @return array<string, mixed>
+     */
+    private function singletonFacetRow(string $facet, array $columns): array
     {
         $allowed = self::SINGLETON_FACETS[$facet] ?? null;
         if ($allowed === null) {
-            return;
+            return [];
         }
 
         $row = [];
@@ -1024,15 +1504,8 @@ class ProjectionWriter
                 $row[$column] = is_array($value) ? json_encode($value) : $value;
             }
         }
-        if ($row === []) {
-            return;
-        }
 
-        DB::table("content.{$facet}")->upsert(
-            [$row + ['item_id' => $itemId, 'source_id' => $contentSourceId, 'updated_at' => now()]],
-            ['item_id', 'source_id'],
-            array_merge(array_keys($row), ['updated_at']),
-        );
+        return $row;
     }
 
     /**
@@ -1588,6 +2061,12 @@ class ProjectionWriter
                 'attribution' => isset($entry['attribution']) && is_array($entry['attribution']) && $entry['attribution'] !== []
                     ? json_encode($entry['attribution'])
                     : null,
+                // Owned-ness has to be recorded HERE because this is the last
+                // place it is knowable: the fingerprint stored beside it is
+                // 'url-'||sha1(ref), and sha1 does not run backwards. Without
+                // it "no bytes" cannot be told apart from "no bytes, correctly"
+                // — which made the R8 tail query over-report ~10x on dev.
+                'mirror_eligible' => MediaMirror::isOwnedEntry($entry),
                 'created_at' => now(),
             ];
         }
@@ -1627,7 +2106,23 @@ class ProjectionWriter
         // 32 unmirrored assets and one warning line to explain them.
         $skipped = [];
         $candidates = [];
+        $ownedAssetIds = [];
+        $borrowedAssetIds = [];
         foreach ($entryByFingerprint as $fingerprint => [$entry, $_minimisedUrl]) {
+            $assetId = $assetIdByFingerprint[$fingerprint] ?? null;
+            $owned = MediaMirror::isOwnedEntry($entry);
+            // Collected for BOTH classes, before any of the skips below, so a
+            // borrowed row minted before mirror_eligible existed still gets its
+            // false — otherwise the column would only ever heal one way and the
+            // NULLs that remained would be indistinguishable from unknowns.
+            if ($assetId !== null) {
+                if ($owned) {
+                    $ownedAssetIds[] = (string) $assetId;
+                } else {
+                    $borrowedAssetIds[] = (string) $assetId;
+                }
+            }
+
             $rawUrl = $entry['url'] ?? null;
             if (! is_string($rawUrl) || $rawUrl === '') {
                 $skipped['no_url'] = ($skipped['no_url'] ?? 0) + 1;
@@ -1637,12 +2132,11 @@ class ProjectionWriter
             // Borrowed media (a Google Places photo) is CORRECT to skip — the
             // licence forbids storing it. Counted so "correctly skipped" and
             // "wrongly dropped" stop looking the same from outside.
-            if (! MediaMirror::isOwnedEntry($entry)) {
+            if (! $owned) {
                 $skipped['not_owned'] = ($skipped['not_owned'] ?? 0) + 1;
 
                 continue;
             }
-            $assetId = $assetIdByFingerprint[$fingerprint] ?? null;
             if ($assetId === null) {
                 $skipped['unresolved_asset'] = ($skipped['unresolved_asset'] ?? 0) + 1;
 
@@ -1650,6 +2144,8 @@ class ProjectionWriter
             }
             $candidates[(string) $assetId] = $rawUrl;
         }
+
+        $this->healMirrorEligible($ownedAssetIds, $borrowedAssetIds, $chunk);
 
         $dispatched = 0;
         $max = MediaMirror::maxAttempts();
@@ -1710,6 +2206,29 @@ class ProjectionWriter
             'dispatched' => $dispatched,
             'skipped' => $skipped,
         ]);
+    }
+
+    /**
+     * Re-derive mirror_eligible for rows that predate the column (20260819004000).
+     *
+     * `WHERE mirror_eligible IS NULL` is what makes this a one-time repair per
+     * row rather than an UPDATE of every asset on every projection pass — and
+     * it also means a value already written at mint is never second-guessed
+     * here, where the entry is the only evidence available.
+     *
+     * @param  list<string>  $ownedAssetIds
+     * @param  list<string>  $borrowedAssetIds
+     */
+    private function healMirrorEligible(array $ownedAssetIds, array $borrowedAssetIds, int $chunk): void
+    {
+        foreach ([[true, $ownedAssetIds], [false, $borrowedAssetIds]] as [$eligible, $ids]) {
+            foreach (array_chunk($ids, $chunk) as $batch) {
+                DB::table('content.media_assets')
+                    ->whereIn('id', $batch)
+                    ->whereNull('mirror_eligible')
+                    ->update(['mirror_eligible' => $eligible]);
+            }
+        }
     }
 
     /**

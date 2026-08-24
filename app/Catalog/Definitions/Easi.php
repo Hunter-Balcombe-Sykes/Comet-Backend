@@ -29,6 +29,7 @@ class Easi
     {
         return [
             SurfaceBuilder::for('easi.order')
+                ->legacyPlatform('easi')
                 ->displayName('EASI')
                 ->routing(RoutingClass::Ordering)
                 ->shelf(Shelf::Food)

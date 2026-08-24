@@ -2,6 +2,7 @@
 
 namespace App\Services\Brand;
 
+use App\Jobs\Platforms\ShopInitialFillJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Routing\IriCanonicalizer;
@@ -17,6 +18,7 @@ use App\Services\Platforms\UrlParamExtractor;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
 use App\Services\Shop\StoreRecord;
+use App\Site\Pools\AutoSyncSetting;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
@@ -162,21 +164,44 @@ class StoreBrandSeeder
 
         $store = $this->upsertBrand($user, $stores, $probe, $iri->canonical ?? $url);
 
+        $connection = IntegrationConnection::query()->find($applied['connection_id']);
+
         // The connection the reconciler wrote carries only {url, source}; the
         // store's name lives on the brand row. Stamp it onto the payload so
         // the Platforms table / connect summary read "Beardbrand", not the
         // brand key or the URL (ConnectionDisplayName reads payload.name;
         // 2026-08-18, probed stores offered from a paste).
-        if ($store->name !== null && $store->name !== '') {
-            $connection = IntegrationConnection::query()->find($applied['connection_id']);
-            if ($connection !== null && (($connection->payload['name'] ?? null) !== $store->name)) {
-                $connection->forceFill(['payload' => [...($connection->payload ?? []), 'name' => $store->name]])->saveQuietly();
+        if ($store->name !== null && $store->name !== '' && $connection !== null
+            && (($connection->payload['name'] ?? null) !== $store->name)) {
+            $connection->forceFill(['payload' => [...($connection->payload ?? []), 'name' => $store->name]])->saveQuietly();
+        }
+
+        // L-5 (owner run 2026-08-20): dedicated connects mint with
+        // auto_sync_latest OFF (ShopConnections::anchor()); this lane mints
+        // through SourceReconciler, which leaves the key absent — and absent
+        // means ON, so a suggestion-accepted store silently auto-published its
+        // newest product while a dedicated connect didn't. Same write, same
+        // once-only guard as anchor(): never over an owner's later choice.
+        if ($isNewBrand && $connection !== null) {
+            $settings = (array) ($connection->display_settings ?? []);
+            if (! array_key_exists(AutoSyncSetting::KEY, $settings)) {
+                $connection->display_settings = $settings + [AutoSyncSetting::KEY => false];
+                $connection->save();
             }
         }
 
         // §12: the store's logo becomes an owned, sanitised asset rather than a
         // hotlink to a CDN URL that can rot or be swapped under us.
         $this->assets->queueStoreLogo($user, $applied['connection_id'], $store);
+
+        // L-4 (owner run 2026-08-20): this lane never reaches
+        // ShopBrandConnectJob — its settle() is compare-and-set on
+        // connect_status='pending' and seeder stores mint settled — so nothing
+        // filled the catalogue until the 6-hourly ShopFetch. First connect
+        // only: a re-scan of an already-connected store asked no fill question.
+        if ($isNewBrand && $store->collectionId !== null) {
+            ShopInitialFillJob::dispatch($store->collectionId);
+        }
 
         return [
             'outcome' => 'placed',
@@ -246,8 +271,10 @@ class StoreBrandSeeder
             logoMarkSvgUrl: $existing?->logoMarkSvgUrl,
         );
 
-        $this->content->upsertStore($store, (string) $user->id);
+        $collectionId = $this->content->upsertStore($store, (string) $user->id);
 
-        return $store;
+        // Carried back so seed() can dispatch the collection-keyed fill job
+        // without a second collectionIdFor() lookup.
+        return $store->with(['collectionId' => $collectionId]);
     }
 }

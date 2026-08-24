@@ -263,7 +263,7 @@ return [
     | the Add button greys out at the limit; backend enforces it on
     | StoreLinkBlockRequest as defence-in-depth.
     */
-    'platform_links_max' => 7,
+    'platform_links_max' => 15,
     'platform_links_categories' => ['social', 'content', 'events', 'streaming'],
 
     // Platforms that support automatic live status detection via the polling job.
@@ -274,7 +274,7 @@ return [
     'streaming' => [
         // Hard cap on blocks with live_check_enabled=true per site — prevents a single
         // user from monopolizing the polling budget. Enforced in UpdateLinkBlockRequest.
-        'max_live_check_per_site' => (int) env('PARTNA_STREAMING_MAX_LIVE_CHECK_PER_SITE', env('SIDEST_STREAMING_MAX_LIVE_CHECK_PER_SITE', 5)),
+        'max_live_check_per_site' => (int) env('PARTNA_STREAMING_MAX_LIVE_CHECK_PER_SITE', env('SIDEST_STREAMING_MAX_LIVE_CHECK_PER_SITE', 10)),
 
         // Cold-handle demotion TTLs (seconds). Handles offline for N consecutive reads
         // get a longer TTL, skipping most API budget on rarely-live handles.
@@ -296,11 +296,14 @@ return [
             'instagram' => [
                 // A fetched profile is reused across the connect scrape and the eager
                 // ingest run for this long (task #18, 2026-08-18) — one Apify run per connect.
+                // Read at this FULL path: `partna.instagram.*` is a different block (actor
+                // ids), so a lookup there resolves and silently returns the hardcoded
+                // fallback instead — which is how this knob sat inert until 2026-08-19.
                 'profile_reuse_seconds' => (int) env('PARTNA_INSTAGRAM_PROFILE_REUSE_SECONDS', 900),
-                // Per-user re-scrape cooldown (seconds) and the global daily run cap
-                // for the paid Apify scraper. See InstagramController::guardApifyBudget.
-                'apify_cooldown_seconds' => (int) env('PARTNA_INSTAGRAM_APIFY_COOLDOWN_SECONDS', 600),
-                'apify_daily_cap' => (int) env('PARTNA_INSTAGRAM_APIFY_DAILY_CAP', 200),
+                // No per-user cooldown and no per-integration daily cap belong here: the
+                // only paid-scrape ceiling is ApifyBudget's per-actor + global caps under
+                // `limits.apify`, claimed by InstagramActorDriver and consulted by
+                // InstagramController::guardApifyBudget. Do not re-add a key nothing reads.
             ],
         ],
 
@@ -310,19 +313,19 @@ return [
         // can't exhaust the account and starve the others. Also carries the shared
         // run-sync HTTP timeout (CFG-9).
         'apify' => [
-            'global_daily_cap' => (int) env('PARTNA_APIFY_GLOBAL_DAILY_CAP', 1000),
+            'global_daily_cap' => (int) env('PARTNA_APIFY_GLOBAL_DAILY_CAP', 3000),
             'actors' => [
                 // Instagram reuses its existing tuned env var (behaviour preserved).
-                'instagram' => (int) env('PARTNA_INSTAGRAM_APIFY_DAILY_CAP', 200),
-                'menu' => (int) env('PARTNA_MENU_APIFY_DAILY_CAP', 300),
-                'google-business' => (int) env('PARTNA_GB_APIFY_DAILY_CAP', 300),
+                'instagram' => (int) env('PARTNA_INSTAGRAM_APIFY_DAILY_CAP', 600),
+                'menu' => (int) env('PARTNA_MENU_APIFY_DAILY_CAP', 900),
+                'google-business' => (int) env('PARTNA_GB_APIFY_DAILY_CAP', 900),
                 // Convergence Phase 4. These MUST exist: tryClaim() defaults an
                 // unregistered actor's cap to 0, which denies every claim, so a
                 // missing entry here reads as "the connector lands nothing"
                 // rather than as a configuration error.
-                'music-spotify' => (int) env('PARTNA_SPOTIFY_APIFY_DAILY_CAP', 50),
-                'music-soundcloud' => (int) env('PARTNA_SOUNDCLOUD_APIFY_DAILY_CAP', 50),
-                'music-spotify_releases' => (int) env('PARTNA_SPOTIFY_RELEASES_APIFY_DAILY_CAP', 50),
+                'music-spotify' => (int) env('PARTNA_SPOTIFY_APIFY_DAILY_CAP', 150),
+                'music-soundcloud' => (int) env('PARTNA_SOUNDCLOUD_APIFY_DAILY_CAP', 150),
+                'music-spotify_releases' => (int) env('PARTNA_SPOTIFY_RELEASES_APIFY_DAILY_CAP', 150),
             ],
 
             // CFG-9: HTTP client timeout for Apify run-sync-get-dataset-items calls, which block
@@ -337,7 +340,7 @@ return [
             // — InstagramConnectJob 300 (raised from 150 on 2026-08-11 for exactly this) and
             // GeneratePreAccountSiteJob 300. Both bounds pinned by HorizonQueueCoverageTest,
             // which fails if a raise here outruns either job.
-            'run_sync_timeout_seconds' => (int) env('PARTNA_APIFY_RUN_SYNC_TIMEOUT_SECONDS', 110),
+            'run_sync_timeout_seconds' => (int) env('PARTNA_APIFY_RUN_SYNC_TIMEOUT_SECONDS', 125),
         ],
 
         // AI menu-structuring spend (Mistral OCR + DeepSeek structuring, via
@@ -347,10 +350,10 @@ return [
         // spend previously had NO budget ceiling at all across its three callers
         // (WebsiteMenuPdfScanJob, GoogleMenuPhotoScanJob, WebsiteMenuHtmlScanJob).
         'ai_spend' => [
-            'global_daily_cap' => (int) env('PARTNA_AI_SPEND_GLOBAL_DAILY_CAP', 500),
+            'global_daily_cap' => (int) env('PARTNA_AI_SPEND_GLOBAL_DAILY_CAP', 1500),
             'actors' => [
-                'mistral_ocr' => (int) env('PARTNA_MISTRAL_OCR_DAILY_CAP', 300),
-                'deepseek_structure' => (int) env('PARTNA_DEEPSEEK_STRUCTURE_DAILY_CAP', 300),
+                'mistral_ocr' => (int) env('PARTNA_MISTRAL_OCR_DAILY_CAP', 900),
+                'deepseek_structure' => (int) env('PARTNA_DEEPSEEK_STRUCTURE_DAILY_CAP', 900),
             ],
         ],
 
@@ -362,11 +365,11 @@ return [
         //   - global daily cap    (binds first on a mixed storm)
         //   - per-USER daily cap  (improves on apify/ai_spend: one account cannot drain the platform)
         'places' => [
-            'global_daily_cap' => (int) env('PARTNA_PLACES_GLOBAL_DAILY_CAP', 500),
-            'per_user_daily_cap' => (int) env('PARTNA_PLACES_USER_DAILY_CAP', 60),
+            'global_daily_cap' => (int) env('PARTNA_PLACES_GLOBAL_DAILY_CAP', 1500),
+            'per_user_daily_cap' => (int) env('PARTNA_PLACES_USER_DAILY_CAP', 180),
             'skus' => [
-                'details' => (int) env('PARTNA_PLACES_DETAILS_DAILY_CAP', 200),
-                'photos' => (int) env('PARTNA_PLACES_PHOTOS_DAILY_CAP', 400),
+                'details' => (int) env('PARTNA_PLACES_DETAILS_DAILY_CAP', 600),
+                'photos' => (int) env('PARTNA_PLACES_PHOTOS_DAILY_CAP', 1200),
             ],
 
             // CFG-8: Place Details retry policy. NOTE — attempts MULTIPLY billed spend: every
@@ -895,6 +898,25 @@ return [
     // per-connection override is a later slice.
     'pools' => [
         'auto_latest_n' => (int) env('PARTNA_POOL_AUTO_LATEST_N', 5),
+
+        // Per-family smart-score weights (smart ordering v2, 2026-08-23 —
+        // App\Services\Analytics\ItemFamily::weightsFor). click/view/dwell
+        // weight the decayed day-bucket sums (90-day half-life); fresh is the
+        // additive cold-start boost from publishedAt ?? firstSeenAt decaying
+        // at half_life_days. `default` = today's 3/1/0/0 for any unnamed
+        // family. dwell is per SECOND and only media carries it (the gallery
+        // page's section dwell split equally across the served media items —
+        // an approximation until item-grain dwell exists).
+        'smart' => [
+            'default' => ['click' => 3.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 0.0, 'half_life_days' => 14.0],
+            'shop_product' => ['click' => 3.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 2.0, 'half_life_days' => 14.0],
+            'watch_item' => ['click' => 2.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 3.0, 'half_life_days' => 14.0],
+            'listen_item' => ['click' => 2.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 4.0, 'half_life_days' => 21.0],
+            'service' => ['click' => 3.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 1.0, 'half_life_days' => 30.0],
+            'menu_item' => ['click' => 1.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 0.5, 'half_life_days' => 60.0],
+            'gallery_item' => ['click' => 0.5, 'view' => 1.0, 'dwell' => 0.05, 'fresh' => 5.0, 'half_life_days' => 7.0],
+            'link_item' => ['click' => 3.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 3.0, 'half_life_days' => 14.0],
+        ],
     ],
 
     // Paid ingest connectors the scheduler may run (ruling R8). Everything
@@ -978,44 +1000,35 @@ return [
         'actor_attempt_timeout_seconds' => (int) env('PARTNA_MENU_ACTOR_ATTEMPT_TIMEOUT_SECONDS', 60),
     ],
 
-    // Unified actions system (2026-07-23 rebuild — fixed 26-action vocabulary,
-    // demand-rate scoring). See App\Services\PublicSite\Actions\ActionVocabulary
-    // + App\Services\Analytics\RankedActionsComputer.
+    // Unified actions (2026-08-23 rebuild — one ranked list of pages,
+    // destination platforms, served items and categories; composite smart
+    // score). See App\Site\Actions\* + App\Services\Analytics\ActionScorer.
     'actions' => [
+        // Slot count — table and lander. Owner-fixed, not a user setting.
+        'slots' => (int) env('PARTNA_ACTIONS_SLOTS', 10),
         // Bayesian smoothing constant: rate = (taps + k·prior) / (exposures + k).
         // k=25 ≈ "the first ~25 real sessions outvote the editorial prior."
         'prior_k' => (int) env('PARTNA_ACTIONS_PRIOR_K', 25),
-        'default_prior' => 0.05,
-        // Plausible click-through-rate per action — the "average viewer intent"
-        // seed. Product knob; tune from real data post-launch. Family entries
-        // ('ordering', 'custom') apply to every dynamic member of that family.
+        'default_prior' => 0.03,
+        // Importance floor per action id (pages) or per kind. Also the
+        // cold-start order: a brand-new site ranks Book > Reserve > Menu >
+        // Shop > Events > Contact > platforms > categories > items, and the
+        // freshness term lifts anything new above its floor for ~2 weeks.
         'priors' => [
-            'reservations' => 0.30,
-            'booking-services' => 0.28,
-            'menu' => 0.28,
-            'ordering' => 0.25,
-            'shop' => 0.15,
-            'events' => 0.14,
-            'contact' => 0.12,
-            'spotify' => 0.08,
-            'soundcloud' => 0.08,
-            'apple-music' => 0.08,
-            'apple-podcasts' => 0.08,
-            'twitch' => 0.08,
-            'shop-tracks' => 0.08,
-            'instagram' => 0.05,
-            'facebook' => 0.05,
-            'linkedin' => 0.05,
-            'youtube' => 0.05,
-            'tiktok' => 0.05,
-            'x' => 0.05,
-            'snapchat' => 0.05,
-            'threads' => 0.05,
-            'discord' => 0.05,
-            'reddit' => 0.05,
-            'telegram' => 0.05,
-            'custom' => 0.05,
+            'page:reservations' => 0.30,
+            'page:services' => 0.28,
+            'page:menu' => 0.28,
+            'page:shop' => 0.15,
+            'page:events' => 0.14,
+            'page:contact' => 0.12,
+            'platform' => 0.05,
+            'category' => 0.04,
+            'item' => 0.03,
         ],
+        // Composite weights — each term is normalised 0..1 within the site
+        // before weighting, so a page and a song compare on one scale.
+        'weights' => ['demand' => 0.45, 'reach' => 0.30, 'fresh' => 0.25],
+        'freshness_half_life_days' => 14.0,
     ],
 
     // `contact` = visitor-submitted contact form (notification_email lives here).
@@ -1159,6 +1172,24 @@ return [
             // successful run never pages at all.
             'critical_alert_after_minutes' => (int) env('PARTNA_INGEST_ANOMALY_ALERT_AFTER_MINUTES', 120),
         ],
+    ],
+
+    // #PGR-8/9/10 batching tunables for one-off backfill/prune commands.
+    // Overridable so tests can shrink these to make chunk-boundary cases
+    // cheap to seed (see IngestProjectChunkingTest for the pattern).
+    'content' => [
+        // BackfillContentItemSlugs: chunkById() page size for the
+        // content.items walk.
+        'slug_backfill_chunk' => (int) env('PARTNA_CONTENT_SLUG_BACKFILL_CHUNK', 500),
+    ],
+
+    'media' => [
+        // BackfillMediaPaletteCommand: chunkById() page size for the
+        // palette-backfill walk.
+        'palette_backfill_chunk' => (int) env('PARTNA_MEDIA_PALETTE_BACKFILL_CHUNK', 200),
+
+        // BorrowedAssetPruner: take size for each doomed-set delete batch.
+        'borrowed_prune_chunk' => (int) env('PARTNA_MEDIA_BORROWED_PRUNE_CHUNK', 500),
     ],
 
     // Pre-Account Sites (site-first signup + staff marketing builds).
@@ -1616,24 +1647,24 @@ return [
         // Per-request HTTP client timeout (seconds). NOTE: this is a per-hop
         // ceiling only — FetchBudget::open() (connect_budget_seconds below) is
         // what bounds the whole multi-hop/multi-retry operation.
-        'timeout_seconds' => (int) env('PARTNA_HTTP_FETCH_TIMEOUT_SECONDS', 8),
+        'timeout_seconds' => (int) env('PARTNA_HTTP_FETCH_TIMEOUT_SECONDS', 15),
         // Max redirect hops followed; each hop is re-validated for SSRF before
         // being followed (SafeUrlFetcher::fetch() / fetchMany()).
-        'max_redirects' => (int) env('PARTNA_HTTP_FETCH_MAX_REDIRECTS', 5),
+        'max_redirects' => (int) env('PARTNA_HTTP_FETCH_MAX_REDIRECTS', 8),
         // Hard cap on a fetched terminal response body (bytes). A response whose
         // declared Content-Length OR actual body exceeds this is rejected —
         // fetch() throws SafeUrlException, fetchMany() drops it to null — so a
         // hostile/oversized URL can't feed a multi-hundred-MB body into the
         // link-preview and menu/shop scrapers. 10 MB is generous for the HTML /
         // JSON those parse.
-        'max_bytes' => (int) env('PARTNA_HTTP_FETCH_MAX_BYTES', 10 * 1024 * 1024),
+        'max_bytes' => (int) env('PARTNA_HTTP_FETCH_MAX_BYTES', 25 * 1024 * 1024),
         // TCP connect-phase timeout (seconds) — separate from the read timeout
         // above. A SYN-blackholed host would otherwise ride Guzzle's default
         // connect budget on top of timeout_seconds; this caps that leg
         // explicitly. Applied globally to every SafeUrlFetcher call site
         // (menu/shop/events/link-card scrapers included) AND to
         // YoutubeThumbnailResolver's raw pool, not just connect.
-        'connect_timeout_seconds' => (int) env('PARTNA_HTTP_CONNECT_TIMEOUT_SECONDS', 3),
+        'connect_timeout_seconds' => (int) env('PARTNA_HTTP_CONNECT_TIMEOUT_SECONDS', 6),
         // Own-infrastructure host suffixes SafeUrlFetcher::assertSafe() refuses
         // outright (exact host or any subdomain). Everything here resolves to
         // PUBLIC IPs, so the private/reserved address check never catches them —
@@ -1655,7 +1686,15 @@ return [
         // including ones that bypass SafeUrlFetcher for good reason (see
         // FetchBudget's docblock). Opt-in per call site: callers that never open
         // a budget — the overwhelming majority — are unaffected.
-        'connect_budget_seconds' => (int) env('PARTNA_CONNECT_BUDGET_SECONDS', 20),
+        'connect_budget_seconds' => (int) env('PARTNA_CONNECT_BUDGET_SECONDS', 45),
+
+        // Wall-clock budget for ONE /routing/preview call (FI-3, 2026-08-20).
+        // Tighter than connect_budget_seconds on purpose: the preview fires on
+        // every keystroke pause and its only I/O is the short-link expander's
+        // capped fetch — a miss degrades to the unexpanded answer, and the
+        // paste's route() re-tries under the full connect budget (cached, so
+        // usually free).
+        'preview_budget_seconds' => (int) env('PARTNA_PREVIEW_BUDGET_SECONDS', 8),
 
         // Wall-clock budget (seconds) for one PlatformRefresher::refresh() call —
         // the cron/manual-refresh mirror of connect_budget_seconds above. Must stay
@@ -1665,7 +1704,7 @@ return [
         // projector sync() upserts, the model write + observer purge, the health
         // notifier. If the budget ever meets/exceeds 120s the job's SIGKILL wins
         // and the budget is moot — see RefreshBudgetInvariantTest.
-        'refresh_budget_seconds' => (int) env('PARTNA_REFRESH_BUDGET_SECONDS', 90),
+        'refresh_budget_seconds' => (int) env('PARTNA_REFRESH_BUDGET_SECONDS', 100),
 
         // CFG-2: browser-ish UA — some providers 403 obvious bots / empty UAs.
         // Was a SafeUrlFetcher class constant; kept as a plain literal default
@@ -1786,6 +1825,12 @@ return [
         'cache_warm' => env('PARTNA_QUEUE_CACHE_WARM', 'cache-warm'),
         // Image variant processing (ProcessImageVariantsJob).
         'images' => env('PARTNA_QUEUE_IMAGES', 'images'),
+        // Owned-media byte mirroring (MirrorMediaAssetJob). Split off 'images'
+        // 2026-08-18: a build wave's ~300 background mirrors were queued in front
+        // of uploads a user was actively waiting on, and one queue name cannot
+        // express two urgencies. Ranked directly BELOW 'images' and above
+        // 'analytics' in supervisor-1 (config/horizon.php) — see the note there.
+        'media_mirror' => env('PARTNA_QUEUE_MEDIA_MIRROR', 'media-mirror'),
         // Streaming live-status polling (CheckStreamingLiveStatusJob).
         'streaming' => env('PARTNA_QUEUE_STREAMING', 'streaming'),
         // Platform scraping jobs (InstagramConnectJob etc).
@@ -1946,19 +1991,19 @@ return [
             // i.ytimg.com maxresdefault HEAD probes (YoutubeThumbnailResolver). Cheap
             // HEADs, so a generous cap; bounds the batch when many videos miss cache.
             'youtube_thumbnails' => [
-                'pool_concurrency' => (int) env('PARTNA_REFRESH_YTIMG_POOL', 10),
+                'pool_concurrency' => (int) env('PARTNA_REFRESH_YTIMG_POOL', 20),
                 // 'hq' verdicts re-probe on this cadence (maxres may appear post-upload);
                 // 'maxres' verdicts keep the long CACHE_DAYS TTL (never regresses). 6h default.
                 'hq_recheck_ttl_seconds' => (int) env('PARTNA_REFRESH_YTIMG_HQ_RECHECK_TTL', 21600),
             ],
             // Google Places media — BILLED per call. Keep the concurrent burst tight.
             'google_places' => [
-                'pool_concurrency' => (int) env('PARTNA_REFRESH_PLACES_POOL', 5),
+                'pool_concurrency' => (int) env('PARTNA_REFRESH_PLACES_POOL', 8),
             ],
             // Shared SafeUrlFetcher::fetchMany pool (Eventbrite/Humanitix HTML scrapes;
             // WAF-ban risk in aggregate). Caps every fetchMany caller globally.
             'fetch_many' => [
-                'pool_concurrency' => (int) env('PARTNA_REFRESH_FETCH_MANY_POOL', 6),
+                'pool_concurrency' => (int) env('PARTNA_REFRESH_FETCH_MANY_POOL', 12),
             ],
         ],
 
@@ -2005,15 +2050,29 @@ return [
         'prune_batch_size' => (int) env('PARTNA_SITE_DOCUMENT_PRUNE_BATCH_SIZE', 500),
     ],
 
+    'catalog' => [
+        // How long the detector kill-switch set is memoised. Short on purpose:
+        // this is also the worst-case delay before a suspension that missed
+        // its invalidation stops applying, and the read it saves is one
+        // primary-key scan of a table that holds a handful of rows.
+        'suspension_cache_ttl_seconds' => (int) env('PARTNA_CATALOG_SUSPENSION_CACHE_TTL_SECONDS', 60),
+
+        // Ceiling on the masked path shape recorded in catalog.unmatched_domains.
+        // The shape is for triage ("is this a profile URL or a product URL?"),
+        // so a handful of segments is all it needs to be useful — and a bound
+        // is what stops a pathological URL becoming the row.
+        'unmatched_path_shape_segments' => (int) env('PARTNA_CATALOG_UNMATCHED_PATH_SHAPE_SEGMENTS', 4),
+    ],
+
     'routing' => [
         'probe' => [
             // Probes one worker run may spend. Deliberately small: a page with
             // 200 links should not be 200 outbound requests.
-            'per_run_cap' => (int) env('PARTNA_ROUTING_PROBE_PER_RUN_CAP', 6),
-            'user_daily_cap' => (int) env('PARTNA_ROUTING_PROBE_USER_DAILY_CAP', 40),
-            'global_daily_cap' => (int) env('PARTNA_ROUTING_PROBE_GLOBAL_DAILY_CAP', 2000),
+            'per_run_cap' => (int) env('PARTNA_ROUTING_PROBE_PER_RUN_CAP', 12),
+            'user_daily_cap' => (int) env('PARTNA_ROUTING_PROBE_USER_DAILY_CAP', 120),
+            'global_daily_cap' => (int) env('PARTNA_ROUTING_PROBE_GLOBAL_DAILY_CAP', 6000),
             // Wall-clock ceiling for the WHOLE probe cascade, not per probe.
-            'budget_seconds' => (int) env('PARTNA_ROUTING_PROBE_BUDGET_SECONDS', 15),
+            'budget_seconds' => (int) env('PARTNA_ROUTING_PROBE_BUDGET_SECONDS', 30),
             // How long a URL keeps its answer, hit or miss. A miss that isn't
             // cached is a URL re-probed on every scan of the same page.
             'cooldown_minutes' => (int) env('PARTNA_ROUTING_PROBE_COOLDOWN_MINUTES', 720),
@@ -2386,6 +2445,15 @@ return [
         // GET responses. Drives both max-age and s-maxage on the Cache-Control header.
         'public_max_age' => (int) env('PARTNA_CACHE_PUBLIC_MAX_AGE', 900), // 15 min
 
+        // The sitepage wire (`api/public/profiles/*`) takes its OWN short TTL
+        // (owner plan, 2026-08-19): the router's HTML cache is purged the moment
+        // an edit lands and the next render reads this endpoint through Laravel
+        // Cloud's edge (outside our purge reach) — a long s-maxage there re-pins
+        // pre-edit data under the router's 24 h key. 5 s bounds that window; the
+        // backend's 60 s in-process payload cache keyed on updated_at keeps the
+        // origin cheap. No SWR on this prefix.
+        'public_profile_max_age' => (int) env('PARTNA_CACHE_PUBLIC_PROFILE_MAX_AGE', 5),
+
         // CFG-3: seconds an expired edge entry may be served stale while the CDN
         // refreshes it in the background. 0 (the default) omits the directive
         // entirely, so this ships inert and is enabled per environment via env var.
@@ -2399,28 +2467,25 @@ return [
         // on 2026-08-10 — that was the tester's own network path.
         'public_swr' => (int) env('PARTNA_CACHE_PUBLIC_SWR', 0),
 
-        // CFG-3 (public-surface audit): Cache-Control max-age for the alias→
-        // canonical 301 redirects in PublicSiteController::show()/showByHeader().
-        // An un-timed 301 is cached heuristically (often "forever") by several
-        // browsers, which can strand a returning visitor on a since-renamed or
-        // later-reclaimed subdomain — this bounds the redirect to a re-check window.
-        'alias_redirect_max_age' => (int) env('PARTNA_CACHE_ALIAS_REDIRECT_MAX_AGE', 300), // 5 min
+        // CFG-3/PGR-17 (public-surface audit): the alias→canonical 301 redirects
+        // in PublicSiteController::show()/showByHeader() used to carry a 5-minute
+        // Cache-Control max-age here (CFG-3, replacing browsers' "cache an un-timed
+        // 301 forever" default). PGR-17 tightened that to a hardcoded
+        // `private, max-age=0, must-revalidate` — a rapid handle reclaim could
+        // otherwise misdirect a visitor for up to the old TTL — so there is no
+        // longer a configurable window; this key was removed rather than left
+        // silently unread.
 
         // Absolute offsets, in seconds FROM THE PRIMARY PURGE, at which follow-up
         // purges land. Not per-hop delays: the primary dispatches all of them
-        // up-front, each with its own delay and depth. Each must clear the sum of
-        // the payload staleness windows (Laravel Cloud edge s-maxage + the Worker
-        // subrequest cacheTtl) for a visitor who raced the primary purge; the
-        // later entries exist for a degraded-Cloudflare window where the earlier
-        // ones fail. Every entry MUST exceed CloudflareCachePurgeJob's follow-up
-        // $uniqueFor (30) or a follow-up would coalesce into its own predecessor.
-        'purge_followup_schedule' => [120, 300, 900],
-
-        // cache-edge-reconcile/LIFE-1 residual: purgeHandle() enumerated URL count
-        // above which CloudflarePurgeService logs a warning — makes a catalog
-        // (shop/menu/events) approaching the practical purge ceiling (chunking +
-        // job timeout budget) visible before it starts failing outright.
-        'purge_url_volume_warning_threshold' => (int) env('PARTNA_CACHE_PURGE_URL_VOLUME_WARNING_THRESHOLD', 900),
+        // up-front, each with its own delay and depth. One entry since the
+        // 2026-08-19 prefix-purge rewrite (was 120/300/900): it clears the
+        // profile wire's 5 s s-maxage window (public_profile_max_age) for a
+        // visitor who raced the primary purge and could have re-pinned a stale
+        // render under the router's 24h TTL. Every entry MUST exceed
+        // CloudflareCachePurgeJob's follow-up $uniqueFor (5) or a follow-up
+        // would coalesce into its own predecessor.
+        'purge_followup_schedule' => [15],
 
         // R3-CACHE-1: ops lever for ReconcilePlatformTakedownJob's purge fan-out.
         // 0 (default) = off — the cloudflare_bulk lane's strict-priority
@@ -2470,21 +2535,6 @@ return [
             // QrCodeController's SVG response. Value unchanged.
             'qr_code_svg' => (int) env('PARTNA_CACHE_TTL_QR_CODE_SVG', 86400), // 24h
         ],
-    ],
-
-    // CFG-3: DB-query caps for CloudflarePurgeService::purgeHandle()'s enrichment
-    // lookups (product/menu-item/event detail pages). Tunable without a redeploy;
-    // raising any of these also raises purgeHandle()'s worst-case URL count — see
-    // the CHUNK_PACING_MICROSECONDS docblock in CloudflarePurgeService for the
-    // full budget derivation. array_chunk(..., 30) in purgeUrls() is NOT here —
-    // that's Cloudflare's hard API ceiling, not a tunable cap.
-    'cloudflare_purge' => [
-        'products_limit' => (int) env('PARTNA_CLOUDFLARE_PURGE_PRODUCTS_LIMIT', 100),
-        'menu_items_limit' => (int) env('PARTNA_CLOUDFLARE_PURGE_MENU_ITEMS_LIMIT', 150),
-        // Slice 7: `event_connections_limit` retired with the connection-payload
-        // lookup — events address by content item id + slug now, so the item cap
-        // below is the only knob. Each of the two lanes takes it independently.
-        'event_ids_limit' => (int) env('PARTNA_CLOUDFLARE_PURGE_EVENT_IDS_LIMIT', 100),
     ],
 
     /*

@@ -43,6 +43,15 @@ class FreshaScraper
         private readonly FetchBudget $budget,
     ) {}
 
+    /** Set by fetchLocation() when it had to follow a slug rotation; null otherwise. */
+    private ?string $lastResolvedSlug = null;
+
+    /** The slug fetchLocation() ended up on if it differed from the one asked for. */
+    public function lastResolvedSlug(): ?string
+    {
+        return $this->lastResolvedSlug;
+    }
+
     /** Drop the locale segment so we always cache the canonical /a/<slug> form. */
     public function stripLocale(string $url): string
     {
@@ -81,7 +90,54 @@ class FreshaScraper
      */
     public function slugFromUrl(string $url): ?string
     {
-        return preg_match('#/(?:a|book-now)/([a-z0-9-]+)#i', $url, $m) ? $m[1] : null;
+        // Host-anchored (an unanchored `/a/…` would match inside a foreign
+        // query string), optional locale segment (Fresha's own redirects land
+        // on `/en-GB/a/<slug>/booking?…`), same alternative as the catalog
+        // detector and SourceProvisioner::freshaSlug.
+        return preg_match('#^https?://(?:www\.)?fresha\.com/(?:[a-z]{2,3}(?:-[a-z]{2})?/)?(?:a|book-now)/([a-z0-9-]+)#i', $url, $m) ? $m[1] : null;
+    }
+
+    /**
+     * The slug Fresha CURRENTLY uses for the venue behind $url, or null when
+     * that cannot be established without guessing.
+     *
+     * Fresha rotates a venue's slug (adding the suburb + street when an
+     * address lands: `anseo-studio-v0v92jna` → `anseo-studio-melbourne-140a-
+     * chapel-street-w8ajp04r`, live 2026-08-18). The old `/a/<slug>` page
+     * answers 410 Gone; the old share URL (`/book-now/<slug>/all-offer?…`)
+     * still 307s to `/<locale>/a/<new-slug>/booking?…`. So the slug in a link
+     * is a claim about the past; the redirect target is the present. One
+     * fetch, redirects followed by SafeUrlFetcher, slug read off finalUrl.
+     *
+     * Only ever a POSITIVE answer: a fetch failure, a non-Fresha landing, or a
+     * body-less 4xx/5xx returns null and the caller keeps what it had. This
+     * must never turn a transient network blip into a slug change.
+     */
+    public function resolveCurrentSlug(string $url): ?string
+    {
+        $given = $this->slugFromUrl($url);
+        if ($given === null) {
+            return null;
+        }
+
+        // Prefer the share form for the probe when we only hold a canonical
+        // one: `/a/<old>` is exactly the page that goes 410, whereas Fresha
+        // keeps the `book-now` alias redirecting.
+        $probe = preg_match('#/book-now/#i', $url) === 1
+            ? $url
+            : 'https://www.fresha.com/book-now/'.rawurlencode($given).'/all-offer';
+
+        try {
+            $response = $this->fetcher->fetch($probe, ['User-Agent' => self::SCRAPE_USER_AGENT]);
+        } catch (Throwable) {
+            return null;
+        }
+
+        if ($response['status'] !== 200) {
+            return null;
+        }
+
+        return $this->slugFromUrl((string) $response['finalUrl']);
     }
 
     /**
@@ -102,6 +158,39 @@ class FreshaScraper
             'storeName' => $this->extractStoreName($location),
             'team' => $this->extractTeam($location),
             'services' => $this->extractServices($location),
+            'venue' => $this->extractVenue($location),
+        ];
+    }
+
+    /**
+     * The venue's identity beyond its name (owner, 2026-08-19): what a
+     * partna account's Fresha connect hands FreshaWorkplaceLinker so it can
+     * find the same place on Google — street, suburb, postcode, coordinates
+     * and phone are the corroborating details a name alone can't give.
+     * Every key optional; null when Fresha's blob has no address.
+     *
+     * @return array{name:?string, street:?string, city:?string, postcode:?string, region:?string, country:?string, lat:?float, lng:?float, phone:?string, mapsUrl:?string}|null
+     */
+    public function extractVenue(array $location): ?array
+    {
+        $address = data_get($location, 'address');
+        if (! is_array($address)) {
+            return null;
+        }
+        $str = static fn (mixed $v): ?string => is_string($v) && trim($v) !== '' ? trim($v) : null;
+        $num = static fn (mixed $v): ?float => is_numeric($v) ? (float) $v : null;
+
+        return [
+            'name' => $this->extractStoreName($location),
+            'street' => $str($address['streetAddress'] ?? null),
+            'city' => $str($address['cityName'] ?? null),
+            'postcode' => $str($address['postalCode'] ?? null),
+            'region' => $str($address['region1'] ?? null),
+            'country' => $str($address['countryCode'] ?? ($location['countryCode'] ?? null)),
+            'lat' => $num($address['latitude'] ?? null),
+            'lng' => $num($address['longitude'] ?? null),
+            'phone' => $str($location['contactNumber'] ?? null),
+            'mapsUrl' => $str($address['mapsUrl'] ?? null),
         ];
     }
 
@@ -121,6 +210,21 @@ class FreshaScraper
         // stored share URL verbatim aborts 502 or yields an empty menu
         // (→ fresha_no_services). No-op on an already-canonical URL.
         $response = $this->fetcher->fetch($this->canonicalUrl($url), ['User-Agent' => self::SCRAPE_USER_AGENT]);
+
+        // A retired slug (Fresha rotates them — see resolveCurrentSlug) makes
+        // the canonical page 404/410 while the venue is perfectly alive one
+        // redirect away. Resolve once and retry with what Fresha uses now;
+        // the caller learns the new slug via lastResolvedSlug() so it can be
+        // persisted rather than re-discovered on every read.
+        if (in_array($response['status'], [404, 410], true)) {
+            $current = $this->resolveCurrentSlug($url);
+            $given = $this->slugFromUrl($url);
+            if ($current !== null && $current !== $given) {
+                $this->lastResolvedSlug = $current;
+                Log::info('fresha.slug_rotated', ['from' => $given, 'to' => $current]);
+                $response = $this->fetcher->fetch('https://www.fresha.com/a/'.rawurlencode($current), ['User-Agent' => self::SCRAPE_USER_AGENT]);
+            }
+        }
 
         if ($response['status'] !== 200) {
             abort(502, "Fresha returned HTTP {$response['status']}");

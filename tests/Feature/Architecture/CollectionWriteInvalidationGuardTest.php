@@ -48,7 +48,8 @@
  *            on its own.
  * INGEST   — the connector projection lane. Invalidation rides the ingest run,
  *            not ManualServiceWriter.
- * MERGE    — identity merge; bumps BuildState via ItemMerger::bumpSites().
+ * MERGE    — identity merge; discharges all three cache lanes via
+ *            ItemMerger::bumpSites() -> SiteCacheLanes::bust() (#PGR-36).
  * SHOP     — the kind='storefront' lane (slices 5a/5b). Different tables of
  *            record, different purge path; ManualServiceWriter does not apply.
  * MENU     — the slice-4 menu backfill (kind='menu_category' /
@@ -98,6 +99,10 @@ const COLLECTION_WRITE_REGISTRY = [
     'ItemMerger::foldInto' => 'MERGE',
 
     'ShopContentWriter::upsertStore' => 'SHOP',
+    // READ-only on collection_items (candidate/engagement lookups); its
+    // writes go to site.section_items, and it discharges invalidation via
+    // SiteCacheLanes::bust() — same seam as ProvisionShopPinsCommand.
+    'ShopAutoSelector::selectInitial' => 'SHOP',
     'ShopContentWriter::syncStore' => 'SHOP',
     'ShopContentWriter::retireStore' => 'SHOP',
     'ShopContentWriter::retireAbsent' => 'SHOP',

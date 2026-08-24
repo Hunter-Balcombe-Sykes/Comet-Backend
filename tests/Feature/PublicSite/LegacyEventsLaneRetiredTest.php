@@ -5,7 +5,7 @@ use App\Models\Core\User\User;
 use Illuminate\Support\Str;
 
 // Replaces PublicEventSlugTest, which exercised the legacy events lane on
-// GET /api/public/profiles/{handle}/platforms — slug/aliases stamped onto
+// GET /api/public/profiles/{handle}/integrations — slug/aliases stamped onto
 // each eventbrite/humanitix/events-custom payload from site.item_slugs.
 //
 // That lane was retired in slice 2, Task 9 (2026-08-12): events reach the
@@ -56,7 +56,7 @@ it('publishes nothing for an events account row', function () {
         'is_active' => true,
     ]);
 
-    $payload = $this->getJson("/api/public/profiles/{$user->handle_lc}/platforms")
+    $payload = $this->getJson("/api/public/profiles/{$user->handle_lc}/integrations")
         ->assertOk()
         ->json('data.platforms.eventbrite.0.payload');
 
@@ -87,7 +87,7 @@ it('publishes nothing for a standalone event row', function () {
         'is_active' => true,
     ]);
 
-    $payload = $this->getJson("/api/public/profiles/{$user->handle_lc}/platforms")
+    $payload = $this->getJson("/api/public/profiles/{$user->handle_lc}/integrations")
         ->assertOk()
         ->json('data.platforms.humanitix.0.payload');
 
@@ -106,7 +106,7 @@ it('publishes nothing for a standalone eventbrite row either', function () {
         'is_active' => true,
     ]);
 
-    $payload = $this->getJson("/api/public/profiles/{$user->handle_lc}/platforms")
+    $payload = $this->getJson("/api/public/profiles/{$user->handle_lc}/integrations")
         ->assertOk()
         ->json('data.platforms.eventbrite.0.payload');
 
@@ -132,7 +132,7 @@ it('still never leaks hiddenEventIds', function () {
         'is_active' => true,
     ]);
 
-    $payload = $this->getJson("/api/public/profiles/{$user->handle_lc}/platforms")
+    $payload = $this->getJson("/api/public/profiles/{$user->handle_lc}/integrations")
         ->assertOk()
         ->json('data.platforms.eventbrite.0.payload');
 
@@ -152,7 +152,7 @@ it('keeps the connection envelope so the row shape does not change', function ()
         'is_active' => true,
     ]);
 
-    $row = $this->getJson("/api/public/profiles/{$user->handle_lc}/platforms")
+    $row = $this->getJson("/api/public/profiles/{$user->handle_lc}/integrations")
         ->assertOk()
         ->json('data.platforms.eventbrite.0');
 

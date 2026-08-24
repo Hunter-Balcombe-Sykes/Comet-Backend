@@ -55,6 +55,29 @@ class FreshaController extends ApiController
         return Platform::Fresha->value;
     }
 
+    /**
+     * Fresha is single-selection (booking XOR) but has TWO writers: this
+     * controller keys the row `resource_id = 'fresha'`, the routing lane keys
+     * it by the venue slug (`SourceReconciler::applyIntent`, link-in-bio /
+     * paste). One user, one Fresha row — so every unnamed read and write here
+     * addresses whichever row exists, and only falls back to the legacy slot
+     * when there is none. Without this /team, /selection and saveSelection
+     * 404 on a router-placed connection (gsnwilliams, 2026-08-18).
+     */
+    protected function resolveResourceId(User $user, ?string $resourceId): string
+    {
+        if ($resourceId !== null) {
+            return $resourceId;
+        }
+
+        $existing = $user->integrationConnections()
+            ->where('platform', $this->platform())
+            ->orderBy('created_at')
+            ->value('resource_id');
+
+        return is_string($existing) && $existing !== '' ? $existing : $this->defaultResourceId();
+    }
+
     // The per-user Fresha connection payload is { url, selection } — the connected
     // store URL plus the saved { storeName, employee, services } blob (or null).
     private function freshaUrl(User $user): ?string
@@ -379,6 +402,30 @@ class FreshaController extends ApiController
         // suggestion can never become a wrong saved selection on its own.
         $menu['suggestedEmployeeId'] = $this->staffMatcher->match($user, $menu['team']);
 
+        // Slug rotation (2026-08-18): the scrape only succeeded by following
+        // Fresha's redirect off a retired slug. Persist the CURRENT slug as the
+        // stored url — a NORMAL save, on purpose: the observer's payload-change
+        // path re-runs SourceProvisioner, which rotates the ingest identifier
+        // and schedules a fetch now, so the connector stops asking Fresha for
+        // a venue page that answers 410. Same pending-deletion guard as the
+        // cache write below (a GET must stay side-effect-free for those).
+        //
+        // resource_id stays on the slug the link carried (the routing identity
+        // — his bio link still says the OLD slug, and a re-scan must land on
+        // this row via ConnectionIdentity step 1). The NEW slug goes into
+        // canonical_key, the alias slot ConnectionIdentity step 2 reads, so a
+        // link carrying the current slug matches this same row instead of
+        // Holding as a conflict against itself. Fresha never wrote
+        // canonical_key before, and the unique index is per (user, platform).
+        $rotated = $this->scraper->lastResolvedSlug();
+        if ($rotated !== null && $row !== null && ! $user->isPendingDeletion()) {
+            $current = 'https://www.fresha.com/a/'.rawurlencode($rotated);
+            $row->payload = [...($row->payload ?? []), 'url' => $current];
+            $row->canonical_key = $rotated;
+            $row->save();
+            $url = $current;
+        }
+
         // Quiet, merged write. saveQuietly() because IntegrationConnectionObserver
         // ::saved() purges the Cloudflare sitepage cache on ANY payload change —
         // and this roster is private dashboard data that appears nowhere in the
@@ -468,8 +515,8 @@ class FreshaController extends ApiController
         // per-platform lock INNER — the exact structure connect()/
         // connectDeferred() above use (and FreshaConnectFetch.php:155-184 for
         // the async path). The earlier pt.2 guard re-checked existence under
-        // the 'fresha' platform key ALONE, but forget()/BookingController::
-        // clearBooking() delete under bookingXorLock — a DIFFERENT key — so the
+        // the 'fresha' platform key ALONE, but forget() deletes under
+        // bookingXorLock — a DIFFERENT key — so the
         // two never excluded each other: a forget()+Square-connect landing
         // between the re-check and the write still resurrected Fresha alongside
         // an active Square, the very at-most-one-booking-provider violation U1
@@ -568,7 +615,8 @@ class FreshaController extends ApiController
     public function selection(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
-        $payload = SelectionPayload::fromArray($this->readConnection($user) ?? []);
+        $raw = $this->readConnection($user) ?? [];
+        $payload = SelectionPayload::fromArray($raw);
 
         return $this->success([
             'selection' => $payload->selection !== null
@@ -577,6 +625,31 @@ class FreshaController extends ApiController
             // Pending (Google-seeded) connections have a url but no selection — the
             // dashboard uses it to show "Finish setup" and open the picker.
             'url' => $payload->url,
+            // A selection FreshaAutoSelector chose, not the owner — the dashboard
+            // asks them to confirm it at claim. Siblings of `selection` rather than
+            // members of it because FreshaSelectionResource renders the INNER
+            // selection array and never sees the payload these live on; and because
+            // they describe HOW the choice was made, not what it is.
+            //
+            // CONDITIONAL, not always-present: every connection that predates the
+            // auto lane, and every one the owner picked themselves, keeps this
+            // endpoint's exact existing shape. Two assertExactJson contract tests
+            // (FreshaPayloadTest, PlatformResourceContractTest) pin that shape, and
+            // widening it unconditionally would have meant editing them to match —
+            // which is what makes a contract test worthless. Absent reads falsy to
+            // the client, so `if (autoSelected)` works either way.
+            //
+            // matchTier rides in the same branch because a null tier is only
+            // meaningful ALONGSIDE the marker: it then means "storewide because
+            // nothing matched", not "no auto-selection happened".
+            //
+            // OWNER-FACING ONLY. Never add either key to
+            // PublicIntegrationConnectionResource::ALLOWLIST — `fresha` has no
+            // public allowlist entry at all today and must not gain one here.
+            ...(($raw['autoSelected'] ?? false) ? [
+                'autoSelected' => true,
+                'matchTier' => $raw['matchTier'] ?? null,
+            ] : []),
         ]);
     }
 

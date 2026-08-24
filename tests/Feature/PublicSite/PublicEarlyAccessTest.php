@@ -57,6 +57,21 @@ it('creates a waitlist row and queues the thank-you email', function () {
     Mail::assertQueued(EarlyAccessThankYouMail::class, fn ($mail) => $mail->recipientEmail === 'jess@example.test');
 });
 
+// PGR-19: was capped at 500 chars but still stored the raw string — now
+// routed through AnalyticsEventSanitizer::userAgent().
+it('stores a coarse User-Agent token, not the raw string, on the signup row', function () {
+    $chromeUa = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        .'(KHTML, like Gecko) Chrome/141.0.7390.54 Safari/537.36';
+
+    $this->withHeader('User-Agent', $chromeUa)
+        ->postJson('/api/public/early-access', ovaEarlyAccessPayload())
+        ->assertStatus(200);
+
+    $signup = EarlyAccessSignup::query()->where('email_lc', 'jess@example.test')->firstOrFail();
+
+    expect($signup->consent_user_agent)->toBe('Chrome/141');
+});
+
 it('validates type and the 2-3 platforms requirement', function () {
     $this->postJson('/api/public/early-access', ovaEarlyAccessPayload(['type' => 'individual']))
         ->assertStatus(422)

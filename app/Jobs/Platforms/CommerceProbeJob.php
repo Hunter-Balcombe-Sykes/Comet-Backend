@@ -109,7 +109,12 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
             $resolved = match ($this->category) {
                 'event' => $events->seedStandalone($user, (string) $this->platform, $this->url) !== null,
                 'event-organiser' => $events->seedAccount($user, (string) $this->platform, $this->url) !== null,
-                'shop' => $this->seedStore($brands, $user, $this->url),
+                // Same deep-page rule as the probe arm below (final critic,
+                // 2026-08-20): the classifier names 'shop' by HOST alone, so a
+                // deep path on a recognised shop host is exactly the 4barbers
+                // affiliate shape and must be a question, not an auto-connect.
+                'shop' => $this->seedStore($brands, $user, $this->url,
+                    trim((string) parse_url($this->url, PHP_URL_PATH), '/') !== ''),
                 default => $this->probe($generic, $brands, $products, $user, $canonicalizer, $observer),
             };
         } catch (Throwable $e) {
@@ -139,15 +144,82 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         $read = $generic->readProductPage($this->url);
 
         if ($read['outcome'] === GenericShopScraper::OUTCOME_PRODUCT && is_array($read['product'])) {
-            return $products->seed($user, $read['product'], self::ORIGIN);
+            $seeded = $products->seed($user, $read['product'], self::ORIGIN);
+
+            // T7 (2026-08-20): the paste lane auto-connects a product's store
+            // (ProductPageAdder → ConnectStoreFromProductJob); the scan lane
+            // seeded the product and STOPPED — a scanned Shopify product link
+            // never connected its store. Same brain now: ask the store
+            // question at the ORIGIN, through StoreBrandSeeder, whose
+            // PlacementPolicy owns the tombstone (never resurrect a
+            // disconnected store — deliberately NOT ConnectStoreFromProductJob,
+            // which carries no tombstone check and is scoped to the
+            // user-initiated paste). Best-effort: the product is already in.
+            //
+            // ALWAYS suggest-only (critic blocker, 2026-08-20): a product
+            // link is the classic "shop my friend's boutique" shout-out
+            // shape — auto-connecting its store would attribute someone
+            // else's business to the scanned account. Same principle T9b
+            // pins for media parents: from an ITEM, the parent is a
+            // QUESTION. (The paste lane keeps its auto-connect — a person
+            // pasting their own product asked for it.)
+            if ($seeded) {
+                $origin = $this->origin($this->url);
+                if ($origin !== null) {
+                    try {
+                        $brands->seed($user, $origin, self::ORIGIN, suggestOnly: true);
+                    } catch (Throwable $e) {
+                        report($e);
+                    }
+                }
+            }
+
+            return $seeded;
         }
 
+        // FI-10 (T5 live, 2026-08-20): a REACHABLE DEEP page on a store
+        // domain is shout-out shaped — an affiliate/discount page
+        // (4barbers.com.au/pages/matsui-… with "Discount Code Hayley10")
+        // auto-connected someone ELSE'S supply shop as the scanned account's
+        // store and imported its whole catalogue. Same principle as the
+        // product-page rule above: from a deep page, the store is a
+        // QUESTION. A link to the store's ROOT stays an auto-connect — a
+        // homepage in your own bio (natalieanne.com, onefour.store) is you
+        // naming your store. The UNREACHABLE arm below keeps its
+        // origin-probe auto-connect deliberately: its live case
+        // (natalieanne.com/pages/… 404ing) was the owner's own stale link,
+        // and a dead page offers no markers to judge affiliation by.
+        $deepPage = trim((string) parse_url($this->url, PHP_URL_PATH), '/') !== '';
+
         if ($read['outcome'] === GenericShopScraper::OUTCOME_STORE_PAGE && is_string($read['storeUrl'])) {
-            return $this->seedStore($brands, $user, $read['storeUrl']);
+            return $this->seedStore($brands, $user, $read['storeUrl'], $deepPage);
         }
 
         if ($read['outcome'] === GenericShopScraper::OUTCOME_NO_PRODUCT) {
-            return $this->seedStore($brands, $user, $this->url);
+            return $this->seedStore($brands, $user, $this->url, $deepPage);
+        }
+
+        // T4 (2026-08-20): an UNREACHABLE deep page still gets the store
+        // question — asked at the ORIGIN. The storefront probes hang off the
+        // origin anyway (ShopifyStorefrontProbe reads /meta.json, never the
+        // pasted path), and the live failure was a stale bio link:
+        // natalieanne.com/pages/natalie-anne-education 404s for every UA, the
+        // ONE probe that host would ever get was spent on it, and the
+        // homepage that identifies Shopify instantly was never asked. The
+        // origin (not the dead deep URL) becomes the brand's sourceUrl so
+        // re-fetches read a page that exists. On a MISS the deep URL's own
+        // probe_unreachable note below still writes (R6 unchanged); on a
+        // PLACE the trace is the seeder's own rows keyed to the ORIGIN —
+        // the deep URL's story is then the custom-link card handle() skips
+        // (resolved=true) plus the seeder's intent ledger. Budget note: this
+        // fallback spends a real ProbeBudget slot per dead link — accepted
+        // (owner, 2026-08-20: waste beats missing a store) with T9 raising
+        // the daily caps in step.
+        if ($read['outcome'] === GenericShopScraper::OUTCOME_UNREACHABLE) {
+            $origin = $this->origin($this->url);
+            if ($origin !== null && $this->seedStore($brands, $user, $origin)) {
+                return true;
+            }
         }
 
         // Nothing resolved — the page could not be fetched, or came back in a
@@ -173,9 +245,25 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         return false;
     }
 
-    private function seedStore(StoreBrandSeeder $brands, User $user, string $url): bool
+    private function seedStore(StoreBrandSeeder $brands, User $user, string $url, bool $deepPage = false): bool
     {
-        return $brands->seed($user, $url, self::ORIGIN, suggestOnly: $this->suggestOnly)['outcome'] === 'placed';
+        $result = $brands->seed($user, $url, self::ORIGIN, suggestOnly: $this->suggestOnly || $deepPage);
+
+        // A suggest-only seed that filed its question is a RESOLUTION —
+        // handle() must not also card the link (the suggestion carries it).
+        return $result['outcome'] === 'placed'
+            || (($this->suggestOnly || $deepPage) && $result['outcome'] === 'not_placed' && $result['verdict'] !== null);
+    }
+
+    /** scheme://host of the probed URL, or null when it has neither. */
+    private function origin(string $url): ?string
+    {
+        $scheme = parse_url($url, PHP_URL_SCHEME);
+        $host = parse_url($url, PHP_URL_HOST);
+
+        return is_string($scheme) && is_string($host) && $host !== ''
+            ? strtolower($scheme).'://'.strtolower($host).'/'
+            : null;
     }
 
     public function failed(Throwable $e): void
@@ -189,5 +277,23 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
             'platform' => $this->platform,
             'error' => $e->getMessage(),
         ]);
+
+        // Zero-loss (M-9 critic, 2026-08-21): handle()'s own miss path cards
+        // the link, but a JOB-level death (timeout, worker kill after tries)
+        // used to drop it entirely — counted 'connected' by the importer that
+        // delegated it, present nowhere. Card it here, best-effort, unless
+        // the caller was suggest-only (a paste already wrote its own card).
+        if ($this->suggestOnly) {
+            return;
+        }
+
+        try {
+            $user = User::find($this->userId);
+            if ($user !== null && ! $user->isPendingDeletion()) {
+                app(CustomLinkSeeder::class)->seedCustom($user, $this->url);
+            }
+        } catch (Throwable $cardError) {
+            report($cardError);
+        }
     }
 }

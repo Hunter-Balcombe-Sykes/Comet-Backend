@@ -29,6 +29,7 @@ class Boulevard
     {
         return [
             SurfaceBuilder::for('boulevard.book')
+                ->legacyPlatform('boulevard')
                 ->displayName('Boulevard')
                 ->routing(RoutingClass::Booking)
                 ->shelf(Shelf::Booking)

@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\Log;
  * $redactionScopes, content:prune-orphaned-review-pii and the DSAR omission.
  *
  * Task 2 stopped NEW copies. This removes the existing ones, and it is not
- * optional: upsertSingletonFacet() is upsert-only and never deletes, so the
+ * optional: the singleton-facet write path is upsert-only and never deletes, so the
  * f_text rows survive the projector change — and because headline_cache is
  * resolved FROM those rows, the name would keep being served forever.
  *

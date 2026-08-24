@@ -163,14 +163,38 @@ class PruneExpiredPreAccountBuilds extends Command
                     return true;
                 });
             } catch (\Throwable $e) {
-                // The transaction has already rolled back by this point — report
-                // and move on so one candidate's transient fault (e.g. a Redis
-                // outage inside invalidateSite()) can't abort the whole sweep.
-                // This build is simply re-evaluated next run. build_id logged
-                // alongside report() (mirrors purge()'s catch-context discipline)
-                // so a Nightwatch alert points straight at the stuck candidate.
-                $failed++;
-                Log::warning('pre_account.prune.candidate_failed', ['build_id' => $buildId, 'error' => $e->getMessage()]);
+                // Report and move on so one candidate's transient fault (e.g. a
+                // Redis outage inside invalidateSite()) can't abort the whole
+                // sweep. build_id logged alongside report() (mirrors purge()'s
+                // catch-context discipline) so a Nightwatch alert points straight
+                // at the stuck candidate.
+                //
+                // The row is re-checked rather than assumed rolled back. This
+                // catch used to state "the transaction has already rolled back by
+                // this point", which is FALSE for an $afterCommit side effect:
+                // Laravel runs those INSIDE DB::transaction() after the commit, so
+                // a throw there leaves the delete permanently applied and only
+                // discards the return value. Measured live on dev 2026-08-19 —
+                // "Pruned 0 of 1 (1 failed, will retry next run)" with every row
+                // in fact gone (IntegrationConnectionObserver's lazy load; fixed
+                // in the same change). Counting that as a failure understates the
+                // sweep, and "will retry next run" is a lie — there is nothing
+                // left to retry, so the skipped side effect (the edge purge)
+                // never happens either.
+                $committed = ! PreAccountBuild::query()->whereKey($buildId)->exists();
+
+                if ($committed) {
+                    $pruned++;
+                    Log::warning('pre_account.prune.side_effect_failed', [
+                        'build_id' => $buildId,
+                        'error' => $e->getMessage(),
+                        'note' => 'row deleted; a post-commit side effect (edge purge / KV retire) was skipped',
+                    ]);
+                } else {
+                    $failed++;
+                    Log::warning('pre_account.prune.candidate_failed', ['build_id' => $buildId, 'error' => $e->getMessage()]);
+                }
+
                 report($e);
             }
         }

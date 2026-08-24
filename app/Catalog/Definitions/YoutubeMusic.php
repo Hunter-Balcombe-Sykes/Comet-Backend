@@ -30,6 +30,7 @@ class YoutubeMusic
     {
         return [
             SurfaceBuilder::for('youtube_music.channel')
+                ->legacyPlatform('youtube-music')
                 ->displayName('YouTube Music')
                 ->routing(RoutingClass::Content)
                 ->shelf(Shelf::Music)
@@ -39,7 +40,7 @@ class YoutubeMusic
                 ->canonicalUrl('https://music.youtube.com/channel/{id}')
                 ->connect('connect.youtube_music.url.v1')
                 ->fetch('fetch.youtube_music.scrape.v1')
-                ->multiAccount(5)
+                ->multiAccount(10)
                 ->detect(
                     Detector::url('youtube.com')
                         ->subdomain('#^music$#')

@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\Content\PoolController;
 use App\Http\Controllers\Api\Content\PoolItemCreateController;
 use App\Models\Core\Site\Site;
 use App\Services\Content\ManualServiceWriter;
+use App\Services\Http\SafeUrlFetcher;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +26,14 @@ beforeEach(function () {
     setupContentTables();
     // Pool mutations dispatch the sitepage edge purge — a no-op here.
     Queue::fake();
+    // T3 (2026-08-20): the hand-add lane refuses URLs the grammar doesn't
+    // claim, so these tests paste CLAIMED shapes (vimeo.com/123456789, a
+    // real-length Spotify id) — and the reader's fetch is stubbed dead so
+    // what's under test stays the card path's projection machinery.
+    app()->instance(SafeUrlFetcher::class, Mockery::mock(SafeUrlFetcher::class, function ($m) {
+        $m->shouldReceive('tryFetch')->andReturnNull()->byDefault();
+        $m->shouldIgnoreMissing();
+    }));
 });
 
 // poolTenant/poolConnection/poolSource/poolItem/poolGet/poolHeadlines now live
@@ -153,7 +162,9 @@ it('keeps a removed rolling-latest removed until something newer lands', functio
 // ── Hand-picks ──────────────────────────────────────────────────────────────
 
 it('pins survive newer arrivals and order before the auto pick', function () {
-    [$pro] = poolTenant();
+    [$pro, $siteId] = poolTenant();
+    poolOrderMode($siteId, 'watch', 'manual');
+    $pro = $pro->fresh(['site']);
     $source = poolSource($pro->id, poolConnection($pro->id));
 
     $keeper = poolItem($pro->id, $source, 'video', 'Keeper', now()->subDays(20)->toDateTimeString());
@@ -172,7 +183,9 @@ it('pins survive newer arrivals and order before the auto pick', function () {
 });
 
 it('reorder pins every listed item in the given order', function () {
-    [$pro] = poolTenant();
+    [$pro, $siteId] = poolTenant();
+    poolOrderMode($siteId, 'watch', 'manual');
+    $pro = $pro->fresh(['site']);
     $source = poolSource($pro->id, poolConnection($pro->id));
 
     $a = poolItem($pro->id, $source, 'video', 'A', now()->subDays(3)->toDateTimeString());
@@ -200,6 +213,38 @@ it('rejects a reorder naming an item outside the pool', function () {
 });
 
 // ── The library delete ──────────────────────────────────────────────────────
+
+it('removing a pinned item keeps it off the site — an exclusion, not a bare un-pin', function () {
+    [$pro, $siteId] = poolTenant();
+    poolOrderMode($siteId, 'watch', 'manual');
+    $pro = $pro->fresh(['site']);
+    $source = poolSource($pro->id, poolConnection($pro->id));
+
+    $a = poolItem($pro->id, $source, 'video', 'A', now()->subDays(2)->toDateTimeString());
+    $b = poolItem($pro->id, $source, 'video', 'B', now()->subDay()->toDateTimeString());
+
+    // A drag commit pins every listed row — the state every remove after a
+    // reorder starts from (owner, 2026-08-23: "why do I keep seeing this").
+    $order = Request::create('/api/content/pools/watch/order', 'PUT', ['itemIds' => [$b, $a]]);
+    $order->attributes->set('professional', $pro);
+    app(PoolController::class)->reorder($order, 'watch');
+
+    $remove = Request::create("/api/content/pools/watch/selection/{$b}", 'DELETE');
+    $remove->attributes->set('professional', $pro);
+    $data = app(PoolController::class)->deselect($remove, 'watch', $b)->getData(true);
+
+    // Gone from the selection in the SAME response the dashboard reads —
+    // not re-emitted by the kind_is rule the instant its pin disappeared.
+    expect(poolHeadlines($data))->toBe(['A']);
+    expect(DB::connection('pgsql')->table('site.section_items')
+        ->where('item_id', $b)->value('state'))->toBe('excluded');
+
+    // And it still comes back when the owner re-adds it.
+    $readd = Request::create("/api/content/pools/watch/selection/{$b}", 'POST');
+    $readd->attributes->set('professional', $pro);
+    $back = app(PoolController::class)->select($readd, 'watch', $b)->getData(true);
+    expect(poolHeadlines($back))->toContain('B');
+});
 
 it('removes an item from selection and library via removed_at', function () {
     [$pro] = poolTenant();
@@ -277,7 +322,7 @@ it('refuses off-roster platforms, wrong domains, and synced platforms', function
     };
 
     // spotify is Listen's roster, not Watch's.
-    expect($make('spotify', 'https://open.spotify.com/track/x'))->toBe(422);
+    expect($make('spotify', 'https://open.spotify.com/track/3n3Ppam7vgaVa1iaRUc9Lp'))->toBe(422);
     // vimeo is on Watch's roster but the URL is not a vimeo address.
     expect($make('vimeo', 'https://example.com/video/1'))->toBe(422);
     // youtube already SYNCS this item — its link follows the sync.
@@ -421,7 +466,7 @@ it('hand-adds an item by link: manual source, pinned, titled', function () {
     [$pro] = poolTenant();
 
     $request = Request::create('/api/content/pools/watch/items', 'POST', [
-        'url' => 'https://vimeo.com/999', 'title' => 'Our showreel',
+        'url' => 'https://vimeo.com/123456789', 'title' => 'Our showreel',
     ]);
     $request->attributes->set('professional', $pro);
     $data = app(PoolItemCreateController::class)
@@ -429,13 +474,13 @@ it('hand-adds an item by link: manual source, pinned, titled', function () {
 
     expect(array_column($data['selection'], 'headline'))->toBe(['Our showreel']);
     expect($data['selection'][0]['origin'])->toBe('manual');
-    expect($data['selection'][0]['url'])->toBe('https://vimeo.com/999');
+    expect($data['selection'][0]['url'])->toBe('https://vimeo.com/123456789');
     expect(DB::connection('pgsql')->table('content.sources')
         ->where('user_id', $pro->id)->where('kind', 'manual')->count())->toBe(1);
 
     // A second add reuses the one manual source.
     $again = Request::create('/api/content/pools/watch/items', 'POST', [
-        'url' => 'https://youtu.be/abc',
+        'url' => 'https://youtu.be/dQw4w9WgXcQ',
     ]);
     $again->attributes->set('professional', $pro);
     app(PoolItemCreateController::class)->store($again, 'watch');
@@ -454,7 +499,7 @@ it('hand-adds an item that a later connector run enriches instead of stranding',
 
     actingAsUser($pro)
         ->postJson(route('content.pools.items.store', ['pool' => 'watch']), [
-            'url' => 'https://vimeo.com/999', 'title' => 'Our showreel',
+            'url' => 'https://vimeo.com/123456789', 'title' => 'Our showreel',
         ])
         ->assertCreated();
 
@@ -469,7 +514,7 @@ it('hand-adds an item that a later connector run enriches instead of stranding',
             ->where('user_id', $pro->id)->where('coord', $sourceItem->coord)->value('item_id'))
         ->toBe($sourceItem->item_id)
         // One coord per url, so a repeat POST cannot poison it (Task 4).
-        ->and($sourceItem->coord)->toBe('manual:'.sha1('https://vimeo.com/999'));
+        ->and($sourceItem->coord)->toBe('manual:'.sha1('https://vimeo.com/123456789'));
 
     // Exactly one item, and it is the one the source row points at — no blank
     // duplicate, nothing stranded.
@@ -483,7 +528,7 @@ it('re-adding the same url upserts one coord rather than poisoning it', function
     // Two coords on one url would poison that url for the whole resolution
     // run (Task 4). The deterministic coord makes the second POST an upsert.
     [$pro] = poolTenant();
-    $payload = ['url' => 'https://vimeo.com/999', 'title' => 'Our showreel'];
+    $payload = ['url' => 'https://vimeo.com/123456789', 'title' => 'Our showreel'];
     $route = route('content.pools.items.store', ['pool' => 'watch']);
 
     actingAsUser($pro)->postJson($route, $payload)->assertCreated();
@@ -510,7 +555,7 @@ it('re-adding a url the owner previously deleted brings the item back', function
     // re-add returned 201 with an empty selection and no route back.
     [$pro] = poolTenant();
     $route = route('content.pools.items.store', ['pool' => 'watch']);
-    $payload = ['url' => 'https://vimeo.com/999', 'title' => 'Our showreel'];
+    $payload = ['url' => 'https://vimeo.com/123456789', 'title' => 'Our showreel'];
 
     actingAsUser($pro)->postJson($route, $payload)->assertCreated();
     $itemId = DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->value('id');
@@ -529,7 +574,7 @@ it('re-adding an excluded item pins it rather than leaving it excluded', functio
     // skipped the pin — a hand-add that silently did nothing.
     [$pro] = poolTenant();
     $route = route('content.pools.items.store', ['pool' => 'watch']);
-    $payload = ['url' => 'https://vimeo.com/999', 'title' => 'Our showreel'];
+    $payload = ['url' => 'https://vimeo.com/123456789', 'title' => 'Our showreel'];
 
     actingAsUser($pro)->postJson($route, $payload)->assertCreated();
     $itemId = DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->value('id');
@@ -548,9 +593,9 @@ it('a title-less re-add keeps the stored headline instead of the url host', func
     [$pro] = poolTenant();
     $route = route('content.pools.items.store', ['pool' => 'watch']);
 
-    actingAsUser($pro)->postJson($route, ['url' => 'https://vimeo.com/999', 'title' => 'Our showreel'])
+    actingAsUser($pro)->postJson($route, ['url' => 'https://vimeo.com/123456789', 'title' => 'Our showreel'])
         ->assertCreated();
-    actingAsUser($pro)->postJson($route, ['url' => 'https://vimeo.com/999'])->assertCreated();
+    actingAsUser($pro)->postJson($route, ['url' => 'https://vimeo.com/123456789'])->assertCreated();
 
     expect(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->value('headline_cache'))
         ->toBe('Our showreel');
@@ -564,10 +609,10 @@ it('refuses a kind change on a url already in the library', function () {
     [$pro] = poolTenant();
     $route = route('content.pools.items.store', ['pool' => 'listen']);
 
-    actingAsUser($pro)->postJson($route, ['url' => 'https://open.spotify.com/track/x', 'kind' => 'track'])
+    actingAsUser($pro)->postJson($route, ['url' => 'https://open.spotify.com/track/3n3Ppam7vgaVa1iaRUc9Lp', 'kind' => 'track'])
         ->assertCreated();
 
-    actingAsUser($pro)->postJson($route, ['url' => 'https://open.spotify.com/track/x', 'kind' => 'release'])
+    actingAsUser($pro)->postJson($route, ['url' => 'https://open.spotify.com/track/3n3Ppam7vgaVa1iaRUc9Lp', 'kind' => 'release'])
         ->assertStatus(422);
 
     expect(DB::connection('pgsql')->table('content.source_items')->value('kind'))->toBe('track');
@@ -599,4 +644,46 @@ it('listen auto-selects a source\'s newest release AND its newest track, each be
     DB::table('site.platform_connections')->where('user_id', $pro->id)->where('surface_key', 'apple_music.artist')
         ->update(['display_settings' => json_encode(['auto_sync_latest_track' => false])]);
     expect(poolHeadlines(poolGet($pro, 'listen')))->toEqualCanonicalizing(['New single', 'Spotify newest']);
+});
+
+// ── Manual-lane provenance on the wire (gsnwilliams, 2026-08-18) ────────────
+
+it('lists a manual-lane item\'s own link once, with its platform glyph, as `own` — not twice and not "synced"', function () {
+    // The event sheet showed the same eventbrite URL twice: once from f_link
+    // (manual source → NULL platform → blank glyph, host-as-title) and once
+    // synthesised from the offer url by host (eventbrite), both badged
+    // "Synced" — the dedupe keyed on platform, a NULL platform was never
+    // marked seen, and 'synced' was hard-coded for every source row.
+    [$pro] = poolTenant();
+    $manual = poolSource($pro->id, null);
+    $url = 'https://www.eventbrite.com.au/e/hobart-mens-hair-workshop-tickets-1993984195405';
+    $event = poolItem($pro->id, $manual, 'video', 'Hobart Mens Hair Workshop', now()->toDateTimeString());
+    DB::table('content.f_link')->insert(['item_id' => $event, 'source_id' => $manual, 'url' => $url, 'updated_at' => now()]);
+    DB::table('content.offers')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $event, 'source_id' => $manual,
+        'amount_minor' => 16014, 'currency' => 'AUD', 'qualifier' => 'from', 'url' => $url,
+        'updated_at' => now(),
+    ]);
+
+    $item = collect(poolGet($pro, 'watch')['library'])->firstWhere('id', $event);
+
+    expect($item['links'])->toBe([
+        ['platform' => 'eventbrite', 'url' => $url, 'source' => 'own'],
+    ]);
+});
+
+it('says where a manual-lane item came from: no origin tag = added by hand, an origin tag = discovered', function () {
+    [$pro] = poolTenant();
+    $manual = poolSource($pro->id, null);
+    $byHand = poolItem($pro->id, $manual, 'video', 'By hand', now()->toDateTimeString());
+    $found = poolItem($pro->id, $manual, 'video', 'Found in bio', now()->subMinute()->toDateTimeString());
+    DB::table('content.item_tags')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $found, 'source_id' => $manual,
+        'tag' => 'link_in_bio', 'tag_type' => 'origin',
+    ]);
+
+    $library = collect(poolGet($pro, 'watch')['library']);
+
+    expect($library->firstWhere('id', $byHand)['sources'][0])->toMatchArray(['kind' => 'manual', 'origin' => null])
+        ->and($library->firstWhere('id', $found)['sources'][0])->toMatchArray(['kind' => 'manual', 'origin' => 'link_in_bio']);
 });

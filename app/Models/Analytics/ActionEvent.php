@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 // Exposure/tap events for the unified actions system (2026-07-23 rebuild).
 // Fired by the sitepage's action-surface IntersectionObserver (seen) and
-// capture-phase click listener (tap); read by RankedActionsComputer for
+// capture-phase click listener (tap); read by ActionScorer for
 // demand-rate scoring. Mirrors App\Models\Analytics\ItemView exactly —
 // dedup is app-side Redis (AnalyticsDedupGuard, 300s), not a DB column.
 class ActionEvent extends BaseModel

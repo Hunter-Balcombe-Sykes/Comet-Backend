@@ -57,7 +57,22 @@ class LinkProjector
 
         foreach ($iri->candidateKeys() as $key) {
             foreach ($this->rulepack->candidatesFor($key) as $detectorId) {
+                // Set BEFORE the suspension check, deliberately. A suspended
+                // detector is a rule that exists and was switched off, so the
+                // no-match reason stays 'no-rule-matched'. Skipping the flag
+                // would report 'unknown-domain' — and that string is what
+                // catalog.unmatched_domains.has_detectors is derived from, so
+                // it would file a suspended brand in the triage queue as a
+                // host nobody has written a detector for.
                 $anyRuleExists = true;
+
+                // The staff kill-switch (catalog.detector_suspensions),
+                // resolved onto the Rulepack when the singleton was built —
+                // never read from here, which is what keeps project() pure.
+                if ($this->rulepack->isSuspended($detectorId)) {
+                    continue;
+                }
+
                 $detector = $this->rulepack->detector($detectorId);
                 if ($detector === null) {
                     continue;

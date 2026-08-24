@@ -34,6 +34,7 @@ class Discord
     {
         return [
             SurfaceBuilder::for('discord.server')
+                ->legacyPlatform('discord')
                 ->displayName('Discord')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)
@@ -41,7 +42,6 @@ class Discord
                 ->refreshEvery(0)
                 ->canonicalUrl('https://discord.gg/{code}')
                 ->connect('connect.discord.url.v1')
-                ->multiAccount(5)
                 ->detect(
                     Detector::url('discord.gg')
                         ->path('#^/(?<code>[A-Za-z0-9-]{2,32})/?$#')

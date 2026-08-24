@@ -24,7 +24,6 @@ class StaffSiteResource extends ApiResource
             'site' => [
                 'id' => (string) $this->site_id,
                 'subdomain' => $this->subdomain,
-                'architecture_id' => $this->architecture_id,
                 'settings' => $siteSettings,
             ],
 

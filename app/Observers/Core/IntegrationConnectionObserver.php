@@ -9,6 +9,8 @@ use App\Jobs\Ingest\RunSourceJob;
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
+use App\Models\Core\Site\Workplace;
 use App\Services\Platforms\IdentitySync;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\CardPayload;
@@ -215,12 +217,121 @@ class IntegrationConnectionObserver
         // site. Placed right after refresh() — refresher->refresh() never
         // throws (catches internally) — and BEFORE the best-effort cleanup
         // calls below, so a failure in any of them can never skip this.
+        // Resolved by user_id, NOT by walking $connection->user?->site. This hook
+        // runs during ACCOUNT TEARDOWN as well as an ordinary disconnect
+        // (PruneExpiredPreAccountBuilds deletes connection rows through Eloquent
+        // so the R2 reclaim fires), and there the user row is on its way out with
+        // neither relation loaded. Model::preventLazyLoading is armed everywhere
+        // except production, so that two-hop walk THREW — and because this
+        // observer is $afterCommit, Laravel ran it inside DB::transaction() after
+        // the commit, so the delete had already landed and only the command's
+        // return value was lost. Live on dev 2026-08-19: "Pruned 0 of 1 (1 failed,
+        // will retry next run)" with every row in fact deleted.
+        //
+        // One query instead of two, and it cannot lazy-load by construction.
         if (app(PlatformRegistry::class)->get($connection->platform)?->hasCompletenessPredicate()) {
-            $connection->user?->site?->touch();
+            Site::query()->where('user_id', $connection->user_id)->first()?->touch();
         }
 
         $this->cleanupMirroredMedia($connection);
         $this->syncIngestSource($connection);
+        // Connections BEFORE fields: the website_import arm below reads the
+        // same field_sources stamp that clearListingSourcedWorkplaceFields()
+        // erases.
+        $this->disconnectListingSourcedConnections($connection);
+        $this->clearListingSourcedWorkplaceFields($connection);
+    }
+
+    /**
+     * The connection half of FI-15 (retest 2026-08-20): disconnecting the
+     * Google Business listing also takes the MACHINE-created connections it
+     * seeded. Verified live: after the seven T9 listing swaps, the ST. ALi
+     * business account still carried Kings Domain's fresha/facebook/instagram
+     * plus another roster business's doordash/uber_eats — every listing's
+     * socials, booking and ordering rows (payload source 'google-business')
+     * simply accumulated. website_import rows (the previous_website content
+     * scan) leave too, but ONLY when that website itself came from the
+     * listing (same machine-source stamp check as the field clearing below) —
+     * a website the owner typed in produces the same source tag and its
+     * connections must survive. User-connected rows carry neither tag and are
+     * never touched. Deleting through the models on purpose: each child's own
+     * deleted() hooks (media reclaim, ingest sync, cache purge) must run, and
+     * none of them is a listing so this cannot recurse.
+     */
+    private function disconnectListingSourcedConnections(IntegrationConnection $connection): void
+    {
+        if ($connection->surface_key !== 'google_business.listing') {
+            return;
+        }
+
+        try {
+            $site = Site::query()->where('user_id', $connection->user_id)->first();
+            $workplace = $site === null ? null : Workplace::query()->where('site_id', (string) $site->id)->first();
+            $sources = ($workplace !== null && is_array($workplace->field_sources)) ? $workplace->field_sources : [];
+            $websiteWasMachine = in_array($sources['previous_website']['source'] ?? null, ['google-business', 'website-scan'], true);
+
+            $listingSourced = IntegrationConnection::query()
+                ->where('user_id', $connection->user_id)
+                ->whereKeyNot($connection->getKey())
+                ->get()
+                ->filter(function (IntegrationConnection $candidate) use ($websiteWasMachine): bool {
+                    $source = CardPayload::fromArray((array) $candidate->payload)->source();
+
+                    return $source === 'google-business'
+                        || ($websiteWasMachine && $source === 'website_import');
+                });
+
+            foreach ($listingSourced as $candidate) {
+                $candidate->delete();
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
+    /**
+     * FI-15 (T9 live, 2026-08-20): disconnecting the Google Business listing
+     * takes its MACHINE-sourced workplace card fields with it. Verified live:
+     * after seven listing swaps on the business test account, the ST. ALi
+     * workplace still carried Kings Domain's description ("Superior Cuts,
+     * Fit for a King.", source website-scan) — seedWorkplace() fills
+     * only-when-blank and nothing ever cleared the OLD listing's values, so
+     * every later listing inherited them. Scoped to fields whose recorded
+     * field_sources entry names a machine source; a user-typed value carries
+     * no such stamp and is never touched. Best-effort, same rule as every
+     * other cleanup in this hook.
+     */
+    private function clearListingSourcedWorkplaceFields(IntegrationConnection $connection): void
+    {
+        if ($connection->surface_key !== 'google_business.listing') {
+            return;
+        }
+
+        try {
+            $site = Site::query()->where('user_id', $connection->user_id)->first();
+            $workplace = $site === null ? null : Workplace::query()->where('site_id', (string) $site->id)->first();
+            if ($workplace === null) {
+                return;
+            }
+
+            $sources = is_array($workplace->field_sources) ? $workplace->field_sources : [];
+            $changed = false;
+            foreach (['previous_website', 'category', 'description'] as $key) {
+                $source = $sources[$key]['source'] ?? null;
+                if (in_array($source, ['google-business', 'website-scan'], true)) {
+                    $workplace->{$key} = null;
+                    unset($sources[$key]);
+                    $changed = true;
+                }
+            }
+
+            if ($changed) {
+                $workplace->field_sources = $sources;
+                $workplace->save();
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /**
@@ -307,6 +418,19 @@ class IntegrationConnectionObserver
             return;
         }
 
+        // #LIFE-5: record the obligation BEFORE trying to act on it. Everything
+        // below can fail — the claim can be lost, the dispatch can throw, the
+        // queue can accept the job and never run it — and none of those paths
+        // used to leave a trace the scheduler could act on, because auto_sync is
+        // false on exactly the connectors this matters for. With the flag set
+        // first, SourceScheduler::scoreDue() picks the source up on its own
+        // schedule no matter which of those happens, and release() clears the
+        // flag the moment a run actually lands.
+        DB::table('ingest.sources')->where('id', $sourceId)->update([
+            'needs_eager_run' => true,
+            'updated_at' => now(),
+        ]);
+
         $scheduler = app(SourceScheduler::class);
         $runId = (string) Str::uuid();
         if (! $scheduler->claimOne((string) $sourceId, $runId)) {
@@ -323,11 +447,12 @@ class IntegrationConnectionObserver
             // releaseStranded()'s 2h backstop. Release it here so the source is
             // left in a clean, re-runnable state instead.
             //
-            // Note this does NOT re-run it: the eager trigger fires once, on
-            // creation, and nothing retries it. A lost dispatch therefore means
-            // this user's media never arrives — auto_sync=false keeps the
-            // scheduler away no matter what next_attempt_at says. Recovering one
-            // needs a manual re-run.
+            // This does not re-run it HERE — but #LIFE-5 means it no longer
+            // has to. needs_eager_run was set above and is cleared only by a
+            // LANDING outcome, so release('error') below leaves it set and
+            // SourceScheduler::scoreDue() picks the source up on its next due
+            // tick despite auto_sync being false. Before that flag existed this
+            // was the end of the line: the user's media never arrived at all.
             $scheduler->release((string) $sourceId, 'error', false);
 
             throw $e;

@@ -14,7 +14,7 @@ use App\Content\Values\ValueResolver;
  * rather than accepting whatever the client sends.
  *
  * The list is the SINGLETON facets only. Collections (item_media, offers,
- * item_variants, item_tags, f_action, item_refs) resolve by set-union and have
+ * item_variants, item_tags, f_action) resolve by set-union and have
  * no single value to override — editing those is add/remove of rows, not a
  * per-column lock, and belongs to the collection endpoints rather than here.
  *

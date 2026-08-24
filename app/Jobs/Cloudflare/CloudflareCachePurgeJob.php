@@ -35,51 +35,32 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
     // Short-circuit permanent failures (e.g. revoked token) so failed()/Nightwatch fires after 2 attempts, not 3.
     public int $maxExceptions = 2;
 
-    // Derived worst case (2026-07-20, complements SCALE-101 in CloudflarePurgeService,
-    // updated for the cache-edge-reconcile/LIFE-1 residual fix): purgeHandle() chunks
-    // up to ~1,480 URLs at 30/chunk = ~50 sequential blocking Http::post()->throw()
-    // calls to Cloudflare, each now explicitly bounded to timeout(10)+connectTimeout(3)
-    // (previously unbounded — Laravel's blanket 30s default applied). Typical case:
-    // ~3s/call under a healthy Cloudflare API — 50 x 3s = 150s, + the pacing budget's
-    // 2s hard ceiling = ~152s, leaving real margin under 180s. The per-call bound
-    // narrows (doesn't eliminate) the pathological case: it now takes 18+ chunks
-    // hitting the full 10s ceiling to exhaust the 180s budget, vs. 6 at the old
-    // unbounded ~30s default — a broadly degraded Cloudflare API can still exhaust it
-    // and get the job killed mid-purge. That residual is accepted scope (a
-    // retry ledger / resumable purge was explicitly declined as a follow-up); the
-    // volume-signal log in CloudflarePurgeService::purgeHandle() is the mitigation —
-    // it surfaces an oversized catalog before it starts failing outright.
-    // Sanity-checked against the queue: the job's OWN $timeout wins over Horizon's
-    // supervisor-level timeout (Illuminate\Queue\Worker::timeoutForJob() prefers
-    // $job->timeout() over $options->timeout), so config/horizon.php's
-    // supervisor-level timeout doesn't cap this. What DOES matter is the
-    // 'cloudflare' queue's connection — config/queue.php 'redis' has
-    // retry_after=360 (default) — 180 stays comfortably under that so Redis can't
-    // re-reserve this job to a second worker while the first is still purging
-    // (which would duplicate purges).
-    public int $timeout = 180;
+    // Since the 2026-08-19 prefix-purge rewrite a purge is TWO requests (one
+    // prefix purge, one ≤3-URL API chunk), each bounded to timeout(10)+
+    // connectTimeout(3): the worst case is ~26 s, the typical ~1 s. 30 keeps
+    // real margin and stays far under the 'cloudflare' queue's redis
+    // retry_after=360, so a job can never be re-reserved mid-purge.
+    public int $timeout = 30;
 
     /**
-     * Coalesce window: while a purge for this handle is queued/running, duplicate
-     * dispatches from the same request's observer cascade (or a rapid burst of
-     * edits) are dropped. MUST exceed $timeout — ShouldBeUnique's lock is a cache
-     * lock with TTL = $uniqueFor, and it is only force-released on CLEAN
-     * completion; a timeout-kill leaves it to expire on its own TTL. If
-     * $uniqueFor < $timeout, a purge still running past the TTL loses its dedupe
-     * protection mid-flight and a genuine duplicate slips through. Raised 120->240
-     * alongside the $timeout 15->180 bump for exactly that reason; 240 also stays
-     * under redis retry_after=360. Pinned by a test — do not raise $timeout without
-     * raising this too.
+     * Coalesce window: while a purge for this handle is queued/running,
+     * duplicate dispatches from the same request's observer cascade are
+     * dropped. MUST exceed $timeout — ShouldBeUnique's lock is a cache lock
+     * with TTL = $uniqueFor, force-released only on CLEAN completion; a
+     * timeout-kill leaves it to expire on its own TTL, and a lock shorter
+     * than $timeout would let a genuine duplicate slip through mid-flight.
      *
-     * Follow-ups keep a SHORT 30s lock instead: their dispatch delay (the
-     * shortest schedule offset, 120s by default) exceeds any lock we'd want,
-     * and a lock outliving the delay would coalesce
-     * away the follow-up owed to a LATER edit — leaving that edit's stale re-pin
-     * window uncovered for the router's 24h HTML TTL. A follow-up does the same
-     * ~50-chunk work, but its lock is deliberately shorter than $timeout: dropping
-     * a redundant follow-up is cheap, dropping a later edit's follow-up is not.
+     * 35 (was 240, owner plan 2026-08-19): the lock's WIDTH is what made a
+     * rapid second edit sit stale for minutes — with the ~83-request purge
+     * gone the happy path releases it in ~1 s, and a second edit 5 s later
+     * dispatches its own purge instead of being swallowed. Pinned by a test —
+     * do not raise $timeout without raising this too.
+     *
+     * Follow-ups keep a 5 s lock: their delay exceeds any lock we'd want, and
+     * a lock outliving the delay would coalesce away the follow-up owed to a
+     * LATER edit.
      */
-    public int $uniqueFor = 240;
+    public int $uniqueFor = 35;
 
     /**
      * R3-CACHE-1: set when this purge was dispatched from a bulk fan-out
@@ -153,7 +134,7 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
         } else {
             $this->onQueue(config('partna.queues.cloudflare', 'cloudflare'));
         }
-        $this->uniqueFor = $followUp ? 30 : 240;
+        $this->uniqueFor = $followUp ? 5 : 35;
     }
 
     public function handle(CloudflarePurgeService $purge): void
@@ -184,21 +165,20 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
 
         $purge->purgeHandle($h, $customDomain);
 
-        // A visitor can hit the just-purged URL while the payload layers are
-        // still inside their staleness windows (Laravel Cloud's OWN Cloudflare
-        // edge honours s-maxage on api/public/profiles and sits outside our
-        // zone's purge reach, + the Worker's subrequest cache) — the router
-        // would then re-pin that stale render under its 24h HTML TTL. Delayed
-        // follow-up purges evict any such re-pin.
+        // A visitor can hit the just-purged URL while the API payload layer is
+        // still inside its s-maxage window (5 s for the profile wire — Laravel
+        // Cloud's edge sits outside our zone's purge reach) — the router would
+        // then re-pin that stale render under its 24h HTML TTL. ONE delayed
+        // follow-up (15 s by default; was three at 120/300/900 when its job was
+        // also to cover edits the 240 s lock swallowed — that lock is 35 s now)
+        // evicts any such re-pin. Cheap: it is one prefix request.
         //
-        // All of them are dispatched HERE, up-front, one per schedule entry —
-        // not chained. A chain loses its tail if any link exhausts its retries,
-        // and the last offset is precisely the one a degraded-Cloudflare window
-        // most needs. uniqueId()'s depth discriminator keeps them from
-        // coalescing, and the 30s follow-up lock expires long before any delay.
+        // Dispatched HERE, up-front, one per schedule entry — not chained.
+        // uniqueId()'s depth discriminator keeps them from coalescing, and the
+        // 5 s follow-up lock expires long before any delay.
         if (! $this->followUp) {
             /** @var list<int> $schedule */
-            $schedule = array_values((array) config('partna.cache.purge_followup_schedule', [120, 300, 900]));
+            $schedule = array_values((array) config('partna.cache.purge_followup_schedule', [15]));
 
             foreach ($schedule as $index => $offsetSeconds) {
                 // Forward $bulk so a takedown's follow-ups also stay on the

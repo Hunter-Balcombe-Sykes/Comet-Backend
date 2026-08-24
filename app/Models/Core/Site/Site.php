@@ -22,12 +22,12 @@ use Illuminate\Support\Facades\DB;
  * @property string $subdomain
  * @property bool $is_published Raw column backing the published accessor/mutator below. Dashboard-level flag, NOT a public-visibility gate on every read path — the profiles route (IndividualProfileController) and SyncSubdomainToKvJob render/route regardless (pre-account sites are public pre-claim by design); PublicSiteResolver, PublicDocumentDownloadController, AnalyticsController and QrCodeController do gate on it. See docs/api.md "Public visibility vs. is_published".
  * @property bool $published Virtual alias for is_published (see getPublishedAttribute/setPublishedAttribute below) — same storage, tolerant boolean parsing on write.
- * @property array<string, mixed> $settings Free-form bag; the 5 FOUND-16 keys (show_branding, charlie_enabled, services_auto_sync_enabled, booking_mode, manual_booking_url) were promoted to real columns and are re-merged at read time (SiteResource) rather than read from here. Known remaining keys: privacy, manual_page_order, manual_actions. settings.design.* is REJECTED on write (site.design_kits is the design-var store).
+ * @property array<string, mixed> $settings Free-form bag; the 5 FOUND-16 keys (show_branding, charlie_enabled, services_auto_sync_enabled, booking_mode, manual_booking_url) were promoted to real columns and are re-merged at read time (SiteResource) rather than read from here. Known remaining keys: privacy, smart_page_order, manual_page_order, actions, pool_order, pool_locks, display_gallery_page. settings.design.* is REJECTED on write (site.design_kits is the design-var store).
  * @property Carbon $created_at
  * @property Carbon $updated_at
  * @property Carbon|null $subdomain_changed_at
  * @property Carbon|null $unpublished_at
- * @property string $architecture_id Vestigial single-value column, CHECK-constrained to 'staple' (sites_architecture_id_check) — plain string, NOT an enum (see class comment below).
+ * @property string $architecture_id Vestigial single-value column, CHECK-constrained to 'staple' (sites_architecture_id_check) — plain string, NOT an enum (see class comment below). NOT fillable and NOT on the dashboard wire since 2026-08-20: it is written only by the DB default. The public payload still derives architectureId/skeletonId from it (IndividualProfileResource) until that wire change lands.
  * @property string $moderation_state One of 'active'|'warned'|'hidden' (sites_moderation_state_check).
  * @property string|null $custom_domain Lowercase-unique connected FQDN (Cloudflare for SaaS).
  * @property string|null $custom_domain_status One of 'pending'|'active'|'error', or NULL (sites_custom_domain_status_check).
@@ -103,7 +103,6 @@ class Site extends BaseModel
 
     protected $fillable = [
         'subdomain',
-        'architecture_id',
         'is_published',
         'unpublished_at',
         'settings',

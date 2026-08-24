@@ -36,8 +36,9 @@ it('pins the registry-driven route shapes', function () {
     }
 
     $bespoke = ['apple-music', 'apple-podcast',
-        'instagram', 'eventbrite', 'humanitix', 'events-custom', 'fresha', 'square', 'shop',
-        'custom', 'booking', 'reservations', 'online-ordering'];
+        // The five pseudo descriptors (events-custom / custom / booking /
+        // reservations / online-ordering) left the registry 2026-08-19.
+        'instagram', 'eventbrite', 'humanitix', 'fresha', 'square', 'shop'];
     // mixcloud/tidal upgraded to Brand (connectable link cards, task #17 2026-08-18).
     foreach ($bespoke as $key) {
         expect($registry->get($key)->routeShape())->toBe(PlatformRouteShape::Bespoke, $key);

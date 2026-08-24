@@ -7,12 +7,22 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Routing\RouteLinkRequest;
 use App\Jobs\Platforms\CommerceProbeJob;
 use App\Jobs\Platforms\LinkInBioScanJob;
+use App\Routing\IriCanonicalizer;
+use App\Routing\LinkObserver;
 use App\Routing\LinkRoutingService;
+use App\Routing\Placement;
+use App\Routing\Projection;
 use App\Routing\RoutingContext;
 use App\Routing\SecretParams;
+use App\Routing\Verdict;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Http\FetchBudget;
 use App\Services\Platforms\CustomLinkSeeder;
+use App\Services\Platforms\EventsSeeder;
 use App\Services\Platforms\LinkInBioDetector;
+use App\Services\Platforms\MediaSeeder;
+use App\Services\Platforms\WebsiteLinkHarvester;
+use App\Site\Pools\PoolRegistry;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -33,6 +43,12 @@ class RoutingController extends ApiController
     public function __construct(
         private readonly LinkRoutingService $routing,
         private readonly CustomLinkSeeder $links,
+        private readonly WebsiteLinkHarvester $harvester,
+        private readonly MediaSeeder $media,
+        private readonly EventsSeeder $events,
+        private readonly FetchBudget $budget,
+        private readonly IriCanonicalizer $canonicalizer,
+        private readonly LinkObserver $observer,
     ) {}
 
     public function preview(RouteLinkRequest $request): JsonResponse
@@ -50,7 +66,18 @@ class RoutingController extends ApiController
                 'conflictingConnectionId' => null,
             ]);
         }
-        $result = $this->routing->preview($url, RoutingContext::forUser($user, 'paste'));
+        // Budgeted (FI-3 critic blocker, 2026-08-20): preview() now runs the
+        // short-link expander, whose fetch is the only I/O on this path — and
+        // this endpoint fires on every keystroke pause, so an
+        // attacker-controlled slow short-host must not hold a worker for the
+        // fetcher's unbudgeted worst case (~8s × redirect hops). Deliberately
+        // TIGHTER than connect_budget_seconds: a preview that misses the
+        // window degrades to the unexpanded answer, nothing is lost — the
+        // route() that follows the paste gets its own, larger budget.
+        $result = $this->budget->open(
+            (float) config('partna.http_fetch.preview_budget_seconds', 8),
+            fn (): array => $this->routing->preview($url, RoutingContext::forUser($user, 'paste')),
+        );
 
         return $this->success($result);
     }
@@ -94,12 +121,90 @@ class RoutingController extends ApiController
             ], 202);
         }
 
-        $result = $this->routing->route($url, RoutingContext::forUser($user, 'paste'));
+        // T8 (owner, 2026-08-20): ONE routing brain on every surface — the
+        // item grammars run BEFORE the catalog route here too, exactly as
+        // the pool lanes and the scan lanes already do. A pasted video/
+        // track/episode becomes a REAL watch/listen item (pinned — a person
+        // pasted it asking for it on their site), an event page a real
+        // event item. A failed read falls through to the ordinary route and
+        // its card write — nothing vanishes.
+        //
+        // Scheme-normalized FIRST (critic, 2026-08-20): RouteLinkRequest
+        // deliberately accepts scheme-less input and the canonicaliser adds
+        // https:// itself, but classify() refuses scheme-less URLs — so a
+        // bare 'youtu.be/x' paste skipped the item arm entirely (and then
+        // spent a storefront probe on a video link). Same normalization the
+        // canonicaliser applies, done before the grammar asks its question.
+        $schemed = trim($url);
+        if (! preg_match('~^https?://~i', $schemed)) {
+            $schemed = 'https://'.$schemed;
+        }
+        $classified = $this->harvester->classify($schemed);
+        $category = $classified['category'] ?? null;
+        if ($category === 'content-item' || $category === 'event') {
+            try {
+                // Budgeted like the preview endpoint: the read is 1–2
+                // synchronous fetches on a request path.
+                $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 45);
+                $written = $this->budget->open($seconds, fn (): ?string => $category === 'content-item'
+                    ? $this->media->seedItem($user, $schemed, origin: 'paste', pin: true)
+                    : $this->events->seedStandalone($user, (string) $classified['platform'], $schemed, origin: 'paste'));
+            } catch (\Throwable $e) {
+                report($e);
+                $written = null;
+            }
+
+            if ($written !== null) {
+                // The paste's observation row (the class contract: observe →
+                // project → place → reconcile) — the item arm places into a
+                // POOL, so the ledger notes it the way CommerceProbeJob notes
+                // its own non-connection outcomes. Best-effort by design.
+                try {
+                    $this->observer->record(
+                        $this->canonicalizer->canonicalize($schemed),
+                        Projection::none('content_item'),
+                        new Placement(Verdict::Note, null, null, $category === 'event' ? 'event_item_seeded' : 'media_item_seeded'),
+                        RoutingContext::forUser($user, 'paste'),
+                    );
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+                $pool = $category === 'content-item'
+                    ? (PoolRegistry::poolForKind((string) ($classified['kind'] ?? '')) ?? 'watch')
+                    : 'events';
+                $label = PoolRegistry::PAGE_LABELS[$pool] ?? $pool;
+
+                return $this->success([
+                    'status' => 'ok',
+                    'outcome' => 'item',
+                    'verdict' => 'note',
+                    'canonicalUrl' => $written,
+                    'routedTo' => null,
+                    'confidence' => null,
+                    'blockReason' => null,
+                    'explanation' => "Added to your {$label} page.",
+                    'conflictingConnectionId' => null,
+                    'connectionId' => null,
+                    'pool' => $pool,
+                ], 202);
+            }
+        }
+
+        // Budgeted like the item branch above (FI-3 critic): route() runs the
+        // short-link expander — the one fetch on this path (expansion is
+        // cached, so the preview that preceded this paste usually paid it).
+        // The earlier budget->open() in the item branch has already closed by
+        // here (its finally clears the deadline), so this never nests.
+        $result = $this->budget->open(
+            (float) config('partna.http_fetch.connect_budget_seconds', 45),
+            fn (): array => $this->routing->route($url, RoutingContext::forUser($user, 'paste')),
+        );
 
         // What actually happened, in one word the dashboard can switch on:
         //   connected — a connection exists now
         //   review    — an intent was written; the suggestions inbox owns it
         //   link      — kept as a plain link card (Verdict::Note's promise)
+        //   item      — became a real pool item (the early return above)
         //   null      — refused (reject), or nothing could be written
         $outcome = match (true) {
             $result['connectionId'] !== null => 'connected',

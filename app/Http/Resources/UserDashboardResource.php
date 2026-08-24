@@ -53,6 +53,7 @@ class UserDashboardResource extends ApiResource
                 'googleBusinessFullSync' => $capabilities->google_business_full_sync,
                 'googleBusinessSetsDisplayName' => $capabilities->google_business_sets_display_name,
                 'receiveModerationNotifications' => $capabilities->receive_moderation_notifications,
+                'workplaceBrandIsSiteIdentity' => $capabilities->workplace_brand_is_site_identity,
             ],
             // Staff-ness is independent of account_type (which stays
             // partna/business) — it derives from a linked core.partna_staff
@@ -99,6 +100,8 @@ class UserDashboardResource extends ApiResource
             'onboarding_step' => $this->onboarding_step,
             'public_contact_number' => $this->public_contact_number,
             'public_contact_email' => $this->public_contact_email,
+            // Owner-authored About Me paragraph (Identity page binds to this).
+            'bio' => $this->bio,
             'location_street_address' => $this->location_street_address,
             'location_city' => $this->location_city,
             'location_state' => $this->location_state,

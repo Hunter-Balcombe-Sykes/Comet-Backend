@@ -327,7 +327,11 @@ class SitepageDataResolverService
             // keep (embed-only platforms like Spotify carry the Listen page
             // with no pool items at all, so pools ADD presence, never veto
             // it). Media's pool joins when its public surface exists.
-            foreach (['watch' => 'watch', 'listen' => 'listen', 'events' => 'events'] as $pool => $poolPage) {
+            // custom_links joined 2026-08-19 (pseudo-platform retirement):
+            // the pool is the ONLY store for a routed/manual link now — the
+            // 'custom' connection rows whose PLATFORM_TO_PAGE entry used to
+            // vouch for the Links page can no longer exist.
+            foreach (['watch' => 'watch', 'listen' => 'listen', 'events' => 'events', 'custom_links' => 'links'] as $pool => $poolPage) {
                 if (isset($present[$poolPage])) {
                     continue;
                 }
@@ -467,6 +471,23 @@ class SitepageDataResolverService
     public function hasDegraded(): bool
     {
         return $this->degraded;
+    }
+
+    /**
+     * #LIFE-6. Let a caller OUTSIDE safeQuery() report that this build answered
+     * from a fault too.
+     *
+     * The degraded machinery already existed — degradedCacheTtl(), the
+     * controller's shortenDegraded() rewrite — but only safeQuery() could ever
+     * arm it, and the pool lane does not go through safeQuery(): it runs
+     * PoolResolver, which has no degraded concept at all. So a failed pool query
+     * cached its empty result for the FULL payload TTL while the machinery built
+     * to prevent exactly that sat one class away, unreachable. The wiring is the
+     * fix, not new machinery.
+     */
+    public function markDegraded(): void
+    {
+        $this->degraded = true;
     }
 
     // ── Gallery ──────────────────────────────────────────────────────────
@@ -774,6 +795,16 @@ class SitepageDataResolverService
     }
 
     /**
+     * The owner's About Me paragraph (users.bio, 2026-08-19 identity plan).
+     * No section gate of its own — a null/blank bio is simply null on the
+     * wire; the renderer owns whether and where to mount it.
+     */
+    public function getBio(User $pro): ?string
+    {
+        return trim_or_null($pro->bio ?? null);
+    }
+
+    /**
      * Workplace — business-location card data from site.workplaces (FOUND-4).
      * Promoted from site.sites.settings.workplace JSONB so the table is
      * indexable and the visibility check avoids JSON arrow operators.
@@ -813,6 +844,7 @@ class SitepageDataResolverService
                 'latitude' => $workplace->latitude !== null ? (float) $workplace->latitude : null,
                 'longitude' => $workplace->longitude !== null ? (float) $workplace->longitude : null,
                 'phone' => trim_or_null($workplace->phone),
+                'contact_email' => trim_or_null($workplace->contact_email),
                 'website' => trim_or_null($workplace->website),
             ];
         });

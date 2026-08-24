@@ -62,7 +62,12 @@ it('connects a YouTube channel scoped to the authenticated user', function () {
 
     $this->mock(YoutubeScraper::class, function ($m) {
         $m->shouldReceive('normalizeHandle')->andReturn('mychannel');
-        $m->shouldReceive('fetchRecentVideos')->andReturn([
+        // One page fetch resolves id + avatar; the feed is then reached by
+        // the raw UC… id (2026-08-23) — the strategy must hand the ID on,
+        // not the handle, or the scraper would fetch the page twice.
+        $m->shouldReceive('fetchChannelProfile')->with('mychannel')->once()
+            ->andReturn(['id' => 'UCocwhL8eTz6tfV9_crX_nJQ', 'avatar' => 'https://yt3.googleusercontent.com/x=s900']);
+        $m->shouldReceive('fetchRecentVideos')->with('UCocwhL8eTz6tfV9_crX_nJQ')->once()->andReturn([
             ['videoId' => 'v1', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'thumbnail' => 't'],
         ]);
     });
@@ -72,7 +77,11 @@ it('connects a YouTube channel scoped to the authenticated user', function () {
         ->assertJsonPath('handle', 'mychannel')
         ->assertJsonPath('latest.videoId', 'v1');
 
-    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'youtube')->exists())->toBeTrue();
+    $connection = IntegrationConnection::where('user_id', $user->id)->where('platform', 'youtube')->first();
+    expect($connection)->not->toBeNull();
+    // The channel's own face is stored so the dashboard's connect summary and
+    // connections table show it rather than the latest video's 16:9 frame.
+    expect($connection->payload['avatarUrl'] ?? null)->toBe('https://yt3.googleusercontent.com/x=s900');
 });
 
 it('requires auth, queues connect per-user (202), and allows immediate re-connect on Instagram', function () {
@@ -222,7 +231,7 @@ it('requires auth on the shopify dashboard routes', function () {
     $this->getJson('/api/platforms/shop/selection')->assertUnauthorized();
 });
 
-it('adds Shopify brands per-user (one row, brand map) and caps at 5', function () {
+it('adds Shopify brands per-user (one row, brand map) and caps at 10', function () {
     $user = scraperUser('shop');
 
     $this->mock(ShopifyScraper::class, function ($m) {
@@ -242,11 +251,11 @@ it('adds Shopify brands per-user (one row, brand map) and caps at 5', function (
         ]);
     });
 
-    foreach (['a', 'b', 'c', 'd', 'e'] as $s) {
+    foreach (['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'] as $s) {
         actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => "https://{$s}.example.com"])->assertOk();
     }
-    // A 6th distinct brand exceeds the cap.
-    actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://f.example.com'])
+    // An 11th distinct brand exceeds the cap (10, T9 2026-08-20).
+    actingAsUser($user)->postJson('/api/platforms/shop/brands', ['url' => 'https://k.example.com'])
         ->assertStatus(422);
 
     // FOUND-25: brands never lived in the connection payload. Convergence
@@ -256,7 +265,7 @@ it('adds Shopify brands per-user (one row, brand map) and caps at 5', function (
     // through their content.collections parent), not site.shop_brands.
     $connectionIds = IntegrationConnection::where('user_id', $user->id)
         ->whereIn('surface_key', ShopConnections::surfaces())->pluck('id');
-    expect($connectionIds)->toHaveCount(5);
+    expect($connectionIds)->toHaveCount(10);
     expect(DB::table('content.storefronts')->where('user_id', (string) $user->id)
-        ->where('is_individual', false)->count())->toBe(5);
+        ->where('is_individual', false)->count())->toBe(10);
 });

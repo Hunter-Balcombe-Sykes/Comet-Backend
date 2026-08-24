@@ -41,7 +41,9 @@ final class SecretParams
      * SecretParamsCatalogTest so a new detector adding a `?key=`-shaped
      * identity param cannot be silently eaten by this class.
      */
-    private const IDENTITY_PARAMS = ['rid', 'accountid', 'venueid'];
+    // 'restref' (lowercased restRef): OpenTable's booking-widget id param —
+    // same numeric id space as rid (M-3, 2026-08-21).
+    private const IDENTITY_PARAMS = ['rid', 'accountid', 'venueid', 'restref'];
 
     /**
      * Segment vocabulary. Deliberately excludes `mac` (macOS/`mac_address`

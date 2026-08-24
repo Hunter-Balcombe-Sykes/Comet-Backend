@@ -25,7 +25,9 @@ use App\Catalog\SurfaceBuilder;
 class Ticketmaster
 {
     /** @var list<string> */
-    private const TLDS = ['com', 'com.au', 'co.uk', 'co.nz', 'ca', 'de', 'fr', 'es', 'it', 'nl', 'be', 'dk', 'se', 'no', 'fi', 'at', 'ch', 'ie', 'com.mx', 'sg', 'ae'];
+    /** Single source of truth for this brand's regional TLDs — consumed by
+     * WebsiteLinkHarvester::classify() and ItemLinkRules, never re-listed. */
+    public const TLDS = ['com', 'com.au', 'co.uk', 'co.nz', 'ca', 'de', 'fr', 'es', 'it', 'nl', 'be', 'dk', 'se', 'no', 'fi', 'at', 'ch', 'ie', 'com.mx', 'sg', 'ae'];
 
     public static function brand(): Brand
     {
@@ -37,7 +39,12 @@ class Ticketmaster
     {
         return [
             SurfaceBuilder::for('ticketmaster.tickets')
+                ->legacyPlatform('ticketmaster')
                 ->displayName('Ticketmaster')
+                // Not a limited kind of link (owner, 2026-08-19): a content or events
+                // page is one of several a person may run — the 1-account default is for
+                // bookings/reservations/ordering (one provider) and socials (one profile).
+                ->multiAccount(10)
                 ->routing(RoutingClass::Events)
                 ->shelf(Shelf::Events)
                 ->identifier(IdentifierKind::Url)

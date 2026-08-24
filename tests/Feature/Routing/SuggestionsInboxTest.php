@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\Platforms\CommerceProbeJob;
+use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -114,6 +115,81 @@ it('writes the payload through ConnectionPayload so a handle surface carries use
         ->and($payload['source'])->toBe('suggestion');
 });
 
+it('dispatches the enrichment fetch when accepting a content suggestion (F14)', function () {
+    // F9 covered the reconciler's AUTO-place path; T9b's parent suggestions
+    // are suggest-only by design, so the connections that feature produces
+    // are born here — via accept — and were landing as nameless
+    // URL-as-account rows until the next scheduled refresh.
+    Queue::fake();
+    $pro = createTenant('inbox-accept-fetch');
+    $intentId = seedIntent($pro->id, [
+        'surface_key' => 'youtube.channel', 'routing_class' => 'content',
+        'identifier' => 'somechannel', 'canonical_url' => 'https://www.youtube.com/@somechannel',
+    ]);
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
+
+    $connection = IntegrationConnection::query()->where('user_id', $pro->id)->first();
+    Queue::assertPushed(ConnectFetchJob::class, fn ($job) => $job->connectionId === (string) $connection->id);
+});
+
+it('does not dispatch the fetch for a content surface with no fetch capability (F14)', function () {
+    // The other half of the guard: mixcloud.player is content-class but
+    // declares no capabilities.fetch in the catalog. A regression that kept
+    // the class check and dropped the capability check would pass the
+    // social-accept test and still dispatch a job no strategy can serve.
+    Queue::fake();
+    $pro = createTenant('inbox-accept-nofetchcap');
+    $intentId = seedIntent($pro->id, [
+        'surface_key' => 'mixcloud.player', 'routing_class' => 'content',
+        'identifier' => 'someone', 'canonical_url' => 'https://www.mixcloud.com/someone/',
+    ]);
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->exists())->toBeTrue();
+    Queue::assertNotPushed(ConnectFetchJob::class);
+});
+
+it('does not re-dispatch the fetch when the accept resolves to an existing row (F14)', function () {
+    // The dispatch lives in the CREATE branch only: a matched-existing row
+    // came from a lane that already owns its enrichment, and re-fetching it
+    // on every accept would be a duplicate job per suggestion.
+    Queue::fake();
+    $pro = createTenant('inbox-accept-existing');
+
+    $existing = new IntegrationConnection([
+        'user_id' => $pro->id, 'surface_key' => 'youtube.channel',
+        'routing_class' => 'content', 'resource_id' => 'somechannel',
+        'payload' => ['username' => 'somechannel'], 'is_active' => true,
+    ]);
+    $existing->save();
+
+    $intentId = seedIntent($pro->id, [
+        'surface_key' => 'youtube.channel', 'routing_class' => 'content',
+        'identifier' => 'somechannel', 'canonical_url' => 'https://www.youtube.com/@somechannel',
+    ]);
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1);
+    Queue::assertNotPushed(ConnectFetchJob::class);
+});
+
+it('does not dispatch the enrichment fetch for a non-content accept (F14)', function () {
+    // Same class rule as SourceReconciler::applyIntent: booking enrichment is
+    // owned by AutoBookingConnectDispatcher's claimed/unclaimed rule, shop by
+    // its own connect jobs, and socials have no fetch capability to run.
+    Queue::fake();
+    $pro = createTenant('inbox-accept-nofetch');
+    $intentId = seedIntent($pro->id);
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->exists())->toBeTrue();
+    Queue::assertNotPushed(ConnectFetchJob::class);
+});
+
 it('demotes the incumbent rather than deleting it when replacing', function () {
     // The user asked for a different primary, not for their data to go.
     $pro = createTenant('inbox-replace');
@@ -137,6 +213,84 @@ it('demotes the incumbent rather than deleting it when replacing', function () {
         ->and($incumbent->fresh()->deleted_at)->toBeNull()
         ->and(IntegrationConnection::query()->where('user_id', $pro->id)->where('is_primary', true)->value('surface_key'))
         ->toBe('opentable.reserve');
+});
+
+it('offers a swap for a cap-blocked link on a single-account surface, and swapping retires the incumbent', function () {
+    // Owner, 2026-08-19: a limited kind of link (one Fresha, one Behance)
+    // that is already filled shows Swap, not a dead "you've reached the
+    // limit". The incumbent is resolved at read time for intents recorded
+    // before the reconciler wrote it, and a swap soft-deletes it — one
+    // Behance for another, not two Behances with a demoted flag.
+    $pro = createTenant('inbox-swap');
+
+    $incumbent = new IntegrationConnection([
+        'user_id' => $pro->id, 'surface_key' => 'behance.profile',
+        'routing_class' => 'social', 'resource_id' => 'old-handle',
+        'payload' => [], 'is_active' => true,
+    ]);
+    $incumbent->save();
+
+    $intentId = seedIntent($pro->id, [
+        'surface_key' => 'behance.profile', 'routing_class' => 'social',
+        'identifier' => 'new-handle', 'canonical_url' => 'https://www.behance.net/new-handle',
+        'state' => 'blocked', 'block_reason' => 'cap_reached',
+    ]);
+
+    $listed = actingAsUser($pro)->getJson('/api/routing/suggestions')->json('suggestions.0');
+    expect($listed['actions'])->toBe(['replace', 'dismiss'])
+        ->and($listed['question'])->toContain('swap')
+        ->and($listed['conflictingConnectionId'])->toBe($incumbent->id);
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
+
+    expect(IntegrationConnection::withTrashed()->whereKey($incumbent->id)->value('deleted_at'))->not->toBeNull()
+        ->and(IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'behance.profile')->pluck('resource_id')->all())
+        ->toBe(['new-handle']);
+});
+
+it('keeps a cap-blocked link on a multi-account surface dismiss-only', function () {
+    // Ten YouTube channels already: no ONE row a swap could mean. (This case
+    // used Instagram until FI-1, 2026-08-20, made every social single-account
+    // — a cap-blocked social now correctly OFFERS the swap, so the
+    // dismiss-only shape needs a genuinely multi-account surface.)
+    $pro = createTenant('inbox-cap-multi');
+    foreach (range(1, 10) as $n) {
+        (new IntegrationConnection([
+            'user_id' => $pro->id, 'surface_key' => 'youtube.channel',
+            'routing_class' => 'content', 'resource_id' => "acct-{$n}",
+            'payload' => [], 'is_active' => true,
+        ]))->save();
+    }
+    seedIntent($pro->id, [
+        'surface_key' => 'youtube.channel', 'routing_class' => 'content',
+        'identifier' => 'acct-11', 'canonical_url' => 'https://www.youtube.com/@acct-11',
+        'state' => 'blocked', 'block_reason' => 'cap_reached',
+    ]);
+
+    expect(actingAsUser($pro)->getJson('/api/routing/suggestions')->json('suggestions.0.actions'))
+        ->toBe(['dismiss']);
+});
+
+it('un-blocks a cap-blocked link once the cap is no longer reached', function () {
+    // The catalog widened under a standing intent (Mixcloud went 1 → 5,
+    // 2026-08-19), or the owner disconnected one: it is a plain proposal
+    // again, not a dead "you've reached the limit".
+    $pro = createTenant('inbox-cap-lifted');
+    (new IntegrationConnection([
+        'user_id' => $pro->id, 'surface_key' => 'mixcloud.player',
+        'routing_class' => 'content', 'resource_id' => 'https://www.mixcloud.com/one',
+        'payload' => [], 'is_active' => true,
+    ]))->save();
+    $intentId = seedIntent($pro->id, [
+        'surface_key' => 'mixcloud.player', 'routing_class' => 'content',
+        'identifier' => 'https://www.mixcloud.com/two', 'canonical_url' => 'https://www.mixcloud.com/two',
+        'state' => 'blocked', 'block_reason' => 'cap_reached',
+    ]);
+
+    $listed = actingAsUser($pro)->getJson('/api/routing/suggestions')->json('suggestions.0');
+    expect($listed['state'])->toBe('proposed')
+        ->and($listed['actions'])->toBe(['accept', 'dismiss']);
+    expect(DB::table('routing.source_intents')->where('id', $intentId)->value('state'))->toBe('proposed');
 });
 
 it('never re-asks a question the user already dismissed', function () {

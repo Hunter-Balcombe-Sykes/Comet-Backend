@@ -9,9 +9,11 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
+use App\Routing\IriCanonicalizer;
+use App\Routing\LinkProjector;
+use App\Routing\Projection;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\ApifyBudget;
-use App\Services\Content\LinkPoolWriter;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
@@ -45,16 +47,18 @@ class GoogleBusinessAutoSync
      * rows themselves moved to per-brand surfaces in convergence Phase 6, but the
      * read-then-write span this lock protects still covers the whole family, so
      * the key must stay family-wide (and byte-identical to what
-     * OnlineOrderingController::platform() takes, or the two stop excluding
+     * the retired ordering controller took (now only this class's), or writers stop excluding
      * each other).
      */
     private const ORDERING_FAMILY = 'online-ordering';
 
+    // Real reservation brands only — the 'reservations' pseudo-platform
+    // case left the enum 2026-08-19 with the pseudo-platform retirement.
     private const RESERVATION_PLATFORMS = [
-        Platform::OpenTable->value, Platform::Resdiary->value, Platform::Nowbookit->value, Platform::Reservations->value,
+        Platform::OpenTable->value, Platform::Resdiary->value, Platform::Nowbookit->value,
     ];
 
-    private const BOOKING_PLATFORMS = [Platform::Fresha->value, Platform::Square->value, Platform::Booking->value];
+    private const BOOKING_PLATFORMS = [Platform::Fresha->value, Platform::Square->value];
 
     public function __construct(
         private readonly OpenTableService $openTable,
@@ -64,7 +68,8 @@ class GoogleBusinessAutoSync
         private readonly ApifyBudget $apifyBudget,
         private readonly FacebookNormalizer $facebookNormalizer,
         private readonly LinkRouter $linkRouter,
-        private readonly LinkPoolWriter $linkPool,
+        private readonly IriCanonicalizer $canonicalizer,
+        private readonly LinkProjector $projector,
     ) {}
 
     /**
@@ -116,7 +121,23 @@ class GoogleBusinessAutoSync
         // stay capability-gated (food business only — see can_use_* above),
         // which is what google_business_full_sync now means.
         $this->seedWorkplace($userId, $gbPayload ?? []);
-        $findings = [...$findings, ...$this->seedSocials($userId, $enrichment, $autoConnectBooking)];
+
+        // M-12 (B6 DOH live): when the listing's "website" IS a platform page
+        // (DOH lists their Instagram profile as the website), the Apify
+        // contacts add-on crawled THAT page — so its socials are the
+        // platform's own chrome links (developers.facebook.com/docs/… seeded
+        // facebook username "docs"), not the business's accounts. The divert
+        // in seedWorkplace() already routes the website itself through the
+        // engine; chrome socials are dropped wholesale.
+        $website = $this->safeUrl(data_get($gbPayload ?? [], 'website'));
+        if ($website !== null && app(PreviousWebsiteGate::class)->isPlatformUrl($website)) {
+            Log::info('google_business.socials_skipped_platform_website', [
+                'user_id' => $userId,
+                'host' => parse_url($website, PHP_URL_HOST),
+            ]);
+        } else {
+            $findings = [...$findings, ...$this->seedSocials($userId, $enrichment, $autoConnectBooking)];
+        }
 
         if (! $capabilities->google_business_full_sync) {
             return $findings;
@@ -245,18 +266,12 @@ class GoogleBusinessAutoSync
 
         // Convergence Phase 6: the shared 'reservations' pseudo-key is retired,
         // so the brand is resolved from the host. A link matching NO reservation
-        // brand becomes a links-pool item (owner ruling 2A, extended to the
-        // harvest 2026-08-16) — pooled by the CALLER, since this method only
-        // resolves the write and does not perform it. Returning null is how it
-        // says "no connection for this one".
+        // brand is DROPPED (owner, 2026-08-19 — ruling 2A retired): a background
+        // harvest does not publish a public link card nobody asked for.
+        // Returning null is how this says "no connection for this one".
         $surface = $this->brandSurfaceFor($url, 'reservations');
         if ($surface === null) {
-            $user = User::find($userId);
-            if ($user !== null) {
-                $this->linkPool->add($user, $url, $this->clean(data_get($reservation, 'provider')) ?? $businessName);
-            }
-
-            Log::info('platforms.google_business.reservation_pooled', [
+            Log::info('platforms.google_business.reservation_unroutable', [
                 'user_id' => $userId, 'host' => parse_url($url, PHP_URL_HOST),
             ]);
 
@@ -414,8 +429,29 @@ class GoogleBusinessAutoSync
     private function seedWorkplace(string $userId, array $gbPayload): void
     {
         try {
+            // A listing whose "website" is a platform page (a Fresha booking
+            // link, an Instagram profile, an ordering storefront) is a
+            // platform candidate, not a previous website (owner, 2026-08-19 —
+            // the Fresha-favicon-as-logo incident): it goes to the router,
+            // and previous_website stays untouched.
+            $website = $this->safeUrl(data_get($gbPayload, 'website'));
+            if ($website !== null) {
+                $gate = app(PreviousWebsiteGate::class);
+                if ($gate->isPlatformUrl($website)) {
+                    $owner = User::query()->find($userId);
+                    if ($owner !== null) {
+                        // Origin 'google_business', NOT a bespoke string: the
+                        // routing.* CHECK constraints only accept the
+                        // RoutingContext::ORIGINS set, and the bespoke
+                        // 'google_business_website' rolled back the applied
+                        // Instagram connect it was diverting (M-12, B6 live).
+                        $gate->divert($owner, $website, 'google_business');
+                    }
+                    $website = null;
+                }
+            }
             $fields = array_filter([
-                'previous_website' => $this->safeUrl(data_get($gbPayload, 'website')),
+                'previous_website' => $website,
                 'category' => $this->truncate($this->clean(data_get($gbPayload, 'category')), 120),
                 'description' => $this->truncate(
                     $this->clean(data_get($gbPayload, 'editorialSummary'))
@@ -564,27 +600,29 @@ class GoogleBusinessAutoSync
                         : $this->linkRouter->routeOrdering($user, $repUrl);
 
                     if ($routed === null || $routed->outcome !== 'seeded') {
-                        // No brand home. Owner ruling 2A, extended to the harvest
-                        // by owner answer 2026-08-16: the link is preserved as a
-                        // links-pool item rather than dropped. It becomes a public
-                        // link rather than an ordering card, which is the honest
-                        // outcome — an ordering link we cannot type is nearly
-                        // always a marketplace redirector, not a merchant's own
-                        // order page, so there is no card shape to give it.
+                        // Owner ruling 2A is RETIRED here (owner, 2026-08-19).
+                        // Neither branch below publishes a links-pool card: a
+                        // background harvest putting an unasked-for public link
+                        // on someone's site was never a decision they made, and
+                        // it left them no way to say "use that one instead".
                         //
-                        // No finding: the synced modal's undo is per-CONNECTION
-                        // and there is no connection to undo. The owner manages it
-                        // from Links.
-                        if ($user !== null) {
-                            $this->linkPool->add($user, $repUrl, $name);
-                            $existingCount++;
-                            $existingStoreKeys[$storeKey] = true;
-                        }
+                        //  · handled  — the brand's one slot is filled by a
+                        //    different store. LinkRouter has already recorded a
+                        //    cap-blocked intent naming the incumbent, which the
+                        //    suggestions inbox renders as **Swap**.
+                        //  · unhandled — no brand home at all. Logged and
+                        //    dropped: an ordering link we cannot type is nearly
+                        //    always a marketplace redirector rather than the
+                        //    merchant's own order page, so there is no card
+                        //    shape to give it and nothing to suggest.
+                        $existingStoreKeys[$storeKey] = true;
 
-                        Log::info('platforms.google_business.ordering_pooled', [
-                            'user_id' => $userId,
-                            'host' => parse_url($repUrl, PHP_URL_HOST),
-                        ]);
+                        Log::info($routed?->handled
+                            ? 'platforms.google_business.ordering_slot_taken'
+                            : 'platforms.google_business.ordering_unroutable', [
+                                'user_id' => $userId,
+                                'host' => parse_url($repUrl, PHP_URL_HOST),
+                            ]);
 
                         continue;
                     }
@@ -708,6 +746,7 @@ class GoogleBusinessAutoSync
         $findings = [];
         $linkOnly = ['facebook' => 'Facebook', 'tiktok' => 'TikTok', 'twitter' => 'X', 'linkedin' => 'LinkedIn'];
         $platformOf = ['facebook' => 'facebook', 'tiktok' => 'tiktok', 'twitter' => 'x', 'linkedin' => 'linkedin'];
+        $surfaceOf = ['facebook' => 'facebook.profile', 'tiktok' => 'tiktok.profile', 'twitter' => 'x.profile', 'linkedin' => 'linkedin.profile'];
         foreach ($linkOnly as $socialKey => $label) {
             try {
                 $url = $this->safeUrl(data_get($socials, $socialKey));
@@ -715,7 +754,35 @@ class GoogleBusinessAutoSync
                     continue;
                 }
                 $platform = $platformOf[$socialKey];
-                $payload = ['username' => $this->socialUsername($platform, $url), 'url' => $url, 'source' => 'google-business'];
+
+                // G4-4, extended to every link-only social (M-12, B6 live):
+                // only a URL the catalog projects as this platform's PROFILE
+                // surface seeds a connection — the projector rejects foreign
+                // subdomains (developers.facebook.com/docs/… scraped off an
+                // Instagram-as-website page seeded facebook username "docs")
+                // and reserved segments. Facebook keeps a normalizer fallback
+                // for the legacy shapes the catalog doesn't model
+                // (/pages/<Name>/<id>, profile.php?id=), but only on
+                // facebook.com / fb.com hosts proper.
+                $projection = $this->projector->project($this->canonicalizer->canonicalize($url));
+                $username = null;
+                if ($projection->surfaceKey === $surfaceOf[$socialKey]
+                    && is_string($projection->identifier) && $projection->identifier !== '') {
+                    $username = $projection->identifier;
+                } elseif ($socialKey === 'facebook' && $this->isCanonicalFacebookHost($url)) {
+                    $username = $this->socialUsername('facebook', $url);
+                }
+                if ($username === null || $username === '') {
+                    Log::info('google_business.social_rejected', [
+                        'user_id' => $userId,
+                        'platform' => $platform,
+                        'host' => parse_url($url, PHP_URL_HOST),
+                    ]);
+
+                    continue;
+                }
+
+                $payload = ['username' => $username, 'url' => $url, 'source' => 'google-business'];
                 $write = ['platform' => $platform, 'resourceId' => $platform, 'payload' => $payload];
 
                 if ($this->has($userId, $platform)) {
@@ -748,15 +815,57 @@ class GoogleBusinessAutoSync
     /** @return array<string,mixed>|null */
     private function seedInstagram(string $userId, ?string $url, bool $autoConnectBooking = false): ?array
     {
-        if ($url === null || ! preg_match('~instagram\.com/([A-Za-z0-9._]+)~i', $url, $m)) {
-            return null;
-        }
-        $username = $m[1];
-        if (! preg_match('/^[A-Za-z0-9._]{1,80}$/', $username)) {
+        if ($url === null) {
             return null;
         }
 
-        if ($this->has($userId, Platform::Instagram->value)) {
+        // Same lesson as socialUsername()'s facebook arm (G4-4), learned again
+        // live 2026-08-20: the standalone regex here matched the reserved
+        // segment of an instagram.com/reel/<shortcode> link on a business's
+        // listing and Apify-scraped literal username "reel" — a 9M-follower
+        // stranger — into an auto-connected account. Delegate to the catalog
+        // projection, which only yields an identifier for a real profile path.
+        $projection = $this->projectInstagramProfile($url);
+        if ($projection->surfaceKey !== 'instagram.profile' || ! is_string($projection->identifier) || $projection->identifier === '') {
+            return null;
+        }
+        $username = $projection->identifier;
+
+        $existing = IntegrationConnection::query()
+            ->where('user_id', $userId)
+            ->where('platform', Platform::Instagram->value)
+            ->first();
+
+        if ($existing !== null) {
+            // M-2 (matrix run 2, live): a retried enrich (attempt 1 killed
+            // mid-flight between the placeholder write and the scrape
+            // dispatch / its run) used to see its OWN half-finished
+            // placeholder here and file a conflict — stranding a "pending"
+            // connection with no username forever, because nothing ever
+            // re-dispatches a lost InstagramConnectJob. A pending placeholder
+            // that THIS seeder created (payload source google-business) is an
+            // unfinished obligation, not a conflict: re-dispatch the scrape
+            // (idempotent — uniqueId is connectionId:username, so a live
+            // duplicate coalesces). A real user connection, or an enriched
+            // seed, still conflicts exactly as before.
+            $payload = CardPayload::fromArray((array) $existing->payload);
+            // STALE only (suite catch on the first cut): a fresh pending
+            // placeholder means the scrape is IN FLIGHT — re-dispatching there
+            // re-claims an Apify budget slot per repeat scan (the #JOB-1 money
+            // hole ScanPreviousWebsiteContentJobTest pins). 16 minutes clears
+            // InstagramConnectJob's 15-minute retryUntil window, so a pending
+            // row older than that has no live job left and IS stranded.
+            $stranded = $existing->last_refresh_status === 'pending'
+                && $payload->source() === 'google-business'
+                && $existing->updated_at->lt(now()->subMinutes(16));
+            if ($stranded) {
+                if (! $this->dispatchInstagram($userId, $username, $autoConnectBooking)) {
+                    return null;
+                }
+
+                return $this->seededFinding(Platform::Instagram->value, Platform::Instagram->value, 'social', 'Instagram', $url);
+            }
+
             return $this->conflictFinding(Platform::Instagram->value, Platform::Instagram->value, 'social', 'Instagram', $url, [
                 'remove' => [Platform::Instagram->value], 'instagram' => ['username' => $username],
             ]);
@@ -774,6 +883,35 @@ class GoogleBusinessAutoSync
      * Returns false when there's no token, the daily budget is spent, or the
      * platform seed lock timed out (skip: no card, no dispatch).
      */
+    /**
+     * Catalog projection with one retry for profile SUB-TAB share links
+     * (/<handle>/reels/, /<handle>/tagged/ — Instagram's own "share this
+     * tab" URLs): the profile detector matches the bare profile path only,
+     * so those project to nothing on the first pass (critic catch,
+     * 2026-08-20 retest). The retry cuts the path to its first segment —
+     * the catalog still rejects reserved segments (reel/p/stories/explore),
+     * so this cannot resurrect the junk the projection was brought in to
+     * stop. Strictly better than the old regex, which extracted "stories"
+     * from /stories/<handle>/<id> as a username.
+     */
+    private function projectInstagramProfile(string $url): Projection
+    {
+        $projection = $this->projector->project($this->canonicalizer->canonicalize($url));
+        if ($projection->surfaceKey === 'instagram.profile') {
+            return $projection;
+        }
+
+        $parts = parse_url($url);
+        $first = explode('/', trim((string) ($parts['path'] ?? ''), '/'))[0];
+        if ($first === '' || ! isset($parts['host'])) {
+            return $projection;
+        }
+
+        return $this->projector->project($this->canonicalizer->canonicalize(
+            ($parts['scheme'] ?? 'https').'://'.$parts['host'].'/'.$first
+        ));
+    }
+
     private function dispatchInstagram(string $userId, string $username, bool $autoConnectBooking = false): bool
     {
         if (! config('services.apify.token') || ! $this->apifyBudget->tryClaim('instagram')) {
@@ -832,6 +970,20 @@ class GoogleBusinessAutoSync
         }
 
         return $q->exists();
+    }
+
+    /**
+     * The hosts FacebookNormalizer's legacy-shape fallback may run against.
+     * The normalizer's regex matches ANY *.facebook.com substring, which is
+     * how developers.facebook.com/docs/instagram parsed to username "docs"
+     * (M-12) — so the fallback is host-gated here instead of trusting it.
+     */
+    private function isCanonicalFacebookHost(string $url): bool
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        $host = (string) preg_replace('/^(www\.|m\.)/', '', $host);
+
+        return in_array($host, ['facebook.com', 'fb.com', 'l.facebook.com', 'lm.facebook.com'], true);
     }
 
     /** Best-effort handle from a canonical social profile URL ('' when none). */

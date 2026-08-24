@@ -30,7 +30,7 @@ class ResetTestUserCommand extends Command
         'routing.import_runs', 'routing.item_tombstones', 'routing.link_observations', 'routing.source_intents',
         'content.item_merges', 'content.identity_decisions', 'content.item_anchors', 'content.item_slugs',
         'content.storefronts', 'content.collections', 'content.items', 'content.sources', 'content.media_assets',
-        'site.item_slugs', 'site.menus',
+        'site.menus',
     ];
 
     public function handle(): int
@@ -75,6 +75,18 @@ class ResetTestUserCommand extends Command
         if ($siteIds->isNotEmpty()) {
             DB::table('site.workplaces')->whereIn('site_id', $siteIds)->delete();
         }
+
+        // Synced identity fields on core.users survive everything above and
+        // cross-contaminate the next probe (B5, 2026-08-21: a stale
+        // sector "barber"/google-business outlived four resets and read as a
+        // gate leak). Non-manual sector only — a deliberate manual pick is
+        // test setup, not sync residue. public_contact_number is the
+        // IdentitySync mirror; public_contact_email is user-typed, kept.
+        $identity = ['public_contact_number' => null];
+        if ($user->sector_source !== 'manual') {
+            $identity += ['sector' => null, 'sector_source' => null];
+        }
+        DB::table('core.users')->where('id', $userId)->update($identity);
 
         $after = $this->counts($userId);
         $this->table(['table', 'after'], collect($after)->map(fn ($v, $k) => [$k, $v])->values()->all());

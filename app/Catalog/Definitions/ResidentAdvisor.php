@@ -28,7 +28,12 @@ class ResidentAdvisor
     {
         return [
             SurfaceBuilder::for('resident_advisor.tickets')
+                ->legacyPlatform('resident-advisor')
                 ->displayName('Resident Advisor')
+                // Not a limited kind of link (owner, 2026-08-19): a content or events
+                // page is one of several a person may run — the 1-account default is for
+                // bookings/reservations/ordering (one provider) and socials (one profile).
+                ->multiAccount(10)
                 ->routing(RoutingClass::Events)
                 ->shelf(Shelf::Events)
                 ->identifier(IdentifierKind::Url)

@@ -2,16 +2,18 @@
 
 use App\Jobs\Platforms\LinkInBioScanJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Routing\Importers\LinkInBioImporter;
 use App\Services\Platforms\LinkRouter;
 use App\Services\Platforms\RouteContext;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
 // F8: the event branch wrote a real eventbrite/humanitix row but returned
 // RouteResult::seeded() with NO findings, so the "we found and connected this"
-// modal (GET /platforms/instagram/synced) never mentioned it. Emitting a
+// modal (the retired GET /platforms/instagram/synced) never mentioned it. Emitting a
 // finding is only half the fix — InstagramController::shapeFinding() resolves a
 // seeded finding back to a live row by "platform|resourceId" and DROPS it when
 // there is no match, and events are the one platform whose resource_id is not
@@ -24,7 +26,7 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupNotificationsTable();
-    // /synced folds new-pipeline Hold intents (SyncFindingsBridge).
+    // The inbox reads intents and folds the legacy payload ledger.
     setupRoutingTables();
 });
 
@@ -60,20 +62,25 @@ function fakeEventbrite(): void
 
 // ── The finding must resolve to the row that was written ─────────────────────
 
-it('stamps a standalone event finding with the resource id of the row it actually wrote', function () {
+it('routes a standalone event to the POOL — no connection row, no finding (R7, 2026-08-19)', function () {
+    // The synced modal that consumed the finding is retired, and the dual
+    // write went with it: the events pool item is the whole outcome — which
+    // needs a site to pin it to.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
     $user = User::factory()->create(['account_type' => 'partna']);
+    $site = new Site(['subdomain' => 'esf-standalone', 'is_published' => true, 'settings' => []]);
+    $site->user()->associate($user);
+    $site->save();
     fakeEventbrite();
 
     $result = app(LinkRouter::class)->route($user, EB_EVENT_URL, new RouteContext);
 
-    $row = IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'eventbrite'])->firstOrFail();
-    expect($result->findings)->toHaveCount(1);
-    expect($result->findings[0]['outcome'])->toBe('seeded');
-    expect($result->findings[0]['platform'])->toBe('eventbrite');
-    // The lookup key shapeFinding() uses. 'eventbrite' as the resourceId — the
-    // shape every other platform has — would silently drop off the modal.
-    expect($result->findings[0]['resourceId'])->toBe($row->resource_id);
-    expect($row->resource_id)->toStartWith('event-');
+    expect($result->outcome)->toBe('custom');
+    expect($result->handled)->toBeTrue();
+    expect($result->findings)->toBeEmpty();
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'eventbrite'])->exists())->toBeFalse();
 });
 
 it('stamps an organiser finding with the resource id of the account row it actually wrote', function () {
@@ -107,18 +114,8 @@ it('reuses the resource id of an existing organiser row rather than the id it wo
 
 // ── Remove path must target the one event/account ────────────────────────────
 
-it('points a standalone event finding at the single-event remove route', function () {
-    // '/platforms/eventbrite' is DELETE forget() — it would drop every event
-    // the user has. removeEvent() takes the BARE id ('event-' is re-added).
-    $user = User::factory()->create(['account_type' => 'partna']);
-    fakeEventbrite();
-
-    $result = app(LinkRouter::class)->route($user, EB_EVENT_URL, new RouteContext);
-
-    $row = IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'eventbrite'])->firstOrFail();
-    $bareId = substr($row->resource_id, strlen('event-'));
-    expect($result->findings[0]['removePath'])->toBe('/platforms/eventbrite/events/'.$bareId);
-});
+// (The standalone-event remove-path pin left with the finding itself — R7:
+// a pasted event is a pool item; the pool row carries its own remove.)
 
 it('points an organiser finding at the single-account remove route', function () {
     // removeAccount() matches on the FULL resource_id, unlike removeEvent().
@@ -133,9 +130,15 @@ it('points an organiser finding at the single-account remove route', function ()
 
 // ── End to end: it reaches the modal ─────────────────────────────────────────
 
-it('shows an event found inside a link-in-bio page as synced in the modal', function () {
+it('seeds an event found inside a link-in-bio page as a pool ITEM only — no eventbrite platform row', function () {
     Queue::fake();
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
     $user = User::factory()->create(['account_type' => 'partna']);
+    $site = new Site(['subdomain' => 'ebscan', 'is_published' => true, 'settings' => []]);
+    $site->user()->associate($user);
+    $site->save();
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
         'payload' => ['syncFindings' => [], 'unmatched' => []], 'is_active' => true,
@@ -147,18 +150,41 @@ it('shows an event found inside a link-in-bio page as synced in the modal', func
 
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(app(LinkInBioImporter::class));
 
-    // NEW CONTRACT (LinkInBioImporter migration, owner ruling 2026-08-18):
-    // the event still seeds — a real eventbrite connection and its event item
-    // exist the moment the scan lands — but the synced MODAL no longer lists
-    // items found one hop inside a bio page: the modal is payload findings
-    // (written by the still-legacy direct bio scan) plus the B4 conflict
-    // fold, and successful placements on the new path write neither. Modal
-    // completeness for unroll-found items returns when InstagramAutoSync
-    // (P8 consumer 2) migrates and the fold is widened with it.
-    $conn = IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'eventbrite'])->first();
-    expect($conn)->not->toBeNull();
-    expect($conn->resource_id)->toStartWith('event-');
+    // Owner ruling 2026-08-18 (gsnwilliams): a single event is an ITEM, not a
+    // platform. The new lane records no payload finding, so a
+    // resource_kind='event' connection row was read by nobody and only
+    // surfaced as a bogus "Eventbrite" card beside the real event. This path
+    // now writes exactly what the interactive addEvent verb writes — the pool
+    // item — and nothing under site.platform_connections.
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'eventbrite'])->exists())->toBeFalse();
 
-    $synced = actingAsUser($user)->getJson('/api/platforms/instagram/synced')->assertOk()->json('synced');
-    expect(collect($synced)->firstWhere('platform', 'eventbrite'))->toBeNull();
+    $items = DB::table('content.items')->where('user_id', $user->id)->where('kind', 'event')->whereNull('removed_at')->get();
+    expect($items)->toHaveCount(1);
+
+    // Nor does it ask about it: a successful placement writes neither a
+    // payload finding nor a blocked intent, so the suggestions inbox has
+    // nothing to say. (Until 2026-08-19 this read the retired synced modal.)
+    $suggestions = actingAsUser($user)->getJson('/api/routing/suggestions')->assertOk()->json('suggestions');
+    expect(collect($suggestions)->firstWhere('surfaceKey', 'eventbrite.organiser'))->toBeNull()
+        ->and(collect($suggestions)->firstWhere('id', 'sync:instagram:eventbrite'))->toBeNull();
+});
+
+it('tags a bio-found event with its origin so the sheet can say where it came from', function () {
+    Queue::fake();
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
+    $user = User::factory()->create(['account_type' => 'partna']);
+    $site = new Site(['subdomain' => 'eborig', 'is_published' => true, 'settings' => []]);
+    $site->user()->associate($user);
+    $site->save();
+    Http::fake([
+        'linktr.ee/*' => Http::response('<a href="'.EB_EVENT_URL.'">Tickets</a>', 200),
+        'www.eventbrite.com.au/e/*' => Http::response(ebEventPage(EB_EVENT_URL), 200),
+    ]);
+
+    (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(app(LinkInBioImporter::class));
+
+    $itemId = DB::table('content.items')->where('user_id', $user->id)->where('kind', 'event')->value('id');
+    expect(DB::table('content.item_tags')->where('item_id', $itemId)->where('tag_type', 'origin')->value('tag'))->toBe('link_in_bio');
 });

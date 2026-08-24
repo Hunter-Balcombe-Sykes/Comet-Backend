@@ -4,6 +4,7 @@ namespace App\Observers\Core;
 
 use App\Jobs\Platforms\ScanPreviousWebsiteContentJob;
 use App\Models\Core\Site\Workplace;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\SiteCacheInvalidator;
 use Illuminate\Support\Facades\Log;
 
@@ -66,40 +67,67 @@ class WorkplaceObserver
             );
         }
 
-        // Keep User.public_contact_number/email (what the public sitepage
-        // actually renders) in step with Workplace.phone/contact_email for
-        // EVERY writer, not just the dashboard's own save path (which used
-        // to be the only caller of this mirror — UserWorkplaceController's
-        // own mirrorContactFields() was removed in favour of this, so a
-        // scan/sync-written contact_email now reaches the public page
-        // automatically too, same as a manual edit always did).
-        if ($workplace->wasRecentlyCreated || $workplace->wasChanged(['phone', 'contact_email'])) {
-            $this->mirrorContactFields($workplace);
+        // One rule for every workplace-vs-person field (2026-08-19 identity
+        // plan): for a BUSINESS the workplace IS the account, so each field
+        // mirrors onto the matching user column; for a partna the two are
+        // independent and nothing mirrors. Gated on the capability, never on
+        // account_type.
+        if ($workplace->wasRecentlyCreated || $workplace->wasChanged(array_keys(self::IDENTITY_MIRROR))) {
+            $this->mirrorIdentityFields($workplace);
         }
     }
 
-    private function mirrorContactFields(Workplace $workplace): void
+    // workplace column => user column. `country` mirrors to location_country
+    // only — country_code stays alone, it also drives phone formatting.
+    private const IDENTITY_MIRROR = [
+        'phone' => 'public_contact_number',
+        'contact_email' => 'public_contact_email',
+        'description' => 'bio',
+        'address_line1' => 'location_street_address',
+        'city' => 'location_city',
+        'state' => 'location_state',
+        'postcode' => 'location_postcode',
+        'country' => 'location_country',
+    ];
+
+    private function mirrorIdentityFields(Workplace $workplace): void
     {
         try {
             $user = $workplace->site?->user;
             if ($user === null) {
                 return;
             }
-            $dirty = false;
-            if ($user->public_contact_number !== $workplace->phone) {
-                $user->public_contact_number = $workplace->phone;
-                $dirty = true;
+            if (! AccountCapabilities::for($user)->workplace_brand_is_site_identity) {
+                return;
             }
-            if ($user->public_contact_email !== $workplace->contact_email) {
-                $user->public_contact_email = $workplace->contact_email;
-                $dirty = true;
+
+            // On CREATE, mirror only NON-NULL fields; on UPDATE, mirror
+            // exactly what wasChanged() reports (nulls included, so clearing
+            // still clears). The old mirror assigned unconditionally on
+            // create, so a workplace row minted for an unrelated reason
+            // (setPreviousWebsite's updateOrCreate, the content scan's
+            // firstOrNew) WIPED the user's fields with nulls — widening the
+            // mirror from 2 columns to 8 makes that rule load-bearing.
+            $dirty = false;
+            foreach (self::IDENTITY_MIRROR as $from => $to) {
+                if ($workplace->wasRecentlyCreated) {
+                    if ($workplace->{$from} === null) {
+                        continue;
+                    }
+                } elseif (! $workplace->wasChanged($from)) {
+                    continue;
+                }
+                if ($user->{$to} !== $workplace->{$from}) {
+                    $user->{$to} = $workplace->{$from};
+                    $dirty = true;
+                }
             }
             if ($dirty) {
                 $user->save();
             }
         } catch (\Throwable $e) {
             report($e);
-            Log::warning('WorkplaceObserver contact-mirror failed', [
+            Log::warning('WorkplaceObserver identity-mirror failed', [
                 'site_id' => $workplace->site_id,
                 'message' => $e->getMessage(),
             ]);

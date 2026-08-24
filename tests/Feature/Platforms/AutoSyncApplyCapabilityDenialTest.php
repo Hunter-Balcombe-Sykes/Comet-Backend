@@ -1,12 +1,14 @@
 <?php
 
 // #TEST-1 / #SILENT-1: BuildsAutoSyncFindings::applyFinding()'s apply-time
-// capability re-check (2026-08-04) now THROWS AuthorizationException on a
+// capability re-check (2026-08-04) THROWS AuthorizationException on a
 // booking/reservations denial instead of the bare `return true` #SILENT-1
 // documented — the old behaviour looked like success (200, finding flipped
-// to 'seeded') while nothing was actually written. This guards BOTH callers
-// that share the trait: GoogleBusinessController::applySync() and
-// InstagramController::applySync().
+// to 'seeded') while nothing was actually written.
+//
+// 2026-08-19: the two per-platform "Change to" endpoints this guarded are
+// retired; the swap is one row in the suggestions inbox, addressed
+// `sync:{holder}:{platform}`. Same trait, same denial, one caller.
 //
 // The fixture trap: every applySync fixture in InstagramSyncedTest.php /
 // GoogleBusinessApifyTest.php uses either a plain User::create() (account_type
@@ -23,11 +25,8 @@ beforeEach(function () {
     // IntegrationConnectionObserver::seedContentFromGoogle() fires on every
     // saved google-business connection — needs the table even though this
     // file never asserts on it.
-    // Both controllers' applySync() ends by re-rendering synced(), which
-    // folds in routing.source_intents (SyncFindingsBridge) — needed even on
-    // the denial path this file exercises, since a 403 is thrown before
-    // synced() would ever run, but the route registration/other passes
-    // through it regardless.
+    // The inbox reads routing.source_intents alongside the folded payload
+    // findings, so the table must exist even on the denial path.
     setupRoutingTables();
 });
 
@@ -45,7 +44,7 @@ function autoSyncBookingConflictFinding(): array
     ];
 }
 
-it('403s POST /platforms/google-business/synced/apply for a booking finding a food-sector business account cannot have, and leaves the finding conflict', function () {
+it('403s accepting a Google-Business booking finding a food-sector business account cannot have, and leaves the finding conflict', function () {
     $user = createTenant('gbdeny-food', ['account_type' => 'business', 'sector' => 'restaurant']);
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'google-business', 'resource_id' => 'google-business',
@@ -53,7 +52,7 @@ it('403s POST /platforms/google-business/synced/apply for a booking finding a fo
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    $response = actingAsUser($user)->postJson('/api/platforms/google-business/synced/apply', ['platform' => 'fresha']);
+    $response = actingAsUser($user)->postJson('/api/routing/suggestions/sync:google-business:fresha/accept');
 
     $response->assertStatus(403)
         ->assertJsonPath('message', 'booking is not available for this account');
@@ -64,7 +63,7 @@ it('403s POST /platforms/google-business/synced/apply for a booking finding a fo
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
 });
 
-it('403s POST /platforms/instagram/synced/apply for a booking finding a food-sector business account cannot have, and leaves the finding conflict', function () {
+it('403s accepting an Instagram booking finding a food-sector business account cannot have, and leaves the finding conflict', function () {
     $user = createTenant('igdeny-food', ['account_type' => 'business', 'sector' => 'restaurant']);
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
@@ -72,7 +71,7 @@ it('403s POST /platforms/instagram/synced/apply for a booking finding a food-sec
         'is_active' => true, 'last_refresh_status' => 'ok',
     ]);
 
-    $response = actingAsUser($user)->postJson('/api/platforms/instagram/synced/apply', ['platform' => 'fresha']);
+    $response = actingAsUser($user)->postJson('/api/routing/suggestions/sync:instagram:fresha/accept');
 
     $response->assertStatus(403)
         ->assertJsonPath('message', 'booking is not available for this account');

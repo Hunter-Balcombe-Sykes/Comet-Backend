@@ -193,11 +193,11 @@ it('DELIBERATELY VACUOUS — flag on: an unresolvable organiser URL still 422s i
     expect(IntegrationConnection::query()->count())->toBe(0);
 });
 
-it('flag on: the 5-account cap still 422s SYNCHRONOUSLY, before the 202 and before any dispatch', function () {
+it('flag on: the account cap still 422s SYNCHRONOUSLY, before the 202 and before any dispatch', function () {
     config(['partna.connect.deferred' => ['eventbrite']]);
     $user = eventsAsyncUser('ebcap1');
 
-    for ($i = 0; $i < 5; $i++) {
+    for ($i = 0; $i < 10; $i++) {
         IntegrationConnection::create([
             'user_id' => $user->id,
             'platform' => 'eventbrite',
@@ -209,16 +209,16 @@ it('flag on: the 5-account cap still 422s SYNCHRONOUSLY, before the 202 and befo
         ]);
     }
 
-    $url = 'https://www.eventbrite.com/o/sixth';
+    $url = 'https://www.eventbrite.com/o/one-too-many';
     $this->mock(EventbriteScraper::class, fn ($m) => $m->shouldReceive('normalizeOrgUrl')->once()->andReturn($url));
     Queue::fake();
 
     actingAsUser($user)->postJson('/api/platforms/eventbrite/connect', ['url' => $url])
         ->assertStatus(422)
-        ->assertJsonPath('message', 'You can connect up to 5 accounts.');
+        ->assertJsonPath('message', 'You can connect up to 10 accounts.');
 
     Queue::assertNothingPushed();
-    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'eventbrite')->count())->toBe(5);
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'eventbrite')->count())->toBe(10);
 });
 
 it('flag on: a held platform lock still 423s synchronously and queues nothing', function () {
@@ -530,7 +530,7 @@ it('a pending account row is publicly active and renders {url} only — never a 
 
     actingAsUser($user)->postJson('/api/platforms/eventbrite/connect', ['url' => $url])->assertStatus(202);
 
-    $res = $this->getJson("/api/public/profiles/{$user->handle}/platforms")->assertOk();
+    $res = $this->getJson("/api/public/profiles/{$user->handle}/integrations")->assertOk();
 
     // The legacy events lane was retired in slice 2 Task 9: eventbrite's
     // public allowlist is now empty, so a pending row publishes NOTHING rather

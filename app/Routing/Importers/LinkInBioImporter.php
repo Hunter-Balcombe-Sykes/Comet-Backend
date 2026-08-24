@@ -7,10 +7,14 @@ use App\Models\Core\User\User;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
 use App\Routing\SecretParams;
+use App\Routing\ShortLinkExpander;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Notifications\FindingsNotifier;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\EventsSeeder;
+use App\Services\Platforms\LinkInBioApiUnroller;
+use App\Services\Platforms\LinkInBioInlinePayloadReader;
+use App\Services\Platforms\MediaSeeder;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -32,7 +36,7 @@ use Illuminate\Support\Facades\Log;
  * ONE run, N pages. An Instagram bio harvest hands over every URL it found in
  * one profile (bio text, `external_url`, the link sticker) — that is a single
  * acquisition of one account, and recording it as N separate runs would both
- * burn N of the user's 3 daily slots and lie about what happened. The batch
+ * burn N of the user's daily slots (ImportRun::DAILY_LIMIT) and lie about what happened. The batch
  * is therefore the unit: one `routing.import_runs` row, one shared dedupe
  * table, one shared link budget.
  */
@@ -43,29 +47,46 @@ class LinkInBioImporter
      * acquisition, so it gets one budget; a single-URL import is a batch of
      * one and sees the identical cap it always had.
      */
-    private const MAX_LINKS = 100;
+    private const MAX_LINKS = 300;
 
     /** Hard cap on pages fetched in one run. */
-    private const MAX_PAGES = 20;
+    private const MAX_PAGES = 50;
 
     /** Run kinds this importer may record. Mirrors routing.import_runs.kind. */
     private const KINDS = ['link_in_bio', 'bio_harvest'];
 
     /** Probe budget per RUN — parity with the legacy RouteContext::DEFAULT_MAX_PROBES. */
-    private const MAX_PROBES = 6;
+    private const MAX_PROBES = 18;
+
+    /**
+     * Substrings that identify a Cloudflare refusal page rather than the site.
+     * Two products, two shapes: a managed challenge the browser can solve, and
+     * a firewall block that nothing can. Both are 403 to us.
+     */
+    private const CHALLENGE_MARKERS = [
+        'Just a moment',
+        'Attention Required',
+        '__cf_chl',
+        'cf-browser-verification',
+        'Checking your browser',
+    ];
 
     public function __construct(
         private readonly SafeUrlFetcher $fetcher,
         private readonly WebsiteLinkHarvester $harvester,
+        private readonly LinkInBioApiUnroller $api,
+        private readonly LinkInBioInlinePayloadReader $inline,
         private readonly LinkRoutingService $routing,
         private readonly CustomLinkSeeder $seeder,
         private readonly EventsSeeder $events,
+        private readonly MediaSeeder $media,
+        private readonly ShortLinkExpander $expander,
     ) {}
 
     /**
      * @param  string|list<string>  $bioPageUrls  one page, or the list a bio harvest produced
      * @param  string  $kind  'link_in_bio' (a page the user named) | 'bio_harvest' (URLs lifted off a profile)
-     * @return array{outcome: string, observations: int, connected: int, suggested: int, noted: int, dropped: int, skipped_chrome: int, pages: int, pages_unavailable: int}
+     * @return array{outcome: string, observations: int, connected: int, suggested: int, noted: int, dropped: int, skipped_chrome: int, pages: int, pages_unavailable: int, unavailable_reasons: array<string, int>}
      */
     public function import(User $user, string|array $bioPageUrls, string $kind = 'link_in_bio'): array
     {
@@ -74,7 +95,7 @@ class LinkInBioImporter
         }
 
         $pages = $this->normalisePages($bioPageUrls);
-        $empty = ['observations' => 0, 'connected' => 0, 'suggested' => 0, 'noted' => 0, 'probed' => 0, 'dropped' => 0, 'skipped_chrome' => 0, 'pages' => 0, 'pages_unavailable' => 0, 'bio_url_seeded' => false];
+        $empty = ['observations' => 0, 'connected' => 0, 'suggested' => 0, 'noted' => 0, 'items' => 0, 'probed' => 0, 'dropped' => 0, 'folded' => 0, 'skipped_chrome' => 0, 'pages' => 0, 'pages_unavailable' => 0, 'unavailable_reasons' => [], 'bio_url_seeded' => false];
 
         if ($pages === []) {
             return ['outcome' => 'unavailable'] + $empty;
@@ -89,18 +110,34 @@ class LinkInBioImporter
         }
 
         $context = RoutingContext::forUser($user, $kind, $runId);
-        $tally = ['connected' => 0, 'suggested' => 0, 'noted' => 0, 'probed' => 0, 'dropped' => 0, 'skipped_chrome' => 0];
+        $tally = ['connected' => 0, 'suggested' => 0, 'noted' => 0, 'items' => 0, 'probed' => 0, 'dropped' => 0, 'folded' => 0, 'skipped_chrome' => 0];
         $seen = [];
         $probedHosts = [];
         $placedKeys = [];
         $droppedReasons = [];
         $unavailable = 0;
+        $unavailableReasons = [];
 
         foreach ($pages as $pageUrl) {
             $response = $this->fetcher->tryFetch($pageUrl);
 
             if ($response === null || $response['status'] !== 200 || $response['body'] === '') {
                 $unavailable++;
+                $reason = $this->unavailableReason($response);
+                $unavailableReasons[$reason] = ($unavailableReasons[$reason] ?? 0) + 1;
+
+                // A bot challenge is the only reason worth waking someone for:
+                // it means the host is refusing US specifically, and no amount
+                // of parsing will fix it (bio.link, heylink.me, direct.me and
+                // beacons.ai sit behind one). Every other reason is the page's
+                // own problem and stays in the run detail tally.
+                if ($reason === 'bot_challenge') {
+                    Log::warning('platforms.link_in_bio.host_blocked_us', [
+                        'user_id' => (string) $user->id,
+                        'host' => strtolower((string) parse_url($pageUrl, PHP_URL_HOST)),
+                        'status' => $response['status'] ?? null,
+                    ]);
+                }
 
                 continue;
             }
@@ -111,13 +148,32 @@ class LinkInBioImporter
         $fetched = count($pages) - $unavailable;
         $observations = count($seen);
 
+        // Suppression is READ, not absorbed (critic, 2026-08-20): a
+        // tombstoned item/event counts in its lane's tally as HANDLED (no
+        // card may carry it), and this says how many of those handled were
+        // deliberate no-writes.
+        $tally['tombstoned'] = $this->media->tombstonedThisRun() + $this->events->tombstonedThisRun();
+
         // Zero-yield floor (N2): a MATCHED bio host that unrolls to nothing is
         // a silent total loss — the detector claimed the URL, so no other path
-        // will ever write it. linkin.bio (an Ember SPA, zero anchors in the
-        // delivered shell) is the live case. Keyed on nothing-routable, so an
-        // all-own-chrome page floors identically.
+        // will ever write it (InstagramAutoSync dispatches this job and
+        // `continue`s: "Nothing about the bio-link URL itself is persisted").
+        // linkin.bio (an Ember SPA, zero anchors in the delivered shell) is the
+        // live case. Keyed on nothing-routable, so an all-own-chrome page floors
+        // identically.
+        //
+        // The `$fetched > 0` guard this used to carry made the floor inert in
+        // the one case that needs it most. Five detector hosts — bio.link,
+        // heylink.me, direct.me, lnk.bio, beacons.ai — sit behind a Cloudflare
+        // challenge or WAF block and answer 403 to both of SafeUrlFetcher's UA
+        // attempts. Every page then counts as unavailable, `$fetched` is 0, the
+        // floor did not fire, and the user's bio link was dropped ENTIRELY: no
+        // links AND no card, strictly worse than the inert card linkin.bio got.
+        // A URL we could not read is still a URL the owner published, so it
+        // floors too. `$pages` is non-empty here — the `$pages === []` early
+        // return above guarantees it.
         $bioUrlSeeded = false;
-        if ($fetched > 0 && $observations === 0) {
+        if ($observations === 0) {
             $this->seeder->seedCustom($user, $pages[0]);
             $bioUrlSeeded = true;
         }
@@ -143,7 +199,7 @@ class LinkInBioImporter
             // dropped_reasons is the durable half of the drop trace: the log
             // line ages out, this row does not, so "which link went where"
             // stays answerable per run without replaying the page (#R2).
-            detail: $tally + ['dropped_reasons' => $droppedReasons, 'pages' => array_map(SecretParams::minimiseUrl(...), $pages), 'pages_unavailable' => $unavailable, 'bio_url_seeded' => $bioUrlSeeded],
+            detail: $tally + ['dropped_reasons' => $droppedReasons, 'pages' => array_map(SecretParams::minimiseUrl(...), $pages), 'pages_unavailable' => $unavailable, 'unavailable_reasons' => $unavailableReasons, 'bio_url_seeded' => $bioUrlSeeded],
         );
 
         // Conflict parity with the legacy job: the findings themselves are
@@ -170,21 +226,109 @@ class LinkInBioImporter
             );
         }
 
-        return ['outcome' => $outcome, 'observations' => $observations, 'pages' => $fetched, 'pages_unavailable' => $unavailable, 'bio_url_seeded' => $bioUrlSeeded] + $tally;
+        return ['outcome' => $outcome, 'observations' => $observations, 'pages' => $fetched, 'pages_unavailable' => $unavailable, 'unavailable_reasons' => $unavailableReasons, 'bio_url_seeded' => $bioUrlSeeded] + $tally;
     }
 
     /**
-     * @param  array{connected:int, suggested:int, noted:int, probed:int, dropped:int, skipped_chrome:int}  $tally
+     * Why a page could not be read — so "the host refuses us" stops looking
+     * identical to "the page is gone".
+     *
+     * The old log said only `pages_unavailable: 1`, which cannot tell a bot
+     * block from a 404 or a dead domain. That mattered: four detector hosts
+     * (bio.link, heylink.me, direct.me, beacons.ai) serve a Cloudflare refusal
+     * at the EDGE, so nothing downstream — not an API seam, not a better
+     * parser — can reach them, and we had no way to notice it was happening.
+     *
+     * `bot_challenge` covers both of Cloudflare's shapes: the managed JS
+     * challenge ("Just a moment…") and the hard WAF block ("Attention
+     * Required!"). Both arrive as 403 AFTER SafeUrlFetcher has already retried
+     * with its honest-bot UA, so reaching here means both attempts were
+     * refused and the User-Agent was not the reason.
+     *
+     * @param  array{status:int, body:string}|null  $response
+     */
+    private function unavailableReason(?array $response): string
+    {
+        // No response at all: DNS failure, SSRF refusal, or transport error.
+        if ($response === null) {
+            return 'unreachable';
+        }
+
+        $status = $response['status'];
+        $body = $response['body'];
+
+        if (in_array($status, [401, 403, 503], true)) {
+            foreach (self::CHALLENGE_MARKERS as $marker) {
+                if (str_contains($body, $marker)) {
+                    return 'bot_challenge';
+                }
+            }
+
+            return 'refused';
+        }
+
+        return match (true) {
+            $status === 404 || $status === 410 => 'not_found',
+            $status >= 500 => 'server_error',
+            // A 200 that reaches here had an empty body — the shell served
+            // nothing at all, which is not the same as being turned away.
+            $status === 200 => 'empty_body',
+            default => 'http_'.$status,
+        };
+    }
+
+    /**
+     * @param  array{connected:int, suggested:int, noted:int, items:int, probed:int, dropped:int, folded:int, skipped_chrome:int}  $tally
      * @param  array<string, true>  $seen
      * @param  array<string, true>  $probedHosts
-     * @param  array<string, true>  $placedKeys
+     * @param  array<string, string>  $placedKeys  surface:identifier => first canonical URL
      * @param  array<string, int>  $droppedReasons
      */
     private function unroll(string $baseUrl, string $body, RoutingContext $context, array &$tally, array &$seen, array &$probedHosts, array &$placedKeys, array &$droppedReasons): void
     {
         $ownHost = strtolower((string) parse_url($baseUrl, PHP_URL_HOST));
 
-        foreach ($this->harvester->allOutboundLinks($body, $baseUrl) as $url) {
+        // Some aggregators ship no anchors at all — linkin.bio, taplink.cc and
+        // stan.store deliver empty SPA shells, so the harvest below reads zero
+        // links off a page that has eight (N2). Two seams answer them: an API
+        // read for those three, and an inline-payload parse for liinks.co,
+        // whose links are already in the body we just fetched. Both answer null
+        // for any host they cannot read — INCLUDING when the API is down — so
+        // the anchor pass stays the default and the floor backstops all four.
+        $apiLinks = $this->api->unroll($baseUrl)
+            ?? $this->inline->read($baseUrl, $body);
+        $links = $apiLinks ?? $this->harvester->allOutboundLinks($body, $baseUrl);
+
+        // F12 (2026-08-20, the natalieannehair stan.store trace): the API and
+        // inline unrollers return the platform's TILE links and never see the
+        // shell's own footer SOCIAL anchors — her TikTok and Facebook sat in
+        // the delivered DOM, unseen. Merge just the SOCIAL-classified anchors
+        // back in: tiles stay API-authoritative and APPENDED-to (never
+        // replaced), and the shell's legal/asset links (assets.stanwith.me
+        // PDFs…) can't classify as social, so no junk rides along. Gated on
+        // the API/inline arm answering — when the anchor arm already produced
+        // $links this would be a second identical parse for zero new URLs
+        // ($seen would fold every one). classify() is grammar+catalog only,
+        // no fetches. NB none of the four CURRENT API hosts exercises this:
+        // their raw shells ship no social anchors at all (stan's live in its
+        // __NUXT__ blob and ride the API instead — see
+        // LinkInBioApiUnroller::stanStore). This merge is insurance for a
+        // future API/inline host whose shell DOES server-render socials —
+        // the natalieannehair miss showed how silently that class of gap
+        // hides. Known, accepted exposure: a
+        // shell rendering the AGGREGATOR's own social badges would sweep
+        // them in, exactly as every anchor-harvested host always has.
+        // Socials append AFTER tiles, so MAX_LINKS starvation is only
+        // conceivable in multi-page batches.
+        if ($apiLinks !== null) {
+            $anchorSocials = array_values(array_filter(
+                $this->harvester->allOutboundLinks($body, $baseUrl),
+                fn (string $link): bool => ($this->harvester->classify($link)['category'] ?? null) === 'social',
+            ));
+            $links = array_merge($links, $anchorSocials);
+        }
+
+        foreach ($links as $url) {
             if (count($seen) >= self::MAX_LINKS) {
                 return;
             }
@@ -202,6 +346,16 @@ class LinkInBioImporter
                 continue;
             }
             $seen[$fingerprint] = true;
+
+            // FI-9 (T4 live, 2026-08-20): expand HERE, not only inside
+            // route(), so every downstream consumer sees the destination —
+            // before this, route() expanded internally but handleUnrouted's
+            // probe dispatch and card fallback still carried the SHORT url:
+            // a tinyurl'd course page was probed as tinyurl.com (reject:
+            // shortener → probe wasted) and carded as "tinyurl.com" while
+            // its expansion routed separately. Cached, so route()'s own
+            // expansion of the same URL is a cache hit, not a second fetch.
+            $url = $this->expander->expandIfShort($url);
 
             $result = $this->routing->route($url, $context);
 
@@ -223,8 +377,8 @@ class LinkInBioImporter
      * router's Issue-M rule, carried).
      *
      * @param  array<string, mixed>  $result
-     * @param  array{connected:int, suggested:int, noted:int, probed:int, dropped:int, skipped_chrome:int}  $tally
-     * @param  array<string, true>  $placedKeys
+     * @param  array{connected:int, suggested:int, noted:int, items:int, probed:int, dropped:int, folded:int, skipped_chrome:int}  $tally
+     * @param  array<string, string>  $placedKeys  surface:identifier => first canonical URL
      */
     private function handlePlaced(string $url, array $result, RoutingContext $context, array &$tally, array &$placedKeys): void
     {
@@ -233,14 +387,35 @@ class LinkInBioImporter
             ? ($routed['surfaceKey'] ?? '').':'.($routed['identifier'] ?? '')
             : ':';
 
+        // "Distinct" means a distinct CANONICAL, not a distinct raw string
+        // (T1.5g round 3, 2026-08-20): the same Spotify artist arrived twice
+        // in one run — the __NEXT_DATA__ tile and the shell's own anchor,
+        // differing only in tracking params — and the raw-string dedupe let
+        // the second one through to a "Spotify – Web Player" card duplicating
+        // the connection just made. Same URL is a silent fold; only a
+        // genuinely different page for the same account still cards.
+        // '://www.' folds too (FI-11, T5 live): a Linktree tile said
+        // www.instagram.com/<handle> while its socialLinks row said
+        // instagram.com/<handle> — one page, two canonicals, and the second
+        // became an "Instagram" card beside the fold.
+        $canonical = str_replace('://www.', '://', strtolower(trim((string) ($result['canonicalUrl'] ?? $url))));
+
         if (isset($placedKeys[$key]) && $context->user !== null) {
+            if ($placedKeys[$key] === $canonical) {
+                // Its OWN bucket, not 'noted' (critic pass 2): 'noted' claims
+                // a card exists — the exact lie #R2 fixed — and a
+                // same-canonical fold writes nothing, deliberately.
+                $tally['folded']++;
+
+                return;
+            }
             $tally['noted']++;
             $this->seeder->seedCustom($context->user, $url);
 
             return;
         }
 
-        $placedKeys[$key] = true;
+        $placedKeys[$key] = $canonical;
         $tally['connected']++;
     }
 
@@ -258,7 +433,7 @@ class LinkInBioImporter
      * site's nav exhaust the whole budget (found live 2026-08-10).
      *
      * @param  array<string, mixed>  $result
-     * @param  array{connected:int, suggested:int, noted:int, probed:int, dropped:int, skipped_chrome:int}  $tally
+     * @param  array{connected:int, suggested:int, noted:int, items:int, probed:int, dropped:int, folded:int, skipped_chrome:int}  $tally
      * @param  array<string, true>  $probedHosts
      * @param  array<string, int>  $droppedReasons  reason => count, for the run detail
      */
@@ -275,20 +450,49 @@ class LinkInBioImporter
         }
 
         if ($result['verdict'] === 'note') {
-            // Standalone EVENT pages (an Eventbrite /e/… link, a Humanitix
-            // event) have no catalog detector yet — only organiser surfaces
-            // do — so they land here unmatched. The legacy classifier still
-            // knows their shapes; seed them INLINE through EventsSeeder
-            // exactly as the legacy router's event arm did — the seeded
-            // connection is what makes the event show as synced in the modal
-            // the moment the scan lands (EventSyncFindingsTest pins this).
-            // Spends NO commerce budget: events were never probes. A seeder
-            // failure cards the link, never drops it.
             $classified = $this->harvester->classify($url);
+
+            // T6 (2026-08-20): media ITEMS — a video/track/release/episode
+            // URL becomes a real watch/listen pool item (library, never
+            // auto-pinned), the media twin of the events arm below. The
+            // grammar is MediaPageReader's own (shared via classify), so the
+            // scan lane and the paste lane can never disagree about what an
+            // item is. A failed read or a tombstoned item cards the link —
+            // nothing vanishes. Spends NO commerce budget.
+            if (($classified['category'] ?? null) === 'content-item') {
+                try {
+                    $seeded = $this->media->seedItem($context->user, $url, origin: $context->origin);
+                } catch (\Throwable $e) {
+                    report($e);
+                    $seeded = null;
+                }
+
+                if ($seeded !== null) {
+                    $tally['items']++;
+                } else {
+                    $tally['noted']++;
+                    $this->seeder->seedCustom($context->user, $url);
+                }
+
+                return;
+            }
+
+            // Standalone EVENT pages (an Eventbrite /e/… link, a Humanitix
+            // event) carry a Note-strength detector at best — never a
+            // placement — so they land here. The legacy classifier still
+            // knows their shapes; seed them INLINE through EventsSeeder.
+            // A single event is an ITEM, not a platform: this path writes
+            // the pool item only (withConnectionRow: false — same write as
+            // the interactive addEvent verb). It records no payload finding,
+            // so nothing would have read a connection row anyway
+            // (EventSyncFindingsTest pins the modal contract). An ORGANISER
+            // link is a real account and does connect. Spends NO commerce
+            // budget: events were never probes. A seeder failure cards the
+            // link, never drops it.
             if (in_array($classified['category'] ?? null, ['event', 'event-organiser'], true)) {
                 try {
                     $seeded = $classified['category'] === 'event'
-                        ? $this->events->seedStandalone($context->user, $classified['platform'], $url)
+                        ? $this->events->seedStandalone($context->user, $classified['platform'], $url, origin: $context->origin)
                         : $this->events->seedAccount($context->user, $classified['platform'], $url);
                 } catch (\Throwable $e) {
                     report($e);
@@ -331,6 +535,19 @@ class LinkInBioImporter
         }
 
         if ($result['verdict'] === 'note') {
+            $tally['noted']++;
+            $this->seeder->seedCustom($context->user, $url);
+
+            return;
+        }
+
+        // L-3 + FI-3 (2026-08-20): a shortener reject here is a real link the
+        // user published — a NESTED aggregator (their "other" Linktree; depth
+        // stays 1, no recursive unroll) or a short link whose expansion
+        // failed (dead bit.ly, unreachable on.soundcloud.com). Both used to
+        // silently drop; zero-loss means they become cards, exactly like a
+        // Note. Tombstoned/malformed/own-infra rejects still drop below.
+        if (($result['blockReason'] ?? null) === 'shortener') {
             $tally['noted']++;
             $this->seeder->seedCustom($context->user, $url);
 

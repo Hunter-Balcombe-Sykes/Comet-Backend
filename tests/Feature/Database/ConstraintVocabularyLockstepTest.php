@@ -40,7 +40,7 @@
 use App\Http\Requests\Api\PublicSite\Analytics\ItemSeenRequest;
 use App\Http\Requests\Platforms\UpdateShopBrandRequest;
 use App\Models\Core\Site\Site;
-use App\Services\Analytics\RankedActionsComputer;
+use App\Services\Analytics\ActionScorer;
 
 /**
  * Read a migration file's contents by basename, from supabase/migrations/ or the
@@ -120,12 +120,14 @@ function lockstepAssertSameSet(array $a, array $b, string $label): void
 
 it('item_views_item_type_check matches ItemSeenRequest::ITEM_TYPES and the hardcoded expected set', function () {
     // Hand-written anchor, independent of both the migration and the app class.
+    // 2026-08-23: service_category joined (smart ordering v2, D2). The CHECK
+    // was recreated by the service_category_family migration, which this reads.
     $expected = [
-        'shop_product', 'menu_item', 'menu_category', 'service', 'block',
+        'shop_product', 'menu_item', 'menu_category', 'service', 'service_category', 'block',
         'gallery_item', 'engine_item', 'listen_item', 'watch_item', 'link_item',
     ];
 
-    $sql = lockstepMigrationSql('20260720100400_item_views_item_type_check.sql');
+    $sql = lockstepMigrationSql('20260823130000_service_category_family.sql');
     $migrationList = lockstepExtractInList($sql, 'item_type');
 
     lockstepAssertSameSet($migrationList, $expected, 'item_views_item_type_check (migration vs hardcoded)');
@@ -134,25 +136,23 @@ it('item_views_item_type_check matches ItemSeenRequest::ITEM_TYPES and the hardc
 
 // ─── analytics.content_popularity_scores.content_type (SCHEMA-2) ────────────
 
-it('content_popularity_scores_content_type_check matches the item taxonomy + page + action', function () {
-    // The content_type vocabulary is the full item-type taxonomy plus the two
-    // non-item grains: 'page' (section/page scores) and 'action'
-    // (RankedActionsComputer's derived ranked-action layer).
+it('content_popularity_scores_content_type_check matches the item taxonomy + action', function () {
+    // 2026-08-23: 'page' left the vocabulary — pages are actions (page:<id>
+    // rows in the 'action' family) — and service_category joined it (D2).
+    // The CHECK was last recreated by the service_category_family migration,
+    // which is the file this reads.
     $expected = [
-        'page', 'action', 'shop_product', 'menu_item', 'menu_category',
-        'service', 'block', 'gallery_item', 'engine_item', 'listen_item',
+        'action', 'shop_product', 'menu_item', 'menu_category',
+        'service', 'service_category', 'block', 'gallery_item', 'engine_item', 'listen_item',
         'watch_item', 'link_item',
     ];
 
-    $sql = lockstepMigrationSql('20260720100300_content_popularity_scores_content_type_check.sql');
+    $sql = lockstepMigrationSql('20260823130000_service_category_family.sql');
     $migrationList = lockstepExtractInList($sql, 'content_type');
-
     lockstepAssertSameSet($migrationList, $expected, 'content_popularity_scores_content_type_check (migration vs hardcoded)');
 
-    // App-side: item taxonomy (ItemSeenRequest) + 'page' + RankedActionsComputer's
-    // owned 'action' type, derived from two independent live sources.
-    $appList = [...ItemSeenRequest::ITEM_TYPES, 'page', RankedActionsComputer::CONTENT_TYPE];
-    lockstepAssertSameSet($appList, $expected, 'item taxonomy + page + action (app vs hardcoded)');
+    $appList = [...ItemSeenRequest::ITEM_TYPES, ActionScorer::CONTENT_TYPE];
+    lockstepAssertSameSet($appList, $expected, 'item taxonomy + action (app vs hardcoded)');
 });
 
 // ─── site.sites.shop_link_mode (SCHEMA-5 / SCHEMA-102) ───────────────────────
@@ -208,18 +208,10 @@ it('shop_brands_selection_mode_check matches UpdateShopBrandRequest and the hard
     lockstepAssertSameSet($appList, $expected, 'UpdateShopBrandRequest selectionMode (app vs hardcoded)');
 });
 
-it('shop_brands_link_mode_check matches UpdateShopBrandRequest and the hardcoded expected set', function () {
-    $expected = ['product', 'checkout'];
-
-    $sql = lockstepMigrationSql('20260720100200_shop_brands_mode_checks.sql');
-    $migrationList = lockstepExtractInList($sql, 'link_mode');
-
-    $rules = (new UpdateShopBrandRequest)->rules();
-    $appList = lockstepExtractInRule($rules['linkMode']);
-
-    lockstepAssertSameSet($migrationList, $expected, 'shop_brands_link_mode_check (migration vs hardcoded)');
-    lockstepAssertSameSet($appList, $expected, 'UpdateShopBrandRequest linkMode (app vs hardcoded)');
-});
+// The per-brand linkMode lockstep assertion is GONE (2026-08-19): the key
+// left UpdateShopBrandRequest with the dormant per-brand linkMode. The LIVE
+// vocabulary is site.sites.shop_link_mode ('checkout'|'product'), pinned by
+// ShopGlobalSettingsTest against /platforms/shop/settings.
 
 // ─── content.storefronts.connect_status (W9) ─────────────────────────────────
 //

@@ -9,7 +9,7 @@ use App\Models\Core\User\User;
 use Illuminate\Http\JsonResponse;
 
 /**
- * GET /api/public/profiles/{handle}/platforms
+ * GET /api/public/profiles/{handle}/integrations
  *
  * Public, unauthenticated — consumed by the Astro sitepage to render a user's
  * platform sections (Shopify products, Apple releases, Instagram grid, ...).

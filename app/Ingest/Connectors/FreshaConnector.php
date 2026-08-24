@@ -87,6 +87,19 @@ class FreshaConnector implements Connector
     public function pull(Pull $pull, Io $io): iterable
     {
         $slug = trim($pull->identifier, '/');
+        // Slug rotation (2026-08-18): Fresha retires a venue slug when its
+        // address lands; the identifier we provisioned then answers 410 / a
+        // rejected booking flow while the venue is alive one redirect away.
+        // Resolved once via the share alias and cached in the stream cursor —
+        // the same shape as YoutubeRssConnector's handle→channel id — so a
+        // later run costs nothing extra. FreshaController::team() persists
+        // the rotation onto the connection when the OWNER trips it; this is
+        // the lane's own healing when the scheduler trips it first.
+        $cachedSlug = $pull->cursor['slug'] ?? null;
+        if (is_string($cachedSlug) && preg_match('/^[a-z0-9-]+$/i', $cachedSlug)) {
+            $slug = $cachedSlug;
+        }
+        $rotatedTo = null;
         $selectionRef = $pull->config['selection_ref'] ?? null;
         $selectionRef = is_string($selectionRef) && trim($selectionRef) !== '' ? trim($selectionRef) : null;
 
@@ -103,6 +116,18 @@ class FreshaConnector implements Connector
         }
 
         $decoded = $this->fetchBookingFlow($slug, $io, $selectionRef);
+
+        // A rejected flow OR a flow with no menu on it is also what a retired
+        // slug produces. Before blaming the persisted-query hash, ask Fresha
+        // what it calls this venue today and retry once on that.
+        if ($decoded === null || ! is_array(data_get($decoded, 'data.bookingFlowInitialize.screenServices.categories'))) {
+            $current = $this->resolveCurrentSlug($slug, $io);
+            if ($current !== null && $current !== $slug) {
+                $rotatedTo = $current;
+                $slug = $current;
+                $decoded = $this->fetchBookingFlow($slug, $io, $selectionRef);
+            }
+        }
 
         if ($decoded === null) {
             yield new Unavailable(
@@ -132,14 +157,41 @@ class FreshaConnector implements Connector
                 $resolvedFresh = $currency !== null;
             }
 
-            yield from $this->servicesMessages($decoded, $currency);
+            $employeeId = ($selectionRef === null || $selectionRef === 'storewide') ? null : $selectionRef;
+            yield from $this->servicesMessages($decoded, $slug, $employeeId, $currency);
 
-            if ($resolvedFresh) {
-                yield new Bookmark('services', ['currency' => $currency]);
+            if ($resolvedFresh || $rotatedTo !== null) {
+                // One Bookmark carrying everything the cursor already knew:
+                // a Bookmark REPLACES the stream cursor, so a currency-only
+                // write would drop a cached slug and vice versa.
+                $cursor = array_filter([
+                    ...$pull->cursor,
+                    'currency' => $currency,
+                    'slug' => $rotatedTo ?? ($pull->cursor['slug'] ?? null),
+                ], static fn ($v) => $v !== null);
+                yield new Bookmark('services', $cursor);
             }
 
             return;
         }
+    }
+
+    /**
+     * The slug Fresha currently uses for $slug's venue, via the `book-now`
+     * share alias (kept redirecting after the canonical `/a/<slug>` goes 410).
+     * Null unless the probe lands 200 on a Fresha URL carrying a slug — a
+     * failure must never read as a rotation.
+     */
+    private function resolveCurrentSlug(string $slug, Io $io): ?string
+    {
+        $response = $io->get('https://www.fresha.com/book-now/'.rawurlencode($slug).'/all-offer');
+        // No `?? 0`: Io::get() returns array{status: int, body: string, headers: array}.
+        if ($response['status'] !== 200) {
+            return null;
+        }
+        $final = (string) ($response['headers']['final-url'] ?? '');
+
+        return preg_match('#^https?://(?:www\.)?fresha\.com/(?:[a-z]{2,3}(?:-[a-z]{2})?/)?(?:a|book-now)/([a-z0-9-]+)#i', $final, $m) ? $m[1] : null;
     }
 
     /** The venue's ISO-4217 currency from its public location page, or null. */
@@ -157,7 +209,7 @@ class FreshaConnector implements Connector
     }
 
     /** @return iterable<Message> */
-    private function servicesMessages(array $decoded, ?string $currency = null): iterable
+    private function servicesMessages(array $decoded, string $slug, ?string $employeeId, ?string $currency = null): iterable
     {
         $categories = data_get($decoded, 'data.bookingFlowInitialize.screenServices.categories');
         if (! is_array($categories)) {
@@ -193,6 +245,9 @@ class FreshaConnector implements Connector
             $position = 0;
             foreach ((array) ($category['items'] ?? []) as $item) {
                 $mapped = $this->mapServiceItem($item, $categoryName, $categoryId);
+                if ($mapped !== null) {
+                    $mapped['url'] = $this->bookingDeepLink($slug, $employeeId, $mapped['serviceId']);
+                }
                 if ($mapped !== null && $currency !== null) {
                     $mapped['currency'] = $currency;
                 }
@@ -224,6 +279,26 @@ class FreshaConnector implements Connector
             // 12% of its menu -- vanished with no record and no signal.
             yield new Note('unmapped_rows', $unmapped.' Fresha row(s) carried no recognisable catalog id and were not landed');
         }
+    }
+
+    /**
+     * The per-service booking deep link — the shape the design system shipped
+     * (platform-sections.ts buildBookingProviders, 2026-08) and the frozen
+     * dashboard before it: the venue's /booking flow opened on this service
+     * and, when the owner chose a team member, on that person. Fresha mints
+     * the cartId. Lost in the services-to-pools cutover (slice 7 → W6,
+     * 2026-08-16..19) when this connector landed services with no URL and
+     * the resolver lent the venue lander instead; restored 2026-08-24 at the
+     * source so it rides as the item's own f_link.
+     */
+    private function bookingDeepLink(string $slug, ?string $employeeId, string $serviceId): string
+    {
+        $query = array_filter([
+            'employeeId' => $employeeId,
+            'offerItemId' => $serviceId,
+        ], static fn ($v) => $v !== null && $v !== '');
+
+        return 'https://www.fresha.com/a/'.rawurlencode($slug).'/booking?'.http_build_query($query, '', '&', PHP_QUERY_RFC3986);
     }
 
     /** @return array<string, mixed>|null */

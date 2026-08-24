@@ -162,6 +162,7 @@ it('youtube connect returns the canonical tile shape with latest passed through 
     $user = platformContractUser('yt1');
     $this->mock(YoutubeScraper::class, function ($m) {
         $m->shouldReceive('normalizeHandle')->andReturn('mychannel');
+        $m->shouldReceive('fetchChannelProfile')->andReturn(['id' => 'UCocwhL8eTz6tfV9_crX_nJQ', 'avatar' => null]);
         $m->shouldReceive('fetchRecentVideos')->andReturn([
             ['videoId' => 'v1', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'date' => '2026-03-03T00:00:00+00:00', 'thumbnail' => 't'],
         ]);
@@ -440,7 +441,6 @@ it('shopify addBrand returns the canonical brand object shape', function () {
             // than the 'product' default the retired per-brand link_mode
             // column carried. Same documented divergence as
             // ShopEndpointParityTest's GET /brands.
-            'linkMode' => 'checkout',
             'referralQuery' => '',
             'individual' => false,
             'products' => [],
@@ -469,7 +469,7 @@ it('shopify brands list strips unknown per-brand keys', function () {
             'id' => 'brand-1', 'provider' => 'shopify', 'url' => 'https://b', 'name' => 'B', 'currency' => 'AUD',
             'favicon' => null, 'logo' => null, 'discountCode' => 'SAVE',
             // Task 8: see the addBrand test above for why 'checkout'.
-            'selectionMode' => 'manual', 'autoLatest' => true, 'linkMode' => 'checkout', 'referralQuery' => '',
+            'selectionMode' => 'manual', 'autoLatest' => true, 'referralQuery' => '',
             'individual' => false, 'products' => [],
         ]]]);
 });

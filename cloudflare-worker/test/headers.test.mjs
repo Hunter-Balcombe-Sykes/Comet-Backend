@@ -62,7 +62,7 @@ describe.each(paths)("%s", (label, send, isSitepage) => {
                 // embed the page while every other origin stays refused.
                 expect(res.headers.get("x-frame-options")).toBeNull();
                 expect(res.headers.get("content-security-policy")).toBe(
-                    "frame-ancestors 'self' https://app.partna.au",
+                    "frame-ancestors 'self' https://app.partna.au http://localhost:3000",
                 );
                 // The full policy ships Report-Only and is INERT — it blocks nothing.
                 // Present so a real render can be validated before it is enforced.
@@ -75,7 +75,7 @@ describe.each(paths)("%s", (label, send, isSitepage) => {
                 // enforcing one — the enforcing header above is the only other place
                 // this string is pinned, and it would keep passing on its own.
                 expect(res.headers.get("content-security-policy-report-only")).toContain(
-                    "frame-ancestors 'self' https://app.partna.au",
+                    "frame-ancestors 'self' https://app.partna.au http://localhost:3000",
                 );
             } else {
                 expect(res.headers.get("x-frame-options")).toBe("SAMEORIGIN");

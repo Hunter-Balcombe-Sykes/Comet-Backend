@@ -7,9 +7,12 @@ use App\Models\Core\Site\Site;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\ShopCatalog;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
+use App\Services\Shop\ShopAutoSelector;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\StoreRecord;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Throwable;
 
 // Scheduled shop refresh: re-syncs every non-individual store's selection to
 // the store's newest products WHEN the user's GLOBAL auto-latest is on
@@ -38,12 +41,20 @@ final readonly class ShopFetch implements FetchStrategy
         // its only use was isCurated(), and the curation stamp now rides on the
         // record the read already returns.
         private ?ShopConnections $shop = null,
+        // Same nullable + container-fallback shape, same reason.
+        private ?ShopAutoSelector $autoSelectorParam = null,
     ) {}
 
     /** Real ShopConnections, or the container's when constructed without one. */
     private function shop(): ShopConnections
     {
         return $this->shop ?? app(ShopConnections::class);
+    }
+
+    /** Same fallback shape as shop(). */
+    private function autoSelector(): ShopAutoSelector
+    {
+        return $this->autoSelectorParam ?? app(ShopAutoSelector::class);
     }
 
     public function fetch(IntegrationConnection $connection): array
@@ -99,6 +110,23 @@ final readonly class ShopFetch implements FetchStrategy
             try {
                 if ($this->catalog->syncLatest($store, $ownerId) !== null) {
                     $synced++;
+
+                    // Late first-connect auto-select (T1 critic pass,
+                    // 2026-08-20): a store whose connect-time fill failed (or
+                    // whose lane had none) reaches its first real catalogue
+                    // HERE — selectInitial() is CAS-stamped and no-ops for
+                    // every store that already had its chance, so this runs
+                    // at most once per store, ever.
+                    if ($store->collectionId !== null) {
+                        try {
+                            $this->autoSelector()->selectInitial($store->collectionId);
+                        } catch (Throwable $e) {
+                            Log::warning('shop.fetch.auto_select_failed', [
+                                'collection_id' => $store->collectionId,
+                                'error' => $e->getMessage(),
+                            ]);
+                        }
+                    }
                 }
             } catch (HttpException) {
                 $failed++;

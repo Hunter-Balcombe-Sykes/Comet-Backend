@@ -2,6 +2,7 @@
 
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Content\LinkPoolWriter;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Facades\Cache;
@@ -158,8 +159,11 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     // field. Each engine emits its stable empty state when nothing is live.
     expect($profile)->toHaveKeys([
         'handle', 'displayName',
-        'links', 'services', 'document', 'newsletter',
+        'pools', 'document', 'newsletter',
     ]);
+    // links / services (the pre-pool engine lists) left the wire 2026-08-19.
+    expect($profile)->not->toHaveKey('links');
+    expect($profile)->not->toHaveKey('services');
     expect($profile)->not->toHaveKey('booking');
     // Slice 7 unit E: gallery / curatedGallery / designMedia / siteImages left
     // the wire outright — the media pool is the curation lane.
@@ -172,8 +176,8 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
 
     // Empty-state defaults per spec §3.4 + phase 8:
     //   - object engines (document, newsletter) → null
-    //   - list engines (services) → []
-    expect($profile['services'])->toBe([]);
+    //   - the pools object → {} (the list engines left the wire 2026-08-19)
+    expect((array) $profile['pools'])->toBe([]);
     expect($profile['document'])->toBeNull();
     expect($profile['newsletter'])->toBeNull();
     expect($profile['contact'])->toBeNull();
@@ -187,15 +191,12 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     // — but we still confirm it serialises as an object.
     expect($raw)->toContain('"publicConfig":{');
 
-    // Link block surfaces as a structured row in the `links` array — not as
-    // a raw `blocks[]` JSONB blob (the old shape).
-    expect($profile['links'])->toHaveCount(1);
-    expect($profile['links'][0])->toMatchArray([
-        'title' => 'Example',
-        'url' => 'https://example.test',
-        'category' => 'custom',
-        'platform' => null,
-    ]);
+    // Legacy link BLOCKS no longer reach the wire at all (2026-08-23): not as
+    // `blocks[]`, not as `profile.links` (left 2026-08-19), and not as an
+    // action — the unified list draws items from the content pools only.
+    expect($raw)->not->toContain('"blocks":');
+    expect($data['actions'])->toBe(['mode' => 'newest', 'entries' => []]);
+    expect(array_keys($data))->not->toContain('rankedActions', 'ordering');
 });
 
 it('flags publicConfig.claim.unclaimed for a published pre-account (unclaimed) profile', function () {
@@ -362,45 +363,34 @@ it('excludes brand-only and commerce fields', function () {
     }
 });
 
-it('link projection emits only the structured shape (no extra JSONB leaks)', function () {
+it('action projection emits only the structured entry shape (no extra JSONB leaks)', function () {
     $pro = seedIndividualProfile('solo3');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+    // A pool link (content.items kind=link) is the ONLY way an owner-authored
+    // url reaches the public payload now — as an `item:` action entry.
+    app(LinkPoolWriter::class)->add($pro->fresh(), 'https://example.test', 'Example', enrich: false);
 
-    // Phase 2: platform is a promoted column; getLinks reads it from the column.
-    // Sensitive keys in settings still must not leak to the wire.
-    DB::connection('pgsql')->table('site.blocks')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
-        'site_id' => $siteId,
-        'block_type' => 'link',
-        'block_group' => 'links',
-        'title' => 'Sensitive',
-        'url' => 'https://example.test',
-        'sort_order' => 0,
-        'platform' => 'instagram',
-        // Sensitive keys MUST NOT appear in the wire payload — the controller
-        // doesn't read these into the structured link row.
-        'settings' => json_encode([
-            'admin_token' => 'sk_live_secret',
-            'internal_note' => 'staging only',
-        ]),
-        'is_active' => 1,
-        'is_enabled' => 1,
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
+    $res = $this->getJson('/api/public/profiles/solo3')->assertOk();
+    $action = collect($res->json('data.actions.entries'))->first(fn (array $a) => $a['url'] === 'https://example.test');
 
-    $data = $this->getJson('/api/public/profiles/solo3')->assertOk()->json('data');
-    $link = $data['profile']['links'][0];
+    // Only the entry's projected keys exist — nothing internal ever surfaces
+    // because the wire is a typed projection, never a row dump.
+    expect($action)->not->toBeNull();
+    expect(array_keys($action))->toEqual(['position', 'id', 'kind', 'label', 'url', 'thumb', 'locked', 'ref']);
+    expect($action['kind'])->toBe('item');
+});
 
-    // Only the projected keys exist — no admin_token / internal_note ever
-    // surfaces because they're not part of the typed projection.
-    expect(array_keys($link))->toEqual(['id', 'title', 'url', 'category', 'platform', 'popularityRank']);
-    expect($link)->toMatchArray([
-        'title' => 'Sensitive',
-        'url' => 'https://example.test',
-        'platform' => 'instagram',
-    ]);
+it('emits no legacy engine keys: profile.links / profile.services / popularity are gone (2026-08-19)', function () {
+    seedIndividualProfile('nolegacy');
+
+    $data = $this->getJson('/api/public/profiles/nolegacy')->assertOk()->json('data');
+
+    // The pre-pool engine lists and the flat popularity map left the wire —
+    // pools.custom_links / pools.services carry the content, per-item
+    // popularityRank carries the rank, and the sitepage never read the old keys.
+    expect($data['profile'])->not->toHaveKey('links');
+    expect($data['profile'])->not->toHaveKey('services');
+    expect($data)->not->toHaveKey('popularity');
+    expect($data['profile'])->toHaveKey('pools');
 });
 
 it('unknown block_type does not appear in the structured response', function () {
@@ -429,10 +419,12 @@ it('unknown block_type does not appear in the structured response', function () 
     // no `blocks[]` array to leak the raw row into.
     expect($profile['document'])->toBeNull();
     expect($profile['newsletter'])->toBeNull();
-    expect($profile['services'])->toBe([]);
-    // Booking is a link category now — links is empty because no link rows
-    // were seeded for this test, not because there's a separate booking field.
-    expect($profile['links'])->toBe([]);
+    // The pre-pool links / services lists left the wire 2026-08-19; the pools
+    // object is the content lane, and it is empty here because nothing was
+    // seeded — not because a raw row leaked into it.
+    expect($profile)->not->toHaveKey('services');
+    expect($profile)->not->toHaveKey('links');
+    expect((array) $profile['pools'])->toBe([]);
     expect($profile)->not->toHaveKey('booking');
 });
 
@@ -700,163 +692,6 @@ it('workplace engine returns WorkplaceData when the workplace section is live', 
     expect($workplace['phone'])->toBe('+61 2 9000 0000');
 });
 
-it('links engine emits a flat list with id/title/url/category/platform', function () {
-    $pro = seedIndividualProfile('links-live');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
-
-    // Phase 2: category + platform are promoted columns; read by getLinks from columns.
-    DB::connection('pgsql')->table('site.blocks')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
-        'site_id' => $siteId,
-        'block_type' => 'link',
-        'block_group' => 'links',
-        'title' => 'My IG',
-        'url' => 'https://instagram.com/me',
-        'sort_order' => 1,
-        'is_active' => 1,
-        'is_enabled' => 1,
-        'category' => 'social',
-        'platform' => 'instagram',
-        'settings' => json_encode([]),
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-
-    $links = $this->getJson('/api/public/profiles/links-live')->assertOk()->json('data.profile.links');
-
-    expect($links)->toHaveCount(1);
-    expect(array_keys($links[0]))->toEqual(['id', 'title', 'url', 'category', 'platform', 'popularityRank']);
-    expect($links[0])->toMatchArray([
-        'title' => 'My IG',
-        'url' => 'https://instagram.com/me',
-        'category' => 'social',
-        'platform' => 'instagram',
-    ]);
-    expect($links[0]['id'])->toBeString(); // real block id, not null
-});
-
-it('rebuilds title/url for legacy link rows from the platform config + settings.handle', function () {
-    // Older link-block rows can have empty title/url at rest — getLinks
-    // rebuilds both from config('partna.social_platforms.{platform}') using
-    // settings.handle as the source of truth when the stored columns are blank.
-    $pro = seedIndividualProfile('links-legacy');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
-
-    DB::connection('pgsql')->table('site.blocks')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
-        'site_id' => $siteId,
-        'block_type' => 'link',
-        'block_group' => 'links',
-        'title' => '',
-        'url' => '',
-        'sort_order' => 1,
-        'is_active' => 1,
-        'is_enabled' => 1,
-        'category' => 'social',
-        'platform' => 'instagram',
-        'settings' => json_encode(['handle' => 'someuser']),
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-
-    $links = $this->getJson('/api/public/profiles/links-legacy')->assertOk()->json('data.profile.links');
-
-    expect($links)->toHaveCount(1);
-    expect($links[0])->toMatchArray([
-        'title' => 'Instagram', // config('partna.social_platforms.instagram.display_name')
-        'url' => 'https://instagram.com/someuser', // url_template with {handle} substituted
-        'category' => 'social',
-        'platform' => 'instagram',
-    ]);
-});
-
-it('booking link is synthesised into the links list when the booking section is live', function () {
-    $pro = seedIndividualProfile('book-live');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
-
-    DB::connection('pgsql')->table('site.blocks')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
-        'site_id' => $siteId,
-        'block_type' => 'booking',
-        'block_group' => 'sections',
-        'is_active' => 1,
-        'is_enabled' => 1,
-        'sort_order' => 0,
-        'settings' => json_encode([
-            'booking_url' => 'https://calendly.com/me',
-            'platform' => 'calendly',
-            'title' => 'Book a session',
-        ]),
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-
-    $profile = $this->getJson('/api/public/profiles/book-live')->assertOk()->json('data.profile');
-
-    expect($profile)->not->toHaveKey('booking');
-    $bookingLinks = array_values(array_filter($profile['links'], fn (array $l) => $l['category'] === 'booking'));
-    expect($bookingLinks)->toHaveCount(1);
-    expect($bookingLinks[0])->toMatchArray([
-        'title' => 'Book a session',
-        'url' => 'https://calendly.com/me',
-        'category' => 'booking',
-        'platform' => 'calendly',
-    ]);
-    // Synthesised rows have a null id (no block-row primary key).
-    expect($bookingLinks[0]['id'])->toBeNull();
-});
-
-it('services engine returns a flat ProfileService[] with camelCase keys', function () {
-    $pro = seedIndividualProfile('svc-live');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
-
-    DB::connection('pgsql')->table('site.blocks')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
-        'site_id' => $siteId,
-        'block_type' => 'services',
-        'block_group' => 'sections',
-        'is_active' => 1,
-        'is_enabled' => 1,
-        'sort_order' => 0,
-        'settings' => json_encode([]),
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-    // Slice 3a §3.4: the services engine reads content.* now — seed the
-    // legacy row and run the backfiller, the same way production's 21
-    // owner-authored services landed, rather than writing site.services and
-    // expecting the public read to see it directly (it no longer does).
-    ownerServiceItem($pro->id, [
-        'title' => 'Haircut',
-        'description' => 'A nice haircut',
-        'price_cents' => 5500,
-        'currency_code' => 'AUD',
-        'duration_minutes' => 45,
-    ]);
-
-    $services = $this->getJson('/api/public/profiles/svc-live')->assertOk()->json('data.profile.services');
-
-    // Flat array — NO bookingMode/manualBookingUrl wrapper (user-direction
-    // override on spec §3.4).
-    expect($services)->toBeArray();
-    expect($services)->toHaveCount(1);
-    expect(array_keys($services[0]))->toEqual([
-        'id', 'title', 'description', 'priceCents', 'currencyCode', 'durationMinutes', 'category', 'popularityRank',
-    ]);
-    expect($services[0])->toMatchArray([
-        'title' => 'Haircut',
-        'description' => 'A nice haircut',
-        'priceCents' => 5500,
-        'currencyCode' => 'AUD',
-        'durationMinutes' => 45,
-        'category' => 'Services',
-    ]);
-});
-
 it('document engine returns DocumentData when a ready document exists', function () {
     $pro = seedIndividualProfile('doc-live');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
@@ -913,7 +748,7 @@ it('newsletter engine returns NewsletterData with the authored inputPlaceholder'
     expect($newsletter)->toEqual(['inputPlaceholder' => 'Your email']);
 });
 
-it('newsletter engine returns null when input_placeholder is empty', function () {
+it('newsletter engine publishes a live section with an EMPTY inputPlaceholder (2026-08-19 — the sitepage supplies the fallback copy)', function () {
     $pro = seedIndividualProfile('nl-empty');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
@@ -932,7 +767,7 @@ it('newsletter engine returns null when input_placeholder is empty', function ()
     ]);
 
     expect($this->getJson('/api/public/profiles/nl-empty')->assertOk()->json('data.profile.newsletter'))
-        ->toBeNull();
+        ->toEqual(['inputPlaceholder' => '']);
 });
 
 it('contact engine returns ContactData with merged subjectOptions + headline/description when live', function () {
@@ -1095,59 +930,27 @@ it('handles a race where the site is deleted between resolve and payload cache r
 // href. UrlSafety::safeHref() gates SitepageDataResolverService::getLinks()
 // and ::getBooking() — these prove the gate at the actual public wire.
 
-it('drops a link block whose url has a non-http(s) scheme', function () {
+it('NEGATIVE: a pool link with a javascript: url never becomes an action', function () {
     $pro = seedIndividualProfile('links-xss');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+    $itemId = app(LinkPoolWriter::class)->add($pro->fresh(), 'https://placeholder.example/x', 'Malicious', enrich: false);
+    // Forge the stored url past the writer's own validation — the emit-path
+    // gate (UrlSafety in ActionCandidates) is the defence under test.
+    DB::connection('pgsql')->table('content.f_link')->where('item_id', $itemId)->update(['url' => 'javascript:alert(1)']);
 
-    // Bypasses StoreLinkBlockRequest entirely — simulates a seeder/import
-    // writer or a row that predates the write-side scheme validator.
-    DB::connection('pgsql')->table('site.blocks')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
-        'site_id' => $siteId,
-        'block_type' => 'link',
-        'block_group' => 'links',
-        'title' => 'Malicious',
-        'url' => 'javascript:alert(1)',
-        'sort_order' => 1,
-        'is_active' => 1,
-        'is_enabled' => 1,
-        'category' => 'custom',
-        'settings' => json_encode([]),
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-
-    $links = $this->getJson('/api/public/profiles/links-xss')->assertOk()->json('data.profile.links');
-
-    expect($links)->toBe([]);
+    $entries = collect($this->getJson('/api/public/profiles/links-xss')->assertOk()->json('data.actions.entries'));
+    expect($entries->firstWhere('id', 'item:'.$itemId))->toBeNull();
+    foreach ($entries as $e) {
+        expect(str_starts_with($e['url'], '/') || str_starts_with($e['url'], 'https://') || str_starts_with($e['url'], 'http://'))->toBeTrue();
+    }
 });
 
-it('POSITIVE CONTROL: a link block with an https url survives verbatim', function () {
+it('POSITIVE CONTROL: a pool link with an https url survives verbatim', function () {
     $pro = seedIndividualProfile('links-safe');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+    $itemId = app(LinkPoolWriter::class)->add($pro->fresh(), 'https://example.com/x', 'Safe', enrich: false);
 
-    DB::connection('pgsql')->table('site.blocks')->insert([
-        'id' => (string) Str::uuid(),
-        'user_id' => $pro->id,
-        'site_id' => $siteId,
-        'block_type' => 'link',
-        'block_group' => 'links',
-        'title' => 'Safe',
-        'url' => 'https://example.com/x',
-        'sort_order' => 1,
-        'is_active' => 1,
-        'is_enabled' => 1,
-        'category' => 'custom',
-        'settings' => json_encode([]),
-        'created_at' => now()->toDateTimeString(),
-        'updated_at' => now()->toDateTimeString(),
-    ]);
-
-    $links = $this->getJson('/api/public/profiles/links-safe')->assertOk()->json('data.profile.links');
-
-    expect($links)->toHaveCount(1);
-    expect($links[0]['url'])->toBe('https://example.com/x');
+    $entry = collect($this->getJson('/api/public/profiles/links-safe')->assertOk()->json('data.actions.entries'))->firstWhere('id', 'item:'.$itemId);
+    expect($entry)->not->toBeNull();
+    expect($entry['url'])->toBe('https://example.com/x');
 });
 
 it('does not synthesise a booking link when settings.booking_url has a non-http(s) scheme', function () {
@@ -1172,12 +975,17 @@ it('does not synthesise a booking link when settings.booking_url has a non-http(
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $profile = $this->getJson('/api/public/profiles/book-xss')->assertOk()->json('data.profile');
+    // `profile.links` left the wire 2026-08-19; the synthesised booking row is
+    // asserted at the resolver, which is what the actions layer consumes.
+    $site = Site::query()->find($siteId);
+    $resolver = app(SitepageDataResolverService::class);
+    $booking = $resolver->getBooking($site, $resolver->loadSections($site));
 
     // sectionEnvelope() keeps state=live (the row exists, is active/enabled)
     // but the closure returns null once the url is gated — getLinks() only
     // synthesises the booking row when data is an array, so no row appears.
-    $bookingLinks = array_values(array_filter($profile['links'], fn (array $l) => $l['category'] === 'booking'));
+    expect($booking['data'])->toBeNull();
+    $bookingLinks = array_values(array_filter($resolver->getLinks($site, $booking), fn (array $l) => $l['category'] === 'booking'));
     expect($bookingLinks)->toBe([]);
 });
 
@@ -1203,9 +1011,11 @@ it('POSITIVE CONTROL: a booking_url with an https scheme is still synthesised', 
         'updated_at' => now()->toDateTimeString(),
     ]);
 
-    $profile = $this->getJson('/api/public/profiles/book-safe')->assertOk()->json('data.profile');
+    $site = Site::query()->find($siteId);
+    $resolver = app(SitepageDataResolverService::class);
+    $booking = $resolver->getBooking($site, $resolver->loadSections($site));
 
-    $bookingLinks = array_values(array_filter($profile['links'], fn (array $l) => $l['category'] === 'booking'));
+    $bookingLinks = array_values(array_filter($resolver->getLinks($site, $booking), fn (array $l) => $l['category'] === 'booking'));
     expect($bookingLinks)->toHaveCount(1);
     expect($bookingLinks[0]['url'])->toBe('https://calendly.com/me');
 });

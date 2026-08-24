@@ -62,6 +62,11 @@ final class RawCacheCallScanner
         // Allowlisted by path (ci.yml "Allowlisted by path:" section).
         'app/Services/Cache/', // the canonical cache layer itself
         'app/Http/Controllers/Api/Webhooks/', // Cache::add() for idempotency dedupe
+        // FI-3 (2026-08-20): a pure function-of-URL redirect-expansion memo —
+        // no user data in key or value, no invalidation semantics (a short
+        // link's destination changing simply re-resolves after TTL), and the
+        // dual success/failure TTLs don't fit rememberLocked's one-shape API.
+        'app/Routing/ShortLinkExpander.php',
 
         // This entry carries NO justification comment in ci.yml — it is
         // present in the git-grep pathspec list with no accompanying bullet
@@ -144,6 +149,11 @@ final class RawCacheCallScanner
         'app/Routing/Probes/ProbeBudget.php', // atomic Cache::add SETNX counter init (+increment/decrement), keys via CacheKeyGenerator::routingProbe{Global,User}Daily(); same shape as AnalyticsDedupGuard/RefreshController. The docblock at :24 also matches the grep
         'app/Routing/LinkProjector.php', // Cache::add SETNX throttling malformed-pattern error reports to once per detector+field per window, so one bad catalog entry cannot flood Nightwatch. Key is "routing:malformed-detector:{$detectorId}:{$field}" — BOTH segments are catalog-level identifiers, not user- or site-scoped, so there is no tenant prefix to preserve and no cross-tenant collision to cause. Same idiom and same reasoning as LogLeadRateLimits and AnalyticsDedupGuard, which its own docblock (:204) cites as precedent and which are already excluded below.
         'app/Routing/Probes/ProbeGate.php', // probe-answer memo incl. negative results, key via CacheKeyGenerator::routingProbeUrl($url) — content-addressed by URL (same shape as YoutubeThumbnailResolver/AppleSearch/MenuApifyScraper)
+
+        // Added 2026-08-19 with the catalog runtime-table wiring. Unlike every
+        // entry above, this one was caught by the guard on the way in rather
+        // than after landing behind a red CI step.
+        'app/Catalog/DetectorSuspensions.php', // Cache::remember/forget of the detector kill-switch set. ONE constant key ('catalog:detector-suspensions') holding a global list of catalog-level detector ids — no user, no site, no tenant identity of any kind, so there is no key to construct and nothing for CacheKeyGenerator to scope. Same reasoning as RecordScheduledTaskHeartbeat (a global beacon key) and LinkProjector above (catalog-level identifiers only). A *CacheService for a single constant key would be ceremony, not isolation. TTL is enforced (config partna.catalog.suspension_cache_ttl_seconds, floored at 1) and asserted behaviourally in DetectorSuspensionSourceTest.
     ];
 
     /**

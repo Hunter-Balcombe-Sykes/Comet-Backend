@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 // CA-DM — the consolidated dark-merge proof for the whole async-connect
-// programme (CA-W2..CA-W7 + the events/add organiser branch).
+// programme (CA-W2..CA-W7; the events/add facade left 2026-08-19).
 //
 // The merge-safety argument for landing every one of those units on
 // `development` is a single claim: with PARTNA_CONNECT_DEFERRED unset,
@@ -21,7 +21,7 @@ use Illuminate\Support\Str;
 // reviews found the per-unit flag-off cases too weak to carry that claim —
 // each asserted one or two keys with assertJsonPath while being NAMED as a
 // byte-identity proof, and two surfaces (POST /api/platforms/humanitix/connect
-// and the organiser branch of POST /api/platforms/events/add) had no
+// and the organiser connects) had no
 // exact-body coverage anywhere at all.
 //
 // So every case below pins THREE things per endpoint, and nothing less:
@@ -393,119 +393,10 @@ it('DELIBERATELY VACUOUS — flag off: fresha STOREWIDE-mode connect is a 200 wi
     expect(array_keys($row->payload))->toBe(['url', 'selection', 'raw']);
 });
 
-// ── 7/7. POST /api/platforms/events/add — the organiser branch ──────────────
-
-it('DELIBERATELY VACUOUS — flag off: the events/add ORGANISER branch is a 200 with today\'s exact {selection} body and pushes nothing', function () {
-    // The second gap the reviews found: this endpoint's body was pinned
-    // nowhere. Its contract is {selection: <the unified accounts+events list>},
-    // NOT the per-platform connect envelope — the deferred path returns
-    // {status, selection, statusUrl} at 202 instead, so pinning the exact
-    // flag-off body is what makes those two distinguishable.
-    config(['partna.connect.deferred' => []]);
-    $user = darkMergeUser('dmeventsadd');
-    $orgUrl = 'https://www.eventbrite.com/o/darkmerge-org';
-    $event = darkMergeEvent('https://www.eventbrite.com/e/darkmerge-gig');
-    $stamped = EventsPayload::withIds([$event])[0];
-    $rid = darkMergeAcctId($orgUrl);
-
-    $this->mock(EventbriteScraper::class, function ($m) use ($orgUrl, $event) {
-        $m->shouldReceive('normalizeEventUrl')->with($orgUrl)->andReturn(null);
-        $m->shouldReceive('normalizeOrgUrl')->with($orgUrl)->andReturn($orgUrl);
-        $m->shouldReceive('fetchEvents')->with($orgUrl)->andReturn(['organiser' => 'Acme', 'events' => [$event]]);
-    });
-
-    Queue::fake();
-
-    actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $orgUrl])
-        ->assertStatus(200)
-        ->assertExactJson([
-            'selection' => [
-                'accounts' => [[
-                    'id' => $rid,
-                    'platform' => 'eventbrite',
-                    'url' => $orgUrl,
-                    'organiser' => 'Acme',
-                    'next' => $stamped,
-                    'upcoming' => [$stamped],
-                    'removePath' => "/platforms/eventbrite/accounts/{$rid}",
-                ]],
-                'events' => [[
-                    ...$stamped,
-                    'platform' => 'eventbrite',
-                    'source' => 'account',
-                    'accountId' => $rid,
-                    'removePath' => "/platforms/eventbrite/events/{$stamped['id']}",
-                ]],
-            ],
-        ]);
-
-    Queue::assertNothingPushed();
-
-    $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'eventbrite')->firstOrFail();
-    expect($row->resource_id)->toBe($rid);
-    expect($row->last_refresh_status)->toBe('ok');
-    expect(array_keys($row->payload))->toBe(['url', 'organiser', 'next', 'upcoming', 'hiddenEventIds']);
-});
-
-it('DELIBERATELY VACUOUS — flag off: the events/add ORGANISER branch pins Humanitix keyed on its RESOLVED host url and pushes nothing', function () {
-    // Humanitix's counterpart to the Eventbrite case above, and the more
-    // load-bearing of the two: its accountUrl resolver (resolveHostUrl) is a
-    // live network fetch AND the row's identity, so the posted url and the
-    // stored/returned url differ here — same distinction the humanitix
-    // connect case (4/7 section) pins, but this is the ONLY test anywhere
-    // that pins it for the events/add facade's organiser branch.
-    config(['partna.connect.deferred' => []]);
-    $user = darkMergeUser('dmeventsaddhx');
-    $postedUrl = 'https://events.humanitix.com/darkmerge-host-page';
-    $hostUrl = 'https://events.humanitix.com/host/darkmerge-host';
-    $event = darkMergeEvent('https://events.humanitix.com/darkmerge-gig');
-    $stamped = EventsPayload::withIds([$event])[0];
-    $rid = darkMergeAcctId($hostUrl);
-
-    // The scraper is mocked outright — see the file-level "network fetch"
-    // note in the class docblock area above the humanitix connect case (4/7)
-    // for why: resolveHostUrl's own HTTP behaviour is HumanitixScraper's unit
-    // tests' job, not this proof's.
-    $this->mock(HumanitixScraper::class, function ($m) use ($postedUrl, $hostUrl, $event) {
-        $m->shouldReceive('normalizeEventUrl')->with($postedUrl)->andReturn(null);
-        $m->shouldReceive('resolveHostUrl')->with($postedUrl)->andReturn($hostUrl);
-        $m->shouldReceive('fetchEvents')->with($hostUrl)->andReturn(['organiser' => 'Acme', 'events' => [$event]]);
-    });
-
-    Queue::fake();
-
-    actingAsUser($user)->postJson('/api/platforms/events/add', ['url' => $postedUrl])
-        ->assertStatus(200)
-        ->assertExactJson([
-            'selection' => [
-                'accounts' => [[
-                    'id' => $rid,
-                    'platform' => 'humanitix',
-                    'url' => $hostUrl,
-                    'organiser' => 'Acme',
-                    'next' => $stamped,
-                    'upcoming' => [$stamped],
-                    'removePath' => "/platforms/humanitix/accounts/{$rid}",
-                ]],
-                'events' => [[
-                    ...$stamped,
-                    'platform' => 'humanitix',
-                    'source' => 'account',
-                    'accountId' => $rid,
-                    'removePath' => "/platforms/humanitix/events/{$stamped['id']}",
-                ]],
-            ],
-        ]);
-
-    Queue::assertNothingPushed();
-
-    $row = IntegrationConnection::where('user_id', $user->id)->where('platform', 'humanitix')->firstOrFail();
-    expect($row->resource_id)->toBe($rid);
-    expect($row->last_refresh_status)->toBe('ok');
-    expect(array_keys($row->payload))->toBe(['url', 'organiser', 'next', 'upcoming', 'hiddenEventIds']);
-});
-
-// ── The pending row's PUBLIC render ─────────────────────────────────────────
+// ── 7/7 RETIRED (2026-08-19): the events/add facade left with the
+// pseudo-platform retirement; its organiser branch lives on as
+// /platforms/{eventbrite|humanitix}/connect, proven by sections 3/7 and 4/7
+// above. ─────────────────────────────────────────────────────────────────────
 
 it('a pending row renders publicly with allowlisted keys ONLY — none of the deferred path\'s private bookkeeping leaks', function () {
     // A pending row is written is_active => true DELIBERATELY (so the sitepage
@@ -555,12 +446,11 @@ it('a pending row renders publicly with allowlisted keys ONLY — none of the de
         ->assertOk()
         ->json('data.platforms');
 
-    // fresha: allowlist is ['url', 'selection'] — connectMode / teamMenu /
-    // connectPendingAt are gone, and `selection` (carried forward as null on a
-    // first connect) is still present, exactly as a completed row would be.
+    // fresha: allowlist is ['url'] (selection left the public wire 2026-08-19)
+    // — connectMode / teamMenu / connectPendingAt are gone, exactly as a
+    // completed row would be.
     expect($platforms['fresha'][0]['payload'])->toBe([
         'url' => 'https://www.fresha.com/a/ollies-salon',
-        'selection' => null,
     ]);
     expect($platforms['fresha'][0]['lastRefreshedAt'])->toBeNull();
 

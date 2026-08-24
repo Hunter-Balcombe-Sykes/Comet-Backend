@@ -31,6 +31,7 @@ class Github
     {
         return [
             SurfaceBuilder::for('github.profile')
+                ->legacyPlatform('github')
                 ->displayName('GitHub')
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)

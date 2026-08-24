@@ -307,6 +307,7 @@ beforeEach(function () {
         variant_family text CHECK (variant_family IS NULL OR variant_family IN (\'google\', \'shopify\', \'ytimg\', \'native\', \'proxy\')),
         blurhash text,
         attribution jsonb,
+        mirror_eligible boolean,
         mirror_attempts integer NOT NULL DEFAULT 0,
         mirror_last_attempt_at timestamptz,
         mirror_last_reason text,
@@ -700,4 +701,52 @@ it('an A -> B -> A revert ends with headline_cache/facets_cache/f_* identical to
     ];
 
     expect($stateAfterRevert)->toBe($stateA);
+});
+
+// #SCALE-5: the hazard SQLite structurally cannot show.
+//
+// Batching the singleton-facet upserts means several rows reach ONE upsert
+// statement. If two of them share a conflict target — which a same-source merge
+// produces, two records landing on one item — Postgres raises 21000, "ON
+// CONFLICT DO UPDATE command cannot affect row a second time". SQLite does not,
+// so a green Feature run says nothing about this. It is the same trap
+// LanderBatchLandingTest pins for ingest.record_state's batched upsert.
+it('folds two records for one (item, source) into a single row rather than raising 21000', function () {
+    $pg = DB::connection('pgsql');
+
+    $pg->statement('CREATE SCHEMA IF NOT EXISTS content');
+    $pg->statement('DROP TABLE IF EXISTS content.f_text CASCADE');
+    $pg->statement('CREATE TABLE content.f_text (
+        item_id uuid NOT NULL,
+        source_id uuid NOT NULL,
+        headline text,
+        body text,
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (item_id, source_id)
+    )');
+
+    $itemId = (string) Str::uuid();
+    $sourceId = (string) Str::uuid();
+    $userId = (string) Str::uuid();
+
+    $writer = app(ProjectionWriter::class);
+    $method = new ReflectionMethod($writer, 'writeFacets');
+    $method->setAccessible(true);
+
+    // Both coords resolve to the SAME item — one upsert payload, one conflict
+    // target, twice. Unfolded, this is a hard 21000.
+    $method->invoke($writer, $sourceId, $userId, [
+        'c:first' => ['facets' => ['f_text' => ['headline' => 'First', 'body' => 'From the first record']]],
+        'c:second' => ['facets' => ['f_text' => ['headline' => 'Second']]],
+    ], ['c:first' => $itemId, 'c:second' => $itemId]);
+
+    $rows = $pg->table('content.f_text')->where('item_id', $itemId)->get();
+
+    expect($rows)->toHaveCount(1);
+    // Per-column fold, matching what the sequential upserts produced: the later
+    // record's headline wins, the earlier record's body survives.
+    expect($rows[0]->headline)->toBe('Second')
+        ->and($rows[0]->body)->toBe('From the first record');
+
+    $pg->statement('DROP TABLE IF EXISTS content.f_text CASCADE');
 });

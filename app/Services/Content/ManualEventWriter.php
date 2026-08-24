@@ -64,7 +64,7 @@ class ManualEventWriter
      *     the point of converging them — so the count cannot be narrowed
      *     without reintroducing one.
      */
-    public const MAX_STANDALONE_EVENTS = 10;
+    public const MAX_STANDALONE_EVENTS = 30;
 
     public function __construct(
         private readonly ProjectionWriter $writer,
@@ -93,18 +93,29 @@ class ManualEventWriter
      * projections of one event that disagree about `f_occurrence` would
      * resolve into a contradictory item rather than merging cleanly.
      *
-     * `image` is deliberately dropped. Phase 3 declined to mint
-     * content.media_assets for third-party image URLs (LinkPoolWriter's
-     * docblock) and this lane inherits that ruling rather than reopening it.
+     * `image` rides the standard `media` projection as the `cover` role —
+     * a source_url-only content.media_assets row, exactly what
+     * SchemaOrgEventProjector emits for the same event via a connected
+     * organiser and what LinkPoolWriter emits for a link's og:image. This
+     * used to drop it under Phase 3's "no third-party image assets" ruling;
+     * LinkPoolWriter reversed that for links, the connector lane never had
+     * it, and "agrees facet-for-facet with SchemaOrgEventProjector" was
+     * simply untrue on media (2026-08-18).
      *
-     * Public + static because StandaloneEventBackfiller writes the SAME shape
+     * Public + static because the standalone-event conversion one-off writes the SAME shape
      * for the rows that predate the cutover — one mapper, so the backfill and
      * the live path cannot drift.
+     *
+     * `$origin` (e.g. 'link_in_bio') rides as a typed item tag
+     * (tag_type 'origin') so the sheet can say "found in your bio link"
+     * rather than "added by you" — the manual content source is one row per
+     * user (partial unique index) and cannot carry that distinction itself.
+     * Null = added by hand: no tag.
      *
      * @param  array<string, mixed>  $event  EventsPayload::standalonePayload's shape
      * @return array<string, mixed>
      */
-    public static function projectStandalone(array $event, string $url): array
+    public static function projectStandalone(array $event, string $url, ?string $origin = null): array
     {
         $name = trim((string) ($event['name'] ?? ''));
         $headline = $name !== '' ? $name : (string) (parse_url($url, PHP_URL_HOST) ?: $url);
@@ -135,9 +146,14 @@ class ManualEventWriter
         $priceMin = is_numeric($event['priceMin'] ?? null) ? (float) $event['priceMin'] : null;
         $currency = self::trimmedOrNull($event['currency'] ?? null);
 
+        $image = self::trimmedOrNull($event['image'] ?? null);
+        $image = $image !== null && preg_match('#^https?://#i', $image) === 1 ? $image : null;
+
         return [
             'kind' => 'event',
             'headline' => $headline,
+            'media' => $image === null ? [] : [['role' => 'cover', 'url' => $image]],
+            'tags' => $origin === null || $origin === '' ? [] : [['tag' => $origin, 'tag_type' => 'origin']],
             'facets' => array_filter([
                 'f_text' => $text,
                 'f_link' => ['url' => $url],
@@ -158,16 +174,16 @@ class ManualEventWriter
 
     /**
      * Write (or update) a standalone event scraped from its own URL, and pin
-     * it. The live counterpart of StandaloneEventBackfiller — same coord, same
+     * it. The live counterpart of the standalone-event conversion — same coord, same
      * projection, so an event added today and one migrated yesterday are the
      * same row.
      *
      * @param  array<string, mixed>  $event  EventsPayload::standalonePayload's shape
      * @return array{id: string, name: string}|null null when the user has no site
      */
-    public function addStandalone(User $user, string $url, array $event): ?array
+    public function addStandalone(User $user, string $url, array $event, ?string $origin = null): ?array
     {
-        return $this->write($user, trim($url), static fn (string $u) => self::projectStandalone($event, $u));
+        return $this->write($user, trim($url), static fn (string $u) => self::projectStandalone($event, $u, $origin));
     }
 
     /**
@@ -357,11 +373,16 @@ class ManualEventWriter
             ->whereNull('i.removed_at')
             ->orderBy('si.sort_key')
             ->distinct()
+            // si.sort_key is selected ONLY because Postgres requires every
+            // ORDER BY expression of a SELECT DISTINCT to be in the select
+            // list (42P10). SQLite does not, which is why this passed every
+            // test and then failed on the first real remove() (2026-08-18).
             ->get([
                 'i.id', 'i.headline_cache', 'fl.url', 'ft.body',
                 'fo.starts_at_local', 'fo.ends_at_local',
                 'fp.venue_name', 'fp.locality',
                 'o.amount_minor', 'o.currency',
+                'si.sort_key',
             ])
             ->map(fn (object $row): array => [
                 'id' => (string) $row->id,

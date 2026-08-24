@@ -32,6 +32,7 @@ class Nowbookit
     {
         return [
             SurfaceBuilder::for('nowbookit.reserve')
+                ->legacyPlatform('nowbookit')
                 ->displayName('NowBookit')
                 ->routing(RoutingClass::Reservations)
                 ->shelf(Shelf::Food)

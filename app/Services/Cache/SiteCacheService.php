@@ -701,8 +701,14 @@ class SiteCacheService
      *
      * A null/0 timestamp (malformed row) skips the write entirely — 0 is a no-op
      * under max() but writing it would clobber a valid higher floor.
+     *
+     * Public: also called directly by ConvergeSiteSubdomainsCommand, which
+     * writes site.sites.subdomain via a raw UPDATE (bypassing Eloquent, and
+     * so bypassing invalidateSitePayload's own call site above) and must
+     * still raise the floor for the handle it just repointed. Same
+     * POST-COMMIT invariant applies to that caller.
      */
-    private function raiseResolveFloor(string $handle, ?int $timestamp): void
+    public function raiseResolveFloor(string $handle, ?int $timestamp): void
     {
         if ($timestamp === null || $timestamp <= 0) {
             return;

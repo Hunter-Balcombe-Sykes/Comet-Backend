@@ -40,7 +40,6 @@ class ShopBrandResource extends ApiResource
             // Per-store auto-latest (2026-08-17, Sell opt-in): whether this
             // store's newest product publishes automatically.
             'autoLatest' => (bool) ($this->resource['autoLatest'] ?? true),
-            'linkMode' => $this->resource['linkMode'] ?? 'product',
             'referralQuery' => $this->resource['referralQuery'] ?? '',
             // Reserved bucket of individually-added products (no parent store);
             // the dashboard renders these without a store header.

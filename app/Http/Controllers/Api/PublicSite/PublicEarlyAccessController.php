@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\HashesClientData;
 use App\Http\Requests\Api\PublicSite\PublicEarlyAccessSignupRequest;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
+use App\Services\Analytics\AnalyticsEventSanitizer;
 use App\Services\EarlyAccess\EarlyAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
@@ -58,7 +59,10 @@ class PublicEarlyAccessController extends ApiController
             'source_type' => $data['source_type'],
             'source_ref' => $data['source_ref'],
             'consent_ip_hash' => $this->hashIp($request->ip()),
-            'consent_user_agent' => mb_substr((string) ($request->userAgent() ?? ''), 0, 500) ?: null,
+            // PGR-19: coarse UA token, matching PublicCustomerLeadController's
+            // PRIV-2 pattern — was capped at 500 chars but still stored the raw
+            // string.
+            'consent_user_agent' => AnalyticsEventSanitizer::userAgent($request->userAgent()),
         ]);
 
         // Uniform 200 whether the upsert created a new row or matched an existing

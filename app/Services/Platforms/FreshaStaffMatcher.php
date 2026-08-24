@@ -22,10 +22,21 @@ use App\Models\Core\User\User;
 final class FreshaStaffMatcher
 {
     /** Exact full-name match. */
-    private const SCORE_EXACT = 3;
+    private const SCORE_EXACT = 4;
 
     /** Both first- AND last-name tokens present, any order. */
-    private const SCORE_BOTH_TOKENS = 2;
+    private const SCORE_BOTH_TOKENS = 3;
+
+    /**
+     * The team lists the person by first name alone (or first name + last
+     * initial — "Simon", "Simon D", "Simon D.") and it is the user's first
+     * name exactly (owner, 2026-08-19: "if there is just Simon as an option it
+     * would also select Simon"). Accepted only when unique — a salon of three
+     * Sarahs still pre-selects nobody. Ranked above last-only: a display name
+     * that IS the first name is a stronger claim than a surname buried in a
+     * longer name.
+     */
+    private const SCORE_FIRST_EXACT = 2;
 
     /** Last-name token only — accepted solely when it is unique in the team. */
     private const SCORE_LAST_ONLY = 1;
@@ -34,6 +45,7 @@ final class FreshaStaffMatcher
     private const TIER_LABELS = [
         self::SCORE_EXACT => 'exact',
         self::SCORE_BOTH_TOKENS => 'both-tokens',
+        self::SCORE_FIRST_EXACT => 'first-exact',
         self::SCORE_LAST_ONLY => 'last-only',
     ];
 
@@ -100,6 +112,15 @@ final class FreshaStaffMatcher
 
                 continue;
             }
+            // "simon" / "simon d" / "simon d." against Simon Doyle — the
+            // display name is the first name, optionally with the right
+            // last initial. Anything more after the first name (a different
+            // surname) is not this tier.
+            if ($firstName !== '' && $this->isFirstNameOnly($empName, $firstName, $lastName)) {
+                $candidates[self::SCORE_FIRST_EXACT][] = $empId;
+
+                continue;
+            }
 
             if ($lastName !== '' && str_contains($empName, $lastName)) {
                 $candidates[self::SCORE_LAST_ONLY][] = $empId;
@@ -119,5 +140,25 @@ final class FreshaStaffMatcher
         return count($best) === 1
             ? ['employeeId' => $best[0], 'tier' => self::TIER_LABELS[$bestScore]]
             : ['employeeId' => null, 'tier' => null];
+    }
+
+    private function isFirstNameOnly(string $empName, string $firstName, string $lastName): bool
+    {
+        $empTokens = array_values(array_filter(
+            explode(' ', str_replace(['.', ','], ' ', $empName)),
+            static fn (string $t) => $t !== '',
+        ));
+        if ($empTokens === [] || $empTokens[0] !== $firstName) {
+            return false;
+        }
+        if (count($empTokens) === 1) {
+            return true;
+        }
+
+        // One trailing token that is the last initial ("d" for Doyle).
+        return count($empTokens) === 2
+            && $lastName !== ''
+            && mb_strlen($empTokens[1]) === 1
+            && $empTokens[1] === mb_substr($lastName, 0, 1);
     }
 }

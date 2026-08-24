@@ -851,6 +851,30 @@ the cross-cutting item keys are listed here.
 with kind, so a facet that does not apply is `null` (or `[]`), never missing. The exact
 key set is `PoolResolver::ITEM_KEYS`, pinned by `tests/Feature/Content/PoolWireShapeTest.php`.
 
+**Item order follows `settings.pool_order[pool]` (2026-08-23).** `newest` (the default)
+orders the WHOLE selection — pins and auto together — by `publishedAt` desc with dated
+items before undated (a link-pool item counts its `firstSeenAt` as its date: it was
+hand-added); `smart` orders by `popularityRank` asc (ranked before unranked, then the
+newest order); `manual` keeps pins by `sort_key` then the pool's rule order. `events` is
+always soonest-first and `reviews` never ranks. `popularityRank` is emitted for EVERY
+item — its kind's family in `analytics.content_popularity_scores`, **every family keyed
+by the item id** (smart ordering v2, 2026-08-23; the handle / url keys are gone).
+
+**Category pools (`menus`, `services`) display grouped by category (D4, 2026-08-23).**
+Each `collections[<id>]` entry carries `popularityRank` — the category's own rank in the
+`menu_category` / `service_category` family, whose score is the **SUM** of its served
+members' item scores (breadth beats one hit); `null` on a storefront and when unranked.
+In `smart` the categories order by that rank (unranked after, by `position`); in `newest`
+through their newest member; `manual` keeps the Categories sheet's drag. `position` is
+rewritten to the resolved order. The flat `items` list is emitted in category order
+(home = the item's first provider-null collection; uncategorised items last), and a
+`settings.pool_locks` position on these two pools is the index **within** the item's
+category. On every other pool `collections[*].popularityRank` is `null`.
+
+**Media never produces an action (D1, 2026-08-23):** `actions.entries` contains no
+`item:` from the media pool and no gallery category; the gallery keeps its own pool
+smart order (item views + a share of the gallery page's dwell + freshness).
+
 - **`review`** (2026-08-13) — `{rating, text, authorName, authorPhotoUrl, authorUri,
   reviewedAt}` on items of kind `review`, `null` on every other kind. `rating` is always
   present on a review; the three author fields are `null` for an unclaimed (pre-claim)
@@ -959,88 +983,21 @@ HTTP 423 Locked
 - Response (200): `{ "site": { ... } }`
 - Common status codes: 200, 401, 403, 422
 - Banners are managed via `POST /api/uploads` (pool=content) and the frontend picks from `optimized` / `maximized`. No banner fields are accepted on this endpoint.
-- Ordering settings (actions system): `settings.smart_page_order` (bool, default true), `settings.manual_page_order` (list of taxonomy page-ids, distinct, ≤16), `settings.smart_actions` (bool, default true), `settings.manual_actions` (≤12 ordered entries, each ONE of `{kind:"page",ref:"<page-id>"}` / `{kind:"item",ref:"<itemType>:<itemKey>"}` / `{kind:"button",ref:"<platform slug>"}` (`booking` = the general booking link) / `{kind:"custom",label:"...",url:"https://..."}`). Strict: non-custom entries reject label/url, custom rejects ref; duplicate kind:ref pairs 422; both lists REPLACE atomically on write. The public payload's `pageOrder` / `rankedActions` apply these server-side.
+- Ordering settings (unified actions, 2026-08-23): `settings.smart_page_order` (bool, default true), `settings.manual_page_order` (list of taxonomy page-ids, distinct, ≤16), `settings.actions` = `{ "mode": "newest|smart|manual", "slots": [ { "position": 0..9, "id": "<kind>:<ref>" } ] }` (≤10 slots, positions and ids distinct; in `smart`/`newest` the slots are LOCKS and may be sparse, in `manual` they ARE the list and must be contiguous from 0; id grammar `^(page|platform|item|category):[A-Za-z0-9_.:/-]{1,160}$`, existence not checked at write time), `settings.pool_order` = `{ "<pool>": "newest|smart|manual" }` over `watch, listen, media, services, shop, custom_links, menus` (`events`/`reviews` 422; absent = newest), `settings.pool_locks` = `{ "<pool>": [ { "position": int, "id": "<item uuid>" } ] }` (same pool keys, ≤50 per pool, ids distinct, positions distinct except on `menus`/`services` where a position is the index within the item's category; applied in `newest`/`smart` only — a locked item holds its position while the mode fills the rest, unknown ids skipped). `actions`, `pool_order` and `pool_locks` REPLACE atomically on write. The retired keys `smart_actions` / `manual_actions` / `manual_order_pools` are stripped silently. The public payload's `pageOrder` / `actions` / pool item order apply these server-side.
 
 ### `GET /api/site/actions`
 
-- Purpose: dashboard picker data for the design page's "Pages" / "Action buttons" controls
+- Purpose: the dashboard `/actions` page — the owner's mode, stored slots, the LIVE resolution, and every candidate for the swap picker
 - Auth: Required
-- Response (200): `{ "pool": [ActionEntry], "rankedActions": [ActionEntry], "ordering": { "smartPageOrder": bool, "manualPageOrder": [...], "smartActions": bool, "manualActions": [...] } }` (no data envelope)
-- `ActionEntry` = `{ "kind": "page|item|button|custom", "ref": "book" | "service:<id>" | "instagram" | null, "label": string|null, "url": string|null, "pageId": string|null, "itemType": string|null, "itemKey": string|null, "score": number|null }`
-- `pool` = every action currently available (score = stored blended score or null); `rankedActions` = what the sitepage lander currently serves (override-applied). Writes go through `PATCH /api/site` settings.
-- The public profile payload (`GET /api/public/profiles/{handle}`) carries the same data as top-level `rankedActions` (ordered, lander renders top 6) + `ordering`; its `pageOrder` reflects `manual_page_order` when `smart_page_order` is false.
-
-### Per-brand platform routes (uniformity Phase B, 2026-08-17)
-
-Every connectable, URL-detected catalog brand now carries the same four-endpoint
-contract, so the dashboard can render one row per connection and disconnect any
-row without special-casing. 67 brands take this shape.
-
-- `POST /api/platforms/{slug}/connect` — body `{ "url": "<the brand's own URL>" }`.
-  `200` on success, `422` if the URL belongs to a **different** brand (the message
-  names the brand it actually belongs to, e.g. posting a DoorDash link to
-  `/platforms/menulog/connect`), `422` if unrecognised entirely, `403` if the
-  account's capabilities do not cover the brand's routing class.
-- `GET /api/platforms/{slug}/selection` — the current selection, or `null`.
-- `DELETE /api/platforms/{slug}` — disconnects **this brand only**.
-- `GET /api/platforms/{slug}/accounts` and `DELETE .../accounts/{id}` — only where
-  the brand's catalog surface permits more than one store.
-
-**The slug is the brand key** (`menulog`, `booksy`, `doordash`), derived from the
-catalog via `LegacyPlatformMap::legacyFor()`. It matches the generated
-`platform` column, so a row written through `/platforms/menulog/connect` reads
-back as `platform = "menulog"` under `surface_key = "menulog.order"`.
-
-**Capability gating** follows the surface's routing class: ordering ⇒
-`can_use_online_ordering`, booking ⇒ `can_use_booking`, reservations ⇒
-`can_use_reservations`. Social, content and events brands are ungated.
-
-**The family-wide endpoints are unchanged and remain supported.** `DELETE
-/api/platforms/online-ordering`, `/booking` and `/reservations` still remove
-**every** connection of that class — that is a different operation from the
-per-brand `DELETE`, not a legacy alias for it. `POST /api/platforms/online-ordering/entries`
-still classifies a pasted URL and now lands on the same row the per-brand
-connect would.
-
-**Not covered by this shape:** storefront brands (Shopify, WooCommerce,
-Squarespace, Big Cartel) connect through the commerce probe and `ShopController`;
-Instagram, Apple Music/Podcasts, Eventbrite, Humanitix, Fresha, Square and
-Google Business keep their own bespoke connect flows.
-
-**Roster feed:** `GET /api/catalog/surfaces` lists every brand the picker may
-show. Its `isConnectable` flag now means exactly "has connect routes".
-
-### Platform connect — booking XOR (Fresha / Square)
-
-Fresha and Square are mutually exclusive booking providers — only one may be connected at a time, enforced by a shared per-user lock (U1, 2026-07-25) covering both connect endpoints plus `BookingController`, `DELETE /api/platforms/fresha`, and the Google/Instagram "Change to" auto-sync actions.
-
-- `POST /api/platforms/square/connect` — `403` (booking unavailable), `409` (Fresha already connected), `422` (invalid URL), and now `423` — `{"message":"Another change is still saving — please retry in a moment."}` — when a concurrent booking-family write (a Fresha connect/disconnect, `POST`/`DELETE /api/platforms/booking`, or an auto-sync "Change to") holds the lock. Retry, same as the existing `423` on `POST /api/platforms/fresha/connect`.
-- `POST /api/platforms/google-business/synced/apply` and `POST /api/platforms/instagram/synced/apply` (the auto-sync "Change to" actions) — now also `423` with the identical body when the finding being applied targets a booking/reservations slot (Fresha/Square, or the reservations family) and a concurrent booking-family write holds that same shared lock. Retry, same as above.
-
-### Feedback (OV-D)
-
-- `POST /api/me/feedback` — submit feedback. Request: `{ "type": "error|good|bad_ui|idea" (required), "area": "<free-form feature/page/tool string, ≤120 chars>" (required), "target": {...} (optional, ≤4KB encoded JSON, e.g. `{"area":"analytics","elementId":"x"}`), "message": "<1-5000 chars>" (required), "kind": null (optional legacy taxonomy — derived from `type` when omitted: error/bad_ui→bug, good→praise, idea→idea), "severity": null (only meaningful with kind=bug), "page_url", "user_agent", "viewport", "app_version", "request_id", "reply_email" (all optional, unchanged) }`. Response (201): `{ "feedback": { "id", "kind", "severity", "type", "area", "target", "message", "status", "page_url", "app_version", "created_at" } }`. Rate-limited (`throttle:feedback-submit`); `429` on an identical message resubmitted within the duplicate window; `422` on validation failure; exempt from the pending-deletion read-only lock.
-- `GET /api/me/feedback` — list the caller's own feedback, paginated (house envelope, key `feedback`).
-- `GET /api/me/feedback/{feedback}` — single row, owner-only (`404`, not `403`, for someone else's row).
-- `GET /api/staff/feedback?type=&area=&from=&to=&per_page=&page=` — staff triage list across ALL users (any staff role). See §9.
-- Common status codes: 200, 401, 404
-
-### `GET /api/site/google-business-profile`
-
-- Purpose: fetch the professional's saved Google Business Profile details from site settings
-- Auth: Required
-- Response (200): `{ "google_business_profile": { "place_id": "...", "name": "...", "address": "...", "latitude": -37.8, "longitude": 144.9, "phone": "...", "website": "...", "hours": ["Mon: 9:00-17:00"] } }` or `null`
-- Common status codes: 200, 401, 403
-
-### `PUT /api/site/google-business-profile`
-
-- Purpose: upsert Google Business Profile details into site settings
-- Auth: Required
-- Request body: `{ "place_id": "ChIJ...", "name": "Fadez Studio", "address": "...", "latitude": -37.8, "longitude": 144.9, "phone": "+61...", "website": "https://...", "hours": ["Mon: 9:00-17:00"] }`
-- Response (200): `{ "google_business_profile": { ... } }`
-- Common status codes: 200, 401, 403, 422
-
-<!-- Legal content endpoints (GET/PUT/PATCH /api/site/legal-content) removed in V2 — tables dropped -->
+- Response (200): `{ "mode": "newest|smart|manual", "slots": [ { "position": int, "id": string, "unavailable": bool } ], "entries": [ActionEntry], "candidates": [ActionCandidate] }` (no data envelope)
+- `ActionEntry` = `{ "position": int, "id": "<kind>:<ref>", "kind": "page|platform|item|category", "label": string, "url": string, "thumb": string|null, "locked": bool, "ref": { "pool": string, "itemId": string } | null }` — `entries` is EXACTLY what the public payload resolves for the same state (same candidates, same scores, same resolver), so preview and lander cannot drift.
+- `ActionCandidate` = `ActionEntry` fields minus position/locked, plus `connectedAt` (ISO|null), `score` (stored smart score|null), `scoreShare` (score ÷ site max, 0..1|null), `meta` (`pageId` | `platformKey` | `pool` (+ `collectionId`, `itemIds` for a category) | `fallback` | `undated`). In smart order.
+- `slots[].unavailable` = the stored id is no longer a candidate (item removed, platform disconnected, page lost presence) — skipped at resolution, kept in settings so it re-applies if the candidate returns.
+- Candidates (spec §2): `page:<id>` for the six destination-of-intent pages (`services, reservations, menu, shop, events, contact`) when present; `platform:<key>` for every connection whose platform is a public destination (socials, music/video/podcast profiles, online ordering) — a SOURCE platform (booking, store, ticketing) folds into its page and only appears as `platform:<key>` while that page is absent; `item:<uuid>` for every item currently served on the sitepage; `category:<collectionId>` for a menu/services category block. `reviews` never ranks.
+- Writes go through `PATCH /api/site` `settings.actions`. This read does a full pool hydration per call — owner-only, uncached.
+- The public profile payload (`GET /api/public/profiles/{handle}`) carries top-level `actions` = `{ "mode", "entries": [ActionEntry] }` (≤10, always present, `entries: []` when nothing resolves); every `ref` resolves against the served `pools`. `pageOrder` reflects `manual_page_order` when `smart_page_order` is false, else the `page:*` action scores. The legacy `rankedActions` + `ordering` keys ride beside `actions` for one deploy and are then removed.
+- Scoring: `analytics:compute-popularity` (15-min) writes `content_type='action'` rows keyed by action id — `0.45·demandRate + 0.30·reach + 0.25·freshness + prior` (see `App\Services\Analytics\ActionScorer`; a category's reach is the SUM of its members' item scores). Beacons `POST /api/public/analytics/action-seen|action-tap` take the `<kind>:<ref>` id; a tap on an `item:<id>` also counts as one click in that item's family (D7).
+- Item families (pool smart order, 2026-08-23): one formula with per-family weights from `config/partna.php` `pools.smart` — `Σ_days (w_click·clicks + w_view·views + w_dwell·dwell_s)·2^(−age/90) + w_fresh·2^(−ageSince(publishedAt ?? firstSeenAt)/half_life)`; every family keyed by `content.items.id`; events never score; `item_type` beacons accept `service_category` alongside `menu_category`. The sweep scopes in sites with traffic OR changed content in the last hour (D6).
 
 ### `PATCH /api/site/visibility`
 

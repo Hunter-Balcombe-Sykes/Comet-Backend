@@ -137,7 +137,7 @@ Route::post('/public/analytics/item-seen', [AnalyticsController::class, 'itemSee
     ->middleware('throttle:analytics');
 // Action exposure/tap ingest (2026-07-23 actions rebuild) — one beacon per
 // action doorway entering the viewport / receiving a tap; feeds
-// analytics.action_events + RankedActionsComputer's demand-rate scoring.
+// analytics.action_events + ActionScorer's composite scoring.
 Route::post('/public/analytics/action-seen', [AnalyticsController::class, 'actionSeen'])
     ->middleware('throttle:analytics');
 Route::post('/public/analytics/action-tap', [AnalyticsController::class, 'actionTap'])
@@ -188,11 +188,9 @@ Route::get('/public/profiles/{handle}', [IndividualProfileController::class, 'sh
 
 // Public per-user integration connections (sitepage reads this to render
 // integration sections). Separate from the profile payload — additive,
-// self-contained. /platforms is a legacy alias kept until the sitepage flips.
+// self-contained. The `/platforms` alias was RETIRED 2026-08-20 — guard:
+// tests/Feature/PublicSite/PublicPlatformsAliasRetiredTest.php.
 Route::get('/public/profiles/{handle}/integrations', [PublicIntegrationController::class, 'show'])
-    ->where('handle', '[A-Za-z0-9-]+')
-    ->middleware('throttle:public-profile');
-Route::get('/public/profiles/{handle}/platforms', [PublicIntegrationController::class, 'show'])
     ->where('handle', '[A-Za-z0-9-]+')
     ->middleware('throttle:public-profile');
 

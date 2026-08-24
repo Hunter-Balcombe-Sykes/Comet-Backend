@@ -172,7 +172,12 @@ it('touches parent site when a public-visible field changes', function (string $
     Queue::assertPushed(CloudflareCachePurgeJob::class, function (CloudflareCachePurgeJob $job) {
         return $job->handle === 'touchtest';
     });
-})->with(['handle', 'display_name', 'first_name', 'last_name']);
+    // public_contact_* render as `profile.publicContact` and were absent from
+    // PUBLIC_PROFILE_USER_FIELDS until 2026-08-19. The gap was invisible to the
+    // Redis layer (updated() busts that key on the ELSE branch of this same
+    // list) and showed only on `sites.updated_at` -- the §28.8 subrequest cache
+    // and the edge, which a Redis DEL never reaches.
+})->with(['handle', 'display_name', 'first_name', 'last_name', 'public_contact_number', 'public_contact_email']);
 
 it('survives a null site relation when a public field changes', function () {
     Queue::fake();

@@ -121,7 +121,18 @@ it('ships rating, text and attribution on a review item', function () {
             'authorName' => 'A Real Person',
             'authorPhotoUrl' => 'https://lh3.googleusercontent.com/a/abc',
             'authorUri' => 'https://maps.google.com/contrib/123',
-            'reviewedAt' => '2026-07-01T10:00:00Z',
+            // #API-1: '+00:00' rather than the seeded 'Z'. Same instant, and now
+            // the same rendering as publishedAt / firstSeenAt / startsAt and the
+            // nested sources[] timestamps, all of which go through
+            // Carbon::toIso8601String().
+            //
+            // The OLD assertion passed for the wrong reason: reviewed_at is
+            // timestamptz, and on Postgres the driver returns
+            // "2026-07-01 10:00:00+00" — space separator, colon-less offset,
+            // and a rendering that shifts with the session TimeZone. It only
+            // ever read back as 'Z' because SQLite returns the seeded string
+            // verbatim. A green run here said nothing about the wire.
+            'reviewedAt' => '2026-07-01T10:00:00+00:00',
         ])
         ->and($item['headline'])->toBeNull();
 });

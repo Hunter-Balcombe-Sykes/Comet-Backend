@@ -5,6 +5,13 @@
 Two findings from the 2026-08-06 load-test run. Both are latency problems under load; neither
 loses data.
 
+> **Queue list superseded 2026-08-18 (R8 follow-up).** The lists quoted below are accurate for
+> *this* change and are left as the historical record. `supervisor-1` has since gained an
+> eleventh queue: `media-mirror`, inserted directly after `images`, splitting background
+> `MirrorMediaAssetJob` off the queue that carries user-visible upload processing. The live
+> list and the derived `waits` key both live in `config/horizon.php` — read them there, not
+> from this document.
+
 ---
 
 ## Part 1 — Queue priority inversion (IMPLEMENTED)

@@ -53,7 +53,7 @@ it('defines the required queue-hygiene properties', function () {
     expect($job->tries)->toBe(3)
         ->and($job->backoff)->toBe([5, 20])
         ->and($job->maxExceptions)->toBe(2)
-        ->and($job->timeout)->toBe(45)
+        ->and($job->timeout)->toBe(75)
         ->and($job->uniqueFor)->toBe(120)
         // Must exceed the job's own $timeout — a ShouldBeUnique job that can outrun
         // its own dedupe lock loses dedupe protection while still running (the

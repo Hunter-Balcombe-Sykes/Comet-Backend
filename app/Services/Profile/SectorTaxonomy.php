@@ -154,6 +154,10 @@ final class SectorTaxonomy
         'make-up' => 'makeup-artist',
         'spa' => 'spa',
         'tattoo' => 'tattoo-artist',
+        // M-10: "Body art service" is what body_art_service humanizes to when
+        // Google marks a tattoo shop's primary type as the generic "store".
+        'body art' => 'tattoo-artist',
+        'piercing' => 'tattoo-artist',
         'gym' => 'gym',
         'fitness' => 'gym',
         'yoga' => 'yoga-instructor',
@@ -161,7 +165,6 @@ final class SectorTaxonomy
         'chiropractor' => 'chiropractor',
         'dentist' => 'dentist',
         'physio' => 'physiotherapist',
-        'sport' => 'gym',
         'photographer' => 'photographer',
         'photo' => 'photographer',
         'art gallery' => 'artist',
@@ -198,9 +201,23 @@ final class SectorTaxonomy
         'cafe' => 'cafe',
         'coffee' => 'cafe',
         'bakery' => 'bakery',
+        // M-11 (B6 DOH live): "Donut Shop" classified to nothing, so a donut
+        // shop synced no sector and its food capabilities stayed dark.
+        'donut' => 'bakery',
+        'doughnut' => 'bakery',
         'food truck' => 'food-truck',
         'caterer' => 'caterer',
         'bar' => 'bar',
+
+        // LAST on purpose. 'sport' is a QUALIFIER, not a trade: it names
+        // what a venue is about, while the key it collides with names what
+        // the venue IS. "Sports bar" is a bar, "Sports cafe" is a cafe. The
+        // head noun wins, so the qualifier must sit after every key it can
+        // co-occur with — which, for a word this generic, means the end.
+        // It stays a stem (not in WHOLE_WORD_KEYWORDS) so it still catches
+        // "Sports centre"/"Sporting club"; the leading boundary is what
+        // keeps it out of "Transport service".
+        'sport' => 'gym',
         // NO bare 'artist' key, deliberately — but not for the old reason.
         // "Artist" is one of Instagram's most generic categories: tattooists,
         // musicians, hairdressers and photographers all pick it, and the
@@ -211,6 +228,30 @@ final class SectorTaxonomy
         // Google path, which has no handle to fall back to.
         // 'art gallery'/'gallery' stay: unambiguous.
     ];
+
+    /**
+     * KEYWORD_SECTORS keys that must match as WHOLE words rather than stems.
+     *
+     * The default is a stem match anchored at a LEADING word boundary — that is
+     * what 'landscap' => "Landscaping" and 'jewel' => "Jewelry" rely on, and it
+     * already stops mid-word capture ("Transport service" no longer reads as
+     * 'sport'). A key belongs HERE instead when it also opens common words from
+     * an unrelated trade, which a leading anchor alone cannot separate:
+     *
+     *   'spa' → "SPAnish restaurant", "SPAce rental"
+     *   'bar' → "BARbecue joint", "BARrister chambers", "BARre studio"
+     *
+     * Neither has a stem extension a real category would use, so requiring the
+     * trailing boundary too costs nothing — beyond a plural 's', which the
+     * matcher allows explicitly ("Day spas", "Wine bars"), because losing a
+     * slug is a SILENT downgrade to "no sector" where a wrong one at least
+     * shows up. Add a key here only with a worked example of the word it
+     * wrongly opens; anything with a real participle or agent form ('clean' =>
+     * "Cleaning", 'landscap' => "Landscaper") must stay a stem.
+     *
+     * @var list<string>
+     */
+    private const WHOLE_WORD_KEYWORDS = ['spa', 'bar'];
 
     /**
      * Instagram business categories that the shared substring map gets WRONG or
@@ -236,9 +277,13 @@ final class SectorTaxonomy
         'music lessons & instruction school' => 'music-teacher',
         'music teacher' => 'music-teacher',
 
-        // The substring map's trailing 'bar' and 'sport' keys capture these.
-        // Three would otherwise resolve to the FOOD slug 'bar' and flip
-        // can_use_booking off on a business account.
+        // Where the shared substring map still lands elsewhere. Narrower than
+        // it was: since 'bar' became a WHOLE_WORD_KEYWORD and 'sport' moved
+        // last (2026-08-19), "bartender" and "barre studio" fall through to
+        // null rather than to the FOOD slug 'bar', and "sports bar" resolves
+        // to 'bar' unaided — that entry is now belt-and-braces. 'juice bar'
+        // (a cafe), 'sportswear store' and 'hair removal service' still need
+        // an exact entry to reach the right slug.
         'sports bar' => 'bar',
         'juice bar' => 'cafe',
         'bartender' => 'bartender',
@@ -509,8 +554,10 @@ final class SectorTaxonomy
     }
 
     /**
-     * Map a raw Google Business category (Places `primaryTypeDisplayName`, e.g.
-     * "Italian restaurant", "Barber shop") to the closest curated sector slug
+     * Map a raw Google Business category (the payload's `category` — Places
+     * `primaryTypeDisplayName`, or a humanized types[] entry when the primary
+     * is generic (M-10), e.g. "Italian restaurant", "Barber shop", "Body art
+     * service") to the closest curated sector slug
      * via the shared ordered-keyword classifier. Null when nothing matches or
      * the input is empty — callers leave the stored sector untouched on null.
      */
@@ -658,9 +705,25 @@ final class SectorTaxonomy
 
     /**
      * Classify a raw category string against an ORDERED keyword => slug map.
-     * First substring match wins (case-insensitive) — KEYWORD_SECTORS must
-     * order colliding keywords specific-before-generic ('barber' before
-     * 'bar', so "Barber shop" doesn't fall through to the bar keyword).
+     * First match wins (case-insensitive), and a keyword only matches at a
+     * WORD BOUNDARY.
+     *
+     * Boundary matching is safe here and NOT in classifyText because the two
+     * scan different kinds of string. This map is scanned against spaced,
+     * human-readable category names — Google's primaryTypeDisplayName (or a
+     * humanized types[] entry when the primary is generic, M-10),
+     * Instagram's businessCategoryName — where every keyword that is really
+     * present starts a word. classifyText scans run-together handles, where
+     * anchoring would lose the matches it exists to catch ('\btattoo' misses
+     * crucibletattooco), so it keeps bare substring matching by design.
+     *
+     * Keys match as stems ('landscap' => "Landscaping"); WHOLE_WORD_KEYWORDS
+     * anchors the tail as well for the short keys that open unrelated words.
+     *
+     * ORDER still settles genuine collisions where both keys appear as whole
+     * words: specific-before-generic ('barber' before 'bar', so "Barber shop"
+     * doesn't fall through), and head-noun-before-qualifier ('bar' before
+     * 'sport', so "Sports bar" is a bar and not a gym).
      *
      * @param  array<string, string>  $orderedKeywordToSlug
      */
@@ -672,7 +735,9 @@ final class SectorTaxonomy
         }
 
         foreach ($orderedKeywordToSlug as $keyword => $slug) {
-            if (str_contains($lower, $keyword)) {
+            $tail = in_array($keyword, self::WHOLE_WORD_KEYWORDS, true) ? 's?\b' : '';
+
+            if (preg_match('/\b'.preg_quote($keyword, '/').$tail.'/', $lower) === 1) {
                 return $slug;
             }
         }
