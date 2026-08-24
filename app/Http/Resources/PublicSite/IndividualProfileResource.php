@@ -135,7 +135,8 @@ class IndividualProfileResource extends ApiResource
             'designKit' => $designKitOut,
 
             // Which code-side architecture (page layout / how pages connect)
-            // renders this site — always 'staple' (single-architecture platform).
+            // renders this site — 'staple' or 'scroll' (Site::ARCHITECTURE_IDS),
+            // owner-picked on the dashboard's Site page; defaults to 'staple'.
             'architectureId' => $this->sections['architecture_id'] ?? Site::DEFAULT_ARCHITECTURE_ID,
             // TRANSITION ALIAS — drop once apps/pages deploy reading architectureId is confirmed.
 

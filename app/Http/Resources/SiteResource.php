@@ -14,7 +14,8 @@ use Illuminate\Http\Request;
 // `settings` is passed through unchanged — the dashboard reads non-design
 // settings (booking, GBP, etc). Per-user design vars live in site.design_kits
 // (separate table), exposed via the design-kit payload. architecture_id is
-// deliberately absent — it left this resource 2026-08-20.
+// back on the wire since 2026-08-24 (it left 2026-08-20, reopened for the
+// 'scroll' architecture — see Site::ARCHITECTURE_IDS).
 /**
  * @mixin Site
  */
@@ -121,6 +122,7 @@ class SiteResource extends ApiResource
             'user_id' => $this->user_id,
             'subdomain' => $this->subdomain,
             'is_published' => $this->is_published,
+            'architecture_id' => $this->architecture_id,
             'subdomain_changed_at' => $this->subdomain_changed_at?->toIso8601String(),
             'unpublished_at' => $this->unpublished_at?->toIso8601String(),
             'settings' => (object) $settings,
