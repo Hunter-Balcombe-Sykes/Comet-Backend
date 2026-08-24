@@ -57,7 +57,7 @@ beforeEach(function () {
     )');
 });
 
-function seedActionEvent(string $actionId): string
+function ualsSeedActionEvent(string $actionId): string
 {
     $id = (string) Str::uuid();
     DB::connection('pgsql')->table('analytics.action_events')->insert([
@@ -70,7 +70,7 @@ function seedActionEvent(string $actionId): string
     return $id;
 }
 
-function seedSiteWithSettings(array $settings): string
+function ualsSeedSiteWithSettings(array $settings): string
 {
     $id = (string) Str::uuid();
     DB::connection('pgsql')->table('site.sites')->insert([
@@ -83,7 +83,7 @@ function seedSiteWithSettings(array $settings): string
     return $id;
 }
 
-function seedScoreRow(string $contentType): string
+function ualsSeedScoreRow(string $contentType): string
 {
     $id = (string) Str::uuid();
     DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
@@ -99,12 +99,12 @@ function seedScoreRow(string $contentType): string
 }
 
 it('deletes only legacy-vocabulary action_events rows, leaving <kind>:<ref> rows untouched', function () {
-    $legacy1 = seedActionEvent('instagram');
-    $legacy2 = seedActionEvent('menu');
-    $conforming1 = seedActionEvent('page:home');
-    $conforming2 = seedActionEvent('platform:instagram');
-    $conforming3 = seedActionEvent('item:abc123');
-    $conforming4 = seedActionEvent('category:shop');
+    $legacy1 = ualsSeedActionEvent('instagram');
+    $legacy2 = ualsSeedActionEvent('menu');
+    $conforming1 = ualsSeedActionEvent('page:home');
+    $conforming2 = ualsSeedActionEvent('platform:instagram');
+    $conforming3 = ualsSeedActionEvent('item:abc123');
+    $conforming4 = ualsSeedActionEvent('category:shop');
 
     $this->artisan('partna:scrub-unified-actions-legacy', ['--only' => 'action-events'])
         ->assertExitCode(0);
@@ -121,8 +121,8 @@ it('deletes only legacy-vocabulary action_events rows, leaving <kind>:<ref> rows
 });
 
 it('strips only the legacy settings keys from site.sites, leaving unrelated keys and conforming sites untouched', function () {
-    $legacySite = seedSiteWithSettings(['smart_actions' => ['a'], 'manual_actions' => ['b'], 'unrelated_key' => 'keep-me']);
-    $conformingSite = seedSiteWithSettings(['actions' => ['x'], 'pool_order' => ['y']]);
+    $legacySite = ualsSeedSiteWithSettings(['smart_actions' => ['a'], 'manual_actions' => ['b'], 'unrelated_key' => 'keep-me']);
+    $conformingSite = ualsSeedSiteWithSettings(['actions' => ['x'], 'pool_order' => ['y']]);
 
     $this->artisan('partna:scrub-unified-actions-legacy', ['--only' => 'site-settings'])
         ->assertExitCode(0);
@@ -137,7 +137,7 @@ it('strips only the legacy settings keys from site.sites, leaving unrelated keys
 });
 
 it('does not change site.sites.updated_at when scrubbing settings — a deliberate choice, not an oversight', function () {
-    $siteId = seedSiteWithSettings(['smart_actions' => ['a']]);
+    $siteId = ualsSeedSiteWithSettings(['smart_actions' => ['a']]);
     $before = DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->value('updated_at');
 
     // Postgres timestamp resolution is sub-microsecond; sleep a moment so an
@@ -154,10 +154,10 @@ it('does not change site.sites.updated_at when scrubbing settings — a delibera
 });
 
 it('deletes only page-typed popularity scores, leaving every other content_type untouched', function () {
-    $page1 = seedScoreRow('page');
-    $page2 = seedScoreRow('page');
-    $action = seedScoreRow('action');
-    $shopProduct = seedScoreRow('shop_product');
+    $page1 = ualsSeedScoreRow('page');
+    $page2 = ualsSeedScoreRow('page');
+    $action = ualsSeedScoreRow('action');
+    $shopProduct = ualsSeedScoreRow('shop_product');
 
     $this->artisan('partna:scrub-unified-actions-legacy', ['--only' => 'page-scores'])
         ->assertExitCode(0);
@@ -172,9 +172,9 @@ it('deletes only page-typed popularity scores, leaving every other content_type 
 });
 
 it('is idempotent — a second run reports 0 rows affected across all three steps', function () {
-    seedActionEvent('instagram');
-    seedSiteWithSettings(['smart_actions' => ['a']]);
-    seedScoreRow('page');
+    ualsSeedActionEvent('instagram');
+    ualsSeedSiteWithSettings(['smart_actions' => ['a']]);
+    ualsSeedScoreRow('page');
 
     $this->artisan('partna:scrub-unified-actions-legacy')->assertExitCode(0);
 
@@ -185,9 +185,9 @@ it('is idempotent — a second run reports 0 rows affected across all three step
 });
 
 it('--dry-run writes nothing across all three steps', function () {
-    $legacyEvent = seedActionEvent('instagram');
-    $legacySite = seedSiteWithSettings(['smart_actions' => ['a']]);
-    $legacyScore = seedScoreRow('page');
+    $legacyEvent = ualsSeedActionEvent('instagram');
+    $legacySite = ualsSeedSiteWithSettings(['smart_actions' => ['a']]);
+    $legacyScore = ualsSeedScoreRow('page');
 
     $this->artisan('partna:scrub-unified-actions-legacy', ['--dry-run' => true])
         ->expectsOutputToContain('Would affect 3 total row(s)')
@@ -201,7 +201,7 @@ it('--dry-run writes nothing across all three steps', function () {
 
 it('--chunk=2 over 5 legacy action_events rows still ends at 0 remaining', function () {
     for ($i = 0; $i < 5; $i++) {
-        seedActionEvent('instagram-'.$i);
+        ualsSeedActionEvent('instagram-'.$i);
     }
 
     $this->artisan('partna:scrub-unified-actions-legacy', ['--only' => 'action-events', '--chunk' => 2])
@@ -211,7 +211,7 @@ it('--chunk=2 over 5 legacy action_events rows still ends at 0 remaining', funct
 });
 
 it('rejects a non-positive --chunk before touching the database', function () {
-    $legacyEvent = seedActionEvent('instagram');
+    $legacyEvent = ualsSeedActionEvent('instagram');
 
     $this->artisan('partna:scrub-unified-actions-legacy', ['--chunk' => 0])
         ->expectsOutputToContain('--chunk must be a positive integer')
