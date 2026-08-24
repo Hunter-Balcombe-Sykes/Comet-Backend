@@ -52,6 +52,7 @@ beforeEach(function () {
 
     $pg->statement('CREATE SCHEMA IF NOT EXISTS core');
     $pg->statement('CREATE SCHEMA IF NOT EXISTS routing');
+    $pg->statement('CREATE SCHEMA IF NOT EXISTS site');
 
     // user_id is a bare uuid with no core.users table and no FK. Building a
     // local core.users here would be invisible to SchemaDriftGuardTest, which
@@ -93,11 +94,57 @@ beforeEach(function () {
         ON routing.source_intents (user_id, surface_key, identifier)
         WHERE (state IN (\'proposed\', \'applied\', \'blocked\'))');
 
+    // A Choose reaches site.platform_connections now, so this file must
+    // provision it. 12c73ccee (M-8) widened SourceReconciler's identity lookup
+    // from `Verdict::Place` to `[Place, Choose]` — an aliased Choose folds into
+    // a row we already hold instead of re-proposing the user's own account —
+    // and did not touch this file. The old invariant ("a non-Place verdict
+    // touches site.platform_connections nowhere") is what let this test skip
+    // the table entirely; it stopped being true, and because the PG lane runs
+    // ONLY in CI, the 42703 surfaced there rather than on anyone's laptop.
+    //
+    // Empty and never written: matchExisting() returns null on no rows, so the
+    // Choose stays a Choose and the race under test is unchanged. Declared
+    // faithfully rather than minimally, for the reason SourceReconcilerAtomicityTest
+    // records after paying for it twice — the next column the reader picks up
+    // should not cost another red CI cycle.
+    $pg->statement('DROP TABLE IF EXISTS site.platform_connections CASCADE');
+    $pg->statement('CREATE TABLE site.platform_connections (
+        id uuid PRIMARY KEY,
+        user_id uuid NOT NULL,
+        surface_key text NOT NULL,
+        routing_class text NOT NULL,
+        resource_id text NOT NULL,
+        canonical_key text,
+        payload jsonb NOT NULL DEFAULT \'{}\'::jsonb,
+        is_active boolean NOT NULL DEFAULT true,
+        is_primary boolean NOT NULL DEFAULT false,
+        platform text,
+        sort_order integer DEFAULT 0,
+        last_visited_at timestamptz,
+        last_refreshed_at timestamptz,
+        last_refresh_status text,
+        last_refresh_error text,
+        consecutive_failures integer DEFAULT 0,
+        apify_status text,
+        place_id text,
+        refresh_etag text,
+        refresh_last_modified text,
+        resource_kind text,
+        display_settings jsonb,
+        created_by_catalog_digest text,
+        created_at timestamptz,
+        updated_at timestamptz,
+        deleted_at timestamptz
+    )');
+
     $this->userId = (string) Str::uuid();
 });
 
 afterAll(function () {
-    DB::connection('pgsql')->statement('DROP TABLE IF EXISTS routing.source_intents CASCADE');
+    $pg = DB::connection('pgsql');
+    $pg->statement('DROP TABLE IF EXISTS routing.source_intents CASCADE');
+    $pg->statement('DROP TABLE IF EXISTS site.platform_connections CASCADE');
 });
 
 it('advances the winner instead of raising 23505 when a competing intent commits between the pre-read and the insert', function () {
@@ -109,8 +156,10 @@ it('advances the winner instead of raising 23505 when a competing intent commits
     $winnerId = (string) Str::uuid();
 
     // Choose (not Place): incumbentFor()/capReached()/applyIntent() are all
-    // skipped for a non-Place verdict, so no site.platform_connections
-    // provisioning is needed — this test is isolated to upsertIntent().
+    // skipped for a non-Place verdict, so this stays isolated to
+    // upsertIntent(). The connections table IS provisioned (see beforeEach) —
+    // since M-8 a Choose consults ConnectionIdentity::matchExisting() — but it
+    // is empty, so the lookup returns null and the verdict stays Choose.
     $verdict = Verdict::Choose;
 
     $user = new User;

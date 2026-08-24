@@ -96,12 +96,8 @@ class SourceReconciler
         // as a second account, the booking XOR must not hold it as a conflict,
         // and applyIntent must reuse it rather than insert a duplicate.
         //
-        // Gated on Place, deliberately. A non-Place verdict touches
-        // site.platform_connections nowhere else in this method, and
-        // SourceIntentUpsertRaceTest is built on exactly that invariant (it
-        // provisions no connections table at all) — an unconditional lookup
-        // here both breaks it and spends a query per Choose/Hold/Note that
-        // nothing reads.
+        // Gated, deliberately: an unconditional lookup would spend a query per
+        // Hold/Note/Reject that nothing downstream reads.
         // Choose consults it too (M-8, matrix run 2: thejunglegiants live —
         // youtube.com/@TheJungleGiants arrived in the Choose band while
         // @thejunglegiants was already connected, and the un-consulted alias
