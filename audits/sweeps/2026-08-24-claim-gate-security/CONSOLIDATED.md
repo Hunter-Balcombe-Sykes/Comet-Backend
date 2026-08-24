@@ -157,6 +157,30 @@
       defect; CLAIM_TOKEN primitive requires a matching frontend change in partna-monorepo,
       out of scope for a backend-only run. Left unticked deliberately; do not auto-archive
       this folder until it is dispositioned.
+    - **Premise changed (2026-08-25) — this finding now OVERSTATES its own risk.** "Dark Until
+      Claimed" (`ee1c22784`, on `development`) made an unvetted unclaimed build unroutable:
+      `PreAccountBuild::isVisibleWhileUnclaimed()` is true only for a staff-built or
+      staff-approved early-access build, so an ordinary self-serve (`built_via='signup'`) build
+      404s at both `IndividualProfileController::show` and `PublicIntegrationController::show`,
+      and `SyncSubdomainToKvJob` never writes its KV entry. That directly negates this finding's
+      load-bearing premise — "the handle is not a meaningful secret" — for exactly the cohort it
+      describes.
+      The claim code is UNCHANGED: `ClaimSiteService::claim()` still treats an absent
+      `contact_email` as first-come. What closed is the reachability. The two predicates are
+      complementary, and that is the actual safety property: `isVisibleWhileUnclaimed()` is a
+      strict subset of `isOutreach()`, so *publicly visible ⟹ outreach ⟹ email-gated
+      (`CLAIM_NOT_INVITED`, then a verified-email match)*, while *first-come ⟹ `VIA_SIGNUP` ⟹
+      dark*. The intersection this attack needed — publicly discoverable AND first-come claimable
+      — is now empty.
+      **Residual, so nobody reads this as closed:** unroutable is not secret. These builds are
+      generated from scrapes of real businesses, so a handle is usually guessable from the
+      business name, and `POST /api/claim` still discriminates a wrong subdomain
+      (`CLAIM_NOT_FOUND`) from a right one — a probe oracle of the same shape as #SEM-3's, limited
+      by `throttle:claim` rather than eliminated. So targeted guessing against a known business
+      still works; passive discovery by crawling or stumbling does not.
+      The D2 deferral is unaffected — it rested on the CLAIM_TOKEN primitive needing a frontend
+      counterpart, which is still true. This note only corrects the severity the finding text
+      argues for.
 
 ## P2 — Should fix
 
