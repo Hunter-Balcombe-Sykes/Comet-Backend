@@ -335,7 +335,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 1 of 4 complete
+- P1 High: 3 of 4 complete
 - P2 Medium: 0 of 8 complete
 - P3 Low: 0 of 5 complete
 
@@ -344,6 +344,15 @@
 ## P1 — Fix before pilot launch
 
 - [ ] **SCALE-1** · P1 — Accepting a legacy synced-platform suggestion can hold an HTTP worker for ~110s on an inline Apify scrape
+    - **BLOCKED (2026-08-24) — not fixed, and the finding is misdiagnosed.** `applyFinding()`'s only
+      vendor-facing arm already ends in `InstagramConnectJob::dispatch(...)` — it is ALREADY a queued
+      job. The ~110s is that job's own scrape budget, and it runs in-request only because prod is on
+      `QUEUE_CONNECTION=sync`. So dispatching a NEW job would also run inline under sync (a literal
+      no-op), and under Redis the bug does not exist at all. Landing it would additionally risk the
+      403 capability-denial contract pinned by `tests/Feature/Platforms/AutoSyncApplyCapabilityDenialTest.php`
+      (inside a job an `AuthorizationException` fails silently — the user would get 202 "pending"
+      forever) and lose the synchronous 423 retry signal. Real remediation is the Horizon worker
+      cutover: `docs/deploy/queue-worker-cutover.md` §10. Only the stale code comment was corrected.
     - **Where:** app/Http/Controllers/Api/Routing/SuggestionsController.php:341
     - **Affects:** Any user accepting an Instagram/Google-Business synced-platform suggestion in the inbox; PHP-FPM/Octane worker pool; API latency for unrelated requests during the hold.
     - **Effort:** M (~2–4h)
@@ -367,7 +376,7 @@
         }
         ```
 
-- [ ] **SCALE-2** · P1 — Public sitepage pool hydration fetches every pool's full 500-item library on every cache miss, then discards it
+- [x] **SCALE-2** · P1 — Public sitepage pool hydration fetches every pool's full 500-item library on every cache miss, then discards it
     - **Where:** app/Site/Pools/PoolWire.php:111-117, 184-195
     - **Affects:** Public sitepage resolution — the hottest backend path. On a viral cache miss, DB read volume and PHP memory multiply well past what the visitor's page actually needs before the response is served.
     - **Effort:** M (~2–4h)
@@ -401,7 +410,7 @@
             ),
         ```
 
-- [ ] **SCALE-3** · P1 — The 15-minute popularity-scoring pipeline re-aggregates a site's entire raw event history on every run, with no lower time bound
+- [x] **SCALE-3** · P1 — The 15-minute popularity-scoring pipeline re-aggregates a site's entire raw event history on every run, with no lower time bound
     - **Where:** app/Console/Commands/ComputeContentPopularityScores.php:510-585 (`aggregateItems`); app/Services/Analytics/ActionScorer.php:166-181 (`aggregate`)
     - **Affects:** The scheduled `analytics:compute-popularity` command (`routes/console.php`, every 15 minutes, 16-minute `withoutOverlapping` lock) for every active site; DB read volume and job runtime grow without bound as a site's event history accumulates, hitting hardest on a viral site's `analytics.item_views` / `analytics.link_clicks` / `analytics.action_events` / `analytics.section_views` volume.
     - **Effort:** L (~1–2d)

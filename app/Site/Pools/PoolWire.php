@@ -108,9 +108,17 @@ class PoolWire
             }
         }
 
+        // SCALE-2: selection ids only — this class's output never carries
+        // `library` (see forSite()'s docblock: watch|listen|media items +
+        // latestItemId, shop adds collections). Nine pools x LIBRARY_LIMIT
+        // (500) each meant a public cache miss could hydrate up to 4,500 item
+        // payloads through itemPayloads() only to throw every library one
+        // away below. The dashboard/swap-picker library comes from a
+        // DIFFERENT entry point (PoolController::show -> PoolResolver::resolve()),
+        // which is untouched.
         $allIds = [];
         foreach ($plans as $plan) {
-            array_push($allIds, ...$plan['selectionIds'], ...$plan['libraryIds']);
+            array_push($allIds, ...$plan['selectionIds']);
         }
 
         try {
@@ -137,7 +145,7 @@ class PoolWire
         $out = [];
         foreach ($plans as $pool => $plan) {
             try {
-                $resolved = $this->pools->assemble($site, $pool, $plan, $payloads, $stores);
+                $resolved = $this->pools->assemble($site, $pool, $plan, $payloads, $stores, withLibrary: false);
             } catch (QueryException $e) {
                 // TWO different failures used to share one `return []`, and
                 // #LIFE-6 is only about the second of them.

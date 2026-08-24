@@ -2,6 +2,7 @@
 
 use App\Console\Commands\ComputeContentPopularityScores;
 use App\Services\Analytics\ActionScorer;
+use App\Services\Analytics\ScoringWindow;
 use App\Services\Content\LinkPoolWriter;
 use App\Services\Content\ServiceCollections;
 use Illuminate\Console\Scheduling\Schedule;
@@ -146,7 +147,18 @@ it('keys a legacy handle-keyed shop click and a url-keyed link click by the item
 
 it('does not let one fresh event resurrect stale history to full weight', function () {
     $tenant = createTenant('cmd-resurrect');
-    // 10 watch clicks 180 days ago (weight 0.25 × w_click 2.0 each → 5.0) + one fresh impression (1.0).
+    // SCALE-3 (2026-08-24): amended from 180 to 89 days. 180 > ScoringWindow::
+    // LOOKBACK_DAYS (120), and prod cannot hold a raw event that old — the
+    // 90-day PurgeRawAnalyticsEvents retention deletes it — so the original
+    // fixture asserted decay math on data that cannot exist in prod. 89 is
+    // the oldest age a real prod row can carry.
+    //
+    // Arithmetic: dayWeight(89) = 2^(-89/90) ≈ 0.5038. The day-bucket
+    // truncates occurred_at to a calendar date, so the age actually used by
+    // dayWeight() lands somewhere in [89, 90) depending on time-of-day —
+    // weight in [0.500, 0.504], a negligible spread. 10 clicks ×
+    // w_click(watch 2.0) × ~0.5038 ≈ 10.08, plus one fresh impression
+    // (w_view 1.0 × ~1.0) ≈ 1.0 → total ≈ 11.08.
     foreach (range(1, 10) as $i) {
         DB::connection('pgsql')->table('analytics.link_clicks')->insert([
             'id' => (string) Str::uuid(),
@@ -155,8 +167,8 @@ it('does not let one fresh event resurrect stale history to full weight', functi
             'section_key' => 'watch',
             'product_id' => 'vid-1',
             'url' => 'https://example.com/'.$i,
-            'occurred_at' => now()->subDays(180)->toISOString(),
-            'created_at' => now()->subDays(180)->toISOString(),
+            'occurred_at' => now()->subDays(89)->toISOString(),
+            'created_at' => now()->subDays(89)->toISOString(),
         ]);
     }
     DB::connection('pgsql')->table('analytics.item_views')->insert([
@@ -173,11 +185,14 @@ it('does not let one fresh event resurrect stale history to full weight', functi
     $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])
         ->assertExitCode(0);
 
-    // Old model: 21 × 1.0 (decay-since-latest) = 21. New: 5.0 + 1.0 = 6.0.
+    // Old model: 10 clicks × w_click(2.0) + 1 view × w_view(1.0), undecayed
+    // relative to the latest event ("decay-since-latest") = 21 × 1.0 = 21.
+    // New: ≈ 11.08 (see arithmetic above) — the point survives: 11 raw
+    // events must not score anywhere near their naive full-weight sum.
     $row = popularityScoreRow($tenant->site->id, 'watch_item', 'vid-1');
     expect($row)->not->toBeNull()
-        ->and((float) $row->score)->toBeGreaterThan(5.5)
-        ->and((float) $row->score)->toBeLessThan(7.0);
+        ->and((float) $row->score)->toBeGreaterThan(10.5)
+        ->and((float) $row->score)->toBeLessThan(11.6);
 });
 
 it('fades stored keys with no remaining signal and deletes them below the floor', function () {
@@ -480,6 +495,78 @@ it('declares an explicit, non-null $timeout ceiling', function () {
 // ── SCALE-3 follow-up (2026-07-20): pin the missed-tick margin invariant so a
 // future shrink of the window (or a cadence change) goes red instead of just
 // re-opening the gap silently. See routes/console.php's "missed-tick gap" note. ──
+
+// ── SCALE-3 (2026-08-24): aggregateItems() now bounds every raw-event read to
+// ScoringWindow — an enforced invariant, not a measured perf win. See that
+// class for why the ceiling (120) sits above raw-event retention (90). ──
+
+it('drops a raw event older than the scoring lookback and counts only the in-window one', function () {
+    $tenant = createTenant('scale3-lookback-old');
+    $source = popularityTenantSource($tenant);
+    $ago = now()->subDays(300)->toISOString();
+    $video = poolItem($tenant->id, $source, 'video', 'Clip', $ago);
+    DB::table('content.items')->where('id', $video)->update(['first_seen_at' => $ago]);
+
+    // Beyond the lookback ceiling — must contribute nothing.
+    DB::connection('pgsql')->table('analytics.link_clicks')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $tenant->id, 'site_id' => $tenant->site->id,
+        'section_key' => 'watch', 'product_id' => $video, 'url' => 'https://example.com/old',
+        'occurred_at' => now()->subDays(ScoringWindow::LOOKBACK_DAYS + 5)->toISOString(),
+        'created_at' => now()->subDays(ScoringWindow::LOOKBACK_DAYS + 5)->toISOString(),
+    ]);
+    // Right now — must contribute (w_click(watch 2.0) × ~1.0 ≈ 2.0).
+    DB::connection('pgsql')->table('analytics.link_clicks')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $tenant->id, 'site_id' => $tenant->site->id,
+        'section_key' => 'watch', 'product_id' => $video, 'url' => 'https://example.com/new',
+        'occurred_at' => now()->toISOString(), 'created_at' => now()->toISOString(),
+    ]);
+
+    $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])->assertExitCode(0);
+
+    $row = popularityScoreRow($tenant->site->id, 'watch_item', $video);
+    expect($row)->not->toBeNull()
+        ->and((float) $row->score)->toEqualWithDelta(2.0, 0.05);
+});
+
+// Non-vacuity control for the case above: an otherwise-identical old click
+// moved just INSIDE the window must contribute a nonzero (if heavily decayed)
+// amount — without this, a fixture bug (wrong site, wrong section_key on the
+// "old" row) would make the case above pass for the wrong reason.
+it('the same old click just inside the lookback DOES contribute — non-vacuity control', function () {
+    $tenant = createTenant('scale3-lookback-control');
+    $source = popularityTenantSource($tenant);
+    $ago = now()->subDays(300)->toISOString();
+    $video = poolItem($tenant->id, $source, 'video', 'Clip', $ago);
+    DB::table('content.items')->where('id', $video)->update(['first_seen_at' => $ago]);
+
+    DB::connection('pgsql')->table('analytics.link_clicks')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $tenant->id, 'site_id' => $tenant->site->id,
+        'section_key' => 'watch', 'product_id' => $video, 'url' => 'https://example.com/old',
+        'occurred_at' => now()->subDays(ScoringWindow::LOOKBACK_DAYS - 5)->toISOString(),
+        'created_at' => now()->subDays(ScoringWindow::LOOKBACK_DAYS - 5)->toISOString(),
+    ]);
+    DB::connection('pgsql')->table('analytics.link_clicks')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $tenant->id, 'site_id' => $tenant->site->id,
+        'section_key' => 'watch', 'product_id' => $video, 'url' => 'https://example.com/new',
+        'occurred_at' => now()->toISOString(), 'created_at' => now()->toISOString(),
+    ]);
+
+    $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])->assertExitCode(0);
+
+    $row = popularityScoreRow($tenant->site->id, 'watch_item', $video);
+    expect($row)->not->toBeNull()
+        ->and((float) $row->score)->toBeGreaterThan(2.0);
+});
+
+it('keeps the lookback ceiling above raw-event retention — the score-preserving invariant', function () {
+    // Sizing the ceiling at or below retention would silently re-rank every
+    // site the day retention is raised (or a purge tick lags): the decay
+    // weight at 90 days is 0.5, not negligible. This is meant to go red if
+    // that ever happens — see ScoringWindow's docblock.
+    expect(ScoringWindow::LOOKBACK_DAYS)->toBeGreaterThan(
+        (int) config('partna.analytics_raw_event_retention_days')
+    );
+});
 
 it('keeps the recent-events lookback at least 2x the scheduled cadence', function () {
     $events = collect(app(Schedule::class)->events());

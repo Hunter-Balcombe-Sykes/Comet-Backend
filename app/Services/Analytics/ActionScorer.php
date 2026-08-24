@@ -163,8 +163,12 @@ class ActionScorer
         $now = now();
         $exposures = [];
         $taps = [];
+        // SCALE-3: bound the scan to ScoringWindow (see that class) — same
+        // index-covered predicate as ComputeContentPopularityScores'
+        // action_events read.
         DB::connection('pgsql')->table('analytics.action_events')
             ->where('site_id', $site->id)
+            ->where('occurred_at', '>=', ScoringWindow::since())
             ->selectRaw("action_id, event, {$day} as day, COUNT(DISTINCT COALESCE(session_id, visitor_id, id)) as sessions")
             ->groupByRaw("action_id, event, {$day}")
             ->get()

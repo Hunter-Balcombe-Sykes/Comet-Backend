@@ -7,6 +7,7 @@ use App\Services\Analytics\ActionScorer;
 use App\Services\Analytics\ContentFreshness;
 use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Analytics\ItemFamily;
+use App\Services\Analytics\ScoringWindow;
 use App\Services\PublicSite\SitepageDataResolverService;
 use App\Site\Actions\ActionCandidates;
 use App\Site\Pools\PoolWire;
@@ -506,9 +507,17 @@ class ComputeContentPopularityScores extends Command
         $day = $this->dayBucketExpr();
         $now = now();
 
+        // SCALE-3: bound every raw-event read to ScoringWindow — see that
+        // class for why 120 days rather than the 90-day purge retention.
+        // Index-covered on every one of the four tables below
+        // ((site_id, occurred_at), section_views additionally on
+        // section_key) — see supabase/migrations/20260726000000_baseline_pilot.sql.
+        $since = ScoringWindow::since();
+
         // Impressions from item_views (item_type carried directly).
         DB::connection('pgsql')->table('analytics.item_views')
             ->where('site_id', $site->id)
+            ->where('occurred_at', '>=', $since)
             ->selectRaw("item_type, item_id, {$day} as day, COUNT(*) as impressions")
             ->groupByRaw("item_type, item_id, {$day}")
             ->get()
@@ -525,6 +534,7 @@ class ComputeContentPopularityScores extends Command
         $aliases = $this->itemIdAliases($site);
         DB::connection('pgsql')->table('analytics.link_clicks')
             ->where('site_id', $site->id)
+            ->where('occurred_at', '>=', $since)
             ->whereNotNull('product_id')
             ->whereNotNull('section_key')
             ->selectRaw("product_id, section_key, {$day} as day, COUNT(*) as clicks")
@@ -547,6 +557,7 @@ class ComputeContentPopularityScores extends Command
         if ($kinds !== []) {
             DB::connection('pgsql')->table('analytics.action_events')
                 ->where('site_id', $site->id)
+                ->where('occurred_at', '>=', $since)
                 ->where('event', 'tap')
                 ->where('action_id', 'like', 'item:%')
                 ->selectRaw("action_id, {$day} as day, COUNT(DISTINCT COALESCE(session_id, visitor_id, id)) as sessions")
@@ -568,6 +579,7 @@ class ComputeContentPopularityScores extends Command
             $share = 1.0 / count($mediaIds);
             DB::connection('pgsql')->table('analytics.section_views')
                 ->where('site_id', $site->id)
+                ->where('occurred_at', '>=', $since)
                 ->where('section_key', self::GALLERY_SECTION_KEY)
                 ->whereNotNull('duration_ms')
                 ->selectRaw("{$day} as day, SUM(duration_ms) as dwell_ms")

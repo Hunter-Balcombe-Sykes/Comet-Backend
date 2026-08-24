@@ -113,7 +113,10 @@ function degradedPoolResolver(string $failingPool, array $answers): PoolResolver
             return [[], collect()];
         }
 
-        public function assemble(Site $site, string $pool, array $plan, array $payloads, Collection $stores): array
+        // SCALE-2: signature must track PoolResolver::assemble()'s new
+        // trailing $withLibrary param (LSP) — unused here since neither
+        // branch below reads the library.
+        public function assemble(Site $site, string $pool, array $plan, array $payloads, Collection $stores, bool $withLibrary = true): array
         {
             if ($pool === $this->failingPool) {
                 throw new QueryException('pgsql', 'select * from content.items', [], new RuntimeException('server closed the connection unexpectedly'));

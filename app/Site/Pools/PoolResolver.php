@@ -342,6 +342,13 @@ class PoolResolver
      * @param  array{pinned: list<string>, ruleIds: list<string>, autoSet: array<string, int>, selectionIds: list<string>, libraryIds: list<string>}  $plan
      * @param  array<string, array<string, mixed>>  $payloads
      * @param  Collection<string, object>  $stores
+     * @param  bool  $withLibrary  SCALE-2: PoolWire's three consumers
+     *                             (IndividualProfilePayloadBuilder, ActionCandidates, ComputeContentPopularityScores)
+     *                             read only `selection`/`collections` off this method's output — the
+     *                             library is served exclusively by PoolController::show -> resolve(),
+     *                             which never passes false. Default true keeps resolve() and
+     *                             PoolController byte-identical; PoolWire passes false so a public
+     *                             build never hydrates and then discards up to 9 x 500 library items.
      * @return array{
      *   selection: list<array<string, mixed>>,
      *   library: list<array<string, mixed>>,
@@ -351,7 +358,7 @@ class PoolResolver
      *   diningModes: list<string>|null,
      * }
      */
-    public function assemble(Site $site, string $pool, array $plan, array $payloads, Collection $stores): array
+    public function assemble(Site $site, string $pool, array $plan, array $payloads, Collection $stores, bool $withLibrary = true): array
     {
         $pinned = $plan['pinned'];
         $autoSet = $plan['autoSet'];
@@ -393,17 +400,19 @@ class PoolResolver
         }
 
         $library = [];
-        foreach ($libraryIds as $itemId) {
-            if (! isset($payloads[$itemId])) {
-                continue;
+        if ($withLibrary) {
+            foreach ($libraryIds as $itemId) {
+                if (! isset($payloads[$itemId])) {
+                    continue;
+                }
+                $library[] = [
+                    ...$payloads[$itemId],
+                    'selected' => isset($selectedSet[$itemId]),
+                    'origin' => isset($autoSet[$itemId]) && isset($selectedSet[$itemId]) && ! in_array($itemId, $pinned, true)
+                        ? 'auto'
+                        : 'manual',
+                ];
             }
-            $library[] = [
-                ...$payloads[$itemId],
-                'selected' => isset($selectedSet[$itemId]),
-                'origin' => isset($autoSet[$itemId]) && isset($selectedSet[$itemId]) && ! in_array($itemId, $pinned, true)
-                    ? 'auto'
-                    : 'manual',
-            ];
         }
 
         return [

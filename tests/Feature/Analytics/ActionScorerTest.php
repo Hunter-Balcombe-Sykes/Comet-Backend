@@ -2,6 +2,7 @@
 
 use App\Models\Core\Site\Site;
 use App\Services\Analytics\ActionScorer;
+use App\Services\Analytics\ScoringWindow;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -176,6 +177,47 @@ it('deletes stale keys and keeps hysteresis: a 5% better newcomer does not overt
         ->and($rows['page:menu']['score'])->toBeGreaterThan($rows['page:services']['score'])
         ->and($rows['page:services']['rank'])->toBe(1)
         ->and($rows['page:menu']['rank'])->toBe(2);
+});
+
+// ── SCALE-3 (2026-08-24): aggregate() now bounds its action_events read to
+// ScoringWindow — mirrors ComputeContentPopularityScoresTest's item-family
+// case for the same predicate on the same table. ──
+
+it('a seen/tap pair beyond the scoring lookback does not move demandRate', function () {
+    $site = createTenant('sc-lookback-old')->site;
+    $connectedAt = now()->subDays(200)->toIso8601String();
+    $session = (string) Str::uuid();
+    $beyond = now()->subDays(ScoringWindow::LOOKBACK_DAYS + 5)->toISOString();
+    seedActionEvent($site, 'item:a', 'seen', $session, $beyond);
+    seedActionEvent($site, 'item:a', 'tap', $session, $beyond);
+
+    $rows = scoreRows(app(ActionScorer::class)->computeForSite($site, [
+        scorerCandidate('item:a', 'item', $connectedAt),
+    ]));
+
+    // Both exposures and taps land at 0 once the pair is outside the window,
+    // so demandRate = (0 + k·prior)/(0 + k) = prior exactly, and reach stays
+    // 0 (no taps, no folded item score) — the same cold-start shape the
+    // first test in this file pins: score = prior · (1 + wDemand).
+    expect($rows['item:a']['score'])->toEqualWithDelta(1.45 * 0.03, 0.01);
+});
+
+// Non-vacuity control for the case above: the identical pair moved just
+// inside the window must move the score — without this, a fixture bug (wrong
+// site, wrong action id) would make the dropped-event case pass regardless.
+it('the same seen/tap pair just inside the lookback DOES move the score — non-vacuity control', function () {
+    $site = createTenant('sc-lookback-control')->site;
+    $connectedAt = now()->subDays(200)->toIso8601String();
+    $session = (string) Str::uuid();
+    $inside = now()->subDays(ScoringWindow::LOOKBACK_DAYS - 5)->toISOString();
+    seedActionEvent($site, 'item:a', 'seen', $session, $inside);
+    seedActionEvent($site, 'item:a', 'tap', $session, $inside);
+
+    $rows = scoreRows(app(ActionScorer::class)->computeForSite($site, [
+        scorerCandidate('item:a', 'item', $connectedAt),
+    ]));
+
+    expect($rows['item:a']['score'])->toBeGreaterThan(1.45 * 0.03);
 });
 
 it('an empty candidate set clears every stored action row', function () {

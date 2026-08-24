@@ -328,7 +328,8 @@ class SuggestionsController extends ApiController
             : app(GoogleBusinessAutoSync::class);
 
         // applyFinding stays OUTSIDE the platform lock — it writes OTHER
-        // platforms' rows and can run an inline Apify scrape (~110s), which a
+        // platforms' rows and dispatches InstagramConnectJob, which runs
+        // inline (~110s) only under QUEUE_CONNECTION=sync, which a
         // 10s-TTL lock would expire in the middle of, reopening the very
         // lost-update window the lock exists to close. It also takes its own
         // booking/reservations XOR lock internally, and this call fully
