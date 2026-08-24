@@ -1,5 +1,12 @@
 * text=auto eol=lf
 
+# Recorded upstream captures are byte-exact evidence, not source. `* text=auto
+# eol=lf` above rewrote CRLF out of them at commit time, so the sha256 in
+# tests/fixtures/recorded/MANIFEST.json (taken pre-normalisation, at capture)
+# could only ever match on the machine that captured the file — every fresh
+# checkout, CI included, failed RecordedFixtureManifestGuardTest. Store verbatim.
+tests/fixtures/recorded/** -text
+
 *.blade.php diff=html
 *.css diff=css
 *.html diff=html
