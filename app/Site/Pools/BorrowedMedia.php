@@ -39,13 +39,6 @@ final class BorrowedMedia
 
     public static function isBorrowed(Model $item): bool
     {
-        // The allowlist is empty today (R6), and reorder() authorizes up to 200
-        // items per drag — a per-item join that can never match is 200 round
-        // trips the hot path does not owe anyone.
-        if (self::BORROWED_SOURCE_KEYS === []) {
-            return false;
-        }
-
         if (($item->getAttribute('kind')) !== 'media') {
             return false;
         }
