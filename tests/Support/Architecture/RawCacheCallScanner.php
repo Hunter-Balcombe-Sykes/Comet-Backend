@@ -62,11 +62,6 @@ final class RawCacheCallScanner
         // Allowlisted by path (ci.yml "Allowlisted by path:" section).
         'app/Services/Cache/', // the canonical cache layer itself
         'app/Http/Controllers/Api/Webhooks/', // Cache::add() for idempotency dedupe
-        // FI-3 (2026-08-20): a pure function-of-URL redirect-expansion memo —
-        // no user data in key or value, no invalidation semantics (a short
-        // link's destination changing simply re-resolves after TTL), and the
-        // dual success/failure TTLs don't fit rememberLocked's one-shape API.
-        'app/Routing/ShortLinkExpander.php',
 
         // This entry carries NO justification comment in ci.yml — it is
         // present in the git-grep pathspec list with no accompanying bullet
@@ -110,7 +105,6 @@ final class RawCacheCallScanner
         'app/Http/Controllers/Api/Platforms/RefreshController.php', // Cache::add SETNX per-user refresh cooldown (key is user+platform scoped)
         'app/Jobs/Notifications/DispatchEnquiryNotificationsJob.php', // Cache::put notify-once idempotency guard (enquiry-id scoped)
         'app/Services/Platforms/YoutubeThumbnailResolver.php', // thumbnail-tier memo with jittered TTL
-        'app/Services/Platforms/AppleSearch.php', // iTunes API response cache, key via CacheKeyGenerator (same pattern as YoutubeThumbnailResolver)
 
         // File-level exceptions (audited 2026-07-22 — same story: the whole gate
         // chain after composer audit was masked, so these pre-existing callers were

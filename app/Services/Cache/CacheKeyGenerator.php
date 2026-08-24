@@ -466,6 +466,16 @@ class CacheKeyGenerator
     }
 
     /**
+     * Short-link expansion memo (CCH-2). Byte-identical to the key
+     * ShortLinkExpander hand-built before this was centralised — preserves the
+     * warm cache and the `shortlink` metrics prefix in RecordCacheMetrics.
+     */
+    public static function shortLinkExpansion(string $url): string
+    {
+        return 'shortlink:'.sha1($url);
+    }
+
+    /**
      * Content-popularity ranks for a site (analytics.content_popularity_scores,
      * grouped by content_type). Sole consumer since slice 7 Phase 3 Task 10:
      * PoolResolver (shop product AND menu category/item ranks — it took the

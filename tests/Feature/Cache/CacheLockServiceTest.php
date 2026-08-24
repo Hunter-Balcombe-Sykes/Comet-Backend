@@ -449,3 +449,26 @@ it('swallows a driver error from the counter rather than failing the request', f
 
     expect($result)->toBe('value');
 });
+
+it('rememberLockedNullable with nullTtl 0 remembers nothing', function () {
+    // Guards the framework behaviour AppleSearch's CCH-1 fix rests on:
+    // Illuminate\Cache\Repository::put() forwards $seconds <= 0 to forget(),
+    // so nullTtl: 0 writes NOTHING at all — no key, no TTL-rule breach — not
+    // a zero-TTL key that happens to expire instantly. Runs against the REAL
+    // array store (not Cache::shouldReceive) so it exercises Repository::put
+    // for real, guarding this across a Laravel upgrade.
+    $calls = 0;
+    $callback = function () use (&$calls) {
+        $calls++;
+
+        return null;
+    };
+
+    $first = $this->service->rememberLockedNullable('test:n:realzero', 60, $callback, nullTtl: 0);
+    $second = $this->service->rememberLockedNullable('test:n:realzero', 60, $callback, nullTtl: 0);
+
+    expect($first)->toBeNull();
+    expect($second)->toBeNull();
+    expect($calls)->toBe(2); // nothing was remembered, so the closure ran twice
+    expect(Cache::has('test:n:realzero'))->toBeFalse();
+});

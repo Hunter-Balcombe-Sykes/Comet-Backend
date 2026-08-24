@@ -8,6 +8,7 @@
  * lower-casing, and the null (abstain-preserving) misses.
  */
 
+use App\Services\Cache\CacheLockService;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\AppleSearch;
 use Illuminate\Support\Facades\Cache;
@@ -51,7 +52,7 @@ it('returns the artist primary genre, lower-cased, from a music.apple.com URL', 
             ]],
         ]));
 
-    $genre = (new AppleSearch($fetcher))->fetchGenre('https://music.apple.com/us/artist/daft-punk/5468295');
+    $genre = (new AppleSearch($fetcher, new CacheLockService))->fetchGenre('https://music.apple.com/us/artist/daft-punk/5468295');
 
     expect($genre)->toBe('dance');
 });
@@ -72,7 +73,7 @@ it('resolves a bare artist name via search then reads the genre', function () {
             ]),
         );
 
-    $genre = (new AppleSearch($fetcher))->fetchGenre('Some Artist');
+    $genre = (new AppleSearch($fetcher, new CacheLockService))->fetchGenre('Some Artist');
 
     expect($genre)->toBe('hip-hop/rap');
 });
@@ -82,7 +83,7 @@ it('returns null when the artist cannot be resolved', function () {
     $fetcher->shouldReceive('tryFetch')
         ->andReturn(itunesResponse(['resultCount' => 0, 'results' => []])); // empty search
 
-    expect((new AppleSearch($fetcher))->fetchGenre('Nonexistent Artist'))->toBeNull();
+    expect((new AppleSearch($fetcher, new CacheLockService))->fetchGenre('Nonexistent Artist'))->toBeNull();
 });
 
 it('returns null when the artist record carries no genre', function () {
@@ -94,12 +95,12 @@ it('returns null when the artist record carries no genre', function () {
             'results' => [['wrapperType' => 'artist', 'artistId' => 999]], // no primaryGenreName
         ]));
 
-    expect((new AppleSearch($fetcher))->fetchGenre('https://music.apple.com/us/artist/x/999'))->toBeNull();
+    expect((new AppleSearch($fetcher, new CacheLockService))->fetchGenre('https://music.apple.com/us/artist/x/999'))->toBeNull();
 });
 
 it('returns null (never throws) when the upstream fetch fails', function () {
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
     $fetcher->shouldReceive('tryFetch')->andReturn(null); // network miss
 
-    expect((new AppleSearch($fetcher))->fetchGenre('https://music.apple.com/us/artist/x/999'))->toBeNull();
+    expect((new AppleSearch($fetcher, new CacheLockService))->fetchGenre('https://music.apple.com/us/artist/x/999'))->toBeNull();
 });

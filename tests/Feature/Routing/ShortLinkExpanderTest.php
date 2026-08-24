@@ -13,6 +13,8 @@ use App\Routing\IriCanonicalizer;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
 use App\Routing\ShortLinkExpander;
+use App\Services\Http\SafeUrlFetcher;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -80,6 +82,110 @@ it('rejects an unexpandable platform short code instead of minting a fake profil
     expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
 });
 
+// CCH-2: proves the fix is single-flight, not just memoized. Mocks
+// SafeUrlFetcher (rather than Http::fake) and calls expandIfShort() directly
+// on the ShortLinkExpander instance so the Cache facade mock surface stays
+// small — LinkRoutingService's own cache/DB traffic would otherwise collide
+// with the Cache::shouldReceive expectations below.
+
+it('takes a single-flight lock on the shortlink key before fetching', function () {
+    // Structurally unsatisfiable by unlocked code: the pre-fix method never
+    // calls Cache::lock() at all, so the ->once() below fails at
+    // Mockery::close(). This is the assertion that actually distinguishes
+    // locked from unlocked.
+    $url = 'https://on.soundcloud.com/lock-check';
+    $key = 'shortlink:'.sha1($url);
+
+    $lock = Mockery::mock(Lock::class);
+    $lock->shouldReceive('block')->with(2)->once();
+    $lock->shouldReceive('release')->once()->andReturn(true);
+
+    // Initial miss, then the post-lock double-check (also a miss).
+    Cache::shouldReceive('get')->with($key)->twice()->andReturn(null, null);
+    Cache::shouldReceive('lock')->with('lock:'.$key, 20)->once()->andReturn($lock);
+    // 86400 = ShortLinkExpander::SUCCESS_TTL_SECONDS.
+    Cache::shouldReceive('put')->with($key, 'https://soundcloud.com/sam-akhurst', 86400)->once();
+
+    $this->mock(SafeUrlFetcher::class, function ($m) {
+        $m->shouldReceive('tryFetch')->once()->andReturn(['finalUrl' => 'https://soundcloud.com/sam-akhurst']);
+    });
+
+    $expanded = app(ShortLinkExpander::class)->expandIfShort($url);
+
+    expect($expanded)->toBe('https://soundcloud.com/sam-akhurst');
+});
+
+it('caches a failed expansion under the SHORT failure TTL', function () {
+    // Negative-TTL regression pin: fails if this method is ever "simplified"
+    // onto rememberLocked's single-TTL shape, which has no room for a
+    // separate (short) failure TTL.
+    $url = 'https://on.soundcloud.com/dead-code';
+    $key = 'shortlink:'.sha1($url);
+
+    $lock = Mockery::mock(Lock::class);
+    $lock->shouldReceive('block')->with(2)->once();
+    $lock->shouldReceive('release')->once()->andReturn(true);
+
+    Cache::shouldReceive('get')->with($key)->twice()->andReturn(null, null);
+    Cache::shouldReceive('lock')->with('lock:'.$key, 20)->once()->andReturn($lock);
+    // 3600 = ShortLinkExpander::FAILURE_TTL_SECONDS, NOT the 86400 success TTL.
+    Cache::shouldReceive('put')->with($key, '__cache_lock_null_sentinel__', 3600)->once();
+
+    $this->mock(SafeUrlFetcher::class, function ($m) {
+        $m->shouldReceive('tryFetch')->once()->andReturn(['finalUrl' => null]);
+    });
+
+    $expanded = app(ShortLinkExpander::class)->expandIfShort($url);
+
+    expect($expanded)->toBe($url);
+});
+
+it('a caller that finds the cache filled after waiting on the lock issues no fetch', function () {
+    // Today's (pre-fix) code has no post-lock double-check at all, so it
+    // fetches unconditionally — this fails against unlocked code.
+    $url = 'https://on.soundcloud.com/filled-while-waiting';
+    $key = 'shortlink:'.sha1($url);
+
+    $lock = Mockery::mock(Lock::class);
+    $lock->shouldReceive('block')->with(2)->once();
+    $lock->shouldReceive('release')->once()->andReturn(true);
+
+    Cache::shouldReceive('get')->with($key)->twice()->andReturn(null, 'https://soundcloud.com/sam-akhurst');
+    Cache::shouldReceive('lock')->with('lock:'.$key, 20)->once()->andReturn($lock);
+    Cache::shouldReceive('put')->never();
+
+    $this->mock(SafeUrlFetcher::class, function ($m) {
+        $m->shouldReceive('tryFetch')->never();
+    });
+
+    $expanded = app(ShortLinkExpander::class)->expandIfShort($url);
+
+    expect($expanded)->toBe('https://soundcloud.com/sam-akhurst');
+});
+
+it('treats a legacy empty-string sentinel as keep-the-original-url', function () {
+    // Deploy-window forward-compat pin, not a stampede pin. Pre-fix code
+    // wrote '' for a failed expansion; rememberLockedNullable treats '' as an
+    // ordinary (non-null, non-sentinel) cached value and returns it verbatim,
+    // so the `$expanded !== ''` guard in expandIfShort() is what keeps an old
+    // entry from being handed back as the "expanded" URL until it TTLs out.
+    $url = 'https://on.soundcloud.com/legacy-sentinel';
+    $key = 'shortlink:'.sha1($url);
+
+    Cache::put($key, '', 60);
+
+    $this->mock(SafeUrlFetcher::class, function ($m) {
+        $m->shouldReceive('tryFetch')->never();
+    });
+
+    $expanded = app(ShortLinkExpander::class)->expandIfShort($url);
+
+    expect($expanded)->toBe($url);
+});
+
+// Proves memoization only (two SEQUENTIAL requests, the #TEST-8 shape), NOT
+// single-flight concurrency — see the lock-acquisition/double-check tests
+// above for the property that actually distinguishes locked from unlocked.
 it('caches an expansion so the preview → route pair fetches once', function () {
     $pro = createTenant('shortlink-cache');
 

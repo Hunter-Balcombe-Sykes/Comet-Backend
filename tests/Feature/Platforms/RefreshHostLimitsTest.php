@@ -5,10 +5,13 @@
 // SCALE-3 per-host burst-control + caching tests. All imports for the whole file
 // live in this block; Tasks 3–6 append only it() blocks.
 
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\AppleSearch;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\YoutubeThumbnailResolver;
+use Illuminate\Contracts\Cache\Lock;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 it('caches a successful iTunes lookup so a repeat resolution issues no second fetch', function () {
@@ -44,7 +47,68 @@ it('does not cache a failed iTunes lookup (retried on the next call)', function 
     $resolve = new ReflectionMethod(AppleSearch::class, 'resolveArtistId');
 
     expect($resolve->invoke($apple, 'Retry Artist'))->toBeNull(); // 429 → null, not cached
+    // Pins nullTtl: 0 explicitly, rather than relying on both calls landing in
+    // the same wall-clock second — that would make the "not cached" claim
+    // above pass by timing accident instead of by the TTL actually being 0.
+    $path = '/search?term='.rawurlencode('Retry Artist').'&entity=musicArtist&limit=1';
+    expect(Cache::has(CacheKeyGenerator::itunesResponse($path)))->toBeFalse();
     expect($resolve->invoke($apple, 'Retry Artist'))->toBe(7);    // re-fetched, succeeds
+});
+
+it('takes a single-flight lock on the itunes response key', function () {
+    // Structurally unsatisfiable by unlocked code: the pre-fix itunes()
+    // helper never called Cache::lock() at all.
+    config()->set('partna.refresh.host_limits.itunes.cache_ttl_seconds', 3600);
+
+    $path = '/search?term='.rawurlencode('Lock Artist').'&entity=musicArtist&limit=1';
+    $key = CacheKeyGenerator::itunesResponse($path);
+
+    $lock = Mockery::mock(Lock::class);
+    $lock->shouldReceive('block')->with(3)->once();
+    $lock->shouldReceive('release')->once()->andReturn(true);
+
+    Cache::shouldReceive('get')->with($key)->twice()->andReturn(null, null);
+    Cache::shouldReceive('lock')->with('lock:'.$key, 20)->once()->andReturn($lock);
+    Cache::shouldReceive('put')->with($key, Mockery::type('array'), 3600)->once();
+
+    $this->mock(SafeUrlFetcher::class, function ($m) {
+        $m->shouldReceive('tryFetch')->once()->andReturn([
+            'status' => 200,
+            'body' => json_encode(['results' => [['artistId' => 999]]]),
+        ]);
+    });
+
+    $apple = app(AppleSearch::class);
+    $resolve = new ReflectionMethod(AppleSearch::class, 'resolveArtistId');
+
+    expect($resolve->invoke($apple, 'Lock Artist'))->toBe(999);
+});
+
+it('a caller that finds the cache filled after the lock wait issues no fetch', function () {
+    // Today's (pre-fix) code has no post-lock double-check, so it fetches
+    // unconditionally — this fails against unlocked code.
+    config()->set('partna.refresh.host_limits.itunes.cache_ttl_seconds', 3600);
+
+    $path = '/search?term='.rawurlencode('Filled Artist').'&entity=musicArtist&limit=1';
+    $key = CacheKeyGenerator::itunesResponse($path);
+
+    $lock = Mockery::mock(Lock::class);
+    $lock->shouldReceive('block')->with(3)->once();
+    $lock->shouldReceive('release')->once()->andReturn(true);
+
+    $filled = ['results' => [['artistId' => 555]]];
+    Cache::shouldReceive('get')->with($key)->twice()->andReturn(null, $filled);
+    Cache::shouldReceive('lock')->with('lock:'.$key, 20)->once()->andReturn($lock);
+    Cache::shouldReceive('put')->never();
+
+    $this->mock(SafeUrlFetcher::class, function ($m) {
+        $m->shouldReceive('tryFetch')->never();
+    });
+
+    $apple = app(AppleSearch::class);
+    $resolve = new ReflectionMethod(AppleSearch::class, 'resolveArtistId');
+
+    expect($resolve->invoke($apple, 'Filled Artist'))->toBe(555);
 });
 
 it('chunks the ytimg maxres probes to the configured pool concurrency', function () {

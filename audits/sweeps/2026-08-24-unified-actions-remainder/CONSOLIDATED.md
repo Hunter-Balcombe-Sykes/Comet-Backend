@@ -792,7 +792,7 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 2 complete
+- P1 High: 2 of 2 complete
 - P2 Medium: 0 of 11 complete
 - P3 Low: 0 of 1 complete
 
@@ -800,7 +800,7 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 
 ## P1 — Fix before pilot launch
 
-- [ ] **CCH-1** · P1 — `AppleSearch::itunes()` reads/writes a globally-shared iTunes cache key with no single-flight lock
+- [x] **CCH-1** · P1 — `AppleSearch::itunes()` reads/writes a globally-shared iTunes cache key with no single-flight lock
     - **Where:** app/Services/Platforms/AppleSearch.php:109-133
     - **Affects:** Every user whose sitepage or dashboard triggers an Apple Music/Podcasts lookup for the same artist/show/genre — the cache key is global (not scoped per user), and iTunes's keyless endpoint is a shared ~20 req/min/IP budget across the whole fleet.
     - **Effort:** S (~0.5–1h)
@@ -831,7 +831,7 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
         return $json;
         ```
 
-- [ ] **CCH-2** · P1 — `ShortLinkExpander::expandIfShort()` reads/writes a globally-shared short-link cache key with no single-flight lock
+- [x] **CCH-2** · P1 — `ShortLinkExpander::expandIfShort()` reads/writes a globally-shared short-link cache key with no single-flight lock
     - **Where:** app/Routing/ShortLinkExpander.php:68-103
     - **Affects:** Every paste-preview, link-in-bio import, and routing pass across every user — the cache key (`'shortlink:'.sha1($url)`) is global, so a trending short link shared by many users (or re-scanned across many sites in a batch import) triggers one outbound fetch per concurrent miss.
     - **Effort:** M (~2–4h)

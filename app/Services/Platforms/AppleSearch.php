@@ -3,8 +3,8 @@
 namespace App\Services\Platforms;
 
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\CacheLockService;
 use App\Services\Http\SafeUrlFetcher;
-use Illuminate\Support\Facades\Cache;
 
 // Apple Music + Apple Podcasts lookups on the unauthenticated iTunes Search API
 // (no key). Resolves an artist/show to its id, then returns the recent releases
@@ -12,7 +12,10 @@ use Illuminate\Support\Facades\Cache;
 // controller stays thin. Spec: ~/Developer/platform link capabilites/apple-implementation.md
 class AppleSearch extends PlatformScraper
 {
-    public function __construct(private readonly SafeUrlFetcher $fetcher) {}
+    public function __construct(
+        private readonly SafeUrlFetcher $fetcher,
+        private readonly CacheLockService $cache,
+    ) {}
 
     /**
      * The artist's most-recent albums/releases, newest first, up to $limit.
@@ -108,16 +111,51 @@ class AppleSearch extends PlatformScraper
 
     private function itunes(string $path): ?array
     {
-        // SCALE-3: cache successful lookups (iTunes is keyless, ~20 req/min/IP). Only
-        // a valid decoded response is stored — a null/non-200 must be retried, never
-        // remembered. Matches the YoutubeThumbnailResolver "cache the verdict, not the
-        // miss" pattern; key centralised in CacheKeyGenerator.
+        // SCALE-3: cache successful lookups (iTunes is keyless, ~20 req/min/IP,
+        // shared across the whole fleet). CCH-1: an uncoordinated stampede on
+        // expiry can 429 the lookup for every user, so this now single-flights
+        // through CacheLockService rather than reading/writing Cache directly.
+        //
+        // rememberLockedNullable, not rememberLocked: rememberLocked's stale
+        // twin is meant for a value worth serving last-known-good, and its
+        // docblock forbids a null-returning callback. fetchDecoded() can
+        // legitimately return null (429, decode failure), and feeding that
+        // through rememberLocked would write null to BOTH the primary and the
+        // stale twin — destroying the last-good response on a transient
+        // failure. Do not "upgrade" this to rememberLocked; there is nothing
+        // here for SWR/jitter to protect, since a failure must never be cached.
         $key = CacheKeyGenerator::itunesResponse($path);
-        $cached = Cache::get($key);
-        if (is_array($cached)) {
-            return $cached;
-        }
 
+        $result = $this->cache->rememberLockedNullable(
+            $key,
+            (int) config('partna.refresh.host_limits.itunes.cache_ttl_seconds'),
+            fn (): ?array => $this->fetchDecoded($path),
+            // nullTtl: 0 is load-bearing, not a rounding default. The negative
+            // TTL here has always been zero — a miss "must be retried, never
+            // remembered" (see fetchDecoded()) — and Repository::put() forwards
+            // $seconds <= 0 to forget(), so nothing is written at all: no key,
+            // no stale negative-cache window. RefreshHostLimitsTest pins two
+            // back-to-back calls after a 429 both re-fetching; nullTtl: 1 would
+            // break that (both land in the same second).
+            nullTtl: 0,
+            // lockSeconds 20: partna.http_fetch.timeout_seconds (15) plus a
+            // ~6s connect leg — the CacheLockService default of 10 would expire
+            // mid-fetch. blockSeconds 3: this runs inside a 45s connect budget.
+            lockSeconds: 20,
+            blockSeconds: 3,
+        );
+
+        return is_array($result) ? $result : null;
+    }
+
+    /**
+     * Fetch + decode one iTunes path. Only a valid decoded response is
+     * returned — a null/non-200/undecodable body must be retried, never
+     * remembered. Matches the YoutubeThumbnailResolver "cache the verdict,
+     * not the miss" pattern.
+     */
+    private function fetchDecoded(string $path): ?array
+    {
         $res = $this->fetcher->tryFetch('https://itunes.apple.com'.$path, ['User-Agent' => self::USER_AGENT]);
         if ($res === null || $res['status'] !== 200) {
             return null;
@@ -126,8 +164,6 @@ class AppleSearch extends PlatformScraper
         if (! is_array($json)) {
             return null;
         }
-
-        Cache::put($key, $json, (int) config('partna.refresh.host_limits.itunes.cache_ttl_seconds'));
 
         return $json;
     }
