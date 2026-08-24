@@ -44,11 +44,47 @@ it('newest puts undated candidates after every dated one', function () {
     expect(ids($r['entries']))->toBe(['item:c8', 'item:c9', 'item:c10', 'item:c11']);
 });
 
-it('smart orders scored candidates by score desc, then unscored by newest', function () {
-    $scores = ['item:c7' => 0.9, 'item:c11' => 0.5, 'item:c3' => 0.7];
-    $r = ActionSlots::resolve(slotCandidates(), $scores, settingsOf(['mode' => 'smart']));
+it('smart orders ranked candidates by stored rank asc (rank 1 first), then unranked by newest — RANK-1', function () {
+    // Ranks are NOT monotonically consistent with a descending read: 1,2,3
+    // assigned to c7,c3,c11 in that order. A comparator that wrongly sorts
+    // descending (the old score-desc direction) would emit c11,c3,c7 —
+    // the reverse of the expected sequence — so this inversion is the
+    // non-vacuity proof for the comparator direction.
+    $ranks = ['item:c7' => 1, 'item:c3' => 2, 'item:c11' => 3];
+    $r = ActionSlots::resolve(slotCandidates(), $ranks, settingsOf(['mode' => 'smart']));
 
     expect(ids($r['entries']))->toBe(['item:c7', 'item:c3', 'item:c11', 'item:c0', 'item:c1', 'item:c2', 'item:c4', 'item:c5', 'item:c6', 'item:c8']);
+});
+
+it('smart with an empty ranks map reproduces plain newest ordering exactly (every candidate falls through unranked)', function () {
+    $r = ActionSlots::resolve(slotCandidates(), [], settingsOf(['mode' => 'smart']));
+
+    expect(ids($r['entries']))->toBe(['item:c0', 'item:c1', 'item:c2', 'item:c3', 'item:c4', 'item:c5', 'item:c6', 'item:c7', 'item:c8', 'item:c9']);
+});
+
+it('smart hysteresis pin: two ranked candidates ordered opposite to their connectedAt still come out in rank order', function () {
+    // c5 (older, connectedAt 2026-08-15) ranked ABOVE c1 (newer, 2026-08-19) —
+    // if the comparator fell through to connectedAt instead of honouring
+    // rank, c1 would come first. Rank must win.
+    $ranks = ['item:c5' => 1, 'item:c1' => 2];
+    $r = ActionSlots::order([slotCandidates()[1], slotCandidates()[5]], $ranks);
+
+    expect(ids($r))->toBe(['item:c5', 'item:c1']);
+});
+
+it('smart falls THROUGH on an equal rank to connectedAt desc, in either input order', function () {
+    // Reachable in production: actionRanksForSite() passes stored ranks through
+    // verbatim, so the narrow window between computeForSite()'s upsert and its
+    // stale-key delete can hand this comparator two candidates sharing a rank.
+    // The equal-rank arm must NOT short-circuit — it has to reach the existing
+    // undated -> connectedAt desc -> id chain, or the order is nondeterministic.
+    // Asserted in both input orders so it cannot pass on incidental array order.
+    $ranks = ['item:c5' => 3, 'item:c1' => 3];
+
+    expect(ids(ActionSlots::order([slotCandidates()[5], slotCandidates()[1]], $ranks)))
+        ->toBe(['item:c1', 'item:c5']);
+    expect(ids(ActionSlots::order([slotCandidates()[1], slotCandidates()[5]], $ranks)))
+        ->toBe(['item:c1', 'item:c5']);
 });
 
 it('a lock holds its position in smart and newest and is not duplicated from the ranking', function () {
@@ -60,7 +96,7 @@ it('a lock holds its position in smart and newest and is not duplicated from the
         ->and($r['entries'][1]['locked'])->toBeFalse();
 
     $settings = settingsOf(['mode' => 'smart', 'slots' => [['position' => 0, 'id' => 'item:c9']]]);
-    $r = ActionSlots::resolve(slotCandidates(), ['item:c1' => 1.0], $settings);
+    $r = ActionSlots::resolve(slotCandidates(), ['item:c1' => 1], $settings);
     expect(ids($r['entries'])[0])->toBe('item:c9')->and(ids($r['entries'])[1])->toBe('item:c1');
 });
 
@@ -86,7 +122,7 @@ it('manual places only the slots, in position order, nothing auto-filled, all lo
     $settings = settingsOf(['mode' => 'manual', 'slots' => [
         ['position' => 1, 'id' => 'item:c4'], ['position' => 0, 'id' => 'item:c11'], ['position' => 2, 'id' => 'item:gone'], ['position' => 3, 'id' => 'item:c0'],
     ]]);
-    $r = ActionSlots::resolve(slotCandidates(), ['item:c1' => 1.0], $settings);
+    $r = ActionSlots::resolve(slotCandidates(), ['item:c1' => 1], $settings);
 
     expect(ids($r['entries']))->toBe(['item:c11', 'item:c4', 'item:c0'])
         ->and(array_column($r['entries'], 'position'))->toBe([0, 1, 2])

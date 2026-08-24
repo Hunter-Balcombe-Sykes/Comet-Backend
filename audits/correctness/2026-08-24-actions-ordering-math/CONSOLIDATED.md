@@ -67,7 +67,7 @@
 
 ## Progress
 
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 1 complete
 - P3 Low: 0 of 1 complete
 
@@ -75,7 +75,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#RANK-1** · P1 — The anti-thrash `rank` is written for every action row but never read; page order and smart action fill both re-derive order from raw score
+- [x] **#RANK-1** · P1 — The anti-thrash `rank` is written for every action row but never read; page order and smart action fill both re-derive order from raw score
     - **Where:** app/Services/Analytics/ContentPopularityReader.php:75-89 (`pageRanksFromActions`), app/Site/Actions/ActionSlots.php:70-72 (`order`, smart branch)
     - **Affects:** Every site using `smart`/`newest` page order or `smart` action-slot fill — i.e. the primary lander nav and the action rail on any site that hasn't opted into fully manual ordering.
     - **Effort:** M (~2–4h)

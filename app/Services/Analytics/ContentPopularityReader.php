@@ -90,22 +90,64 @@ class ContentPopularityReader
     }
 
     /**
+     * Stored hysteresis ranks for the unified action list — action id => rank
+     * (1-based, dense per ActionScorer::rankWithHysteresis()). This is what
+     * makes the >10% anti-thrash swap threshold actually reach a consumer —
+     * without it every reader re-derives order from raw score and the stored
+     * rank column is write-only (RANK-1). Ranked iff scored — same rows as
+     * actionScoresForSite(). Fail-open: [] on a read error.
+     *
+     * @return array<string, int>
+     */
+    public function actionRanksForSite(?string $siteId): array
+    {
+        if ($siteId === null || $siteId === '') {
+            return [];
+        }
+        try {
+            $rows = DB::connection('pgsql')
+                ->table('analytics.content_popularity_scores')
+                ->where('site_id', $siteId)
+                ->where('content_type', ActionScorer::CONTENT_TYPE)
+                ->orderBy('rank')
+                ->get(['content_key', 'rank']);
+        } catch (QueryException $e) {
+            Log::warning('analytics.action_ranks_read_failed', ['site_id' => $siteId, 'error' => $e->getMessage()]);
+
+            return [];
+        }
+        $out = [];
+        foreach ($rows as $row) {
+            $out[(string) $row->content_key] = (int) $row->rank;
+        }
+
+        return $out;
+    }
+
+    /**
      * Page order from the action layer (spec §6): the `page:*` action rows in
-     * rank order → page id => 1-based rank. Replaces the retired page-score
-     * family as SitepageDataResolverService::buildPageOrder's input.
+     * stored rank order → page id => 1-based dense rank. Replaces the retired
+     * page-score family as SitepageDataResolverService::buildPageOrder's input.
+     *
+     * Reads the stored hysteresis rank (RANK-1) rather than re-sorting raw
+     * score — arsort() on score discards the swap-thrash guard ActionScorer
+     * computed. Sort is ascending rank with an id tie-break: two rows can
+     * share a rank in the narrow window between the upsert and the stale-key
+     * delete of a single computeForSite() run (stale keys are never real
+     * candidates in practice, but the sort must still be total).
      *
      * @return array<string, int>
      */
     public function pageRanksFromActions(?string $siteId): array
     {
-        $scores = $this->actionScoresForSite($siteId);
+        $ranks = $this->actionRanksForSite($siteId);
         $pages = [];
-        foreach ($scores as $id => $score) {
+        foreach ($ranks as $id => $rank) {
             if (str_starts_with($id, 'page:')) {
-                $pages[substr($id, 5)] = $score;
+                $pages[substr($id, 5)] = $rank;
             }
         }
-        arsort($pages);
+        uksort($pages, static fn (string $a, string $b): int => ($pages[$a] <=> $pages[$b]) ?: strcmp($a, $b));
         $out = [];
         $rank = 1;
         foreach (array_keys($pages) as $pageId) {

@@ -17,10 +17,12 @@ use Illuminate\Http\Request;
 //   slots       the stored slots, each flagged `unavailable` when its id is no
 //               longer a candidate (so the table can say why, not drop it)
 //   entries     EXACTLY the public resolution for the current state — same
-//               candidates, same scores, same ActionSlots — so preview and
+//               candidates, same ranks, same ActionSlots — so preview and
 //               lander cannot drift
-//   candidates  the full searchable set for the swap popover, in smart order,
-//               with score + scoreShare (score ÷ site max) and connectedAt
+//   candidates  the full searchable set for the swap popover, in smart order
+//               (by stored rank — RANK-1), with score + scoreShare (score ÷
+//               site max, still the raw score for the dashboard's own display)
+//               and connectedAt
 // Read-only; writes go through PATCH /api/site settings.actions. This does a
 // full pool hydration per call — owner-only and uncached by design.
 class UserSiteActionsController extends ApiController
@@ -40,7 +42,8 @@ class UserSiteActionsController extends ApiController
         $settings = ActionSettings::fromSite($site);
         $set = $candidates->forSite($professional, $site);
         $scores = $popularity->actionScoresForSite($site->id);
-        $resolved = ActionSlots::resolve($set, $settings->mode === 'smart' ? $scores : [], $settings, (int) config('partna.actions.slots', 10));
+        $ranks = $popularity->actionRanksForSite($site->id);
+        $resolved = ActionSlots::resolve($set, $settings->mode === 'smart' ? $ranks : [], $settings, (int) config('partna.actions.slots', 10));
 
         $unavailable = array_flip($resolved['unavailable']);
         $max = $scores === [] ? 0.0 : max($scores);
@@ -69,7 +72,7 @@ class UserSiteActionsController extends ApiController
                         'meta' => $c['meta'],
                     ];
                 },
-                ActionSlots::order($set, $scores),
+                ActionSlots::order($set, $ranks),
             ),
         ]);
     }

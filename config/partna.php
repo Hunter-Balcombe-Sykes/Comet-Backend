@@ -450,8 +450,9 @@ return [
     | - All quantifiers are bounded ({1,30} etc.) and non-nested → ReDoS-safe.
     | - `host_allowlist` is plain ASCII; punycoded IDN hosts won't match, which
     |   blocks a class of phishing attacks where a lookalike domain is registered.
-    | - `handle_pattern`, `host_allowlist`, and `url_path_extractor` are stripped
-    |   from the public registry response — they are server-side only.
+    | - `handle_pattern`, `host_allowlist`, `url_path_extractor`, and (where
+    |   present) `url_templates` are stripped from the public registry response
+    |   — they are server-side only.
     |
     | See docs/social-links.md for the full conceptual model.
     */
@@ -483,10 +484,19 @@ return [
             'icon_key' => 'linkedin',
             'placeholder' => 'yourname',
             'handle_pattern' => '/^[a-zA-Z0-9-]{3,100}$/',
+            // Bare-handle default — a typed handle carries no shape signal.
             'url_template' => 'https://linkedin.com/in/{handle}',
+            // Shape-specific rebuild for a URL-derived handle (SEM-1): /in/ and
+            // /company/ are disjoint LinkedIn namespaces, so a company handle
+            // rebuilt against the bare template 404s.
+            'url_templates' => [
+                'in' => 'https://linkedin.com/in/{handle}',
+                'company' => 'https://linkedin.com/company/{handle}',
+            ],
             'host_allowlist' => ['linkedin.com', 'www.linkedin.com'],
-            // Matches both /in/{handle} (personal) and /company/{handle} (company pages)
-            'url_path_extractor' => '#^/(?:in|company)/([a-zA-Z0-9-]{3,100})/?$#',
+            // Named groups: matches /in/{handle} (personal) and /company/{handle}
+            // (company pages), and preserves which one matched via `shape`.
+            'url_path_extractor' => '#^/(?<shape>in|company)/(?<handle>[a-zA-Z0-9-]{3,100})/?$#',
             'default_category' => 'social',
             'handle_location' => 'path',
         ],
@@ -529,10 +539,18 @@ return [
             'icon_key' => 'spotify',
             'placeholder' => 'yourname',
             'handle_pattern' => '/^[a-zA-Z0-9._-]{3,40}$/',
+            // Bare-handle default — a typed handle carries no shape signal.
             'url_template' => 'https://open.spotify.com/user/{handle}',
+            // Shape-specific rebuild for a URL-derived handle (SEM-1): /user/
+            // and /artist/ are disjoint Spotify namespaces.
+            'url_templates' => [
+                'user' => 'https://open.spotify.com/user/{handle}',
+                'artist' => 'https://open.spotify.com/artist/{handle}',
+            ],
             'host_allowlist' => ['open.spotify.com', 'spotify.com'],
-            // Matches /user/{handle} (profiles) and /artist/{id} (artist pages)
-            'url_path_extractor' => '#^/(?:user|artist)/([a-zA-Z0-9._-]{3,40})/?$#',
+            // Named groups: matches /user/{handle} (profiles) and /artist/{id}
+            // (artist pages), and preserves which one matched via `shape`.
+            'url_path_extractor' => '#^/(?<shape>user|artist)/(?<handle>[a-zA-Z0-9._-]{3,40})/?$#',
             'default_category' => 'social',
             'handle_location' => 'path',
         ],

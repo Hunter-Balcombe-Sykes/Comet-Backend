@@ -255,8 +255,8 @@ class IndividualProfilePayloadBuilder
 
     /**
      * `actions` — ActionCandidates (over the already-built pools) → stored
-     * smart scores → ActionSlots. Fail-open like every other section: a
-     * candidate/score fault yields an empty list, never a 500.
+     * hysteresis ranks (RANK-1) → ActionSlots. Fail-open like every other
+     * section: a candidate/rank fault yields an empty list, never a 500.
      *
      * @param  array<string, array<string, mixed>>  $pools
      * @return array{mode: string, entries: list<array<string, mixed>>}
@@ -273,8 +273,8 @@ class IndividualProfilePayloadBuilder
             Log::warning('sitepage.actions_candidates_failed', ['site_id' => $site->id, 'error' => $e->getMessage()]);
             $candidates = [];
         }
-        $scores = $settings->mode === 'smart' ? $this->popularity->actionScoresForSite($site->id) : [];
-        $resolved = ActionSlots::resolve($candidates, $scores, $settings, (int) config('partna.actions.slots', 10));
+        $ranks = $settings->mode === 'smart' ? $this->popularity->actionRanksForSite($site->id) : [];
+        $resolved = ActionSlots::resolve($candidates, $ranks, $settings, (int) config('partna.actions.slots', 10));
 
         return ['mode' => $settings->mode, 'entries' => $resolved['entries']];
     }

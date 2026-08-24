@@ -1867,7 +1867,7 @@ parameters:
 			path: app/Services/Segments/SegmentResolver.php
 
 		-
-			message: '#^Offset ''handle_location'' on array\{display_name\: string, icon_key\: string, placeholder\: string, handle_pattern\: string, url_template\: string, host_allowlist\: array\<int, string\>, url_path_extractor\: string, default_category\: string, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			message: '#^Offset ''handle_location'' on array\{display_name\: string, icon_key\: string, placeholder\: string, handle_pattern\: string, url_template\: string, url_templates\?\: array\<string, string\>, host_allowlist\: array\<int, string\>, url_path_extractor\: string, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
 			path: app/Services/Site/SocialLinkNormalizer.php

@@ -17,7 +17,9 @@ use InvalidArgumentException;
  * Security model:
  *   - Handle inputs are validated against bounded ASCII-only regexes (homoglyph + ReDoS protection).
  *   - URL inputs are parsed via parse_url() and host-checked against an allowlist.
- *   - Canonical URLs are always rebuilt from url_template, which is https-only.
+ *   - Canonical URLs are always rebuilt from url_template (or, for a platform
+ *     with a `url_templates` shape map, the entry matching the URL's matched
+ *     shape — see SEM-1), which is https-only either way.
  *   - getPublicRegistry() strips internal validation fields so they never leak to clients.
  *
  * See docs/social-links.md for the full conceptual model.
@@ -63,11 +65,17 @@ class SocialLinkNormalizer
      *
      * Algorithm:
      *   1. Handle path: strip leading '@', trim whitespace, validate against the
-     *      platform's handle_pattern, build canonical URL via url_template.
+     *      platform's handle_pattern, build canonical URL via url_template (a
+     *      typed handle carries no shape signal, so this is always the bare
+     *      default even for a platform with a `url_templates` shape map).
      *   2. URL path: parse host via parse_url(), check against host_allowlist.
      *      Try to extract a handle via url_path_extractor — if it matches,
-     *      recurse into the handle path (gives a clean canonical URL). If not
-     *      (e.g. a deep link to a post), keep the URL as-is, no handle extracted.
+     *      recurse into the handle path, passing along the matched `shape`
+     *      (named capture group) when present, so a shape-mapped platform
+     *      rebuilds from the matching template instead of always the default
+     *      (SEM-1 — /in/ vs /company/, /user/ vs /artist/ are disjoint
+     *      namespaces). If the extractor doesn't match (e.g. a deep link to a
+     *      post), keep the URL as-is, no handle extracted.
      *   3. Neither provided: throw.
      *
      * @return array{url: string, handle: string|null, icon_key: string, display_name: string, platform_key: string}
@@ -126,7 +134,11 @@ class SocialLinkNormalizer
         }
 
         if (preg_match($config['url_path_extractor'], $parsed['path'], $matches) === 1) {
-            return $matches[1];
+            // A shape-aware extractor (SEM-1) has BOTH a named 'handle' key and
+            // a shifted numeric $matches[1] (the named group steals index 1 for
+            // 'shape' on some platforms) — the numeric index is only a safe
+            // fallback for platforms with a single, unnamed capture group.
+            return $matches['handle'] ?? $matches[1];
         }
 
         return null;
@@ -135,7 +147,7 @@ class SocialLinkNormalizer
     /**
      * @return array{url: string, handle: string, icon_key: string, display_name: string, platform_key: string}
      */
-    private function normalizeHandle(string $platformKey, array $config, string $handle): array
+    private function normalizeHandle(string $platformKey, array $config, string $handle, ?string $shape = null): array
     {
         $cleaned = ltrim(trim($handle), '@');
 
@@ -146,9 +158,15 @@ class SocialLinkNormalizer
         }
 
         // Both path-mode and subdomain-mode use {handle} substitution; the
-        // url_template baked the mode-specific shape in at registry time.
+        // url_template baked the mode-specific shape in at registry time. A
+        // typed handle (no $shape) always uses the bare default. A URL-derived
+        // handle on a shape-mapped platform (SEM-1) rebuilds from the template
+        // matching the shape that was actually matched, so /company/acme is
+        // not rewritten into a 404ing /in/acme.
+        $template = $shape !== null ? ($config['url_templates'][$shape] ?? $config['url_template']) : $config['url_template'];
+
         return [
-            'url' => str_replace('{handle}', $cleaned, $config['url_template']),
+            'url' => str_replace('{handle}', $cleaned, $template),
             'handle' => $cleaned,
             'icon_key' => $config['icon_key'],
             'display_name' => $config['display_name'],
@@ -190,7 +208,7 @@ class SocialLinkNormalizer
         // for arbitrary deep links, so we at least force the scheme to https.
         $path = $parsed['path'] ?? '/';
         if (preg_match($config['url_path_extractor'], $path, $matches) === 1) {
-            return $this->normalizeHandle($platformKey, $config, $matches[1]);
+            return $this->normalizeHandle($platformKey, $config, $matches['handle'] ?? $matches[1], $matches['shape'] ?? null);
         }
 
         // Lenient deep-link path: rebuild the URL with forced https + the original
@@ -309,7 +327,7 @@ class SocialLinkNormalizer
     }
 
     /**
-     * @return array{display_name: string, icon_key: string, placeholder: string, handle_pattern: string, url_template: string, host_allowlist: array<int, string>, url_path_extractor: string, default_category: string, handle_location: string}
+     * @return array{display_name: string, icon_key: string, placeholder: string, handle_pattern: string, url_template: string, url_templates?: array<string, string>, host_allowlist: array<int, string>, url_path_extractor: string, default_category: string, handle_location: string}
      */
     private function resolvePlatform(string $platformKey): array
     {

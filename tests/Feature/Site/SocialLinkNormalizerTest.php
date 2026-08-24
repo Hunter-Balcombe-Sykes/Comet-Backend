@@ -144,16 +144,45 @@ it('extracts handle from a tiktok URL with @ prefix', function () {
     expect($result['url'])->toBe('https://tiktok.com/@joshhunter');
 });
 
-it('extracts handle from a linkedin /in/ URL', function () {
+it('extracts handle from a linkedin /in/ URL and rebuilds the /in/ template unchanged', function () {
     $result = normalizer()->normalize('linkedin', null, 'https://www.linkedin.com/in/joshhunter');
 
     expect($result['handle'])->toBe('joshhunter');
+    expect($result['url'])->toBe('https://linkedin.com/in/joshhunter');
 });
 
-it('extracts handle from a linkedin /company/ URL', function () {
+it('extracts handle from a linkedin /company/ URL and rebuilds the /company/ template, not /in/ (SEM-1)', function () {
     $result = normalizer()->normalize('linkedin', null, 'https://www.linkedin.com/company/sidest');
 
     expect($result['handle'])->toBe('sidest');
+    expect($result['url'])->toBe('https://linkedin.com/company/sidest');
+});
+
+it('a typed linkedin handle still yields the /in/ URL (bare template default)', function () {
+    $result = normalizer()->normalize('linkedin', 'sidest', null);
+
+    expect($result['url'])->toBe('https://linkedin.com/in/sidest');
+});
+
+it('canonicalises a linkedin /company/ URL: strips www and tracking params (SEM-1 proves (b) would have lost this)', function () {
+    $result = normalizer()->normalize('linkedin', null, 'https://www.linkedin.com/company/sidest?trk=abc');
+
+    expect($result['url'])->toBe('https://linkedin.com/company/sidest');
+    expect($result['handle'])->toBe('sidest');
+});
+
+it('extracts handle from a spotify /user/ URL and rebuilds the /user/ template unchanged', function () {
+    $result = normalizer()->normalize('spotify', null, 'https://open.spotify.com/user/joshhunter');
+
+    expect($result['handle'])->toBe('joshhunter');
+    expect($result['url'])->toBe('https://open.spotify.com/user/joshhunter');
+});
+
+it('extracts handle from a spotify /artist/ URL and rebuilds the /artist/ template, not /user/ (SEM-1)', function () {
+    $result = normalizer()->normalize('spotify', null, 'https://open.spotify.com/artist/3TVXtAsR1Inumwj472S9r4');
+
+    expect($result['handle'])->toBe('3TVXtAsR1Inumwj472S9r4');
+    expect($result['url'])->toBe('https://open.spotify.com/artist/3TVXtAsR1Inumwj472S9r4');
 });
 
 it('accepts a twitter.com URL for the X platform', function () {
@@ -225,6 +254,12 @@ it('returns null for a deep-link URL with no extractable handle', function () {
 it('returns null for a wrong-host URL', function () {
     expect(normalizer()->extractHandleFromUrl('instagram', 'https://linktr.ee/joshhunter'))
         ->toBeNull();
+});
+
+it('extractHandleFromUrl returns the handle, not the shape, for a linkedin /company/ URL (SEM-1 regression — extractHandleFromUrl has zero production callers, only tests pin it)', function () {
+    expect(normalizer()->extractHandleFromUrl('linkedin', 'https://www.linkedin.com/company/sidest'))
+        ->toBe('sidest')
+        ->not->toBe('company');
 });
 
 // --- Subdomain-mode normalization ---
@@ -355,6 +390,23 @@ it('still strips internal validation fields including handle_location', function
         expect($entry)->not->toHaveKey('url_template');
         expect($entry)->not->toHaveKey('handle_location');
         expect($entry)->not->toHaveKey('default_category'); // renamed to `category` in output
+    }
+});
+
+it('strips url_templates (SEM-1 shape map) from the public registry — getPublicRegistry() is a whitelist builder, verify rather than assume', function () {
+    $registry = normalizer()->getPublicRegistry();
+    $linkedin = collect($registry)->firstWhere('key', 'linkedin');
+    $spotify = collect($registry)->firstWhere('key', 'spotify');
+
+    // Sanity: both platforms actually define url_templates in the source config,
+    // so this test is exercising a real strip, not a vacuous absence.
+    expect(config('partna.social_platforms.linkedin.url_templates'))->not->toBeNull();
+    expect(config('partna.social_platforms.spotify.url_templates'))->not->toBeNull();
+
+    expect($linkedin)->not->toHaveKey('url_templates');
+    expect($spotify)->not->toHaveKey('url_templates');
+    foreach ($registry as $entry) {
+        expect($entry)->not->toHaveKey('url_templates');
     }
 });
 

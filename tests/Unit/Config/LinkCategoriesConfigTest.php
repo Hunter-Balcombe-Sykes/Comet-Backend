@@ -108,6 +108,28 @@ it('streaming_platforms config lists twitch and kick', function () {
     expect(config('partna.streaming_platforms'))->toBe(['twitch', 'kick']);
 });
 
+it('every platform defining url_templates (SEM-1 shape map) has a consistent registry: https, {handle}, and url_template is one of the map values', function () {
+    $checked = 0;
+    foreach (config('partna.social_platforms') as $key => $config) {
+        if (! isset($config['url_templates'])) {
+            continue;
+        }
+        $checked++;
+        expect($config['url_templates'])->not->toBeEmpty("platform {$key} has an empty url_templates map");
+        foreach ($config['url_templates'] as $shape => $template) {
+            expect($template)->toStartWith('https://', "platform {$key} url_templates[{$shape}] is not https");
+            // toContain()'s 2nd+ args are additional required needles, NOT a
+            // message — str_contains() is the correct tool for a single check.
+            expect(str_contains($template, '{handle}'))->toBeTrue("platform {$key} url_templates[{$shape}] has no {handle} placeholder");
+        }
+        expect(in_array($config['url_template'], $config['url_templates'], true))->toBeTrue("platform {$key} url_template is not one of its own url_templates values");
+    }
+
+    // Sanity: this test is exercising a real invariant, not vacuously passing
+    // because no platform defines url_templates.
+    expect($checked)->toBeGreaterThanOrEqual(2);
+});
+
 it('live_check_enabled is not in the link_block_settings_keys allowlist (it is a column now)', function () {
     // Phase 2: live_check_enabled is a promoted column on site.blocks; it is no
     // longer accepted as a settings sub-key (stripped by migration 20260701180000).

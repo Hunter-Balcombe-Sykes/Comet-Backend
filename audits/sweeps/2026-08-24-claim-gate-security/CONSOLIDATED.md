@@ -362,7 +362,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 3 complete
 - P3 Low: 0 of 2 complete
 
@@ -370,7 +370,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEM-1** · P1 — LinkedIn and Spotify extractors accept a path shape their single `url_template` cannot rebuild, silently rewriting company/artist links into broken personal-profile URLs
+- [x] **#SEM-1** · P1 — LinkedIn and Spotify extractors accept a path shape their single `url_template` cannot rebuild, silently rewriting company/artist links into broken personal-profile URLs
     - **Where:** config/partna.php:486-489 (linkedin), config/partna.php:532-535 (spotify); consumed by app/Services/Site/SocialLinkNormalizer.php:186-194 and :138-157
     - **Affects:** Any professional linking a LinkedIn company page or a Spotify artist page from their sitepage — the stored, canonical link visitors click is wrong and 404s on the target platform.
     - **Effort:** M (~2–4h)

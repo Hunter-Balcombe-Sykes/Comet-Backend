@@ -9,8 +9,8 @@ namespace App\Site\Actions;
  *
  *   newest  candidates by connectedAt desc (undated last, id asc), locks hold
  *           their slot, the ranking fills around them
- *   smart   same, but scored candidates first (score desc), unscored trail
- *           in newest order
+ *   smart   same, but ranked candidates first (stored hysteresis rank asc,
+ *           i.e. rank 1 first), unranked trail in newest order
  *   manual  the slots ARE the list; nothing auto-fills; missing ids shorten it
  *
  * A lock whose id is not a candidate (item removed, platform disconnected,
@@ -26,10 +26,10 @@ final class ActionSlots
 
     /**
      * @param  list<array<string, mixed>>  $candidates  ActionCandidates output
-     * @param  array<string, float>  $scores  action id => stored smart score
+     * @param  array<string, int>  $ranks  action id => stored hysteresis rank (1-based; RANK-1)
      * @return array{entries: list<array<string, mixed>>, unavailable: list<string>}
      */
-    public static function resolve(array $candidates, array $scores, ActionSettings $settings, ?int $limit = null): array
+    public static function resolve(array $candidates, array $ranks, ActionSettings $settings, ?int $limit = null): array
     {
         $limit ??= self::DEFAULT_LIMIT;
         $byId = [];
@@ -59,7 +59,7 @@ final class ActionSlots
 
         $lockedIds = array_flip($locks);
         $fill = array_values(array_filter(
-            self::order($candidates, $settings->mode === 'smart' ? $scores : []),
+            self::order($candidates, $settings->mode === 'smart' ? $ranks : []),
             static fn (array $c): bool => ! isset($lockedIds[$c['id']]),
         ));
 
@@ -81,28 +81,32 @@ final class ActionSlots
     }
 
     /**
-     * score desc (scored before unscored) → dated before undated (X5: an
-     * item whose only timestamp is when we first saw it never outranks one
-     * with a real date) → connectedAt desc (nulls last) → id asc.
+     * rank asc (ranked before unranked; rank 1 is best — RANK-1 consumes the
+     * stored hysteresis rank instead of re-deriving order from raw score) →
+     * dated before undated (X5: an item whose only timestamp is when we first
+     * saw it never outranks one with a real date) → connectedAt desc (nulls
+     * last) → id asc. Equal ranks (a narrow duplicate-key window — see
+     * ContentPopularityReader::pageRanksFromActions()) fall through to the
+     * rest of the chain rather than short-circuiting.
      *
      * @param  list<array<string, mixed>>  $candidates
-     * @param  array<string, float>  $scores
+     * @param  array<string, int>  $ranks
      * @return list<array<string, mixed>>
      */
-    public static function order(array $candidates, array $scores): array
+    public static function order(array $candidates, array $ranks): array
     {
-        usort($candidates, static function (array $a, array $b) use ($scores): int {
-            $sa = $scores[$a['id']] ?? null;
-            $sb = $scores[$b['id']] ?? null;
-            if ($sa !== $sb) {
-                if ($sa === null) {
+        usort($candidates, static function (array $a, array $b) use ($ranks): int {
+            $ra = $ranks[$a['id']] ?? null;
+            $rb = $ranks[$b['id']] ?? null;
+            if ($ra !== $rb) {
+                if ($ra === null) {
                     return 1;
                 }
-                if ($sb === null) {
+                if ($rb === null) {
                     return -1;
                 }
 
-                return $sb <=> $sa;
+                return $ra <=> $rb;
             }
             $ua = (bool) ($a['meta']['undated'] ?? false);
             $ub = (bool) ($b['meta']['undated'] ?? false);
