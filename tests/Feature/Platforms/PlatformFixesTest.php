@@ -214,8 +214,11 @@ it('returns busy 429 when the daily Apify cap is reached without locking the use
     $dayKey = CacheKeyGenerator::apifyActorDailyLimit('instagram', now()->format('Y-m-d'));
     $cooldownKey = "platforms:instagram:cooldown:{$user->id}";
 
-    // Pre-seed the daily counter at the cap (200).
-    Cache::put($dayKey, 200, now()->addDay());
+    // Pre-seed the daily counter AT the configured cap. Read it from config
+    // rather than hardcoding: 08ab05389 raised every cap 2-3x (200 -> 600) and
+    // this test silently stopped reaching the cap, falling through to a real
+    // scrape instead of the 429 it exists to pin.
+    Cache::put($dayKey, (int) config('partna.limits.apify.actors.instagram'), now()->addDay());
 
     $res = actingAsUser($user)->postJson('/api/platforms/instagram/connect', ['username' => 'testuser']);
 
