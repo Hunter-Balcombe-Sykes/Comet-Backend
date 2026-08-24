@@ -1,5 +1,28 @@
 # Backend Inheritance & Consolidation — Execution Audit (verified 2026-07-27)
 
+> ## ARCHIVED 2026-08-20 — WONTFIX by backlog policy; premises partly stale
+>
+> Sixteen findings (5 × P2, 11 × P3), all of them duplication/consolidation items.
+> **The boxes below are ticked as a disposition — the code did NOT change.**
+>
+> Two reasons, both from the repo's own rules:
+>
+> 1. **Policy.** These are exactly the P3/P2 duplication tail that
+>    `audits/consolidation/2026-07-30-pilot-launch-reprioritisation/BACKLOG-TRIAGE.md`
+>    dispositions as OPPORTUNISTIC: absorb them when the file is already open for
+>    real work, never run them as a campaign. Under `fix-flow.md` the
+>    verify→plan→implement→review overhead exceeds the fix for every item here.
+> 2. **Stale premises.** This audit was verified 2026-07-27 — three weeks before the
+>    Content Pool Convergence closed on dev (2026-08-17) and dropped ten legacy
+>    tables. Several findings target code that convergence removed or rewrote:
+>    `INH-D` (`resolveMenu()` across three menu callers), `INH-5` / `INH-9` /
+>    `INH-10` (shop scrapers, Requests and seeders). Those premises were **not
+>    re-verified** before archiving; per `feedback_audit_fix_verify_premise`,
+>    premise-before-code applies to anyone who reopens them.
+>
+> If one of these files lands in front of you for other work, fix it in that commit.
+> Do not resurrect this file as a work queue.
+
 Executable via
 `execute audit audits/sweeps/2026-07-27-dead-code/BACKEND-INHERITANCE-CONSOLIDATION-VERIFIED.md`
 (follows `scripts/audit/fix-flow.md`). Suggested branch slug: **`backend-inheritance`** →
@@ -142,7 +165,7 @@ wait behind refactor debates.
 
 ### Bundle 2 — `BandcampConnectionResource` → extend `TileConnectionResource` (P3 · XS) — AUTO-RUN
 
-- [ ] **INH-2** · P3 — `BandcampConnectionResource` hand-builds a `toArray()` that its two siblings get
+- [x] **INH-2** · P3 — `BandcampConnectionResource` hand-builds a `toArray()` that its two siblings get
   for free from the existing abstract base
     - **Where:** `app/Http/Resources/Platforms/BandcampConnectionResource.php`; siblings
       `YoutubeConnectionResource.php`, `AppleMusicConnectionResource.php`; base
@@ -161,7 +184,7 @@ wait behind refactor debates.
 
 ### Bundle 3 — `BaseAnalyticsRequest` for the 8 public analytics requests (P2 · S) — AUTO-RUN
 
-- [ ] **INH-3** · P2 — Eight analytics Form Requests each re-declare the same
+- [x] **INH-3** · P2 — Eight analytics Form Requests each re-declare the same
   `prepareForValidation()` and the same site/session/visitor/utm rule block
     - **Where:** all 8 under `app/Http/Requests/Api/PublicSite/Analytics/` — `ActionSeenRequest`,
       `ActionTapRequest`, `ClickRequest`, `ItemSeenRequest`, `PageviewRequest`, `PingRequest`,
@@ -184,7 +207,7 @@ One session. These all touch the menu pipeline and would collide if split across
 **INH-6 is the highest-value item in the whole file** — the duplication is already known to be
 load-bearing and fragile.
 
-- [ ] **INH-6** · P2 — `cleanString()` / `normalizeName()` / `nextPosition()` are re-declared across the
+- [x] **INH-6** · P2 — `cleanString()` / `normalizeName()` / `nextPosition()` are re-declared across the
   menu pipeline, and the `normalizeName` copies are documented as required-to-stay-identical
     - **Where:** `app/Services/Platforms/NormalizesMenuData.php` (the trait that should own all three),
       `app/Services/Platforms/MenuAiExtractor.php`, `app/Services/Platforms/MenuScanApplier.php`,
@@ -208,7 +231,7 @@ load-bearing and fragile.
       merely shares the name; merging non-identical implementations here would be a silent behaviour
       change on an unrelated surface. If they differ, leave them and note it.
 
-- [ ] **INH-D** · P2 — `resolveMenu()` duplicated across three menu callers
+- [x] **INH-D** · P2 — `resolveMenu()` duplicated across three menu callers
     - **Where:** `app/Http/Controllers/Api/Platforms/MenuContentController.php`,
       `app/Services/Platforms/MenuScanApplier.php`, **and
       `app/Jobs/Platforms/ScanPreviousWebsiteContentJob.php`**.
@@ -218,7 +241,7 @@ load-bearing and fragile.
     - **Effort:** S
     - **What to do:** extract a `MenuResolver` service; all three callers use it.
 
-- [ ] **INH-G** · P3 — Menu Create/Update Request pairs duplicate their common rule blocks
+- [x] **INH-G** · P3 — Menu Create/Update Request pairs duplicate their common rule blocks
     - **Where:** `app/Http/Requests/Platforms/{Create,Update}Menu{Category,Item}Request.php`.
     - **Effort:** XS. Lowest-stakes item in this file.
     - **What to do:** shared base/trait for the common rules; the Create/Update subclasses layer
@@ -229,7 +252,7 @@ load-bearing and fragile.
 Three independent extractions in the same `app/Services/Platforms` + `app/Http/Requests/Platforms`
 neighbourhood. One session, one review over the whole diff.
 
-- [ ] **INH-5** · P3 — Shop scrapers duplicate `MAX_IMAGES` and a byte-identical private `json()` helper
+- [x] **INH-5** · P3 — Shop scrapers duplicate `MAX_IMAGES` and a byte-identical private `json()` helper
     - **Where:** `app/Services/Platforms/{Shopify,WooCommerce,BigCartel,Generic,Squarespace}Scraper.php`,
       base `app/Services/Platforms/PlatformScraper.php`.
     - **⚠ SCOPE CORRECTION (audit over-counted):** it is **not** a clean family of five.
@@ -242,14 +265,14 @@ neighbourhood. One session, one review over the whole diff.
       **trio** extends it. Generic may adopt the constant. Squarespace opts in only if it genuinely
       matches — do not force it.
 
-- [ ] **INH-9** · P3 — Two shop Requests duplicate an identical url-normalizing `prepareForValidation()`
+- [x] **INH-9** · P3 — Two shop Requests duplicate an identical url-normalizing `prepareForValidation()`
     - **Where:** `app/Http/Requests/Platforms/AddShopBrandRequest.php`,
       `app/Http/Requests/Platforms/AddShopProductRequest.php` — both normalize `url` via
       `PlatformInput::urlish()`.
     - **Effort:** XS (~10 min)
     - **What to do:** a small `NormalizesUrlField` trait, or a shared shop-request base. Safe.
 
-- [ ] **INH-10** · P3 — Two shop seeders duplicate the tombstone bail-out and the lock→upsert→refresh
+- [x] **INH-10** · P3 — Two shop seeders duplicate the tombstone bail-out and the lock→upsert→refresh
   choreography
     - **Where:** `app/Services/Platforms/ShopBrandSeeder.php`,
       `app/Services/Platforms/ShopProductSeeder.php` — both docblocks already say *"same convention as
@@ -267,7 +290,7 @@ neighbourhood. One session, one review over the whole diff.
 One session — all three findings touch the same four public controllers and would collide if split.
 Trips the *auth* keyword but is **not** authorization (see Execution policy); no sign-off pause.
 
-- [ ] **INH-7** · P2 — Four public controllers each hand-roll the same honeypot + form-timing anti-spam
+- [x] **INH-7** · P2 — Four public controllers each hand-roll the same honeypot + form-timing anti-spam
   checks
     - **Where:** `app/Http/Controllers/Api/PublicSite/PublicCustomerLeadController.php`,
       `PublicEnquiryController.php`, `PublicEmailSubscriptionController.php`,
@@ -285,7 +308,7 @@ Trips the *auth* keyword but is **not** authorization (see Execution policy); no
     - **⚠ Reviewer must confirm** the fake-success path still returns the same shape — turning a silent
       honeypot into a visible rejection tells the spammer they were caught.
 
-- [ ] **INH-E** · P3 — Customer upsert-by-email duplicated across two public controllers
+- [x] **INH-E** · P3 — Customer upsert-by-email duplicated across two public controllers
     - **Where:** `PublicEnquiryController.php`, `PublicEmailSubscriptionController.php`.
     - **⚠ SCOPE CORRECTION (audit over-counted):** **confirmed 2 of 3.**
       `PublicCustomerLeadController` only *normalizes* the email — its write path differs. Verify before
@@ -294,7 +317,7 @@ Trips the *auth* keyword but is **not** authorization (see Execution policy); no
     - **What to do:** `PublicCustomerUpsertService::upsertByEmail(userId, email, fullName, source)`; the
       two confirmed callers adopt it.
 
-- [ ] **INH-F** · P3 — Lead-submission logging duplicated across two public controllers
+- [x] **INH-F** · P3 — Lead-submission logging duplicated across two public controllers
     - **Where:** `PublicCustomerLeadController.php`, `PublicEnquiryController.php` — both build
       identical `LeadSubmission` rows (`ip_hash` / `user_agent` / `referrer` via
       `AnalyticsEventSanitizer`).
@@ -306,7 +329,7 @@ Trips the *auth* keyword but is **not** authorization (see Execution policy); no
 
 Low-urgency, low-churn. Fold into whatever PR already touches these files if this bundle hasn't run yet.
 
-- [ ] **INH-A** · P3 — Two Highlights strategies duplicate the same `apply()` shape
+- [x] **INH-A** · P3 — Two Highlights strategies duplicate the same `apply()` shape
     - **Where:** `app/Services/Platforms/Strategies/Highlights/VimeoHighlights.php`,
       `YoutubeMusicHighlights.php` — the `keyBy → map → filter → take(MAX) → values` pipeline.
     - **⚠ Do NOT widen to four.** `Youtube` and `Bandcamp` already share `RefreshesLatestTile`, which is
@@ -314,12 +337,12 @@ Low-urgency, low-churn. Fold into whatever PR already touches these files if thi
       The source audit got this right; carry the guard forward.
     - **Effort:** XS. Trait for the shared pipeline, this pair only.
 
-- [ ] **INH-B** · P3 — Two Apple Fetch strategies duplicate the same four-step body
+- [x] **INH-B** · P3 — Two Apple Fetch strategies duplicate the same four-step body
     - **Where:** `app/Services/Platforms/Strategies/Fetch/AppleMusicFetch.php`,
       `ApplePodcastFetch.php` — both are "call scraper → extract latest → merge → update flat fields".
     - **Effort:** XS. Parameterized base. Only 2 files, low churn — genuinely opportunistic.
 
-- [ ] **INH-C** · P3 — `parseEvent` duplicated across the two event scrapers
+- [x] **INH-C** · P3 — `parseEvent` duplicated across the two event scrapers
     - **Where:** `app/Services/Platforms/EventbriteScraper.php`,
       `app/Services/Platforms/HumanitixScraper.php` — the `Humanitix` comment already states it
       *"mirrors `EventbriteScraper::parseEvent`"*, i.e. the lockstep is self-aware and undefended.
@@ -329,7 +352,7 @@ Low-urgency, low-churn. Fold into whatever PR already touches these files if thi
 
 ## Standalone — do NOT bundle (pause for sign-off before implementing)
 
-- [ ] **INH-4** · P3 — Reservation-provider Connect classes + Resources: 6 files → 2
+- [x] **INH-4** · P3 — Reservation-provider Connect classes + Resources: 6 files → 2
     - **Where:** `app/Services/Platforms/Strategies/Connect/{NowBookit,OpenTable,ResDiary}Connect.php`
       and `app/Http/Resources/Platforms/{NowBookit,OpenTable,ResDiary}ConnectionResource.php`.
     - **Why standalone:** it is the largest structural change in this file — collapsing six concrete
@@ -347,7 +370,7 @@ Low-urgency, low-churn. Fold into whatever PR already touches these files if thi
       response is byte-identical before/after, and that a failed resolve still produces the same
       `ConnectResult::fail` payload per provider.
 
-- [ ] **INH-8** · P2 — `design_kits` transactional write choreography duplicated in a controller and a
+- [x] **INH-8** · P2 — `design_kits` transactional write choreography duplicated in a controller and a
   service
     - **Where:** `app/Http/Controllers/Api/User/SiteManagement/UserSiteController.php::writeDesignKit()`
       (`:108`), `app/Services/WebsiteScan/DesignKitAccentApplier.php::apply()` (`:21`).

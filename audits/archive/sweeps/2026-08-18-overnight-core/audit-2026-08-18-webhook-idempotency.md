@@ -19,7 +19,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#WHK-1** · P1 — Per-record fallback has no per-record try/catch, so one poison record aborts the rest of the run instead of being isolated [cat 5]
+- [x] **#WHK-1** · P1 — Per-record fallback has no per-record try/catch, so one poison record aborts the rest of the run instead of being isolated [cat 5]
     - **Where:** app/Ingest/Landing/Lander.php:301-385 (`landRecordsIndividually()`), propagating uncaught through app/Ingest/Landing/Lander.php:83 (`land()`) and app/Ingest/Runtime/RunExecutor.php:144-151 (`execute()`)
     - **Affects:** Any ingest stream whose chunk-transaction fallback path is triggered by a genuinely malformed record (the class's own docblock names the exact scenario: a scraped caption containing a literal NUL byte, rejected by `jsonb` with `22P05`). When it fires, every later record in that chunk — and every later stream in that source's run — silently fails to land this cycle instead of just the one bad record.
     - **Effort:** S (~0.5–1h)

@@ -32,7 +32,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#CCH-1** · P2 · Category 4 — Instagram auto-sync flag write bypasses the observer's own cache-invalidation gate
+- [x] **#CCH-1** · P2 · Category 4 — Instagram auto-sync flag write bypasses the observer's own cache-invalidation gate
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:184-193 (`enableContentInstagramAuto()`)
     - **Affects:** Newly-connected Instagram accounts; the Cloudflare edge purge / site-touch cascade that every other `display_settings` write triggers.
     - **Effort:** S (~0.5–1h)
@@ -55,7 +55,7 @@
         }
         ```
 
-- [ ] **#CCH-2** · P2 · Category 4 — Deferred Fresha reconnect merges the payload, leaving the previous salon's `teamMenuCache` live under the new URL
+- [x] **#CCH-2** · P2 · Category 4 — Deferred Fresha reconnect merges the payload, leaving the previous salon's `teamMenuCache` live under the new URL
     - **Where:** app/Http/Controllers/Api/Platforms/FreshaController.php:245-252 (write: `connectDeferred()`), app/Http/Controllers/Api/Platforms/FreshaController.php:356-359 (read: `team()`)
     - **Affects:** Fresha users on the deferred-connect flow (`config('partna.connect.deferred')` includes `fresha`) who reconnect to a *different* salon while the previous salon's up-to-24h `teamMenuCache` is still fresh.
     - **Effort:** S (~0.5–1h)
@@ -84,7 +84,7 @@
         }
         ```
 
-- [ ] **#CCH-3** · P2 · Category 10 — `buildPools()` swallows `QueryException` on the hottest read path in the codebase and caches the empty result under the full TTL
+- [x] **#CCH-3** · P2 · Category 10 — `buildPools()` swallows `QueryException` on the hottest read path in the codebase and caches the empty result under the full TTL
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:241-248 (`buildPools()`), app/Services/PublicSite/IndividualProfilePayloadBuilder.php:690-693 (`lastBuildDegraded()`)
     - **Affects:** Visitors to `GET /api/public/profiles/{handle}` (via `IndividualProfileController` / `WarmPublicSiteCacheJob`) during any transient DB error hit while resolving a content pool; their watch/listen/media/menus/shop/services/custom-links sections vanish from the public payload for up to the full primary+stale cache window.
     - **Effort:** S (~0.5–1h)

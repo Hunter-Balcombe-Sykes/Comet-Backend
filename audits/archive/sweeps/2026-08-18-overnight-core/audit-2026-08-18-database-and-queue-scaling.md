@@ -41,7 +41,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SCALE-1** · P1 — Pool default/occurrence sort runs a correlated scalar subquery per candidate row on the public hot path
+- [x] **#SCALE-1** · P1 — Pool default/occurrence sort runs a correlated scalar subquery per candidate row on the public hot path
     - **Where:** app/Site/Sections/SectionCandidates.php:116-130
     - **Affects:** Public sitepage pool resolution (watch/listen/media/shop/services/menus/custom_links via recency sort, events via occurrence sort) on every cache-miss/rebuild render.
     - **Effort:** M (~2–4h)
@@ -63,7 +63,7 @@
         ),
         ```
 
-- [ ] **#SCALE-2** · P1 — Auto-selection ("newest per source") runs a correlated COUNT subquery scanning the whole source per candidate row
+- [x] **#SCALE-2** · P1 — Auto-selection ("newest per source") runs a correlated COUNT subquery scanning the whole source per candidate row
     - **Where:** app/Site/Sections/SectionCandidates.php:330-373 (`connectionSourceLatestArm`), 393-428 (`storefrontLatestArm`)
     - **Affects:** Public pool resolution for `latest_per_auto_source` / `latest_n_per_auto_source` pools (watch/listen/media default, shop storefront auto-selection) — the default rule shape for most connected sources.
     - **Effort:** L (~1–2d)
@@ -92,7 +92,7 @@
         );
         ```
 
-- [ ] **#SCALE-3** · P1 — MediaMirror loads entire fetched media bodies into PHP memory before storing
+- [x] **#SCALE-3** · P1 — MediaMirror loads entire fetched media bodies into PHP memory before storing
     - **Where:** app/Services/Media/MediaMirror.php:77-145
     - **Affects:** Media-mirror pipeline (`images`/media queue) during any burst of owned-media (Instagram) mirroring — e.g. a first-time connect or a viral spike driving many concurrent mirrors.
     - **Effort:** M (~2–4h)
@@ -115,7 +115,7 @@
                 Storage::disk(config('partna.media_disk'))->put($path, $body, ['ContentType' => 'video/mp4']);
         ```
 
-- [ ] **#SCALE-4** · P1 — One `item_anchors` query per resolved identity group on every projection run
+- [x] **#SCALE-4** · P1 — One `item_anchors` query per resolved identity group on every projection run
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:655-660 (`resolveItems`), 704-710 (`bindGroup`)
     - **Affects:** Every scheduled connector projection run (Instagram, Fresha, menus, Apple Music, etc.), for every user with more than a handful of live source items.
     - **Effort:** M (~2–4h)
@@ -141,7 +141,7 @@
             ->get(['coord', 'item_id', 'superseded_by', 'bound_at']);
         ```
 
-- [ ] **#SCALE-5** · P1 — Singleton facet upserts fire one query per facet per item on every projection run
+- [x] **#SCALE-5** · P1 — Singleton facet upserts fire one query per facet per item on every projection run
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:988-990 (`writeFacets`), 1016-1020 (`upsertSingletonFacet`)
     - **Affects:** Every scheduled connector projection run — write amplification scales with `items in run × populated singleton facets` (up to 13 facet tables: f_text, f_link, f_duration, f_published, f_occurrence, f_embed, f_playable, f_authored, f_catalog, f_place, f_rated, f_review, f_channel, f_file).
     - **Effort:** M (~2–4h)
@@ -164,7 +164,7 @@
         );
         ```
 
-- [ ] **#SCALE-6** · P1 — New CHECK constraint on the partitioned `routing.link_observations` table added without `NOT VALID`
+- [x] **#SCALE-6** · P1 — New CHECK constraint on the partitioned `routing.link_observations` table added without `NOT VALID`
     - **Where:** supabase/migrations/20260819001000_link_observations_allow_commerce_probe.sql:16-22
     - **Affects:** Routing observation ingest (`CommerceProbeJob` and every other observation writer) during whenever this migration is applied against a database with existing partition data.
     - **Effort:** S (~0.5–1h)
@@ -186,7 +186,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#SCALE-7** · P2 — Collection upsert writes the whole batch in one unbounded statement while its own read-back is chunked
+- [x] **#SCALE-7** · P2 — Collection upsert writes the whole batch in one unbounded statement while its own read-back is chunked
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:1284-1312 (`upsertCollections`)
     - **Affects:** Connector runs that surface many collections/categories in one pass (large menu category sets, large product collection sets).
     - **Effort:** S (~0.5–1h)
@@ -202,7 +202,7 @@
         );
         ```
 
-- [ ] **#SCALE-8** · P2 — Projection writer accumulates the entire stream's projections in PHP memory before writing facets
+- [x] **#SCALE-8** · P2 — Projection writer accumulates the entire stream's projections in PHP memory before writing facets
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:143-246 (`projectStream`)
     - **Affects:** Large single-run connector syncs (a big first-time Instagram/Fresha catalogue import).
     - **Effort:** L (~1–2d)
@@ -223,7 +223,7 @@
         }
         ```
 
-- [ ] **#SCALE-9** · P2 — Slug maintenance runs `ensureCurrent()` once per item inside the projection cache-refresh batch loop
+- [x] **#SCALE-9** · P2 — Slug maintenance runs `ensureCurrent()` once per item inside the projection cache-refresh batch loop
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:1671-1678 (`refreshItemCaches`)
     - **Affects:** Every projection run for a slugged kind (events, media, products, etc.) — the batch's per-table existence checks were already fixed (see the file's own SCALE-8 comment); this per-item call was not.
     - **Effort:** M (~2–4h)
@@ -243,7 +243,7 @@
         }
         ```
 
-- [ ] **#SCALE-10** · P2 — Evidential-key candidate generation is O(n²) per shared key with no cap
+- [x] **#SCALE-10** · P2 — Evidential-key candidate generation is O(n²) per shared key with no cap
     - **Where:** app/Content/Identity/Resolver.php:75-87
     - **Affects:** Any user whose catalogue has many items sharing one weak (evidential-tier) identity key — e.g. a generic track/episode title repeated across a large music or podcast catalogue.
     - **Effort:** M (~2–4h)
@@ -266,7 +266,7 @@
         }
         ```
 
-- [ ] **#SCALE-11** · P2 — Identity candidates are inserted one row at a time
+- [x] **#SCALE-11** · P2 — Identity candidates are inserted one row at a time
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:928-947 (`recordCandidates`)
     - **Affects:** Any projection run whose identity resolution surfaces evidential-tier candidates — directly amplified by #SCALE-10's uncapped candidate generation.
     - **Effort:** S (~0.5–1h)
@@ -289,7 +289,7 @@
         }
         ```
 
-- [ ] **#SCALE-12** · P2 — Media-mirror dispatch enqueues one job per asset synchronously inside the projection loop
+- [x] **#SCALE-12** · P2 — Media-mirror dispatch enqueues one job per asset synchronously inside the projection loop
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:1470-1501 (`dispatchMirrors`)
     - **Affects:** First-ever projection of an image-heavy connector account (e.g. a new Instagram connect with hundreds of media items); `images`/media queue depth.
     - **Effort:** M (~2–4h)
@@ -306,7 +306,7 @@
         }
         ```
 
-- [ ] **#SCALE-13** · P2 — Pool resolution reads every `site.section_items` row for a section with no cap on accumulated excluded items
+- [x] **#SCALE-13** · P2 — Pool resolution reads every `site.section_items` row for a section with no cap on accumulated excluded items
     - **Where:** app/Site/Pools/PoolResolver.php:114-116 (`hasSelection`), 193-195 (`resolve`)
     - **Affects:** Public pool payload and dashboard pool page for any section whose owner has excluded many items over time.
     - **Effort:** M (~2–4h)
@@ -322,7 +322,7 @@
             ->get();
         ```
 
-- [ ] **#SCALE-14** · P2 — Pool item-payload build selects the full JSONB `platform_connections.payload` for every source row on the public hot path
+- [x] **#SCALE-14** · P2 — Pool item-payload build selects the full JSONB `platform_connections.payload` for every source row on the public hot path
     - **Where:** app/Site/Pools/PoolResolver.php:528-550 (`itemPayloads`)
     - **Affects:** Public pool payload and dashboard item sheet for users with large connector payloads (Google Business place details, Instagram media metadata).
     - **Effort:** M (~2–4h)
@@ -344,7 +344,7 @@
         ])
         ```
 
-- [ ] **#SCALE-15** · P2 — Image fetches are always capped at the 80 MB video limit, so an oversized image is downloaded in full before the 15 MB image limit rejects it
+- [x] **#SCALE-15** · P2 — Image fetches are always capped at the 80 MB video limit, so an oversized image is downloaded in full before the 15 MB image limit rejects it
     - **Where:** app/Services/Media/MediaMirror.php:32-35, 77, 107-109
     - **Affects:** Any projected image entry whose source is unusually large — inflates network egress and transient memory for rejected images by up to ~5x.
     - **Effort:** S (~0.5–1h)
@@ -364,7 +364,7 @@
         }
         ```
 
-- [ ] **#SCALE-16** · P2 — Pending-card enrichment safety net loads its whole backlog with `->get()` and dispatches synchronously in a loop
+- [x] **#SCALE-16** · P2 — Pending-card enrichment safety net loads its whole backlog with `->get()` and dispatches synchronously in a loop
     - **Where:** app/Console/Commands/EnrichPendingCardsCommand.php:26-45
     - **Affects:** `platforms:enrich-pending-cards` (scheduled daily, safety net for stuck enrichments) — normally near-empty, but grows to a real backlog after a queue outage.
     - **Effort:** S (~0.5–1h)
@@ -389,7 +389,7 @@
         }
         ```
 
-- [ ] **#SCALE-17** · P2 — Item-cache repair safety net loads every stale item into memory and groups by user in PHP
+- [x] **#SCALE-17** · P2 — Item-cache repair safety net loads every stale item into memory and groups by user in PHP
     - **Where:** app/Console/Commands/RefreshItemCachesCommand.php:47-57
     - **Affects:** `content:refresh-item-caches` (scheduled daily 03:25, added by commit `e8e0c2d0f` for X4) — a healthy database is a cheap no-op read, but a systemic projection bug or a wide backfill can leave many items stale at once.
     - **Effort:** M (~2–4h)
@@ -406,7 +406,7 @@
         }
         ```
 
-- [ ] **#SCALE-18** · P2 — Pool-shape reshape command loads every matching section for a pool in one unbounded pass
+- [x] **#SCALE-18** · P2 — Pool-shape reshape command loads every matching section for a pool in one unbounded pass
     - **Where:** app/Console/Commands/ReshapePoolSectionsCommand.php:55-57
     - **Affects:** `content:reshape-pool-sections` — a manual, operator-run command invoked after a pool's canonical rule shape changes (per its docblock, this is now the standing tool for "every future shape change").
     - **Effort:** S (~0.5–1h)
@@ -420,7 +420,7 @@
             ->get(['id', 'site_id', 'rule', 'order_by']);
         ```
 
-- [ ] **#SCALE-19** · P2 — Reshape command does a per-section site lookup and dispatches a Cloudflare purge inside the section loop
+- [x] **#SCALE-19** · P2 — Reshape command does a per-section site lookup and dispatches a Cloudflare purge inside the section loop
     - **Where:** app/Console/Commands/ReshapePoolSectionsCommand.php:81-99
     - **Affects:** `site.sites` write load and Cloudflare cache-purge rate limits during a manual pool-shape migration run.
     - **Technical:** Inside the same per-section loop as #SCALE-18, each reshaped section performs its own `DB::table('site.sites')->where('id', ...)->first(...)`, its own `site.sites` update, and its own `CloudflareCachePurgeJob::dispatch()` — one round-trip and one vendor purge call per section, rather than a preloaded site map and a batched/throttled purge. At the scale this tool is explicitly designed to eventually run at (a platform-wide shape migration across thousands of sites), this is both an N+1 query shape and an unthrottled burst against Cloudflare's purge API.
@@ -447,7 +447,7 @@
         }
         ```
 
-- [ ] **#SCALE-20** · P2 — `platforms:enrich-pending-cards` scheduled entry uses a bare `withoutOverlapping()` with no `runInBackground`/`onFailure`
+- [x] **#SCALE-20** · P2 — `platforms:enrich-pending-cards` scheduled entry uses a bare `withoutOverlapping()` with no `runInBackground`/`onFailure`
     - **Where:** routes/console.php:499-502
     - **Affects:** Reliability/observability of the daily card-enrichment safety net (see #SCALE-16, same command).
     - **Effort:** S (~0.5–1h)
@@ -464,7 +464,7 @@
             ->onOneServer();
         ```
 
-- [ ] **#SCALE-21** · P2 — `content:refresh-item-caches` scheduled entry uses a bare `withoutOverlapping()` with no `runInBackground`/`onFailure`
+- [x] **#SCALE-21** · P2 — `content:refresh-item-caches` scheduled entry uses a bare `withoutOverlapping()` with no `runInBackground`/`onFailure`
     - **Where:** routes/console.php:506-509
     - **Affects:** Reliability/observability of the daily item-cache repair safety net (see #SCALE-17, same command; added by commit `e8e0c2d0f`).
     - **Effort:** S (~0.5–1h)
@@ -479,7 +479,7 @@
             ->onOneServer();
         ```
 
-- [ ] **#SCALE-22** · P2 — New CHECK constraint on `content.item_media` added without `NOT VALID`
+- [x] **#SCALE-22** · P2 — New CHECK constraint on `content.item_media` added without `NOT VALID`
     - **Where:** supabase/migrations/20260819001100_item_media_role_video.sql:14-19
     - **Affects:** Media-item writes during whenever this migration is applied against a database with existing `content.item_media` rows.
     - **Effort:** S (~0.5–1h)
@@ -498,7 +498,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **#SCALE-23** · P3 — Absence folding builds two in-memory copies of the candidate set before its bounded write transaction
+- [x] **#SCALE-23** · P3 — Absence folding builds two in-memory copies of the candidate set before its bounded write transaction
     - **Where:** app/Ingest/Landing/Lander.php:429-444 (`foldAbsence`)
     - **Affects:** Absence/tombstone folding on large streams — already substantially mitigated by existing chunking on both sides.
     - **Effort:** M (~2–4h)
@@ -519,7 +519,7 @@
         }
         ```
 
-- [ ] **#SCALE-24** · P3 — Absence order-value lookup fetches the full JSONB document to read one field
+- [x] **#SCALE-24** · P3 — Absence order-value lookup fetches the full JSONB document to read one field
     - **Where:** app/Ingest/Landing/Lander.php:598-619 (`orderValuesFor`)
     - **Affects:** Absence folding when a stream's coverage needs an order-field comparison (already batched per-chunk, not per-key).
     - **Effort:** S (~0.5–1h)
@@ -541,7 +541,7 @@
         }
         ```
 
-- [ ] **#SCALE-25** · P3 — Google Business ordering seed re-fetches the same user row per store group
+- [x] **#SCALE-25** · P3 — Google Business ordering seed re-fetches the same user row per store group
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:561-564 (`seedOrdering`)
     - **Affects:** A Google Business enrichment whose ordering block lists multiple store groups — a small, bounded N per connect event, not a routine hot-path query.
     - **Effort:** S (~0.5–1h)
@@ -556,7 +556,7 @@
             : $this->linkRouter->routeOrdering($user, $repUrl);
         ```
 
-- [ ] **#SCALE-26** · P3 — Reservation-platform existence check issues one query per platform
+- [x] **#SCALE-26** · P3 — Reservation-platform existence check issues one query per platform
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:273-280 (`hasAnyReservation`)
     - **Affects:** Every Google Business enrichment carrying a reservation link — up to 4 sequential queries, held inside the reservations lock window.
     - **Effort:** S (~0.5–1h)
@@ -577,7 +577,7 @@
         }
         ```
 
-- [ ] **#SCALE-27** · P3 — Booking existence check loops platforms with per-platform queries
+- [x] **#SCALE-27** · P3 — Booking existence check loops platforms with per-platform queries
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:311 (`seedBooking`)
     - **Affects:** Every Google Business enrichment carrying a booking link — up to 3 sequential queries, held inside the booking lock window.
     - **Effort:** S (~0.5–1h)
@@ -589,7 +589,7 @@
         if (collect(self::BOOKING_PLATFORMS)->contains(fn ($p) => $this->has($userId, $p))) {
         ```
 
-- [ ] **#SCALE-28** · P3 — Social-link seed path performs one existence query per platform
+- [x] **#SCALE-28** · P3 — Social-link seed path performs one existence query per platform
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:721 (`seedSocials`)
     - **Affects:** Every Google Business enrichment carrying social links — up to 5 sequential queries (Facebook, TikTok, X, LinkedIn, Instagram).
     - **Effort:** S (~0.5–1h)
@@ -603,7 +603,7 @@
                 'remove' => [$platform], 'write' => $write,
         ```
 
-- [ ] **#SCALE-29** · P3 — Weekly Cloudflare KV backfill scheduler entry lacks `runInBackground()`
+- [x] **#SCALE-29** · P3 — Weekly Cloudflare KV backfill scheduler entry lacks `runInBackground()`
     - **Where:** routes/console.php:340-345
     - **Affects:** The every-minute keep-alive tick and other due scheduler tasks during the Sunday 04:00 KV resync window, if `--all` on a large user base takes long enough to matter.
     - **Effort:** S (~0.5–1h)

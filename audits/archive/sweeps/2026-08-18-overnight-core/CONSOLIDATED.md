@@ -1,5 +1,22 @@
 # core changed-scope sweep — CONSOLIDATED — 2026-08-18
 
+> ## ARCHIVED 2026-08-20 — SUPERSEDED, not resolved
+>
+> This folder was the intermediate 8-lens `core`-bundle output of the 2026-08-18
+> overnight run. Its lens files are byte-identical to the eight shared ones in
+> `audits/sweeps/2026-08-18-overnight-run/`, and its 68 finding IDs are a **strict
+> subset** of that run's 101. That folder's CONSOLIDATED already names this one as
+> superseded.
+>
+> **Every box below is ticked as SUPERSEDED — it does NOT mean the code changed.**
+> The live state of all 68 findings is tracked in
+> `audits/sweeps/2026-08-18-overnight-run/CONSOLIDATED.md` (+ its `TRIAGE.md`).
+> Thirteen of the fifteen P1s listed here were already ticked there when this was
+> archived; keeping both open double-counted the backlog by ~65% and made the P1
+> tier read far redder than it is.
+>
+> Do not execute this file. Work the overnight-run CONSOLIDATED instead.
+
 ## Scope
 
 - **Lens:** bundle 'core' — 8/8 lenses over the 107 files changed since `b9e90e8d3` (b9e90e8d3..fe8c7f253)
@@ -78,7 +95,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEC-1** · P1 — Mirrored third-party image bytes are decoded with no pixel-count guard, only a byte-size cap
+- [x] **#SEC-1** · P1 — Mirrored third-party image bytes are decoded with no pixel-count guard, only a byte-size cap
     - **Where:** app/Services/Media/WebpEncoder.php:31; app/Services/Media/MediaMirror.php:107-111
     - **Affects:** The Instagram media-mirror pipeline (`MirrorMediaAssetJob` → `MediaMirror::mirror()` → `WebpEncoder::encode()`), which decodes bytes fetched from an Instagram CDN URL arriving inside a third-party scrape payload — a source `MediaMirror`'s own docblock calls "untrusted by definition."
     - **Effort:** S (~0.5–1h)
@@ -104,7 +121,7 @@
         }
         ```
 
-- [ ] **#SEC-2** · P1 — Google Business photo attribution PII survives the `when_unclaimed` redaction for unclaimed listings
+- [x] **#SEC-2** · P1 — Google Business photo attribution PII survives the `when_unclaimed` redaction for unclaimed listings
     - **Where:** app/Ingest/Connectors/GoogleBusinessConnector.php:98-103 (manifest redactions), :281-300 (`mapPhoto()`); app/Ingest/Landing/Redactor.php:31-63 (`strip()`)
     - **Affects:** Third-party Google reviewers/photographers whose name and profile URI are stored on any unclaimed business listing — GDPR/DSAR exposure for data subjects who never consented and whose data the owner never claimed responsibility for.
     - **Effort:** S (~0.5–1h)
@@ -139,7 +156,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#SEC-3** · P2 — Square's `host_pattern` matches any `order.*` host, not just the five explicitly excluded brand hosts
+- [x] **#SEC-3** · P2 — Square's `host_pattern` matches any `order.*` host, not just the five explicitly excluded brand hosts
     - **Where:** config/partna.php:931
     - **Affects:** Platform classification for menu/link detection (`WebsiteLinkHarvester` / catalog host-pattern matching) — a submitted URL whose host merely starts with `order.` (e.g. `order.attacker-controlled.example`) is classified as Square.
     - **Effort:** S (~0.5–1h)
@@ -153,7 +170,7 @@
         'host_pattern' => '~(^|\.)square\.site$|(^|\.)square\.com$|^order\.(?!online$|toasttab\.com$|ubereats\.com$|doordash\.com$|menulog\.com\.au$)~',
         ```
 
-- [ ] **#SEC-4** · P2 — `SafeUrlFetcher` replays the caller's exact headers on every redirect hop with no cross-origin stripping
+- [x] **#SEC-4** · P2 — `SafeUrlFetcher` replays the caller's exact headers on every redirect hop with no cross-origin stripping
     - **Where:** app/Services/Http/SafeUrlFetcher.php:196-224 (`send()`), :450-499 (`pooledGet()`)
     - **Affects:** Any current or future caller of `fetch()`/`post()`/`fetchMany()` that passes sensitive headers (`Authorization`, API keys, cookies) — a redirect to an attacker-controlled host would receive them unchanged. No current caller in this codebase passes such headers (all pass only `User-Agent`/`Accept`), so this is a latent primitive gap rather than an active leak today.
     - **Effort:** S (~0.5–1h)
@@ -179,7 +196,7 @@
         }
         ```
 
-- [ ] **#SEC-5** · P2 — `MediaMirror`'s `content.media_assets` updates key only on `id`, never on `user_id`
+- [x] **#SEC-5** · P2 — `MediaMirror`'s `content.media_assets` updates key only on `id`, never on `user_id`
     - **Where:** app/Services/Media/MediaMirror.php:101-103, :131-142
     - **Affects:** `content.media_assets` rows written by the Instagram media-mirror pipeline. Currently exploitable only if a future caller ever paired a mismatched `(userId, assetId)`; today `assetId` always originates from `ProjectionWriter::dispatchMirrors()`, which resolves it from a user-scoped lookup/insert in the same run, so the pairing is correct by construction.
     - **Effort:** S (~0.5–1h)
@@ -207,7 +224,7 @@
             ]);
         ```
 
-- [ ] **#SEC-6** · P2 — `SafeUrlFetcher` follows a 3xx before applying its own byte cap to that hop's response
+- [x] **#SEC-6** · P2 — `SafeUrlFetcher` follows a 3xx before applying its own byte cap to that hop's response
     - **Where:** app/Services/Http/SafeUrlFetcher.php:206-226 (`send()`), :396-424 (`fetchManyFollowingRedirects()`)
     - **Affects:** Any fetch target that returns an oversized body alongside a 3xx status, across both the serial and pooled fetch paths.
     - **Effort:** S (~0.5–1h)
@@ -228,7 +245,7 @@
         $this->assertWithinByteCap($response);
         ```
 
-- [ ] **#SEC-7** · P2 — Link-in-bio custom-link write stores the raw pasted URL, bypassing the secret-param redaction the sibling "note" branch applies
+- [x] **#SEC-7** · P2 — Link-in-bio custom-link write stores the raw pasted URL, bypassing the secret-param redaction the sibling "note" branch applies
     - **Where:** app/Http/Controllers/Api/Routing/RoutingController.php:67, :79 (link-in-bio branch); compare :118 (note branch)
     - **Affects:** Any user pasting a link-in-bio page URL (linktr.ee, beacons.ai, msha.ke, stan.store) that carries a query-string token — the raw URL is persisted as a public custom-link card and dispatched to a scan job verbatim.
     - **Effort:** S (~0.5–1h)
@@ -253,7 +270,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **#SEC-8** · P3 — `DisplaySettingsController::update` validates inline instead of via a Form Request
+- [x] **#SEC-8** · P3 — `DisplaySettingsController::update` validates inline instead of via a Form Request
     - **Where:** app/Http/Controllers/Api/Platforms/DisplaySettingsController.php:86-89
     - **Affects:** `PATCH /api/platforms/{platform}/display-settings`. No exploitable mass-assignment today — the controller only reads `$validated['toggles']` and separately allowlists keys against the registry — but it's a doctrine deviation from the project's standard "Form Request classes for validation" convention.
     - **Effort:** S (~0.5–1h)
@@ -322,7 +339,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#LIFE-1** · P1 — `ProjectionWriter::resolveItems`/`bindGroup` run identity resolution with no lock, no transaction
+- [x] **#LIFE-1** · P1 — `ProjectionWriter::resolveItems`/`bindGroup` run identity resolution with no lock, no transaction
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:592-746
     - **Affects:** Any user with two sources of the same content `kind` (e.g. Spotify tracks + SoundCloud tracks, both `track`) whose `RunSourceJob`s are claimed and executed concurrently by different queue workers.
     - **Effort:** L (~1–2d)
@@ -344,7 +361,7 @@
         }
         ```
 
-- [ ] **#LIFE-2** · P1 — `content.source_stats` review aggregate is not filtered by retired/disconnected source_items, republishing a hidden review score
+- [x] **#LIFE-2** · P1 — `content.source_stats` review aggregate is not filtered by retired/disconnected source_items, republishing a hidden review score
     - **Where:** app/Site/Pools/PoolResolver.php:314-321 (`statsFor()`)
     - **Affects:** Public reviews pool `stats` badge (star rating + count) for any site whose review-carrying platform connection is later disconnected or whose review source item is retired by absence-folding.
     - **Effort:** S (~0.5–1h)
@@ -362,7 +379,7 @@
             ->first(['ss.rating_avg', 'ss.rating_count', 'ss.summary_text']);
         ```
 
-- [ ] **#LIFE-3** · P1 — Item's fallback public `platform`/`url` can be derived from a retired or deactivated connection
+- [x] **#LIFE-3** · P1 — Item's fallback public `platform`/`url` can be derived from a retired or deactivated connection
     - **Where:** app/Site/Pools/PoolResolver.php:528-616 (`$sourceRows` query and `$sourcePlatforms` derivation)
     - **Affects:** Any public pool item with no `f_link` row of its own (e.g. a Fresha service, which has no per-service URL) whose only contributing connection is disconnected or deactivated after the item was landed.
     - **Effort:** S (~0.5–1h)
@@ -381,7 +398,7 @@
         })
         ```
 
-- [ ] **#LIFE-4** · P1 — Public pool `links` array can surface a link from a disconnected/retired source
+- [x] **#LIFE-4** · P1 — Public pool `links` array can surface a link from a disconnected/retired source
     - **Where:** app/Site/Pools/PoolResolver.php:485-496 (`$sourceLinks` query)
     - **Affects:** Public sitepage pool payloads (`watch`, `listen`, `media`, etc.) for any item that has both a live source (keeping it in the selection) and a stale `content.f_link` row from a source the owner later disconnected.
     - **Effort:** S (~0.5–1h)
@@ -401,7 +418,7 @@
             ->groupBy('item_id');
         ```
 
-- [ ] **#LIFE-5** · P1 — A newly-provisioned eager ingest source is permanently stranded if its first-run dispatch fails, with no reconcile job
+- [x] **#LIFE-5** · P1 — A newly-provisioned eager ingest source is permanently stranded if its first-run dispatch fails, with no reconcile job
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:277-333 (`maybeRunEagerly`)
     - **Affects:** Any user connecting Instagram (or any connector with `runsEagerlyOnConnect()`) during a transient queue-dispatch outage — their media never appears, indefinitely, with no automatic recovery.
     - **Effort:** M (~2–4h)
@@ -423,7 +440,7 @@
         }
         ```
 
-- [ ] **#LIFE-6** · P1 — `buildPools()` swallows a query failure and blanks every pool for the full-length cache TTL
+- [x] **#LIFE-6** · P1 — `buildPools()` swallows a query failure and blanks every pool for the full-length cache TTL
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:240-248 (`buildPools()`)
     - **Affects:** Every public sitepage visitor for a site whose pool resolution hits a transient `QueryException` — content vanishes entirely (not just the failing pool) and the empty result is cacheable for the full 60s TTL, not the 10s degraded TTL.
     - **Effort:** S (~0.5–1h)
@@ -446,7 +463,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#LIFE-7** · P2 — `analytics:compute-popularity`'s fixed lookback window drops a site's final popularity signal if it goes dormant during a missed scheduler tick
+- [x] **#LIFE-7** · P2 — `analytics:compute-popularity`'s fixed lookback window drops a site's final popularity signal if it goes dormant during a missed scheduler tick
     - **Where:** routes/console.php:139-152
     - **Affects:** Public sitepage popularity ranking for a site whose last-ever activity lands inside a >45-minute scheduler outage window before the site goes dormant.
     - **Effort:** M (~2–4h, interim mitigation) — the code's own comment marks the full fix (a persisted watermark) as a larger, deferred schema change.
@@ -464,7 +481,7 @@
         // instead of a fixed lookback — larger work, likely a schema change, deferred.
         ```
 
-- [ ] **#LIFE-8** · P2 — `ItemLinkRules::syncedPlatformsFor()` counts a retired/disconnected source link as still-synced, blocking a manual link add
+- [x] **#LIFE-8** · P2 — `ItemLinkRules::syncedPlatformsFor()` counts a retired/disconnected source link as still-synced, blocking a manual link add
     - **Where:** app/Site/Pools/ItemLinkRules.php:82-92
     - **Affects:** Dashboard pool curation — an owner cannot hand-add a platform link for an item if a stale `content.f_link` row still names that platform, even after disconnecting the platform.
     - **Effort:** S (~0.5–1h)
@@ -485,7 +502,7 @@
             ->all();
         ```
 
-- [ ] **#LIFE-9** · P2 — Manual retry of a failed website scan re-dispatches billed OCR/AI sub-jobs with no dedup guard
+- [x] **#LIFE-9** · P2 — Manual retry of a failed website scan re-dispatches billed OCR/AI sub-jobs with no dedup guard
     - **Where:** app/Jobs/Platforms/ScanPreviousWebsiteContentJob.php:73-121, 497-509
     - **Affects:** Users with `previous_website` set; vendor OCR/AI spend if a support engineer clicks Horizon's "Retry" on a failed run.
     - **Effort:** M (~2–4h)
@@ -501,7 +518,7 @@
         'note' => 'single-attempt job; manual Horizon retry re-bills OCR/AI sub-jobs',
         ```
 
-- [ ] **#LIFE-10** · P2 — `FreshaConnector` discards the vendor's actual GraphQL error, replacing it with a fixed generic message
+- [x] **#LIFE-10** · P2 — `FreshaConnector` discards the vendor's actual GraphQL error, replacing it with a fixed generic message
     - **Where:** app/Ingest/Connectors/FreshaConnector.php:105-118, 300-320
     - **Affects:** Anyone debugging a Fresha menu ingest failure — a rotated persisted-query hash and any other GraphQL rejection reason are indistinguishable in the logs.
     - **Effort:** S (~0.5–1h)
@@ -519,7 +536,7 @@
         }
         ```
 
-- [ ] **#LIFE-11** · P2 — `GoogleBusinessAutoSync::seedWorkplace()` is a check-then-write with no lock, unlike every sibling seed method in the same class
+- [x] **#LIFE-11** · P2 — `GoogleBusinessAutoSync::seedWorkplace()` is a check-then-write with no lock, unlike every sibling seed method in the same class
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:414-460
     - **Affects:** A site whose owner edits their workplace description/category/website at the same moment a Google Business enrich job runs and tries to seed the same fields.
     - **Effort:** S (~0.5–1h)
@@ -546,7 +563,7 @@
         }
         ```
 
-- [ ] **#LIFE-12** · P2 — `MediaMirror::fail()` has no aggregate escalation path, so a systemic outage stays invisible to Nightwatch
+- [x] **#LIFE-12** · P2 — `MediaMirror::fail()` has no aggregate escalation path, so a systemic outage stays invisible to Nightwatch
     - **Where:** app/Services/Media/MediaMirror.php:175-185
     - **Affects:** Instagram media mirroring for every user, if R2 credentials break or `SafeUrlFetcher`'s upstream host resolution fails wholesale.
     - **Effort:** S (~0.5–1h)
@@ -563,7 +580,7 @@
         }
         ```
 
-- [ ] **#LIFE-13** · P2 — Generic `QueryException` catch in `IntegrationConnectionObserver::syncIngestSource()` hides real database failures at debug level
+- [x] **#LIFE-13** · P2 — Generic `QueryException` catch in `IntegrationConnectionObserver::syncIngestSource()` hides real database failures at debug level
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:234-252
     - **Affects:** Ingest-source provisioning for every platform connection save. A real DB failure (transaction abort, unique-constraint race from concurrent saves) is swallowed at debug level, invisible to Nightwatch.
     - **Effort:** S (~0.5–1h)
@@ -582,7 +599,7 @@
         }
         ```
 
-- [ ] **#LIFE-14** · P2 — `SourceProvisioner::sync()`'s find-then-insert has no guard against its own unique constraint, so a concurrent connection save throws uncaught inside an observer
+- [x] **#LIFE-14** · P2 — `SourceProvisioner::sync()`'s find-then-insert has no guard against its own unique constraint, so a concurrent connection save throws uncaught inside an observer
     - **Where:** app/Ingest/SourceProvisioner.php:76-99
     - **Affects:** Any user whose platform connection is saved twice in close succession (dashboard save racing a scheduled refresh, or the deferred-connect payload-fill write racing the initial insert).
     - **Effort:** S (~0.5–1h)
@@ -604,7 +621,7 @@
         }
         ```
 
-- [ ] **#LIFE-15** · P2 — Ingest-badge lookup swallows every `QueryException` with zero logging
+- [x] **#LIFE-15** · P2 — Ingest-badge lookup swallows every `QueryException` with zero logging
     - **Where:** app/Site/Pools/PoolResolver.php:559-570 (`itemPayloads()`)
     - **Affects:** The dashboard item sheet's "last synced" / auto-sync badges; Nightwatch observability of the same public-hot-path query.
     - **Effort:** S (~0.5–1h)
@@ -628,7 +645,7 @@
         }
         ```
 
-- [ ] **#LIFE-16** · P2 — `platforms:enrich-pending-cards` is missing all three of this file's own mandatory scheduler conventions
+- [x] **#LIFE-16** · P2 — `platforms:enrich-pending-cards` is missing all three of this file's own mandatory scheduler conventions
     - **Where:** routes/console.php:499-502
     - **Affects:** The link-card enrichment safety net — silent failure with no Nightwatch alert, a 24-hour stale-lock window after any crashed run, and potential blocking of the per-minute scheduler tick.
     - **Effort:** S (~0.5–1h)
@@ -646,7 +663,7 @@
             ->onOneServer();
         ```
 
-- [ ] **#LIFE-17** · P2 — `content:refresh-item-caches` is missing all three of this file's own mandatory scheduler conventions
+- [x] **#LIFE-17** · P2 — `content:refresh-item-caches` is missing all three of this file's own mandatory scheduler conventions
     - **Where:** routes/console.php:506-509
     - **Affects:** The item-cache repair backstop for content that missed its projection refresh — same failure modes as #LIFE-16.
     - **Effort:** S (~0.5–1h)
@@ -666,7 +683,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **#LIFE-18** · P3 — `display_settings` read-modify-write in `enableContentInstagramAuto()` is not race-safe
+- [x] **#LIFE-18** · P3 — `display_settings` read-modify-write in `enableContentInstagramAuto()` is not race-safe
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:175-202
     - **Affects:** A freshly-created Instagram connection whose `display_settings` is written by another concurrent process at the exact same moment.
     - **Effort:** S (~0.5–1h)
@@ -688,7 +705,7 @@
         }
         ```
 
-- [ ] **#LIFE-19** · P3 — `MediaMirror::mirror()` fetches up to 80 MB before applying the 15 MB still-image size cap
+- [x] **#LIFE-19** · P3 — `MediaMirror::mirror()` fetches up to 80 MB before applying the 15 MB still-image size cap
     - **Where:** app/Services/Media/MediaMirror.php:70-109
     - **Affects:** Media-mirror queue worker memory during Instagram content ingest, if an oversized or malformed asset is fetched.
     - **Effort:** S (~0.5–1h)
@@ -766,7 +783,7 @@
 
 ## P2 — Should fix
 
-- [ ] **CACHE-1** · P2 — Category 2: `recordCandidates` inserts one row per identity candidate in an unbatched loop
+- [x] **CACHE-1** · P2 — Category 2: `recordCandidates` inserts one row per identity candidate in an unbatched loop
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:930-946 (`recordCandidates`)
     - **Affects:** Any projection run (connector sync or manual write) where several of a user's items share a loose evidential key (title, author, etc.) — DB round-trips scale with the number of candidate pairs, not the size of the record just written.
     - **Effort:** S (~0.5–1h)
@@ -796,7 +813,7 @@
         }
         ```
 
-- [ ] **CACHE-2** · P2 — Category 1: `writeManualItem` recomputes the whole user's identity graph on every single owner write
+- [x] **CACHE-2** · P2 — Category 1: `writeManualItem` recomputes the whole user's identity graph on every single owner write
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:410 (`writeManualItem` → `resolveItems`)
     - **Affects:** Owner-authored manual content writes (hand-adds, backfillers, `MenuScanApplier`, `ShopContentWriter::syncProducts`) — latency and DB read volume scale with the user's total live item count for the kind, not with the single row being written.
     - **Effort:** M (~2–4h)
@@ -816,7 +833,7 @@
          * writes and N edge purges for one request where one of each is correct.
         ```
 
-- [ ] **CACHE-3** · P2 — Category 2: singleton facet writes are one UPSERT per facet per record, unlike the batched collection-facet path beside them
+- [x] **CACHE-3** · P2 — Category 2: singleton facet writes are one UPSERT per facet per record, unlike the batched collection-facet path beside them
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:976-992, 1016-1020 (`writeFacets` → `upsertSingletonFacet`)
     - **Affects:** Any projection run with several records carrying typed facets (menu items, shop products, reviews, etc.) — write volume is O(records × facets) individual UPSERT statements per run.
     - **Effort:** M (~2–4h)
@@ -845,7 +862,7 @@
         );
         ```
 
-- [ ] **CACHE-4** · P2 — Category 1: a connector run touching one record rebuilds identity + caches for the user's entire kind
+- [x] **CACHE-4** · P2 — Category 1: a connector run touching one record rebuilds identity + caches for the user's entire kind
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:241-246 (`projectStream`)
     - **Affects:** Every scheduled connector projection (YouTube, Instagram, Google Business, Fresha, Eventbrite, Gumroad, menu platforms) — cost per run scales with the user's total live item count for the kind, not with the number of records the run actually changed.
     - **Effort:** L (~1–2d)
@@ -867,7 +884,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **CACHE-5** · P3 — Category 2: `bindGroup` issues one anchor INSERT per coord and one merge call per loser
+- [x] **CACHE-5** · P3 — Category 2: `bindGroup` issues one anchor INSERT per coord and one merge call per loser
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:721-731, 741-743 (`bindGroup`)
     - **Affects:** Identity groups spanning several connections/platforms for one item — write volume scales with group size, which in practice is small (a handful of platforms per item).
     - **Effort:** S (~0.5–1h)
@@ -891,7 +908,7 @@
         }
         ```
 
-- [ ] **CACHE-6** · P3 — Category 5: `Resolver`'s evidential-tier pass is an O(m²) nested loop over every member of a shared loose key
+- [x] **CACHE-6** · P3 — Category 5: `Resolver`'s evidential-tier pass is an O(m²) nested loop over every member of a shared loose key
     - **Where:** app/Content/Identity/Resolver.php:77-87 (`resolve`)
     - **Affects:** Projection CPU time for a user whose items happen to share a loose title/author key — cost is quadratic in the size of that key's member set.
     - **Effort:** M (~2–4h)
@@ -915,7 +932,7 @@
         }
         ```
 
-- [ ] **CACHE-7** · P3 — Category 2: `refreshItemCaches` still writes and mints slugs one item at a time for the changed tail
+- [x] **CACHE-7** · P3 — Category 2: `refreshItemCaches` still writes and mints slugs one item at a time for the changed tail
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:1653-1658, 1671-1678 (`refreshItemCaches`)
     - **Affects:** Projection runs where many items' cached headline/facets actually changed in one pass — the read side is already batched (SCALE-8), but the write-back and slug mint remain per item.
     - **Effort:** M (~2–4h)
@@ -944,7 +961,7 @@
         }
         ```
 
-- [ ] **CACHE-8** · P3 — Category 5: `IntegrationConnectionObserver` dispatches several independent side effects per connection write instead of one chained job
+- [x] **CACHE-8** · P3 — Category 5: `IntegrationConnectionObserver` dispatches several independent side effects per connection write instead of one chained job
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:61-144 (`saved`), 204-224 (`deleted`), 402-419 (`restored`)
     - **Affects:** Bulk connection lifecycle events (a mass platform-policy disconnect, a GDPR-driven purge, a scheduled multi-platform refresh wave) — queue traffic per affected connection carries a small constant-factor multiplier (roughly 2–4x) rather than one dispatch per meaningful change.
     - **Effort:** M (~2–4h)
@@ -1046,7 +1063,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SCALE-1** · P1 — Pool default/occurrence sort runs a correlated scalar subquery per candidate row on the public hot path
+- [x] **#SCALE-1** · P1 — Pool default/occurrence sort runs a correlated scalar subquery per candidate row on the public hot path
     - **Where:** app/Site/Sections/SectionCandidates.php:116-130
     - **Affects:** Public sitepage pool resolution (watch/listen/media/shop/services/menus/custom_links via recency sort, events via occurrence sort) on every cache-miss/rebuild render.
     - **Effort:** M (~2–4h)
@@ -1068,7 +1085,7 @@ None.
         ),
         ```
 
-- [ ] **#SCALE-2** · P1 — Auto-selection ("newest per source") runs a correlated COUNT subquery scanning the whole source per candidate row
+- [x] **#SCALE-2** · P1 — Auto-selection ("newest per source") runs a correlated COUNT subquery scanning the whole source per candidate row
     - **Where:** app/Site/Sections/SectionCandidates.php:330-373 (`connectionSourceLatestArm`), 393-428 (`storefrontLatestArm`)
     - **Affects:** Public pool resolution for `latest_per_auto_source` / `latest_n_per_auto_source` pools (watch/listen/media default, shop storefront auto-selection) — the default rule shape for most connected sources.
     - **Effort:** L (~1–2d)
@@ -1097,7 +1114,7 @@ None.
         );
         ```
 
-- [ ] **#SCALE-3** · P1 — MediaMirror loads entire fetched media bodies into PHP memory before storing
+- [x] **#SCALE-3** · P1 — MediaMirror loads entire fetched media bodies into PHP memory before storing
     - **Where:** app/Services/Media/MediaMirror.php:77-145
     - **Affects:** Media-mirror pipeline (`images`/media queue) during any burst of owned-media (Instagram) mirroring — e.g. a first-time connect or a viral spike driving many concurrent mirrors.
     - **Effort:** M (~2–4h)
@@ -1120,7 +1137,7 @@ None.
                 Storage::disk(config('partna.media_disk'))->put($path, $body, ['ContentType' => 'video/mp4']);
         ```
 
-- [ ] **#SCALE-4** · P1 — One `item_anchors` query per resolved identity group on every projection run
+- [x] **#SCALE-4** · P1 — One `item_anchors` query per resolved identity group on every projection run
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:655-660 (`resolveItems`), 704-710 (`bindGroup`)
     - **Affects:** Every scheduled connector projection run (Instagram, Fresha, menus, Apple Music, etc.), for every user with more than a handful of live source items.
     - **Effort:** M (~2–4h)
@@ -1146,7 +1163,7 @@ None.
             ->get(['coord', 'item_id', 'superseded_by', 'bound_at']);
         ```
 
-- [ ] **#SCALE-5** · P1 — Singleton facet upserts fire one query per facet per item on every projection run
+- [x] **#SCALE-5** · P1 — Singleton facet upserts fire one query per facet per item on every projection run
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:988-990 (`writeFacets`), 1016-1020 (`upsertSingletonFacet`)
     - **Affects:** Every scheduled connector projection run — write amplification scales with `items in run × populated singleton facets` (up to 13 facet tables: f_text, f_link, f_duration, f_published, f_occurrence, f_embed, f_playable, f_authored, f_catalog, f_place, f_rated, f_review, f_channel, f_file).
     - **Effort:** M (~2–4h)
@@ -1169,7 +1186,7 @@ None.
         );
         ```
 
-- [ ] **#SCALE-6** · P1 — New CHECK constraint on the partitioned `routing.link_observations` table added without `NOT VALID`
+- [x] **#SCALE-6** · P1 — New CHECK constraint on the partitioned `routing.link_observations` table added without `NOT VALID`
     - **Where:** supabase/migrations/20260819001000_link_observations_allow_commerce_probe.sql:16-22
     - **Affects:** Routing observation ingest (`CommerceProbeJob` and every other observation writer) during whenever this migration is applied against a database with existing partition data.
     - **Effort:** S (~0.5–1h)
@@ -1191,7 +1208,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#SCALE-7** · P2 — Collection upsert writes the whole batch in one unbounded statement while its own read-back is chunked
+- [x] **#SCALE-7** · P2 — Collection upsert writes the whole batch in one unbounded statement while its own read-back is chunked
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:1284-1312 (`upsertCollections`)
     - **Affects:** Connector runs that surface many collections/categories in one pass (large menu category sets, large product collection sets).
     - **Effort:** S (~0.5–1h)
@@ -1207,7 +1224,7 @@ None.
         );
         ```
 
-- [ ] **#SCALE-8** · P2 — Projection writer accumulates the entire stream's projections in PHP memory before writing facets
+- [x] **#SCALE-8** · P2 — Projection writer accumulates the entire stream's projections in PHP memory before writing facets
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:143-246 (`projectStream`)
     - **Affects:** Large single-run connector syncs (a big first-time Instagram/Fresha catalogue import).
     - **Effort:** L (~1–2d)
@@ -1228,7 +1245,7 @@ None.
         }
         ```
 
-- [ ] **#SCALE-9** · P2 — Slug maintenance runs `ensureCurrent()` once per item inside the projection cache-refresh batch loop
+- [x] **#SCALE-9** · P2 — Slug maintenance runs `ensureCurrent()` once per item inside the projection cache-refresh batch loop
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:1671-1678 (`refreshItemCaches`)
     - **Affects:** Every projection run for a slugged kind (events, media, products, etc.) — the batch's per-table existence checks were already fixed (see the file's own SCALE-8 comment); this per-item call was not.
     - **Effort:** M (~2–4h)
@@ -1248,7 +1265,7 @@ None.
         }
         ```
 
-- [ ] **#SCALE-10** · P2 — Evidential-key candidate generation is O(n²) per shared key with no cap
+- [x] **#SCALE-10** · P2 — Evidential-key candidate generation is O(n²) per shared key with no cap
     - **Where:** app/Content/Identity/Resolver.php:75-87
     - **Affects:** Any user whose catalogue has many items sharing one weak (evidential-tier) identity key — e.g. a generic track/episode title repeated across a large music or podcast catalogue.
     - **Effort:** M (~2–4h)
@@ -1271,7 +1288,7 @@ None.
         }
         ```
 
-- [ ] **#SCALE-11** · P2 — Identity candidates are inserted one row at a time
+- [x] **#SCALE-11** · P2 — Identity candidates are inserted one row at a time
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:928-947 (`recordCandidates`)
     - **Affects:** Any projection run whose identity resolution surfaces evidential-tier candidates — directly amplified by #SCALE-10's uncapped candidate generation.
     - **Effort:** S (~0.5–1h)
@@ -1294,7 +1311,7 @@ None.
         }
         ```
 
-- [ ] **#SCALE-12** · P2 — Media-mirror dispatch enqueues one job per asset synchronously inside the projection loop
+- [x] **#SCALE-12** · P2 — Media-mirror dispatch enqueues one job per asset synchronously inside the projection loop
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:1470-1501 (`dispatchMirrors`)
     - **Affects:** First-ever projection of an image-heavy connector account (e.g. a new Instagram connect with hundreds of media items); `images`/media queue depth.
     - **Effort:** M (~2–4h)
@@ -1311,7 +1328,7 @@ None.
         }
         ```
 
-- [ ] **#SCALE-13** · P2 — Pool resolution reads every `site.section_items` row for a section with no cap on accumulated excluded items
+- [x] **#SCALE-13** · P2 — Pool resolution reads every `site.section_items` row for a section with no cap on accumulated excluded items
     - **Where:** app/Site/Pools/PoolResolver.php:114-116 (`hasSelection`), 193-195 (`resolve`)
     - **Affects:** Public pool payload and dashboard pool page for any section whose owner has excluded many items over time.
     - **Effort:** M (~2–4h)
@@ -1327,7 +1344,7 @@ None.
             ->get();
         ```
 
-- [ ] **#SCALE-14** · P2 — Pool item-payload build selects the full JSONB `platform_connections.payload` for every source row on the public hot path
+- [x] **#SCALE-14** · P2 — Pool item-payload build selects the full JSONB `platform_connections.payload` for every source row on the public hot path
     - **Where:** app/Site/Pools/PoolResolver.php:528-550 (`itemPayloads`)
     - **Affects:** Public pool payload and dashboard item sheet for users with large connector payloads (Google Business place details, Instagram media metadata).
     - **Effort:** M (~2–4h)
@@ -1349,7 +1366,7 @@ None.
         ])
         ```
 
-- [ ] **#SCALE-15** · P2 — Image fetches are always capped at the 80 MB video limit, so an oversized image is downloaded in full before the 15 MB image limit rejects it
+- [x] **#SCALE-15** · P2 — Image fetches are always capped at the 80 MB video limit, so an oversized image is downloaded in full before the 15 MB image limit rejects it
     - **Where:** app/Services/Media/MediaMirror.php:32-35, 77, 107-109
     - **Affects:** Any projected image entry whose source is unusually large — inflates network egress and transient memory for rejected images by up to ~5x.
     - **Effort:** S (~0.5–1h)
@@ -1369,7 +1386,7 @@ None.
         }
         ```
 
-- [ ] **#SCALE-16** · P2 — Pending-card enrichment safety net loads its whole backlog with `->get()` and dispatches synchronously in a loop
+- [x] **#SCALE-16** · P2 — Pending-card enrichment safety net loads its whole backlog with `->get()` and dispatches synchronously in a loop
     - **Where:** app/Console/Commands/EnrichPendingCardsCommand.php:26-45
     - **Affects:** `platforms:enrich-pending-cards` (scheduled daily, safety net for stuck enrichments) — normally near-empty, but grows to a real backlog after a queue outage.
     - **Effort:** S (~0.5–1h)
@@ -1394,7 +1411,7 @@ None.
         }
         ```
 
-- [ ] **#SCALE-17** · P2 — Item-cache repair safety net loads every stale item into memory and groups by user in PHP
+- [x] **#SCALE-17** · P2 — Item-cache repair safety net loads every stale item into memory and groups by user in PHP
     - **Where:** app/Console/Commands/RefreshItemCachesCommand.php:47-57
     - **Affects:** `content:refresh-item-caches` (scheduled daily 03:25, added by commit `e8e0c2d0f` for X4) — a healthy database is a cheap no-op read, but a systemic projection bug or a wide backfill can leave many items stale at once.
     - **Effort:** M (~2–4h)
@@ -1411,7 +1428,7 @@ None.
         }
         ```
 
-- [ ] **#SCALE-18** · P2 — Pool-shape reshape command loads every matching section for a pool in one unbounded pass
+- [x] **#SCALE-18** · P2 — Pool-shape reshape command loads every matching section for a pool in one unbounded pass
     - **Where:** app/Console/Commands/ReshapePoolSectionsCommand.php:55-57
     - **Affects:** `content:reshape-pool-sections` — a manual, operator-run command invoked after a pool's canonical rule shape changes (per its docblock, this is now the standing tool for "every future shape change").
     - **Effort:** S (~0.5–1h)
@@ -1425,7 +1442,7 @@ None.
             ->get(['id', 'site_id', 'rule', 'order_by']);
         ```
 
-- [ ] **#SCALE-19** · P2 — Reshape command does a per-section site lookup and dispatches a Cloudflare purge inside the section loop
+- [x] **#SCALE-19** · P2 — Reshape command does a per-section site lookup and dispatches a Cloudflare purge inside the section loop
     - **Where:** app/Console/Commands/ReshapePoolSectionsCommand.php:81-99
     - **Affects:** `site.sites` write load and Cloudflare cache-purge rate limits during a manual pool-shape migration run.
     - **Technical:** Inside the same per-section loop as #SCALE-18, each reshaped section performs its own `DB::table('site.sites')->where('id', ...)->first(...)`, its own `site.sites` update, and its own `CloudflareCachePurgeJob::dispatch()` — one round-trip and one vendor purge call per section, rather than a preloaded site map and a batched/throttled purge. At the scale this tool is explicitly designed to eventually run at (a platform-wide shape migration across thousands of sites), this is both an N+1 query shape and an unthrottled burst against Cloudflare's purge API.
@@ -1452,7 +1469,7 @@ None.
         }
         ```
 
-- [ ] **#SCALE-20** · P2 — `platforms:enrich-pending-cards` scheduled entry uses a bare `withoutOverlapping()` with no `runInBackground`/`onFailure`
+- [x] **#SCALE-20** · P2 — `platforms:enrich-pending-cards` scheduled entry uses a bare `withoutOverlapping()` with no `runInBackground`/`onFailure`
     - **Where:** routes/console.php:499-502
     - **Affects:** Reliability/observability of the daily card-enrichment safety net (see #SCALE-16, same command).
     - **Effort:** S (~0.5–1h)
@@ -1469,7 +1486,7 @@ None.
             ->onOneServer();
         ```
 
-- [ ] **#SCALE-21** · P2 — `content:refresh-item-caches` scheduled entry uses a bare `withoutOverlapping()` with no `runInBackground`/`onFailure`
+- [x] **#SCALE-21** · P2 — `content:refresh-item-caches` scheduled entry uses a bare `withoutOverlapping()` with no `runInBackground`/`onFailure`
     - **Where:** routes/console.php:506-509
     - **Affects:** Reliability/observability of the daily item-cache repair safety net (see #SCALE-17, same command; added by commit `e8e0c2d0f`).
     - **Effort:** S (~0.5–1h)
@@ -1484,7 +1501,7 @@ None.
             ->onOneServer();
         ```
 
-- [ ] **#SCALE-22** · P2 — New CHECK constraint on `content.item_media` added without `NOT VALID`
+- [x] **#SCALE-22** · P2 — New CHECK constraint on `content.item_media` added without `NOT VALID`
     - **Where:** supabase/migrations/20260819001100_item_media_role_video.sql:14-19
     - **Affects:** Media-item writes during whenever this migration is applied against a database with existing `content.item_media` rows.
     - **Effort:** S (~0.5–1h)
@@ -1503,7 +1520,7 @@ None.
 
 ## P3 — Nice to have
 
-- [ ] **#SCALE-23** · P3 — Absence folding builds two in-memory copies of the candidate set before its bounded write transaction
+- [x] **#SCALE-23** · P3 — Absence folding builds two in-memory copies of the candidate set before its bounded write transaction
     - **Where:** app/Ingest/Landing/Lander.php:429-444 (`foldAbsence`)
     - **Affects:** Absence/tombstone folding on large streams — already substantially mitigated by existing chunking on both sides.
     - **Effort:** M (~2–4h)
@@ -1524,7 +1541,7 @@ None.
         }
         ```
 
-- [ ] **#SCALE-24** · P3 — Absence order-value lookup fetches the full JSONB document to read one field
+- [x] **#SCALE-24** · P3 — Absence order-value lookup fetches the full JSONB document to read one field
     - **Where:** app/Ingest/Landing/Lander.php:598-619 (`orderValuesFor`)
     - **Affects:** Absence folding when a stream's coverage needs an order-field comparison (already batched per-chunk, not per-key).
     - **Effort:** S (~0.5–1h)
@@ -1546,7 +1563,7 @@ None.
         }
         ```
 
-- [ ] **#SCALE-25** · P3 — Google Business ordering seed re-fetches the same user row per store group
+- [x] **#SCALE-25** · P3 — Google Business ordering seed re-fetches the same user row per store group
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:561-564 (`seedOrdering`)
     - **Affects:** A Google Business enrichment whose ordering block lists multiple store groups — a small, bounded N per connect event, not a routine hot-path query.
     - **Effort:** S (~0.5–1h)
@@ -1561,7 +1578,7 @@ None.
             : $this->linkRouter->routeOrdering($user, $repUrl);
         ```
 
-- [ ] **#SCALE-26** · P3 — Reservation-platform existence check issues one query per platform
+- [x] **#SCALE-26** · P3 — Reservation-platform existence check issues one query per platform
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:273-280 (`hasAnyReservation`)
     - **Affects:** Every Google Business enrichment carrying a reservation link — up to 4 sequential queries, held inside the reservations lock window.
     - **Effort:** S (~0.5–1h)
@@ -1582,7 +1599,7 @@ None.
         }
         ```
 
-- [ ] **#SCALE-27** · P3 — Booking existence check loops platforms with per-platform queries
+- [x] **#SCALE-27** · P3 — Booking existence check loops platforms with per-platform queries
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:311 (`seedBooking`)
     - **Affects:** Every Google Business enrichment carrying a booking link — up to 3 sequential queries, held inside the booking lock window.
     - **Effort:** S (~0.5–1h)
@@ -1594,7 +1611,7 @@ None.
         if (collect(self::BOOKING_PLATFORMS)->contains(fn ($p) => $this->has($userId, $p))) {
         ```
 
-- [ ] **#SCALE-28** · P3 — Social-link seed path performs one existence query per platform
+- [x] **#SCALE-28** · P3 — Social-link seed path performs one existence query per platform
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:721 (`seedSocials`)
     - **Affects:** Every Google Business enrichment carrying social links — up to 5 sequential queries (Facebook, TikTok, X, LinkedIn, Instagram).
     - **Effort:** S (~0.5–1h)
@@ -1608,7 +1625,7 @@ None.
                 'remove' => [$platform], 'write' => $write,
         ```
 
-- [ ] **#SCALE-29** · P3 — Weekly Cloudflare KV backfill scheduler entry lacks `runInBackground()`
+- [x] **#SCALE-29** · P3 — Weekly Cloudflare KV backfill scheduler entry lacks `runInBackground()`
     - **Where:** routes/console.php:340-345
     - **Affects:** The every-minute keep-alive tick and other due scheduler tasks during the Sunday 04:00 KV resync window, if `--all` on a large user base takes long enough to matter.
     - **Effort:** S (~0.5–1h)
@@ -1742,7 +1759,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#CCH-1** · P2 · Category 4 — Instagram auto-sync flag write bypasses the observer's own cache-invalidation gate
+- [x] **#CCH-1** · P2 · Category 4 — Instagram auto-sync flag write bypasses the observer's own cache-invalidation gate
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:184-193 (`enableContentInstagramAuto()`)
     - **Affects:** Newly-connected Instagram accounts; the Cloudflare edge purge / site-touch cascade that every other `display_settings` write triggers.
     - **Effort:** S (~0.5–1h)
@@ -1765,7 +1782,7 @@ None.
         }
         ```
 
-- [ ] **#CCH-2** · P2 · Category 4 — Deferred Fresha reconnect merges the payload, leaving the previous salon's `teamMenuCache` live under the new URL
+- [x] **#CCH-2** · P2 · Category 4 — Deferred Fresha reconnect merges the payload, leaving the previous salon's `teamMenuCache` live under the new URL
     - **Where:** app/Http/Controllers/Api/Platforms/FreshaController.php:245-252 (write: `connectDeferred()`), app/Http/Controllers/Api/Platforms/FreshaController.php:356-359 (read: `team()`)
     - **Affects:** Fresha users on the deferred-connect flow (`config('partna.connect.deferred')` includes `fresha`) who reconnect to a *different* salon while the previous salon's up-to-24h `teamMenuCache` is still fresh.
     - **Effort:** S (~0.5–1h)
@@ -1794,7 +1811,7 @@ None.
         }
         ```
 
-- [ ] **#CCH-3** · P2 · Category 10 — `buildPools()` swallows `QueryException` on the hottest read path in the codebase and caches the empty result under the full TTL
+- [x] **#CCH-3** · P2 · Category 10 — `buildPools()` swallows `QueryException` on the hottest read path in the codebase and caches the empty result under the full TTL
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:241-248 (`buildPools()`), app/Services/PublicSite/IndividualProfilePayloadBuilder.php:690-693 (`lastBuildDegraded()`)
     - **Affects:** Visitors to `GET /api/public/profiles/{handle}` (via `IndividualProfileController` / `WarmPublicSiteCacheJob`) during any transient DB error hit while resolving a content pool; their watch/listen/media/menus/shop/services/custom-links sections vanish from the public payload for up to the full primary+stale cache window.
     - **Effort:** S (~0.5–1h)
@@ -1863,7 +1880,7 @@ None — no P0, auth, money, migration/schema, or L/XL-effort findings survived 
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#WHK-1** · P1 — Per-record fallback has no per-record try/catch, so one poison record aborts the rest of the run instead of being isolated [cat 5]
+- [x] **#WHK-1** · P1 — Per-record fallback has no per-record try/catch, so one poison record aborts the rest of the run instead of being isolated [cat 5]
     - **Where:** app/Ingest/Landing/Lander.php:301-385 (`landRecordsIndividually()`), propagating uncaught through app/Ingest/Landing/Lander.php:83 (`land()`) and app/Ingest/Runtime/RunExecutor.php:144-151 (`execute()`)
     - **Affects:** Any ingest stream whose chunk-transaction fallback path is triggered by a genuinely malformed record (the class's own docblock names the exact scenario: a scraped caption containing a literal NUL byte, rejected by `jsonb` with `22P05`). When it fires, every later record in that chunk — and every later stream in that source's run — silently fails to land this cycle instead of just the one bad record.
     - **Effort:** S (~0.5–1h)

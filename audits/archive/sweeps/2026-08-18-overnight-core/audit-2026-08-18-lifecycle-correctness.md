@@ -29,7 +29,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#LIFE-1** · P1 — `ProjectionWriter::resolveItems`/`bindGroup` run identity resolution with no lock, no transaction
+- [x] **#LIFE-1** · P1 — `ProjectionWriter::resolveItems`/`bindGroup` run identity resolution with no lock, no transaction
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:592-746
     - **Affects:** Any user with two sources of the same content `kind` (e.g. Spotify tracks + SoundCloud tracks, both `track`) whose `RunSourceJob`s are claimed and executed concurrently by different queue workers.
     - **Effort:** L (~1–2d)
@@ -51,7 +51,7 @@
         }
         ```
 
-- [ ] **#LIFE-2** · P1 — `content.source_stats` review aggregate is not filtered by retired/disconnected source_items, republishing a hidden review score
+- [x] **#LIFE-2** · P1 — `content.source_stats` review aggregate is not filtered by retired/disconnected source_items, republishing a hidden review score
     - **Where:** app/Site/Pools/PoolResolver.php:314-321 (`statsFor()`)
     - **Affects:** Public reviews pool `stats` badge (star rating + count) for any site whose review-carrying platform connection is later disconnected or whose review source item is retired by absence-folding.
     - **Effort:** S (~0.5–1h)
@@ -69,7 +69,7 @@
             ->first(['ss.rating_avg', 'ss.rating_count', 'ss.summary_text']);
         ```
 
-- [ ] **#LIFE-3** · P1 — Item's fallback public `platform`/`url` can be derived from a retired or deactivated connection
+- [x] **#LIFE-3** · P1 — Item's fallback public `platform`/`url` can be derived from a retired or deactivated connection
     - **Where:** app/Site/Pools/PoolResolver.php:528-616 (`$sourceRows` query and `$sourcePlatforms` derivation)
     - **Affects:** Any public pool item with no `f_link` row of its own (e.g. a Fresha service, which has no per-service URL) whose only contributing connection is disconnected or deactivated after the item was landed.
     - **Effort:** S (~0.5–1h)
@@ -88,7 +88,7 @@
         })
         ```
 
-- [ ] **#LIFE-4** · P1 — Public pool `links` array can surface a link from a disconnected/retired source
+- [x] **#LIFE-4** · P1 — Public pool `links` array can surface a link from a disconnected/retired source
     - **Where:** app/Site/Pools/PoolResolver.php:485-496 (`$sourceLinks` query)
     - **Affects:** Public sitepage pool payloads (`watch`, `listen`, `media`, etc.) for any item that has both a live source (keeping it in the selection) and a stale `content.f_link` row from a source the owner later disconnected.
     - **Effort:** S (~0.5–1h)
@@ -108,7 +108,7 @@
             ->groupBy('item_id');
         ```
 
-- [ ] **#LIFE-5** · P1 — A newly-provisioned eager ingest source is permanently stranded if its first-run dispatch fails, with no reconcile job
+- [x] **#LIFE-5** · P1 — A newly-provisioned eager ingest source is permanently stranded if its first-run dispatch fails, with no reconcile job
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:277-333 (`maybeRunEagerly`)
     - **Affects:** Any user connecting Instagram (or any connector with `runsEagerlyOnConnect()`) during a transient queue-dispatch outage — their media never appears, indefinitely, with no automatic recovery.
     - **Effort:** M (~2–4h)
@@ -130,7 +130,7 @@
         }
         ```
 
-- [ ] **#LIFE-6** · P1 — `buildPools()` swallows a query failure and blanks every pool for the full-length cache TTL
+- [x] **#LIFE-6** · P1 — `buildPools()` swallows a query failure and blanks every pool for the full-length cache TTL
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:240-248 (`buildPools()`)
     - **Affects:** Every public sitepage visitor for a site whose pool resolution hits a transient `QueryException` — content vanishes entirely (not just the failing pool) and the empty result is cacheable for the full 60s TTL, not the 10s degraded TTL.
     - **Effort:** S (~0.5–1h)
@@ -153,7 +153,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#LIFE-7** · P2 — `analytics:compute-popularity`'s fixed lookback window drops a site's final popularity signal if it goes dormant during a missed scheduler tick
+- [x] **#LIFE-7** · P2 — `analytics:compute-popularity`'s fixed lookback window drops a site's final popularity signal if it goes dormant during a missed scheduler tick
     - **Where:** routes/console.php:139-152
     - **Affects:** Public sitepage popularity ranking for a site whose last-ever activity lands inside a >45-minute scheduler outage window before the site goes dormant.
     - **Effort:** M (~2–4h, interim mitigation) — the code's own comment marks the full fix (a persisted watermark) as a larger, deferred schema change.
@@ -171,7 +171,7 @@
         // instead of a fixed lookback — larger work, likely a schema change, deferred.
         ```
 
-- [ ] **#LIFE-8** · P2 — `ItemLinkRules::syncedPlatformsFor()` counts a retired/disconnected source link as still-synced, blocking a manual link add
+- [x] **#LIFE-8** · P2 — `ItemLinkRules::syncedPlatformsFor()` counts a retired/disconnected source link as still-synced, blocking a manual link add
     - **Where:** app/Site/Pools/ItemLinkRules.php:82-92
     - **Affects:** Dashboard pool curation — an owner cannot hand-add a platform link for an item if a stale `content.f_link` row still names that platform, even after disconnecting the platform.
     - **Effort:** S (~0.5–1h)
@@ -192,7 +192,7 @@
             ->all();
         ```
 
-- [ ] **#LIFE-9** · P2 — Manual retry of a failed website scan re-dispatches billed OCR/AI sub-jobs with no dedup guard
+- [x] **#LIFE-9** · P2 — Manual retry of a failed website scan re-dispatches billed OCR/AI sub-jobs with no dedup guard
     - **Where:** app/Jobs/Platforms/ScanPreviousWebsiteContentJob.php:73-121, 497-509
     - **Affects:** Users with `previous_website` set; vendor OCR/AI spend if a support engineer clicks Horizon's "Retry" on a failed run.
     - **Effort:** M (~2–4h)
@@ -208,7 +208,7 @@
         'note' => 'single-attempt job; manual Horizon retry re-bills OCR/AI sub-jobs',
         ```
 
-- [ ] **#LIFE-10** · P2 — `FreshaConnector` discards the vendor's actual GraphQL error, replacing it with a fixed generic message
+- [x] **#LIFE-10** · P2 — `FreshaConnector` discards the vendor's actual GraphQL error, replacing it with a fixed generic message
     - **Where:** app/Ingest/Connectors/FreshaConnector.php:105-118, 300-320
     - **Affects:** Anyone debugging a Fresha menu ingest failure — a rotated persisted-query hash and any other GraphQL rejection reason are indistinguishable in the logs.
     - **Effort:** S (~0.5–1h)
@@ -226,7 +226,7 @@
         }
         ```
 
-- [ ] **#LIFE-11** · P2 — `GoogleBusinessAutoSync::seedWorkplace()` is a check-then-write with no lock, unlike every sibling seed method in the same class
+- [x] **#LIFE-11** · P2 — `GoogleBusinessAutoSync::seedWorkplace()` is a check-then-write with no lock, unlike every sibling seed method in the same class
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:414-460
     - **Affects:** A site whose owner edits their workplace description/category/website at the same moment a Google Business enrich job runs and tries to seed the same fields.
     - **Effort:** S (~0.5–1h)
@@ -253,7 +253,7 @@
         }
         ```
 
-- [ ] **#LIFE-12** · P2 — `MediaMirror::fail()` has no aggregate escalation path, so a systemic outage stays invisible to Nightwatch
+- [x] **#LIFE-12** · P2 — `MediaMirror::fail()` has no aggregate escalation path, so a systemic outage stays invisible to Nightwatch
     - **Where:** app/Services/Media/MediaMirror.php:175-185
     - **Affects:** Instagram media mirroring for every user, if R2 credentials break or `SafeUrlFetcher`'s upstream host resolution fails wholesale.
     - **Effort:** S (~0.5–1h)
@@ -270,7 +270,7 @@
         }
         ```
 
-- [ ] **#LIFE-13** · P2 — Generic `QueryException` catch in `IntegrationConnectionObserver::syncIngestSource()` hides real database failures at debug level
+- [x] **#LIFE-13** · P2 — Generic `QueryException` catch in `IntegrationConnectionObserver::syncIngestSource()` hides real database failures at debug level
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:234-252
     - **Affects:** Ingest-source provisioning for every platform connection save. A real DB failure (transaction abort, unique-constraint race from concurrent saves) is swallowed at debug level, invisible to Nightwatch.
     - **Effort:** S (~0.5–1h)
@@ -289,7 +289,7 @@
         }
         ```
 
-- [ ] **#LIFE-14** · P2 — `SourceProvisioner::sync()`'s find-then-insert has no guard against its own unique constraint, so a concurrent connection save throws uncaught inside an observer
+- [x] **#LIFE-14** · P2 — `SourceProvisioner::sync()`'s find-then-insert has no guard against its own unique constraint, so a concurrent connection save throws uncaught inside an observer
     - **Where:** app/Ingest/SourceProvisioner.php:76-99
     - **Affects:** Any user whose platform connection is saved twice in close succession (dashboard save racing a scheduled refresh, or the deferred-connect payload-fill write racing the initial insert).
     - **Effort:** S (~0.5–1h)
@@ -311,7 +311,7 @@
         }
         ```
 
-- [ ] **#LIFE-15** · P2 — Ingest-badge lookup swallows every `QueryException` with zero logging
+- [x] **#LIFE-15** · P2 — Ingest-badge lookup swallows every `QueryException` with zero logging
     - **Where:** app/Site/Pools/PoolResolver.php:559-570 (`itemPayloads()`)
     - **Affects:** The dashboard item sheet's "last synced" / auto-sync badges; Nightwatch observability of the same public-hot-path query.
     - **Effort:** S (~0.5–1h)
@@ -335,7 +335,7 @@
         }
         ```
 
-- [ ] **#LIFE-16** · P2 — `platforms:enrich-pending-cards` is missing all three of this file's own mandatory scheduler conventions
+- [x] **#LIFE-16** · P2 — `platforms:enrich-pending-cards` is missing all three of this file's own mandatory scheduler conventions
     - **Where:** routes/console.php:499-502
     - **Affects:** The link-card enrichment safety net — silent failure with no Nightwatch alert, a 24-hour stale-lock window after any crashed run, and potential blocking of the per-minute scheduler tick.
     - **Effort:** S (~0.5–1h)
@@ -353,7 +353,7 @@
             ->onOneServer();
         ```
 
-- [ ] **#LIFE-17** · P2 — `content:refresh-item-caches` is missing all three of this file's own mandatory scheduler conventions
+- [x] **#LIFE-17** · P2 — `content:refresh-item-caches` is missing all three of this file's own mandatory scheduler conventions
     - **Where:** routes/console.php:506-509
     - **Affects:** The item-cache repair backstop for content that missed its projection refresh — same failure modes as #LIFE-16.
     - **Effort:** S (~0.5–1h)
@@ -373,7 +373,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **#LIFE-18** · P3 — `display_settings` read-modify-write in `enableContentInstagramAuto()` is not race-safe
+- [x] **#LIFE-18** · P3 — `display_settings` read-modify-write in `enableContentInstagramAuto()` is not race-safe
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:175-202
     - **Affects:** A freshly-created Instagram connection whose `display_settings` is written by another concurrent process at the exact same moment.
     - **Effort:** S (~0.5–1h)
@@ -395,7 +395,7 @@
         }
         ```
 
-- [ ] **#LIFE-19** · P3 — `MediaMirror::mirror()` fetches up to 80 MB before applying the 15 MB still-image size cap
+- [x] **#LIFE-19** · P3 — `MediaMirror::mirror()` fetches up to 80 MB before applying the 15 MB still-image size cap
     - **Where:** app/Services/Media/MediaMirror.php:70-109
     - **Affects:** Media-mirror queue worker memory during Instagram content ingest, if an oversized or malformed asset is fetched.
     - **Effort:** S (~0.5–1h)

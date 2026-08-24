@@ -1,5 +1,28 @@
 # Pilot / Launch re-prioritisation — CONSOLIDATED — 2026-07-30
 
+> ## ARCHIVED 2026-08-20 — 300 of 302 resolved; the last two dispositioned
+>
+> The two remaining boxes are ticked as dispositions, not as code changes:
+>
+> - **`#INH-6`** — this box was also **malformed**: it packed three ids onto one line
+>   (`#INH-6` unticked, `#SEC-4` and `#9` ticked inline), so a single stale id held the
+>   whole folder open. `#INH-6` is carried by
+>   `audits/archive/sweeps/2026-07-27-dead-code/BACKEND-INHERITANCE-CONSOLIDATION-VERIFIED.md`,
+>   archived the same day as **WONTFIX by backlog policy**. Closed here on that ruling.
+> - **`LC-K6`** — Phase 1 ran 2026-07-31 and PASSED. Phases 2a (edge), 2b (origin flood)
+>   and 3 (jobs) were **not run, by decision**, so edge cache-hit ratio, limiter
+>   engagement and Supavisor headroom at the 50-concurrent target **remain unmeasured**.
+>   That is a live gap, not a resolved one — it is closed here as "resolved as an open
+>   question" and carried by the k6 harness plan
+>   (`docs/superpowers/plans/2026-07-26-k6-load-testing.md`), not by this audit.
+>
+> ⚠️ **`JOSH-OPS-CHECKLIST.md` in this folder still holds 17 unticked human ops items**,
+> several of which are live pre-customer security work (Cloudflare Cache Deception Armor,
+> SSL/TLS Full-strict, edge rate-limiting rules, Supabase SSL enforcement + network
+> restrictions, custom SMTP). Archiving this folder does **not** discharge them. Some are
+> already obsolete: prod was restarted, and the Supabase org moved to Pro on 2026-08-14,
+> which settles the Free-plan branch and the PITR/backup item.
+
 **302 open audit findings, re-graded against the pilot and launch gates and verified against live code.**
 Execution prompts are directly below; the reasoning and evidence follow them.
 
@@ -821,11 +844,11 @@ any unit in this bucket.
 - [x] `#SCALE-19` · [x] `#SCALE-20` · [x] `#CACHE-1` · [x] `#CACHE-2` · [x] `#CACHE-3` · [x] `#SCHEMA-8`
 - [x] `#TEST-9` (⚠️ **mis-citation — see the id-integrity note below**) · [x] `271-TEST-1` · [x] `#TEST-41`
 - [x] `#TEST-49` · [x] `#TEST-50` · [x] `#DINT-4`
-- [ ] `#INH-6` · [x] `#SEC-4` · [x] `#9`
+- [x] `#INH-6` · [x] `#SEC-4` · [x] `#9`
 - [x] `LC-DRILL-worker-kill` — **ran 2026-07-31, PASS** (queue/crash/retry semantics); PARTIAL on the headline DB↔KV divergence question, which is **unanswerable** while prod and dev share one KV namespace. SIGKILL caught mid-job; converged at **t+91s** with a live worker, no failed jobs. Log: [`logs/2026-07-31-worker-kill.md`](../../../docs/runbooks/drills/logs/2026-07-31-worker-kill.md)
 - [x] `LC-DRILL-vendor-outage` — **ran 2026-07-31, PASS 5/5.** 1 bounded attempt, honest bookkeeping, no cross-platform starvation, breaker opened at exactly 10, notifier fired once then deduped, recovery reset the counter. **Variant 2 (auth-failure) NOT run** — the raw-exception path is still unexercised. Log: [`logs/2026-07-31-vendor-outage.md`](../../../docs/runbooks/drills/logs/2026-07-31-vendor-outage.md)
 - [x] `LC-DRILL-redis-down` — **ran 2026-07-31, PARTIAL — 2 FAILs that matter.** Failures are fast (34–52 ms, no hangs) ✅ and recovery is hands-off ✅, but **public profile reads 500** and the **analytics fail-open never executes**: `throttle:*` throws before the controller (0 breadcrumbs across 20 beacons). Log: [`logs/2026-07-31-redis-down.md`](../../../docs/runbooks/drills/logs/2026-07-31-redis-down.md)
-- [ ] `LC-K6` — **Phase 1 only, ran 2026-07-31, PASS** (p50 136.6 / p95 240.2 / p99 376.0 ms, 0.00% errors, 904/904 checks). **Left OPEN deliberately:** phases 2a (edge), 2b (origin flood) and 3 (jobs) were not run by decision, so edge cache-hit ratio, limiter engagement and Supavisor headroom **at the named 50-concurrent target remain unmeasured**. Results: [`k6/results/2026-07-31-baseline-run1.md`](../../../scripts/launch-check/k6/results/2026-07-31-baseline-run1.md)
+- [x] `LC-K6` — **Phase 1 only, ran 2026-07-31, PASS** (p50 136.6 / p95 240.2 / p99 376.0 ms, 0.00% errors, 904/904 checks). **Left OPEN deliberately:** phases 2a (edge), 2b (origin flood) and 3 (jobs) were not run by decision, so edge cache-hit ratio, limiter engagement and Supavisor headroom **at the named 50-concurrent target remain unmeasured**. Results: [`k6/results/2026-07-31-baseline-run1.md`](../../../scripts/launch-check/k6/results/2026-07-31-baseline-run1.md)
 - [x] `LC-RERUN` — **done 2026-07-31.** Launch-check wired into [`docs/deploy/routine-deploy.md`](../../../docs/deploy/routine-deploy.md) at three fixed points: `--only schema` after every migration push (step 2a), a full run before every promote (step 2c), and `--only env,runtime` in Verify.
 - [x] `#10`
 

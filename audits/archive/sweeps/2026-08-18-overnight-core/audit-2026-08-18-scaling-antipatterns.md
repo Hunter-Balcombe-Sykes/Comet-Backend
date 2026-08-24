@@ -28,7 +28,7 @@
 
 ## P2 — Should fix
 
-- [ ] **CACHE-1** · P2 — Category 2: `recordCandidates` inserts one row per identity candidate in an unbatched loop
+- [x] **CACHE-1** · P2 — Category 2: `recordCandidates` inserts one row per identity candidate in an unbatched loop
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:930-946 (`recordCandidates`)
     - **Affects:** Any projection run (connector sync or manual write) where several of a user's items share a loose evidential key (title, author, etc.) — DB round-trips scale with the number of candidate pairs, not the size of the record just written.
     - **Effort:** S (~0.5–1h)
@@ -58,7 +58,7 @@
         }
         ```
 
-- [ ] **CACHE-2** · P2 — Category 1: `writeManualItem` recomputes the whole user's identity graph on every single owner write
+- [x] **CACHE-2** · P2 — Category 1: `writeManualItem` recomputes the whole user's identity graph on every single owner write
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:410 (`writeManualItem` → `resolveItems`)
     - **Affects:** Owner-authored manual content writes (hand-adds, backfillers, `MenuScanApplier`, `ShopContentWriter::syncProducts`) — latency and DB read volume scale with the user's total live item count for the kind, not with the single row being written.
     - **Effort:** M (~2–4h)
@@ -78,7 +78,7 @@
          * writes and N edge purges for one request where one of each is correct.
         ```
 
-- [ ] **CACHE-3** · P2 — Category 2: singleton facet writes are one UPSERT per facet per record, unlike the batched collection-facet path beside them
+- [x] **CACHE-3** · P2 — Category 2: singleton facet writes are one UPSERT per facet per record, unlike the batched collection-facet path beside them
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:976-992, 1016-1020 (`writeFacets` → `upsertSingletonFacet`)
     - **Affects:** Any projection run with several records carrying typed facets (menu items, shop products, reviews, etc.) — write volume is O(records × facets) individual UPSERT statements per run.
     - **Effort:** M (~2–4h)
@@ -107,7 +107,7 @@
         );
         ```
 
-- [ ] **CACHE-4** · P2 — Category 1: a connector run touching one record rebuilds identity + caches for the user's entire kind
+- [x] **CACHE-4** · P2 — Category 1: a connector run touching one record rebuilds identity + caches for the user's entire kind
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:241-246 (`projectStream`)
     - **Affects:** Every scheduled connector projection (YouTube, Instagram, Google Business, Fresha, Eventbrite, Gumroad, menu platforms) — cost per run scales with the user's total live item count for the kind, not with the number of records the run actually changed.
     - **Effort:** L (~1–2d)
@@ -129,7 +129,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **CACHE-5** · P3 — Category 2: `bindGroup` issues one anchor INSERT per coord and one merge call per loser
+- [x] **CACHE-5** · P3 — Category 2: `bindGroup` issues one anchor INSERT per coord and one merge call per loser
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:721-731, 741-743 (`bindGroup`)
     - **Affects:** Identity groups spanning several connections/platforms for one item — write volume scales with group size, which in practice is small (a handful of platforms per item).
     - **Effort:** S (~0.5–1h)
@@ -153,7 +153,7 @@
         }
         ```
 
-- [ ] **CACHE-6** · P3 — Category 5: `Resolver`'s evidential-tier pass is an O(m²) nested loop over every member of a shared loose key
+- [x] **CACHE-6** · P3 — Category 5: `Resolver`'s evidential-tier pass is an O(m²) nested loop over every member of a shared loose key
     - **Where:** app/Content/Identity/Resolver.php:77-87 (`resolve`)
     - **Affects:** Projection CPU time for a user whose items happen to share a loose title/author key — cost is quadratic in the size of that key's member set.
     - **Effort:** M (~2–4h)
@@ -177,7 +177,7 @@
         }
         ```
 
-- [ ] **CACHE-7** · P3 — Category 2: `refreshItemCaches` still writes and mints slugs one item at a time for the changed tail
+- [x] **CACHE-7** · P3 — Category 2: `refreshItemCaches` still writes and mints slugs one item at a time for the changed tail
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:1653-1658, 1671-1678 (`refreshItemCaches`)
     - **Affects:** Projection runs where many items' cached headline/facets actually changed in one pass — the read side is already batched (SCALE-8), but the write-back and slug mint remain per item.
     - **Effort:** M (~2–4h)
@@ -206,7 +206,7 @@
         }
         ```
 
-- [ ] **CACHE-8** · P3 — Category 5: `IntegrationConnectionObserver` dispatches several independent side effects per connection write instead of one chained job
+- [x] **CACHE-8** · P3 — Category 5: `IntegrationConnectionObserver` dispatches several independent side effects per connection write instead of one chained job
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:61-144 (`saved`), 204-224 (`deleted`), 402-419 (`restored`)
     - **Affects:** Bulk connection lifecycle events (a mass platform-policy disconnect, a GDPR-driven purge, a scheduled multi-platform refresh wave) — queue traffic per affected connection carries a small constant-factor multiplier (roughly 2–4x) rather than one dispatch per meaningful change.
     - **Effort:** M (~2–4h)

@@ -34,7 +34,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SEC-1** · P1 — Mirrored third-party image bytes are decoded with no pixel-count guard, only a byte-size cap
+- [x] **#SEC-1** · P1 — Mirrored third-party image bytes are decoded with no pixel-count guard, only a byte-size cap
     - **Where:** app/Services/Media/WebpEncoder.php:31; app/Services/Media/MediaMirror.php:107-111
     - **Affects:** The Instagram media-mirror pipeline (`MirrorMediaAssetJob` → `MediaMirror::mirror()` → `WebpEncoder::encode()`), which decodes bytes fetched from an Instagram CDN URL arriving inside a third-party scrape payload — a source `MediaMirror`'s own docblock calls "untrusted by definition."
     - **Effort:** S (~0.5–1h)
@@ -60,7 +60,7 @@
         }
         ```
 
-- [ ] **#SEC-2** · P1 — Google Business photo attribution PII survives the `when_unclaimed` redaction for unclaimed listings
+- [x] **#SEC-2** · P1 — Google Business photo attribution PII survives the `when_unclaimed` redaction for unclaimed listings
     - **Where:** app/Ingest/Connectors/GoogleBusinessConnector.php:98-103 (manifest redactions), :281-300 (`mapPhoto()`); app/Ingest/Landing/Redactor.php:31-63 (`strip()`)
     - **Affects:** Third-party Google reviewers/photographers whose name and profile URI are stored on any unclaimed business listing — GDPR/DSAR exposure for data subjects who never consented and whose data the owner never claimed responsibility for.
     - **Effort:** S (~0.5–1h)
@@ -95,7 +95,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#SEC-3** · P2 — Square's `host_pattern` matches any `order.*` host, not just the five explicitly excluded brand hosts
+- [x] **#SEC-3** · P2 — Square's `host_pattern` matches any `order.*` host, not just the five explicitly excluded brand hosts
     - **Where:** config/partna.php:931
     - **Affects:** Platform classification for menu/link detection (`WebsiteLinkHarvester` / catalog host-pattern matching) — a submitted URL whose host merely starts with `order.` (e.g. `order.attacker-controlled.example`) is classified as Square.
     - **Effort:** S (~0.5–1h)
@@ -109,7 +109,7 @@
         'host_pattern' => '~(^|\.)square\.site$|(^|\.)square\.com$|^order\.(?!online$|toasttab\.com$|ubereats\.com$|doordash\.com$|menulog\.com\.au$)~',
         ```
 
-- [ ] **#SEC-4** · P2 — `SafeUrlFetcher` replays the caller's exact headers on every redirect hop with no cross-origin stripping
+- [x] **#SEC-4** · P2 — `SafeUrlFetcher` replays the caller's exact headers on every redirect hop with no cross-origin stripping
     - **Where:** app/Services/Http/SafeUrlFetcher.php:196-224 (`send()`), :450-499 (`pooledGet()`)
     - **Affects:** Any current or future caller of `fetch()`/`post()`/`fetchMany()` that passes sensitive headers (`Authorization`, API keys, cookies) — a redirect to an attacker-controlled host would receive them unchanged. No current caller in this codebase passes such headers (all pass only `User-Agent`/`Accept`), so this is a latent primitive gap rather than an active leak today.
     - **Effort:** S (~0.5–1h)
@@ -135,7 +135,7 @@
         }
         ```
 
-- [ ] **#SEC-5** · P2 — `MediaMirror`'s `content.media_assets` updates key only on `id`, never on `user_id`
+- [x] **#SEC-5** · P2 — `MediaMirror`'s `content.media_assets` updates key only on `id`, never on `user_id`
     - **Where:** app/Services/Media/MediaMirror.php:101-103, :131-142
     - **Affects:** `content.media_assets` rows written by the Instagram media-mirror pipeline. Currently exploitable only if a future caller ever paired a mismatched `(userId, assetId)`; today `assetId` always originates from `ProjectionWriter::dispatchMirrors()`, which resolves it from a user-scoped lookup/insert in the same run, so the pairing is correct by construction.
     - **Effort:** S (~0.5–1h)
@@ -163,7 +163,7 @@
             ]);
         ```
 
-- [ ] **#SEC-6** · P2 — `SafeUrlFetcher` follows a 3xx before applying its own byte cap to that hop's response
+- [x] **#SEC-6** · P2 — `SafeUrlFetcher` follows a 3xx before applying its own byte cap to that hop's response
     - **Where:** app/Services/Http/SafeUrlFetcher.php:206-226 (`send()`), :396-424 (`fetchManyFollowingRedirects()`)
     - **Affects:** Any fetch target that returns an oversized body alongside a 3xx status, across both the serial and pooled fetch paths.
     - **Effort:** S (~0.5–1h)
@@ -184,7 +184,7 @@
         $this->assertWithinByteCap($response);
         ```
 
-- [ ] **#SEC-7** · P2 — Link-in-bio custom-link write stores the raw pasted URL, bypassing the secret-param redaction the sibling "note" branch applies
+- [x] **#SEC-7** · P2 — Link-in-bio custom-link write stores the raw pasted URL, bypassing the secret-param redaction the sibling "note" branch applies
     - **Where:** app/Http/Controllers/Api/Routing/RoutingController.php:67, :79 (link-in-bio branch); compare :118 (note branch)
     - **Affects:** Any user pasting a link-in-bio page URL (linktr.ee, beacons.ai, msha.ke, stan.store) that carries a query-string token — the raw URL is persisted as a public custom-link card and dispatched to a scan job verbatim.
     - **Effort:** S (~0.5–1h)
@@ -209,7 +209,7 @@
 
 ## P3 — Nice to have
 
-- [ ] **#SEC-8** · P3 — `DisplaySettingsController::update` validates inline instead of via a Form Request
+- [x] **#SEC-8** · P3 — `DisplaySettingsController::update` validates inline instead of via a Form Request
     - **Where:** app/Http/Controllers/Api/Platforms/DisplaySettingsController.php:86-89
     - **Affects:** `PATCH /api/platforms/{platform}/display-settings`. No exploitable mass-assignment today — the controller only reads `$validated['toggles']` and separately allowlists keys against the registry — but it's a doctrine deviation from the project's standard "Form Request classes for validation" convention.
     - **Effort:** S (~0.5–1h)
