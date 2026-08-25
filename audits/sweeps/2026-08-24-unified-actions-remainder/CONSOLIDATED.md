@@ -63,14 +63,15 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 1 of 2 complete
 - P3 Low: 0 of 5 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **CACHE-1** · P2 — `ActionScorer::aggregate()` scans the site's full retention window of raw action events on every compute tick
+- [x] **CACHE-1** · P2 — `ActionScorer::aggregate()` scans the site's full retention window of raw action events on every compute tick
+    - **SUPERSEDED by `SCALE-3`** — the `ActionScorer::aggregate()` half. Fixed by `App\Services\Analytics\ScoringWindow` in `c90c6f833`: the query now carries `->where('occurred_at', '>=', ScoringWindow::since())` (`app/Services/Analytics/ActionScorer.php:171`), which is this finding's first "what to do" bullet. Verified against the code 2026-08-25. `ScoringWindow::LOOKBACK_DAYS = 120` deliberately exceeds the 90-day raw-event retention so the bound truncates nothing today.
     - **Where:** app/Services/Analytics/ActionScorer.php:166-178
     - **Affects:** `analytics:compute-popularity` (runs every 15 min for sites with recent activity), `analytics.action_events` read load, action-score freshness for viral sitepages.
     - **Effort:** M (~2–4h)
@@ -336,7 +337,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 4 complete
-- P2 Medium: 0 of 8 complete
+- P2 Medium: 1 of 8 complete
 - P3 Low: 0 of 5 complete
 
 ---
@@ -580,7 +581,13 @@
             ->get(['ic.left_item_id', 'ic.right_item_id', 'ic.evidence', 'li.headline_cache as left_headline', 'ri.headline_cache as right_headline']);
         ```
 
-- [ ] **SCALE-10** · P2 — Pasting a link performs up to 45s of synchronous vendor I/O on the request path
+- [x] **SCALE-10** · P2 — Pasting a link performs up to 45s of synchronous vendor I/O on the request path
+    - **FIXED per Josh's 2026-08-24 ruling: cut the budget, stay synchronous.** New config key `partna.http_fetch.paste_budget_seconds` (default **10s**, `PARTNA_PASTE_BUDGET_SECONDS`), added beside `preview_budget_seconds` and matching its shape — the FI-3 precedent for exactly this problem. Both `RoutingController` call sites (`~:150` item arm, `~:202` route fallthrough) now read it instead of `connect_budget_seconds`.
+        A separate key rather than lowering `connect_budget_seconds`: that value is shared by ~10 other call sites (`EventsPlatformController`, `ShopController`, `FreshaController`, `ConnectResolver`, `ConnectFetchJob`), so lowering it would break the connect lane to fix the paste lane.
+        **Both degrade branches verified clean today, with evidence — no new try/catch was needed.** The ITEM arm already wraps the seeders in `try/catch(\Throwable)` and nulls `$written`, falling through to the ordinary card-write path (test: 202, `outcome !== 'item'`). The ROUTE arm needs no catch because `route()`'s only fetch is `ShortLinkExpander::expandIfShort()`, whose docblock promises it never throws — it catches every `\Throwable` internally and returns the unexpanded URL, which `IriCanonicalizer::canonicalize()` then answers with `Iri::reject($input, 'shortener')`: a normal 202 with `verdict: 'reject'`, not a 500.
+        Tests: `tests/Feature/Routing/RoutingPasteBudgetTest.php` (3 cases). Mutation-proved — reverting both call sites to `connect_budget_seconds` gives `Failed asserting that 45.0 is identical to 3.0.`; forcing the item branch past its null check gives `Expecting 'item' not to be 'item'.`; breaking the reject response gives `Expected response status code [202] but received 200.`
+        **Deferred, NOT implemented (owner ruling):** queueing the seed. It changes the public response contract — `canonicalUrl`/`pool`/`explanation` are not known at response time — so it needs a `docs/wire-changes/` manifest plus frontend work.
+        **Surfaced, not worked:** the ~10 other `connect_budget_seconds` call sites default to `20` in code but `45` in `config/partna.php` — a pre-existing code/config default mismatch, unrelated to this finding.
     - **Where:** app/Http/Controllers/Api/Routing/RoutingController.php:148-151, 198-201
     - **Affects:** Users pasting links; worker capacity and API latency for other routes during link-processing bursts.
     - **Effort:** M (~2–4h)
@@ -802,7 +809,7 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 0 of 11 complete
+- P2 Medium: 4 of 11 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -965,7 +972,8 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
         }
         ```
 
-- [ ] **CCH-8** · P2 — `ShopBrandConnectJob`'s settle lock uses the default cache store instead of the dedicated `cache_locks` connection
+- [x] **CCH-8** · P2 — `ShopBrandConnectJob`'s settle lock uses the default cache store instead of the dedicated `cache_locks` connection
+    - **WONTFIX — premise refuted.** `Cache::lock()` ALREADY takes this lock on the `cache_locks` connection; the suggested change is a no-op. Verified in framework source 2026-08-25: `config/cache.php:80` sets `'lock_connection' => env('REDIS_CACHE_LOCK_CONNECTION', 'cache_locks')` on the default `redis` store; `CacheManager::createRedisDriver()` applies it via `$store->setLockConnection($config['lock_connection'] ?? $connection)` (`vendor/laravel/framework/src/Illuminate/Cache/CacheManager.php:348`); and `RedisStore::flush()` calls `$this->connection()->flushdb()` (`RedisStore.php:284`) — the DATA connection (DB 1), never `lockConnection()` (DB 4). So the isolation this finding asks for is already in force and `Cache::flush()` cannot release an in-flight lock.
     - **Where:** app/Jobs/Platforms/ShopBrandConnectJob.php:173-176
     - **Affects:** The compare-and-set write that settles a connecting shop brand — if `Cache::flush()` is ever run against the default data store, this held lock releases early, letting a second writer race the same guarded update.
     - **Effort:** S (~0.5–1h)
@@ -983,7 +991,8 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
         } catch (LockTimeoutException $e) {
         ```
 
-- [ ] **CCH-9** · P2 — `SuggestionsController::acceptPayloadFinding` lock uses the default cache store instead of `cache_locks`
+- [x] **CCH-9** · P2 — `SuggestionsController::acceptPayloadFinding` lock uses the default cache store instead of `cache_locks`
+    - **WONTFIX — premise refuted.** Same root as `CCH-8`, different call site. `Cache::lock()` ALREADY takes this lock on the `cache_locks` connection; the suggested change is a no-op. Verified in framework source 2026-08-25: `config/cache.php:80` sets `'lock_connection' => env('REDIS_CACHE_LOCK_CONNECTION', 'cache_locks')` on the default `redis` store; `CacheManager::createRedisDriver()` applies it via `$store->setLockConnection($config['lock_connection'] ?? $connection)` (`vendor/laravel/framework/src/Illuminate/Cache/CacheManager.php:348`); and `RedisStore::flush()` calls `$this->connection()->flushdb()` (`RedisStore.php:284`) — the DATA connection (DB 1), never `lockConnection()` (DB 4). So the isolation this finding asks for is already in force and `Cache::flush()` cannot release an in-flight lock.
     - **Where:** app/Http/Controllers/Api/Routing/SuggestionsController.php:348-349
     - **Affects:** Contended per-user platform-connection settlement writes — the same `Cache::flush()`-releases-a-held-lock exposure as CCH-8, on a different call site of the same `CacheKeyGenerator::platformConnectionLock` lock.
     - **Effort:** S (~0.5–1h)
@@ -1040,7 +1049,10 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
         }
         ```
 
-- [ ] **CCH-12** · P2 — Google Business listing disconnect clears public workplace fields without rotating the public-profile cache key
+- [x] **CCH-12** · P2 — Google Business listing disconnect clears public workplace fields without rotating the public-profile cache key
+    - **WONTFIX — premise refuted. Lane 2 already rotates.** Verified 2026-08-25: `clearListingSourcedWorkplaceFields()` ends in a full Eloquent `$workplace->save()` (`IntegrationConnectionObserver.php:330`), so `WorkplaceObserver::saved()` fires; `category` and `description` are BOTH in `WorkplaceObserver::CACHE_AFFECTING_COLUMNS` (`:33-36`), so `SiteCacheInvalidator::touchSite()` runs, which `->touch()`es the site and rolls `site.sites.updated_at` — exactly what `IndividualProfilePayloadBuilder::cacheKey()` (`:627-634`) derives the key from, and which then fires `SiteObserver::saved()` -> Redis `invalidateSite()` + `CloudflareCachePurgeJob`.
+        The third cleared field, `previous_website`, is DELIBERATELY excluded from `CACHE_AFFECTING_COLUMNS` ("design-factor inputs, never rendered") and is absent from `SitepageDataResolverService::getWorkplace()`'s public shape — so a clear touching only that column correctly skips the bust.
+        **Why the prescribed fix would be a REGRESSION, not a no-op:** `SiteCacheLanes::bust()` writes `updated_at` via `DB::connection('pgsql')->table('site.sites')->update()` — a query-builder write that fires NO `SiteObserver` — and dispatches `CloudflareCachePurgeJob` itself. `touchSite()` reaches Redis and the CDN THROUGH the observer. Stacking them double-fires the purge and the Redis DEL sweep, which `SiteCacheInvalidator`'s own docblock forbids verbatim: *"Callers MUST NOT also dispatch CloudflareCachePurgeJob — that double-fires the purge and the Redis DEL sweep for a single edit."* Cost would be a duplicate CF purge and warm job on every google-business connection save and every hourly `integrations:refresh` tick. Lane 1 (`BuildState::bump`) is also not owed here — `CLAUDE.md` scopes the three-lane contract to owner-initiated POOL mutations, and a workplace card field is not a pool item.
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:304-335 (write, `clearListingSourcedWorkplaceFields`); read: `SiteCacheService`'s timestamp-keyed `public.profile:{handle}:{ts}` (`app/Services/Cache/CacheKeyGenerator.php:315-317`, `app/Services/Cache/SiteCacheService.php:661-663`)
     - **Affects:** Public sitepage visitors — after a Google Business listing is disconnected, the previously-listing-sourced description/category/previous-website fields can keep showing the old values until the profile cache's TTL lapses.
     - **Effort:** S (~0.5–1h)
@@ -1084,7 +1096,9 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
         }
         ```
 
-- [ ] **CCH-13** · P2 — Google Business identity sync writes public identity fields without rotating the public-profile cache key
+- [x] **CCH-13** · P2 — Google Business identity sync writes public identity fields without rotating the public-profile cache key
+    - **WONTFIX — premise refuted. Same root as `CCH-12`.** `syncIdentityFromGoogle()` delegates to `IdentitySync::applyFromGooglePayload()`, whose three write lanes are all already covered: `applyWorkplaceFields()` ends in `$workplace->save()` (same `WorkplaceObserver` chain); `applySector()` / `mirrorPublicContactNumber()` end in `$user->save()`, and `public_contact_number` is in `UserObserver::PUBLIC_PROFILE_USER_FIELDS`, routing to the same `touchSite()`; and there is already a belt-and-braces explicit `$user->site()->first()?->touch()` on sector change (`IdentitySync.php:311-317`) carrying a comment naming this exact hazard.
+        **Why the prescribed fix would be a REGRESSION, not a no-op:** `SiteCacheLanes::bust()` writes `updated_at` via `DB::connection('pgsql')->table('site.sites')->update()` — a query-builder write that fires NO `SiteObserver` — and dispatches `CloudflareCachePurgeJob` itself. `touchSite()` reaches Redis and the CDN THROUGH the observer. Stacking them double-fires the purge and the Redis DEL sweep, which `SiteCacheInvalidator`'s own docblock forbids verbatim: *"Callers MUST NOT also dispatch CloudflareCachePurgeJob — that double-fires the purge and the Redis DEL sweep for a single edit."* Cost would be a duplicate CF purge and warm job on every google-business connection save and every hourly `integrations:refresh` tick. Lane 1 (`BuildState::bump`) is also not owed here — `CLAUDE.md` scopes the three-lane contract to owner-initiated POOL mutations, and a workplace card field is not a pool item.
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:117-120 (`saved()` call site), 158-167 (`syncIdentityFromGoogle`); read: same `public.profile:{handle}:{ts}` key as CCH-12
     - **Affects:** Public sitepage visitors — a Google Business connect or a payload refresh folds identity fields (name, etc.) into workplace/user rows via `IdentitySync`, but the same `hasCompletenessPredicate()` gate that excludes `google-business` (see CCH-12) means the profile cache key doesn't rotate for this write either.
     - **Effort:** S (~0.5–1h) — same fix as CCH-12; bundle together

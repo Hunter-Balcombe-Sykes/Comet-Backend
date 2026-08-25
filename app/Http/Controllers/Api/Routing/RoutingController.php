@@ -144,8 +144,10 @@ class RoutingController extends ApiController
         if ($category === 'content-item' || $category === 'event') {
             try {
                 // Budgeted like the preview endpoint: the read is 1–2
-                // synchronous fetches on a request path.
-                $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 45);
+                // synchronous fetches on a request path. SCALE-10: its own
+                // key, not the 45s connect budget — this is an interactive
+                // paste, not a platform connect flow.
+                $seconds = (float) config('partna.http_fetch.paste_budget_seconds', 10);
                 $written = $this->budget->open($seconds, fn (): ?string => $category === 'content-item'
                     ? $this->media->seedItem($user, $schemed, origin: 'paste', pin: true)
                     : $this->events->seedStandalone($user, (string) $classified['platform'], $schemed, origin: 'paste'));
@@ -190,13 +192,14 @@ class RoutingController extends ApiController
             }
         }
 
-        // Budgeted like the item branch above (FI-3 critic): route() runs the
-        // short-link expander — the one fetch on this path (expansion is
+        // Budgeted like the item branch above (FI-3 critic; SCALE-10: same
+        // paste_budget_seconds key, not connect_budget_seconds) — route() runs
+        // the short-link expander — the one fetch on this path (expansion is
         // cached, so the preview that preceded this paste usually paid it).
         // The earlier budget->open() in the item branch has already closed by
         // here (its finally clears the deadline), so this never nests.
         $result = $this->budget->open(
-            (float) config('partna.http_fetch.connect_budget_seconds', 45),
+            (float) config('partna.http_fetch.paste_budget_seconds', 10),
             fn (): array => $this->routing->route($url, RoutingContext::forUser($user, 'paste')),
         );
 

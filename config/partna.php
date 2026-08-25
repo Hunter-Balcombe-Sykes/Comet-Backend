@@ -1744,6 +1744,18 @@ return [
         // usually free).
         'preview_budget_seconds' => (int) env('PARTNA_PREVIEW_BUDGET_SECONDS', 8),
 
+        // Wall-clock budget for the paste route (SCALE-10, 2026-08-25):
+        // RoutingController::store()'s item arm (MediaSeeder/EventsSeeder) and
+        // its fallthrough route() call were both reusing connect_budget_seconds
+        // — a 45s CONNECT budget on an INTERACTIVE paste, which can hold a
+        // request worker for the full 45s on a slow/blackholed host. Own key,
+        // sized like preview_budget_seconds: the item read and route()'s
+        // short-link expansion are each 1–2 capped fetches, not a multi-step
+        // connect flow. A miss degrades cleanly — the item arm falls through
+        // to the existing card write, route()'s expander never throws (see its
+        // docblock) — nothing here is worth 45s of a worker.
+        'paste_budget_seconds' => (int) env('PARTNA_PASTE_BUDGET_SECONDS', 10),
+
         // Wall-clock budget (seconds) for one PlatformRefresher::refresh() call —
         // the cron/manual-refresh mirror of connect_budget_seconds above. Must stay
         // meaningfully below RefreshConnectionJob's 120s $timeout, leaving headroom

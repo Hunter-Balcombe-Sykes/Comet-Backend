@@ -121,7 +121,10 @@ it('deletes only legacy-vocabulary action_events rows, leaving <kind>:<ref> rows
 });
 
 it('strips only the legacy settings keys from site.sites, leaving unrelated keys and conforming sites untouched', function () {
-    $legacySite = ualsSeedSiteWithSettings(['smart_actions' => ['a'], 'manual_actions' => ['b'], 'unrelated_key' => 'keep-me']);
+    // #TEST-6: all THREE legacy keys, not two. manual_order_pools is in the
+    // command's jsonb_exists_any selector AND its strip list (:144, :165), so
+    // leaving it unseeded left a third of the scrub unproven.
+    $legacySite = ualsSeedSiteWithSettings(['smart_actions' => ['a'], 'manual_actions' => ['b'], 'manual_order_pools' => ['c'], 'unrelated_key' => 'keep-me']);
     $conformingSite = ualsSeedSiteWithSettings(['actions' => ['x'], 'pool_order' => ['y']]);
 
     $this->artisan('partna:scrub-unified-actions-legacy', ['--only' => 'site-settings'])
@@ -130,10 +133,13 @@ it('strips only the legacy settings keys from site.sites, leaving unrelated keys
     $legacySettings = json_decode(DB::connection('pgsql')->table('site.sites')->where('id', $legacySite)->value('settings'), true);
     $conformingSettings = json_decode(DB::connection('pgsql')->table('site.sites')->where('id', $conformingSite)->value('settings'), true);
 
-    expect($legacySettings)->not->toHaveKey('smart_actions')
-        ->and($legacySettings)->not->toHaveKey('manual_actions')
-        ->and($legacySettings)->toHaveKey('unrelated_key', 'keep-me')
-        ->and($conformingSettings)->toBe(['actions' => ['x'], 'pool_order' => ['y']]);
+    // Separate expect() per key: a chained expect() aborts at the first
+    // failure, so one run would only ever prove one of these.
+    expect($legacySettings)->not->toHaveKey('smart_actions');
+    expect($legacySettings)->not->toHaveKey('manual_actions');
+    expect($legacySettings)->not->toHaveKey('manual_order_pools');
+    expect($legacySettings)->toHaveKey('unrelated_key', 'keep-me');
+    expect($conformingSettings)->toBe(['actions' => ['x'], 'pool_order' => ['y']]);
 });
 
 it('does not change site.sites.updated_at when scrubbing settings — a deliberate choice, not an oversight', function () {

@@ -562,7 +562,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 5 of 16 complete
+- P2 Medium: 6 of 16 complete
 - P3 Low: 0 of 8 complete
 
 ---
@@ -878,7 +878,16 @@
         }
         ```
 
-- [ ] **SEM-11** · P2 — `IntegrationConnectionObserver::updated()` reads `getOriginal()` after it has already been synced to the new value, so mirrored-media cleanup never fires
+- [x] **SEM-11** · P2 — `IntegrationConnectionObserver::updated()` reads `getOriginal()` after it has already been synced to the new value, so mirrored-media cleanup never fires
+    - **WONTFIX — premise refuted; the cleanup DOES fire on every reachable path.** Two independent reasons, both verified against source 2026-08-25:
+        1. `DatabaseTransactionsManager::addCallback()` (`vendor/laravel/framework/.../DatabaseTransactionsManager.php:205-212`) invokes the callback INLINE when no transaction is open, which is *before* `finishSave()` calls `syncOriginal()` — so `getOriginal('payload')` is still the pre-update value. Doubly safe: `Model::performUpdate()` fires `updated` (`Model.php:1320`) while `syncOriginal()` happens later in `finishSave()` (`:1279-1286`), so the ordering holds even ignoring `$afterCommit`.
+        2. No transactional writer changes an Instagram `_folder` at all. The ONLY writer of that key is `InstagramConnectionSeeder:186`, and it commits under a **Redis lock, not a DB transaction** (`:284-295`). Every transactional `IntegrationConnection` writer was traced — `SourceReconciler::applyIntent()`, `SuggestionApplier`, `ConnectionsController`, `ClaimSiteService`, `PruneExpiredPreAccountBuilds` — and none writes `payload` on an UPDATE (they insert, or touch `is_primary` only, or use `updateQuietly()` which fires no events).
+        `tests/Feature/Platforms/InstagramR2CleanupTest.php:87` already asserts the dispatch on a folder change and passes. The observer's own docblock reasons this out correctly and is accurate as written.
+        **Pinned anyway** so a future sweep cannot re-file it: two tests added to `InstagramR2CleanupTest`. T1 drives the real write shape (`update()` inside `Cache::lock()->block()`, mirroring `InstagramConnectionSeeder:284-295`) and asserts the cleanup dispatches for the OLD folder; T2 asserts the fail-safe direction — a transactional folder change never deletes the NEW folder. Both use multi-argument closure matchers, since a single-argument `assertNotPushed` is a documented vacuous shape in this repo.
+        **Two corrections found while proving these, recorded so they are not rediscovered:**
+        (a) Transaction LEVEL does not discriminate. Under an explicit `DB::transaction()` wrap the deferred `$afterCommit` callback observes level **0 again**, because it runs post-commit — not level 1 as first assumed. The actual protection is that `getOriginal()` has already been synced to the new value by then. So T1's regression signal is the Queue assertion (`The expected DeleteMirroredMediaJob was not pushed.`), not the level assertion.
+        (b) `Model::observe($instance)` does NOT retain the instance — `HasEvents::registerObserver()` collapses it to `"ClassName@event"` and Laravel re-resolves a FRESH instance from the container on every fire, so an instance property is silently discarded. A spy capturing state across fires must use a `static` property.
+        The originally-suggested T2 mutation (`dispatch($old)` -> `dispatch($new)`) turned out to be a NO-OP — inside a transaction `$old === $new` by the time the callback runs, so the `$old !== $new` guard never opens either way. The mutation that genuinely threatens T2 is dropping that equality guard entirely, which yields `The unexpected DeleteMirroredMediaJob was pushed.`
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:39-53, 462-495
     - **Affects:** Every Instagram connection whose mirrored R2 folder changes (a re-selection, a re-scrape that lands a new folder) — the old folder is never queued for deletion, so orphaned R2 storage accumulates indefinitely, not just inside `SourceReconciler`'s transaction as the file's own comment assumes.
     - **Effort:** M (~2–4h)

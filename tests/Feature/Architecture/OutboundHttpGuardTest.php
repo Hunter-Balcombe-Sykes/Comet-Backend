@@ -43,6 +43,30 @@
 use Tests\Support\Architecture\OutboundHttpScanner;
 
 /**
+ * Writes $source into a throwaway app/ dir under the system temp dir and hands
+ * that dir straight to the scanner under test — the fixture can only reach
+ * alternativeTransports() by being scanned, so a reader moved elsewhere has
+ * nothing to silently orphan. Always cleaned up, even on assertion failure.
+ *
+ * @return list<string>
+ */
+function outboundHttpScanFixture(string $source): array
+{
+    $root = sys_get_temp_dir().'/outbound-http-guard-fixture-'.bin2hex(random_bytes(8));
+    $appDir = $root.'/app';
+    mkdir($appDir, 0755, true);
+    file_put_contents($appDir.'/Fixture.php', $source);
+
+    try {
+        return OutboundHttpScanner::alternativeTransports($appDir);
+    } finally {
+        unlink($appDir.'/Fixture.php');
+        rmdir($appDir);
+        rmdir($root);
+    }
+}
+
+/**
  * Pattern A — ConstantEndpoint      host is a class const or config() value
  * Pattern B — SafeUrlFetcher        user-supplied URL routed through the sanitizer
  * Pattern C — HostAllowlist         untrusted URL, explicit host allowlist, no redirects
@@ -185,4 +209,105 @@ it('ignores Http:: mentions that appear only in comments', function () {
     ] as $commentOnly) {
         expect($sites)->not->toHaveKey($commentOnly, "{$commentOnly} mentions Http:: only in a comment and must not be treated as a call site");
     }
+});
+
+// Positive/negative control for Rule 1 (#TEST-4): the `[]` assertion above
+// proves app/ is currently clean, not that alternativeTransports() can detect
+// a violation at all. Each case below feeds the scanner a fixture directory
+// directly, so the fixture cannot be silently orphaned by a moved reader.
+
+it('flags curl_* calls as an alternative transport (Rule 1 positive control)', function () {
+    $violations = outboundHttpScanFixture(<<<'PHP'
+        <?php
+
+        namespace Fixtures;
+
+        class CurlFixture
+        {
+            public function fetch(): void
+            {
+                curl_init('http://example.com');
+            }
+        }
+        PHP);
+
+    expect($violations)->toHaveCount(1);
+    expect($violations[0])->toContain('curl_init()');
+});
+
+it('flags a directly-instantiated Guzzle client as an alternative transport (Rule 1 positive control)', function () {
+    $violations = outboundHttpScanFixture(<<<'PHP'
+        <?php
+
+        namespace Fixtures;
+
+        class GuzzleFixture
+        {
+            public function fetch(): void
+            {
+                $client = new \GuzzleHttp\Client();
+                $client->get('http://example.com');
+            }
+        }
+        PHP);
+
+    expect($violations)->toHaveCount(1);
+    expect($violations[0])->toContain('GuzzleHttp');
+});
+
+it('flags file_get_contents() on a literal http(s) URL as an alternative transport (Rule 1 positive control)', function () {
+    $violations = outboundHttpScanFixture(<<<'PHP'
+        <?php
+
+        namespace Fixtures;
+
+        class StreamWrapperFixture
+        {
+            public function fetch(): void
+            {
+                file_get_contents('http://example.com/logo.png');
+            }
+        }
+        PHP);
+
+    expect($violations)->toHaveCount(1);
+    expect($violations[0])->toContain('file_get_contents() on an http(s) URL');
+});
+
+it('does not flag file_get_contents() on a local path (Rule 1 negative control)', function () {
+    $violations = outboundHttpScanFixture(<<<'PHP'
+        <?php
+
+        namespace Fixtures;
+
+        class LocalStreamWrapperFixture
+        {
+            public function read(): string|false
+            {
+                return file_get_contents(__DIR__.'/fixture.txt');
+            }
+        }
+        PHP);
+
+    expect($violations)->toBe([]);
+});
+
+it('does not flag the Http facade as an alternative transport (Rule 1 negative control)', function () {
+    $violations = outboundHttpScanFixture(<<<'PHP'
+        <?php
+
+        namespace Fixtures;
+
+        use Illuminate\Support\Facades\Http;
+
+        class HttpFacadeFixture
+        {
+            public function fetch(): void
+            {
+                Http::get('http://example.com');
+            }
+        }
+        PHP);
+
+    expect($violations)->toBe([]);
 });

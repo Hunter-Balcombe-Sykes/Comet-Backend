@@ -8,6 +8,8 @@ use App\Observers\Core\IntegrationConnectionObserver;
 use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -43,6 +45,35 @@ function makeIgConnection(User $user, array $payload): IntegrationConnection
         'is_active' => true,
         'last_refresh_status' => 'ok',
     ]);
+}
+
+/**
+ * SEM-11 pin support. A plain Closure passed to IntegrationConnection::updated()
+ * is NOT afterCommit-aware — it always fires inline regardless of transaction
+ * depth, so it can't stand in for the real observer's deferral behaviour.
+ * $afterCommit = true on a class-based listener is what makes Laravel defer it
+ * via DatabaseTransactionsManager::addCallback() the same way
+ * IntegrationConnectionObserver::updated() is deferred.
+ *
+ * Model::observe() only ever keeps the class NAME — HasEvents::registerObserver()
+ * converts any instance to "ClassName@event" — and the dispatcher re-resolves a
+ * fresh instance from the container on every single fire (Dispatcher::
+ * createClassCallable(), `$listener = $this->container->make($class);`). An
+ * instance property set on the object we `new`'d up would just be thrown away,
+ * so the captured level has to live on a static property instead.
+ */
+class InstagramFolderTransactionLevelSpy
+{
+    public bool $afterCommit = true;
+
+    public static ?int $capturedLevel = null;
+
+    public function updated(IntegrationConnection $connection): void
+    {
+        if ($connection->platform === 'instagram') {
+            self::$capturedLevel = DB::transactionLevel();
+        }
+    }
 }
 
 // ── disconnect (soft-delete) cleanup ─────────────────────────────────────────
@@ -109,6 +140,42 @@ it('does not dispatch cleanup on the pending→ready transition (null → folder
     $conn->update(['payload' => ['username' => 'x', '_folder' => 'platforms/instagram/NEW']]);
 
     Queue::assertNotPushed(DeleteMirroredMediaJob::class);
+});
+
+// ── SEM-11 (refuted) — pin the precondition the refutation rests on ─────────
+
+it('writes the mirrored-media folder outside any DB transaction — the getOriginal() precondition', function () {
+    Queue::fake();
+    InstagramFolderTransactionLevelSpy::$capturedLevel = null;
+    IntegrationConnection::observe(InstagramFolderTransactionLevelSpy::class);
+    $conn = makeIgConnection(r2CleanupUser('r2txlevel1'), ['username' => 'x', '_folder' => 'platforms/instagram/AAA']);
+
+    // Mirrors the real write shape (InstagramConnectionSeeder:284-295): a
+    // Cache::lock()-guarded update(), never a DB::transaction(). At level 0,
+    // the afterCommit listener runs inline, before finishSave() calls
+    // syncOriginal() — that ordering is what keeps getOriginal() holding the
+    // pre-update payload for the observer's old/new diff.
+    Cache::lock('r2-cleanup-test-lock-'.$conn->id, 10)->block(5, function () use ($conn) {
+        $conn->update(['payload' => ['username' => 'x', '_folder' => 'platforms/instagram/BBB']]);
+    });
+
+    expect(InstagramFolderTransactionLevelSpy::$capturedLevel)->toBe(0);
+    Queue::assertPushed(DeleteMirroredMediaJob::class, fn ($job) => $job->folder === 'platforms/instagram/AAA');
+});
+
+it('never deletes the NEW folder when the folder change lands inside a transaction', function () {
+    Queue::fake();
+    $conn = makeIgConnection(r2CleanupUser('r2txlevel2'), ['username' => 'x', '_folder' => 'platforms/instagram/AAA']);
+
+    // If a future writer ever moved the _folder change inside a DB::transaction,
+    // the afterCommit callback would defer past syncOriginal(), so
+    // getOriginal('payload') would already read as the NEW value and old===new
+    // — the diff fails safe (skips cleanup) rather than deleting the live folder.
+    DB::transaction(function () use ($conn) {
+        $conn->update(['payload' => ['username' => 'x', '_folder' => 'platforms/instagram/BBB']]);
+    });
+
+    Queue::assertNotPushed(DeleteMirroredMediaJob::class, fn ($job) => $job->folder === 'platforms/instagram/BBB');
 });
 
 // ── _folder is persisted by the async connect job ───────────────────────────

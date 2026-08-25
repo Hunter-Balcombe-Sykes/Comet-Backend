@@ -738,7 +738,7 @@ None.
 ## Progress
 
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 19 complete
+- P2 Medium: 3 of 19 complete
 - P3 Low: 0 of 5 complete
 
 ---
@@ -806,7 +806,10 @@ None.
             ->toThrow(HttpException::class);
         ```
 
-- [ ] **#TEST-4** · P2 — `OutboundHttpScanner::alternativeTransports()` (Rule 1, the curl/Guzzle/`file_get_contents` ban) has no positive control proving it can detect a violation
+- [x] **#TEST-4** · P2 — `OutboundHttpScanner::alternativeTransports()` (Rule 1, the curl/Guzzle/`file_get_contents` ban) has no positive control proving it can detect a violation
+    - **FIXED — Rule 1 now has a positive control.** `alternativeTransports()` previously had only the `expect($violations)->toBe([])` assertion over `app/`, which passes identically whether the scanner works or does nothing. Added three positives (one per banned transport: `curl_*`, `new GuzzleHttp\Client`, `file_get_contents()` on a literal http(s) URL) and two negatives (the `Http` facade is not flagged; `file_get_contents()` on a LOCAL path is not flagged — pinning `firstArgumentIsRemoteUrl()`'s literal-argument nuance).
+        **Orphan-proof by construction:** the helper writes fixture source to `{sys_get_temp_dir()}/…/app/Fixture.php` and calls `OutboundHttpScanner::alternativeTransports($appDir)` on that path — the same argument-based entry point production uses. There is no registration list or shared fixture directory that a moved reader could drift away from, so a fixture the scanner stops reading is impossible rather than silently green. Assertions are on the scanner's returned findings, not a side effect. Temp dirs are removed in a `finally`, so cleanup survives an assertion failure.
+        **Mutation proof:** `alternativeTransports()` neutered to `return [];` — all THREE positive controls went red independently (`Failed asserting that actual size 0 matches expected size 1.` at `:234`, `:254`, `:273`), while both negatives and all four pre-existing tests stayed green, confirming the mutation killed only the positives. Scanner restored via `cp`; `git diff` on it is empty. Each assertion is its own statement, so a failure in one case cannot hide the others.
     - **Where:** tests/Feature/Architecture/OutboundHttpGuardTest.php:96-105
     - **Affects:** CI's SSRF-adjacent guard that every outbound HTTP call in `app/` goes through the Laravel `Http` facade only.
     - **Effort:** S (~0.5–1h)
@@ -843,7 +846,11 @@ None.
           and ranked.rn > 1;
         ```
 
-- [ ] **#TEST-6** · P2 — `unified_actions` migration's legacy-row DELETE/UPDATE statements aren't covered by the file's own referenced lockstep test
+- [x] **#TEST-6** · P2 — `unified_actions` migration's legacy-row DELETE/UPDATE statements aren't covered by the file's own referenced lockstep test
+    - **CLOSED 2026-08-25 — the dependency this was parked on is resolved.** The run file directed leaving this open because `#MIG-1` was "still open"; that premise is refuted — `#MIG-1` is ticked (`:65`) and its fix landed in `3d6b6b33b`, which extracted the scrubs into `App\Console\Commands\ScrubUnifiedActionsLegacyCommand` and shipped `tests/Postgres/UnifiedActionsLegacyScrubTest.php` covering exactly what this finding asks: legacy-vs-new `action_events` rows (`:101`) and `site.sites.settings` legacy keys (`:123`), asserting only the legacy rows/keys are removed.
+        **Residual found and closed here:** the command strips THREE keys (`smart_actions`, `manual_actions`, `manual_order_pools` — `ScrubUnifiedActionsLegacyCommand.php:144,165`) but the test seeded and asserted only two, leaving a third of the scrub unproven. `manual_order_pools` is now seeded and asserted, and the four key assertions were split out of a chained `expect()` (which aborts at the first failure, so one run only ever proved one of them).
+        **Mutation proof:** dropping `manual_order_pools` from BOTH the selector and the strip list turns exactly one test red — `Expecting […] not to have key 'manual_order_pools'.` at `UnifiedActionsLegacyScrubTest.php:140` — with the other seven green. Noted while proving it: dropping it from the strip list ALONE makes the command loop forever, because the `jsonb_exists_any` selector still matches the row it can no longer clean. Selector and strip list must stay in sync.
+        **Lane caveat:** this test lives in `tests/Postgres/` and runs under `composer test:pg`, NOT the default `composer test`. It was executed locally against a disposable scratch database on the local Supabase container (`PG_LANE_DISPOSABLE=1`) — 8 passed, 36 assertions.
     - **Where:** supabase/migrations/20260823100000_unified_actions.sql
     - **Affects:** `analytics.action_events` rows and `site.sites.settings` keys; a bad regex or JSONB predicate here removes valid rows/keys instead of legacy ones.
     - **Effort:** M (~2–4h)
@@ -1078,7 +1085,11 @@ None.
         }
         ```
 
-- [ ] **#TEST-18** · P2 — `ShopInitialFillJob`'s independent try/catch continuation and idempotency are untested
+- [x] **#TEST-18** · P2 — `ShopInitialFillJob`'s independent try/catch continuation and idempotency are untested
+    - **CLOSED.** Failure isolation was already covered by `76f4568a5` (`ShopInitialFillJobTest.php:45` reports+logs both failures independently; `:84` a fill failure does not throw and auto-select still runs). The missing third ask — **idempotency** — is added here: `it('running handle() twice leaves an identical content.*/pin end-state (idempotent)')`.
+        Deliberately NOT mock-based, unlike the file's other three tests: `handle()` carries no state of its own, so idempotency is inherited entirely from `ShopCatalog::syncLatest` and `ShopAutoSelector::selectInitial`. A mock call-count would prove nothing about duplicate writes. It builds a real store, fakes only the network boundary (`ShopifyScraper::fetchProducts`), runs `handle()` twice against real `content.*`/`site.*` rows and diffs the persisted end-state: `content.collection_items` (item_id -> position), the `content.items` `kind='product'` count, `site.section_items` pinned ids in `sort_key` order, and `content.storefronts.products_autoselected_at`. A `travel(1)->hour()` between runs is required — without it two `now()` calls land in the same DB-precision tick and a broken compare-and-set stays invisible.
+        **Mutation proof, and what it exposed:** the first mutation — dropping only the inner transaction's `whereNull('products_autoselected_at')` claim guard — did NOT go red, because an outer sequential gate (`ShopAutoSelector.php:49-52`) already short-circuits the second call. Stripping the column from BOTH the outer gate and the inner compare-and-set gives the red: `Failed asserting that two strings are identical. -'2026-08-25 04:41:05' +'2026-08-25 05:41:05'` — the second run re-stamped instead of no-oping.
+        **Surfaced, not worked:** this job's sequential idempotency is backed by TWO redundant guards in `ShopAutoSelector` — removing either alone still passes. The inner compare-and-set's real job is race-safety between CONCURRENT callers, which a sequential test cannot distinguish from a no-op. Worth a note for whoever owns `ShopAutoSelector`; out of scope for a test-only unit.
     - **Where:** app/Jobs/Platforms/ShopInitialFillJob.php (`handle()`)
     - **Affects:** Newly connected or scan-suggested shop stores; the one-shot catalogue fill and first-connect auto-select can be silently skipped or double-run.
     - **Effort:** M (~2–4h)
