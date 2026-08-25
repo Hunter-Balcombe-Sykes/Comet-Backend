@@ -10,7 +10,6 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
-use App\Routing\RoutingCapabilityGate;
 use App\Routing\SuggestionApplier;
 use App\Routing\SyncFindingsBridge;
 use App\Services\Cache\CacheKeyGenerator;
@@ -18,7 +17,6 @@ use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\OpenTableService;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
-use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -372,10 +370,12 @@ class SuggestionsController extends ApiController
             return $this->error('That suggestion is no longer available.', 404);
         }
 
-        $denied = RoutingCapabilityGate::denialFor($user, 'reservations');
-        if ($denied !== null) {
-            throw new AuthorizationException($denied);
-        }
+        // #SEC-9: through the Policy, not a hand-rolled throw — see
+        // IntegrationConnectionPolicy::createForRoutingClass().
+        $this->authorizeForUser($user, 'createForRoutingClass', [
+            new IntegrationConnection(['user_id' => $user->id]),
+            'reservations',
+        ]);
 
         $connection = app(SuggestionApplier::class)->applyDirect(
             $user,

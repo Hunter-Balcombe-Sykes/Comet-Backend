@@ -82,7 +82,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 9 of 15 complete
+- P2 Medium: 10 of 15 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -318,7 +318,30 @@
         } elseif (preg_match('~[a-z][a-z0-9+.-]*://\S+~i', $s, $m)) {
         ```
 
-- [ ] **#SEC-9** · P2 — `SuggestionsController::acceptGoogleListing` gates on an inline `AuthorizationException` instead of a Policy
+- [x] **#SEC-9** · P2 — `SuggestionsController::acceptGoogleListing` gates on an inline `AuthorizationException` instead of a Policy
+    - **FIXED 2026-08-26 (PART 2 unit 14b). Doctrine drift, NOT a live hole** — the inline throw failed CLOSED;
+      what it cost was invisibility to `PolicyCoverageTest`/`InlineAuthBypassGuardTest`-style sweeps.
+    - `acceptGoogleListing` now calls `authorizeForUser($user, 'createForRoutingClass', [new IntegrationConnection([...]),
+      'reservations'])` against a NEW narrow ability on `IntegrationConnectionPolicy` that delegates to the shared
+      `RoutingCapabilityGate::denialFor()` (a call site of the shared gate, not a copy of it).
+    - **A new ability was added despite the "reuse what fits" rule, and both rejections were verified by the
+      reviewer:** `create()` is called generically with NO capability check from `ShopController:1090` and
+      `ManagesIntegrationConnection:216,321`, so gating it would silently change behaviour for every other caller;
+      `connect()` is pinned by `tests/Unit/Platforms/Registry/PlatformDescriptorTest.php:41-47` to "EXACTLY ONE
+      production site", so a second call site would violate a documented invariant. A narrow new ability was the
+      only option that broke neither.
+    - **The array-arg forwarding was verified in framework source, not assumed** — `Gate::authorize` → `raw()` →
+      `resolveAuthCallback` → `callPolicyMethod` does `$policy->{$method}($user, ...$arguments)`, so
+      `[$skeleton, 'reservations']` reaches the three-arg signature exactly. A silent mis-wire here would have
+      made the gate never deny.
+    - Status/message parity confirmed: identical 403 + body to the old bare throw. Noted for accuracy —
+      `Response::deny($msg, 403)`'s second arg is `$code`, not `$status`, so it renders via the
+      `AccessDeniedHttpException` branch; the 403 is right but not for the reason the code reads like. That is
+      pre-existing convention in this same file, not introduced here.
+    - Mutation-proved (stripping the capability check → RED). ⚠️ Reviewer's observation worth keeping: making the
+      policy return `true` unconditionally is caught ONLY by this unit's own new test — neither
+      `PolicyCoverageTest` nor `InlineAuthBypassGuardTest` notices, since neither is designed to catch a
+      per-ability logic bypass. Review: **PASS**.
     - **Where:** app/Http/Controllers/Api/Routing/SuggestionsController.php:369-372
     - **Affects:** Reservation-connection creation via the "use this OpenTable link" suggestion; falls outside `PolicyCoverageTest`'s structural sweep.
     - **Effort:** S (~0.5–1h)

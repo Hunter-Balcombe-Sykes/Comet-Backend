@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\Core\User\User;
+use App\Routing\RoutingCapabilityGate;
 use App\Services\Platforms\Registry\PlatformDescriptor;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Database\Eloquent\Model;
@@ -55,6 +56,23 @@ class IntegrationConnectionPolicy extends BasePolicy
 
         if (! $descriptor->availableFor($actor)) {
             return Response::deny('This platform is not available for your account.', 403);
+        }
+
+        return $this->ownerMatches($actor, $skeleton);
+    }
+
+    // #SEC-9: capability gate for creating a connection outside the generic
+    // connect flow — the standing suggestions inbox (SuggestionsController::
+    // acceptGoogleListing accepts the Google-listed OpenTable link without an
+    // IntentId, so it can't go through connect()'s descriptor-driven check).
+    // Delegates to RoutingCapabilityGate so this becomes its call site, not a
+    // fourth copy of the booking/reservations/ordering match-arms (#DRIFT-1).
+    // NOT `connect()`: PlatformDescriptor::availableFor() is pinned (test +
+    // docblock) to exactly one production call site, GenericPlatformController.
+    public function createForRoutingClass(User $actor, Model $skeleton, string $routingClass): bool|Response
+    {
+        if (($denial = RoutingCapabilityGate::denialFor($actor, $routingClass)) !== null) {
+            return Response::deny($denial, 403);
         }
 
         return $this->ownerMatches($actor, $skeleton);
