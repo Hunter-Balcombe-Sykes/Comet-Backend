@@ -2,6 +2,7 @@
 
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 // Relationship assertions require a booted Laravel app (DB resolver).
@@ -94,4 +95,24 @@ it('returns null rather than a constant digest when there is no IP', function ()
     expect(PreAccountBuild::hashIp(null))->toBeNull()
         ->and(PreAccountBuild::hashIp(''))->toBeNull()
         ->and(PreAccountBuild::hashIp('   '))->toBeNull();
+});
+
+it('casts claim_token_issued_at to a date', function () {
+    $build = new PreAccountBuild;
+    $build->forceFill(['claim_token_issued_at' => '2026-08-25 04:24:13']);
+
+    expect($build->claim_token_issued_at)->toBeInstanceOf(Carbon::class);
+});
+
+// Regression guard, not a red-then-green test: $fillable already drops unknown
+// keys, so this passes before the change too. It exists to fail loudly if
+// someone later adds these columns to $fillable.
+it('does not mass-assign the claim token columns', function () {
+    $build = new PreAccountBuild([
+        'claim_token_hash' => 'attacker-supplied',
+        'claim_idempotency_key' => 'attacker-supplied',
+    ]);
+
+    expect($build->claim_token_hash)->toBeNull()
+        ->and($build->claim_idempotency_key)->toBeNull();
 });

@@ -1352,6 +1352,8 @@ return [
         'public_site_per_minute' => (int) env('PARTNA_THROTTLE_PUBLIC_SITE_PER_MINUTE', 60),
         'pre_account_build_per_minute' => (int) env('PARTNA_THROTTLE_PRE_ACCOUNT_BUILD_PER_MINUTE', 3),
         'pre_account_build_per_hour' => (int) env('PARTNA_THROTTLE_PRE_ACCOUNT_BUILD_PER_HOUR', 10),
+        'manychat_build_per_minute' => (int) env('PARTNA_THROTTLE_MANYCHAT_BUILD_PER_MINUTE', 10),
+        'manychat_build_per_hour' => (int) env('PARTNA_THROTTLE_MANYCHAT_BUILD_PER_HOUR', 120),
         'claim_per_minute' => (int) env('PARTNA_THROTTLE_CLAIM_PER_MINUTE', 5),
 
         // R3-SCALE-2: provider-throughput cap for SendStaffBroadcastEmailToSubscriberJob,

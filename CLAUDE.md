@@ -166,6 +166,7 @@ Hard rules:
 - Provisional users have NO email: `User::routeNotificationForMail()` is nullable — new notification paths must tolerate null.
 - `pre_account_builds.user_id`/`built_by_staff_id` never fillable — `associate()` only.
 - Endpoints: `docs/api.md` §3. Spec: `docs/superpowers/specs/2026-07-18-pre-account-sites-design.md`.
+- **ManyChat builds arrive at `POST /api/internal/webhooks/manychat/builds`, NOT `/api/staff/builds`** — the staff group carries `require.aal2` and no robot can satisfy it. A `claim_token` (SHA-256 stored, plaintext returned once) proves invitation in place of `contact_email`, which is what lets a DM'd lead claim with no email in the flow. ⚠️ **A token is minted ONLY for a NEW build, or a retry carrying the same `idempotency_key`** — minting on any other deduped call would let a leaked webhook secret take over any build whose `source_ref` is guessable. The token is **narrow**: it satisfies the invite-gate only and does NOT override `CLAIM_EMAIL_MISMATCH`. Single-use means **used, not opened** — the hash clears on a successful claim only, folded into the `claimed_at` write. ⚠️ `built_via = VIA_STAFF` now also originates from this webhook, so `isOutreach()`'s "only from a staff-authenticated write" premise is dead (it fails safe). Spec: `docs/superpowers/specs/2026-08-25-manychat-claim-link-design.md`.
 
 ## Commands
 

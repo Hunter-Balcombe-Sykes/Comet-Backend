@@ -54,6 +54,20 @@ return [
         'anon_key' => env('SUPABASE_ANON_KEY'),
     ],
 
+    // ManyChat marketing automation → POST /api/internal/webhooks/manychat/builds.
+    //
+    // A STATIC shared secret, not an HMAC signature (spec §5.1): ManyChat's
+    // External Request action can set headers but cannot sign a request body,
+    // so the Standard Webhooks scheme used for Supabase/Resend is unavailable.
+    // Weaker by construction — the control that bounds it is that a claim token
+    // is only ever minted for a NEW build, or a retry carrying the same
+    // idempotency_key (spec §5.4).
+    //
+    // Rotate by changing this env var and the ManyChat flow's header together.
+    'manychat' => [
+        'webhook_secret' => env('MANYCHAT_WEBHOOK_SECRET'),
+    ],
+
     'ses' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),

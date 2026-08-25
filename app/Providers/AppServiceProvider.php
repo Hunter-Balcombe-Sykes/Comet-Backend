@@ -645,6 +645,36 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        // ManyChat build webhook. Each call can trigger an Apify-billed scrape,
+        // so this is a spend guard as much as an abuse guard.
+        //
+        // TWO buckets on purpose, and BOTH are always evaluated — Laravel's
+        // ThrottleRequests checks every limit in the returned array, not just
+        // the first to trip. The shared 'manychat:h' key is a global spend
+        // ceiling, not DoS protection: many distinct IPs each staying under
+        // the per-minute cap can still drain it. What the per-IP bucket
+        // narrows is a SINGLE abusive caller — which matters because throttle
+        // middleware runs BEFORE the secret check, so without it a constant
+        // key would let any stranger who knows the URL hammer the endpoint
+        // from one IP at no extra cost to them.
+        RateLimiter::for('manychat-build', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return [Limit::none()];
+            }
+
+            $ip = $request->header('CF-Connecting-IP') ?: $request->ip();
+
+            return [
+                Limit::perMinute((int) config('partna.throttle.manychat_build_per_minute', 10))
+                    ->by('manychat:ip:'.$ip)
+                    ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
+
+                Limit::perHour((int) config('partna.throttle.manychat_build_per_hour', 120))
+                    ->by('manychat:h')
+                    ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
+            ];
+        });
+
         // Public early-access signups (OV-A). Same posture as the retired waitlist limiter,
         // plus a per-IP daily cap (SEC-1): 5/min + 20/day per IP (CF-Connecting-IP
         // preferred) + 12/h per email. A bot-token bootstrap isn't available here — the

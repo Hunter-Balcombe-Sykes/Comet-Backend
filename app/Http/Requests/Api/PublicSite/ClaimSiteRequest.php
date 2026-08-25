@@ -27,6 +27,11 @@ class ClaimSiteRequest extends BaseFormRequest
         return [
             'subdomain' => ['required', 'string', 'max:63'],
             'marketing_opt_in' => ['boolean'],
+            // The frontend reads ?t= off the claim page URL and forwards it in
+            // the BODY, so the token never reaches OUR access logs or Referer.
+            // (It is still in the frontend's URL — the contract requires the
+            // claim page to strip it with history.replaceState. Spec §6.3.)
+            'claim_token' => ['nullable', 'string', 'max:128'],
         ];
     }
 }

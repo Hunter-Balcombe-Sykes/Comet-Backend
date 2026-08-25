@@ -586,6 +586,10 @@ function setupPreAccountBuildsTable(): void
         'auto_invite INTEGER NOT NULL DEFAULT 1',
         // Mirrors migration 20260811090000 (thin-scrape marker).
         'thin_scrape_at TEXT NULL',
+        // Mirrors migration 20260825170000 (ManyChat claim links).
+        'claim_token_hash TEXT NULL',
+        'claim_token_issued_at TEXT NULL',
+        'claim_idempotency_key TEXT NULL',
     ] as $col) {
         try {
             DB::connection('pgsql')->statement('ALTER TABLE core.pre_account_builds ADD COLUMN '.$col);

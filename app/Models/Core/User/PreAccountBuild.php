@@ -26,6 +26,9 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $expires_at Drives builds:prune-expired; irrelevant once claimed. NULL = never-expire (early-access builds, until staff approval).
  * @property string|null $contact_email Notify address + email-gate value; NULL = first-come claim.
  * @property Carbon|null $invited_at When the claim invite was sent (ClaimNotifier stamps it after queueing the mail). NULL = not yet invited — the idempotency guard.
+ * @property string|null $claim_token_hash SHA-256 of the claim token (spec §4). Plaintext NEVER stored. NULL = no live token. Not fillable — minted via ClaimTokenIssuer.
+ * @property Carbon|null $claim_token_issued_at When the current token was minted. Not fillable.
+ * @property string|null $claim_idempotency_key Caller key from the ManyChat webhook; a retry matching it re-mints (spec §5.4). Not fillable.
  * @property bool $auto_invite false = publish the site but DEFER the claim invite for manual review + POST /builds/{build}/invite. Default true = auto-send on publish (unchanged).
  * @property Carbon|null $claimed_at NULL while the build is live (scopeLive); set once the visitor claims the site.
  * @property Carbon $created_at
@@ -84,6 +87,7 @@ class PreAccountBuild extends BaseModel
         'claimed_at' => 'datetime',
         'invited_at' => 'datetime',
         'thin_scrape_at' => 'datetime',
+        'claim_token_issued_at' => 'datetime',
         'auto_invite' => 'boolean',
     ];
 
@@ -125,6 +129,13 @@ class PreAccountBuild extends BaseModel
      * same `$staff ? VIA_STAFF : VIA_SIGNUP` expression at creation time, so
      * `built_via` is exactly as trustworthy and survives the staff row going
      * away.
+     *
+     * UPDATE 2026-08-25: VIA_STAFF now ALSO originates from the ManyChat
+     * webhook (a static shared secret, not staff auth) — see
+     * ManyChatBuildController. The classification still fails SAFE (more
+     * outreach, never less), so #SEM-2's conclusion holds, but its premise
+     * "can only originate from an actual staff-authenticated write" no longer
+     * does. Do not reason from that sentence.
      */
     public function isOutreach(): bool
     {

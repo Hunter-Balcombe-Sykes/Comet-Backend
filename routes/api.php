@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\Internal\CspReportController;
 use App\Http\Controllers\Api\Internal\EnvCheckController;
+use App\Http\Controllers\Api\Internal\ManyChatBuildController;
 use App\Http\Controllers\Api\Internal\SupabaseEmailHookController;
 use App\Http\Controllers\Api\PublicSite\AnalyticsController;
 use App\Http\Controllers\Api\PublicSite\BootstrapController;
@@ -55,6 +56,13 @@ Route::middleware('throttle:webhooks')->group(function () {
     // endpoint URL + signing secret in the Resend dashboard → Webhooks.
     Route::post('/internal/webhooks/resend', ResendWebhookController::class)
         ->middleware('resend.webhook')->name('webhooks.resend');
+
+    // ManyChat marketing builds. Static-secret gated (ManyChat cannot sign a
+    // body — spec §5.1); throttled again on its own bucket because each call
+    // can trigger an Apify-billed scrape.
+    Route::post('/internal/webhooks/manychat/builds', ManyChatBuildController::class)
+        ->middleware(['manychat.webhook', 'throttle:manychat-build'])
+        ->name('webhooks.manychat.builds');
 });
 
 // bootstrap uses ONLY JWT middleware
