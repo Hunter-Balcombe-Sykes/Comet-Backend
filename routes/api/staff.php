@@ -80,6 +80,12 @@ Route::prefix('staff')
         Route::post('/builds/{build}/invite', [StaffPreAccountBuildController::class, 'invite'])
             ->whereUuid('build');
 
+        // Re-issue a claim token for an EXISTING build — "the lead lost the DM"
+        // and rotation after a suspected leak. Behind staff auth + AAL2
+        // deliberately, not the ManyChat webhook (spec §5.4).
+        Route::post('/builds/{build}/claim-token', [StaffPreAccountBuildController::class, 'reissueClaimToken'])
+            ->whereUuid('build');
+
         // CSV batch marketing builds (spec §6): one requestBuild per row.
         Route::post('/builds/batch', [StaffPreAccountBuildController::class, 'batch']);
 

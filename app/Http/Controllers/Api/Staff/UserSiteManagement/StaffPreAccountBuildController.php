@@ -10,6 +10,7 @@ use App\Http\Resources\PreAccountBuildStatusResource;
 use App\Http\Resources\StaffPreAccountBuildResource;
 use App\Models\Core\User\PreAccountBuild;
 use App\Services\PreAccount\ClaimNotifier;
+use App\Services\PreAccount\ClaimTokenIssuer;
 use App\Services\PreAccount\PreAccountBuildException;
 use App\Services\PreAccount\PreAccountBuildService;
 use Illuminate\Http\JsonResponse;
@@ -18,7 +19,10 @@ use Illuminate\Support\Facades\Log;
 
 class StaffPreAccountBuildController extends ApiController
 {
-    public function __construct(private readonly PreAccountBuildService $builds) {}
+    public function __construct(
+        private readonly PreAccountBuildService $builds,
+        private readonly ClaimTokenIssuer $tokens,
+    ) {}
 
     // POST /api/staff/builds — the ManyChat/marketing surface. Builds publish by
     // default (the site IS the pitch); the public endpoint never publishes pre-claim.
@@ -142,6 +146,42 @@ class StaffPreAccountBuildController extends ApiController
         // Staff variant so the caller can confirm invited_at was stamped —
         // the public resource deliberately hides outreach state (spec §8).
         return $this->success((new StaffPreAccountBuildResource($build))->resolve());
+    }
+
+    // POST /api/staff/builds/{build}/claim-token — mint a fresh claim link.
+    //
+    // For "the lead lost the DM" and for rotation after a suspected leak.
+    // Deliberately NOT on the ManyChat webhook (spec §5.4): re-issuing against
+    // an EXISTING build is exactly the capability a leaked webhook secret must
+    // not confer, so it lives behind staff auth + AAL2 instead.
+    public function reissueClaimToken(PreAccountBuild $build): JsonResponse
+    {
+        $staff = request()->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffCreate', PreAccountBuild::class);
+
+        $build->loadMissing('user.site');
+        $subdomain = $build->user?->site?->subdomain;
+        if ($subdomain === null) {
+            return $this->error('Build has no site.', 409, [], ['code' => 'BUILD_NOT_READY']);
+        }
+
+        if ($build->claimed_at !== null) {
+            return $this->error('This build has already been claimed.', 409, [], ['code' => 'ALREADY_CLAIMED']);
+        }
+
+        $token = $this->tokens->issue($build);
+
+        Log::info('pre_account.claim_token.reissued', [
+            'build_id' => $build->id,
+            'staff_id' => $staff?->id,
+        ]);
+
+        return $this->success([
+            'build_id' => $build->id,
+            'claim_url' => rtrim((string) config('app.frontend_url'), '/')
+                .'/claim/'.$subdomain
+                .'?t='.$token,
+        ]);
     }
 
     // POST /api/staff/builds/batch — CSV loop over requestBuild. Per-row failures
