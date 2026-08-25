@@ -157,7 +157,15 @@
       defect; CLAIM_TOKEN primitive requires a matching frontend change in partna-monorepo,
       out of scope for a backend-only run. Left unticked deliberately; do not auto-archive
       this folder until it is dispositioned.
-    - **Premise changed (2026-08-25) — this finding now OVERSTATES its own risk.** "Dark Until
+    - **⚠️ REVERTED 2026-08-25 — the "premise changed" note below is VOID; this finding is fully live.**
+      `ee1c22784` was reverted on owner decision: an unvetted self-serve build is publicly
+      routable again and `isVisibleWhileUnclaimed()` no longer exists. The "publicly discoverable
+      AND first-come claimable" intersection this attack needs is **non-empty once more** — it is
+      exactly the ordinary self-serve signup case. Severity reverts to the finding text as written.
+      **This must now be closed at the CLAIM step (proof of ownership), not by hiding the site** —
+      hiding it was tried and rejected as defeating the pre-claim demo. Superseded note kept below
+      for the trail:
+    - ~~**Premise changed (2026-08-25) — this finding now OVERSTATES its own risk.**~~ "Dark Until
       Claimed" (`ee1c22784`, on `development`) made an unvetted unclaimed build unroutable:
       `PreAccountBuild::isVisibleWhileUnclaimed()` is true only for a staff-built or
       staff-approved early-access build, so an ordinary self-serve (`built_via='signup'`) build
