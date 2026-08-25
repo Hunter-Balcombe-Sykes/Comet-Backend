@@ -1780,7 +1780,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 3 complete
+- P2 Medium: 2 of 3 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -1810,7 +1810,7 @@ None.
         }
         ```
 
-- [ ] **#CCH-2** · P2 · Category 4 — Deferred Fresha reconnect merges the payload, leaving the previous salon's `teamMenuCache` live under the new URL
+- [x] **#CCH-2** · P2 · Category 4 — Deferred Fresha reconnect merges the payload, leaving the previous salon's `teamMenuCache` live under the new URL
     - **Where:** app/Http/Controllers/Api/Platforms/FreshaController.php:245-252 (write: `connectDeferred()`), app/Http/Controllers/Api/Platforms/FreshaController.php:356-359 (read: `team()`)
     - **Affects:** Fresha users on the deferred-connect flow (`config('partna.connect.deferred')` includes `fresha`) who reconnect to a *different* salon while the previous salon's up-to-24h `teamMenuCache` is still fresh.
     - **Effort:** S (~0.5–1h)

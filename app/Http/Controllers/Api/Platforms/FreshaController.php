@@ -366,6 +366,35 @@ class FreshaController extends ApiController
     // is_array(payload.teamMenu) to discriminate team from storewide mode, so
     // writing that key here would make a completed storewide connection report
     // mode:'team' on its next poll.
+    //
+    // #CCH-2: the cache is keyed on the SALON, not just on freshness. A
+    // reconnect (connectDeferred()) writes a new payload.url but is a MERGE
+    // (ManagesIntegrationConnection::upsertConnection), so it carries the old
+    // teamMenuCache/teamMenuCacheFor forward untouched — deliberately, per
+    // connectDeferred()'s own docblock about not clearing on write (clearing
+    // is exactly what a future write path forgets to do). So freshness alone
+    // is not enough: without a salon check, a reconnect to a DIFFERENT salon
+    // would keep serving the previous salon's roster for up to
+    // team_cache_seconds. teamMenuCacheFor stores the venue slug (there is no
+    // stable venue id in Fresha's __NEXT_DATA__ blob — FreshaScraper only
+    // exposes name/address/lat/lng, no id — so the slug, already this file's
+    // identity primitive for resource_id/canonical_key, is the most stable
+    // thing available). A slug rotation (see fetchLocation()) therefore drops
+    // a warm cache once — a cold-cache refetch is a fair price for a check
+    // that also refuses to serve salon A's staff to salon B.
+    //
+    // The fingerprint is read from $url (the STORED payload.url, read via
+    // SelectionPayload just above) at the top of the method, before any
+    // rotation this call might discover. The write below stamps the
+    // fingerprint from $url as it stands AFTER the rotation block (so if this
+    // call rotates the slug, what's written matches what's now stored) — the
+    // two computations use the same slugFromUrl() derivation, so a normal
+    // (non-reconnect, non-rotating) second call is still a cache HIT: it
+    // reads back the same stored url this call just wrote, and slugs match.
+    //
+    // A cache row with no teamMenuCacheFor (written before this change
+    // shipped) cannot be proven to belong to the current salon, so it is
+    // treated as a MISS, not a HIT.
     public function team(Request $request): JsonResponse
     {
         $user = $this->currentUser($request);
@@ -376,8 +405,15 @@ class FreshaController extends ApiController
             return $this->error('No Fresha URL connected yet. POST one to /connect first.', 404);
         }
 
+        $salonKey = $this->scraper->slugFromUrl($url);
         $cached = is_array($payload['teamMenuCache'] ?? null) ? $payload['teamMenuCache'] : null;
-        if ($cached !== null && ! $request->boolean('refresh') && $this->teamCacheIsFresh($payload)) {
+        $cacheForKey = $payload['teamMenuCacheFor'] ?? null;
+        $cacheIsForThisSalon = $cached !== null
+            && is_string($cacheForKey)
+            && $salonKey !== null
+            && $cacheForKey === $salonKey;
+
+        if ($cacheIsForThisSalon && ! $request->boolean('refresh') && $this->teamCacheIsFresh($payload)) {
             return $this->success(['url' => $url, ...$cached]);
         }
 
@@ -387,8 +423,12 @@ class FreshaController extends ApiController
         } catch (SafeUrlException|ConnectionException|HttpException) {
             // A stale roster beats a dead picker — the owner can still identify
             // themselves, and saveSelection() re-scrapes server-side anyway, so
-            // a departed employee 404s correctly at submit time.
-            if ($cached !== null) {
+            // a departed employee 404s correctly at submit time. But only for
+            // THIS salon: a reconnect to a different salon must not let a
+            // scrape failure fall back to serving the previous salon's roster
+            // with no freshness check at all — that falls through to the 502
+            // below instead.
+            if ($cacheIsForThisSalon) {
                 return $this->success(['url' => $url, ...$cached]);
             }
             abort(502, 'Could not reach Fresha — please try again.');
@@ -442,7 +482,17 @@ class FreshaController extends ApiController
         // freshly-scraped result, matching denyIfPendingDeletion's convention
         // without routing this read through a write-gated ability.
         if ($row !== null && ! $user->isPendingDeletion()) {
-            $row->payload = [...($row->payload ?? []), 'teamMenuCache' => $menu, 'teamMenuCachedAt' => now()->toIso8601String()];
+            // Fingerprint from $url as it stands NOW — after the rotation block
+            // above, so a rotation this call discovered stamps the NEW slug,
+            // matching what payload.url was just rewritten to. That keeps the
+            // next request's top-of-method check (fingerprint derived from the
+            // freshly-read stored url) a HIT instead of an infinite re-scrape.
+            $row->payload = [
+                ...($row->payload ?? []),
+                'teamMenuCache' => $menu,
+                'teamMenuCacheFor' => $this->scraper->slugFromUrl($url),
+                'teamMenuCachedAt' => now()->toIso8601String(),
+            ];
             $row->saveQuietly();
         }
 
