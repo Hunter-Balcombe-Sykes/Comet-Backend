@@ -97,8 +97,25 @@ not.
 separate clock. `builds:prune-expired` already hard-deletes the row, taking the token
 with it.
 
-**Single-use:** cleared (`claim_token_hash = NULL`) inside the claim transaction on
-success. A forwarded DM link is spent once used.
+**Single-use means USED, not OPENED.** The hash is cleared
+(`claim_token_hash = NULL`) inside the claim transaction, **on success only** — the
+same transaction that already holds `lockForUpdate()` and transfers ownership. Every
+outcome short of a completed claim leaves the token intact:
+
+| What happens | Token after |
+|---|---|
+| Taps the link, closes the tab | Still valid |
+| Starts the OTP sign-in, abandons it | Still valid |
+| Signs in but never submits the claim | Still valid |
+| Claim throws (`ACCOUNT_EXISTS`, `BUILD_FAILED`, …) | Still valid — the throw rolls back |
+| Claim succeeds | **Burned** |
+
+This is the intended behaviour, not an accident of the implementation: a cold DM
+recipient will open the link, get distracted, and come back. Burning on open would
+lose the lead. A forwarded link is spent only once someone actually takes ownership.
+
+Any future retry/expiry logic must preserve this property — it is the difference
+between a 30-day window and a one-tap window.
 
 **Not fillable.** Follows the existing `user_id` / `built_by_staff_id` precedent —
 set via `forceFill` on a trusted path only.
@@ -126,7 +143,7 @@ This is weaker than HMAC. Stated, not hidden. Mitigations:
 
 - ≥32 bytes of entropy, rotatable without a deploy (env var).
 - Dedicated throttle bucket — build requests are Apify-billed.
-- Blast radius of a leaked secret is bounded by §5.3, which is the load-bearing
+- Blast radius of a leaked secret is bounded by §5.4, which is the load-bearing
   control.
 
 ### 5.2 Request / response
@@ -158,7 +175,37 @@ Response `202` (new build):
 
 ManyChat inserts `claim_url` into the DM. Nothing else is needed.
 
-### 5.3 The dedupe hazard — load-bearing
+### 5.3 Send timing — ManyChat's choice, not ours
+
+The build is async (~90s in practice: Amiconi ran 04:24:13 → 04:25:37 on 2026-08-25).
+The claim URL is valid immediately, because claiming does not wait for `ready` (§2).
+So there is no dead-link window and **no backend work is required to delay the send**.
+
+When the DM goes out is a ManyChat flow setting:
+
+- **Delay:** a wait step of ~2 minutes, then send. Simplest.
+- **Poll (recommended):** poll `GET /api/public/signup/builds/{build_id}` until the
+  build is ready, then send.
+
+For polling, use the signal that already exists rather than inventing one:
+`PreAccountBuildStatusResource` **withholds `site_url` until `build_state === 'ready'`**,
+and its comment states the intent —
+
+> `site_url` stays ready-gated: that's the "go visit a real site" signal, which should
+> wait for actual content.
+
+So `site_url` present ⇒ safe to send. `build_state` is also returned if a flow prefers
+to match on it directly. The endpoint is public (opaque UUID, `throttle:public-site`),
+so ManyChat needs no credentials to poll it.
+
+**Recommended:** poll, then send. A cold DM recipient tapping through to a half-scraped
+page is a worse first impression than a two-minute delay — unlike a self-serve user,
+who just built the thing and expects it to be loading.
+
+This is a second-order argument for Pull (§3): send timing stays a setting someone can
+change in the ManyChat UI, instead of backend code and a deploy per experiment.
+
+### 5.4 The dedupe hazard — load-bearing
 
 `PreAccountBuildService::requestBuild` **dedupes and can return an existing build**
 (`$result['reused']`). Naively returning a token on that path would mean: anyone
@@ -233,7 +280,7 @@ logs and `Referer`.
 > never stamped, so a repeat `notify()` re-fires this channel.
 
 Under Pull the DM is ManyChat's to send, so *delivery* dedupe is theirs and the
-documented gap is not on our critical path. Ours is the stronger property, from §5.3:
+documented gap is not on our critical path. Ours is the stronger property, from §5.4:
 a repeat webhook call for the same source dedupes to `reused: true` and mints nothing,
 so **no second token is ever live for one build**.
 
@@ -258,7 +305,7 @@ Dev first, then prod, per `reference_dev_migration_before_merge`.
 Staff-only, AAL2, on the existing staff surface — `POST /api/staff/builds/{build}/claim-token`.
 Mints a new token, invalidating the old one, and returns the plaintext once. For "the
 lead lost the DM" and for rotation after a suspected leak. Deliberately NOT on the
-webhook (§5.3).
+webhook (§5.4).
 
 ## 9. Explicitly out of scope
 
@@ -279,7 +326,9 @@ webhook (§5.3).
 | Assertion | Why |
 |---|---|
 | New build via webhook returns a `claim_url` containing a token | Happy path |
-| **Reused build returns NO `claim_url`** | §5.3 — the control bounding a leaked secret |
+| **Reused build returns NO `claim_url`** | §5.4 — the control bounding a leaked secret |
+| Opening the link without completing a claim leaves the token valid | §4 — used, not opened |
+| A failed claim (`ACCOUNT_EXISTS`) leaves the token valid | §4 — the throw must roll back the clear |
 | Valid token claims an outreach build with no `contact_email` | The wall is gone |
 | Token is cleared after a successful claim; replay fails | Single-use |
 | Wrong / absent token on a no-email outreach build still throws `CLAIM_NOT_INVITED` | No regression |
