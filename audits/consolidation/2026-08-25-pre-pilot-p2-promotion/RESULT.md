@@ -2,7 +2,7 @@
 
 **Branch:** `audit-fix/pre-pilot-p2-2026-08-25` (off `development` @ `fe3f4f36d`)
 **Status:** all 11 units worked. **0 blocked, 0 deferred.**
-**Suite:** 9183 passed, 3 skipped, 0 failed (32403 assertions). Baseline was 9121/3/0 — **+62 tests, no pre-existing red**.
+**Suite:** 9167 passed, 3 skipped, 0 failed after merging `origin/development` (32374 assertions). Pre-merge this branch stood at 9183; the delta is the upstream "Dark Until Claimed" revert deleting its own tests, not a regression here. Baseline at branch point was 9121/3/0 — **+62 tests from this tranche, no pre-existing red**.
 **`pint --test`:** passed. **Not pushed** — review and merge is yours.
 
 ---
@@ -115,7 +115,10 @@ Six, all verified against code rather than assumed. Recorded because the run fil
   docker exec supabase_db_Partna-Development psql -U postgres -d postgres -c "DROP DATABASE partna_pg_lane_scratch"
   ```
   A separate DATABASE is the safe part — tables are per-database, so local dev is untouched. Do **not** override `PG_LANE_DISPOSABLE` on the `postgres` database itself; that guard exists precisely to stop `core.*`/`site.*` being provisioned over the local dev stack. This run created and dropped the scratch DB; nothing was left behind.
-- **A peer session committed to this branch mid-run** (`894de8e0b`, `0e9429313`, `68c5c5ee8`). No collision — the working diff stayed byte-identical — but one of them **changed a hard rule in `CLAUDE.md`**: "Dark Until Claimed" means an unvetted self-serve pre-account build is no longer publicly routable, killing the "public pre-claim by design" rule. Findings were matched by content, not line number, for the rest of the run.
+- **A peer session committed to this branch mid-run** (`894de8e0b`, `0e9429313`, `68c5c5ee8`). No collision — the working diff stayed byte-identical — but one of them changed a hard rule in `CLAUDE.md` ("Dark Until Claimed"). Findings were matched by content, not line number, for the rest of the run.
+  **That change was then REVERTED upstream** (`1d26800a9`, owner decision 2026-08-25) and the revert is merged in here (`375802458`): a pre-account site is publicly routable pre-claim again, and `isVisibleWhileUnclaimed()` no longer exists. Five merge conflicts, resolved in favour of the revert while keeping this tranche's audit work — see that merge commit for the per-file reasoning. **Nothing in this tranche depended on it:** `#SEM-2` keys the claim gate on `isOutreach()`/`built_via`, which the revert does not touch, and `#PRIV-3` is independent of visibility entirely.
+  Consequence for the backlog: **claim-gate `#SEC-3` is fully live again** and must be closed at the CLAIM step (proof of ownership), not by hiding the site — hiding it was tried and rejected as defeating the pre-claim demo. It is P1 and outside this tranche.
+  The suite count moves 9183 -> **9167** across the merge; the difference is the revert deleting its own 258 lines of tests (including `PublicIntegrationControllerDarkUntilClaimedTest.php` entirely), not a regression here. All 62 tests this tranche added are present and green.
 - **Two specified mutations turned out to prove nothing** and were caught by the implementers rather than banked as passes: `SEM-11`'s `dispatch($old)`→`dispatch($new)` (inside a transaction `$old === $new`, so the guard never opens either way) and `#TEST-18`'s single-guard removal (`ShopAutoSelector` has two). A mutation that fails to go red is a finding about the *test*, not a formality.
 - **Two Laravel behaviours worth remembering:** `Model::observe($instance)` does not retain the instance — `registerObserver()` collapses it to `"ClassName@event"` and the container re-resolves a fresh one per fire, so a spy must use a `static` property. And under `DB::transaction()`, a deferred `$afterCommit` callback observes transaction level **0 again** (it runs post-commit) — transaction level does not discriminate; `getOriginal()` having already synced is what does.
 - **`archive-done.sh` was NOT run**, per the run file. These sweeps carry many findings outside this tranche and a partial tick set must not trigger an archive.
