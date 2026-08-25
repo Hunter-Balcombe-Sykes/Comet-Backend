@@ -102,7 +102,11 @@ class ShopController extends ApiController
     use ResolveCurrentSite;
     use ResolveCurrentUser;
 
-    private const MAX_BRANDS = 10;
+    /** The store cap, from `partna.shop_brands_max` — the ONE definition (#CFG-3). */
+    private static function maxBrands(): int
+    {
+        return (int) config('partna.shop_brands_max');
+    }
 
     // How long the picker-warmed product catalog stays cached, so a PUT
     // /selection right after the picker opened reuses it instead of re-scraping.
@@ -348,8 +352,8 @@ class ShopController extends ApiController
             // where() compares loosely, so a falsey-but-not-false value would
             // count as a store.
             $storeCount = $stores->filter(fn (StoreRecord $s): bool => $s->isIndividual === false)->count();
-            if (! $existing && $storeCount >= self::MAX_BRANDS) {
-                return $this->error('You can connect up to '.self::MAX_BRANDS.' stores.', 422);
+            if (! $existing && $storeCount >= self::maxBrands()) {
+                return $this->error('You can connect up to '.self::maxBrands().' stores.', 422);
             }
 
             // One connection per STORE, on its real brand surface, keyed by the

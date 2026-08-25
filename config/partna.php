@@ -275,6 +275,28 @@ return [
     'platform_links_max' => 15,
     'platform_links_categories' => ['social', 'content', 'events', 'streaming'],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Shop-brand cap
+    |--------------------------------------------------------------------------
+    |
+    | Hard limit on how many distinct STORES a professional can connect. The
+    | reserved individual-products bucket (is_individual = true) never counts
+    | against it.
+    |
+    | Single source of truth on purpose (#CFG-3). This lived as a private
+    | MAX_BRANDS const in three classes; T9 (2026-08-20) raised two of them
+    | 5 -> 10 and missed StoreBrandSeeder, so a user with 5 brands who pasted a
+    | 6th store link got the connection placed but the brand row capped — the
+    | store half-existed and never rendered. A cap enforced in three places
+    | must be DEFINED in one.
+    |
+    | NOT the same quantity as ManagesIntegrationConnection::maxAccounts(),
+    | which caps connected accounts PER PLATFORM and merely happens to share
+    | the value 10. Do not fold them together.
+    */
+    'shop_brands_max' => (int) env('PARTNA_SHOP_BRANDS_MAX', 10),
+
     // Platforms that support automatic live status detection via the polling job.
     // Must match keys in social_platforms above.
     'streaming_platforms' => ['twitch', 'kick'],

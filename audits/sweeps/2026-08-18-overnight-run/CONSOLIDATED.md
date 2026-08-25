@@ -819,7 +819,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 4 complete
+- P2 Medium: 3 of 4 complete
 - P3 Low: 1 of 4 complete
 
 ---
@@ -1098,8 +1098,8 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 4 of 6 complete
-- P2 Medium: 3 of 16 complete
+- P1 High: 6 of 6 complete
+- P2 Medium: 7 of 16 complete
 - P3 Low: 0 of 7 complete
 
 ---
