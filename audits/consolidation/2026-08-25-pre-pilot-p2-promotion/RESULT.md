@@ -102,7 +102,15 @@ Six, all verified against code rather than assumed. Recorded because the run fil
 
 ## 6. Notes for the next run
 
-- **The Postgres lane IS runnable locally**, contrary to an earlier belief that it was CI-only. The local Supabase container serves `54322`; the lane runs against a **disposable scratch database** with `PG_LANE_DISPOSABLE=1`. Do **not** override that guard on the `postgres` database — it exists to stop `core.*`/`site.*` being provisioned over the local dev stack. Create a throwaway DB instead and drop it after (this run did; nothing was left behind).
+- **The Postgres lane can run against a scratch DB on the EXISTING local Supabase container** — a faster variant of the known throwaway-`postgres:16` recipe, not a new capability (a bare `composer test:pg` still fails on the dead `DB_HOST` in `.env`). Create a separate database on `54322`, run with `PG_LANE_DISPOSABLE=1` pointed at it, then drop it:
+  ```bash
+  docker exec supabase_db_Partna-Development psql -U postgres -d postgres -c "CREATE DATABASE partna_pg_lane_scratch"
+  PG_LANE_DISPOSABLE=1 DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=54322 \
+    DB_DATABASE=partna_pg_lane_scratch DB_USERNAME=postgres DB_PASSWORD=postgres \
+    DB_SSLMODE=disable ./vendor/bin/pest -c phpunit.pg.xml <path>
+  docker exec supabase_db_Partna-Development psql -U postgres -d postgres -c "DROP DATABASE partna_pg_lane_scratch"
+  ```
+  A separate DATABASE is the safe part — tables are per-database, so local dev is untouched. Do **not** override `PG_LANE_DISPOSABLE` on the `postgres` database itself; that guard exists precisely to stop `core.*`/`site.*` being provisioned over the local dev stack. This run created and dropped the scratch DB; nothing was left behind.
 - **A peer session committed to this branch mid-run** (`894de8e0b`, `0e9429313`, `68c5c5ee8`). No collision — the working diff stayed byte-identical — but one of them **changed a hard rule in `CLAUDE.md`**: "Dark Until Claimed" means an unvetted self-serve pre-account build is no longer publicly routable, killing the "public pre-claim by design" rule. Findings were matched by content, not line number, for the rest of the run.
 - **Two specified mutations turned out to prove nothing** and were caught by the implementers rather than banked as passes: `SEM-11`'s `dispatch($old)`→`dispatch($new)` (inside a transaction `$old === $new`, so the guard never opens either way) and `#TEST-18`'s single-guard removal (`ShopAutoSelector` has two). A mutation that fails to go red is a finding about the *test*, not a formality.
 - **Two Laravel behaviours worth remembering:** `Model::observe($instance)` does not retain the instance — `registerObserver()` collapses it to `"ClassName@event"` and the container re-resolves a fresh one per fire, so a spy must use a `static` property. And under `DB::transaction()`, a deferred `$afterCommit` callback observes transaction level **0 again** (it runs post-commit) — transaction level does not discriminate; `getOriginal()` having already synced is what does.
