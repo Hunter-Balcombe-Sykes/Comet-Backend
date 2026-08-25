@@ -537,3 +537,68 @@ it('the pixel-budget guard fails CLOSED on an allowlisted mime whose header will
     expect(ImagePixelBudget::exceeds($truncated))->toBeTrue();
     expect(ImagePixelBudget::safeToDecode($truncated))->toBeFalse();
 });
+
+// ── #SCALE-3: the bytes stream to temp disk, never to PHP memory ────────────
+//
+// These pin the OPERATIONAL half of the streaming rewrite. The memory property
+// itself is not directly assertable in-process (Http::fake hands us the body as
+// a PHP string to begin with), so what is pinned instead is everything that
+// would break if someone reverted to buffering or got the file handling wrong:
+// the temp file is always cleaned up, and the size cap is applied to the FILE
+// before anything reads it into a string.
+
+/** Temp files this class leaves behind, by its tempnam() prefix. */
+function mirrorTempFiles(): array
+{
+    return glob(sys_get_temp_dir().'/media-mirror-*') ?: [];
+}
+
+it('leaves no temp file behind on a successful mirror', function () {
+    $user = createTenant('mir-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:TMP1:0'));
+    Http::fake(['*' => Http::response(mirrorImageBytes(400, 400), 200, ['Content-Type' => 'image/jpeg'])]);
+
+    $before = mirrorTempFiles();
+    $ok = app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/photo.jpg');
+
+    expect($ok)->toBeTrue()
+        ->and(mirrorTempFiles())->toBe($before);
+});
+
+it('leaves no temp file behind when the fetch fails', function () {
+    // The failure paths are the ones that leak: an early `return $this->fail(…)`
+    // is exactly where a hand-rolled unlink() gets forgotten, which is why the
+    // cleanup lives in a finally around the whole mirror rather than per-branch.
+    $user = createTenant('mir-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:TMP2:0'));
+    Http::fake(['*' => Http::response('', 404)]);
+
+    $before = mirrorTempFiles();
+    $ok = app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/gone.jpg');
+
+    expect($ok)->toBeFalse()
+        ->and(mirrorTempFiles())->toBe($before);
+});
+
+it('rejects an oversized image on its file size, before it is ever read into a string', function () {
+    // #SCALE-15, closed by the same change. Every fetch here is capped at the
+    // 80 MB VIDEO ceiling, because we cannot know the bytes are not a reel
+    // until they arrive. Buffering meant an oversized image was held in full
+    // and only then rejected; now the 80 MB lands on disk and the 15 MB image
+    // cap is what bounds PHP memory.
+    $user = createTenant('mir-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:TMP3:0'));
+    // Over MAX_BYTES (15 MB), under MAX_VIDEO_BYTES (80 MB), and not an mp4 —
+    // so it must land in the image branch and be rejected on size alone.
+    Http::fake(['*' => Http::response(str_repeat('x', 16 * 1024 * 1024), 200, ['Content-Type' => 'image/jpeg'])]);
+
+    $ok = app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/huge.jpg');
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+
+    expect($ok)->toBeFalse()
+        ->and($row->storage_path)->toBeNull()
+        // 'body_rejected', not 'undecodable': the size gate must fire BEFORE
+        // anything hands the bytes to the decoder.
+        ->and($row->mirror_last_reason)->toBe('body_rejected')
+        ->and(mirrorTempFiles())->toBe([]);
+});

@@ -283,3 +283,125 @@ it('post() throws when the response body exceeds the byte cap', function () {
     expect(fn () => app(SafeUrlFetcher::class)->post('https://1.1.1.1/big', ['a' => 1]))
         ->toThrow(SafeUrlException::class);
 });
+
+// ── tryFetchToFile(): the streaming path (#SCALE-3) ──────────────────────────
+//
+// The buffering path's byte cap is explicitly NOT a memory guard —
+// assertWithinByteCap()'s own docblock says Guzzle has already buffered the
+// body by the time it runs. tryFetchToFile() is the path that never lets the
+// body become a PHP string, so what these pin is that the bytes reach the FILE
+// and that every guarantee fetch() makes still holds on the way there.
+
+it('tryFetchToFile() writes the body to the destination and returns no body key', function () {
+    $destination = tempnam(sys_get_temp_dir(), 'sink-test-');
+    Http::fake(['*' => Http::response('streamed-payload', 200, ['Content-Type' => 'video/mp4'])]);
+
+    try {
+        $result = app(SafeUrlFetcher::class)->tryFetchToFile('https://1.1.1.1/clip.mp4', $destination);
+
+        expect($result)->not->toBeNull()
+            ->and($result['status'])->toBe(200)
+            ->and($result['contentType'])->toBe('video/mp4')
+            // The absent key is the contract, not an empty one: a caller that
+            // reaches for ->['body'] here must fail loudly rather than quietly
+            // read "" and mirror an empty object.
+            ->and(array_key_exists('body', $result))->toBeFalse()
+            ->and(file_get_contents($destination))->toBe('streamed-payload');
+    } finally {
+        @unlink($destination);
+    }
+});
+
+it('tryFetchToFile() enforces the byte cap on what actually landed on disk', function () {
+    // Not just the declared Content-Length: the sink cap must measure the file,
+    // because a chunked response declares nothing at all.
+    config()->set('partna.http_fetch.max_bytes', 16);
+    $destination = tempnam(sys_get_temp_dir(), 'sink-test-');
+    Http::fake(['*' => Http::response(str_repeat('x', 64), 200)]);
+
+    try {
+        expect(app(SafeUrlFetcher::class)->tryFetchToFile('https://1.1.1.1/big', $destination))->toBeNull();
+    } finally {
+        @unlink($destination);
+    }
+});
+
+it('tryFetchToFile() honours a raised per-call cap', function () {
+    // The MediaMirror case: withMaxBytes() must still apply on the sink path,
+    // or a reel would be rejected at the 10 MB page default.
+    config()->set('partna.http_fetch.max_bytes', 16);
+    $destination = tempnam(sys_get_temp_dir(), 'sink-test-');
+    Http::fake(['*' => Http::response(str_repeat('x', 64), 200)]);
+
+    try {
+        $result = app(SafeUrlFetcher::class)->withMaxBytes(1024)->tryFetchToFile('https://1.1.1.1/big', $destination);
+
+        expect($result)->not->toBeNull()
+            ->and(strlen((string) file_get_contents($destination)))->toBe(64);
+    } finally {
+        @unlink($destination);
+    }
+});
+
+it('tryFetchToFile() re-validates every redirect hop and never fetches a private target', function () {
+    // The whole reason the sink was threaded through send() rather than given
+    // its own loop: one redirect-following implementation, one set of SSRF
+    // guarantees. A second copy is how a hole gets added later.
+    $destination = tempnam(sys_get_temp_dir(), 'sink-test-');
+    Http::fake([
+        '1.1.1.1/start' => Http::response('', 302, ['Location' => 'http://127.0.0.1/admin']),
+    ]);
+
+    try {
+        expect(app(SafeUrlFetcher::class)->tryFetchToFile('http://1.1.1.1/start', $destination))->toBeNull();
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '127.0.0.1'));
+    } finally {
+        @unlink($destination);
+    }
+});
+
+it('tryFetchToFile() truncates a stale destination rather than appending to it', function () {
+    // Guzzle opens the sink with 'w'. If that ever changed, a retried mirror
+    // would concatenate two downloads and store a corrupt object under a hash
+    // of the concatenation — which would look like a successful mirror.
+    $destination = tempnam(sys_get_temp_dir(), 'sink-test-');
+    file_put_contents($destination, str_repeat('STALE', 100));
+    Http::fake(['*' => Http::response('fresh', 200)]);
+
+    try {
+        app(SafeUrlFetcher::class)->tryFetchToFile('https://1.1.1.1/x', $destination);
+
+        expect(file_get_contents($destination))->toBe('fresh');
+    } finally {
+        @unlink($destination);
+    }
+});
+
+it('tryFetchToFile() keeps the original 403 when the honest-UA retry fails harder', function () {
+    // Pins the acceptance condition at `< 400`, matching fetch(). An earlier
+    // cut used `!== 403`, which let a 500 from the retry replace the original
+    // 403 — discarding the real answer for a worse one, while the method's own
+    // docblock promised the opposite. Inert for MediaMirror today (it collapses
+    // every non-2xx to fetch_failed) and pinned so it stays that way.
+    $destination = tempnam(sys_get_temp_dir(), 'sink-test-');
+    $seen = [];
+    Http::fake(function ($request) use (&$seen) {
+        $seen[] = $request->header('User-Agent')[0] ?? '';
+
+        return count($seen) === 1
+            ? Http::response('denied', 403)
+            : Http::response('exploded', 500);
+    });
+
+    try {
+        $result = app(SafeUrlFetcher::class)->tryFetchToFile('https://1.1.1.1/x', $destination);
+
+        // The retry DID happen (browser-ish UA first, honest bot UA second)...
+        expect($seen)->toHaveCount(2)
+            ->and($seen[1])->toBe(SafeUrlFetcher::FALLBACK_USER_AGENT)
+            // ...and its 500 was discarded in favour of the original 403.
+            ->and($result['status'])->toBe(403);
+    } finally {
+        @unlink($destination);
+    }
+});

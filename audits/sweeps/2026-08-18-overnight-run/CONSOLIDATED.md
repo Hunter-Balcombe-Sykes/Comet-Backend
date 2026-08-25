@@ -1058,7 +1058,8 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#SCALE-1** · P1 — Pool default/occurrence sort runs a correlated scalar subquery per candidate row on the public hot path
+- [x] **#SCALE-1** · P1 — Pool default/occurrence sort runs a correlated scalar subquery per candidate row on the public hot path
+    - **Resolved 2026-08-25** (`audit-fix/scale-memory-sort-2026-08-25`): the correlated subquery STAYS — it is load-bearing (both facet tables are keyed `(item_id, source_id)`, so the join this finding asks for emits an item once per source; `SectionCandidateOrderingTest` pins that). What was actually wrong is that each probe found the row on the PK and then heap-fetched for the sorted column. Two covering indexes (`20260825120000`/`120001`) let Postgres serve it as an Index Only Scan Backward + LIMIT 1. Measured on dev over a 548-item library: **4099 shared buffers / 7.6ms → 3013 / 5.0ms**. Two reshapes were MEASURED and rejected: the pre-aggregated join this finding asks for is **108 buffers but 7.7ms** and plans as a Seq Scan + HashAggregate over EVERY user's facet rows, so its cost tracks total platform content instead of the one site being rendered — backwards for a per-site render; and collapsing the recency branch's two SubPlans to one only holds behind an `OFFSET 0` fence (1545 buffers / 2.5ms), which has no spelling the query builder can emit for both Postgres and the SQLite test lane. Reasoning is in the code at the ORDER BY; indexes pinned by `tests/Schema/IndexCoverageTest.php`.
     - **Where:** app/Site/Sections/SectionCandidates.php:116-130
     - **Affects:** Public sitepage pool resolution (watch/listen/media/shop/services/menus/custom_links via recency sort, events via occurrence sort) on every cache-miss/rebuild render.
     - **Effort:** M (~2–4h)
@@ -1109,7 +1110,8 @@ None.
         );
         ```
 
-- [ ] **#SCALE-3** · P1 — MediaMirror loads entire fetched media bodies into PHP memory before storing
+- [x] **#SCALE-3** · P1 — MediaMirror loads entire fetched media bodies into PHP memory before storing
+    - **Resolved 2026-08-25** (`audit-fix/scale-memory-sort-2026-08-25`): the body now streams to a temp file via the new `SafeUrlFetcher::tryFetchToFile()` and never becomes a PHP string on the video path — `hash_file()` + `Storage::writeStream()` replace `hash()` + `put()`. The image path still needs a string (GD's `imagecreatefromstring()` takes one) but only AFTER the 15 MB check has bounded it, so the 80 MB video ceiling no longer reaches PHP memory on any path. The sink is threaded through the EXISTING `send()` redirect loop rather than given its own, so every SSRF guarantee is unchanged and pinned by new hop-revalidation tests. Temp file is deleted in a `finally` around the whole mirror, pinned on both the success and failure paths. Also fixed in passing: a `false` return from a non-throwing disk was treated as success, writing a `storage_path` for an object that does not exist.
     - **Where:** app/Services/Media/MediaMirror.php:77-145
     - **Affects:** Media-mirror pipeline (`images`/media queue) during any burst of owned-media (Instagram) mirroring — e.g. a first-time connect or a viral spike driving many concurrent mirrors.
     - **Effort:** M (~2–4h)
@@ -1361,7 +1363,8 @@ None.
         ])
         ```
 
-- [ ] **#SCALE-15** · P2 — Image fetches are always capped at the 80 MB video limit, so an oversized image is downloaded in full before the 15 MB image limit rejects it
+- [x] **#SCALE-15** · P2 — Image fetches are always capped at the 80 MB video limit, so an oversized image is downloaded in full before the 15 MB image limit rejects it
+    - **Resolved 2026-08-25** — closed by the #SCALE-3 streaming rewrite in the same commit. The 80 MB fetch ceiling stays (we cannot know the bytes are not a reel until they arrive), but it now lands on temp disk instead of the heap, and the 15 MB image cap is applied to the FILE before anything reads it into a string. Pinned by 'rejects an oversized image on its file size, before it is ever read into a string' — which asserts the reason is `body_rejected`, not `undecodable`, i.e. the size gate fires before the decoder.
     - **Where:** app/Services/Media/MediaMirror.php:32-35, 77, 107-109
     - **Affects:** Any projected image entry whose source is unusually large — inflates network egress and transient memory for rejected images by up to ~5x.
     - **Effort:** S (~0.5–1h)
