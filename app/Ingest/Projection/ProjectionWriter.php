@@ -2612,7 +2612,17 @@ class ProjectionWriter
             // ensureCurrent() is still the writer — it owns collision
             // suffixing, rename-back and retirement — it just no longer has to
             // ask whether there is anything to do.
-            $liveSlugs = $this->slugs->currentSlugs($userId, $batch);
+            //
+            // Only the slugged kinds ever enter the ensureCurrent() branch below,
+            // so a batch of tracks/releases/products has nothing to look up. Before
+            // the batched read this path issued ZERO slug queries for those kinds;
+            // keep it that way. $rowsById is already built above, so the check
+            // costs nothing.
+            $needsSlugs = $rowsById->contains(
+                fn (object $row) => in_array((string) $row->kind, ContentItemSlugAllocator::SLUGGED_KINDS, true)
+            );
+
+            $liveSlugs = $needsSlugs ? $this->slugs->currentSlugs($userId, $batch) : [];
 
             // Every item in the batch is "seen" this run regardless of
             // whether its cache changed — one UPDATE for the whole batch.

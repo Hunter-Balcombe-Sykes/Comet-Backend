@@ -363,3 +363,27 @@ it('reads existing slugs once per batch, not once per item', function () {
 
     expect($slugReads)->toBe(1);
 });
+
+// Review finding: currentSlugs() was being called for EVERY batch, even one
+// with no SLUGGED_KINDS item in it — a batch of tracks/releases/products went
+// from zero item_slugs queries (the in_array() gate short-circuited before
+// ensureCurrent() was ever reached) to one. $needsSlugs skips the read
+// entirely when nothing in the batch could use it.
+it('issues no slug queries at all for a batch with no slugged kind', function () {
+    $pro = createTenant('slug-'.Str::lower(Str::random(6)));
+    $itemIds = [];
+    foreach (range(1, 3) as $i) {
+        $itemIds[] = slugItem($pro->id, "Track {$i}", 'track');
+    }
+
+    $pg = DB::connection('pgsql');
+    $pg->flushQueryLog();
+    $pg->enableQueryLog();
+    app(ProjectionWriter::class)->refreshCachesFor($pro->id, $itemIds);
+    $slugReads = collect($pg->getQueryLog())
+        ->filter(fn (array $q) => str_contains($q['query'], 'item_slugs'))
+        ->count();
+    $pg->disableQueryLog();
+
+    expect($slugReads)->toBe(0);
+});
