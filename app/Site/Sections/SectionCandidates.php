@@ -107,6 +107,43 @@ class SectionCandidates
             $this->applyPredicate($query, (array) $predicate);
         }
 
+        // #SCALE-1. Both dated sorts below correlate an aggregate to the outer
+        // items row, so Postgres evaluates the subquery once per candidate row
+        // BEFORE the LIMIT can bound anything — the limit bounds the output, not
+        // the probes. That is affordable only because each probe is an index
+        // hit, which is what `idx_f_published_item_published` and
+        // `idx_f_occurrence_item_starts` (20260825120000/120001) exist for:
+        // without them the probe finds the row on the PK and then heap-fetches
+        // for the sorted column. Measured on dev 2026-08-25 over a 548-item
+        // library: 4099 shared buffers / 7.6ms before, 3013 / 5.0ms after.
+        // Drop either index and this query silently gets slower — nothing else
+        // reads them, so tests/Schema/IndexCoverageTest.php pins them.
+        //
+        // Two reshapes were MEASURED against this on dev and both rejected.
+        // Numbers are the same 548-item library, warm, 2026-08-25.
+        //
+        // 1. The pre-aggregated join the finding actually asked for —
+        //    `LEFT JOIN (SELECT item_id, MAX(published_from) … GROUP BY
+        //    item_id)`. 108 buffers but 7.7ms, against 3013 / 5.0ms here. It
+        //    reads BETTER on buffers only because the whole facet table is 31
+        //    pages and fully cached; the plan is a Seq Scan + HashAggregate
+        //    over EVERY user's rows, so its cost tracks total platform content
+        //    while the correlated probe tracks the one site being rendered.
+        //    That is backwards for a per-site render, and this finding's own
+        //    premise is a user with a large library.
+        // 2. Collapsing the recency branch's two references to one SubPlan.
+        //    Postgres does not common-subexpression them, so the plan really
+        //    does carry two. But wrapping the select in a derived table is
+        //    flattened straight back to two SubPlans (verified: byte-identical
+        //    3013 buffers), and the only form that holds — an `OFFSET 0`
+        //    optimisation fence, 1545 buffers / 2.5ms — has no spelling the
+        //    query builder can emit that both Postgres and the SQLite test lane
+        //    accept (SQLite rejects OFFSET without LIMIT, Postgres rejects
+        //    LIMIT -1). Naming the sort key once in the ORDER BY instead
+        //    changes the tie order SectionCandidateOrderingTest pins.
+        //
+        // If this ever shows up in a real profile, the fence is the measured
+        // next step — not the pre-aggregate.
         $ordered = match ($section->order_by ?? 'recency') {
             'alphabetical' => $query->orderBy('content.items.headline_cache'),
             // Dated pools (events): soonest first, undated last. A correlated
