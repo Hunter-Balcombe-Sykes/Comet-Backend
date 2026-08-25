@@ -1151,7 +1151,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
-- P2 Medium: 7 of 16 complete
+- P2 Medium: 9 of 16 complete
 - P3 Low: 0 of 7 complete
 
 ---
@@ -1455,7 +1455,8 @@ None.
       within `::dispatch()`), which is a redesign of the media-mirror lane with its own plan and
       review, not a drive-by fix.
 
-- [ ] **#SCALE-13** · P2 — Pool resolution reads every `site.section_items` row for a section with no cap on accumulated excluded items
+- [x] **#SCALE-13** · P2 — Pool resolution reads every `site.section_items` row for a section with no cap on accumulated excluded items
+    - **Resolved 2026-08-26** — narrowed all three `site.section_items` reads (`hasSelection`, `plan`, `preloadCuration`) to `['section_id','item_id','state','sort_key']`; `id` and `created_at` are read nowhere. Measured on a 2000-row section: 432,000 -> 274,000 bytes returned, same 2000 rows. NOT fixed and deliberately not attempted: nothing prunes accumulated `state='excluded'` rows — a retention rule is a write path and a separate decision, carried forward in RESULT-PART-3.md.
     - **Where:** app/Site/Pools/PoolResolver.php:114-116 (`hasSelection`), 193-195 (`resolve`)
     - **Affects:** Public pool payload and dashboard pool page for any section whose owner has excluded many items over time.
     - **Effort:** M (~2–4h)
@@ -1471,7 +1472,8 @@ None.
             ->get();
         ```
 
-- [ ] **#SCALE-14** · P2 — Pool item-payload build selects the full JSONB `platform_connections.payload` for every source row on the public hot path
+- [x] **#SCALE-14** · P2 — Pool item-payload build selects the full JSONB `platform_connections.payload` for every source row on the public hot path
+    - **Resolved 2026-08-26** — the JSONB left the fan-out. `$sourceRows` returns one row per (item, source), so `payload` was re-materialised once per item; it is now fetched once per DISTINCT connection into `$payloadByConnection` (same idiom as the `$ingestByConnection` read beside it) and looked up by connection id. Same rows, same keys, same wire. Measured with 200 items on one connection carrying a ~230 KB payload: 46,065,400 -> 230,327 bytes of payload material, 1 -> 2 queries (queue driver `sync`). Mutation-checked: forcing `$payloadByConnection = []` turns PoolLaneTest's `accountName` and PoolSourceLivenessTest's fallback-url assertions red, so the coverage is not vacuous.
     - **Where:** app/Site/Pools/PoolResolver.php:528-550 (`itemPayloads`)
     - **Affects:** Public pool payload and dashboard item sheet for users with large connector payloads (Google Business place details, Instagram media metadata).
     - **Effort:** M (~2–4h)

@@ -118,9 +118,12 @@ class PoolResolver
     {
         $section = $this->provisioner->ensure($site, $pool);
 
+        // SCALE-13: `id`/`created_at` are read nowhere downstream, and excluded
+        // rows have no pruning path, so a full-row select grows unbounded with
+        // a site's lifetime for no benefit.
         $curation = DB::connection('pgsql')->table('site.section_items')
             ->where('section_id', $section->id)
-            ->get();
+            ->get(['section_id', 'item_id', 'state', 'sort_key']);
 
         $excluded = $curation->where('state', 'excluded')
             ->pluck('item_id')->flip()->all();
@@ -235,7 +238,7 @@ class PoolResolver
 
         $curation ??= DB::connection('pgsql')->table('site.section_items')
             ->where('section_id', $section->id)
-            ->get();
+            ->get(['section_id', 'item_id', 'state', 'sort_key']);
 
         $pinned = $curation->where('state', 'pinned')
             ->sortBy('sort_key')->pluck('item_id')->values()->all();
@@ -318,7 +321,7 @@ class PoolResolver
 
         return DB::connection('pgsql')->table('site.section_items')
             ->whereIn('section_id', $ids)
-            ->get()
+            ->get(['section_id', 'item_id', 'state', 'sort_key'])
             ->groupBy('section_id')
             ->all();
     }
@@ -806,7 +809,6 @@ class PoolResolver
                 'site.platform_connections.id as connection_id',
                 'site.platform_connections.platform as platform',
                 'site.platform_connections.surface_key as surface_key',
-                'site.platform_connections.payload as payload',
                 'site.platform_connections.is_active as is_active',
             ])
             ->groupBy('item_id');
@@ -815,6 +817,15 @@ class PoolResolver
         // content-only fixtures do not create it) and the join would have
         // fanned the row set out per stream anyway.
         $connectionIds = $sourceRows->flatten(1)->pluck('connection_id')->filter()->unique()->values()->all();
+        // SCALE-14: $sourceRows fans out to one row per (item, source), so a
+        // payload column selected there gets re-materialised once per item —
+        // up to LIBRARY_LIMIT copies of the same connection's (possibly
+        // multi-MB) JSONB blob. Keyed by distinct connection instead, it is
+        // fetched once — same shape as the $ingestByConnection read below.
+        $payloadByConnection = $connectionIds === [] ? [] : DB::connection('pgsql')->table('site.platform_connections')
+            ->whereIn('id', $connectionIds)
+            ->pluck('payload', 'id')
+            ->all();
         $ingestByConnection = [];
         if ($connectionIds !== []) {
             try {
@@ -851,7 +862,7 @@ class PoolResolver
             ->map(fn ($rows) => (string) $rows->first()->tag)
             ->all();
 
-        $sourcesByItem = $sourceRows->map(function ($rows, $itemId) use ($ingestByConnection, $originByItem): array {
+        $sourcesByItem = $sourceRows->map(function ($rows, $itemId) use ($ingestByConnection, $originByItem, $payloadByConnection): array {
             $seen = [];
             $out = [];
             foreach ($rows as $row) {
@@ -872,7 +883,7 @@ class PoolResolver
 
                     continue;
                 }
-                $payload = is_string($row->payload) ? (json_decode($row->payload, true) ?: []) : (array) ($row->payload ?? []);
+                $payload = self::decodedPayload($payloadByConnection[(string) $row->connection_id] ?? null);
                 $out[] = [
                     'kind' => 'connection',
                     'platform' => (string) self::wirePlatform($row->platform),
@@ -897,13 +908,13 @@ class PoolResolver
         // not colder — dropping a paused source's f_link is precisely what
         // leaves $primary null and falls through to here.
         $sourcePlatforms = $sourceRows
-            ->map(function ($rows): ?object {
+            ->map(function ($rows) use ($payloadByConnection): ?object {
                 $rows = $rows->filter(fn ($r) => $r->source_kind !== 'manual' && $r->connection_id !== null && (bool) $r->is_active);
                 $row = $rows->first();
                 if ($row === null || ! is_string($row->platform) || $row->platform === '') {
                     return null;
                 }
-                $payload = is_string($row->payload) ? (json_decode($row->payload, true) ?: []) : (array) ($row->payload ?? []);
+                $payload = self::decodedPayload($payloadByConnection[(string) $row->connection_id] ?? null);
                 $url = $payload['url'] ?? ($payload['selection']['url'] ?? null);
 
                 // #SEC-2: both gates. safeHref is the shared emit-path allowlist; the
@@ -1666,6 +1677,17 @@ class PoolResolver
     private static function wirePlatform(?string $platform): ?string
     {
         return $platform === null || $platform === '' ? $platform : str_replace('_', '-', $platform);
+    }
+
+    /**
+     * A connection's `payload` JSONB column, decoded — SQLite hands the
+     * column back as a string, Postgres may too depending on the read path,
+     * so both branches stay. Missing/null reads as empty, same as the two
+     * inline expressions this replaces.
+     */
+    private static function decodedPayload(mixed $raw): array
+    {
+        return is_string($raw) ? (json_decode($raw, true) ?: []) : (array) ($raw ?? []);
     }
 
     /**
