@@ -43,12 +43,15 @@ it('pulls in an item sharing a signature, canonicalisation included', function (
         ->and($result['coords'])->toContain('ap:acct:t9');
 });
 
-// THE ONE-HOP COUNTER-EXAMPLE (plan §A.1). A pulls in B via a shared title.
-// B's OWN source carries a second copy of that title on C, which is what
-// POISONS the key in Resolver::poisonedKeys(). A one-hop closure omits C, the
-// key looks clean, and A merges with B — a merge the full resolve would never
-// make, whose loser mergeInto() then HARD-DELETES.
-it('pulls in a same-source sibling that poisons a shared key — one hop is not enough', function () {
+// A signature shared by MORE than two coords is one hyperedge, not a chain —
+// every carrier of 'wandering star' sits at distance 1 from the touched coord
+// (plan §A.1, corrected 2026-08-25: poisoning is always one hop, because a
+// signature can only poison A's outcome if A itself carries it). The point of
+// this test is that the walk expands the WHOLE bucket, not just the first
+// match it finds, so a same-source sibling like ap:acct:t8 — the one
+// Resolver::poisonedKeys() needs to see to disable the signature — is present
+// in the scoped set for the caller to hand back to the full resolver.
+it('expands a shared signature to every member, so a poisoning sibling is present', function () {
     $result = (new IdentityScope)->component([
         scopeItem('sp:acct:t1', 'src-sp', 'track', [scopeKey(KeyClass::TitleOnly, 'Wandering Star')]),
         scopeItem('ap:acct:t9', 'src-ap', 'track', [scopeKey(KeyClass::TitleOnly, 'Wandering Star')]),
@@ -59,6 +62,14 @@ it('pulls in a same-source sibling that poisons a shared key — one hop is not 
         ->and($result['coords'])->toContain('ap:acct:t8');
 });
 
+// THE GENUINE ONE-HOP COUNTER-EXAMPLE (plan §A.1, corrected 2026-08-25). D
+// shares NO signature with A — it is reached only through the chain a→b (isrc)
+// →c (title) →d (url). One hop from a reaches only b; two hops reach b and c;
+// only a walk to FIXPOINT reaches d. This is the real reason transitivity is
+// required: union-find groups a, b and c on different signatures into one
+// group, and bindGroup() binds the whole group to a single item id — a
+// one-hop or two-hop implementation would leave d bound elsewhere, splitting a
+// group the full resolve keeps whole.
 it('follows the chain transitively to fixpoint', function () {
     // A—B on ISRC, B—C on title, C—D on url: touching A must reach D.
     $result = (new IdentityScope)->component([
@@ -74,7 +85,8 @@ it('follows the chain transitively to fixpoint', function () {
         scopeItem('d', 'src-d', 'track', [scopeKey(KeyClass::CanonicalUrl, 'https://x.test/w')]),
     ], [], ['a']);
 
-    expect($result['coords'])->toHaveCount(4);
+    expect($result['coords'])->toHaveCount(4)
+        ->and($result['coords'])->toContain('d');
 });
 
 it('follows a user "same" ruling even with no shared key', function () {

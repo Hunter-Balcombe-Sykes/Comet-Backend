@@ -22,9 +22,24 @@ namespace App\Content\Identity;
  * -> mergeInto() hard-deletes the loser, so that is data loss, not a missed
  * optimisation. Do not "tidy" the missing filters in: they are the guard.
  *
- * ONE HOP IS NOT ENOUGH, for the same reason. The poisoning sibling is two
- * hops from the touched coord in the common case (touched -> match -> the
- * match's same-source duplicate). Pinned by IdentityScopeTest.
+ * TWO SEPARATE GUARDS, not one (corrected 2026-08-25 — the original draft's
+ * poisoning-needs-two-hops story was self-refuting: a signature can only
+ * poison a coord's outcome if that coord itself carries it, which makes every
+ * carrier, poisoning sibling included, ONE hop away).
+ *
+ * Guard 1 — FIXPOINT TRANSITIVITY is for GROUP MEMBERSHIP. The resolver is a
+ * union-find: A-B on one signature and B-C on a DIFFERENT signature put all
+ * three in one group, and bindGroup() binds the whole group to one item id. C
+ * shares nothing directly with A, so a one-hop (or fixed-hop) closure would
+ * leave C bound elsewhere, splitting a group the full resolve keeps whole.
+ * Pinned by the 'follows the chain transitively to fixpoint' test (a-b-c-d).
+ *
+ * Guard 2 — UNFILTERED BREADTH is for POISONING. A key too weak for
+ * keyIndex() to union on (short, wrong tier, wrong kind) can still poison a
+ * signature in poisonedKeys(), so the closure must index it too, or the
+ * poisoning sibling — one hop away, but only findable via an unfiltered edge
+ * — would be missing from the scoped set. Pinned by the 'expands a shared
+ * signature to every member' and 'includes weak keys' tests.
  *
  * A 'different' ruling is NOT an edge. Cuts only ever SEPARATE, and
  * DisjointSet::wouldViolateCut() cannot block a union between two in-component
