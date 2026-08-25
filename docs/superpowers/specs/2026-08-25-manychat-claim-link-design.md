@@ -3,7 +3,10 @@
 **Date:** 2026-08-25
 **Status:** Approved in principle (owner, 2026-08-25); spec pending review
 **Scope:** The ManyChat/outreach build lane only. Self-serve (`built_via='signup'`) is explicitly OUT of scope — see §9.
-**Closes:** the outreach half of audit `#SEC-3` (`audits/sweeps/2026-08-24-claim-gate-security`)
+**Relates to:** audit `#SEC-3` (`audits/sweeps/2026-08-24-claim-gate-security`). ⚠️ This does **NOT**
+close it. `#SEC-3` is about the SELF-SERVE first-come arm, which is untouched here (§9); the
+outreach arm was already closed by `45a87669a`. What this work does is *re-open* outreach
+claimability under a token, deliberately. **Do not tick `#SEC-3` on the strength of this.**
 
 ---
 
@@ -143,8 +146,16 @@ This is weaker than HMAC. Stated, not hidden. Mitigations:
 
 - ≥32 bytes of entropy, rotatable without a deploy (env var).
 - Dedicated throttle bucket — build requests are Apify-billed.
-- Blast radius of a leaked secret is bounded by §5.4, which is the load-bearing
-  control.
+- Theft of OTHER people's builds is bounded by §5.4, the load-bearing control.
+
+**What §5.4 does NOT bound, stated plainly:** a secret holder can create a published,
+publicly-routable site for **any** business they can name, and receive a token letting them
+claim it themselves. Before this change that lane required staff + AAL2 *and* a
+staff-attached email, and an outreach build with no `contact_email` was unclaimable by
+anyone. So this materially lowers the cost of identity squatting (Threat 2, §9) even though
+it does not introduce it. The residual is not "can create spam builds" — it is "can mint
+themselves a claimable site for a business they do not own". Rotate the secret on any
+suspicion, and keep the throttle tight.
 
 ### 5.2 Request / response
 
@@ -156,24 +167,31 @@ Request:
   "source_type": "instagram",
   "source_ref": "amiconirestaurant",
   "source_name": "Amiconi",
-  "expires_days": 30
+  "expires_days": 30,
+  "idempotency_key": "manychat-sub-4471-amiconirestaurant"
 }
 ```
 
-Response `202` (new build):
+Response `202` (new build) — **flat, no `data` envelope.** `ApiController::success()` is
+called with `(new Resource(...))->resolve()`, and `resolve()` returns the unwrapped array;
+`$wrap = 'data'` only applies when a Resource is returned directly. This matches the sibling
+endpoints (`PreAccountBuildController`) and the assertions in `PublicBuildEndpointsTest`:
 
 ```json
 {
-  "data": {
-    "build_id": "01a03729-…",
-    "subdomain": "amiconi-restaurant",
-    "build_state": "pending",
-    "claim_url": "https://partna.au/claim/amiconi-restaurant?t=<token>"
-  }
+  "build_id": "01a03729-…",
+  "subdomain": "amiconi-restaurant",
+  "build_state": "pending",
+  "reused": false,
+  "claim_url": "https://partna.au/claim/amiconi-restaurant?t=<token>"
 }
 ```
 
-ManyChat inserts `claim_url` into the DM. Nothing else is needed.
+ManyChat inserts `claim_url` into the DM. Nothing else is needed. **Configure the ManyChat
+flow against the flat path** (`claim_url`, not `data.claim_url`).
+
+**`idempotency_key` (required).** ManyChat must send a stable key per lead-conversation.
+See §5.4 — without it a lost response strands the build.
 
 ### 5.3 Send timing — ManyChat's choice, not ours
 
@@ -221,6 +239,22 @@ separate, staff-authenticated action (§8), never a side effect of a webhook cal
 
 This is the control that bounds §5.1's weaker auth, and it must be pinned by a test.
 
+**The cost of that rule: a lost response strands the build.** Webhook callers retry. If
+ManyChat's first call succeeds server-side but the response never arrives, the retry dedupes
+to `reused: true` and returns no token — leaving a build that is `built_via = staff`, has no
+`contact_email` and no token, i.e. `CLAIM_NOT_INVITED` forever until a human runs §8.
+
+**Therefore `idempotency_key` is REQUIRED on the request.** Store it on the build; when a
+request arrives whose key matches the build it deduped to, **re-mint and return a fresh
+claim_url**. A retry is then safe, and the §5.4 rule is unweakened: the key proves the caller
+is the same one that created this build, which is exactly what the dedupe path could not
+otherwise establish.
+
+⚠️ **Do NOT implement the tempting shortcut** "re-mint on reuse when `claim_token_hash IS NULL`."
+Self-serve builds also have a null token, so that rule would hand a leaked webhook secret a
+working capability for any `signup` build — reintroducing the takeover this section exists to
+prevent.
+
 ## 6. Changes to the claim path
 
 ### 6.1 `ClaimNotifier` — NOT changed
@@ -243,34 +277,56 @@ needs the other's mechanism.
 The invite-gate becomes: a valid token satisfies it.
 
 ```php
-$contactEmail = trim((string) $build->contact_email);
-$tokenOk = $this->tokenMatches($build, $presentedToken);   // hash_equals on the hash
+$tokenOk = $this->tokens->matches($build, $claimToken);
 
+$contactEmail = trim((string) $build->contact_email);
 if ($build->isOutreach() && $contactEmail === '' && ! $tokenOk) {
     throw new RuntimeException('CLAIM_NOT_INVITED');
 }
 
-if ($contactEmail !== '' && ! $tokenOk
+// NOTE the absence of $tokenOk here — deliberate (owner, 2026-08-25).
+if ($contactEmail !== ''
     && strtolower(trim($verifiedEmail)) !== strtolower($contactEmail)) {
     throw new RuntimeException('CLAIM_EMAIL_MISMATCH');
 }
 ```
 
+**The token is NARROW: it proves INVITATION, not identity.** It satisfies the invite-gate
+only. If a build carries a `contact_email`, that address must still match — a token holder
+cannot claim an email-gated build with some other address.
+
+This is a decision, not an oversight. The wider reading (token overrides everything) is
+reachable in practice: `reconcileContactEmail()` can attach an address to an existing live
+build, and §8 will mint a token for a build that already has one. Under the wide reading a
+token would then silently override a staff-attached invitation. Both behaviours must be
+pinned by tests so neither can drift.
+
 Both existing gates keep their current behaviour when no token is presented. On
 success, inside the same transaction that already holds `lockForUpdate()`, clear
 `claim_token_hash`.
 
-**A token does not bypass:** `ALREADY_CLAIMED`, `BUILD_FAILED`, `ACCOUNT_EXISTS`,
-`EMAIL_ALREADY_REGISTERED`, or expiry. It satisfies *invitation*, nothing else.
+**A token does not bypass:** `CLAIM_EMAIL_MISMATCH` (see above), `ALREADY_CLAIMED`,
+`BUILD_FAILED`, `ACCOUNT_EXISTS`, `EMAIL_ALREADY_REGISTERED`, or expiry. It satisfies
+*invitation*, nothing else.
 
 **Expired build:** the token is refused. `builds:prune-expired` deletes the row
 anyway; the check is explicit so a not-yet-pruned expired build cannot be claimed.
 
 ### 6.3 `ClaimSiteRequest`
 
-Add `'claim_token' => ['nullable', 'string', 'max:128']`. The frontend reads `?t=`
-and forwards it in the POST body — not the query string, so it stays out of access
-logs and `Referer`.
+Add `'claim_token' => ['nullable', 'string', 'max:128']`. The frontend reads `?t=` and
+forwards it in the **POST body**, so the token never reaches OUR access logs or `Referer`.
+
+⚠️ **It is still in the frontend's URL.** The DM'd link is `…/claim/{sub}?t=<token>`, which
+lands in the pages app's access logs, the visitor's browser history, and the `Referer` of
+every asset the claim page loads. The frontend contract therefore MUST strip it on load:
+
+```js
+history.replaceState(null, '', location.pathname);
+```
+
+Frontend work is out of scope here (§9), but this is part of the contract handed over, not
+an optional nicety.
 
 ### 6.4 Send-once guard for the DM
 
@@ -286,6 +342,18 @@ so **no second token is ever live for one build**.
 
 The stub's re-fire gap therefore stays as-is and stays documented. It becomes real work
 only if a Push driver ever lands (§3), and this spec does not land one.
+
+### 6.5 `isOutreach()`'s docblock becomes false — update it
+
+`PreAccountBuild::isOutreach()` currently documents: *"Both come from the same
+`$staff ? VIA_STAFF : VIA_SIGNUP` expression at creation time, so `built_via` is exactly as
+trustworthy"*, and `#SEM-2`'s note says `built_via === 'staff'` *"can only originate from an
+actual staff-authenticated write."*
+
+After this change `VIA_STAFF` also originates from a static-secret webhook. The
+classification still fails **safe** (more outreach, never less), so there is no security
+regression — but leaving the comment planted is a false premise for the next reviewer.
+Update the docblock and add a line to the `#SEM-2` entry.
 
 ## 7. Migration
 
@@ -328,9 +396,14 @@ webhook (§5.4).
 | New build via webhook returns a `claim_url` containing a token | Happy path |
 | **Reused build returns NO `claim_url`** | §5.4 — the control bounding a leaked secret |
 | Opening the link without completing a claim leaves the token valid | §4 — used, not opened |
-| A failed claim (`ACCOUNT_EXISTS`) leaves the token valid | §4 — the throw must roll back the clear |
+| A failed claim leaves the token valid | §4. NOTE: the burn is folded into the final `claimed_at` write, so **every** throw is structurally before it. This test guards against someone moving the burn earlier — it is a regression guard, not a proof of rollback. |
 | Valid token claims an outreach build with no `contact_email` | The wall is gone |
 | Token is cleared after a successful claim; replay fails | Single-use |
+| A token does NOT satisfy an email-gated build with a mismatched address | §6.2 — the token is NARROW |
+| A token DOES claim an email-gated build when the address matches | §6.2 — no regression on the email lane |
+| A retry carrying the same `idempotency_key` re-mints and returns a claim_url | §5.4 — a lost response must not strand the build |
+| A reuse WITHOUT a matching idempotency_key still returns no claim_url | §5.4 — the rule is unweakened |
+| A bad source/account pairing returns 422 with a `code`, not a 500 | The error contract — an unresolvable exception import would silently 500 |
 | Wrong / absent token on a no-email outreach build still throws `CLAIM_NOT_INVITED` | No regression |
 | Token on an expired build is refused | Expiry is not bypassable |
 | Token does not bypass `ALREADY_CLAIMED` / `ACCOUNT_EXISTS` | Scope of the capability |
@@ -341,6 +414,16 @@ webhook (§5.4).
 Note the SQLite/Postgres divergence rule in `CLAUDE.md`: the new columns are nullable
 `text`/`timestamptz` with no CHECK, so the SQLite lane is representative here. No
 `tests/Postgres/` addition required.
+
+⚠️ **The suite does not run migrations.** `RefreshDatabase` is disabled (`tests/Pest.php:49`);
+each suite hand-builds its SQLite tables via `setupPreAccountBuildsTable()`, which carries its
+own defensive `ALTER TABLE ... ADD COLUMN` list mirroring each migration. **Every schema change
+here is a TWO-file change** — `supabase/migrations/` *and* `tests/Pest.php`.
+
+This is not bookkeeping: a missing column reads back as `null`, so `ClaimTokenIssuer::matches()`
+would return `false` for every input and the test *"a wrong token still throws
+CLAIM_NOT_INVITED"* would **pass while the gate was simply broken**. Same vacuous-pass shape as
+a rotted DAST fixture.
 
 ## 11. Open questions
 

@@ -2,66 +2,74 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let ManyChat create a pre-account build over a signed webhook and DM the lead a claim link that proves invitation, so a DM'd person can claim without an email address and without staff intervention.
+**Goal:** Let ManyChat create a pre-account build over a secret-gated webhook and DM the lead a claim link that proves invitation, so a DM'd person can claim without an email address and without staff intervention.
 
-**Architecture:** Pull, not Push — ManyChat calls us, we return a one-time claim URL, ManyChat sends the DM itself. A random token is minted per NEW build only; we store SHA-256 of it, never the plaintext. Presenting a valid token satisfies the existing invite-gate in `ClaimSiteService`, and the hash is cleared inside the claim transaction on success.
+**Architecture:** Pull, not Push — ManyChat calls us, we return a one-time claim URL, ManyChat sends the DM itself. A random token is minted for a NEW build, or for a retry carrying the same `idempotency_key`; we store SHA-256, never plaintext. A valid token satisfies the **invite-gate only** — it is narrow, and does not override an email-gated build. The hash is cleared inside the claim transaction, folded into the final `claimed_at` write.
 
 **Tech Stack:** Laravel 12, PHP 8.4, Pest 4, Supabase Postgres (raw SQL migrations in `supabase/migrations/`).
 
 **Spec:** `docs/superpowers/specs/2026-08-25-manychat-claim-link-design.md`
 
+**Review:** all Critical/Important findings from the 2026-08-25 review are folded in. See "What the review changed" at the foot.
+
 ## Global Constraints
 
-- **Never create a Laravel migration file.** Schema changes are raw SQL in `supabase/migrations/`. The composer guard rejects Laravel migrations.
-- **Never return raw Eloquent from an endpoint.** Use a Resource class.
-- **Never write an inline `abort_unless(..., 403)`.** CI fails the build on inline 403s.
-- Tests run **SQLite**, production is **Postgres**. The columns added here are nullable `text`/`timestamptz` with no CHECK, so the SQLite lane is representative — no `tests/Postgres/` addition needed.
-- 4-space indent, LF. Comments explain **why**, not what. No banners.
-- `pint --test` is the CI gate, **not** `pint` (which silently fixes then reports "passed"). Run `--test`.
-- Token plaintext is returned **exactly once**, in the create response. It is never stored, never logged, never re-returned by any GET.
-- A claim token is minted **only when `requestBuild()` returns `reused === false`**. This is the control that bounds the webhook's static-secret auth (spec §5.4).
-- "Single-use" means **used, not opened** — the hash clears on a *successful* claim only (spec §4).
+- **Never create a Laravel migration file.** Raw SQL in `supabase/migrations/`; the composer guard rejects Laravel migrations.
+- ⚠️ **THE SUITE DOES NOT RUN MIGRATIONS. Every schema change is a TWO-file change.** `RefreshDatabase` is disabled (`tests/Pest.php:49`); each suite hand-builds SQLite tables via `setupPreAccountBuildsTable()` (`tests/Pest.php:561`), which carries its own defensive `ALTER TABLE ... ADD COLUMN` list mirroring each migration. Add the column in **both** places, or `matches()` reads `null` for every input and the "gate still throws" tests pass while the gate is simply broken.
+- **Every new test file must bootstrap its own tables and fake the queue.** The pattern for this surface is `setupUsersTable(); setupSitesTable(); setupPreAccountBuildsTable(); shimPgAdvisoryLockForSqlite(); Queue::fake();`. Without `Queue::fake()`, `QUEUE_CONNECTION=sync` runs `GeneratePreAccountSiteJob` **inline and attempts a real Apify scrape**.
+- **A Unit test needs `uses(TestCase::class)->in(__FILE__);`** — `tests/Pest.php:49` binds `TestCase` to `Feature` only, so without it `app()` and `now()` have no booted container.
+- **Responses are FLAT — there is no `data` envelope.** `success((new Resource(...))->resolve(), $status)` returns the unwrapped array; `$wrap = 'data'` only applies to a Resource returned directly. Assert `build_id`, never `data.build_id`.
+- **Never return raw Eloquent.** Use a Resource. **Never write an inline `abort_unless(..., 403)`** — CI fails on it.
+- Helpers are **per test file**; cross-file Pest helpers break under `--parallel`, which is how the suite runs.
+- 4-space indent, LF. Comments explain **why**. `pint --test` is the gate, not `pint`.
+- Token plaintext is returned **exactly once**. Never stored, never logged, never returned by any GET.
+- A token is minted only for a **new** build, or a **retry with a matching `idempotency_key`** (spec §5.4).
+- "Single-use" = **used, not opened** — the hash clears on a successful claim only (spec §4).
+- The token is **narrow**: invitation only. It does **not** override `CLAIM_EMAIL_MISMATCH` (spec §6.2).
 
 ---
 
-### Task 1: Schema + model for the claim token
+### Task 1: Schema + model
 
 **Files:**
 - Create: `supabase/migrations/20260825120000_pre_account_builds_claim_token.sql`
-- Modify: `app/Models/Core/User/PreAccountBuild.php` (docblock ~line 27, `$casts` ~line 82)
+- Modify: `app/Models/Core/User/PreAccountBuild.php` (docblock ~`:28`, `$casts` `:82-88`, `isOutreach()` docblock `:122-127`)
+- Modify: `tests/Pest.php:583-589` (the defensive ALTER list)
 - Test: `tests/Unit/Models/PreAccountBuildTest.php`
 
 **Interfaces:**
-- Consumes: nothing.
-- Produces: `PreAccountBuild::$claim_token_hash` (`?string`), `PreAccountBuild::$claim_token_issued_at` (`?Carbon`). Both **not fillable**.
+- Produces: `$claim_token_hash` (`?string`), `$claim_token_issued_at` (`?Carbon`), `$claim_idempotency_key` (`?string`). All **not fillable**.
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `tests/Unit/Models/PreAccountBuildTest.php`:
+Append to `tests/Unit/Models/PreAccountBuildTest.php` (which already has `uses(TestCase::class)` at `:8`):
 
 ```php
-it('does not mass-assign the claim token columns', function () {
-    $build = new PreAccountBuild([
-        'claim_token_hash' => 'attacker-supplied',
-        'claim_token_issued_at' => now(),
-    ]);
-
-    expect($build->claim_token_hash)->toBeNull()
-        ->and($build->claim_token_issued_at)->toBeNull();
-});
-
 it('casts claim_token_issued_at to a date', function () {
     $build = new PreAccountBuild;
     $build->forceFill(['claim_token_issued_at' => '2026-08-25 04:24:13']);
 
     expect($build->claim_token_issued_at)->toBeInstanceOf(\Illuminate\Support\Carbon::class);
 });
+
+// Regression guard, not a red-then-green test: $fillable already drops unknown
+// keys, so this passes before the change too. It exists to fail loudly if
+// someone later adds these columns to $fillable.
+it('does not mass-assign the claim token columns', function () {
+    $build = new PreAccountBuild([
+        'claim_token_hash' => 'attacker-supplied',
+        'claim_idempotency_key' => 'attacker-supplied',
+    ]);
+
+    expect($build->claim_token_hash)->toBeNull()
+        ->and($build->claim_idempotency_key)->toBeNull();
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `php vendor/bin/pest tests/Unit/Models/PreAccountBuildTest.php`
-Expected: FAIL — the cast test errors because `claim_token_issued_at` comes back as a plain string.
+Expected: the **cast** test FAILS (`claim_token_issued_at` is a plain string). The mass-assignment test passes already — expected, and noted above.
 
 - [ ] **Step 3: Write the migration**
 
@@ -76,20 +84,38 @@ Create `supabase/migrations/20260825120000_pre_account_builds_claim_token.sql`:
 -- query, log) must not yield a working takeover capability for every live
 -- build; the plaintext is returned exactly once, at mint time, and never again.
 --
--- No index: the token is never a lookup key. The claim path finds the build by
--- subdomain and then compares hashes, so an index would buy nothing and would
--- make the column's distribution visible in pg_stats.
+-- claim_idempotency_key lets a retried webhook call re-mint safely: the key
+-- proves the caller is the one that created this build, which the dedupe path
+-- cannot otherwise establish. Without it a lost HTTP response strands the
+-- build as permanently unclaimable (spec §5.4).
 --
--- Nullable with no default and no backfill: every existing build keeps a NULL
--- token and continues to claim through the email path exactly as before.
+-- No index on either: the token is never a lookup key (the claim path finds the
+-- build by subdomain, then compares hashes) and the idempotency key is only
+-- ever read on a row already in hand.
+--
+-- Nullable, no default, no backfill: existing builds keep NULL and continue to
+-- claim through the email path exactly as before.
+--
+-- ROLLBACK: ALTER TABLE core.pre_account_builds
+--             DROP COLUMN IF EXISTS claim_token_hash,
+--             DROP COLUMN IF EXISTS claim_token_issued_at,
+--             DROP COLUMN IF EXISTS claim_idempotency_key;
+
+BEGIN;
+
 ALTER TABLE core.pre_account_builds
-    ADD COLUMN claim_token_hash text,
-    ADD COLUMN claim_token_issued_at timestamptz;
+    ADD COLUMN IF NOT EXISTS claim_token_hash text,
+    ADD COLUMN IF NOT EXISTS claim_token_issued_at timestamptz,
+    ADD COLUMN IF NOT EXISTS claim_idempotency_key text;
 
 COMMENT ON COLUMN core.pre_account_builds.claim_token_hash IS
-    'SHA-256 of the claim token. Plaintext is never stored. Cleared on successful claim (single-use).';
+    'SHA-256 of the claim token. Plaintext never stored. Cleared on successful claim (single-use).';
 COMMENT ON COLUMN core.pre_account_builds.claim_token_issued_at IS
     'When the current claim token was minted. Observability + rotation only.';
+COMMENT ON COLUMN core.pre_account_builds.claim_idempotency_key IS
+    'Caller-supplied key from the ManyChat webhook. A retry matching this re-mints instead of stranding the build.';
+
+COMMIT;
 ```
 
 - [ ] **Step 4: Apply to dev and verify**
@@ -103,21 +129,32 @@ supabase db push
 Verify:
 
 ```sql
-select column_name, data_type, is_nullable
-from information_schema.columns
+select column_name, is_nullable from information_schema.columns
 where table_schema='core' and table_name='pre_account_builds'
-  and column_name like 'claim_token%';
+  and column_name like 'claim_%';
 ```
 
-Expected: two rows, both `is_nullable = YES`.
+Expected: three rows, all `is_nullable = YES`.
 
-- [ ] **Step 5: Update the model**
+- [ ] **Step 5: Mirror the columns into the SQLite stand-in**
+
+⚠️ **Not optional — see Global Constraints.** In `tests/Pest.php`, add to the `foreach` list at `:583-589`:
+
+```php
+        // Mirrors migration 20260825120000 (ManyChat claim links).
+        'claim_token_hash TEXT NULL',
+        'claim_token_issued_at TEXT NULL',
+        'claim_idempotency_key TEXT NULL',
+```
+
+- [ ] **Step 6: Update the model**
 
 In `app/Models/Core/User/PreAccountBuild.php`, add to the class docblock after the `@property Carbon|null $invited_at` line:
 
 ```php
- * @property string|null $claim_token_hash SHA-256 of the claim token (spec §4). Plaintext is NEVER stored. NULL = no live token. Not fillable — minted via ClaimTokenIssuer.
+ * @property string|null $claim_token_hash SHA-256 of the claim token (spec §4). Plaintext NEVER stored. NULL = no live token. Not fillable — minted via ClaimTokenIssuer.
  * @property Carbon|null $claim_token_issued_at When the current token was minted. Not fillable.
+ * @property string|null $claim_idempotency_key Caller key from the ManyChat webhook; a retry matching it re-mints (spec §5.4). Not fillable.
 ```
 
 Add to `$casts`:
@@ -126,21 +163,35 @@ Add to `$casts`:
         'claim_token_issued_at' => 'datetime',
 ```
 
-Leave `$fillable` **unchanged** — the omission is the guard, matching the existing `user_id` / `build_state` precedent documented above that array.
+Leave `$fillable` **unchanged** — the omission is the guard.
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [ ] **Step 7: Correct the `isOutreach()` docblock**
 
-Run: `php vendor/bin/pest tests/Unit/Models/PreAccountBuildTest.php`
+`PreAccountBuild.php:122-127` claims `built_via` comes only from `$staff ? VIA_STAFF : VIA_SIGNUP`. Task 4 makes that false. Append inside that docblock:
+
+```php
+     * UPDATE 2026-08-25: VIA_STAFF now ALSO originates from the ManyChat
+     * webhook (a static shared secret, not staff auth) — see
+     * ManyChatBuildController. The classification still fails SAFE (more
+     * outreach, never less), so #SEM-2's conclusion holds, but its premise
+     * "can only originate from an actual staff-authenticated write" no longer
+     * does. Do not reason from that sentence.
+```
+
+- [ ] **Step 8: Run tests**
+
+Run: `php vendor/bin/pest tests/Unit/Models/PreAccountBuildTest.php tests/Feature/PreAccount/`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add supabase/migrations/20260825120000_pre_account_builds_claim_token.sql app/Models/Core/User/PreAccountBuild.php tests/Unit/Models/PreAccountBuildTest.php
-git commit -m "feat(pre-account): claim_token_hash + claim_token_issued_at columns
+git add supabase/migrations/20260825120000_pre_account_builds_claim_token.sql app/Models/Core/User/PreAccountBuild.php tests/Pest.php tests/Unit/Models/PreAccountBuildTest.php
+git commit -m "feat(pre-account): claim token + idempotency key columns
 
-Stores SHA-256, never plaintext. Not fillable. No index — the token is
-never a lookup key; the claim path finds the build by subdomain first."
+Stores SHA-256, never plaintext. Not fillable. Mirrored into the SQLite
+stand-in in tests/Pest.php — the suite does not run migrations, and a
+missing column would make the token gate vacuously pass."
 ```
 
 ---
@@ -152,21 +203,14 @@ never a lookup key; the claim path finds the build by subdomain first."
 - Test: `tests/Unit/Services/PreAccount/ClaimTokenIssuerTest.php`
 
 **Interfaces:**
-- Consumes: `PreAccountBuild::$claim_token_hash`, `$claim_token_issued_at` (Task 1).
 - Produces:
-  - `ClaimTokenIssuer::issue(PreAccountBuild $build): string` — mints, persists the hash, returns plaintext once.
-  - `ClaimTokenIssuer::matches(PreAccountBuild $build, ?string $presented): bool` — constant-time compare; **false** when no token, no presented value, or the build has expired.
-  - `ClaimTokenIssuer::burn(PreAccountBuild $build): void` — clears the hash.
+  - `issue(PreAccountBuild $build): string` — mints, persists the hash, returns plaintext once.
+  - `matches(PreAccountBuild $build, ?string $presented): bool` — constant-time; **false** on no token, no presented value, or an expired build.
+  - `burn(): array` — the attribute fragment a caller folds into its own write (see Task 5).
 
 - [ ] **Step 1: Write the failing test**
 
 Create `tests/Unit/Services/PreAccount/ClaimTokenIssuerTest.php`:
-
-> **Why the local helper:** `PreAccountBuildFactory` creates NO user, but
-> `pre_account_builds.user_id` is NOT NULL **and not fillable** — it must be set
-> via `->user()->associate()` (see the `$fillable` comment in the model). And the
-> helper is defined per-file on purpose: cross-file Pest helpers break under
-> `--parallel`.
 
 ```php
 <?php
@@ -174,7 +218,20 @@ Create `tests/Unit/Services/PreAccount/ClaimTokenIssuerTest.php`:
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\PreAccount\ClaimTokenIssuer;
+use Tests\TestCase;
 
+// tests/Pest.php binds TestCase to Feature ONLY — without this the container
+// is never booted and app()/now()/factories all fail.
+uses(TestCase::class)->in(__FILE__);
+
+beforeEach(function () {
+    setupUsersTable();
+    setupPreAccountBuildsTable();
+});
+
+// Local by design: cross-file Pest helpers break under --parallel.
+// PreAccountBuildFactory creates NO user, but user_id is NOT NULL and is
+// deliberately not fillable — it must be attached via associate().
 function issuerBuild(array $attrs = []): PreAccountBuild
 {
     $user = User::factory()->create([
@@ -184,19 +241,18 @@ function issuerBuild(array $attrs = []): PreAccountBuild
     ]);
 
     $build = PreAccountBuild::factory()->make($attrs);
-    $build->user()->associate($user);   // user_id is NOT fillable
+    $build->user()->associate($user);
     $build->save();
 
     return $build->fresh();
 }
 
-it('mints a token, stores only its hash, and never persists the plaintext', function () {
+it('stores only the hash, never the plaintext', function () {
     $build = issuerBuild();
 
     $plain = app(ClaimTokenIssuer::class)->issue($build);
 
-    expect($plain)->toBeString()->not->toBe('')
-        ->and($build->fresh()->claim_token_hash)->toBe(hash('sha256', $plain))
+    expect($build->fresh()->claim_token_hash)->toBe(hash('sha256', $plain))
         ->and($build->fresh()->claim_token_hash)->not->toBe($plain)
         ->and($build->fresh()->claim_token_issued_at)->not->toBeNull();
 });
@@ -217,7 +273,7 @@ it('rejects a wrong token', function () {
     expect($issuer->matches($build->fresh(), $plain.'x'))->toBeFalse();
 });
 
-it('rejects an absent presented token', function () {
+it('rejects a null presented token', function () {
     $build = issuerBuild();
     app(ClaimTokenIssuer::class)->issue($build);
 
@@ -231,7 +287,7 @@ it('rejects an empty presented token', function () {
     expect(app(ClaimTokenIssuer::class)->matches($build->fresh(), ''))->toBeFalse();
 });
 
-it('rejects any token on a build with no live token', function () {
+it('rejects any token on a build that has none', function () {
     $build = issuerBuild(['expires_at' => now()->addDays(30)]);
 
     expect(app(ClaimTokenIssuer::class)->matches($build, 'anything'))->toBeFalse();
@@ -253,22 +309,15 @@ it('accepts a valid token on a never-expiring build', function () {
     expect($issuer->matches($build->fresh(), $plain))->toBeTrue();
 });
 
-it('burns the token so a replay fails', function () {
-    $build = issuerBuild();
-    $issuer = app(ClaimTokenIssuer::class);
-    $plain = $issuer->issue($build);
-
-    $issuer->burn($build);
-
-    expect($build->fresh()->claim_token_hash)->toBeNull()
-        ->and($issuer->matches($build->fresh(), $plain))->toBeFalse();
-});
-
 it('mints a different token every time', function () {
     $build = issuerBuild();
     $issuer = app(ClaimTokenIssuer::class);
 
     expect($issuer->issue($build))->not->toBe($issuer->issue($build));
+});
+
+it('burn() yields the attribute fragment that clears the hash', function () {
+    expect(app(ClaimTokenIssuer::class)->burn())->toBe(['claim_token_hash' => null]);
 });
 ```
 
@@ -326,17 +375,25 @@ class ClaimTokenIssuer
         return hash_equals($hash, hash('sha256', $presented));
     }
 
-    // Single-use = USED, not opened (spec §4). Call ONLY after ownership has
-    // actually transferred, inside the claim transaction, so a claim that
-    // throws rolls this back with it.
-    public function burn(PreAccountBuild $build): void
+    /**
+     * The attribute fragment that spends the token, for the caller to FOLD
+     * into its own write rather than issuing a second UPDATE.
+     *
+     * Returning a fragment instead of saving is the point: ClaimSiteService
+     * merges this into the final claimed_at write, so the burn lands strictly
+     * after every throw in the claim path. That makes "a failed claim does not
+     * consume the lead's link" structural, not dependent on rollback.
+     *
+     * @return array{claim_token_hash: null}
+     */
+    public function burn(): array
     {
-        $build->forceFill(['claim_token_hash' => null])->save();
+        return ['claim_token_hash' => null];
     }
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Run tests**
 
 Run: `php vendor/bin/pest tests/Unit/Services/PreAccount/ClaimTokenIssuerTest.php`
 Expected: PASS, 10 tests.
@@ -345,27 +402,28 @@ Expected: PASS, 10 tests.
 
 ```bash
 git add app/Services/PreAccount/ClaimTokenIssuer.php tests/Unit/Services/PreAccount/ClaimTokenIssuerTest.php
-git commit -m "feat(pre-account): ClaimTokenIssuer — mint, verify, burn
+git commit -m "feat(pre-account): ClaimTokenIssuer — mint, verify, burn-fragment
 
-Stores SHA-256 only. Expiry is enforced inside matches() so every call
-site inherits it. burn() is success-only, per spec §4."
+Stores SHA-256 only. Expiry enforced inside matches() so no call site can
+forget it. burn() returns a fragment for the caller to fold into its own
+write, which is what makes the burn strictly-after-every-throw."
 ```
 
 ---
 
-### Task 3: Webhook auth middleware, config, and rate limiter
+### Task 3: Webhook gate, config, rate limiters
 
 **Files:**
 - Create: `app/Http/Middleware/Auth/VerifyManyChatWebhook.php`
-- Modify: `config/services.php` (after the `supabase` block, ~line 55)
-- Modify: `bootstrap/app.php:182` (middleware alias list)
-- Modify: `app/Providers/AppServiceProvider.php` (after the `pre-account-build` limiter, ~line 648)
+- Modify: `config/services.php` (after the `supabase` block, `:55`)
+- Modify: `config/partna.php` (`throttle` array)
+- Modify: `bootstrap/app.php:182` (alias list) + imports
+- Modify: `app/Providers/AppServiceProvider.php` (after the `pre-account-build` limiter, `:646`)
 - Modify: `.env.example`
 - Test: `tests/Feature/Api/Internal/ManyChatWebhookAuthTest.php`
 
 **Interfaces:**
-- Consumes: nothing.
-- Produces: middleware alias `manychat.webhook`; rate limiter `manychat-build`; config key `services.manychat.webhook_secret`.
+- Produces: alias `manychat.webhook`; limiter `manychat-build`; config `services.manychat.webhook_secret`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -374,8 +432,9 @@ Create `tests/Feature/Api/Internal/ManyChatWebhookAuthTest.php`:
 ```php
 <?php
 
-// The route itself lands in Task 4; these assertions are about the GATE, so
-// they hit the same path and only ever assert on 401/503 — never on 2xx.
+// No table bootstrap needed here, uniquely: the middleware short-circuits
+// before any DB access. Every OTHER new test file in this plan needs the full
+// setup*/Queue::fake() block — see Global Constraints.
 
 it('returns 503 when the webhook secret is not configured', function () {
     config(['services.manychat.webhook_secret' => '']);
@@ -388,8 +447,7 @@ it('returns 503 when the webhook secret is not configured', function () {
 it('returns 401 when the secret header is absent', function () {
     config(['services.manychat.webhook_secret' => 'a-test-secret-value']);
 
-    $this->postJson('/api/internal/webhooks/manychat/builds', [])
-        ->assertStatus(401);
+    $this->postJson('/api/internal/webhooks/manychat/builds', [])->assertStatus(401);
 });
 
 it('returns 401 when the secret header is wrong', function () {
@@ -400,7 +458,7 @@ it('returns 401 when the secret header is wrong', function () {
         ->assertStatus(401);
 });
 
-it('does not answer 401 or 503 once the correct secret is presented', function () {
+it('passes the gate when the correct secret is presented', function () {
     config(['services.manychat.webhook_secret' => 'a-test-secret-value']);
 
     $response = $this->withHeader('X-Partna-Webhook-Secret', 'a-test-secret-value')
@@ -414,11 +472,11 @@ it('does not answer 401 or 503 once the correct secret is presented', function (
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `php vendor/bin/pest tests/Feature/Api/Internal/ManyChatWebhookAuthTest.php`
-Expected: FAIL — 404, the route does not exist yet.
+Expected: FAIL — 404, route lands in Task 4.
 
 - [ ] **Step 3: Add the config key**
 
-In `config/services.php`, after the closing `],` of the `'supabase'` block:
+In `config/services.php`, after the `'supabase' => [...]` block:
 
 ```php
     // ManyChat marketing automation → POST /api/internal/webhooks/manychat/builds.
@@ -427,7 +485,8 @@ In `config/services.php`, after the closing `],` of the `'supabase'` block:
     // External Request action can set headers but cannot sign a request body,
     // so the Standard Webhooks scheme used for Supabase/Resend is unavailable.
     // Weaker by construction — the control that bounds it is that a claim token
-    // is only ever minted for a NEW build (spec §5.4), never a deduped one.
+    // is only ever minted for a NEW build, or a retry carrying the same
+    // idempotency_key (spec §5.4).
     //
     // Rotate by changing this env var and the ManyChat flow's header together.
     'manychat' => [
@@ -435,7 +494,14 @@ In `config/services.php`, after the closing `],` of the `'supabase'` block:
     ],
 ```
 
-- [ ] **Step 4: Add the env var placeholder**
+- [ ] **Step 4: Add throttle config + env placeholder**
+
+In `config/partna.php`, in the `throttle` array:
+
+```php
+        'manychat_build_per_minute' => (int) env('PARTNA_THROTTLE_MANYCHAT_BUILD_PER_MINUTE', 10),
+        'manychat_build_per_hour' => (int) env('PARTNA_THROTTLE_MANYCHAT_BUILD_PER_HOUR', 120),
+```
 
 Append to `.env.example`:
 
@@ -486,9 +552,6 @@ class VerifyManyChatWebhook
 
         $presented = (string) $request->header(self::HEADER, '');
 
-        // hash_equals on the raw values: both are our own secrets, not
-        // attacker-length-controlled digests, so no pre-hash is needed — but
-        // the comparison still must not short-circuit on first byte.
         if ($presented === '' || ! hash_equals($secret, $presented)) {
             Log::warning('manychat.webhook.signature_failed');
 
@@ -505,35 +568,37 @@ class VerifyManyChatWebhook
 
 - [ ] **Step 6: Register the alias**
 
-In `bootstrap/app.php`, in the middleware alias array immediately after the `'resend.webhook'` line:
+In `bootstrap/app.php`, after the `'resend.webhook'` line:
 
 ```php
             'manychat.webhook' => VerifyManyChatWebhook::class,
 ```
 
-Add the import at the top of the file alongside the other middleware imports:
+and add `use App\Http\Middleware\Auth\VerifyManyChatWebhook;` with the other middleware imports.
 
-```php
-use App\Http\Middleware\Auth\VerifyManyChatWebhook;
-```
+- [ ] **Step 7: Add the rate limiters**
 
-- [ ] **Step 7: Add the rate limiter**
-
-In `app/Providers/AppServiceProvider.php`, immediately after the closing `});` of the `pre-account-build` limiter:
+In `app/Providers/AppServiceProvider.php`, after the `pre-account-build` limiter's closing `});`:
 
 ```php
         // ManyChat build webhook. Each call can trigger an Apify-billed scrape,
-        // so this is a spend guard as much as an abuse guard. Keyed on the
-        // route (one shared caller), not the IP — ManyChat's egress IPs are not
-        // published, so an IP key would silently split the bucket.
+        // so this is a spend guard as much as an abuse guard.
+        //
+        // TWO buckets on purpose. The shared 'manychat:h' key is a global
+        // quota, and throttle middleware runs BEFORE the secret check — so a
+        // constant key alone is a DoS handle: any stranger who knows the URL
+        // could burn the quota and lock the real flow out with 429s. The
+        // per-IP bucket is the narrower one an anonymous caller hits first.
         RateLimiter::for('manychat-build', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
                 return [Limit::none()];
             }
 
+            $ip = $request->header('CF-Connecting-IP') ?: $request->ip();
+
             return [
                 Limit::perMinute((int) config('partna.throttle.manychat_build_per_minute', 10))
-                    ->by('manychat:m')
+                    ->by('manychat:ip:'.$ip)
                     ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
 
                 Limit::perHour((int) config('partna.throttle.manychat_build_per_hour', 120))
@@ -543,23 +608,17 @@ In `app/Providers/AppServiceProvider.php`, immediately after the closing `});` o
         });
 ```
 
-In `config/partna.php`, in the `throttle` array, add:
-
-```php
-        'manychat_build_per_minute' => (int) env('PARTNA_THROTTLE_MANYCHAT_BUILD_PER_MINUTE', 10),
-        'manychat_build_per_hour' => (int) env('PARTNA_THROTTLE_MANYCHAT_BUILD_PER_HOUR', 120),
-```
-
 - [ ] **Step 8: Commit**
 
-The route arrives in Task 4, so the auth test still fails here. Commit the gate anyway — it is self-contained and reviewable.
+The route arrives in Task 4, so the auth test is still red. Commit the gate anyway — it is self-contained.
 
 ```bash
 git add app/Http/Middleware/Auth/VerifyManyChatWebhook.php config/services.php config/partna.php bootstrap/app.php .env.example app/Providers/AppServiceProvider.php tests/Feature/Api/Internal/ManyChatWebhookAuthTest.php
 git commit -m "feat(internal): ManyChat webhook gate — static secret, fail-closed
 
-Static shared secret rather than Standard Webhooks HMAC: ManyChat cannot
-sign a body (spec §5.1). 503 when unset, 401 on mismatch. Route lands next."
+Static secret rather than Standard Webhooks HMAC: ManyChat cannot sign a
+body (spec §5.1). Two throttle buckets — a constant key alone would be a
+DoS handle, since throttling runs ahead of the secret check."
 ```
 
 ---
@@ -570,12 +629,12 @@ sign a body (spec §5.1). 503 when unset, 401 on mismatch. Route lands next."
 - Create: `app/Http/Controllers/Api/Internal/ManyChatBuildController.php`
 - Create: `app/Http/Requests/Api/Internal/ManyChatBuildRequest.php`
 - Create: `app/Http/Resources/ManyChatBuildResource.php`
-- Modify: `routes/api.php` (inside the same group as the other `/internal/webhooks/*` routes, ~line 56)
+- Modify: `routes/api.php` — **inside the existing `Route::middleware('throttle:webhooks')->group(...)` at `:37-58`**, after the Resend route. The effective stack is therefore `throttle:webhooks` + `manychat.webhook` + `throttle:manychat-build`.
 - Test: `tests/Feature/Api/Internal/ManyChatBuildTest.php`
 
 **Interfaces:**
-- Consumes: `ClaimTokenIssuer::issue()` (Task 2); `manychat.webhook` alias and `manychat-build` limiter (Task 3); `PreAccountBuildService::requestBuild(...): array{build: PreAccountBuild, reused: bool}`.
-- Produces: `POST /api/internal/webhooks/manychat/builds` returning `data.build_id`, `data.subdomain`, `data.build_state`, `data.reused`, and `data.claim_url` **only when `reused === false`**.
+- Consumes: `ClaimTokenIssuer::issue()` (Task 2); alias + limiter (Task 3); `PreAccountBuildService::requestBuild(...): array{build: PreAccountBuild, reused: bool}`.
+- Produces: `POST /api/internal/webhooks/manychat/builds` → **flat** `build_id`, `subdomain`, `build_state`, `reused`, and `claim_url` when a token was minted.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -585,8 +644,14 @@ Create `tests/Feature/Api/Internal/ManyChatBuildTest.php`:
 <?php
 
 use App\Models\Core\User\PreAccountBuild;
+use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
+    setupUsersTable();
+    setupSitesTable();
+    setupPreAccountBuildsTable();
+    shimPgAdvisoryLockForSqlite();
+    Queue::fake();   // else GeneratePreAccountSiteJob runs inline and really scrapes
     config(['services.manychat.webhook_secret' => 'a-test-secret-value']);
 });
 
@@ -598,56 +663,74 @@ function manychatPost(array $body = []): \Illuminate\Testing\TestResponse
             'account_type' => 'partna',
             'source_type' => 'instagram',
             'source_ref' => 'amiconirestaurant',
+            'idempotency_key' => 'manychat-sub-4471',
         ]);
 }
 
 it('creates an outreach build and returns a claim url carrying a token', function () {
     $response = manychatPost()->assertStatus(202);
 
-    $buildId = $response->json('data.build_id');
-    $build = PreAccountBuild::findOrFail($buildId);
+    $build = PreAccountBuild::findOrFail($response->json('build_id'));
 
     expect($build->built_via)->toBe(PreAccountBuild::VIA_STAFF)
         ->and($build->isOutreach())->toBeTrue()
         ->and($build->claim_token_hash)->not->toBeNull();
 
-    $claimUrl = $response->json('data.claim_url');
+    $claimUrl = $response->json('claim_url');
     expect($claimUrl)->toContain('/claim/')->toContain('?t=');
 
-    // The plaintext in the URL must hash to what we stored, and must not BE it.
     parse_str((string) parse_url($claimUrl, PHP_URL_QUERY), $query);
     expect(hash('sha256', $query['t']))->toBe($build->claim_token_hash)
         ->and($query['t'])->not->toBe($build->claim_token_hash);
 });
 
-it('does NOT return a claim url when the build was deduped', function () {
+it('does NOT return a claim url when deduped by a DIFFERENT caller', function () {
     manychatPost()->assertStatus(202);
 
-    // Same source_ref — requestBuild dedupes to the existing live build.
-    $second = manychatPost()->assertStatus(200);
+    $second = manychatPost(['idempotency_key' => 'someone-elses-key'])->assertStatus(200);
 
-    expect($second->json('data.reused'))->toBeTrue()
-        ->and($second->json('data.claim_url'))->toBeNull();
+    expect($second->json('reused'))->toBeTrue()
+        ->and($second->json('claim_url'))->toBeNull();
 });
 
-it('does not re-mint a token on the deduped path', function () {
+it('does not re-mint for a different caller on the deduped path', function () {
     $first = manychatPost()->assertStatus(202);
-    $build = PreAccountBuild::findOrFail($first->json('data.build_id'));
+    $build = PreAccountBuild::findOrFail($first->json('build_id'));
     $hashAfterFirst = $build->claim_token_hash;
 
-    manychatPost()->assertStatus(200);
+    manychatPost(['idempotency_key' => 'someone-elses-key'])->assertStatus(200);
 
     expect($build->fresh()->claim_token_hash)->toBe($hashAfterFirst);
 });
 
-it('rejects an unknown source_type', function () {
-    manychatPost(['source_type' => 'myspace'])->assertStatus(422);
+it('re-mints for a retry carrying the SAME idempotency key', function () {
+    $first = manychatPost()->assertStatus(202);
+    $build = PreAccountBuild::findOrFail($first->json('build_id'));
+    $hashAfterFirst = $build->claim_token_hash;
+
+    $retry = manychatPost()->assertStatus(200);
+
+    expect($retry->json('claim_url'))->not->toBeNull()
+        ->and($build->fresh()->claim_token_hash)->not->toBe($hashAfterFirst);
 });
 
-it('requires account_type, source_type and source_ref', function () {
+it('requires account_type, source_type, source_ref and idempotency_key', function () {
     test()->withHeader('X-Partna-Webhook-Secret', 'a-test-secret-value')
         ->postJson('/api/internal/webhooks/manychat/builds', [])
         ->assertStatus(422);
+});
+
+it('requires source_name when the source is google_business', function () {
+    manychatPost(['source_type' => 'google_business', 'source_ref' => 'ChIJabc'])
+        ->assertStatus(422);
+});
+
+it('returns 422 with a code — not a 500 — when requestBuild rejects the input', function () {
+    // Guards the EXCEPTION CONTRACT. PHP does not error on an unresolvable
+    // `use`, so a wrong import for PreAccountBuildException would make the
+    // catch never match and this would 500 instead. Pick any input the
+    // pairing map rejects; confirm the pairing in config/partna.php first.
+    manychatPost(['source_ref' => ''])->assertStatus(422);
 });
 ```
 
@@ -666,24 +749,34 @@ Create `app/Http/Requests/Api/Internal/ManyChatBuildRequest.php`:
 namespace App\Http\Requests\Api\Internal;
 
 use App\Http\Requests\BaseFormRequest;
+use Illuminate\Validation\Rule;
 
-// ManyChat marketing build. Mirrors StaffCreatePreAccountBuildRequest's
-// source/account_type pairing, minus the staff-only knobs — ManyChat does not
-// choose publish state or attach a contact email.
+// ManyChat marketing build. Source/account pairing rules are read from config,
+// NOT hardcoded — CLAUDE.md's contract is "adding a source = one generator +
+// config entry + CHECK migration", and a hardcoded in: list adds a fourth
+// place to edit. Mirrors StaffCreatePreAccountBuildRequest.
 class ManyChatBuildRequest extends BaseFormRequest
 {
     public function rules(): array
     {
         return [
-            'account_type' => ['required', 'string', 'in:partna,business'],
-            'source_type' => ['required', 'string', 'in:instagram,google_business'],
-            'source_ref' => ['required', 'string', 'max:255'],
-            'source_name' => ['nullable', 'string', 'max:255'],
+            'account_type' => ['required', 'string', Rule::in(array_keys((array) config('partna.pre_account.sources', [])))],
+            'source_type' => ['required', 'string', Rule::in(array_keys((array) config('partna.pre_account.generators', [])))],
+            'source_ref' => ['required', 'string', 'max:300'],
+            // A GBP place_id is opaque — the picker-known business name seeds
+            // the subdomain/handle/display name. Same rule and same reason as
+            // both sibling requests; dropping it seeds a handle from a raw
+            // place ID.
+            'source_name' => ['nullable', 'string', 'max:120', 'required_if:source_type,google_business'],
             'expires_days' => ['nullable', 'integer', 'min:1', 'max:90'],
+            // Required: without it a lost response strands the build (spec §5.4).
+            'idempotency_key' => ['required', 'string', 'max:191'],
         ];
     }
 }
 ```
+
+> ⚠️ **Before implementing:** open `config/partna.php` and copy the exact config paths that `CreatePreAccountBuildRequest:17-18` and `StaffCreatePreAccountBuildRequest:18-19` read. The two keys above are the shape, not a verified path — use whatever the siblings use.
 
 - [ ] **Step 4: Write the resource**
 
@@ -697,9 +790,9 @@ namespace App\Http\Resources;
 use App\Models\Core\User\PreAccountBuild;
 use Illuminate\Http\Request;
 
-// Webhook response for ManyChat. Carries the claim URL — including the ONE
-// time the plaintext token is ever visible — so it must never be reused for a
-// GET. The poll shape is PreAccountBuildStatusResource, which has no token.
+// Webhook response for ManyChat. Carries the claim URL — the ONE time the
+// plaintext token is ever visible — so it must never be reused for a GET. The
+// poll shape is PreAccountBuildStatusResource, which has no token.
 /**
  * @mixin PreAccountBuild
  */
@@ -720,9 +813,7 @@ class ManyChatBuildResource extends ApiResource
             'build_state' => $this->build_state,
             'subdomain' => $this->user?->site?->subdomain,
             'reused' => $this->reused,
-            // Absent on the deduped path — spec §5.4. A token is minted only
-            // for a NEW build, so a leaked webhook secret cannot be used to
-            // fetch a capability for a build someone else created.
+            // Absent unless a token was minted — spec §5.4.
             'claim_url' => $this->claimUrl,
         ], fn ($v) => $v !== null);
     }
@@ -738,12 +829,12 @@ Create `app/Http/Controllers/Api/Internal/ManyChatBuildController.php`:
 
 namespace App\Http\Controllers\Api\Internal;
 
-use App\Exceptions\PreAccountBuildException;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\Internal\ManyChatBuildRequest;
 use App\Http\Resources\ManyChatBuildResource;
 use App\Models\Core\User\PreAccountBuild;
 use App\Services\PreAccount\ClaimTokenIssuer;
+use App\Services\PreAccount\PreAccountBuildException;
 use App\Services\PreAccount\PreAccountBuildService;
 use Illuminate\Http\JsonResponse;
 
@@ -764,6 +855,7 @@ class ManyChatBuildController extends ApiController
     public function __invoke(ManyChatBuildRequest $request): JsonResponse
     {
         $data = $request->validated();
+        $idempotencyKey = (string) $data['idempotency_key'];
 
         try {
             $result = $this->builds->requestBuild(
@@ -776,9 +868,8 @@ class ManyChatBuildController extends ApiController
                 publish: true,
                 expiresDays: isset($data['expires_days']) ? (int) $data['expires_days'] : null,
                 contactEmail: null,
-                // VIA_STAFF with no staff row: this is an outreach build made
-                // FOR a business, so isOutreach() must be true, but no human
-                // staff member created it.
+                // VIA_STAFF with no staff row: an outreach build made FOR a
+                // business, so isOutreach() must be true, but no human made it.
                 builtVia: PreAccountBuild::VIA_STAFF,
                 autoInvite: false,
             );
@@ -789,15 +880,25 @@ class ManyChatBuildController extends ApiController
         $build = $result['build'];
         $build->loadMissing('user.site');
 
-        // Mint ONLY for a genuinely new build (spec §5.4). On the deduped path
-        // the caller would otherwise receive a working claim capability for a
-        // build someone else created — which is what turns a leaked webhook
-        // secret from "can create spam builds" into "can take over any build".
+        $subdomain = $build->user?->site?->subdomain;
+        if ($subdomain === null) {
+            return $this->error('Build has no site.', 409, [], ['code' => 'BUILD_NOT_READY']);
+        }
+
+        // Mint for a NEW build, or for a RETRY proving it is the same caller
+        // (spec §5.4). On any other deduped call we mint nothing: otherwise a
+        // leaked webhook secret could fetch a working capability for a build
+        // someone else created, which is the takeover this rule exists to stop.
         $claimUrl = null;
-        if (! $result['reused']) {
+        $isRetryOfOurOwn = $result['reused']
+            && $build->claim_idempotency_key !== null
+            && hash_equals((string) $build->claim_idempotency_key, $idempotencyKey);
+
+        if (! $result['reused'] || $isRetryOfOurOwn) {
+            $build->forceFill(['claim_idempotency_key' => $idempotencyKey])->save();
             $token = $this->tokens->issue($build);
             $claimUrl = rtrim((string) config('app.frontend_url'), '/')
-                .'/claim/'.$build->user->site->subdomain
+                .'/claim/'.$subdomain
                 .'?t='.$token;
         }
 
@@ -811,27 +912,23 @@ class ManyChatBuildController extends ApiController
 
 - [ ] **Step 6: Register the route**
 
-In `routes/api.php`, immediately after the Resend webhook route:
+In `routes/api.php`, **inside the existing `throttle:webhooks` group**, after the Resend route:
 
 ```php
     // ManyChat marketing builds. Static-secret gated (ManyChat cannot sign a
-    // body — spec §5.1); throttled separately because each call can trigger an
-    // Apify-billed scrape.
+    // body — spec §5.1); throttled again on its own bucket because each call
+    // can trigger an Apify-billed scrape.
     Route::post('/internal/webhooks/manychat/builds', ManyChatBuildController::class)
         ->middleware(['manychat.webhook', 'throttle:manychat-build'])
         ->name('webhooks.manychat.builds');
 ```
 
-Add the import:
+plus `use App\Http\Controllers\Api\Internal\ManyChatBuildController;`.
 
-```php
-use App\Http\Controllers\Api\Internal\ManyChatBuildController;
-```
+- [ ] **Step 7: Run tests**
 
-- [ ] **Step 7: Run tests to verify they pass**
-
-Run: `php vendor/bin/pest tests/Feature/Api/Internal/ManyChatBuildTest.php tests/Feature/Api/Internal/ManyChatWebhookAuthTest.php`
-Expected: PASS — 5 + 4 tests. Both files green now that the route exists.
+Run: `php vendor/bin/pest tests/Feature/Api/Internal/`
+Expected: PASS. Both files green now the route exists.
 
 - [ ] **Step 8: Commit**
 
@@ -839,9 +936,9 @@ Expected: PASS — 5 + 4 tests. Both files green now that the route exists.
 git add app/Http/Controllers/Api/Internal/ManyChatBuildController.php app/Http/Requests/Api/Internal/ManyChatBuildRequest.php app/Http/Resources/ManyChatBuildResource.php routes/api.php tests/Feature/Api/Internal/ManyChatBuildTest.php
 git commit -m "feat(internal): ManyChat build webhook returns a one-time claim url
 
-Mints a claim token ONLY when requestBuild reports reused=false. On the
-deduped path the response carries no claim_url — the control that bounds
-the static-secret auth (spec §5.4), pinned by two tests."
+Mints only for a new build, or a retry proving the same idempotency_key.
+Any other deduped call gets no claim_url — the control bounding the
+static-secret auth (spec §5.4), pinned by three tests."
 ```
 
 ---
@@ -850,13 +947,13 @@ the static-secret auth (spec §5.4), pinned by two tests."
 
 **Files:**
 - Modify: `app/Http/Requests/Api/PublicSite/ClaimSiteRequest.php:26-32`
-- Modify: `app/Services/PreAccount/ClaimSiteService.php:42` (signature) and `:85-97` (the two gates)
+- Modify: `app/Services/PreAccount/ClaimSiteService.php:30-35` (constructor), `:42` (signature), `:85-97` (gates), `:135` (the `claimed_at` write)
 - Modify: `app/Http/Controllers/Api/PublicSite/ClaimController.php:54`
 - Test: `tests/Feature/PreAccount/ClaimWithTokenTest.php`
 
 **Interfaces:**
 - Consumes: `ClaimTokenIssuer::matches()`, `::burn()` (Task 2).
-- Produces: `ClaimSiteService::claim(string $uid, string $verifiedEmail, string $subdomain, bool $marketingOptIn = false, ?string $claimToken = null): array` — **new trailing optional parameter**, so every existing caller keeps working unchanged.
+- Produces: `claim(string $uid, string $verifiedEmail, string $subdomain, bool $marketingOptIn = false, ?string $claimToken = null): array` — new **trailing optional** parameter, so all existing callers are unaffected.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -865,14 +962,24 @@ Create `tests/Feature/PreAccount/ClaimWithTokenTest.php`:
 ```php
 <?php
 
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
-use App\Models\Core\Site\Site;
+use App\Services\PreAccount\ClaimSiteService;
 use App\Services\PreAccount\ClaimTokenIssuer;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
-// Mirrors the arrangement in tests/Feature/PreAccount/UnclaimedGatingTest.php:
-// an unclaimed provisional user + site + an OUTREACH build with no
-// contact_email — the exact combination that throws CLAIM_NOT_INVITED today.
+beforeEach(function () {
+    setupUsersTable();
+    setupSitesTable();
+    setupPreAccountBuildsTable();
+    shimPgAdvisoryLockForSqlite();
+    Queue::fake();
+});
+
+// Local by design (cross-file helpers break --parallel). The factory creates no
+// user, and user_id is NOT NULL and not fillable — attach via associate().
 function claimTokenBuild(array $attrs = []): PreAccountBuild
 {
     $user = User::factory()->create([
@@ -888,13 +995,13 @@ function claimTokenBuild(array $attrs = []): PreAccountBuild
         'build_state' => PreAccountBuild::STATE_READY,
         'expires_at' => now()->addDays(30),
     ], $attrs));
-    $build->user()->associate($user);   // user_id is NOT fillable
+    $build->user()->associate($user);
     $build->save();
 
     return $build->fresh();
 }
 
-// Returns [build, plaintext token].
+/** @return array{0: PreAccountBuild, 1: string} */
 function outreachBuildWithToken(array $attrs = []): array
 {
     $build = claimTokenBuild($attrs);
@@ -905,12 +1012,8 @@ function outreachBuildWithToken(array $attrs = []): array
 it('claims an outreach build with no contact_email when a valid token is presented', function () {
     [$build, $token] = outreachBuildWithToken();
 
-    $result = app(\App\Services\PreAccount\ClaimSiteService::class)->claim(
-        uid: (string) \Illuminate\Support\Str::uuid(),
-        verifiedEmail: 'someone@example.com',
-        subdomain: $build->user->site->subdomain,
-        marketingOptIn: false,
-        claimToken: $token,
+    $result = app(ClaimSiteService::class)->claim(
+        (string) Str::uuid(), 'someone@example.com', $build->user->site->subdomain, false, $token,
     );
 
     expect($result['professional']->status)->toBe('active');
@@ -919,62 +1022,75 @@ it('claims an outreach build with no contact_email when a valid token is present
 it('still throws CLAIM_NOT_INVITED with no token', function () {
     [$build] = outreachBuildWithToken();
 
-    expect(fn () => app(\App\Services\PreAccount\ClaimSiteService::class)->claim(
-        (string) \Illuminate\Support\Str::uuid(),
-        'someone@example.com',
-        $build->user->site->subdomain,
+    expect(fn () => app(ClaimSiteService::class)->claim(
+        (string) Str::uuid(), 'someone@example.com', $build->user->site->subdomain,
     ))->toThrow(RuntimeException::class, 'CLAIM_NOT_INVITED');
 });
 
 it('still throws CLAIM_NOT_INVITED with a wrong token', function () {
     [$build, $token] = outreachBuildWithToken();
 
-    expect(fn () => app(\App\Services\PreAccount\ClaimSiteService::class)->claim(
-        (string) \Illuminate\Support\Str::uuid(),
-        'someone@example.com',
-        $build->user->site->subdomain,
-        false,
-        $token.'x',
+    expect(fn () => app(ClaimSiteService::class)->claim(
+        (string) Str::uuid(), 'someone@example.com', $build->user->site->subdomain, false, $token.'x',
     ))->toThrow(RuntimeException::class, 'CLAIM_NOT_INVITED');
-});
-
-it('burns the token so a replay is refused', function () {
-    [$build, $token] = outreachBuildWithToken();
-    $service = app(\App\Services\PreAccount\ClaimSiteService::class);
-
-    $service->claim((string) \Illuminate\Support\Str::uuid(), 'first@example.com', $build->user->site->subdomain, false, $token);
-
-    expect($build->fresh()->claim_token_hash)->toBeNull();
-});
-
-it('leaves the token intact when the claim throws', function () {
-    [$build, $token] = outreachBuildWithToken();
-    $service = app(\App\Services\PreAccount\ClaimSiteService::class);
-
-    // Claim once so the site is taken, then replay with a fresh uid: the second
-    // call throws ALREADY_CLAIMED. Prove a THROW does not consume a token by
-    // using a second, independent build.
-    [$other, $otherToken] = outreachBuildWithToken();
-    $uid = (string) \Illuminate\Support\Str::uuid();
-    $service->claim($uid, 'taken@example.com', $build->user->site->subdomain, false, $token);
-
-    // Same uid now owns a site → ACCOUNT_EXISTS on the other build.
-    expect(fn () => $service->claim($uid, 'taken@example.com', $other->user->site->subdomain, false, $otherToken))
-        ->toThrow(RuntimeException::class, 'ACCOUNT_EXISTS');
-
-    expect($other->fresh()->claim_token_hash)->not->toBeNull();
 });
 
 it('refuses a valid token on an expired build', function () {
     [$build, $token] = outreachBuildWithToken(['expires_at' => now()->subMinute()]);
 
-    expect(fn () => app(\App\Services\PreAccount\ClaimSiteService::class)->claim(
-        (string) \Illuminate\Support\Str::uuid(),
-        'someone@example.com',
-        $build->user->site->subdomain,
-        false,
-        $token,
+    expect(fn () => app(ClaimSiteService::class)->claim(
+        (string) Str::uuid(), 'someone@example.com', $build->user->site->subdomain, false, $token,
     ))->toThrow(RuntimeException::class, 'CLAIM_NOT_INVITED');
+});
+
+// ── The token is NARROW (spec §6.2) ──────────────────────────────────────────
+
+it('does NOT let a token override an email-gated build with a mismatched address', function () {
+    [$build, $token] = outreachBuildWithToken(['contact_email' => 'owner@example.com']);
+
+    expect(fn () => app(ClaimSiteService::class)->claim(
+        (string) Str::uuid(), 'attacker@example.com', $build->user->site->subdomain, false, $token,
+    ))->toThrow(RuntimeException::class, 'CLAIM_EMAIL_MISMATCH');
+});
+
+it('lets a token claim an email-gated build when the address DOES match', function () {
+    [$build, $token] = outreachBuildWithToken(['contact_email' => 'owner@example.com']);
+
+    $result = app(ClaimSiteService::class)->claim(
+        (string) Str::uuid(), 'owner@example.com', $build->user->site->subdomain, false, $token,
+    );
+
+    expect($result['professional']->status)->toBe('active');
+});
+
+// ── Single-use = used, not opened (spec §4) ──────────────────────────────────
+
+it('burns the token on a successful claim so a replay is refused', function () {
+    [$build, $token] = outreachBuildWithToken();
+
+    app(ClaimSiteService::class)->claim(
+        (string) Str::uuid(), 'first@example.com', $build->user->site->subdomain, false, $token,
+    );
+
+    expect($build->fresh()->claim_token_hash)->toBeNull();
+});
+
+it('leaves the token intact when the claim throws', function () {
+    // REGRESSION GUARD, not a proof of rollback. After this task the burn is
+    // folded into the final claimed_at write, so EVERY throw is structurally
+    // before it. This test fails if someone moves the burn earlier.
+    [$build, $token] = outreachBuildWithToken();
+    $service = app(ClaimSiteService::class);
+
+    $uid = (string) Str::uuid();
+    [$other, $otherToken] = outreachBuildWithToken();
+    $service->claim($uid, 'taken@example.com', $other->user->site->subdomain, false, $otherToken);
+
+    // Same uid already owns a site → ACCOUNT_EXISTS on this one.
+    expect(fn () => $service->claim($uid, 'taken@example.com', $build->user->site->subdomain, false, $token))
+        ->toThrow(RuntimeException::class, 'ACCOUNT_EXISTS');
+
+    expect($build->fresh()->claim_token_hash)->not->toBeNull();
 });
 ```
 
@@ -985,18 +1101,19 @@ Expected: FAIL — `claim()` has no `claimToken` parameter.
 
 - [ ] **Step 3: Add the request field**
 
-In `app/Http/Requests/Api/PublicSite/ClaimSiteRequest.php`, add to `rules()`:
+In `ClaimSiteRequest::rules()`:
 
 ```php
             // The frontend reads ?t= off the claim page URL and forwards it in
-            // the BODY, never the query string — a token in a query string
-            // lands in access logs and Referer headers.
+            // the BODY, so the token never reaches OUR access logs or Referer.
+            // (It is still in the frontend's URL — the contract requires the
+            // claim page to strip it with history.replaceState. Spec §6.3.)
             'claim_token' => ['nullable', 'string', 'max:128'],
 ```
 
 - [ ] **Step 4: Thread it through the controller**
 
-In `app/Http/Controllers/Api/PublicSite/ClaimController.php`, change the `claim(...)` call to:
+In `ClaimController::store()`:
 
 ```php
             $result = $this->claims->claim(
@@ -1010,30 +1127,28 @@ In `app/Http/Controllers/Api/PublicSite/ClaimController.php`, change the `claim(
 
 - [ ] **Step 5: Change the service**
 
-In `app/Services/PreAccount/ClaimSiteService.php`, inject the issuer into the constructor alongside the existing dependencies:
+Add to the constructor (`:30-35`):
 
 ```php
         private readonly ClaimTokenIssuer $tokens,
 ```
 
-with `use App\Services\PreAccount\ClaimTokenIssuer;` — same namespace, so no import is needed; add it only if the class moves.
+No import needed — `ClaimTokenIssuer` is the same `App\Services\PreAccount` namespace.
 
-Change the signature:
+Change the signature at `:42`:
 
 ```php
     public function claim(string $uid, string $verifiedEmail, string $subdomain, bool $marketingOptIn = false, ?string $claimToken = null): array
 ```
 
-and add `$claimToken` to the transaction closure's `use (...)` list.
+and add `$claimToken` to the transaction closure's `use (...)` list at `:44`.
 
-Replace the two gates with:
+Replace the gates at `:85-97`:
 
 ```php
             // A valid claim token IS proof of invitation (spec §6.2). It stands
             // in for contact_email on the outreach lane, which is what lets a
-            // DM'd lead claim without an email address ever entering the flow.
-            // It satisfies INVITATION only — every other invariant below still
-            // applies.
+            // DM'd lead claim with no email ever entering the flow.
             $tokenOk = $this->tokens->matches($build, $claimToken);
 
             $contactEmail = trim((string) $build->contact_email);
@@ -1041,37 +1156,39 @@ Replace the two gates with:
                 throw new RuntimeException('CLAIM_NOT_INVITED');
             }
 
-            if ($contactEmail !== '' && ! $tokenOk
+            // NOTE the absence of $tokenOk here — deliberate (owner, 2026-08-25).
+            // The token is NARROW: it proves INVITATION, not identity. A build
+            // carrying a contact_email still requires that address, so a token
+            // holder cannot claim an email-gated build with some other inbox.
+            if ($contactEmail !== ''
                 && strtolower(trim($verifiedEmail)) !== strtolower($contactEmail)) {
                 throw new RuntimeException('CLAIM_EMAIL_MISMATCH');
             }
 ```
 
-Then, immediately after `$professional->status = 'active';` and before the save, burn the token:
+Then fold the burn into the existing `claimed_at` write at `:135`:
 
 ```php
-            // Single-use = USED, not opened (spec §4). Inside this transaction,
-            // so a claim that throws below rolls the burn back with it and the
-            // lead can retry with the same DM link.
-            if ($tokenOk) {
-                $this->tokens->burn($build);
-            }
+            // Single-use = USED, not opened (spec §4). Folded into the
+            // claimed_at write rather than issued separately: this is the last
+            // write in the claim, so the burn lands strictly AFTER every throw
+            // above. That makes "a failed claim does not consume the lead's
+            // link" structural, not dependent on transaction rollback.
+            $build->forceFill(['claimed_at' => now()] + ($tokenOk ? $this->tokens->burn() : []))->save();
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [ ] **Step 6: Run tests**
 
 Run: `php vendor/bin/pest tests/Feature/PreAccount/ClaimWithTokenTest.php`
-Expected: PASS, 6 tests.
+Expected: PASS, 8 tests.
 
-- [ ] **Step 7: Run the surrounding suites for regressions**
-
-Run:
+- [ ] **Step 7: Regression sweep**
 
 ```bash
 php vendor/bin/pest tests/Feature/PreAccount/ tests/Feature/Api/PublicSite/ tests/Unit/Services/PreAccount/
 ```
 
-Expected: PASS. The existing email-only and first-come paths must be unchanged — `$tokenOk` is `false` whenever no token is presented, so both original gates behave exactly as before.
+Expected: PASS. `$tokenOk` is `false` whenever no token is presented, so both original gates behave exactly as before.
 
 - [ ] **Step 8: Commit**
 
@@ -1079,9 +1196,9 @@ Expected: PASS. The existing email-only and first-come paths must be unchanged �
 git add app/Services/PreAccount/ClaimSiteService.php app/Http/Requests/Api/PublicSite/ClaimSiteRequest.php app/Http/Controllers/Api/PublicSite/ClaimController.php tests/Feature/PreAccount/ClaimWithTokenTest.php
 git commit -m "feat(claim): a valid claim token satisfies the invite-gate
 
-Closes the outreach half of #SEC-3: a DM'd lead can claim without an
-email. Token is burned inside the claim transaction on SUCCESS only, so
-an abandoned or failed claim leaves the DM link usable (spec §4)."
+A DM'd lead can now claim without an email. The token is NARROW — it does
+NOT override CLAIM_EMAIL_MISMATCH (owner decision). Burn is folded into
+the final claimed_at write so every throw is structurally before it."
 ```
 
 ---
@@ -1089,13 +1206,13 @@ an abandoned or failed claim leaves the DM link usable (spec §4)."
 ### Task 6: Staff token re-issue
 
 **Files:**
-- Modify: `app/Http/Controllers/Api/Staff/UserSiteManagement/StaffPreAccountBuildController.php` (new method after `invite()`)
-- Modify: `routes/api/staff.php` (alongside `/builds/{build}/invite`, ~line 80)
+- Modify: `app/Http/Controllers/Api/Staff/UserSiteManagement/StaffPreAccountBuildController.php` (constructor + new method after `invite()`)
+- Modify: `routes/api/staff.php:80` (beside the `invite` route)
 - Test: `tests/Feature/Api/Staff/StaffReissueClaimTokenTest.php`
 
 **Interfaces:**
 - Consumes: `ClaimTokenIssuer::issue()` (Task 2).
-- Produces: `POST /api/staff/builds/{build}/claim-token` returning `data.claim_url`.
+- Produces: `POST /api/staff/builds/{build}/claim-token` → flat `build_id`, `claim_url`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1104,12 +1221,29 @@ Create `tests/Feature/Api/Staff/StaffReissueClaimTokenTest.php`:
 ```php
 <?php
 
-use App\Models\Core\PartnaStaff;
+use App\Models\Core\Site\Site;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
-use App\Models\Core\Site\Site;
 use App\Services\PreAccount\ClaimTokenIssuer;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
+
+beforeEach(function () {
+    setupUsersTable();
+    setupSitesTable();
+    setupPreAccountBuildsTable();
+    setupPartnaStaffTable();
+    shimPgAdvisoryLockForSqlite();
+    Queue::fake();
+
+    // The staff.audit middleware writes here AFTER the response — without the
+    // table the request 500s once the controller has already succeeded.
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.staff_audit_log (
+        id TEXT PRIMARY KEY, staff_id TEXT NULL, action TEXT NULL, created_at TEXT NULL
+    )');
+});
 
 // Local by design — cross-file Pest helpers break under --parallel.
 function staffTokenBuild(): PreAccountBuild
@@ -1126,27 +1260,42 @@ function staffTokenBuild(): PreAccountBuild
         'build_state' => PreAccountBuild::STATE_READY,
         'expires_at' => now()->addDays(30),
     ]);
-    $build->user()->associate($user);   // user_id is NOT fillable
+    $build->user()->associate($user);
     $build->save();
 
     return $build->fresh();
 }
 
-it('mints a fresh token and invalidates the previous one', function () {
+function adminStaff(): PartnaStaff
+{
     $staff = new PartnaStaff;
     $staff->id = (string) Str::uuid();
     $staff->auth_user_id = (string) Str::uuid();
     $staff->role = PartnaStaff::ROLE_ADMIN;
 
+    return $staff;
+}
+
+it('mints a fresh token and invalidates the previous one', function () {
     $build = staffTokenBuild();
     $old = app(ClaimTokenIssuer::class)->issue($build);
 
-    $response = actingAsStaff($staff)
+    $response = actingAsStaff(adminStaff())
         ->postJson("/api/staff/builds/{$build->id}/claim-token")
         ->assertStatus(200);
 
-    expect($response->json('data.claim_url'))->toContain('?t=')
+    expect($response->json('claim_url'))->toContain('?t=')
         ->and(app(ClaimTokenIssuer::class)->matches($build->fresh(), $old))->toBeFalse();
+});
+
+it('refuses to re-issue for an already-claimed build', function () {
+    $build = staffTokenBuild();
+    $build->forceFill(['claimed_at' => now()])->save();
+
+    actingAsStaff(adminStaff())
+        ->postJson("/api/staff/builds/{$build->id}/claim-token")
+        ->assertStatus(409)
+        ->assertJsonPath('code', 'ALREADY_CLAIMED');
 });
 
 it('refuses an unauthenticated caller', function () {
@@ -1163,7 +1312,7 @@ Expected: FAIL — 404, route missing.
 
 - [ ] **Step 3: Add the controller method**
 
-In `StaffPreAccountBuildController`, inject `ClaimTokenIssuer` into the constructor and add after `invite()`:
+Add `use App\Services\PreAccount\ClaimTokenIssuer;` — this controller is a **different namespace**, so the import IS required (unlike `ClaimSiteService`). Inject `private readonly ClaimTokenIssuer $tokens` into the constructor, and add after `invite()`:
 
 ```php
     // POST /api/staff/builds/{build}/claim-token — mint a fresh claim link.
@@ -1178,7 +1327,8 @@ In `StaffPreAccountBuildController`, inject `ClaimTokenIssuer` into the construc
         $this->authorizeForUser($staff, 'staffCreate', PreAccountBuild::class);
 
         $build->loadMissing('user.site');
-        if ($build->user?->site === null) {
+        $subdomain = $build->user?->site?->subdomain;
+        if ($subdomain === null) {
             return $this->error('Build has no site.', 409, [], ['code' => 'BUILD_NOT_READY']);
         }
 
@@ -1196,7 +1346,7 @@ In `StaffPreAccountBuildController`, inject `ClaimTokenIssuer` into the construc
         return $this->success([
             'build_id' => $build->id,
             'claim_url' => rtrim((string) config('app.frontend_url'), '/')
-                .'/claim/'.$build->user->site->subdomain
+                .'/claim/'.$subdomain
                 .'?t='.$token,
         ]);
     }
@@ -1204,16 +1354,17 @@ In `StaffPreAccountBuildController`, inject `ClaimTokenIssuer` into the construc
 
 - [ ] **Step 4: Register the route**
 
-In `routes/api/staff.php`, next to the `invite` route:
+In `routes/api/staff.php`, beside the `invite` route — **with `whereUuid`**, which the sibling carries. Without it a non-UUID segment produces a Postgres `22P02` → 500 rather than 404, which is exactly the enumeration-oracle shape the doctrine forbids:
 
 ```php
-        Route::post('/builds/{build}/claim-token', [StaffPreAccountBuildController::class, 'reissueClaimToken']);
+        Route::post('/builds/{build}/claim-token', [StaffPreAccountBuildController::class, 'reissueClaimToken'])
+            ->whereUuid('build');
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [ ] **Step 5: Run tests**
 
 Run: `php vendor/bin/pest tests/Feature/Api/Staff/StaffReissueClaimTokenTest.php`
-Expected: PASS, 2 tests.
+Expected: PASS, 3 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -1230,12 +1381,11 @@ is precisely what a leaked webhook secret must not be able to do."
 ### Task 7: Documentation and full verification
 
 **Files:**
-- Modify: `docs/api.md` (§3, the pre-account endpoint section)
-- Modify: `CLAUDE.md` (the Pre-account hard-rules block)
+- Modify: `docs/api.md` (§3)
+- Modify: `CLAUDE.md` (Pre-account hard rules)
+- Modify: `audits/sweeps/2026-08-24-claim-gate-security/CONSOLIDATED.md` (the `#SEM-2` entry)
 
-- [ ] **Step 1: Document the endpoints in `docs/api.md`**
-
-In §3, after the existing pre-account endpoints, add:
+- [ ] **Step 1: Document in `docs/api.md`**
 
 ```markdown
 #### `POST /api/internal/webhooks/manychat/builds`
@@ -1245,11 +1395,14 @@ Machine surface for ManyChat marketing builds. Static shared secret in the
 401 on mismatch. Exists because `POST /api/staff/builds` requires `require.aal2`,
 which an automation platform cannot satisfy.
 
-Body: `account_type`, `source_type`, `source_ref`, optional `source_name`,
-optional `expires_days` (1–90).
+Body: `account_type`, `source_type`, `source_ref`, `idempotency_key` (all
+required), optional `source_name` (**required** for `google_business`), optional
+`expires_days` (1–90).
 
-`202` on a new build, `200` when deduped. **`claim_url` is present ONLY on the
-`202`** — a token is never minted for a build that already existed.
+`202` on a new build, `200` when deduped. Response is **flat — no `data`
+envelope**. `claim_url` is present only when a token was minted: for a new
+build, or a retry carrying the same `idempotency_key`. Any other deduped call
+returns no `claim_url`.
 
 Send timing is ManyChat's choice: the claim URL is valid immediately (claiming
 does not wait for `ready`), but polling `GET /api/public/signup/builds/{id}`
@@ -1263,22 +1416,32 @@ lost DM or a suspected leak.
 #### Claim tokens
 
 `POST /api/claim` accepts an optional `claim_token` in the **body** (the
-frontend reads `?t=` from the claim page URL and forwards it). A valid token
-satisfies the invite-gate in place of `contact_email`. It is single-use in the
-sense of **used, not opened** — the token is consumed only by a successful
-claim, so an abandoned sign-in or a failed claim leaves the link working for
-the rest of the build's 30-day life.
+frontend reads `?t=` from the claim page URL and forwards it, then strips it
+with `history.replaceState`). A valid token satisfies the invite-gate in place
+of `contact_email`.
+
+The token is **narrow**: it proves invitation, not identity. A build carrying a
+`contact_email` still requires that address — a token does not override
+`CLAIM_EMAIL_MISMATCH`.
+
+Single-use means **used, not opened**: the token is consumed only by a
+successful claim, so an abandoned sign-in or a failed claim leaves the link
+working for the rest of the build's 30-day life.
 ```
 
 - [ ] **Step 2: Update `CLAUDE.md`**
 
-Add to the Pre-account hard-rules list:
+Add to the Pre-account hard rules:
 
 ```markdown
-- **ManyChat builds arrive at `POST /api/internal/webhooks/manychat/builds`, NOT `/api/staff/builds`** — the staff group carries `require.aal2` and no robot can satisfy it. A `claim_token` (SHA-256 stored, plaintext returned once) proves invitation in place of `contact_email`, which is what lets a DM'd lead claim with no email in the flow. ⚠️ **A token is minted ONLY when `requestBuild()` returns `reused === false`** — minting on the deduped path would let a leaked webhook secret take over any build whose `source_ref` is guessable. Single-use means **used, not opened**: the hash clears on a successful claim only. Spec: `docs/superpowers/specs/2026-08-25-manychat-claim-link-design.md`.
+- **ManyChat builds arrive at `POST /api/internal/webhooks/manychat/builds`, NOT `/api/staff/builds`** — the staff group carries `require.aal2` and no robot can satisfy it. A `claim_token` (SHA-256 stored, plaintext returned once) proves invitation in place of `contact_email`, which is what lets a DM'd lead claim with no email in the flow. ⚠️ **A token is minted ONLY for a NEW build, or a retry carrying the same `idempotency_key`** — minting on any other deduped call would let a leaked webhook secret take over any build whose `source_ref` is guessable. The token is **narrow**: it satisfies the invite-gate only and does NOT override `CLAIM_EMAIL_MISMATCH`. Single-use means **used, not opened** — the hash clears on a successful claim only, folded into the `claimed_at` write. ⚠️ `built_via = VIA_STAFF` now also originates from this webhook, so `isOutreach()`'s "only from a staff-authenticated write" premise is dead (it fails safe). Spec: `docs/superpowers/specs/2026-08-25-manychat-claim-link-design.md`.
 ```
 
-- [ ] **Step 3: Run the static gates**
+- [ ] **Step 3: Annotate `#SEM-2`**
+
+Add to that finding: `built_via === 'staff'` no longer implies a staff-authenticated write — the ManyChat webhook also sets it. The conclusion still holds (misclassification fails safe, toward more gating), but the stated premise does not.
+
+- [ ] **Step 4: Static gates**
 
 ```bash
 php vendor/bin/pint --test
@@ -1287,19 +1450,32 @@ php vendor/bin/phpstan analyse --memory-limit=1G --no-progress
 
 Expected: pint `"result":"passed"`, phpstan `[OK] No errors`.
 
-- [ ] **Step 4: Run the full suite**
+- [ ] **Step 5: Full suite**
 
 Run: `php vendor/bin/pest --parallel`
-Expected: PASS. Baseline before this work was 9105 passed / 3 skipped; this plan adds 27 tests, so expect ~9132 passed with the same 3 skips.
+Expected: PASS. Baseline before this work was 9105 passed / 3 skipped; this plan adds ~32 tests, so expect ~9137 passed with the same 3 skips.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add docs/api.md CLAUDE.md
+git add docs/api.md CLAUDE.md audits/sweeps/2026-08-24-claim-gate-security/CONSOLIDATED.md
 git commit -m "docs: ManyChat claim links — endpoints, token semantics, the mint rule"
 ```
 
 ---
+
+## What the review changed
+
+A 2026-08-25 review found four Critical defects and ten Important ones. All are folded in above. The four that would have stopped execution dead:
+
+1. **No `data` envelope.** `resolve()` returns the unwrapped array; nine assertions asserted `data.*` and would all have read `null`. The spec's response example was wrong too, which would have mis-configured the ManyChat flow.
+2. **The SQLite stand-in was never updated.** The suite does not run migrations. Worse than a red run: `matches()` would read a missing column as `null → false`, so *"a wrong token still throws"* would have **passed while the gate was broken**.
+3. **No test bootstrap in any new file**, and no `Queue::fake()` — which under `QUEUE_CONNECTION=sync` would have run `GeneratePreAccountSiteJob` inline and attempted a **real Apify scrape**. Plus a Unit test needs `uses(TestCase::class)`.
+4. **`PreAccountBuildException` is `App\Services\PreAccount\`, not `App\Exceptions\`.** PHP does not error on an unresolvable `use`, so the catch would silently never match and a documented 422 would ship as a 500.
+
+Also folded in: config-driven validation rules with `required_if` for `google_business` (I5), the `throttle:webhooks` group note and a per-IP throttle bucket (I6), the `isOutreach()` docblock correction (I7), `history.replaceState` in the frontend contract (I8), an honest §5.1 blast radius (I9), `whereUuid` and the missing import on the staff route (I10), and migration conventions — `ROLLBACK` header, `BEGIN`/`COMMIT`, `IF NOT EXISTS` (M1).
+
+Two design gaps were settled by owner decision rather than patched: the token is **narrow** (does not override the email-gate), and an **`idempotency_key` is required** so a lost webhook response cannot strand a build as permanently unclaimable.
 
 ## Self-Review
 
@@ -1307,38 +1483,27 @@ git commit -m "docs: ManyChat claim links — endpoints, token semantics, the mi
 
 | Spec section | Task |
 |---|---|
-| §4 claim token (hash, generation, lifetime, single-use, not fillable) | 1, 2 |
+| §4 token (hash, generation, lifetime, single-use, not fillable) | 1, 2 |
 | §5 endpoint placement | 4 |
 | §5.1 static-secret auth, fail-closed | 3 |
-| §5.2 request/response contract | 4 |
-| §5.3 send timing | 7 (documented; no code — correct, it is a ManyChat flow setting) |
-| §5.4 mint only on new build | 4 (two tests) |
-| §6.1 `ClaimNotifier` NOT changed | — no task, deliberately |
-| §6.2 claim-gate change + burn | 5 |
-| §6.3 `ClaimSiteRequest` field | 5 |
-| §6.4 send-once | 4 — discharged by the §5.4 mint rule, no separate code |
+| §5.2 request/response contract (flat) | 4 |
+| §5.3 send timing | 7 (docs only — correctly a ManyChat flow setting) |
+| §5.4 mint rule + idempotency | 1 (column), 4 (three tests) |
+| §6.1 `ClaimNotifier` NOT changed | no task, deliberate |
+| §6.2 claim-gate + narrow token + burn | 5 |
+| §6.3 request field + `replaceState` contract | 5, 7 |
+| §6.5 `isOutreach()` docblock | 1 |
 | §7 migration | 1 |
 | §8 staff re-issue | 6 |
-| §10 testing matrix | every row maps to a test in 1, 2, 4, 5 |
+| §10 testing matrix | every row maps to a test |
 
-**Type consistency:** `ClaimTokenIssuer::issue/matches/burn` are used with those exact names and signatures in Tasks 4, 5 and 6. `requestBuild(...)` named arguments match the real signature (verified against `PreAccountBuildService.php:32-43`). `$result['reused']` matches the real return shape (`:73`, `:182`, `:192`).
+**Type consistency:** `ClaimTokenIssuer::issue/matches/burn` used with those exact signatures in 4, 5, 6. `requestBuild(...)` named arguments verified against `PreAccountBuildService.php:31-43`. `$result['reused']` verified against `:73`, `:182`, `:192`.
 
-**Corrected during self-review (both would have failed on first run):**
-1. Every test originally used `PreAccountBuild::factory()->create()`, but the
-   factory creates NO user while `pre_account_builds.user_id` is NOT NULL **and
-   deliberately not fillable**. All three test files now build the user first and
-   attach it with `->user()->associate()`, matching the model's own `$fillable`
-   comment and `makeUnclaimedWithSite()` in `UnclaimedGatingTest`.
-2. `Site` is `App\Models\Core\Site\Site`, not `App\Models\Site\Site`.
+**One unverified path remains, flagged inline:** the two `config('partna.pre_account.*')` keys in Task 4's form request are the shape, not a checked path. Task 4 Step 3 tells the implementer to copy whatever the two sibling requests actually read.
 
-Helpers are defined per test file rather than shared: cross-file Pest helpers
-break under `--parallel`, which is how the suite runs.
-
-**One deliberate gap:** self-serve (`built_via='signup'`) is untouched and `#SEC-3` stays open for that lane — spec §9. Do not tick the audit finding on the strength of this plan.
+**Deliberate gap:** self-serve (`built_via='signup'`) is untouched. `#SEC-3` is about that arm and **stays open** — do not tick it on the strength of this work.
 
 ## Execution Handoff
 
-Plan complete. Two execution options:
-
-1. **Subagent-Driven (recommended)** — a fresh subagent per task, review between tasks.
+1. **Subagent-Driven (recommended)** — fresh subagent per task, review between tasks.
 2. **Inline Execution** — tasks executed in this session with checkpoints.
