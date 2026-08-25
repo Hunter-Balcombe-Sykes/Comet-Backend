@@ -400,3 +400,69 @@ it('does NOT fail the job on a happy approval — fail() is not fired indiscrimi
 
     expect($signup->fresh()->status)->toBe(EarlyAccessSignup::STATUS_INVITED);
 });
+
+// Review round 1 gap: the build_failed fail() and the collision NON-fail were
+// asserted in the commit message but not proven. A mutant adding fail() to the
+// collision branch passed every other test in this file, because the happy-path
+// negative test uses a PRE-LINKED signup and so never enters the
+// `if ($signup->user_id === null)` block where the collision check lives.
+
+/** An UNLINKED signup, so handle() takes the requestBuild() branch. */
+function unlinkedSignup(string $slug): EarlyAccessSignup
+{
+    return EarlyAccessSignup::create([
+        'email' => $slug.'@example.com', 'email_lc' => $slug.'@example.com', 'type' => 'partna',
+        'status' => EarlyAccessSignup::STATUS_WAITLIST, 'source' => 'marketing',
+        'source_type' => 'instagram', 'source_ref' => $slug,
+    ]);
+}
+
+it('fails the job when requestBuild() throws (#JOB-3 build_failed path)', function () {
+    Exceptions::fake();
+    Mail::fake();
+    $signup = unlinkedSignup('jobfail-build');
+    $this->mock(PreAccountBuildService::class, function ($mock) {
+        $mock->shouldReceive('requestBuild')->once()->andThrow(new RuntimeException('build blew up'));
+    });
+
+    $job = new ApproveEarlyAccessBuildJob($signup->id, 'instagram');
+    $queueJob = Mockery::mock(Job::class);
+    $queueJob->shouldReceive('fail')->once()->with(Mockery::type(RuntimeException::class));
+    $job->setJob($queueJob);
+
+    $job->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class), app(PreAccountBuildService::class));
+
+    expect($signup->fresh()->status)->toBe('waitlist');
+    Mail::assertNothingQueued();
+});
+
+it('does NOT fail the job on a build collision — a live build already exists (#JOB-3)', function () {
+    // The deliberate quiet-return path. Without this test a mutant that failed
+    // the job here would be invisible.
+    Mail::fake();
+    $signup = unlinkedSignup('jobfail-collision');
+    $other = User::factory()->create(['status' => 'unclaimed']);
+    Site::factory()->create(['user_id' => $other->id, 'subdomain' => 'ea_collision']);
+    $colliding = PreAccountBuild::factory()->make([
+        'source_type' => 'instagram', 'built_via' => PreAccountBuild::VIA_STAFF, 'expires_at' => null,
+    ]);
+    $colliding->user()->associate($other);
+    $colliding->save();
+
+    // requestBuild()'s dedupe re-serves the existing live build for this source.
+    $this->mock(PreAccountBuildService::class, function ($mock) use ($colliding) {
+        $mock->shouldReceive('requestBuild')->once()->andReturn(['build' => $colliding]);
+    });
+
+    $job = new ApproveEarlyAccessBuildJob($signup->id, 'instagram');
+    $queueJob = Mockery::mock(Job::class);
+    $queueJob->shouldNotReceive('fail');
+    $job->setJob($queueJob);
+
+    $job->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class), app(PreAccountBuildService::class));
+
+    // A legitimate no-op: not failed, not invited, not linked to the other build.
+    expect($signup->fresh()->status)->toBe('waitlist');
+    expect($signup->fresh()->user_id)->toBeNull();
+    Mail::assertNothingQueued();
+});

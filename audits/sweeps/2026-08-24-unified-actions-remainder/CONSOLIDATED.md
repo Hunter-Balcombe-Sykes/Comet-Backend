@@ -1311,20 +1311,25 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
       stale-line-number rule — the real arm is the `catch (Throwable $e)` inside the `$needsScrape`
       block. Two further quiet returns exist that this finding does not name
       (`.no_link`, `.no_source`); both are legitimate no-ops and were left alone.
-    - ⚠️ **`public int $tries = 0`** — this job retries indefinitely by design (the Apify-stampede
+    - **`public int $tries = 0`** — this job retries indefinitely by design (the Apify-stampede
       limiter RELEASES when over budget, and a release counts as an attempt, so a finite `$tries`
-      would hard-fail on the first throttle). That CUTS BOTH WAYS and is worth knowing: `fail()` is
-      now the only way these paths can ever terminate as failed, which strengthens the fix — but it
-      is also final, with no retry, on `scrape_failed`, the one plausibly-transient path. Retry-policy
-      changes were out of scope and none was made.
+      would hard-fail on the first throttle). ⚠️ **Correction after review round 1:** an earlier draft
+      of this note claimed `fail()` now forecloses a retry that a transient `scrape_failed` would
+      otherwise have got. It does not. Before this fix these paths `return`ed, so `handle()` completed
+      NORMALLY and no retry ever happened on them either — success is not a retry. `fail()` changes
+      only what Horizon reports (processed -> failed). There is no new regression risk here, and no
+      retry-policy change was made.
     - `report($e)` was KEPT alongside each `fail()`, not replaced by it. `Job::fail()` returns early
       without invoking `failed()` when the job is already deleted, so `failed()`'s own `report()` is
       not a guaranteed path. The cost is a duplicate Nightwatch report on the normal path.
     - Tests in `tests/Feature/PreAccount/ApproveEarlyAccessBuildJobTest.php` attach a mock
       `Illuminate\Contracts\Queue\Job` (same shape as `CloudflareCachePurgeJobTest`) because
       `InteractsWithQueue::fail()` is a NO-OP without one — a test that skipped this would have been
-      vacuous. Three mutations proved RED: removing either `fail()`, and adding one to the happy path
-      (which the negative test catches, so a mutant that failed indiscriminately cannot pass).
+      vacuous. **All four paths are covered** (round 1 found `build_failed` and `build_collision`
+      untested; the happy-path negative test does NOT cover the collision, because it uses a
+      pre-linked signup and so never enters the `user_id === null` block where that branch lives).
+      Five mutations proved RED: removing any of the three `fail()` calls, and adding one to either
+      the happy path or the collision branch.
     - **Where:** app/Jobs/PreAccount/ApproveEarlyAccessBuildJob.php:107-127, 163-182
     - **Affects:** Staff early-access approvals; a transient DB/build error or a real scrape failure (Apify outage, `SourceGenerationException`) leaves the signup uninvited with a correctly-updated `build_state`/log entry and a Nightwatch report, but Horizon shows the job as processed — staff have no dashboard signal that the approval silently didn't complete.
     - **Effort:** S (~0.5–1h)
