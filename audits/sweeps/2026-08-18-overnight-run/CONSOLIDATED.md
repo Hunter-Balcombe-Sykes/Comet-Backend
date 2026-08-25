@@ -327,7 +327,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
-- P2 Medium: 5 of 11 complete
+- P2 Medium: 6 of 11 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -513,7 +513,30 @@
         'note' => 'single-attempt job; manual Horizon retry re-bills OCR/AI sub-jobs',
         ```
 
-- [ ] **#LIFE-10** · P2 — `FreshaConnector` discards the vendor's actual GraphQL error, replacing it with a fixed generic message
+- [x] **#LIFE-10** · P2 — `FreshaConnector` discards the vendor's actual GraphQL error, replacing it with a fixed generic message
+    - **FIXED 2026-08-26 (PART 2 unit 14f).** `fetchBookingFlow()` now logs
+      `ingest.fresha.booking_flow_graphql_rejected` with the slug and the vendor's own error messages, so a
+      rotated persisted-query hash is distinguishable from any other GraphQL rejection.
+    - **Nothing credential-shaped can reach the log, by construction.** A new `graphQlErrorMessages()` helper
+      can only ever emit `list<string>`: a non-array `errors` yields `[]`, non-array entries are skipped, and a
+      non-string `message` is skipped via `is_string()`. Capped at 3 errors x 500 chars. `extensions`, headers,
+      the persisted-query document and the request body are never read. The 500 matches `EffectLedger`'s
+      existing exception-text bound (`:158`, `:174`, `:247`) in the same `Ingest/Runtime` layer.
+    - `SecretParams` was deliberately NOT applied: `redactUrl`/`minimiseUrl` parse URL query params, so running
+      them over arbitrary vendor prose is a category error rather than a redaction. The structural bound above
+      is what does the work. Reviewer judged this defensible; recorded as a judgement call, not a certainty.
+    - **Log-only, not threaded into `Unavailable::reason`** — traced and confirmed that `reason` is never
+      persisted (`RunExecutor::recordStreamFailure()` writes only the outcome string `'unavailable'` plus
+      `consecutive_failures`/`suppressed_until`), so threading it would add plumbing across two call sites for
+      a benefit the logs already deliver.
+    - **The branch restructure is behaviour-identical, and this was checked rather than assumed:** the reviewer
+      traced all four cases of `is_array($decoded)` x `isset($decoded['errors'])` — including the
+      `errors => null` case where `isset` is false — across the old and new shapes and confirmed the set of
+      inputs returning `null` is unchanged. It was a genuine PHPStan `booleanAnd.alwaysFalse` fix, not a
+      behaviour change smuggled in under a lint fix.
+    - Mutation-proved: removing the `Log::warning` goes RED. The assertion is a POSITIVE `Log::spy()` +
+      `shouldHaveReceived('warning')->withArgs(...)` constraining the message key, slug and messages array —
+      not the vacuous negative-log pattern this repo has been bitten by. Review: **PASS**.
     - **Where:** app/Ingest/Connectors/FreshaConnector.php:105-118, 300-320
     - **Affects:** Anyone debugging a Fresha menu ingest failure — a rotated persisted-query hash and any other GraphQL rejection reason are indistinguishable in the logs.
     - **Effort:** S (~0.5–1h)

@@ -17,6 +17,7 @@ use App\Ingest\Message\Unavailable;
 use App\Ingest\Runtime\Connector;
 use App\Ingest\Runtime\Io;
 use App\Ingest\Runtime\Pull;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Fresha via its pinned internal booking-flow GraphQL — a THIN wrapper around
@@ -51,6 +52,20 @@ use App\Ingest\Runtime\Pull;
 class FreshaConnector implements Connector
 {
     private const GRAPHQL_URL = 'https://www.fresha.com/graphql';
+
+    /**
+     * #SEC-4: Fresha sets no bound on service name/description, and neither
+     * does content.f_text's DDL (supabase/migrations/20260727140000_content_
+     * schema.sql — "body" text, no CHECK/varchar(n)). 2000 is not invented —
+     * it is the existing cap for the same shape of data one layer over:
+     * Support\Html::plainText()'s default limit, applied to a vendor
+     * description landing in this same content.f_text table via
+     * Support\SchemaOrgEvent (Eventbrite/Humanitix), and Routing\
+     * LinkObserver's raw_url cap (LinkObserver.php:50). Public and shared
+     * with FreshaServiceProjector's belt-and-braces f_text cap so the two
+     * bounds cannot drift into two different numbers.
+     */
+    public const MAX_TEXT_LENGTH = 2000;
 
     public static function manifest(): Manifest
     {
@@ -335,7 +350,9 @@ class FreshaConnector implements Connector
         if (! is_array($item)) {
             return null;
         }
-        $name = is_string($item['name'] ?? null) ? trim($item['name']) : '';
+        // #SEC-4: capped before it ever reaches a Record — an oversized
+        // vendor name/description must not get as far as content.f_text.
+        $name = is_string($item['name'] ?? null) ? mb_substr(trim($item['name']), 0, self::MAX_TEXT_LENGTH) : '';
         if ($name === '') {
             return null;
         }
@@ -361,7 +378,8 @@ class FreshaConnector implements Connector
             'serviceId' => $serviceId,
             'name' => $name,
             'duration' => is_string($item['caption'] ?? null) ? $item['caption'] : null,
-            'description' => is_string($item['description'] ?? null) ? $item['description'] : null,
+            // #SEC-4: same cap as $name above.
+            'description' => is_string($item['description'] ?? null) ? mb_substr($item['description'], 0, self::MAX_TEXT_LENGTH) : null,
             'price' => is_string(data_get($item, 'price.formatted')) ? data_get($item, 'price.formatted') : null,
             'category' => $categoryName,
             'categoryId' => $categoryId,
@@ -423,12 +441,55 @@ class FreshaConnector implements Connector
         }
 
         $decoded = json_decode($response['body'], true);
-        if (! is_array($decoded) || isset($decoded['errors'])) {
+        if (is_array($decoded) && isset($decoded['errors'])) {
             // A rejected persisted-query hash surfaces as a GraphQL `errors`
-            // key on a 200, not as a non-200 status.
+            // key on a 200, not as a non-200 status. #LIFE-10: log the
+            // vendor's own reason so a rotated hash is diagnosable from Cloud
+            // logs instead of reading identically to every other rejection —
+            // the caller still always yields the same generic Unavailable
+            // (reason isn't persisted anywhere; the log is the real surface).
+            Log::warning('ingest.fresha.booking_flow_graphql_rejected', [
+                'slug' => $slug,
+                // Message text only, never `extensions` (where a GraphQL
+                // server conventionally puts debug/request-echo data) or
+                // the request itself — nothing here can carry a header,
+                // the persisted query, or a credential. Bounded like
+                // EffectLedger caps exception text before logging
+                // (Runtime/EffectLedger.php).
+                'messages' => self::graphQlErrorMessages($decoded['errors']),
+            ]);
+
+            return null;
+        }
+
+        if (! is_array($decoded)) {
             return null;
         }
 
         return $decoded;
+    }
+
+    /**
+     * First few GraphQL error `message` strings only — see the caller's
+     * comment on why `extensions` and everything else on the error object is
+     * deliberately never read here.
+     *
+     * @return list<string>
+     */
+    private static function graphQlErrorMessages(mixed $errors): array
+    {
+        if (! is_array($errors)) {
+            return [];
+        }
+
+        $messages = [];
+        foreach (array_slice($errors, 0, 3) as $error) {
+            $message = is_array($error) ? ($error['message'] ?? null) : null;
+            if (is_string($message) && $message !== '') {
+                $messages[] = mb_substr($message, 0, 500);
+            }
+        }
+
+        return $messages;
     }
 }

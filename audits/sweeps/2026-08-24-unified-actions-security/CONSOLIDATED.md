@@ -82,7 +82,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 8 of 15 complete
+- P2 Medium: 9 of 15 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -167,7 +167,31 @@
 
 ## P2 — Should fix
 
-- [ ] **#SEC-4** · P2 — Fresha ingest stores third-party free-text with no length cap
+- [x] **#SEC-4** · P2 — Fresha ingest stores third-party free-text with no length cap
+    - **FIXED 2026-08-26 (PART 2 unit 14a). Dev-only — prod carries no `content` schema at all, so this could
+      not fire on production regardless.**
+    - Capped `name` and `description` with `mb_substr` (NOT `substr` — a byte truncation would split a
+      multi-byte character and emit invalid UTF-8) at a new shared `FreshaConnector::MAX_TEXT_LENGTH = 2000`,
+      applied in `mapServiceItem()` AND re-applied independently in `FreshaServiceProjector`'s `f_text`
+      mapping. One constant, referenced from both — not two hand-copied numbers.
+    - **The 2000 is an EXISTING convention, not invented** — that was the condition for not deferring, and it
+      was verified twice: `Html::plainText()`'s default `$limit = 2000` (`app/Ingest/Support/Html.php:59`) is
+      what `SchemaOrgEvent::fromNode()` already applies to a vendor `description` that
+      `SchemaOrgEventProjector.php:60` writes into **this same `f_text.body` facet** for Eventbrite/Humanitix.
+      `LinkObserver.php:50` independently caps at the same 2000. `content.f_text.body` itself
+      (`20260727140000_content_schema.sql:188-196`) is plain `text` — no CHECK, no `varchar(n)` — so the
+      column-DDL option genuinely did not exist.
+    - `Html::plainText()` was NOT reused wholesale: it also strips tags and decodes entities, the wrong
+      transform for Fresha's plain JSON-API prose (`__NEXT_DATA__.description`), where `strip_tags` could
+      mangle a stray `<`/`>` in real business copy. A judgement call, flagged as such by the reviewer.
+    - **The finding's control-character stripping was deliberately NOT done:** no existing convention for it
+      exists in `app/Ingest/` or `app/Routing/` (grepped by both implementer and reviewer), and inventing one
+      was out of bounds for this unit. Skipped on purpose, not overlooked.
+    - Lane: SQLite proves this fully — it is a PHP-level cap, not a Postgres constraint, and
+      `ProjectionWriter.php` is untouched (verified), so `composer test:pg` is not owed.
+    - Mutation-proved TWICE and independently re-run: removing the connector cap AND separately removing the
+      projector cap each go RED (`Failed asserting that 2500 is identical to 2000`), proving the
+      belt-and-braces is a real second guard rather than riding on the first. Review: **PASS**.
     - **Where:** app/Ingest/Connectors/FreshaConnector.php (`mapServiceItem`), app/Ingest/Projection/FreshaServiceProjector.php:61
     - **Affects:** `content.items` rows and sitepage rendering for owners with a Fresha connection.
     - **Effort:** S (~0.5–1h)
