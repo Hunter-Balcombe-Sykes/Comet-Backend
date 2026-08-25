@@ -809,7 +809,7 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 4 of 11 complete
+- P2 Medium: 5 of 11 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -1023,7 +1023,16 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
         );
         ```
 
-- [ ] **CCH-11** · P2 — `ContentPopularityReader` caches a query failure as a valid empty ranking behind the public-profile cache
+- [x] **CCH-11** · P2 — `ContentPopularityReader` caches a query failure as a valid empty ranking behind the public-profile cache
+    - **FIXED in two halves** — the reader had to learn to report a fault, and the CACHING CALL SITES had to consult it. Fixing only the reader would have left the cache poisoning intact.
+        **Half 1 — `ContentPopularityReader`:** all four catch sites keep their `Log::warning` breadcrumb (a single blip stays quiet) and add `self::escalateIfSustained($e, '<label>')`, reusing the EXISTING `App\Services\Analytics\Concerns\EscalatesRepeatedFaults` trait that `SitepageDataResolverService::safeQuery()` already uses — not a new always-`report()` convention. Four DISTINCT labels (`popularity_forSite`, `popularity_action_scores`, `popularity_action_ranks`, `popularity_item_scores`) so the faults map to four independent RateLimiter buckets rather than sharing one counter. A `lastReadFailed(): bool` flag distinguishes "the query failed" from "no rows".
+        The flag is **non-sticky**, reset at the top of every read: `ComputeContentPopularityScores` reuses ONE reader instance across a `chunkById` site loop, so a sticky flag would misreport every later site after one earlier fault. `pageRanksFromActions()` does no I/O of its own and correctly inherits the inner call's flag.
+        **Half 2 — the call sites**, both reusing the `#LIFE-6` seam rather than inventing machinery: `PoolResolver::popularityRanks()` (`:1401-1430`) now calls `CacheLockService::shortenDegraded()` — the same method `IndividualProfileController::show()` already calls — and `IndividualProfilePayloadBuilder::pageOrder()`/`buildActions()` call `SitepageDataResolverService::markDegraded()`, exactly as `PoolWire::forSite()` does. The controller needed no change: its existing `shortenDegraded()` consumes the flag for free.
+        **The by-reference capture is load-bearing:** `popularityRanks()` declares `$failed = false` OUTSIDE `rememberLocked` and sets it only inside the closure via `&$failed`, so a cache HIT (closure never runs) cannot fire `shortenDegraded()` off a stale flag left by an unrelated earlier call.
+        **Deliberately NOT rethrowing.** It was considered and rejected: rethrowing would close the `PoolResolver` path (already caught by `PoolWire`) but would 500 the PUBLIC page via `IndividualProfilePayloadBuilder`, which has no try/catch, and break `ShopController::productRanksFor()`'s documented fail-open promise. This is fail-open-and-log; the page must still render.
+        Tests: `ContentPopularityReaderFailOpenTest` (11), `PopularityRankCacheDegradationTest` (2), `IndividualProfilePayloadBuilderPopularityDegradedTest` (5). Negative assertions read REAL cache state (`Cache::has()` after `travel(20)->seconds()`) against a real `QueryException` from an unprovisioned table — no mocked query builder, no single-argument `shouldNotHaveReceived`. The genuine zero-row case is pinned separately and still caches on the normal 900s TTL; without that pin, disabling caching entirely would have gone unnoticed.
+        **Three pre-existing fixtures were amended, and the reviewer confirmed this restores intent rather than masking a regression:** `pageOrder()` defaults `smart_page_order` to true, so every full `build()` now reads popularity. `PoolDegradedBuildTest`, `DegradedPayloadTtlTest` and `PresenceProbeEscalationTest` never provisioned `analytics.content_popularity_scores` and so began faulting for an unrelated reason. Each would fail LOUDLY, not silently, if the fix were wrong. `DegradedPayloadTtlTest` got the table only on the one test that drives the full HTTP path — its two `presentPageIds()`-only tests were left alone.
+        **Surfaced, not worked:** nothing outstanding for this finding.
     - **Where:** app/Services/Analytics/ContentPopularityReader.php:39-51 (`forSite`), 68-83 (`actionScoresForSite`), 125-140 (`itemScoresForSite`)
     - **Affects:** Public sitepage visitors — a transient `analytics.content_popularity_scores` query failure is silently absorbed as "no ranks" and, per the class's own docblock, this read sits "behind the 60s public-profile cache," so the empty result can be cached fleet-wide for that window.
     - **Effort:** S (~0.5–1h)

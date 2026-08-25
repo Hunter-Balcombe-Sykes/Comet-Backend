@@ -1389,15 +1389,41 @@ class PoolResolver
      * two different keys would silently halve a single-flight cache that
      * exists because this read used to hit Postgres on every public request.
      *
+     * CCH-11: forSite() fails open to [] on a DB fault, indistinguishable from
+     * a genuine "nothing scored yet" site — and rememberLocked would cache
+     * either one for the full 900s TTL. $failed is set only inside the
+     * closure, so it stays false (and the write below a no-op) on a cache
+     * HIT, where the closure never runs and lastReadFailed() would otherwise
+     * still be reporting some earlier, unrelated call on this shared reader
+     * instance. On an actual miss that faulted, shortenDegraded()
+     * immediately overwrites what rememberLocked just wrote — primary and
+     * stale — with the short degraded TTL, so the next request retries the DB
+     * within seconds instead of serving an empty ranking for 15 minutes.
+     *
      * @return array<string, array<string, int>>
      */
     private function popularityRanks(Site $site): array
     {
+        $failed = false;
+        $key = CacheKeyGenerator::sitePopularityRanks((string) $site->id);
         $ranks = $this->cache->rememberLocked(
-            CacheKeyGenerator::sitePopularityRanks((string) $site->id),
+            $key,
             self::POPULARITY_CACHE_TTL_SECONDS,
-            fn () => $this->popularity->forSite((string) $site->id),
+            function () use ($site, &$failed) {
+                $ranks = $this->popularity->forSite((string) $site->id);
+                $failed = $this->popularity->lastReadFailed();
+
+                return $ranks;
+            },
         );
+
+        if ($failed) {
+            $this->cache->shortenDegraded(
+                $key,
+                $ranks,
+                max(1, (int) config('partna.public_profile.degraded_cache_ttl_seconds', 10)),
+            );
+        }
 
         return $ranks;
     }

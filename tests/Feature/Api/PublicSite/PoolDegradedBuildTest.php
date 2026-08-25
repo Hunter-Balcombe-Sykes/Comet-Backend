@@ -38,6 +38,14 @@ beforeEach(function () {
     setupMediaTables();
     setupIngestTables();
     setupContentTables();
+    // CCH-11: pageOrder()/buildActions() now consult ContentPopularityReader's
+    // lastReadFailed() and mark the SAME resolver degraded on a fault — so an
+    // unprovisioned analytics.content_popularity_scores would fault every
+    // build here and make every "does not mark degraded" assertion in this
+    // file false for the wrong reason (an analytics blip, not the pool fault
+    // each test is actually about). Provisioned empty, matching every other
+    // fixture in this suite that has no popularity data.
+    setupContentPopularityScoresTable();
     // The real mirror of site.design_kits — loadDesignKit() reads it on every build.
     setupDesignKitsTable();
 

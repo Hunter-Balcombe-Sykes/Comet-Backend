@@ -215,7 +215,19 @@ class IndividualProfilePayloadBuilder
         $settings = is_array($site?->settings) ? $site->settings : [];
         $smart = filter_var($settings['smart_page_order'] ?? true, FILTER_VALIDATE_BOOL);
         if ($smart) {
-            return $this->resolver->buildPageOrder($site, $caps, $sections, $this->popularity->pageRanksFromActions($site?->id));
+            $pageRanks = $this->popularity->pageRanksFromActions($site?->id);
+            if ($this->popularity->lastReadFailed()) {
+                // CCH-11: pageRanksFromActions() delegates to actionRanksForSite(),
+                // which fails open to [] on a DB fault — identical to "no page
+                // ranked yet". Mark the build degraded so the controller
+                // rewrites its cache entry at the short degraded TTL (same
+                // markDegraded()/hasDegraded() seam #LIFE-6 wired for PoolWire)
+                // instead of the fault's empty ranking riding the full payload
+                // TTL.
+                $this->resolver->markDegraded();
+            }
+
+            return $this->resolver->buildPageOrder($site, $caps, $sections, $pageRanks);
         }
         $manual = array_values(array_map(
             static fn (string $id): string => SitepageId::normalizePageId($id),
@@ -273,7 +285,15 @@ class IndividualProfilePayloadBuilder
             Log::warning('sitepage.actions_candidates_failed', ['site_id' => $site->id, 'error' => $e->getMessage()]);
             $candidates = [];
         }
-        $ranks = $settings->mode === 'smart' ? $this->popularity->actionRanksForSite($site->id) : [];
+        $ranks = [];
+        if ($settings->mode === 'smart') {
+            $ranks = $this->popularity->actionRanksForSite($site->id);
+            if ($this->popularity->lastReadFailed()) {
+                // CCH-11: same fail-open ambiguity as pageOrder() above, for the
+                // action-slot ranking instead of page order.
+                $this->resolver->markDegraded();
+            }
+        }
         $resolved = ActionSlots::resolve($candidates, $ranks, $settings, (int) config('partna.actions.slots', 10));
 
         return ['mode' => $settings->mode, 'entries' => $resolved['entries']];

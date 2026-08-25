@@ -113,6 +113,11 @@ it('leaves a clean payload on the full TTL', function () {
     setupMediaTables();
     setupServiceCategoriesTable();
     setupServicesTable();
+    // CCH-11: the popularity readers now mark the build degraded on a genuine
+    // QueryException instead of caching an empty ranking as if it were valid.
+    // This is the CLEAN-build control, so the analytics table has to exist —
+    // without it the read faults for real and the short TTL is correct.
+    setupContentPopularityScoresTable();
 
     $this->getJson("/api/public/profiles/{$pro->handle}")->assertOk();
 

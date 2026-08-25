@@ -258,6 +258,13 @@ it('LIFE-1 end-to-end: a services-probe fault degrades /api/public/profiles/{han
     // faults inside presentPageIds() on every request below, without the pool
     // probes tripping too.
     setupSectionsTables();
+    // A FOURTH unrelated resilience path (CCH-11): ContentPopularityReader's
+    // readers now escalate a sustained QueryException instead of silently
+    // caching an empty ranking. Left unprovisioned, analytics.content_popularity_scores
+    // faults on every request in the loop below and contributes reports of its
+    // own — same reasoning as the three paths above: provision it so
+    // Exceptions::fake() captures ONLY the services-probe fault under test.
+    setupContentPopularityScoresTable();
     // A THIRD unrelated resilience path, newly relevant since slice 5a's C2
     // fix (ddea76982) repointed CloudflarePurgeService's product-handle
     // lookup at content.* instead of site.shop_products: every site save

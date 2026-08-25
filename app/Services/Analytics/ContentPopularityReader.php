@@ -2,6 +2,7 @@
 
 namespace App\Services\Analytics;
 
+use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -16,10 +17,47 @@ use Illuminate\Support\Facades\Log;
  *
  * Fail-open: any read fault (missing table in a partial SQLite env, DB blip)
  * returns empty maps so a scoring outage degrades to "no ranks" (canonical
- * order + null popularityRank) rather than breaking the public payload.
+ * order + null popularityRank) rather than breaking the public payload. A
+ * SUSTAINED run of faults escalates to Nightwatch via the shared
+ * EscalatesRepeatedFaults trait — the same precedent
+ * SitepageDataResolverService::safeQuery() and AnalyticsCacheService use — so
+ * a single blip stays a quiet Log::warning breadcrumb while a real outage
+ * finally pages someone (CCH-11).
+ *
+ * CCH-11: a fault used to be indistinguishable from a genuine "zero rows"
+ * read — both returned []. That [] gets cached: PoolResolver::popularityRanks()
+ * wraps forSite() in its own 900s CacheLockService::rememberLocked(), and
+ * IndividualProfilePayloadBuilder folds actionRanksForSite()/
+ * pageRanksFromActions() straight into the payload
+ * IndividualProfileController caches for up to 60s primary + 600s stale. One
+ * DB blip could poison either cache with an empty ranking for the FULL
+ * window. lastReadFailed() (below) is the fix's caller-facing half: it lets a
+ * caller distinguish the two cases and withhold/shorten the cache write —
+ * mirroring how SitepageDataResolverService::markDegraded() already lets
+ * PoolWire do the same for pool-hydration faults (#LIFE-6). Per-call, not
+ * sticky: reset at the top of every read method so it always reflects the
+ * outcome of the call that just returned, not an earlier one on the same
+ * instance (ComputeContentPopularityScores reuses one instance across many
+ * sites in a loop — a sticky flag would misreport every site after the
+ * first fault).
  */
 class ContentPopularityReader
 {
+    use EscalatesRepeatedFaults;
+
+    /**
+     * Did the read invoked by the most recently CALLED method on this
+     * instance answer from a QueryException rather than the database? See
+     * the class docblock (CCH-11) — check this immediately after calling a
+     * read method; it is overwritten by the next call, not accumulated.
+     */
+    private bool $lastReadFailed = false;
+
+    public function lastReadFailed(): bool
+    {
+        return $this->lastReadFailed;
+    }
+
     /**
      * All ITEM popularity ranks for a site, grouped by content_type then keyed
      * by content_key → rank. content_type ∈ shop_product|menu_item|
@@ -32,6 +70,7 @@ class ContentPopularityReader
      */
     public function forSite(?string $siteId): array
     {
+        $this->lastReadFailed = false;
         if ($siteId === null || $siteId === '') {
             return [];
         }
@@ -46,6 +85,8 @@ class ContentPopularityReader
                 ->get(['content_type', 'content_key', 'rank']);
         } catch (QueryException $e) {
             Log::warning('analytics.popularity_read_failed', ['site_id' => $siteId, 'error' => $e->getMessage()]);
+            self::escalateIfSustained($e, 'popularity_forSite');
+            $this->lastReadFailed = true;
 
             return [];
         }
@@ -67,6 +108,7 @@ class ContentPopularityReader
      */
     public function actionScoresForSite(?string $siteId): array
     {
+        $this->lastReadFailed = false;
         if ($siteId === null || $siteId === '') {
             return [];
         }
@@ -78,6 +120,8 @@ class ContentPopularityReader
                 ->get(['content_key', 'score']);
         } catch (QueryException $e) {
             Log::warning('analytics.action_scores_read_failed', ['site_id' => $siteId, 'error' => $e->getMessage()]);
+            self::escalateIfSustained($e, 'popularity_action_scores');
+            $this->lastReadFailed = true;
 
             return [];
         }
@@ -101,6 +145,7 @@ class ContentPopularityReader
      */
     public function actionRanksForSite(?string $siteId): array
     {
+        $this->lastReadFailed = false;
         if ($siteId === null || $siteId === '') {
             return [];
         }
@@ -113,6 +158,8 @@ class ContentPopularityReader
                 ->get(['content_key', 'rank']);
         } catch (QueryException $e) {
             Log::warning('analytics.action_ranks_read_failed', ['site_id' => $siteId, 'error' => $e->getMessage()]);
+            self::escalateIfSustained($e, 'popularity_action_ranks');
+            $this->lastReadFailed = true;
 
             return [];
         }
@@ -135,6 +182,10 @@ class ContentPopularityReader
      * share a rank in the narrow window between the upsert and the stale-key
      * delete of a single computeForSite() run (stale keys are never real
      * candidates in practice, but the sort must still be total).
+     *
+     * lastReadFailed() reflects the inner actionRanksForSite() call — this
+     * method does no I/O of its own, so its fault behaviour is entirely that
+     * call's.
      *
      * @return array<string, int>
      */
@@ -166,6 +217,7 @@ class ContentPopularityReader
      */
     public function itemScoresForSite(?string $siteId): array
     {
+        $this->lastReadFailed = false;
         if ($siteId === null || $siteId === '') {
             return [];
         }
@@ -177,6 +229,8 @@ class ContentPopularityReader
                 ->get(['content_key', 'score']);
         } catch (QueryException $e) {
             Log::warning('analytics.item_scores_read_failed', ['site_id' => $siteId, 'error' => $e->getMessage()]);
+            self::escalateIfSustained($e, 'popularity_item_scores');
+            $this->lastReadFailed = true;
 
             return [];
         }
