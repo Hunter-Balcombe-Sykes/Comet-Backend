@@ -58,7 +58,7 @@
         }
         ```
 
-- [ ] **CACHE-2** · P2 — Category 1: `writeManualItem` recomputes the whole user's identity graph on every single owner write
+- [x] **CACHE-2** · P2 — Category 1: `writeManualItem` recomputes the whole user's identity graph on every single owner write
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:410 (`writeManualItem` → `resolveItems`)
     - **Affects:** Owner-authored manual content writes (hand-adds, backfillers, `MenuScanApplier`, `ShopContentWriter::syncProducts`) — latency and DB read volume scale with the user's total live item count for the kind, not with the single row being written.
     - **Effort:** M (~2–4h)
@@ -107,7 +107,7 @@
         );
         ```
 
-- [ ] **CACHE-4** · P2 — Category 1: a connector run touching one record rebuilds identity + caches for the user's entire kind
+- [x] **CACHE-4** · P2 — Category 1: a connector run touching one record rebuilds identity + caches for the user's entire kind
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:241-246 (`projectStream`)
     - **Affects:** Every scheduled connector projection (YouTube, Instagram, Google Business, Fresha, Eventbrite, Gumroad, menu platforms) — cost per run scales with the user's total live item count for the kind, not with the number of records the run actually changed.
     - **Effort:** L (~1–2d)

@@ -2469,3 +2469,243 @@ Stated rather than hidden, per the PLAN-PROMPT's §6.4.
    measured delta, not the finding's wording.
 4. **`#CACHE-2`'s remaining half is unverified** until Task 3 Step 1 runs. It may be partly closed
    already by `#SCALE-7`.
+
+---
+
+## RESULT
+
+Captured 2026-08-26, Task 8. No application code was changed for this task — measurement,
+regression, and audit bookkeeping only.
+
+### Measurement (Step 1)
+
+**No production measurement is available.** Prod carries none of `content`/`ingest`/`routing`/
+`catalog` and `core.users = 0` (2026-08-25). Everything below is local/dev evidence against a
+scratch Postgres database (`partna_pg_task8_measure`, disposable, dropped after use).
+
+Rather than a git-checkout dance, the flag was flipped in-process against the SAME seeded
+catalogue and the SAME `ProjectionWriter::projectStream()` call, per the task brief. Harness:
+`.superpowers/sdd/2026-08-25-projectionwriter-identity-scope/scratch/measure.php` (outside
+`tests/`, git-excluded via `.git/info/exclude`, deleted after this second pass — not part of any
+commit).
+
+**Fixture, both points:** one user, N pre-existing already-anchored `track` source items spread
+across 3 sources (`apple_music`/`soundcloud`/`bandcamp`, N/3 each), every one a singleton with its
+own unique title. One touched Spotify stream lands 6 new records: 5 unrelated singletons plus 1
+that shares an ISRC with a single pre-existing `apple_music` item, so the touched component
+genuinely crosses source boundaries. Two runs per point, freshly-seeded DB per run; N = 300 (the
+original point) and N = 1,200 (added after review — see below):
+
+| Metric | N=300, flag OFF | N=300, flag ON | N=1,200, flag OFF | N=1,200, flag ON |
+|---|---|---|---|---|
+| DB queries | 100 | 100 | **102** | **100** |
+| `memory_get_peak_usage(true)` delta | 2 MB | 0 MB | **6 MB** | 0 MB |
+| Wall clock (`hrtime`), 2 runs | 133 / 92 ms | 111 / 93 ms | 120 / 139 ms | 125 / 127 ms |
+| Items in resolver's return set | 305 | 6 | 1,205 | 6 |
+
+**Reviewer hypothesis, tested and CONFIRMED — with the mechanism corrected.** A reviewer flagged
+that 300 items cannot show a query-count effect because both paths fit in one `BATCH_SIZE=500`
+batch, and asked for a ~1,200-item point to force the whole-kind path past that boundary. Re-run at
+N=1,200: **query count went from parity (100 vs 100) to a reproducible 2-query gap (102 vs 100),
+identical across both repeats.** The hypothesis's shape is right; its named culprit was not.
+`refreshItemCaches()` was the reviewer's guess, but it operates on `$touchedItemIds` (derived from
+`$touchedCoords`, always 6 in this fixture) **regardless of the flag** — that scoping is Task 3's
+separate, already-shipped change (#CACHE-4's cache half), and it stays at one batch at any
+catalogue size. The actual site is `anchorSnapshot()` (`ProjectionWriter.php:1268`):
+`array_chunk($coords, self::BATCH_SIZE)` over the union of `$resolution->groups`' coords. At
+N=1,200 that union is whole-kind (~1,206 coords → `ceil(1206/500) = 3` chunks → 3 queries) when the
+flag is off, versus the narrowed 6-coord component (1 chunk → 1 query) when it is on — a delta of
+exactly 2, matching the measurement exactly. At N=300 (~306 coords) both paths fit in one chunk, so
+the two whole-kind reads plus this now-identical anchor-snapshot chunk count produce true parity.
+
+**Corrected, honest framing for the PR:** at realistic dev catalogue sizes (hundreds of items,
+comfortably under `BATCH_SIZE=500`), **the query count is unchanged** — the two whole-kind reads
+`§A.3` names, plus `anchorSnapshot()`'s single chunk either way, dominate and the win is invisible
+in round-trip count. **The query win exists and is real, but only appears once a user's catalogue
+for a kind exceeds ~500 live items** (crossing one more `BATCH_SIZE` boundary per extra 500), at
+which point the narrowed path saves one query per 500 items the whole-kind path would otherwise
+need to fetch anchors for. Memory is the reliable win at both sizes: peak (`true`) delta rose from
+2 MB to 6 MB for the OFF path as the catalogue grew 4x, while the ON path stayed flat at 0 MB
+(unresolvable at this granularity, i.e. small enough not to trigger a new page allocation) at both
+sizes — showing the OFF path's memory cost scales with catalogue size and the ON path's does not.
+Wall clock at both sizes was too noisy on this shared Docker setup to support a directional claim
+either way (values overlapped run-to-run within each flag state) — not reported as a percentage win
+in either direction. A finer-grained PHP-heap metric (`memory_get_usage(false)`) was tried in the
+original pass and dropped from this revision: measuring both flag states sequentially in one PHP
+process let the allocator reuse/retain blocks across runs, producing a negative "delta" for the ON
+path at N=1,200 that is a measurement artifact, not a real reading — `memory_get_peak_usage(true)`
+is the metric reported here because it does not have that failure mode.
+
+**§A.3's prediction was right in substance (the two whole-kind reads are unconditional; the
+downstream stages were the plan's stated saving) but its account was incomplete: it did not name
+`anchorSnapshot()`'s own chunk boundary as a THIRD unconditional-until-N>500 read, which is why the
+first pass of this measurement (N=300 only) read as flat "0% fewer queries" with no caveat about
+scale. That reads as a genuine gap in §A.3, not a contradiction of it** — the mechanism was already
+implemented correctly (`#SCALE-4`), just not called out as the reason a single small-catalogue
+measurement would show query parity. Recorded here so nobody re-derives this by surprise a second
+time.
+
+### Full regression (Step 2)
+
+**Fast lane, `php artisan test --parallel`** (same invocation as the recorded baseline, which was
+also captured with `--parallel`, 10 processes):
+
+| | Baseline (pre-branch) | This branch (HEAD `4407f68c4`) |
+|---|---|---|
+| Passed | 9,227 | **9,240** |
+| Skipped | 3 | 3 |
+| Failed | 0 | **13** |
+| Assertions | 32,511 | 32,536–32,542 (small run-to-run variance, unrelated to the failures below) |
+
+Passed count is higher than baseline, as expected (this branch adds tests). **But 13 failures are
+new, and they are a real, confirmed regression this branch introduced — not flakiness, not
+"unrelated to this work."**
+
+**Root cause, fully diagnosed:** Task 7b's commit `35012611d` added
+`tests/Feature/Ingest/ProjectionSyncShapesTest.php`, which calls three helper functions
+(`projectableBandcamp`, `landCurrentRecord`, `projectOne`) declared in
+`tests/Feature/Ingest/ProjectionWriterTest.php` — a different file. This is the exact
+cross-file-test-helper hazard `tests/Feature/Architecture/CrossFileTestHelperGuardTest.php` exists
+to catch (its own docblock: *"This has bitten twice"*, `poolTenant`/`shopStore` precedent) and it
+IS catching it — that test is 1 of the 13 failures. The other 12 are every test in
+`ProjectionSyncShapesTest.php`, which fatal with `Call to undefined function projectableBandcamp()`
+whenever paratest assigns that file to a worker that does not also get `ProjectionWriterTest.php`.
+Confirmed reproducible on demand:
+- `./vendor/bin/pest tests/Feature/Ingest/ProjectionSyncShapesTest.php` (alone) → 12/12 fail,
+  `Call to undefined function projectableBandcamp()`.
+- The same file run together with `ProjectionWriterTest.php` → all pass (both files' tests
+  discovered, helper resolves).
+- `./vendor/bin/pest tests/Feature/Architecture/CrossFileTestHelperGuardTest.php` alone, **with no
+  `--parallel` flag at all** → still fails. This is a static AST scan
+  (`Tests\Support\Architecture\TestHelperScanner`), not a parallel-only flake — it fails under
+  `composer test`/`composer test:ci` (serial `php artisan test`) too, so **this is a CI-breaking
+  regression, not merely a local `--parallel` inconvenience.**
+- Confirmed directly: a full serial `php artisan test` (no `--parallel`, 587s) produced **9,251
+  passed, 1 failed, 1 warning, 3 skipped, 32,553 assertions** — exactly `CrossFileTestHelperGuardTest`
+  failing alone, with all 12 `ProjectionSyncShapesTest` tests passing (serial discovery loads both
+  files, so the helper resolves). This is the direct proof that `composer test`/`composer test:ci`
+  fails on this branch today, independent of `--parallel` entirely.
+
+Task 7b's own review recorded "review clean" (progress.md) — it evidently ran the new file
+alongside others where the helper happened to resolve, or ran the whole suite serially, and never
+exercised the isolated-file or `--parallel` case that exposes it. Per the guard test's own
+docblock, the fix is mechanical (move the three helpers into `tests/Helpers/`, `require_once` from
+`tests/Pest.php`, no call-site changes) — but **Task 8's brief forbids touching anything under
+`tests/`, so this was diagnosed and reported, not fixed.** This must be closed before the branch
+merges; it is not something Step 5's PR review should discover independently.
+
+**Postgres lane, whole `tests/Postgres` directory** (`PG_LANE_REQUIRED=1 PG_LANE_DISPOSABLE=1`,
+scratch DB `partna_pg_task8`, dropped after):
+
+**244 passed, 3 skipped, 2 failed (1,169 assertions).** The 2 failures are exactly the
+known-not-ours case named in the brief: `tests/Postgres/LanderFoldAtomicityTest.php`
+(`SQLSTATE[42P01]: relation "ingest.record_state" does not exist` inside its own `beforeEach`) —
+fails standalone, unrelated to any file this branch touches, not investigated per instruction.
+
+`tests/Postgres/ProjectionWriterIdentityRaceTest.php` re-run in isolation: **8 passed, 71
+assertions — untouched**, exactly as the plan's Step 5 PR-body requirement states.
+
+**Applied-schema lane:** not run locally — CI gate (`composer test:schema` needs a dead
+Supabase-host `.env` ref and the real `auth` schema; this branch touches no schema).
+
+**Static analysis:** `./vendor/bin/pint --test` → `{"tool":"pint","result":"passed"}`.
+`./vendor/bin/phpstan analyse --memory-limit=2G` → `[OK] No errors`, 1,413 files.
+
+**Kill switch, `PARTNA_CONTENT_IDENTITY_SCOPE=false`** against
+`tests/Unit/Content tests/Feature/Ingest tests/Feature/Content`: **1,024 passed, 1 skipped, 3,548
+assertions.** (This run does not include `ProjectionSyncShapesTest.php`'s cross-file-helper
+failures, since that hazard is independent of the flag and reproduces with the flag at either
+value — confirmed above.) The rollback path is exercised and green.
+
+### Audit ticks (Step 4)
+
+Ticked, by ID + file + line, exactly as verified in the task brief's table:
+
+- `audits/sweeps/2026-08-18-overnight-run/CONSOLIDATED.md`: `CACHE-2` (:811) and `CACHE-4` (:860)
+  ticked `[x]` — closed by commit `446357cf2` (Task 3, refresh caches for touched items only).
+- Same file: `#SCALE-8` (:1224) ticked `[x]` — closed by commit `17e50e23f` (Task 6, bounded
+  accumulator).
+- Same file: `#SCALE-9` (:1245) ticked `[x]` — closed by commits `adaeb9ae2` + `4407f68c4` (Task 5 +
+  its review follow-up gating `currentSlugs()` on batches actually containing a slugged kind).
+- Same file: `#SCALE-12` (:1311) ticked `[x]` **as WONTFIX**, with the full disposition (no batching
+  API preserves `ShouldBeUnique`; the live-dev measurement addendum — max 349/run, p95 120, zero
+  runs over 500; the reopen trigger and its exact re-check query) written inline in the
+  CONSOLIDATED.md finding itself, not just in this plan, so a future sweep reads the reasoning
+  where it will actually look. **The disposition is written to not depend on the asset count** —
+  the principled argument (no batching primitive in Laravel honours `ShouldBeUnique`) holds at any
+  volume; the measurement only rules out an immediate reopen.
+- `audits/sweeps/2026-08-18-overnight-run/audit-2026-08-18-scaling-antipatterns.md`: `CACHE-2`
+  (:61) and `CACHE-4` (:110) ticked `[x]` to match the consolidated file.
+
+**NOT ticked, correctly:** `#API-7` (`sweeps/2026-08-24-unified-actions-delta/CONSOLIDATED.md:300`)
+remains open — confirmed a different defect (public pool hydration's dashboard-only
+duplicate-detection query) that merely shares an ID with our `#SCALE-9`. Commit `adaeb9ae2`'s
+message crediting `#API-7` is a known, already-recorded cosmetic error in the commit history — not
+corrected by rewriting history. None of the remainder sweep's twin IDs (`CACHE-4` :162, `SCALE-8`
+:545, `SCALE-9` :569, `SCALE-12` :631 in `sweeps/2026-08-24-unified-actions-remainder/CONSOLIDATED.md`)
+were touched.
+
+`scripts/audit/archive-done.sh` run (not `--dry-run` — its dry run and real run agreed): **"Nothing
+to archive — no fully-completed audits found."** Correct — the overnight-run sweep still carries
+other unticked findings (`#SCALE-13`, `#SCALE-14`, etc.) outside this plan's scope, so
+`CONSOLIDATED.md` is not all-`[x]` and does not qualify for auto-archive.
+
+### What stayed open
+
+- `#API-7` — handed back as its own item, per the plan's own correction (§ task-8-brief.md, "the
+  `#SCALE-9` ≡ `#API-7` pairing... was too shallow").
+- `#SCALE-13`, `#SCALE-14`, and the rest of the overnight-run sweep's P2/P3 backlog — out of this
+  plan's scope, untouched.
+- **The cross-file test helper regression above** — new, found by this task, not previously known,
+  blocking for merge, requires a `tests/`-only fix this task is not permitted to make.
+
+### Where §A was right, where it needed correcting, and what this task learned beyond §A
+
+- **§A.1's closure proof held.** `ProjectionWriterScopedResolveTest.php`'s differential test
+  (scoped mapping == whole-kind mapping) passed throughout Task 8's regression runs, and this
+  task's own measurement fixture — a cross-source ISRC match reaching outside the touched stream —
+  exercised exactly the transitivity shape the proof is about, with no divergence.
+- **§A.3's "what does NOT get faster" table was right in substance, and its own caveat ("do not
+  report X% faster without both numbers") is exactly why this measurement was re-run at a second
+  fixture size rather than left at one ambiguous parity figure.** The two-point measurement (300
+  vs 1,200 pre-existing items) shows the query count is genuinely flat below `BATCH_SIZE=500` and
+  genuinely narrows above it (100 vs 100 at N=300; 102 vs 100 at N=1,200) — both true, at different
+  scales, which a single measurement point could not have distinguished from either "no win exists"
+  or "the win exists but this fixture is too small to see it." §A.3's table did not name
+  `anchorSnapshot()`'s own `BATCH_SIZE` chunk as a third unconditional-until-N>500 read alongside
+  the two whole-kind reads it does name — that is a real, if minor, gap in §A.3's account, found
+  only because a reviewer pushed back on a single-point measurement rather than accepting parity at
+  face value. Memory (`memory_get_peak_usage(true)`) is the more reliable win across both sizes:
+  flat at 0 MB for the scoped path regardless of catalogue size, rising with catalogue size (2→6 MB)
+  for the whole-kind path.
+- **§A.4 already recorded the plan's real reasoning failures during execution** (the original
+  poisoning-based transitivity argument was wrong; the manual-item ruling hole, the unbound-anchor
+  sweep, and the merge-orphans-anchors-outside-the-component bug were all found live, not
+  predicted). Task 8 found nothing that contradicts §A.4's amendments — the differential and race
+  tests built to pin them (`ProjectionWriterScopedResolveTest.php`,
+  `ProjectionWriterIdentityRaceTest.php`, `ProjectionWriterMergeAnchorTest.php`) all pass.
+- **What this task adds beyond §A: the plan's own quality process has a gap.** §A never claimed
+  Task 7b's review would catch a cross-file test hazard — that is squarely
+  `CrossFileTestHelperGuardTest`'s job, and it does catch it, on the very same commit, the moment
+  the FULL suite runs it in the right shape (isolated file, or any file, under `--parallel`). The
+  gap is that Task 7b's review ran a narrower slice, per this same programme's own recorded
+  precedent in CLAUDE.md ("the PG stand-in DDL drifts silently... two reviews missed it") — a
+  different lane, same shape of failure: **a review that does not run the guard/PG-lane in the
+  configuration that actually exercises it reads green for the wrong reason.** This is not a defect
+  in §A's design reasoning; it is evidence that "Task N: review clean" in `progress.md` needs a
+  standing checklist item — run the new/changed test file BOTH alone and under `--parallel` — not
+  just a green run of whatever was in front of the reviewer.
+- **`#SCALE-8`'s real-world memory saving is ≈5%** on a realistic Bandcamp-shaped projection (481 →
+  456 bytes, from Task 6's own measurement) — the 666× figure this plan and its commits cite
+  elsewhere is a synthetic fixture with a 200 KB unused key, included to bound a FUTURE
+  fat-projector risk, not to describe today's typical payload. Reported here exactly as Task 6's
+  report recorded it, undiluted.
+- **`#SCALE-9`'s blast radius is `ContentItemSlugAllocator::SLUGGED_KINDS = ['event', 'menu_item']`**
+  — confirmed directly in `app/Services/Content/ContentItemSlugAllocator.php:54`. The original
+  finding's framing ("every projection run for a slugged kind") overstates its reach: tracks,
+  releases, products, media and reviews never triggered the per-item slug SELECT the finding
+  describes, before or after the fix.
+- **`MAX_COMPONENT = 2000` (§G.2) remains unexercised.** This task's largest fixture (300 items,
+  1 shared cross-source key) produced a touched component of 6 — nowhere near the cap. §G.2's
+  standing note (revisit before pilot if real components approach the hundreds) is unchanged by
+  this measurement and should not be read as resolved by it.

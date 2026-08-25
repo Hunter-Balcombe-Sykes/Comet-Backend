@@ -808,7 +808,7 @@
         }
         ```
 
-- [ ] **CACHE-2** · P2 — Category 1: `writeManualItem` recomputes the whole user's identity graph on every single owner write
+- [x] **CACHE-2** · P2 — Category 1: `writeManualItem` recomputes the whole user's identity graph on every single owner write
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:410 (`writeManualItem` → `resolveItems`)
     - **Affects:** Owner-authored manual content writes (hand-adds, backfillers, `MenuScanApplier`, `ShopContentWriter::syncProducts`) — latency and DB read volume scale with the user's total live item count for the kind, not with the single row being written.
     - **Effort:** M (~2–4h)
@@ -857,7 +857,7 @@
         );
         ```
 
-- [ ] **CACHE-4** · P2 — Category 1: a connector run touching one record rebuilds identity + caches for the user's entire kind
+- [x] **CACHE-4** · P2 — Category 1: a connector run touching one record rebuilds identity + caches for the user's entire kind
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:241-246 (`projectStream`)
     - **Affects:** Every scheduled connector projection (YouTube, Instagram, Google Business, Fresha, Eventbrite, Gumroad, menu platforms) — cost per run scales with the user's total live item count for the kind, not with the number of records the run actually changed.
     - **Effort:** L (~1–2d)
@@ -1221,7 +1221,7 @@ None.
         );
         ```
 
-- [ ] **#SCALE-8** · P2 — Projection writer accumulates the entire stream's projections in PHP memory before writing facets
+- [x] **#SCALE-8** · P2 — Projection writer accumulates the entire stream's projections in PHP memory before writing facets
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:143-246 (`projectStream`)
     - **Affects:** Large single-run connector syncs (a big first-time Instagram/Fresha catalogue import).
     - **Effort:** L (~1–2d)
@@ -1242,7 +1242,7 @@ None.
         }
         ```
 
-- [ ] **#SCALE-9** · P2 — Slug maintenance runs `ensureCurrent()` once per item inside the projection cache-refresh batch loop
+- [x] **#SCALE-9** · P2 — Slug maintenance runs `ensureCurrent()` once per item inside the projection cache-refresh batch loop
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:1671-1678 (`refreshItemCaches`)
     - **Affects:** Every projection run for a slugged kind (events, media, products, etc.) — the batch's per-table existence checks were already fixed (see the file's own SCALE-8 comment); this per-item call was not.
     - **Effort:** M (~2–4h)
@@ -1308,7 +1308,7 @@ None.
         }
         ```
 
-- [ ] **#SCALE-12** · P2 — Media-mirror dispatch enqueues one job per asset synchronously inside the projection loop
+- [x] **#SCALE-12** — WONTFIX · P2 — Media-mirror dispatch enqueues one job per asset synchronously inside the projection loop
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:1470-1501 (`dispatchMirrors`)
     - **Affects:** First-ever projection of an image-heavy connector account (e.g. a new Instagram connect with hundreds of media items); `images`/media queue depth.
     - **Effort:** M (~2–4h)
@@ -1324,6 +1324,36 @@ None.
             MirrorMediaAssetJob::dispatch($userId, (string) $assetId, $slice[(string) $assetId]);
         }
         ```
+    - **DISPOSITION — WONTFIX (2026-08-26, plan `2026-08-25-projectionwriter-identity-scope`, Task 7/8).**
+      No batching API preserves `ShouldBeUnique`: `UniqueLock::acquire()` is called only from
+      `PendingDispatch` (`vendor/laravel/framework/src/Illuminate/Foundation/Bus/PendingDispatch.php:204-208`);
+      `Queue::bulk()` is a bare `foreach { push() }` (`Queue.php:97-102`) that never constructs a
+      `PendingDispatch`; and `UniqueLock` appears nowhere under `Illuminate/Bus/`, so `Bus::batch()`
+      does not honour it either. Batching this dispatch would trade away real duplicate-mirror
+      protection to save round-trips — a bad trade at ANY volume, because a duplicate mirror job
+      costs a real outbound fetch against a third-party CDN plus an R2 write, not just a Redis
+      round-trip. **This argument does not depend on the asset count** — it is why the disposition
+      does not change if a future measurement finds a bigger number.
+      Measured anyway, because volume was challenged: against live dev data (`glncumufgaqcmqhzwrxm`,
+      2026-08-26; 4,725 media assets, 3,835 unmirrored, 27 users, 118 sources), the actual per-RUN
+      dispatch scope (the grain `dispatchMirrors()` fires at) is max 349, p95 120, mean 32, with ZERO
+      of 118 runs exceeding 500. Enqueue cost at the observed worst case is ≈350–700ms against a job
+      that then fetches 349 images from third-party CDNs and writes each to R2 — tens of seconds of
+      real work — so enqueue overhead is roughly 1–3% of the job it belongs to, and it runs on a
+      queue worker, not the request path. Full measurement: `task-7-report.md`'s MEASUREMENT ADDENDUM
+      in this plan's SDD workspace.
+      **Reopen trigger (count-independent disposition, but here is how to check it anyway):** any
+      single run dispatching >500 assets, or enqueue time exceeding ~5% of job duration. Re-run:
+      ```sql
+      SELECT im.source_id, count(DISTINCT ma.id) AS n
+      FROM content.media_assets ma JOIN content.item_media im ON im.asset_id = ma.id
+      WHERE ma.storage_path IS NULL AND ma.site_media_id IS NULL AND ma.source_url IS NOT NULL
+      GROUP BY im.source_id ORDER BY n DESC LIMIT 5;
+      ```
+      If that trigger fires, the fix is NOT batching — it is a uniqueness scheme that survives bulk
+      push (e.g. a pre-check `SETNX`/`Cache::add()` sweep, or per-chunk `Bus::chain()`s that stay
+      within `::dispatch()`), which is a redesign of the media-mirror lane with its own plan and
+      review, not a drive-by fix.
 
 - [ ] **#SCALE-13** · P2 — Pool resolution reads every `site.section_items` row for a section with no cap on accumulated excluded items
     - **Where:** app/Site/Pools/PoolResolver.php:114-116 (`hasSelection`), 193-195 (`resolve`)
