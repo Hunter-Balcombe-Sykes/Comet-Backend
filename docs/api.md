@@ -261,6 +261,46 @@ All four error bodies put the machine-readable code at the **top level**: `{ "me
 
 **Common status codes:** 200, 401 (missing `supabase_uid`), 404, 409, 422, 429
 
+#### `POST /api/internal/webhooks/manychat/builds`
+
+Machine surface for ManyChat marketing builds. Static shared secret in the
+`X-Partna-Webhook-Secret` header (`MANYCHAT_WEBHOOK_SECRET`); 503 when unset,
+401 on mismatch. Exists because `POST /api/staff/builds` requires `require.aal2`,
+which an automation platform cannot satisfy.
+
+Body: `account_type`, `source_type`, `source_ref`, `idempotency_key` (all
+required), optional `source_name` (**required** for `google_business`), optional
+`expires_days` (1–90).
+
+`202` on a new build, `200` when deduped. Response is **flat — no `data`
+envelope**. `claim_url` is present only when a token was minted: for a new
+build, or a retry carrying the same `idempotency_key`. Any other deduped call
+returns no `claim_url`.
+
+Send timing is ManyChat's choice: the claim URL is valid immediately (claiming
+does not wait for `ready`), but polling `GET /api/public/signup/builds/{id}`
+until `site_url` appears avoids DMing someone into a half-built page.
+
+#### `POST /api/staff/builds/{build}/claim-token`
+
+Staff + AAL2. Mints a fresh claim link, invalidating the previous one. For a
+lost DM or a suspected leak.
+
+#### Claim tokens
+
+`POST /api/claim` accepts an optional `claim_token` in the **body** (the
+frontend reads `?t=` from the claim page URL and forwards it, then strips it
+with `history.replaceState`). A valid token satisfies the invite-gate in place
+of `contact_email`.
+
+The token is **narrow**: it proves invitation, not identity. A build carrying a
+`contact_email` still requires that address — a token does not override
+`CLAIM_EMAIL_MISMATCH`.
+
+Single-use means **used, not opened**: the token is consumed only by a
+successful claim, so an abandoned sign-in or a failed claim leaves the link
+working for the rest of the build's 30-day life.
+
 ## 4) Roles and permissions
 
 - Public (anon): no token, can only access public mini-site routes and health routes.

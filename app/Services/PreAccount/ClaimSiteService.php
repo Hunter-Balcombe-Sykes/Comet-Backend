@@ -93,6 +93,9 @@ class ClaimSiteService
                 throw new RuntimeException('CLAIM_NOT_INVITED');
             }
 
+            // Email-gate (spec §3.2): a build carrying a contact_email may only
+            // be claimed by someone who verified control of THAT inbox via
+            // Supabase OTP. Case-insensitive.
             // NOTE the absence of $tokenOk here — deliberate (owner, 2026-08-25).
             // The token is NARROW: it proves INVITATION, not identity. A build
             // carrying a contact_email still requires that address, so a token

@@ -117,7 +117,9 @@ it('burns the token on a successful claim so a replay is refused', function () {
 it('leaves the token intact when the claim throws', function () {
     // REGRESSION GUARD, not a proof of rollback. After this task the burn is
     // folded into the final claimed_at write, so EVERY throw is structurally
-    // before it. This test fails if someone moves the burn earlier.
+    // before it. This test only catches a burn hoisted OUTSIDE or BEFORE the
+    // transaction — a burn moved to its own save() still INSIDE the
+    // transaction would roll back too, and this test would still pass.
     [$build, $token] = outreachBuildWithToken();
     $service = app(ClaimSiteService::class);
 
