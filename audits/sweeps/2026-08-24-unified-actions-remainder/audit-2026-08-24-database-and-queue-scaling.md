@@ -79,7 +79,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 4 complete
-- P2 Medium: 4 of 8 complete
+- P2 Medium: 5 of 8 complete
 - P3 Low: 0 of 5 complete
 
 ---
@@ -272,7 +272,8 @@
                     accountType: (string) ($row['account_type'] ?? ''),
         ```
 
-- [ ] **SCALE-8** · P2 — The suggestions inbox performs a per-intent connection lookup and occasional write for up to 100 rows on every GET
+- [x] **SCALE-8** · P2 — The suggestions inbox performs a per-intent connection lookup and occasional write for up to 100 rows on every GET
+    - **Resolved 2026-08-26** — **the hidden write was the real finding and it is gone.** `resolveSwapIncumbent()` split into a pure `decideSwapIncumbent()` (mutates `$intent` in place — which is what the JSON renders — and REPORTS the columns to persist) and the persisting wrapper, which only `accept()` now calls. The GET issues zero writes. Safe because the persistence was a pre-warm, never a correctness requirement: `accept()` re-resolves before acting, `SuggestionApplier` reads `conflicting_connection_id` off the in-memory object rather than re-reading the row, `findIntent()` matches `('proposed','blocked')` so a not-yet-flipped intent is still findable, and `CheckStuckSourceIntentsCommand` counts both states together so the backlog alarm does not move. The N+1 collapsed alongside it: one `whereIn('surface_key', ...)` read grouped in memory, skipped entirely when no intent on the page needs resolving. **Measured, N=100 intents (40 `cap_reached` across 40 single-account surfaces): 83 queries (43 reads + 40 WRITES) -> 4 queries (4 reads + 0 writes).** JSON body byte-identical, verified by comparing full responses across all six branch cases. Mutation-proved: reintroducing a persist on the GET path turns BOTH inbox tests red — the second one only after this fix added an explicit null-check BEFORE `accept()`, because `accept()`'s own write had been absorbing the premature one and hiding it.
     - **Where:** app/Http/Controllers/Api/Routing/SuggestionsController.php:75-77, 416-461
     - **Affects:** Suggestions inbox load latency; Postgres statement volume when many users open their inbox around the same time; `routing.source_intents` write volume on a read endpoint.
     - **Effort:** M (~2–4h)
