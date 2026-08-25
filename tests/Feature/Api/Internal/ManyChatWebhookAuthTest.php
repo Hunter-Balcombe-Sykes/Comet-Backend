@@ -32,6 +32,7 @@ it('passes the gate when the correct secret is presented', function () {
     $response = $this->withHeader('X-Partna-Webhook-Secret', 'a-test-secret-value')
         ->postJson('/api/internal/webhooks/manychat/builds', []);
 
-    // 422 (validation) is the expected answer for an empty body past the gate.
-    expect($response->status())->not->toBe(401)->not->toBe(503);
+    // 422 (validation) is the expected answer for an empty body past the gate
+    // — asserted directly now the route exists, so a 404 can no longer pass.
+    $response->assertStatus(422);
 });

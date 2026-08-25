@@ -13,6 +13,8 @@ beforeEach(function () {
     setupSitesTable();
     setupPreAccountBuildsTable();
     setupNotificationsTable(); // ClaimSiteService::claim() always writes the welcome notification
+    setupEmailSubscriptionsTable(); // needed by the HTTP-level tests below (mirrors ClaimEndpointTest)
+    setupSubdomainAliasesTable(); // SiteCacheService::invalidateSite reads this (post-commit cache bust)
     shimPgAdvisoryLockForSqlite();
     Queue::fake();
 });
@@ -132,4 +134,35 @@ it('leaves the token intact when the claim throws', function () {
         ->toThrow(RuntimeException::class, 'ACCOUNT_EXISTS');
 
     expect($build->fresh()->claim_token_hash)->not->toBeNull();
+});
+
+// ── HTTP-level coverage (finding 1) ──────────────────────────────────────────
+// Every test above calls ClaimSiteService::claim() directly, so it proves the
+// SERVICE honours a token but nothing proves claim_token actually reaches it
+// off the wire. Deleting the 'claim_token' rule from ClaimSiteRequest (or the
+// $validated['claim_token'] forward in ClaimController) would leave every test
+// above green while every DM'd lead got CLAIM_NOT_INVITED in production — these
+// two go through POST /api/claim, not the service, to close that gap.
+
+it('claims over HTTP when claim_token travels in the POST body', function () {
+    [$build, $token] = outreachBuildWithToken();
+    actingAsUser(claimJwtUser('http-auth-uid-1', 'someone@example.com'));
+
+    $this->postJson('/api/claim', [
+        'subdomain' => $build->user->site->subdomain,
+        'claim_token' => $token,
+    ])
+        ->assertOk()
+        ->assertJsonPath('professional.status', 'active');
+});
+
+it('409s CLAIM_NOT_INVITED over HTTP when claim_token is omitted from the body', function () {
+    [$build] = outreachBuildWithToken();
+    actingAsUser(claimJwtUser('http-auth-uid-2', 'someone@example.com'));
+
+    $this->postJson('/api/claim', [
+        'subdomain' => $build->user->site->subdomain,
+    ])
+        ->assertStatus(409)
+        ->assertJsonPath('code', 'CLAIM_NOT_INVITED');
 });

@@ -3,6 +3,7 @@
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\PreAccount\ClaimTokenIssuer;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 // tests/Pest.php binds TestCase to Feature ONLY — without this the container
@@ -12,6 +13,10 @@ uses(TestCase::class)->in(__FILE__);
 beforeEach(function () {
     setupUsersTable();
     setupPreAccountBuildsTable();
+    // Global Constraint: unconditional even though this file never calls
+    // requestBuild and PreAccountBuild has no observer today — the point is
+    // nobody has to re-derive that safety before touching this file next.
+    Queue::fake();
 });
 
 // Local by design: cross-file Pest helpers break under --parallel.

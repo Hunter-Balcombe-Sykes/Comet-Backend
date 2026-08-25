@@ -648,11 +648,15 @@ class AppServiceProvider extends ServiceProvider
         // ManyChat build webhook. Each call can trigger an Apify-billed scrape,
         // so this is a spend guard as much as an abuse guard.
         //
-        // TWO buckets on purpose. The shared 'manychat:h' key is a global
-        // quota, and throttle middleware runs BEFORE the secret check — so a
-        // constant key alone is a DoS handle: any stranger who knows the URL
-        // could burn the quota and lock the real flow out with 429s. The
-        // per-IP bucket is the narrower one an anonymous caller hits first.
+        // TWO buckets on purpose, and BOTH are always evaluated — Laravel's
+        // ThrottleRequests checks every limit in the returned array, not just
+        // the first to trip. The shared 'manychat:h' key is a global spend
+        // ceiling, not DoS protection: many distinct IPs each staying under
+        // the per-minute cap can still drain it. What the per-IP bucket
+        // narrows is a SINGLE abusive caller — which matters because throttle
+        // middleware runs BEFORE the secret check, so without it a constant
+        // key would let any stranger who knows the URL hammer the endpoint
+        // from one IP at no extra cost to them.
         RateLimiter::for('manychat-build', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
                 return [Limit::none()];
