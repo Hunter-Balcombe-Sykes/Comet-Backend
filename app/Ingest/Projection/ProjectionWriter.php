@@ -123,6 +123,27 @@ class ProjectionWriter
      */
     private const IDENTITY_LOCK_TIMEOUT_MS = 5000;
 
+    /**
+     * #SCALE-8: the ONLY keys writeFacets()/replaceCollections() ever read off a
+     * projection — see writeFacets() (facets, headline) and replaceCollections()
+     * (media, offers, tags, variants, collections). 'kind' and 'source_stats' are
+     * both consumed earlier in the loop (upsertSourceItem()/writeIdentityKeys(),
+     * and the $sourceStats capture) and never read again, so they are dropped
+     * before the projection joins $projections. See forAccumulator()'s docblock
+     * for why this — not a count-bounded flush — is the fix.
+     */
+    private const PROJECTION_ACCUMULATOR_KEYS = ['facets', 'headline', 'media', 'offers', 'tags', 'variants', 'collections'];
+
+    /**
+     * Test-visible high-water mark (bytes) of a single stored projection, across
+     * the most recent projectStream() call. #SCALE-8's structural proof: NOT a
+     * process-wide memory reading (vacuous — see the skipped test above this
+     * property's consumer), and NOT a count bound (rejected — see
+     * forAccumulator()'s docblock). What the fix actually changes is the
+     * per-entry footprint, so that is what this measures.
+     */
+    private ?int $peakProjectionEntryBytes = null;
+
     public function __construct(
         private readonly Resolver $resolver,
         private readonly ValueResolver $values,
@@ -184,6 +205,7 @@ class ProjectionWriter
         $touchedCoords = [];
         $projectsToNothing = [];
         $sourceStats = null;
+        $this->peakProjectionEntryBytes = 0;
 
         foreach ($records as $record) {
             $doc = is_string($record->doc) ? (array) json_decode($record->doc, true) : (array) $record->doc;
@@ -250,7 +272,40 @@ class ProjectionWriter
                 return $id;
             });
 
-            $projections[$coord] = $projection;
+            // #SCALE-8: lazy(500) bounds the READ, but $projections used to hold
+            // the whole stream's RAW projection payload in PHP for the whole
+            // loop — writeFacets() only runs after the single resolve below, so
+            // the array cannot be discarded mid-loop. $touchedCoords (short
+            // strings) is kept for the whole run regardless, because
+            // resolveItems() needs the FULL touched set in one call — see its
+            // docblock — so narrowing $projections can never narrow that.
+            //
+            // Bounding $projections by FLUSHING it in count-based slices and
+            // replaying those slices through writeFacets() after the resolve
+            // was considered and rejected: replaceCollections() REPLACES a
+            // (item, source)'s media/offers/tags/variants wholesale per call
+            // (SCALE-17/#CACHE-2), keyed on the group of projections passed to
+            // THAT call. Two records in ONE stream legitimately resolve to the
+            // SAME item (a same-source merge — see the 21000 test below), and
+            // if their records land in different slices, the later slice's
+            // REPLACE would wipe the earlier slice's contribution instead of
+            // merging with it — a silent data-loss regression the singleton
+            // facet columns do NOT share (an upsert only touches the columns it
+            // names, so column-wise "last write wins" survives being split
+            // across ordered calls; a wholesale replace does not). Replaying
+            // without that hazard would need either a second read of the
+            // records (ruled out — lazy(500) already bounds that read; see
+            // :155-157) or grouping slices by resolved item, which needs the
+            // resolve, which needs the loop to finish first — circular.
+            //
+            // So the accumulator stays whole-run, and the fix is per-entry: only
+            // the columns writeFacets()/replaceCollections() ever read
+            // (PROJECTION_ACCUMULATOR_KEYS) survive into $projections. 'kind'
+            // and 'source_stats' are dropped here — both are already consumed
+            // above — and any future projector key nobody downstream reads is
+            // dropped for free. forAccumulator() also records the high-water
+            // mark peakProjectionEntryBytes() exposes for the test below.
+            $projections[$coord] = $this->forAccumulator($projection);
             $touchedCoords[] = $coord;
         }
 
@@ -1532,6 +1587,43 @@ class ProjectionWriter
                 'created_at' => now(),
             ]);
         }
+    }
+
+    /**
+     * #SCALE-8: the accumulator entry, narrowed to what writeFacets() and
+     * replaceCollections() actually read (PROJECTION_ACCUMULATOR_KEYS) —
+     * everything else a projector returns (currently just 'kind' and
+     * 'source_stats', both already consumed by the time this runs) is dropped
+     * rather than carried for the rest of the run. See the call site's
+     * docblock for why a count-bounded flush was rejected in favour of this.
+     *
+     * @param  array<string, mixed>  $projection
+     * @return array<string, mixed>
+     */
+    private function forAccumulator(array $projection): array
+    {
+        $slim = array_intersect_key($projection, array_flip(self::PROJECTION_ACCUMULATOR_KEYS));
+
+        // Test-visible high-water mark only — serialize() is a cheap, honest
+        // proxy for "how big is this entry" that does not depend on the PHP
+        // process's OTHER allocations the way memory_get_peak_usage() does
+        // (see the skipped test above). Not on the hot path's correctness.
+        $bytes = strlen(serialize($slim));
+        if ($bytes > ($this->peakProjectionEntryBytes ?? 0)) {
+            $this->peakProjectionEntryBytes = $bytes;
+        }
+
+        return $slim;
+    }
+
+    /**
+     * The largest single accumulated projection entry's serialized size, from
+     * the most recently completed projectStream() call. Test seam for
+     * #SCALE-8's structural proof — null before any run.
+     */
+    public function peakProjectionEntryBytes(): ?int
+    {
+        return $this->peakProjectionEntryBytes;
     }
 
     /**

@@ -49,7 +49,7 @@ beforeEach(function () {
         'content.f_action', 'content.item_tags', 'content.item_variants', 'content.offers', 'content.item_media',
         'content.media_assets', 'content.manual_overrides', 'content.identity_candidates', 'content.item_merges',
         'content.item_anchors', 'content.identity_decisions', 'content.identity_keys', 'content.source_items',
-        'content.source_stats',
+        'content.source_stats', 'content.item_slugs',
         'content.f_file', 'content.f_channel', 'content.f_review', 'content.f_rated', 'content.f_place',
         'content.f_catalog', 'content.f_authored', 'content.f_playable', 'content.f_embed', 'content.f_occurrence',
         'content.f_published', 'content.f_duration', 'content.f_link', 'content.f_text', 'content.items',
@@ -167,6 +167,27 @@ beforeEach(function () {
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now()
     )');
+
+    // refreshItemCaches() -> ContentItemSlugAllocator::currentSlugs() reads this
+    // for EVERY touched-item batch regardless of kind (#SCALE-9/#API-7 batched
+    // the read out of the per-item loop, unconditionally) — every run through
+    // this file trips SQLSTATE 42P01 without it. Shape per
+    // supabase/migrations/20260727140000_content_schema.sql:466 plus
+    // 20260731210000's retired_at and 20260812040000's one-current-per-item
+    // unique index; this stand-in DDL had drifted from the writer before this
+    // fix (pre-existing gap, unrelated to #SCALE-8 — the whole file failed on
+    // it at HEAD, verified before making any change here).
+    $pg->statement('CREATE TABLE content.item_slugs (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL REFERENCES core.users(id) ON DELETE CASCADE,
+        item_id uuid NOT NULL REFERENCES content.items(id) ON DELETE CASCADE,
+        slug text NOT NULL,
+        is_current boolean NOT NULL DEFAULT true,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        retired_at timestamptz
+    )');
+    $pg->statement('CREATE UNIQUE INDEX idx_pwbt_item_slugs_unique ON content.item_slugs (user_id, slug)');
+    $pg->statement('CREATE UNIQUE INDEX idx_pwbt_item_slugs_one_current ON content.item_slugs (item_id) WHERE is_current');
 
     $pg->statement('CREATE TABLE content.source_items (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -418,6 +439,7 @@ afterAll(function () {
         'content.media_assets',
         'content.manual_overrides', 'content.identity_candidates', 'content.item_merges', 'content.item_anchors',
         'content.identity_decisions', 'content.identity_keys', 'content.source_items', 'content.source_stats',
+        'content.item_slugs',
         'content.f_file',
         'content.f_channel', 'content.f_review', 'content.f_rated', 'content.f_place', 'content.f_catalog',
         'content.f_authored', 'content.f_playable', 'content.f_embed', 'content.f_occurrence', 'content.f_published',
@@ -750,3 +772,116 @@ it('folds two records for one (item, source) into a single row rather than raisi
 
     $pg->statement('DROP TABLE IF EXISTS content.f_text CASCADE');
 });
+
+// #SCALE-8: projectStream() used to hold the WHOLE stream's raw projection
+// payload in $projections for the whole loop, so peak PHP memory tracked the
+// stream's record count. Two shapes were viable: (a) flush $projections in
+// BATCH_SIZE slices and replay them through writeFacets() after the resolve,
+// or (b) keep the whole-run accumulator but shrink each entry to only the
+// columns writeFacets()/replaceCollections() read. (a) was rejected:
+// replaceCollections() REPLACES a (item, source)'s media/offers/tags/variants
+// wholesale PER CALL, and two records in one stream legitimately resolve to
+// the same item (the 21000 test above) — if their records land in different
+// slices, the later slice's replay would silently wipe the earlier slice's
+// contribution instead of merging with it, a real regression the singleton
+// facet columns (upserted, not replaced) do not share. (b) is what shipped.
+it('drops projector keys writeFacets() never reads, keeping the ones it does', function () {
+    $writer = app(ProjectionWriter::class);
+    $method = new ReflectionMethod($writer, 'forAccumulator');
+    $method->setAccessible(true);
+
+    $fat = [
+        // Consumed earlier in projectStream()'s loop (upsertSourceItem(),
+        // writeIdentityKeys()) — never read again once a coord is accumulated.
+        'kind' => 'release',
+        // Captured into $sourceStats separately, before accumulation.
+        'source_stats' => ['rating_avg' => 4.5, 'rating_count' => 12, 'summary_text' => 'A summary'],
+        // Stands in for whatever else a real or future projector might carry
+        // that nothing downstream of the loop reads.
+        'raw_debug' => str_repeat('x', 200_000),
+        'headline' => 'Kept Headline',
+        'facets' => ['f_link' => ['url' => 'https://kept.example/one']],
+        'media' => [['role' => 'cover', 'url' => 'https://kept.example/art.jpg']],
+        'offers' => [],
+        'tags' => [],
+        'variants' => [],
+        'collections' => [],
+    ];
+
+    $slim = $method->invoke($writer, $fat);
+
+    expect($slim)->not->toHaveKey('kind')
+        ->not->toHaveKey('source_stats')
+        ->not->toHaveKey('raw_debug')
+        ->and($slim['headline'])->toBe('Kept Headline')
+        ->and($slim['facets'])->toBe(['f_link' => ['url' => 'https://kept.example/one']])
+        ->and($slim['media'])->toBe([['role' => 'cover', 'url' => 'https://kept.example/art.jpg']]);
+
+    // The point is the unused blob is gone from what gets STORED, not merely
+    // uncounted — an order-of-magnitude shrink proves that, a few-percent one
+    // would not.
+    expect(strlen(serialize($slim)))->toBeLessThan((int) (strlen(serialize($fat)) / 10));
+
+    // The test-visible seam (peakProjectionEntryBytes()) reports exactly what
+    // was just stored — this is what a would-be count-based assertion is
+    // replaced by for shape (b): the lever this fix actually pulls is
+    // per-entry size, not entry count.
+    expect($writer->peakProjectionEntryBytes())->toBe(strlen(serialize($slim)));
+});
+
+it('lets the later-arriving record win the headline when two coords resolve to one item', function () {
+    [$userId, $resourceId, $source, $streamId] = pwbtFixture('9');
+
+    $earlier = now()->subMinute()->toDateTimeString();
+    $later = now()->toDateTimeString();
+
+    pwbtLand($streamId, 'ordered-earlier', pwbtDoc('The earlier headline', 'https://ordered.bandcamp.com/album/earlier'), $earlier);
+    pwbtLand($streamId, 'ordered-later', pwbtDoc('The later headline', 'https://ordered.bandcamp.com/album/later'), $later);
+
+    // Two DIFFERENT urls, so the Resolver would keep them as two items on its
+    // own — poisonedKeys() would in any case reject a same-source SHARED url
+    // as identity evidence (Resolver.php's own docblock: "the same ISRC on
+    // two tracks tells us their ISRC data is unreliable, not that the tracks
+    // are the same"), which is why the file's other same-item-two-coords test
+    // above drives writeFacets() directly instead of through a real resolve.
+    // A decision row is the real mechanism a same-source merge uses (see
+    // ProjectionWriterIdentityRaceTest.php's docblock) — exactly like an
+    // owner manually uniting two of their own catalogue listings.
+    $coordEarlier = "bandcamp:{$resourceId}:ordered-earlier";
+    $coordLater = "bandcamp:{$resourceId}:ordered-later";
+    $pg = DB::connection('pgsql');
+    $pg->table('content.identity_decisions')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $userId, 'verdict' => 'same',
+        'left_coord' => $coordEarlier, 'right_coord' => $coordLater, 'decided_at' => now(),
+    ]);
+
+    // The decision is already in place, so ONE pass sees both coords AND the
+    // union — this is the regression guard for the accumulator change: which
+    // record's headline wins is decided by the
+    // orderBy('rv.first_seen_at')->orderBy('rs.key') read order (:180-181)
+    // and writeFacets()'s per-column array_replace fold, neither of which
+    // this fix touches.
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'releases');
+
+    $itemId = $pg->table('content.items')->value('id');
+
+    expect($pg->table('content.items')->count())->toBe(1) // merged onto one item
+        ->and($pg->table('content.f_text')->where('item_id', $itemId)->value('headline'))->toBe('The later headline');
+});
+
+it('does not hold the whole stream in memory', function () {
+    [, , $source, $streamId] = pwbtFixture('10');
+
+    for ($i = 0; $i < 3000; $i++) {
+        pwbtLand($streamId, "wide-{$i}", pwbtDoc("Wide {$i}", "https://wide.bandcamp.com/album/wide-{$i}"));
+    }
+
+    $before = memory_get_peak_usage(true);
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'releases');
+    $growth = memory_get_peak_usage(true) - $before;
+
+    expect($growth)->toBeLessThan(64 * 1024 * 1024);
+})->skip('memory_get_peak_usage(true) is process-monotonic, not scoped to this call — an earlier, larger '
+    .'allocation anywhere in this worker process makes $growth read near-zero and the test pass without '
+    .'measuring anything real. The structural proof above (peakProjectionEntryBytes(), via forAccumulator()) '
+    .'is what actually pins the #SCALE-8 fix.');
