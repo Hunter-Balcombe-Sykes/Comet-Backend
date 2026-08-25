@@ -192,6 +192,32 @@ class IntegrationConnectionObserver
                         'display_settings' => $settings === [] ? null : json_encode($settings),
                         'updated_at' => now(),
                     ]);
+
+                // #CCH-1: this raw update bypasses Eloquent, so saved()'s own
+                // wasChanged('display_settings') gate — which already fired its
+                // purge earlier in THIS saved() call, before this strip ran —
+                // never sees it. CLAUDE.md requires a non-Eloquent write to
+                // invalidate explicitly, so this is that call.
+                //
+                // ⚠️ It does NOT guarantee a second purge, and nobody should
+                // read it as one: CloudflareCachePurgeJob is ShouldBeUnique with
+                // a ~35s coalesce window whose lock is taken against the real
+                // cache store, so this same-handle, same-request dispatch is
+                // swallowed every time. The race is already covered anyway —
+                // that job's handle() schedules a follow-up purge 15s after its
+                // OWN execution, which is long after this synchronous strip has
+                // committed, and purgeHandle() evicts rather than reading
+                // display_settings. Kept as the explicit invalidation the write
+                // path owes, and as cover if the coalesce window or the
+                // follow-up schedule ever changes.
+                //
+                // Edge-purge only, matching what that gate already does for
+                // Instagram (no completeness predicate ⇒ no site.touch()) —
+                // NOT SiteCacheLanes::bust(): this is a connect-time flag strip
+                // on site.platform_connections, not a content.* pool mutation.
+                // fresh() is defensive only — refresh() reads user_id, which the
+                // strip does not change.
+                $this->refresher->refresh($connection->fresh());
             }
         } catch (\Throwable $e) {
             report($e);

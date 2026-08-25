@@ -1887,14 +1887,37 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 3 complete
+- P2 Medium: 2 of 3 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#CCH-1** · P2 · Category 4 — Instagram auto-sync flag write bypasses the observer's own cache-invalidation gate
+- [x] **#CCH-1** · P2 · Category 4 — Instagram auto-sync flag write bypasses the observer's own cache-invalidation gate
+    - **CLOSED 2026-08-26 (PART 2 unit 14c) — the explicit invalidation call was added, but the EFFECT premise is
+      REFUTED. Read this before re-filing it.** The finding is right that the raw `DB::table()->update()` bypasses
+      Eloquent and that CLAUDE.md therefore requires an explicit invalidation, which now exists
+      (`$this->refresher->refresh($connection->fresh())`). But it does **not** produce a second edge purge, and
+      it did not need to:
+      - `CloudflareCachePurgeJob` is `ShouldBeUnique` with a ~35s coalesce window whose lock is taken against the
+        REAL cache store (`Queue::fake()` does not bypass it), so this same-handle, same-request dispatch is
+        swallowed every time.
+      - The race was already covered independently: that job's `handle()` schedules a follow-up purge 15s after
+        **its own execution** — necessarily long after this synchronous sub-millisecond strip has committed — and
+        `purgeHandle()` evicts rather than reading `display_settings`, so it does not need to observe them.
+      The call is kept as the invalidation the write path owes under CLAUDE.md, and as cover if the coalesce
+      window or follow-up schedule ever changes. **The code comment now states all of this**, so the next reader
+      does not assume the line guarantees a purge.
+    - **Cache-lane decision: NARROW (edge purge only), not `SiteCacheLanes::bust()`** — verified on three counts:
+      `IntegrationConnectionCacheRefresher::refresh()` dispatches only the edge purge (no `BuildState::bump`, no
+      `site.updated_at`); `SiteCacheLanes` is wired for `content.*` POOL mutations and this writes
+      `site.platform_connections`; and `saved()`'s own gate already treats Instagram as edge-purge-only, because
+      `->complete(...)` is declared for `fresha`/`shop` only, so `hasCompletenessPredicate()` is false and the
+      neighbouring `site.touch()` is already skipped. Three-laning it would have been NEW, broader behaviour.
+    - `->fresh()` is defensive only — `refresh()` reads `user_id`, which the strip does not change. Noted in-code.
+    - Contested-file check: `syncIngestSource()` and `maybeRunEagerly()` are untouched, so the orphaned pre-pilot
+      stash still merges cleanly. Mutation-proved (removing the call → RED). Review: **PASS**.
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:184-193 (`enableContentInstagramAuto()`)
     - **Affects:** Newly-connected Instagram accounts; the Cloudflare edge purge / site-touch cascade that every other `display_settings` write triggers.
     - **Effort:** S (~0.5–1h)
