@@ -75,7 +75,7 @@ class PoolResolver
     /** Public fields of one store card in a pool's `collections` map. */
     public const STORE_KEYS = [
         'externalRef', 'provider', 'url', 'name', 'currency',
-        'favicon', 'logo', 'discountCode', 'position', 'popularityRank',
+        'favicon', 'logo', 'logoMarkSvg', 'discountCode', 'position', 'popularityRank',
     ];
 
     /** Public fields of one product variant. */
@@ -634,6 +634,7 @@ class PoolResolver
                     'c.external_ref as collection_ref', 'c.kind as collection_kind',
                     's.external_ref', 's.provider', 's.url', 's.currency',
                     's.discount_code', 's.referral_query', 's.logo_url', 's.favicon_url',
+                    's.logo_mark_svg_url',
                 ]);
 
             $storesByItem = $links->groupBy('item_id');
@@ -1604,6 +1605,10 @@ class PoolResolver
                 'currency' => $row->currency === null ? null : (string) $row->currency,
                 'favicon' => UrlSafety::safeHref($row->favicon_url),
                 'logo' => UrlSafety::safeHref($row->logo_url),
+                // The processed store logo mark (ProcessShopBrandLogoJob's
+                // SVG), public since 2026-08-26 — the sitepage shop overlay
+                // wears it. Same column the dashboard's brandMap() reads.
+                'logoMarkSvg' => UrlSafety::safeHref($row->logo_mark_svg_url),
                 'discountCode' => $row->discount_code === null ? null : (string) $row->discount_code,
                 'position' => (int) $row->position,
                 'popularityRank' => $row->provider === null ? ($categoryRanks[(string) $collectionId] ?? null) : null,

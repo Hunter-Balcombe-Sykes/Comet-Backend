@@ -182,6 +182,7 @@ it('publishes the collections map beside the items', function () {
             'currency' => 'AUD',
             'favicon' => 'https://cdn.example.com/fav.ico',
             'logo' => 'https://cdn.example.com/logo.png',
+            'logoMarkSvg' => null,
             'discountCode' => 'ALEX10',
             'position' => 0,
             // A storefront never ranks — only menu/service categories do (D2).
