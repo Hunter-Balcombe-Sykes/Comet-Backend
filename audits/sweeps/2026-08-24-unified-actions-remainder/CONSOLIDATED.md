@@ -63,7 +63,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 5 complete
 
 ---
@@ -91,7 +91,20 @@
             ->each(function ($r) use (&$exposures, &$taps, $now): void {
         ```
 
-- [ ] **CACHE-2** · P2 — Staff CSV batch endpoint runs up to 500 sequential multi-table build writes synchronously inside the HTTP request
+- [x] **CACHE-2** · P2 — Staff CSV batch endpoint runs up to 500 sequential multi-table build writes synchronously inside the HTTP request
+    - **FIXED 2026-08-26 (PART 2 unit 6) — `CACHE-2` and `SCALE-7` are ONE defect, both ticked.**
+      Time-budgeted the synchronous loop rather than queueing it: queueing would change the staff contract
+      to a job id + polling, which needs frontend work. Three changes, all additive:
+      (1) per-row `\Throwable` catch + `report()` so one bad row cannot kill the batch (`ROW_FAILED`);
+      (2) a wall-clock budget from `partna.pre_account.batch_time_budget_seconds` (default 20s) that stops
+      STARTING rows and returns what completed — guarded by `$processed > 0` so a batch always makes
+      forward progress; (3) additive response keys `total` / `processed` / `remaining` /
+      `time_budget_exceeded`. Nothing removed, nothing renamed. Safe because `requestBuild()` dedupes
+      before the pairing map (spec §4.1), so re-uploading the remainder re-serves built rows as `reused`.
+      Wire note: `docs/wire-changes/2026-08-26-staff-batch-build-time-budget.md`; the endpoint was also
+      undocumented in `docs/api.md` and is now written up there.
+      Mutation-proved twice by the independent reviewer: deleting the `\Throwable` arm and deleting the
+      budget `break` each turn a distinct test RED. Independent review: **PASS**.
     - **Where:** app/Http/Controllers/Api/Staff/UserSiteManagement/StaffPreAccountBuildController.php:151-189
     - **Affects:** Staff CSV batch imports (`POST /api/staff/builds/batch`); the web worker handling the request; `PreAccountBuild`/site/user writes; auto-invite email fan-out (up to 500 emails per request).
     - **Effort:** M (~2–4h)
@@ -337,7 +350,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 4 of 4 complete
-- P2 Medium: 1 of 8 complete
+- P2 Medium: 2 of 8 complete
 - P3 Low: 0 of 5 complete
 
 ---
@@ -518,7 +531,20 @@
             ->get();
         ```
 
-- [ ] **SCALE-7** · P2 — Staff batch pre-account build endpoint runs up to 500 synchronous build calls inside one HTTP request
+- [x] **SCALE-7** · P2 — Staff batch pre-account build endpoint runs up to 500 synchronous build calls inside one HTTP request
+    - **FIXED 2026-08-26 (PART 2 unit 6) — `CACHE-2` and `SCALE-7` are ONE defect, both ticked.**
+      Time-budgeted the synchronous loop rather than queueing it: queueing would change the staff contract
+      to a job id + polling, which needs frontend work. Three changes, all additive:
+      (1) per-row `\Throwable` catch + `report()` so one bad row cannot kill the batch (`ROW_FAILED`);
+      (2) a wall-clock budget from `partna.pre_account.batch_time_budget_seconds` (default 20s) that stops
+      STARTING rows and returns what completed — guarded by `$processed > 0` so a batch always makes
+      forward progress; (3) additive response keys `total` / `processed` / `remaining` /
+      `time_budget_exceeded`. Nothing removed, nothing renamed. Safe because `requestBuild()` dedupes
+      before the pairing map (spec §4.1), so re-uploading the remainder re-serves built rows as `reused`.
+      Wire note: `docs/wire-changes/2026-08-26-staff-batch-build-time-budget.md`; the endpoint was also
+      undocumented in `docs/api.md` and is now written up there.
+      Mutation-proved twice by the independent reviewer: deleting the `\Throwable` arm and deleting the
+      budget `break` each turn a distinct test RED. Independent review: **PASS**.
     - **Where:** app/Http/Controllers/Api/Staff/UserSiteManagement/StaffPreAccountBuildController.php:165-189
     - **Affects:** Staff importing builds via CSV; the staff API worker pool during a batch import, and the requesting staff member's own request timeout.
     - **Effort:** M (~2–4h)

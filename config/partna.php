@@ -1299,6 +1299,21 @@ return [
         // lock nor races a still-legitimately-running job.
         'stuck_build_sla_minutes' => (int) env('PARTNA_PRE_ACCOUNT_STUCK_BUILD_SLA_MINUTES', 30),
 
+        // CACHE-2/SCALE-7: wall-clock budget for the synchronous CSV batch loop
+        // (StaffPreAccountBuildController::batch). Up to 500 rows x one
+        // transaction + job dispatch each will outrun the HTTP request timeout,
+        // and a timeout returns staff NOTHING — not even the rows that landed.
+        // The loop stops STARTING rows past this budget and returns what
+        // completed, so re-uploading the remainder is a normal deduped run.
+        // The platform's real request ceiling was NOT confirmed when this was
+        // set — `cloud command:run` reports the CLI SAPI, which says nothing
+        // about php-fpm — so 20s is a conservative guess, not a derived bound.
+        // The check runs BEFORE a row, so worst case is budget + one row.
+        // Raise it once someone verifies the actual ceiling.
+        // 0 = process exactly one row then stop (forward progress is always
+        // guaranteed); that is also the test seam.
+        'batch_time_budget_seconds' => (int) env('PARTNA_PRE_ACCOUNT_BATCH_TIME_BUDGET_SECONDS', 20),
+
         // PRIV-3: the pepper for core.pre_account_builds.created_ip_hash
         // (PreAccountBuild::hashIp()). An unsalted sha256 of an IP is a
         // pseudonym only against someone who cannot enumerate — and the whole
