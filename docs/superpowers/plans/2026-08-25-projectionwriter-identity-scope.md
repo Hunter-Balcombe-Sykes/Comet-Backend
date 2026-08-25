@@ -34,7 +34,10 @@ The PLAN-PROMPT §3 asked three questions. All are answered; the reasoning is §
    `content.identity_keys.key_value` stores a MIX of raw and pre-canonicalised values, so no
    SQL predicate can express it today. See §A.3 and §E.
 5. **`#SCALE-12` is measure-first, disposition-later.** It may close WONTFIX. See Task 7.
-6. **This plan does NOT wait for `EXECUTE-PART-3.md` (13g)** — revised 2026-08-25 after reading
+6. **AMENDED 2026-08-25 during execution (§A.4):** the closure seeds from the user's `same`
+   rulings as well as the touched coords, and the flag-off path must be byte-for-byte. Both came
+   out of a Task 2 BLOCKED report — see §A.4.
+7. **This plan does NOT wait for `EXECUTE-PART-3.md` (13g)** — revised 2026-08-25 after reading
    13g in full. No functional dependency either way; the only interaction is 13g's measurement,
    which `PARTNA_CONTENT_IDENTITY_SCOPE=false` protects. See §D.
 
@@ -119,11 +122,91 @@ same group as resolving the whole kind.
 
 Therefore the inside grouping is independent of every outside item. ∎
 
-**Why one hop fails.** Touch item A. A shares title T with B (one hop). B's own source also
-carries a second copy of T on item C. Under the full resolve, T is POISONED and A does not merge.
-Under a one-hop closure, C is absent, T looks clean, and A merges with B. `bindGroup()` →
-`mergeInto()` then **hard-deletes** the loser. A missed merge is a visible duplicate; a false
-merge is data loss. **Task 1 Step 1 encodes exactly this case as the first failing test.**
+**Why one hop fails — CORRECTED 2026-08-25 after the Task 1 review.** The original draft of this
+plan justified transitivity with a poisoning example, and that example was WRONG. It said: A shares
+title T with B; B's source carries a second copy of T on C; a one-hop closure misses C, so T looks
+unpoisoned and A merges with B. **That refutes itself.** Poisoning a signature S can only change
+A's outcome if A itself carries S — otherwise S never unions A with anything. And if A carries S,
+then every item carrying S, including the poisoning sibling, shares a signature with A and is
+therefore ONE HOP from it. **Poison-relevant items are always at distance 1.**
+
+The requirement is real; the reason is different, and the two guards are separate properties:
+
+**Guard 1 — TRANSITIVITY, which exists for GROUP MEMBERSHIP, not poisoning.** The resolver is a
+union-find, so grouping is transitive: A—B on signature S1 and B—C on a DIFFERENT signature S2 put
+A, B and C in ONE group, and `bindGroup()` binds that whole group to a single item id. C is two
+hops from A and shares nothing with it directly. A one-hop closure sees {A, B}, binds them, and
+leaves C bound elsewhere — **splitting a group the full resolve keeps whole.** That is a missed
+merge (a visible duplicate), and it can also flip WHICH item survives, because `bindGroup()` picks
+the winner from the oldest anchor across the whole group — a group missing members can pick a
+different winner than the full resolve would. Each further hop can extend the chain again, so the
+walk must run to fixpoint. Pinned by the `follows the chain transitively to fixpoint` test
+(a→b→c→d via ISRC → title → URL), which is the genuine counter-example.
+
+**Guard 2 — UNFILTERED BREADTH, which is what poisoning actually requires.** `poisonedKeys()`
+applies no `tier()` / `minLength()` / `appliesTo()` filter, deliberately, and poisons more broadly
+than `keyIndex()` matches. So the closure must index signatures with those filters absent too:
+a key too weak for `keyIndex()` to union on can still be the key that poisons. Those siblings are
+one hop away, but they are only IN the set if the closure indexes the weak signature at all.
+Pinned by the `includes weak keys the resolver itself would filter out` test.
+
+**Net effect on the design: unchanged.** Transitive closure over unfiltered shared signatures is
+still exactly the right rule — it satisfies both guards. Only the stated reason for the transitive
+half was wrong, and a wrong reason in a design doc is how the next person "optimises" the walk back
+down to one hop. The failure mode is also milder than the draft claimed: a too-narrow closure
+splits groups (duplicates the user can see) rather than fabricating merges that hard-delete. The
+proof in the four numbered points above is unaffected — it never relied on the poisoning story.
+
+### A.4 Amendment, 2026-08-25 — what a BLOCKED Task 2 taught us
+
+Task 2's first attempt came back BLOCKED: with the narrowing on,
+`tests/Postgres/ProjectionWriterIdentityRaceTest.php` went from 8 passed to 6 failed. The
+implementer's reading was that the test is unrealistic — it inserts an `identity_decisions` row
+directly and then drives a race through `writeManualItem()` on a coord with no identity
+relationship to the decided pair, relying on the old "any write resolves the whole (user, kind)"
+behaviour to sweep them in. It proposed fixing the test's fixtures.
+
+**Verified, and that reading is half right. The test was accidentally modelling a REAL hole.**
+
+`IdentityDecisionController::store()` does reproject after recording a ruling — but it finds the
+sources to reproject with:
+
+```php
+->join('ingest.sources as isrc', 'isrc.connection_id', '=', 'cs.connection_id')
+```
+
+an INNER join on `connection_id`. A **manual** source has no `connection_id` at all
+(`ProjectionWriter::ensureManualSource()`: *"a manual source has none"*), so for two owner-added
+items that query returns nothing, `$sourceIds` is empty, and **no reprojection is dispatched**.
+Under the old whole-kind resolve that did not matter — the next write of any kind applied the
+pending ruling. Under a touched-only seed, the owner's "these are the same" ruling on two
+hand-added items would **silently never take effect.**
+
+That is a real behaviour regression, narrow but real, and it is not the test's fault.
+
+**Ruling — fix the invariant, not the fixture.** `IdentityScope::component()` seeds from the
+touched coords PLUS every coord named by a live `same` ruling. Rationale:
+
+- It closes the manual-item hole at the place the invariant lives, rather than patching one
+  controller's join and hoping no other path records a ruling.
+- Cost is bounded by the RULING count — owner-authored and small — not by catalogue size, so the
+  narrowing's win survives.
+- It cannot break the §A.1 proof: seeding more only ever GROWS the component, and the proof shows
+  items outside a component cannot affect it. A larger component costs performance, never
+  correctness; the limit case is the whole kind, which is exactly today's behaviour.
+- `different` rulings are NOT seeded. A cut only ever suppresses a union, so it can only matter
+  between coords that share a signature — already in the component whenever either side is
+  reached.
+
+**Second, separate defect from the same report — the flag-off path was NOT byte-for-byte.** The
+attempt rewrote the closing re-read's query shape unconditionally, which broke three PG-lane tests
+*even with `PARTNA_CONTENT_IDENTITY_SCOPE=false`*, because they hook that statement through a
+`DB::listen` text match. The flag is this change's primary rollback, so "off" must mean the
+original statement, unchanged. Task 2's Step 4 now carries both branches explicitly.
+
+**What this cost:** one BLOCKED task and one plan amendment. What it bought: a production hole
+that no test in the plan would have caught, found before merge rather than by an owner whose
+de-duplication ruling stopped working.
 
 ### A.2 The cap
 
@@ -483,6 +566,36 @@ it('returns every coord and flags capped when the component is too big', functio
         ->and($result['coords'])->toHaveCount(12);
 });
 
+it('seeds from a "same" ruling even when neither side was touched', function () {
+    // A ruling on two coords that nothing touched must still be applied — under
+    // the old whole-kind resolve every write applied every pending ruling, and
+    // for two MANUAL items nothing else ever reprojects them (see the seeding
+    // comment in IdentityScope). Touching an unrelated coord must therefore
+    // still pull the ruled pair in.
+    $result = (new IdentityScope)->component([
+        scopeItem('unrelated', 'src-z', 'track', [scopeKey(KeyClass::Isrc, 'ZZRC17607839')]),
+        scopeItem('a', 'src-a', 'track', [scopeKey(KeyClass::Isrc, 'USRC17607839')]),
+        scopeItem('b', 'src-b', 'track', [scopeKey(KeyClass::Isrc, 'GBAYE0601498')]),
+    ], [new Decision('a', 'b', 'same')], ['unrelated']);
+
+    expect($result['coords'])->toContain('a')
+        ->and($result['coords'])->toContain('b')
+        ->and($result['coords'])->toContain('unrelated');
+});
+
+it('does NOT seed from a "different" ruling', function () {
+    // A cut only ever suppresses a union, so it can only matter between coords
+    // that share a signature — already in the component whenever either side is
+    // reached. Seeding from cuts would drag unrelated groups in for nothing.
+    $result = (new IdentityScope)->component([
+        scopeItem('unrelated', 'src-z', 'track', [scopeKey(KeyClass::Isrc, 'ZZRC17607839')]),
+        scopeItem('a', 'src-a', 'track', [scopeKey(KeyClass::Isrc, 'USRC17607839')]),
+        scopeItem('b', 'src-b', 'track', [scopeKey(KeyClass::Isrc, 'GBAYE0601498')]),
+    ], [new Decision('a', 'b', 'different')], ['unrelated']);
+
+    expect($result['coords'])->toBe(['unrelated']);
+});
+
 it('returns nothing when nothing was touched', function () {
     $result = (new IdentityScope)->component([
         scopeItem('a', 'src-a', 'track', [scopeKey(KeyClass::Isrc, 'USRC17607839')]),
@@ -589,9 +702,36 @@ final class IdentityScope
             $sameEdges[$decision->right][] = $decision->left;
         }
 
+        // SEED = the touched coords PLUS every coord named by a live 'same'
+        // ruling (amendment, 2026-08-25 — see the plan's §A.4).
+        //
+        // A 'same' ruling CREATES a merge, so it only takes effect if both its
+        // coords are in the resolved set. Under the old whole-kind resolve any
+        // write applied every pending ruling; under a touched-only seed, a
+        // ruling whose coords nothing touched would never be applied at all.
+        // Production reprojects the decided coords via
+        // IdentityDecisionController -> ReprojectSourcesJob, but that lookup
+        // INNER JOINs ingest.sources on connection_id, and a MANUAL source has
+        // no connection_id (ProjectionWriter::ensureManualSource) — so a ruling
+        // on two owner-added items dispatches nothing and would silently never
+        // apply. Seeding from the rulings closes that hole here, where the
+        // invariant lives, rather than in one controller.
+        //
+        // 'different' rulings are deliberately NOT seeded: a cut only ever
+        // SUPPRESSES a union, so it can only matter between coords that share a
+        // signature — and those are already in the component whenever either
+        // side is reached.
+        //
+        // Cost is bounded by the RULING count (owner-authored, small), not by
+        // catalogue size, so the narrowing's win is preserved.
+        $seed = $touched;
+        foreach ($sameEdges as $coord => $_) {
+            $seed[] = (string) $coord;
+        }
+
         $seen = [];
         $queue = [];
-        foreach ($touched as $coord) {
+        foreach ($seed as $coord) {
             if (isset($known[$coord]) && ! isset($seen[$coord])) {
                 $seen[$coord] = true;
                 $queue[] = $coord;
@@ -643,7 +783,7 @@ Expected: PASS, 9 tests.
 - [ ] **Step 5: Lint and commit**
 
 ```bash
-php artisan pint app/Content/Identity/IdentityScope.php tests/Unit/Content/IdentityScopeTest.php
+./vendor/bin/pint app/Content/Identity/IdentityScope.php tests/Unit/Content/IdentityScopeTest.php
 ./vendor/bin/pint --test
 git add app/Content/Identity/IdentityScope.php tests/Unit/Content/IdentityScopeTest.php
 git commit -m "feat(identity): IdentityScope — the transitive closure of a change
@@ -826,25 +966,52 @@ Then narrow the CLOSING re-read at the end of the same method. Replace the
 trailing `->get(['id', 'coord', 'item_id']);` chain with a `coord`-scoped read when narrowed:
 
 ```php
+⚠️ **This narrowing MUST be conditional. Do not rewrite the query unconditionally.** The plan
+promises `PARTNA_CONTENT_IDENTITY_SCOPE=false` restores the old path *byte-for-byte*, and that
+promise is this change's primary rollback. A Task 2 attempt that rewrote this query shape
+unconditionally broke three PG-lane tests **even with the flag off**, because they hook the query
+via a `DB::listen` text match. Keep the original statement verbatim on the unnarrowed path:
+
+```php
         // Scoped to the resolved coords rather than the whole kind: rows this
-        // resolve did not consider cannot have a new target, so re-reading
-        // them only to compare equal is pure cost. When the scope is off (or
-        // capped) $itemByCoord IS the whole kind, so this is identical to the
-        // old predicate.
-        $resolvedCoords = array_keys($itemByCoord);
-        $bySourceItemId = collect();
-        foreach (array_chunk($resolvedCoords, self::BATCH_SIZE) as $coordChunk) {
-            $bySourceItemId = $bySourceItemId->concat(
-                DB::table('content.source_items as si')
-                    ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
-                    ->where('cs.user_id', $userId)
-                    ->where('si.kind', $kind)
-                    ->whereNull('si.removed_at')
-                    ->tap($liveSource)
-                    ->whereIn('si.coord', $coordChunk)
-                    ->get(['si.id', 'si.coord', 'si.item_id'])
-            );
+        // resolve did not consider cannot have a new target, so re-reading them
+        // only to compare equal is pure cost.
+        //
+        // CONDITIONAL, not unconditional: with the scope off (or capped) this
+        // must issue the ORIGINAL statement, unchanged. That is what makes the
+        // flag a real rollback — and PG-lane tests match on this query's text,
+        // so a rewritten shape breaks them even when the narrowing is disabled.
+        if ($narrowed) {
+            $bySourceItemId = collect();
+            foreach (array_chunk(array_keys($itemByCoord), self::BATCH_SIZE) as $coordChunk) {
+                $bySourceItemId = $bySourceItemId->concat(
+                    DB::table('content.source_items as si')
+                        ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+                        ->where('cs.user_id', $userId)
+                        ->where('si.kind', $kind)
+                        ->whereNull('si.removed_at')
+                        ->tap($liveSource)
+                        ->whereIn('si.coord', $coordChunk)
+                        ->get(['si.id', 'si.coord', 'si.item_id'])
+                );
+            }
+        } else {
+            // UNCHANGED from before this branch — do not reformat it.
+            $bySourceItemId = DB::table('content.source_items')
+                ->whereIn('id', function ($sub) use ($userId, $kind, $liveSource) {
+                    $sub->select('si.id')->from('content.source_items as si')
+                        ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+                        ->where('cs.user_id', $userId)
+                        ->where('si.kind', $kind)
+                        ->tap($liveSource)
+                        ->whereNull('si.removed_at');
+                })
+                ->get(['id', 'coord', 'item_id']);
         }
+```
+
+Set `$narrowed` where you narrow `$sourceItems` — it is true only when the flag is on AND the
+component was computed AND the cap did not bite.
 ```
 
 - [ ] **Step 5: Update the two call sites**
@@ -904,25 +1071,33 @@ reason. Replace the comment:
 Expected: PASS, same count as Step 3.
 
 ```bash
-psql "postgres://postgres:postgres@127.0.0.1:54322/postgres" -c 'CREATE DATABASE partna_pg_lane_scratch'
-PG_LANE_DISPOSABLE=1 DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=54322 \
+docker exec supabase_db_Partna-Development psql -U postgres -d postgres -c "CREATE DATABASE partna_pg_lane_scratch"
+PG_LANE_REQUIRED=1 PG_LANE_DISPOSABLE=1 DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=54322 \
   DB_DATABASE=partna_pg_lane_scratch DB_USERNAME=postgres DB_PASSWORD=postgres DB_SSLMODE=disable \
   ./vendor/bin/pest -c phpunit.pg.xml tests/Postgres/ProjectionWriterIdentityRaceTest.php
-PG_LANE_DISPOSABLE=1 DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=54322 \
+PG_LANE_REQUIRED=1 PG_LANE_DISPOSABLE=1 DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=54322 \
   DB_DATABASE=partna_pg_lane_scratch DB_USERNAME=postgres DB_PASSWORD=postgres DB_SSLMODE=disable \
   ./vendor/bin/pest -c phpunit.pg.xml tests/Postgres/ProjectionWriterBatchingTest.php
-psql "postgres://postgres:postgres@127.0.0.1:54322/postgres" -c 'DROP DATABASE partna_pg_lane_scratch'
+docker exec supabase_db_Partna-Development psql -U postgres -d postgres -c "DROP DATABASE partna_pg_lane_scratch"
 ```
 
 Expected: PASS, **and `ProjectionWriterIdentityRaceTest.php` must pass UNTOUCHED.** If it needs an
 edit, the change went further than the design intended — STOP and report.
 
-**NEVER** point `PG_LANE_DISPOSABLE` at the `postgres` database itself.
+**NEVER** point `PG_LANE_DISPOSABLE` at the `postgres` database itself — the lane's refusal
+(*"Refusing to provision core.*/site.* on 'postgres'"*) is the guard working, and overriding it
+provisions the lane's tables over your local dev stack. A separate DATABASE on the same container
+is fine: tables are per-database, so local dev's `postgres` DB is untouched.
+
+⚠️ **`PG_LANE_REQUIRED=1` is mandatory, not decorative.** Without it the lane SKIPS whenever a
+precondition is missing and **reports green having asserted nothing** — which on Task 4's
+differential test would mean the one check that can catch a false merge silently proved nothing.
+If you see a suspiciously fast green with a high skip count, that is this.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-php artisan pint app/Ingest/Projection/ProjectionWriter.php config/partna.php
+./vendor/bin/pint app/Ingest/Projection/ProjectionWriter.php config/partna.php
 ./vendor/bin/pint --test
 git add app/Ingest/Projection/ProjectionWriter.php config/partna.php .env.example
 git commit -m "perf(ingest): resolve only the component a run can change — #CACHE-2
@@ -1043,7 +1218,7 @@ Then the PG lane, with the same scratch-DB recipe as Task 2 Step 7, over
 - [ ] **Step 5: Commit**
 
 ```bash
-php artisan pint app/Ingest/Projection/ProjectionWriter.php
+./vendor/bin/pint app/Ingest/Projection/ProjectionWriter.php
 ./vendor/bin/pint --test
 git add -A
 git commit -m "perf(ingest): refresh caches for touched items only — #CACHE-4, #CACHE-2
@@ -1112,9 +1287,16 @@ it('produces the same item mapping scoped as it does whole-kind', function () {
 });
 
 it('does not merge a pair whose corroborating key a same-source duplicate poisons', function () {
-    // The one-hop counter-example, end to end. Spotify has one "Wandering
-    // Star"; Apple has two. The duplicate poisons the title key, so the pair
-    // must NOT merge — and must not merge under the scoped path either.
+    // Guard 2 end to end (plan §A.1): the UNFILTERED breadth of the closure.
+    // Spotify has one "Wandering Star"; Apple has two. The duplicate poisons
+    // the title key, so the pair must NOT merge — and must not merge under the
+    // scoped path either, which requires the closure to have indexed that
+    // signature and pulled Apple's second copy in.
+    //
+    // NOT a transitivity test: the poisoning sibling shares the title with the
+    // touched coord, so it is ONE hop away. Transitivity is proven separately,
+    // by the chained-union case. Do not relabel this as a one-hop
+    // counter-example — an earlier draft of the plan did, and it was wrong.
     [$userId, $source, $streamId, $streamName] = $this->seedPoisonedTitleFixture();
 
     config(['partna.content.identity_scope' => true]);
@@ -1151,11 +1333,11 @@ hand-type an upstream payload). `groupShape()` should return a sorted list of so
 - [ ] **Step 2: Run it to verify it fails, then passes**
 
 ```bash
-psql "postgres://postgres:postgres@127.0.0.1:54322/postgres" -c 'CREATE DATABASE partna_pg_lane_scratch'
-PG_LANE_DISPOSABLE=1 DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=54322 \
+docker exec supabase_db_Partna-Development psql -U postgres -d postgres -c "CREATE DATABASE partna_pg_lane_scratch"
+PG_LANE_REQUIRED=1 PG_LANE_DISPOSABLE=1 DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=54322 \
   DB_DATABASE=partna_pg_lane_scratch DB_USERNAME=postgres DB_PASSWORD=postgres DB_SSLMODE=disable \
   ./vendor/bin/pest -c phpunit.pg.xml tests/Postgres/ProjectionWriterScopedResolveTest.php
-psql "postgres://postgres:postgres@127.0.0.1:54322/postgres" -c 'DROP DATABASE partna_pg_lane_scratch'
+docker exec supabase_db_Partna-Development psql -U postgres -d postgres -c "DROP DATABASE partna_pg_lane_scratch"
 ```
 
 Expected on first run: FAIL on the missing fixture helpers. Write them, then PASS on all three.
@@ -1166,7 +1348,7 @@ breaking, and it means the closure rule is wrong — not that the test needs adj
 - [ ] **Step 3: Commit**
 
 ```bash
-php artisan pint tests/Postgres/ProjectionWriterScopedResolveTest.php
+./vendor/bin/pint tests/Postgres/ProjectionWriterScopedResolveTest.php
 ./vendor/bin/pint --test
 git add tests/Postgres/ProjectionWriterScopedResolveTest.php
 git commit -m "test(pg): differential — scoped resolve must equal whole-kind
@@ -1342,7 +1524,7 @@ poisoning three times.
 - [ ] **Step 6: Commit**
 
 ```bash
-php artisan pint app/Ingest/Projection/ProjectionWriter.php app/Services/Content/ContentItemSlugAllocator.php
+./vendor/bin/pint app/Ingest/Projection/ProjectionWriter.php app/Services/Content/ContentItemSlugAllocator.php
 ./vendor/bin/pint --test
 git add -A
 git commit -m "perf(ingest): batch the slug read out of the refresh loop — #SCALE-9, #API-7
@@ -1475,7 +1657,7 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-php artisan pint app/Ingest/Projection/ProjectionWriter.php
+./vendor/bin/pint app/Ingest/Projection/ProjectionWriter.php
 ./vendor/bin/pint --test
 git add -A
 git commit -m "perf(ingest): bound the projection accumulator — #SCALE-8
@@ -1569,8 +1751,9 @@ is a different failure:
 | **A few sharing one key** (3+ sources, one song) | all collapse to one | partial merge — worse than none, because the duplicate is now sticky |
 | **Multiple copies of the SAME thing in ONE source** | the key is POISONED; no merge happens at all | this is the exact case a one-hop closure gets wrong |
 
-The last row is the one that matters most: it is the plan's §A.1 counter-example arriving through a
-real projection run rather than a unit fixture.
+The last row is the one that matters most: it is §A.1's Guard 2 (unfiltered breadth) arriving
+through a real projection run rather than a unit fixture. Guard 1 (transitivity) is proven by the
+chained-union tests in Tasks 1 and 4, not here.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1681,11 +1864,17 @@ it('collapses a few sources sharing one release into a single item', function ()
 });
 
 it('does NOT merge when one source lists the same thing twice — the poisoned key', function () {
-    // THE case a one-hop closure gets wrong (plan §A.1). Source B carries the
-    // release TWICE under two record keys. That duplicate is what poisons the
-    // corroborating key, so A and B must stay apart. If the closure fails to
-    // pull B's second copy in, the key looks clean and these merge — and
-    // mergeInto() hard-deletes the loser.
+    // Guard 2 through a real sync (plan §A.1): the closure indexes signatures
+    // UNFILTERED, so B's second copy is present for poisonedKeys() to see.
+    // Source B carries the release TWICE under two record keys; that duplicate
+    // poisons the corroborating key, so A and B must stay apart. If the closure
+    // dropped the weak signature, the key would look clean and these would
+    // merge — and mergeInto() hard-deletes the loser.
+    //
+    // The poisoning sibling is ONE hop from the touched coord (it shares the
+    // key), so this is not the transitivity case; the chained-union tests cover
+    // that. Keeping the two guards distinct matters — conflating them is the
+    // error the plan's own first draft made.
     [$userId, , $sourceA, $streamA] = projectableBandcamp([
         'r1' => bandcampDoc('Twice Listed', 'https://a.bandcamp.com/album/twice-listed'),
     ]);
@@ -1965,7 +2154,7 @@ adjust** — report it and stop.
 - [ ] **Step 3: Commit**
 
 ```bash
-php artisan pint tests/Feature/Ingest/ProjectionSyncShapesTest.php
+./vendor/bin/pint tests/Feature/Ingest/ProjectionSyncShapesTest.php
 ./vendor/bin/pint --test
 git commit -m "test(ingest): end-to-end sync shapes — one, same, similar, several, duplicated
 
@@ -2034,21 +2223,29 @@ missing tests before continuing — a dropped test is a regression this step exi
 
 ```bash
 # 2. Postgres lane, WHOLE directory — not just the files this branch touched.
-psql "postgres://postgres:postgres@127.0.0.1:54322/postgres" -c 'CREATE DATABASE partna_pg_lane_scratch'
-PG_LANE_DISPOSABLE=1 DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=54322 \
+docker exec supabase_db_Partna-Development psql -U postgres -d postgres -c "CREATE DATABASE partna_pg_lane_scratch"
+PG_LANE_REQUIRED=1 PG_LANE_DISPOSABLE=1 DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=54322 \
   DB_DATABASE=partna_pg_lane_scratch DB_USERNAME=postgres DB_PASSWORD=postgres DB_SSLMODE=disable \
   ./vendor/bin/pest -c phpunit.pg.xml tests/Postgres
-psql "postgres://postgres:postgres@127.0.0.1:54322/postgres" -c 'DROP DATABASE partna_pg_lane_scratch'
+docker exec supabase_db_Partna-Development psql -U postgres -d postgres -c "DROP DATABASE partna_pg_lane_scratch"
 ```
 Expected: PASS. **This lane is mandatory** — its stand-in DDL is hand-written and drifts silently
 from writer changes; slice 5a turned it red for 7 tests on a green SQLite run and two reviews
 missed it.
 
 ```bash
-# 3. Applied-schema lane — pins the architecture constraints composer test does NOT cover.
-composer test:schema
+# 3. Applied-schema lane — SKIP THIS LOCALLY. Read the note before running anything.
 ```
-Expected: PASS. This branch should not touch schema at all; a failure here means it did.
+⚠️ **`composer test:schema` does NOT run in a local checkout and must NOT be treated as a gate
+here.** Its `.env` `DB_HOST` is a dead Supabase ref, and unlike the PG lane it asserts against the
+REAL applied schema (it does not provision stand-in tables), so it needs the migrations AND
+Supabase's `auth` schema already present. On a bare container it reports ~172 failed, every failure
+`SQLSTATE[42P01] relation "auth.users" does not exist`. **That is an environment gap, not a
+regression — do not bisect it and do not "fix" anything it reports.** CI is the only place this
+lane has ever run.
+
+This branch touches no schema, so the lane has nothing to say about it regardless. Record it as
+"not run locally — CI gate" in the report.
 
 ```bash
 # 4. Static analysis and formatting — the CI gates.
