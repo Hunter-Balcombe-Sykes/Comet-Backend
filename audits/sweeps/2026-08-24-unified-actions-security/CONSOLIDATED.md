@@ -562,7 +562,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 6 of 16 complete
+- P2 Medium: 9 of 16 complete
 - P3 Low: 0 of 8 complete
 
 ---
@@ -783,7 +783,17 @@
         });
         ```
 
-- [ ] **SEM-8** · P2 — Manual action-slot contiguity guard silently skips string-typed positions
+- [x] **SEM-8** · P2 — Manual action-slot contiguity guard silently skips string-typed positions
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 11a). The gate now admits an int OR an
+      integer-valued numeric string and **casts to `(int)` on collection**. The cast is the part that
+      matters and the obvious fix misses it: the check below compares `$positions !== range(0, n-1)`,
+      and `range()` yields ints, so merely admitting `"0","1"` uncast makes `["0","1"] !== [0,1]` and
+      starts 422-ing VALID input. Matches the sibling rule's non-strict `integer`, per the DECIDED —
+      the sibling was NOT tightened to strict.
+    - Tests in `tests/Feature/Api/User/SiteManagement/ActionSettingsValidationTest.php`, both
+      directions: non-contiguous STRING positions must now 422, and contiguous string positions must
+      still pass. Two mutations RED — reverting to `is_int()` (the original bug), and the naive
+      admit-without-casting fix (which breaks valid input).
     - **Where:** app/Http/Requests/Concerns/SiteOrderingValidationRules.php:92-109
     - **Actual affects:** Any non-strict-JSON client (form-encoded, some API tooling) that submits `settings.actions.slots[*].position` as a numeric string in manual mode — an invalid, non-contiguous ordering can be accepted instead of rejected.
     - **Effort:** S (~0.5–1h)
@@ -990,7 +1000,23 @@
             ...
         ```
 
-- [ ] **SEM-14** · P2 — `ConnectionIdentity::matchExisting()`'s FOUND-14 lookup folds case for every surface, contradicting the allowlist its own step 1 enforces two lines above
+- [x] **SEM-14** · P2 — `ConnectionIdentity::matchExisting()`'s FOUND-14 lookup folds case for every surface, contradicting the allowlist its own step 1 enforces two lines above
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 11b). All three lookup schemes now go
+      through ONE `$normalize` closure gated on the same `$foldable`, so the allowlist cannot be
+      honoured by scheme 1 and ignored by the others again.
+    - ⚠️ Scope note: this finding's TITLE is precise (the FOUND-14 / `canonical_key` lookup) but
+      `EXECUTE-PART-1.md` §4 unit 11b paraphrased it as "`$foldable` … exists and is unused", which is
+      false — scheme 1 has always used it. Reading the paraphrase alone would have closed this
+      WONTFIX-refuted and left the real defect live. The finding is correct as written.
+    - Scheme 3 (the derived-identity compare) folded unconditionally too and shares the same `$needle`;
+      it was fixed in the same change rather than left as a matching-but-unnamed half.
+    - Correctly NOT overclaimed as a tenancy bug: the query is `where('user_id', …)`, so the collapse
+      is within one tenant.
+    - Tests: `tests/Feature/Routing/ConnectionIdentityFoldingTest.php` — a non-allowlisted
+      `discord.server` row with a `canonical_key` must NOT match a case-differing invite code; the same
+      code in the SAME case must still match (gating the fold must not break the lookup); and an
+      allowlisted `youtube.channel` row must STILL fold. Mutation-proved: restoring the unconditional
+      fold in scheme 2 turns the first RED.
     - **Where:** app/Routing/ConnectionIdentity.php:112-132
     - **Affects:** Users with a case-sensitive-handle connection (e.g. `discord.server`) that also has a `canonical_key` (FOUND-14 scheme row) — two genuinely distinct case-differing identifiers can incorrectly match as the same connection.
     - **Editorial:** already flagged by the scan tier with strong reasoning; adjudication confirmed.
@@ -1069,7 +1095,21 @@
         }
         ```
 
-- [ ] **SEM-17** · P2 — Dashboard "sources" panel timestamps omit `->utc()`, in a file whose own comment warns about exactly this
+- [x] **SEM-17** · P2 — Dashboard "sources" panel timestamps omit `->utc()`, in a file whose own comment warns about exactly this
+    - **2026-08-26 (pre-launch-hardening PART 1, unit 11c) — `->utc()` ADDED, but the premise is
+      REFUTED: there is no live +10h bug.** `config/app.php:72` hardcodes `'timezone' => 'UTC'` as a
+      LITERAL (not env-driven), so `Carbon::parse()` on the query builder's naive "Y-m-d H:i:s" string
+      already yields UTC and `->utc()` is a **no-op** under the real configuration.
+    - ⚠️ **And `->utc()` would not have fixed it anyway.** Proved while writing the test: forcing
+      `app.timezone` to `Australia/Sydney` and storing `2026-08-26 01:00:00` emits
+      `2026-08-25T15:00:00+00:00` — a DIFFERENT INSTANT, not a re-labelling. `->utc()` CONVERTS a
+      string Carbon has already misread as local; it does not REINTERPRET it as UTC. The correct
+      hardening is `Carbon::parse($v, 'UTC')`, and the `latestFor()` precedent this finding points at
+      (`:462`) carries the identical latent issue. Surfaced in `RESULT-PART-1.md`, not fixed here: it
+      is a behaviour change to a comparison path, beyond this unit's S.
+    - `->utc()` is kept as defence-in-depth and for consistency with that precedent. Behaviour pinned
+      per fix-flow §5 step 3 by `tests/Feature/Content/PoolIngestBadgeFailOpenTest.php`, which asserts
+      the stamp carries an explicit `+00:00` and is not shifted.
     - **Where:** app/Site/Pools/PoolResolver.php:820-837 (`sourcesByItem`); cf. the correct pattern at PoolResolver.php:445-456 (`iso()`)
     - **Affects:** The owner dashboard's per-item "sources" list — `lastSeenAt` / `lastSyncedAt` — whenever the app server's local timezone isn't UTC.
     - **Effort:** S (~0.5–1h)

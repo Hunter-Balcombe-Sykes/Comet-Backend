@@ -852,7 +852,10 @@ class PoolResolver
                 // Timestamps go out as ISO-8601 with zone: the query builder
                 // hands back naive "Y-m-d H:i:s" strings which a browser's
                 // Date() would read as LOCAL time (a +10h badge — review).
-                $iso = fn ($v) => $v === null ? null : Carbon::parse((string) $v)->toIso8601String();
+                // ->utc() is what makes the line above TRUE (SEM-17) — without it
+                // the stamp carried no zone conversion at all. Same call, same
+                // reason, as latestFor()'s helper.
+                $iso = fn ($v) => $v === null ? null : Carbon::parse((string) $v)->utc()->toIso8601String();
                 if ($row->source_kind === 'manual') {
                     $out[] = ['kind' => 'manual', 'platform' => null, 'accountName' => null, 'origin' => $originByItem[(string) $itemId] ?? null, 'lastSeenAt' => $iso($row->last_seen_at), 'lastSyncedAt' => null, 'autoSync' => false, 'active' => true];
 
