@@ -44,17 +44,43 @@ class RefreshItemCachesCommand extends Command
                 });
         }
 
-        $byUser = $query->get(['i.id', 'i.user_id'])->groupBy('user_id');
-        $total = $byUser->sum(fn ($rows) => $rows->count());
-        if ($this->option('dry-run')) {
-            $this->info("Would refresh {$total} item(s) across {$byUser->count()} user(s).");
+        $dryRun = (bool) $this->option('dry-run');
 
-            return self::SUCCESS;
+        // Phase 1: the distinct user ids matching the filter. A deduped uuid
+        // column is orders of magnitude smaller than the item set, so it's
+        // cheap to page through whole here — and safely: this phase makes no
+        // writes, so unlike phase 2 below, there is nothing for an OFFSET page
+        // boundary to skip mid-scan. With --user this returns at most one row.
+        $userIds = [];
+        (clone $query)->select('i.user_id')->distinct()->orderBy('i.user_id')
+            ->chunk(500, function ($rows) use (&$userIds): void {
+                foreach ($rows as $row) {
+                    $userIds[] = (string) $row->user_id;
+                }
+            });
+
+        // Phase 2: chunkById SCOPED TO ONE USER AT A TIME, so a user's items
+        // stay contiguous under refreshCachesFor()'s own array_chunk()
+        // batching. Keyset-paging the WHOLE backlog by i.id (the first cut of
+        // this fix) scattered one user's 100 items across many pages because
+        // ids are random UUIDs, not sequential — that scattering is what
+        // inflated the query count well past the old ->get()+groupBy shape's.
+        // Scoping per user restores one clean batch per user (same shape the
+        // old code produced) while keeping memory bounded to one user's chunk,
+        // not the whole backlog.
+        $total = 0;
+        foreach ($userIds as $userId) {
+            (clone $query)->where('i.user_id', $userId)->select(['i.id', 'i.user_id'])
+                ->chunkById(500, function ($rows) use ($writer, $dryRun, $userId, &$total): void {
+                    $total += $rows->count();
+                    if (! $dryRun) {
+                        $writer->refreshCachesFor($userId, $rows->pluck('id')->map(fn ($id) => (string) $id)->all());
+                    }
+                }, 'i.id', 'id');
         }
-        foreach ($byUser as $userId => $rows) {
-            $writer->refreshCachesFor((string) $userId, $rows->pluck('id')->map(fn ($id) => (string) $id)->all());
-        }
-        $this->info("Refreshed {$total} item(s) across {$byUser->count()} user(s).");
+
+        $users = count($userIds);
+        $this->info(($dryRun ? "Would refresh {$total} item(s)" : "Refreshed {$total} item(s)")." across {$users} user(s).");
 
         return self::SUCCESS;
     }

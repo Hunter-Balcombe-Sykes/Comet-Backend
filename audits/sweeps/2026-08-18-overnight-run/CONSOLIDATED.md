@@ -1151,7 +1151,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
-- P2 Medium: 9 of 16 complete
+- P2 Medium: 11 of 16 complete
 - P3 Low: 0 of 7 complete
 
 ---
@@ -1516,7 +1516,8 @@ None.
         }
         ```
 
-- [ ] **#SCALE-16** · P2 — Pending-card enrichment safety net loads its whole backlog with `->get()` and dispatches synchronously in a loop
+- [x] **#SCALE-16** · P2 — Pending-card enrichment safety net loads its whole backlog with `->get()` and dispatches synchronously in a loop
+    - **Resolved 2026-08-26** — `->get()` + `foreach` becomes `chunkById(100)`, dispatching inside the callback. `chunkById` keysets on the PK rather than paging by OFFSET, which matters here specifically: the dispatched job flips `last_refresh_status` out of this query's own WHERE, inline under the `sync` driver, and an OFFSET page window would shift under it. Proven, not assumed — a real inline run over 240 rows spanning three pages left 0 rows `pending` and reported `dispatched 240 of 240`. Measured at N=2000: heap delta 12,081,056 -> 4,163,168 bytes, 1 -> 21 queries, identical 1800 jobs dispatched.
     - **Where:** app/Console/Commands/EnrichPendingCardsCommand.php:26-45
     - **Affects:** `platforms:enrich-pending-cards` (scheduled daily, safety net for stuck enrichments) — normally near-empty, but grows to a real backlog after a queue outage.
     - **Effort:** S (~0.5–1h)
@@ -1541,7 +1542,8 @@ None.
         }
         ```
 
-- [ ] **#SCALE-17** · P2 — Item-cache repair safety net loads every stale item into memory and groups by user in PHP
+- [x] **#SCALE-17** · P2 — Item-cache repair safety net loads every stale item into memory and groups by user in PHP
+    - **Resolved 2026-08-26** — restructured into two phases: phase 1 collects the DISTINCT `user_id`s matching the filter (a deduped uuid column, and write-free so OFFSET paging cannot skip); phase 2 runs `chunkById(500, ..., 'i.id', 'id')` SCOPED TO ONE USER at a time. The per-user scoping is load-bearing and was learned the hard way: keyset-paging the whole backlog by `i.id` (the obvious reading of the finding) scatters one user's items across pages because ids are random UUIDs, fragmenting the batches `refreshItemCaches()` charges ~18 queries apiece for — that first cut measured **+54% queries for no memory win**. Scoped per user: N=2000 2441 -> 2461 queries (+0.8%), heap 4,378,848 -> 3,354,216; N=20,000 20,881 -> 20,941 (+0.3%), heap 40,491,432 -> 30,541,928. Identical item-id set refreshed at both sizes. Safe to split a user's ids across calls because `refreshCachesFor()` -> `refreshItemCaches()` already `array_chunk`s internally and is purely per-item with no whole-user semantics (verified at `ProjectionWriter.php:2581-2719`); `ProjectionWriter` itself is untouched. Both commands had NO test invoking `handle()` — `tests/Feature/Console/RepairCommandBackfillTest.php` is new and pins the paging, the multi-user clone guard and `--dry-run` writing nothing; it fails if `chunkById` is downgraded to `chunk`.
     - **Where:** app/Console/Commands/RefreshItemCachesCommand.php:47-57
     - **Affects:** `content:refresh-item-caches` (scheduled daily 03:25, added by commit `e8e0c2d0f` for X4) — a healthy database is a cheap no-op read, but a systemic projection bug or a wide backfill can leave many items stale at once.
     - **Effort:** M (~2–4h)
