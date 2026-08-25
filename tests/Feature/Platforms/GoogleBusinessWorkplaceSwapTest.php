@@ -22,11 +22,12 @@ it('clears machine-sourced workplace fields when the Google Business listing dis
     $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
 
     $workplace = new Workplace([
-        'site_id' => (string) $site->id,
         'description' => 'Superior Cuts, Fit for a King.',
         'previous_website' => 'https://kingsdomain.com.au/',
         'category' => 'Barber shop',
     ]);
+    // site_id is not mass-assignable (#SEC-17) — set explicitly.
+    $workplace->site_id = (string) $site->id;
     // field_sources is deliberately NOT fillable — system-written property.
     $workplace->field_sources = [
         'description' => ['source' => 'website-scan', 'at' => now()->toIso8601String()],
@@ -80,7 +81,9 @@ it('takes listing-sourced connections with the listing — machine website_impor
     $pro = createTenant('fi15c-machine', ['account_type' => 'business']);
     $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
 
-    $workplace = new Workplace(['site_id' => (string) $site->id, 'previous_website' => 'https://kingsdomain.com.au/']);
+    $workplace = new Workplace(['previous_website' => 'https://kingsdomain.com.au/']);
+    // site_id is not mass-assignable (#SEC-17) — set explicitly.
+    $workplace->site_id = (string) $site->id;
     $workplace->field_sources = ['previous_website' => ['source' => 'google-business', 'at' => now()->toIso8601String()]];
     $workplace->save();
 
@@ -103,7 +106,9 @@ it('keeps website_import connections when the previous website was typed by the 
 
     // No machine stamp on previous_website — the owner typed it in, so the
     // content scan it fed belongs to THEM, not to the listing.
-    $workplace = new Workplace(['site_id' => (string) $site->id, 'previous_website' => 'https://my-own-site.example/']);
+    $workplace = new Workplace(['previous_website' => 'https://my-own-site.example/']);
+    // site_id is not mass-assignable (#SEC-17) — set explicitly.
+    $workplace->site_id = (string) $site->id;
     $workplace->save();
 
     $listing = fi15cConnection($pro->id, 'google-business', 'google_business.listing', ['name' => 'Kings Domain']);

@@ -45,10 +45,13 @@ class Workplace extends BaseModel
     protected $keyType = 'string';
 
     protected $fillable = [
-        // PK is site_id — must be fillable so updateOrCreate/firstOrNew can set it
-        // when creating a new row. All write paths take site_id from the auth-resolved
-        // current site, so mass-assignment of this column is safe.
-        'site_id',
+        // site_id (PK) is deliberately NOT fillable — every write path sets it via
+        // explicit assignment (`$workplace->site_id = ...`), never mass assignment
+        // (#SEC-17). Eloquent's fill() filters attributes down to $fillable BEFORE
+        // the mass-assignment guard runs, so `firstOrNew(['site_id' => ...])` /
+        // `new Workplace(['site_id' => ...])` silently drop site_id on the
+        // new-row branch once it's out of this array — every current caller was
+        // audited and updated to assign site_id explicitly after the call.
         'name',
         'address_line1',
         'city',

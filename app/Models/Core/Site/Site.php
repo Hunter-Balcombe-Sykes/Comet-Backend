@@ -114,10 +114,14 @@ class Site extends BaseModel
     protected $fillable = [
         'subdomain',
         'is_published',
-        'unpublished_at',
         'settings',
-        'moderation_state',
         'architecture_id',
+        // moderation_state and unpublished_at are deliberately NOT fillable
+        // (#SEC-18) — a silently-dropped mass-assignment write here strands a
+        // site in the wrong moderation state, or offline/online, with no error.
+        // Every writer sets them via explicit assignment (or a query-builder
+        // bulk update, which never goes through $fillable at all — see
+        // SuspendSiteJob): AccountDeletionService::confirm/cancel, ClaimSiteService.
         // FOUND-16: 5 promoted columns (were settings.* sub-keys). Columns are
         // the source of truth; UpdateSiteAction hoists them out of settings.
         'show_branding',

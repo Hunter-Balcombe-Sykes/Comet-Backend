@@ -470,6 +470,8 @@ class GoogleBusinessAutoSync
 
             // Load existing row (or a fresh unsaved model) to preserve fields the user already set.
             $workplace = Workplace::query()->firstOrNew(['site_id' => (string) $site->id]);
+            // site_id is not mass-assignable (#SEC-17) — the new-row branch needs it set explicitly.
+            $workplace->site_id = (string) $site->id;
             $sources = is_array($workplace->field_sources) ? $workplace->field_sources : [];
             $stamp = now()->toIso8601String();
 

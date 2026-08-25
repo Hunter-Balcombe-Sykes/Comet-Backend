@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 // Queue::fake() is called AGAIN after each test's setup, right before
-// invoking the command — Workplace::create() with a previous_website set
+// invoking the command — Workplace::forceCreate() with a previous_website set
 // now ALSO dispatches via WorkplaceObserver's own trigger (Task A4.11),
 // which would otherwise contaminate these assertions about what the
 // BACKFILL COMMAND specifically dispatches (confirmed directly: the first
@@ -35,7 +35,7 @@ it('dispatches a content scan for every workplace with a previous_website alread
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
     Queue::fake();
-    Workplace::create(['site_id' => (string) $site->id, 'previous_website' => 'https://venue.example']);
+    Workplace::forceCreate(['site_id' => (string) $site->id, 'previous_website' => 'https://venue.example']);
     Queue::fake(); // reset — isolate the command's own dispatch from the observer's
 
     $this->artisan('partna:backfill-previous-website-content-scan')->assertSuccessful();
@@ -48,7 +48,7 @@ it('dispatches a content scan for every workplace with a previous_website alread
 it('skips a workplace with a blank previous_website', function () {
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
     Queue::fake();
 
     $this->artisan('partna:backfill-previous-website-content-scan')->assertSuccessful();
@@ -60,7 +60,7 @@ it('dry-run dispatches nothing', function () {
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
     Queue::fake();
-    Workplace::create(['site_id' => (string) $site->id, 'previous_website' => 'https://venue.example']);
+    Workplace::forceCreate(['site_id' => (string) $site->id, 'previous_website' => 'https://venue.example']);
     Queue::fake(); // reset — isolate the command's own dispatch from the observer's
 
     $this->artisan('partna:backfill-previous-website-content-scan --dry-run --stagger-seconds=10')

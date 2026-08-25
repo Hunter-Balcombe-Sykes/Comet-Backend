@@ -82,7 +82,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 0 of 15 complete
+- P2 Medium: 3 of 15 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -375,7 +375,8 @@
         'categories.*.service_ids.*' => ['required', 'uuid'],
         ```
 
-- [ ] **#SEC-14** · P2 — `DevInsightsController::index` resolves and reads a site's analytics with no `authorizeForUser` call
+- [x] **#SEC-14** · P2 — `DevInsightsController::index` resolves and reads a site's analytics with no `authorizeForUser` call
+    - **FIXED** — `authorizeForUser($professional, 'view', $site)` added after `currentSite()` in `DevInsightsController::index`, mirroring `UserSiteActionsController::show`. Defense-in-depth only, stated plainly: `currentSite()` already resolves the caller's OWN site, and `SitePolicy::view` (`:24-29`) is pure ownership, so no cross-tenant read was reachable and **no honest denial test exists** — the new `DevInsightsControllerTest` pins the 200/422 shape, not the gate. Route re-verified reachable in production (`routes/api/user.php:397`, plain `user.api` group, no env gate).
     - **Where:** app/Http/Controllers/Api/User/Analytics/DevInsightsController.php:62-82
     - **Affects:** The authenticated professional's own dev-insights analytics endpoint.
     - **Effort:** S (~0.5–1h)
@@ -427,7 +428,8 @@
             'fail_open' => (bool) env('BOT_PROTECTION_FAIL_OPEN', false),
         ```
 
-- [ ] **#SEC-17** · P2 — `Workplace::$fillable` includes the tenancy PK/FK `site_id`
+- [x] **#SEC-17** · P2 — `Workplace::$fillable` includes the tenancy PK/FK `site_id`
+    - **FIXED** — `'site_id'` dropped from `Workplace::$fillable`. The finding's premise that `firstOrNew`/`updateOrCreate` "keep working" was **wrong** and was disproved against Laravel source: both route the NEW-ROW branch through `newModelInstance()` -> `fill()`, which filters on `$fillable`. Six write paths were converted to explicit assignment: `UserWorkplaceController:141` and `:271-274`, `ScanPreviousWebsiteContentJob:188`, `InstagramIdentitySync:170`, `IdentitySync:241-245`, `GoogleBusinessAutoSync:474`. `site.workplaces.site_id` is `uuid NOT NULL` (baseline_pilot.sql:2153), so any missed path fails LOUD in Postgres, never silently.
     - **Where:** app/Models/Core/Site/Workplace.php:47-51
     - **Affects:** Every workplace-card write path — currently unreachable, but a mass-assignment allowlist gap on the tenancy key.
     - **Effort:** S (~0.5–1h)
@@ -445,7 +447,8 @@
             'name',
         ```
 
-- [ ] **#SEC-18** · P2 — `Site::$fillable` includes the moderation-enforcement fields `moderation_state` and `unpublished_at`
+- [x] **#SEC-18** · P2 — `Site::$fillable` includes the moderation-enforcement fields `moderation_state` and `unpublished_at`
+    - **FIXED** — `'moderation_state'` and `'unpublished_at'` dropped from `Site::$fillable`. Full writer sweep: only two were genuinely exposed, both instance `Model::update()` calls in `AccountDeletionService` (`confirm()` :367-371, `cancel()` :712-715), now explicit assignment + `save()`. `SuspendSiteJob:56` is an Eloquent **builder** update (never consults `$fillable`); `ClaimSiteService:141` was already explicit; the rest are reads. Factory fixtures are unaffected — `Factory` wraps creation in `Model::unguarded()` (`Factory.php:390`).
     - **Where:** app/Models/Core/Site/Site.php:104-124
     - **Affects:** Moderation workflow integrity — currently unreachable, but a mass-assignment allowlist gap on staff-only enforcement columns.
     - **Effort:** S (~0.5–1h)

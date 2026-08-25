@@ -14,7 +14,7 @@ beforeEach(function () {
 it('fills description only when blank, stamping field_sources provenance', function () {
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
-    $workplace = Workplace::create(['site_id' => (string) $site->id]);
+    $workplace = Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     app(WorkplaceContentApplier::class)->applyDescription($workplace, 'Wood-fired pizza since 1985.');
 
@@ -26,7 +26,7 @@ it('fills description only when blank, stamping field_sources provenance', funct
 it('never overwrites an existing description', function () {
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
-    $workplace = Workplace::create(['site_id' => (string) $site->id, 'description' => 'Owner-written description.']);
+    $workplace = Workplace::forceCreate(['site_id' => (string) $site->id, 'description' => 'Owner-written description.']);
 
     app(WorkplaceContentApplier::class)->applyDescription($workplace, 'Scraped description.');
 
@@ -36,7 +36,7 @@ it('never overwrites an existing description', function () {
 it('does nothing when given a null or blank text', function () {
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
-    $workplace = Workplace::create(['site_id' => (string) $site->id]);
+    $workplace = Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     app(WorkplaceContentApplier::class)->applyDescription($workplace, null);
     app(WorkplaceContentApplier::class)->applyDescription($workplace, '   ');
@@ -47,7 +47,7 @@ it('does nothing when given a null or blank text', function () {
 it('trims the text before saving', function () {
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
-    $workplace = Workplace::create(['site_id' => (string) $site->id]);
+    $workplace = Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     app(WorkplaceContentApplier::class)->applyDescription($workplace, '  Padded.  ');
 
@@ -59,7 +59,7 @@ it('trims the text before saving', function () {
 it('fills a blank description with prose, stamping field_sources provenance', function () {
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
-    $workplace = Workplace::create(['site_id' => (string) $site->id]);
+    $workplace = Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     app(WorkplaceContentApplier::class)->applyProseDescription($workplace, 'Real authored prose about the business.');
 
@@ -71,7 +71,7 @@ it('fills a blank description with prose, stamping field_sources provenance', fu
 it('overwrites a google-business-sourced description with prose', function () {
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
-    $workplace = Workplace::create(['site_id' => (string) $site->id, 'description' => "Google's editorial summary."]);
+    $workplace = Workplace::forceCreate(['site_id' => (string) $site->id, 'description' => "Google's editorial summary."]);
     $workplace->forceFill(['field_sources' => ['description' => ['source' => 'google-business', 'at' => now()->toIso8601String()]]])->save();
 
     app(WorkplaceContentApplier::class)->applyProseDescription($workplace, 'The business in its own words.');
@@ -84,7 +84,7 @@ it('overwrites a google-business-sourced description with prose', function () {
 it('overwrites its own earlier plain website-scan description with richer prose', function () {
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
-    $workplace = Workplace::create(['site_id' => (string) $site->id, 'description' => 'A short meta description.']);
+    $workplace = Workplace::forceCreate(['site_id' => (string) $site->id, 'description' => 'A short meta description.']);
     $workplace->forceFill(['field_sources' => ['description' => ['source' => 'website-scan', 'at' => now()->toIso8601String()]]])->save();
 
     app(WorkplaceContentApplier::class)->applyProseDescription($workplace, 'A much richer paragraph of authored prose.');
@@ -95,7 +95,7 @@ it('overwrites its own earlier plain website-scan description with richer prose'
 it('never overwrites a manually-set description', function () {
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
-    $workplace = Workplace::create(['site_id' => (string) $site->id, 'description' => 'Owner-written description.']);
+    $workplace = Workplace::forceCreate(['site_id' => (string) $site->id, 'description' => 'Owner-written description.']);
     // field_sources is system-written, not in $fillable — forceFill bypasses
     // mass-assignment protection, same convention IdentitySyncTest uses.
     $workplace->forceFill(['field_sources' => ['description' => ['source' => 'manual', 'at' => now()->toIso8601String()]]])->save();
@@ -108,7 +108,7 @@ it('never overwrites a manually-set description', function () {
 it('does nothing for applyProseDescription when given null or blank text', function () {
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
-    $workplace = Workplace::create(['site_id' => (string) $site->id, 'description' => 'Existing.']);
+    $workplace = Workplace::forceCreate(['site_id' => (string) $site->id, 'description' => 'Existing.']);
 
     app(WorkplaceContentApplier::class)->applyProseDescription($workplace, null);
     app(WorkplaceContentApplier::class)->applyProseDescription($workplace, '   ');
@@ -121,7 +121,7 @@ it('does nothing for applyProseDescription when given null or blank text', funct
 it('fills a blank contact_email, stamping field_sources provenance', function () {
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
-    $workplace = Workplace::create(['site_id' => (string) $site->id]);
+    $workplace = Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     app(WorkplaceContentApplier::class)->applyContactEmail($workplace, 'owner@example.com');
 
@@ -133,7 +133,7 @@ it('fills a blank contact_email, stamping field_sources provenance', function ()
 it('never overwrites an existing contact_email', function () {
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
-    $workplace = Workplace::create(['site_id' => (string) $site->id, 'contact_email' => 'manual@example.com']);
+    $workplace = Workplace::forceCreate(['site_id' => (string) $site->id, 'contact_email' => 'manual@example.com']);
 
     app(WorkplaceContentApplier::class)->applyContactEmail($workplace, 'scraped@example.com');
 
@@ -143,7 +143,7 @@ it('never overwrites an existing contact_email', function () {
 it('does nothing for applyContactEmail when given null or blank text', function () {
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
-    $workplace = Workplace::create(['site_id' => (string) $site->id]);
+    $workplace = Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     app(WorkplaceContentApplier::class)->applyContactEmail($workplace, null);
     app(WorkplaceContentApplier::class)->applyContactEmail($workplace, '   ');

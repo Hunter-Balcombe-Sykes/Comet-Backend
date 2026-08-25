@@ -237,8 +237,12 @@ class IdentitySync
     private function applyWorkplaceFields(Site $site, array $candidates, bool $overwrite): void
     {
         DB::connection($site->getConnectionName())->transaction(function () use ($site, $candidates, $overwrite) {
-            $workplace = Workplace::query()->where('site_id', (string) $site->id)->lockForUpdate()->first()
-                ?? new Workplace(['site_id' => (string) $site->id]);
+            $workplace = Workplace::query()->where('site_id', (string) $site->id)->lockForUpdate()->first();
+            if ($workplace === null) {
+                // site_id is not mass-assignable (#SEC-17) — set explicitly on the new-row branch.
+                $workplace = new Workplace;
+                $workplace->site_id = (string) $site->id;
+            }
 
             $sources = is_array($workplace->field_sources) ? $workplace->field_sources : [];
             $stamp = now()->toIso8601String();

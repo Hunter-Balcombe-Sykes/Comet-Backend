@@ -102,7 +102,7 @@ function spwcjRun(string $userId, string $siteId, string $url): void
 
 it('fills blank about-text on the workplace from an already-fetched previous website', function () {
     [$user, $site] = spwcjUser('spwcj1', 'partna'); // partna: skips food-menu branch, isolates the about-text assertion
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     Http::fake(['example.com' => Http::response(
         '<meta name="description" content="Wood-fired pizza since 1985.">',
@@ -117,7 +117,7 @@ it('fills blank about-text on the workplace from an already-fetched previous web
 
 it('creates menu items tagged website-scan for a food-Business account', function () {
     [$user, $site] = spwcjUser('spwcj2', 'business', 'restaurant');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     $html = '<script type="application/ld+json">{"@type":"Menu","hasMenuSection":[{"name":"Mains","hasMenuItem":[{"name":"Margherita","offers":{"price":"18"}}]}]}</script>';
     Http::fake(['example.com' => Http::response($html, 200)]);
@@ -135,7 +135,7 @@ it('creates menu items tagged website-scan for a food-Business account', functio
 
 it('does not attempt menu extraction for a non-food-capable account', function () {
     [$user, $site] = spwcjUser('spwcj3', 'business', 'hair-salon'); // not a food sector
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     $html = '<script type="application/ld+json">{"@type":"Menu","hasMenuSection":[{"name":"Mains","hasMenuItem":[{"name":"Margherita","offers":{"price":"18"}}]}]}</script>';
     Http::fake(['example.com' => Http::response($html, 200)]);
@@ -147,7 +147,7 @@ it('does not attempt menu extraction for a non-food-capable account', function (
 
 it('seeds a matched integration link through the real, capability-gated seed() path — not a bypass', function () {
     [$user, $site] = spwcjUser('spwcj4', 'business', 'restaurant'); // food sector — can_use_booking false
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     Http::fake(['example.com' => Http::response('<a href="https://www.fresha.com/a/venue">Book</a>', 200)]);
 
@@ -160,7 +160,7 @@ it('seeds a matched integration link through the real, capability-gated seed() p
 
 it('seeds a matched social link for a non-food business (booking capability intact)', function () {
     [$user, $site] = spwcjUser('spwcj5', 'business', 'hair-salon');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     Http::fake(['example.com' => Http::response('<a href="https://www.fresha.com/a/venue">Book</a>', 200)]);
 
@@ -172,7 +172,7 @@ it('seeds a matched social link for a non-food business (booking capability inta
 it('dispatches WebsiteMenuPdfScanJob when a PDF menu link is found, for a food-Business account', function () {
     Queue::fake();
     [$user, $site] = spwcjUser('spwcj6', 'business', 'restaurant');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     Http::fake(['example.com' => Http::response('<a href="/menu.pdf">Menu (PDF)</a>', 200)]);
 
@@ -189,7 +189,7 @@ it('follows a one-hop same-site link to a dedicated menu page when the homepage 
     // this job extracts nothing for what's a common real-world pattern.
     Queue::fake();
     [$user, $site] = spwcjUser('spwcj9', 'business', 'restaurant');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     Http::fake([
         'example.com/menu*' => Http::response('<a href="/menu/breakfast.pdf">Breakfast Menu</a>', 200),
@@ -205,7 +205,7 @@ it('follows a one-hop same-site link to a dedicated menu page when the homepage 
 it('does not follow the one-hop menu link when the homepage already has menu data', function () {
     Queue::fake();
     [$user, $site] = spwcjUser('spwcj9b', 'business', 'restaurant');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     // If the homepage already has a PDF, the /menu page must never be
     // fetched — FaviconFetcher's own separate request is expected either way.
@@ -219,7 +219,7 @@ it('does not follow the one-hop menu link when the homepage already has menu dat
 it('dispatches one scan job per menu-relevant PDF found, not just the first', function () {
     Queue::fake();
     [$user, $site] = spwcjUser('spwcj12', 'business', 'restaurant');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     Http::fake(['example.com' => Http::response(
         '<a href="/food-menu.pdf">Food Menu</a><a href="/wine-list.pdf">Wine List</a>',
@@ -236,7 +236,7 @@ it('dispatches one scan job per menu-relevant PDF found, not just the first', fu
 it('skips a PDF whose link text and url give no menu-relevance signal at all', function () {
     Queue::fake();
     [$user, $site] = spwcjUser('spwcj13', 'business', 'restaurant');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     Http::fake(['example.com' => Http::response(
         '<a href="/menu.pdf">Menu</a><a href="/terms-and-conditions.pdf">Terms &amp; Conditions</a>',
@@ -252,7 +252,7 @@ it('skips a PDF whose link text and url give no menu-relevance signal at all', f
 it('follows the schema.org hasMenu JSON-LD pointer ahead of the path-substring guess', function () {
     Queue::fake();
     [$user, $site] = spwcjUser('spwcj14', 'business', 'restaurant');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     // The pointer names a URL that would NEVER match the '~menu~i' path
     // heuristic — proves the pointer is actually being read, not coincidence.
@@ -273,7 +273,7 @@ it('follows the schema.org hasMenu JSON-LD pointer ahead of the path-substring g
 it('applies items directly from the Squarespace fast-path without dispatching an AI job', function () {
     Queue::fake();
     [$user, $site] = spwcjUser('spwcj15', 'business', 'restaurant');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     $html = <<<'HTML'
     <div class="menu-section">
@@ -296,7 +296,7 @@ it('applies items directly from the Squarespace fast-path without dispatching an
 it('dispatches WebsiteMenuHtmlScanJob when the page is menu-dense but not JSON-LD or Squarespace markup', function () {
     Queue::fake();
     [$user, $site] = spwcjUser('spwcj16', 'business', 'restaurant');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     // Plain divs, no Squarespace classes, no JSON-LD Menu — three price-only
     // lines clears the density pre-filter (MIN_PRICE_LINES).
@@ -313,7 +313,7 @@ it('dispatches WebsiteMenuHtmlScanJob when the page is menu-dense but not JSON-L
 it('does not dispatch WebsiteMenuHtmlScanJob for a sparse page with no real price signal', function () {
     Queue::fake();
     [$user, $site] = spwcjUser('spwcj17', 'business', 'restaurant');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     Http::fake(['example.com' => Http::response('<p>Welcome to our restaurant. We look forward to seeing you.</p>', 200)]);
 
@@ -328,7 +328,7 @@ it('notifies the user when the website scan surfaces a conflict finding', functi
     // existing connection) previously vanished with the job; now it must raise
     // a bell notification pointing at Integrations.
     [$user, $site] = spwcjUser('spwcj10', 'business', 'hair-salon');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
         'payload' => ['url' => 'https://www.fresha.com/a/old-venue'], 'is_active' => true,
@@ -345,7 +345,7 @@ it('notifies the user when the website scan surfaces a conflict finding', functi
 
 it('does not notify when the website scan finds nothing conflicting', function () {
     [$user, $site] = spwcjUser('spwcj11', 'business', 'hair-salon');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     // A clean seed (no existing connection to clash with) writes the fresha
     // connection outright — nothing needs the user's attention.
@@ -367,7 +367,7 @@ it('dispatches ResolveSiteAccentJob twice, carrying the extracted theme-color ca
     // A BUSINESS: the workplace's website IS the site's brand, so its colours
     // are design evidence. (A partna account's are not — see the test below.)
     [$user, $site] = spwcjUser('spwcj7', 'business');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     Http::fake(['example.com' => Http::response('<meta name="theme-color" content="#ff5500">', 200)]);
 
@@ -381,7 +381,7 @@ it('dispatches ResolveSiteAccentJob twice, carrying the extracted theme-color ca
 it('still dispatches ResolveSiteAccentJob when an accent already exists (fill-if-empty is the resolver job\'s call, not this one\'s)', function () {
     Queue::fake();
     [$user, $site] = spwcjUser('spwcj7b', 'business');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
     DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => (string) $site->id, 'color_accent' => '#000000']);
 
     Http::fake(['example.com' => Http::response('<meta name="theme-color" content="#ff5500">', 200)]);
@@ -398,7 +398,7 @@ it('still dispatches ResolveSiteAccentJob when an accent already exists (fill-if
 it('skips the design evidence (accent, logo, font) for a partna account — the workplace website is someone else\'s brand (owner, 2026-08-19)', function () {
     Queue::fake();
     [$user, $site] = spwcjUser('spwcj7c', 'partna');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     Http::fake(['example.com' => Http::response('<meta name="theme-color" content="#ff5500"><link rel="icon" href="/favicon.ico">', 200)]);
 
@@ -409,7 +409,7 @@ it('skips the design evidence (accent, logo, font) for a partna account — the 
 
 it('does nothing when the fetch fails, without throwing', function () {
     [$user, $site] = spwcjUser('spwcj8', 'partna');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
     Http::fake(['example.com' => Http::response('', 404)]);
 
     spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
@@ -427,7 +427,7 @@ it('does nothing when the user or site no longer exists', function () {
 
 it('fills contact_email from a mailto: link on the homepage', function () {
     [$user, $site] = spwcjUser('spwcj18', 'partna');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     Http::fake(['example.com' => Http::response('<a href="mailto:owner@example.com">Email us</a>', 200)]);
 
@@ -440,7 +440,7 @@ it('fills contact_email from a mailto: link on the homepage', function () {
 
 it('overwrites a Google-sourced description with heading-prose found on the homepage', function () {
     [$user, $site] = spwcjUser('spwcj19', 'partna');
-    Workplace::create([
+    Workplace::forceCreate([
         'site_id' => (string) $site->id,
         'description' => "Google's editorial summary.",
         'field_sources' => ['description' => ['source' => 'google-business', 'at' => now()->toIso8601String()]],
@@ -459,7 +459,7 @@ it('overwrites a Google-sourced description with heading-prose found on the home
 
 it('never overwrites a manually-set description even when heading-prose is found', function () {
     [$user, $site] = spwcjUser('spwcj20', 'partna');
-    $workplace = Workplace::create(['site_id' => (string) $site->id, 'description' => 'Owner-written description.']);
+    $workplace = Workplace::forceCreate(['site_id' => (string) $site->id, 'description' => 'Owner-written description.']);
     // field_sources is system-written, not in $fillable — forceFill bypasses
     // mass-assignment protection, same convention IdentitySyncTest uses.
     $workplace->forceFill(['field_sources' => ['description' => ['source' => 'manual', 'at' => now()->toIso8601String()]]])->save();
@@ -478,7 +478,7 @@ it('never overwrites a manually-set description even when heading-prose is found
 
 it('follows one-hop /about and /contact links concurrently when the homepage has neither', function () {
     [$user, $site] = spwcjUser('spwcj21', 'partna');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     Http::fake([
         'example.com/about*' => Http::response(
@@ -501,7 +501,7 @@ it('follows one-hop /about and /contact links concurrently when the homepage has
 it('dispatches WebsiteGalleryScanJob when the homepage carries gallery-candidate photos', function () {
     Queue::fake();
     [$user, $site] = spwcjUser('spwcj22', 'partna');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     Http::fake(['example.com' => Http::response(
         '<body><img src="/photos/dining-room.jpg" width="800" height="600"></body>',
@@ -517,7 +517,7 @@ it('dispatches WebsiteGalleryScanJob when the homepage carries gallery-candidate
 it('does not dispatch WebsiteGalleryScanJob when the homepage has no gallery-candidate photos', function () {
     Queue::fake();
     [$user, $site] = spwcjUser('spwcj23', 'partna');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     Http::fake(['example.com' => Http::response('<p>No photos here.</p>', 200)]);
 
@@ -542,7 +542,7 @@ it('a second scan run does not re-dispatch the paid Instagram scrape — the pla
     config(['services.apify.token' => 'apify-token']);
     Bus::fake([InstagramConnectJob::class]);
     [$user, $site] = spwcjUser('spwcjretry-ig', 'business', 'hair-salon'); // non-food: isolates the IG path from the menu branch
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     Http::fake(['example.com' => Http::response('<a href="https://instagram.com/fadelab">Follow us</a>', 200)]);
 

@@ -195,7 +195,7 @@ it('does nothing when the payload has none of the identity fields', function () 
 it('fills workplace contact_email and phone only when blank, with field_sources provenance', function () {
     $user = User::factory()->create(['account_type' => 'business']);
     $site = Site::factory()->for($user, 'user')->create();
-    Workplace::create(['site_id' => (string) $site->id, 'phone' => '+61 2 already set']);
+    Workplace::forceCreate(['site_id' => (string) $site->id, 'phone' => '+61 2 already set']);
 
     app(InstagramIdentitySync::class)->applyIdentity($user, [
         'businessEmail' => 'hello@venue.example',

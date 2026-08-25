@@ -136,6 +136,9 @@ class UserWorkplaceController extends ApiController
         }
 
         $workplace = Workplace::firstOrNew(['site_id' => (string) $site->id]);
+        // site_id is not mass-assignable (#SEC-17) — firstOrNew's ['site_id' => ...]
+        // is a query condition on the found branch only; the new-row branch needs it set explicitly.
+        $workplace->site_id = (string) $site->id;
         $workplace->fill($attributes);
 
         // Stamp manual provenance for every identity field the user actually
@@ -262,10 +265,13 @@ class UserWorkplaceController extends ApiController
             }
         }
 
-        Workplace::updateOrCreate(
-            ['site_id' => (string) $site->id],
-            ['previous_website' => $previousWebsite],
-        );
+        // site_id is not mass-assignable (#SEC-17) — updateOrCreate's match-array
+        // key sets it via mass assignment on the create branch, so it's spelled
+        // out here as firstOrNew + explicit assignment instead.
+        $workplace = Workplace::firstOrNew(['site_id' => (string) $site->id]);
+        $workplace->site_id = (string) $site->id;
+        $workplace->previous_website = $previousWebsite;
+        $workplace->save();
 
         return $this->success([
             'previousWebsite' => $previousWebsite,

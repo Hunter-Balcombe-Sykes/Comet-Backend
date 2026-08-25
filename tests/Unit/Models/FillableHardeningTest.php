@@ -2,6 +2,8 @@
 
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
 use App\Models\Core\Gdpr\DataExportAudit;
+use App\Models\Core\Site\Site;
+use App\Models\Core\Site\Workplace;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\Customer;
 use App\Models\Core\User\PreAccountBuild;
@@ -117,4 +119,39 @@ it('does not allow build_state, claimed_at, or failure_code to be mass-assigned 
     expect($fillable)->not->toContain('build_state')
         ->and($fillable)->not->toContain('claimed_at')
         ->and($fillable)->not->toContain('failure_code');
+});
+
+// SEC-17: site_id (Workplace's PK + FK to site.sites, non-incrementing) is not
+// mass-assignable — every write path sets it via explicit assignment from the
+// auth-resolved current site. site_id is the PK, so a bare create() throws on
+// the NOT NULL constraint before ever reaching this — fill() is the direct,
+// non-vacuous way to assert the allowlist itself dropped the key.
+it('does not allow site_id to be mass-assigned on Workplace', function () {
+    $workplace = (new Workplace)->fill(['site_id' => 'attacker-site-id', 'name' => 'x']);
+
+    expect($workplace->site_id)->toBeNull()
+        ->and($workplace->name)->toBe('x');
+});
+
+// SEC-18: a silently-dropped mass-assignment write to moderation_state or
+// unpublished_at would strand a site in the wrong moderation state, or
+// offline/online, with no error. Writers assign these explicitly instead
+// (AccountDeletionService::confirm/cancel, ClaimSiteService) or bulk-update
+// via the query builder, which never consults $fillable (SuspendSiteJob).
+it('does not allow moderation_state or unpublished_at to be mass-assigned on Site', function () {
+    // Asserts fill() BEHAVIOUR, not just the $fillable literal: the allowlist is
+    // the mechanism, but what SEC-18 actually needs is that a hostile payload
+    // reaching fill() cannot move either column.
+    // getAttributes() is the RAW bag — asserting through the accessor would run
+    // unpublished_at's datetime cast, which needs a DB connection and turns a
+    // mutation into a confusing Error instead of a clean assertion failure.
+    $attributes = (new Site)->fill([
+        'moderation_state' => 'hidden',
+        'unpublished_at' => '2026-08-25T00:00:00+00:00',
+        'subdomain' => 'still-fillable',
+    ])->getAttributes();
+
+    expect($attributes)->not->toHaveKey('moderation_state')
+        ->and($attributes)->not->toHaveKey('unpublished_at')
+        ->and($attributes['subdomain'])->toBe('still-fillable');
 });

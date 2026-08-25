@@ -61,7 +61,9 @@ class DevInsightsController extends ApiController
      */
     public function index(Request $request): JsonResponse
     {
-        $site = $this->currentSite($this->currentUser($request));
+        $professional = $this->currentUser($request);
+        $site = $this->currentSite($professional);
+        $this->authorizeForUser($professional, 'view', $site);
         // Dev/testing endpoint only — days of daily-series history to return
         // (the per-entity change-over-time graph).
         $seriesDays = (int) config('partna.analytics.dev_insights_series_days', 30);
@@ -216,11 +218,12 @@ class DevInsightsController extends ApiController
      */
     private function pageDailySeries(string $siteId, Carbon $since): array
     {
+        $day = $this->dayBucketExpr();
         $out = [];
         foreach (DB::connection('pgsql')->table('analytics.section_views')
             ->where('site_id', $siteId)->where('occurred_at', '>=', $since)->whereNotNull('section_key')
-            ->selectRaw('occurred_at::date as day, section_key, COUNT(*) as n, COALESCE(SUM(duration_ms), 0) as dwell_ms')
-            ->groupByRaw('occurred_at::date, section_key')->get() as $r) {
+            ->selectRaw("{$day} as day, section_key, COUNT(*) as n, COALESCE(SUM(duration_ms), 0) as dwell_ms")
+            ->groupByRaw("{$day}, section_key")->get() as $r) {
             $page = SitepageId::SECTION_KEY_TO_PAGE[$r->section_key] ?? null;
             if ($page !== null) {
                 $out[(string) $r->day][$page]['impressions'] = ($out[(string) $r->day][$page]['impressions'] ?? 0) + (int) $r->n;
@@ -232,8 +235,8 @@ class DevInsightsController extends ApiController
         }
         foreach (DB::connection('pgsql')->table('analytics.link_clicks')
             ->where('site_id', $siteId)->where('occurred_at', '>=', $since)->whereNotNull('section_key')
-            ->selectRaw('occurred_at::date as day, section_key, COUNT(*) as n')
-            ->groupByRaw('occurred_at::date, section_key')->get() as $r) {
+            ->selectRaw("{$day} as day, section_key, COUNT(*) as n")
+            ->groupByRaw("{$day}, section_key")->get() as $r) {
             $page = SitepageId::SECTION_KEY_TO_PAGE[$r->section_key] ?? null;
             if ($page !== null) {
                 $out[(string) $r->day][$page]['clicks'] = ($out[(string) $r->day][$page]['clicks'] ?? 0) + (int) $r->n;
@@ -250,19 +253,20 @@ class DevInsightsController extends ApiController
      */
     private function itemDailySeries(string $siteId, Carbon $since): array
     {
+        $day = $this->dayBucketExpr();
         $out = [];
         foreach (DB::connection('pgsql')->table('analytics.item_views')
             ->where('site_id', $siteId)->where('occurred_at', '>=', $since)
-            ->selectRaw('occurred_at::date as day, item_type, item_id, COUNT(*) as n')
-            ->groupByRaw('occurred_at::date, item_type, item_id')->get() as $r) {
+            ->selectRaw("{$day} as day, item_type, item_id, COUNT(*) as n")
+            ->groupByRaw("{$day}, item_type, item_id")->get() as $r) {
             $key = "{$r->item_type}:{$r->item_id}";
             $out[(string) $r->day][$key]['impressions'] = ($out[(string) $r->day][$key]['impressions'] ?? 0) + (int) $r->n;
         }
         foreach (DB::connection('pgsql')->table('analytics.link_clicks')
             ->where('site_id', $siteId)->where('occurred_at', '>=', $since)
             ->whereNotNull('product_id')->whereNotNull('section_key')
-            ->selectRaw('occurred_at::date as day, product_id, section_key, COUNT(*) as n')
-            ->groupByRaw('occurred_at::date, product_id, section_key')->get() as $r) {
+            ->selectRaw("{$day} as day, product_id, section_key, COUNT(*) as n")
+            ->groupByRaw("{$day}, product_id, section_key")->get() as $r) {
             $itemType = self::CLICK_SECTION_TO_ITEM_TYPE[$r->section_key] ?? null;
             if ($itemType === null) {
                 continue;
@@ -272,5 +276,19 @@ class DevInsightsController extends ApiController
         }
 
         return $out;
+    }
+
+    /**
+     * Day-bucket SQL expression for GROUP BY / SELECT, matching the
+     * ActionScorer / ComputeContentPopularityScores convention: Postgres'
+     * `::date` cast isn't valid SQLite syntax, and the SQLite driver only
+     * shows up in tests (the pgsql connection is really SQLite there — see
+     * CLAUDE.md "pgsql driver is sqlite in tests").
+     */
+    private function dayBucketExpr(): string
+    {
+        return DB::connection('pgsql')->getDriverName() === 'sqlite'
+            ? "strftime('%Y-%m-%d', occurred_at)"
+            : 'occurred_at::date';
     }
 }

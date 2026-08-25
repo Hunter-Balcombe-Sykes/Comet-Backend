@@ -184,6 +184,8 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         // WorkplaceContentApplier::applyProseDescription()'s precedence).
         // Contact email — mailto: + JSON-LD, homepage first.
         $workplace = Workplace::firstOrNew(['site_id' => $this->siteId]);
+        // site_id is not mass-assignable (#SEC-17) — the new-row branch needs it set explicitly.
+        $workplace->site_id = $this->siteId;
         $contentApplier->applyDescription($workplace, $about->extract($html, $baseUrl));
         $proseText = $aboutProse->extract($html);
         $email = $contactEmailExtractor->extract($html, $baseUrl);

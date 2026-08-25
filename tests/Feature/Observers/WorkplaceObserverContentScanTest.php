@@ -16,7 +16,7 @@ beforeEach(function () {
 it('dispatches the content scan job only when previous_website actually changes', function () {
     Queue::fake();
     $site = Site::factory()->create();
-    Workplace::create(['site_id' => (string) $site->id, 'previous_website' => 'https://venue.example']);
+    Workplace::forceCreate(['site_id' => (string) $site->id, 'previous_website' => 'https://venue.example']);
     Queue::assertPushed(ScanPreviousWebsiteContentJob::class, 1);
 
     // Refetched — wasRecentlyCreated is sticky on the original in-memory
@@ -33,7 +33,7 @@ it('dispatches the content scan job only when previous_website actually changes'
 it('does not dispatch when previous_website is blank', function () {
     Queue::fake();
     $site = Site::factory()->create();
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
     Queue::assertNotPushed(ScanPreviousWebsiteContentJob::class);
 });
 
@@ -47,7 +47,7 @@ it('dispatches on a genuine update that changes previous_website to a new url', 
     // this test around by accident).
     Queue::fake();
     $site = Site::factory()->create();
-    $created = Workplace::create(['site_id' => (string) $site->id]);
+    $created = Workplace::forceCreate(['site_id' => (string) $site->id]);
     Queue::assertNotPushed(ScanPreviousWebsiteContentJob::class);
 
     $wp = Workplace::where('site_id', (string) $site->id)->first();
@@ -61,7 +61,7 @@ it('dispatches with the correct user_id, site_id, and url', function () {
     Queue::fake();
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
-    Workplace::create(['site_id' => (string) $site->id, 'previous_website' => '  https://venue.example  ']); // untrimmed
+    Workplace::forceCreate(['site_id' => (string) $site->id, 'previous_website' => '  https://venue.example  ']); // untrimmed
 
     Queue::assertPushed(ScanPreviousWebsiteContentJob::class, fn ($job) => $job->userId === (string) $user->id
         && $job->siteId === (string) $site->id
@@ -71,7 +71,7 @@ it('dispatches with the correct user_id, site_id, and url', function () {
 it('deleting a workplace only busts the cache, dispatches nothing scan-related', function () {
     Queue::fake();
     $site = Site::factory()->create();
-    $wp = Workplace::create(['site_id' => (string) $site->id, 'previous_website' => 'https://venue.example']);
+    $wp = Workplace::forceCreate(['site_id' => (string) $site->id, 'previous_website' => 'https://venue.example']);
     Queue::fake(); // reset after the creation dispatch above so this assertion is clean
     $wp->delete();
     Queue::assertNotPushed(ScanPreviousWebsiteContentJob::class);
@@ -91,12 +91,12 @@ it('busts the site cache on first insert', function () {
         $m->shouldReceive('touchSite')->once()->with(Mockery::type('Closure'), 'workplace-save', Mockery::type('array'));
     });
 
-    Workplace::create(['site_id' => (string) $site->id, 'name' => 'Doc Pizza']);
+    Workplace::forceCreate(['site_id' => (string) $site->id, 'name' => 'Doc Pizza']);
 });
 
 it('busts the site cache when a public-visible column changes', function () {
     $site = Site::factory()->create();
-    $wp = Workplace::create(['site_id' => (string) $site->id]);
+    $wp = Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     $this->mock(SiteCacheInvalidator::class, function ($m) {
         $m->shouldReceive('touchSite')->once()->with(Mockery::type('Closure'), 'workplace-save', Mockery::type('array'));
@@ -109,7 +109,7 @@ it('busts the site cache when a public-visible column changes', function () {
 it('does NOT bust the site cache when only previous_website changes (system-input column, never rendered)', function () {
     Queue::fake(); // isolate from the scan-dispatch side effect
     $site = Site::factory()->create();
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
     // Refreshed instance — wasRecentlyCreated is sticky on the original
     // in-memory object and wouldn't reset on a second save of it, which
     // would trip the OTHER (wasRecentlyCreated) disjunct of the cache-bust
@@ -126,7 +126,7 @@ it('does NOT bust the site cache when only previous_website changes (system-inpu
 
 it('busts the site cache on delete', function () {
     $site = Site::factory()->create();
-    $wp = Workplace::create(['site_id' => (string) $site->id]);
+    $wp = Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     $this->mock(SiteCacheInvalidator::class, function ($m) {
         $m->shouldReceive('touchSite')->once()->with(Mockery::type('Closure'), 'workplace-delete', Mockery::type('array'));
@@ -140,7 +140,7 @@ it('a dispatch failure never crashes the parent save (best-effort, reported not 
     // already exercises the try/catch's happy path; this asserts the save
     // itself completes and returns normally either way.
     $site = Site::factory()->create();
-    $wp = Workplace::create(['site_id' => (string) $site->id, 'previous_website' => 'https://venue.example']);
+    $wp = Workplace::forceCreate(['site_id' => (string) $site->id, 'previous_website' => 'https://venue.example']);
 
     expect($wp->exists)->toBeTrue();
 });

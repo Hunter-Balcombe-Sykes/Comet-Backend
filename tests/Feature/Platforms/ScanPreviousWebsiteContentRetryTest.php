@@ -133,7 +133,7 @@ function retryTestUser(string $handle, string $accountType = 'business', string 
 
 it('does not re-dispatch the billed OCR sub-job on retry — real queue-drain proof', function () {
     [$user, $site] = retryTestUser('spwcjretry1', 'business', 'restaurant');
-    Workplace::create(['site_id' => (string) $site->id]);
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
 
     Http::fake(['example.com' => Http::response('<a href="/menu.pdf">Menu (PDF)</a>', 200)]);
 

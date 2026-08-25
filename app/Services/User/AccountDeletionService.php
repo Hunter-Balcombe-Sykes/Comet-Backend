@@ -364,10 +364,11 @@ class AccountDeletionService
             // shop stops serving requests for the full 30-day grace period.
             // SiteObserver::saved() handles cache invalidation automatically.
             if ($professional->site) {
-                $professional->site->update([
-                    'is_published' => false,
-                    'unpublished_at' => now(),
-                ]);
+                // unpublished_at is not mass-assignable (#SEC-18) — assign explicitly.
+                $site = $professional->site;
+                $site->is_published = false;
+                $site->unpublished_at = now();
+                $site->save();
             }
 
             // logAuditEvent reads $professional->primary_email to snapshot it; must
@@ -708,10 +709,10 @@ class AccountDeletionService
                 ->lockForUpdate()
                 ->first();
             if ($site && $site->unpublished_at !== null) {
-                $site->update([
-                    'is_published' => true,
-                    'unpublished_at' => null,
-                ]);
+                // unpublished_at is not mass-assignable (#SEC-18) — assign explicitly.
+                $site->is_published = true;
+                $site->unpublished_at = null;
+                $site->save();
             }
         });
     }

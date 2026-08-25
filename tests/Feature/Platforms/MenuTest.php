@@ -995,7 +995,7 @@ it('resolveAll returns only city+state as the doordash locale address when a ful
         'user_id' => $user->id,
         'subdomain' => 'menu-'.substr($siteId, 0, 8),
     ]);
-    Workplace::create([
+    Workplace::forceCreate([
         'site_id' => $siteId,
         'address' => '42 Home Street',   // sole-trader home address — must NOT reach Apify
         'city' => 'Melbourne',
@@ -1114,7 +1114,7 @@ it('resolveAll returns null as the doordash locale address when only a street is
         'subdomain' => 'menu-'.substr($siteId, 0, 8),
     ]);
     // Street only — no city or state stored.
-    Workplace::create([
+    Workplace::forceCreate([
         'site_id' => $siteId,
         'address' => '99 Private Road',
     ]);

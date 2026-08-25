@@ -24,7 +24,7 @@ function mirrorSite(string $accountType): Site
 it('mirrors every identity field onto the user for a business workplace save', function () {
     $site = mirrorSite('business');
 
-    Workplace::create([
+    Workplace::forceCreate([
         'site_id' => (string) $site->id,
         'name' => 'Mirror Works',
         'phone' => '+61 3 9999 0000',
@@ -55,7 +55,7 @@ it('mirrors NOTHING for a partna workplace save', function () {
         'bio' => 'My own words.',
     ])->save();
 
-    Workplace::create([
+    Workplace::forceCreate([
         'site_id' => (string) $site->id,
         'name' => 'Where I Work',
         'phone' => '+61 3 8888 0000',
@@ -72,9 +72,10 @@ it('mirrors NOTHING for a partna workplace save', function () {
 });
 
 it('a workplace row minted with ONLY previous_website leaves the user untouched (create mirrors non-null only)', function () {
-    // setPreviousWebsite does Workplace::updateOrCreate and the content scan
-    // does firstOrNew — before the 2026-08-19 fix, that fresh row's null
-    // fields were assigned unconditionally and WIPED the user's own values.
+    // setPreviousWebsite does firstOrNew + explicit site_id assign + save (#SEC-17
+    // made site_id non-fillable) and the content scan does the same — before the
+    // 2026-08-19 fix, that fresh row's null fields were assigned unconditionally
+    // and WIPED the user's own values.
     $site = mirrorSite('business');
     $site->user->forceFill([
         'public_contact_number' => '+61 3 7777 0000',
@@ -83,10 +84,10 @@ it('a workplace row minted with ONLY previous_website leaves the user untouched 
         'location_city' => 'Brisbane',
     ])->save();
 
-    Workplace::updateOrCreate(
-        ['site_id' => (string) $site->id],
-        ['previous_website' => 'https://old-site.example'],
-    );
+    $workplace = Workplace::firstOrNew(['site_id' => (string) $site->id]);
+    $workplace->site_id = (string) $site->id;
+    $workplace->previous_website = 'https://old-site.example';
+    $workplace->save();
 
     $user = $site->user->fresh();
     expect($user->public_contact_number)->toBe('+61 3 7777 0000');
@@ -97,7 +98,7 @@ it('a workplace row minted with ONLY previous_website leaves the user untouched 
 
 it('an UPDATE that clears a field clears the user column too (business)', function () {
     $site = mirrorSite('business');
-    Workplace::create([
+    Workplace::forceCreate([
         'site_id' => (string) $site->id,
         'name' => 'Clearing Co',
         'description' => 'Soon gone.',
