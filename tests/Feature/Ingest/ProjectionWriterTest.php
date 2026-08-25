@@ -28,50 +28,8 @@ beforeEach(function () {
     Bus::fake([RunSourceJob::class]);
 });
 
-/** A user + active bandcamp connection + its ingest source/stream, with $docs landed as current records. */
-function projectableBandcamp(array $docs, ?string $userId = null): array
-{
-    $userId ??= createTenant('proj-'.Str::lower(Str::random(6)))->id;
-
-    $connection = IntegrationConnection::create([
-        'user_id' => $userId,
-        'platform' => 'bandcamp',
-        'resource_id' => 'acct-'.substr(sha1(Str::random(8)), 0, 16),
-        'payload' => ['url' => 'https://'.Str::lower(Str::random(8)).'.bandcamp.com'],
-        'is_active' => true,
-    ]);
-
-    $source = (array) DB::table('ingest.sources')->where('connection_id', $connection->id)->first();
-    $streamId = (string) Str::uuid();
-    DB::table('ingest.streams')->insert([
-        'id' => $streamId, 'source_id' => $source['id'], 'stream_name' => 'releases',
-        'created_at' => now(), 'updated_at' => now(),
-    ]);
-
-    foreach ($docs as $key => $doc) {
-        landCurrentRecord($streamId, (string) $key, $doc);
-    }
-
-    return [$userId, $connection, $source, $streamId];
-}
-
-function landCurrentRecord(string $streamId, string $key, array $doc): void
-{
-    DB::table('ingest.record_versions')->insert([
-        'stream_id' => $streamId, 'key' => $key, 'doc_hash' => sha1(json_encode($doc)),
-        'doc' => json_encode($doc), 'first_seen_at' => now(), 'is_current' => 1,
-    ]);
-    $versionId = DB::table('ingest.record_versions')->where('stream_id', $streamId)->where('key', $key)->value('id');
-    DB::table('ingest.record_state')->insert([
-        'stream_id' => $streamId, 'key' => $key, 'current_version_id' => $versionId,
-        'last_seen_at' => now(),
-    ]);
-}
-
-function bandcampDoc(string $title, string $url): array
-{
-    return ['title' => $title, 'url' => $url, 'artist' => 'Some Artist', 'release_date' => '2025-05-05', 'art_url' => 'https://f4.bcbits.com/img/a1_10.jpg', 'type' => 'album'];
-}
+// projectableBandcamp()/landCurrentRecord()/bandcampDoc() moved to tests/Helpers/ProjectionTestHelpers.php
+// (CrossFileTestHelperGuardTest, 2026-08-26) — required by tests/Pest.php for every worker.
 
 it('projects landed records into items, source items, and typed facet rows', function () {
     [$userId, $connection, $source, $streamId] = projectableBandcamp([
@@ -580,11 +538,7 @@ function manualSourceFor(): array
     return [$sourceId, $userId];
 }
 
-/** Writes one projection through the real writeManualItem() seam; returns the item id. */
-function projectOne(string $sourceId, string $userId, string $coord, array $projection): string
-{
-    return app(ProjectionWriter::class)->writeManualItem($userId, $coord, $projection);
-}
+// projectOne() moved to tests/Helpers/ProjectionTestHelpers.php (CrossFileTestHelperGuardTest, 2026-08-26).
 
 /** A second, distinct content.sources row (kind='connection') to prove per-source scoping. */
 function otherSourceFor(string $userId): string
