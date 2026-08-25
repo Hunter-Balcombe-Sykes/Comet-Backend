@@ -46,14 +46,47 @@ it('collections follow their best member and are renumbered; manual untouched', 
     expect(PoolOrdering::orderCollections('manual', $collections, $ordered))->toBe($collections);
 });
 
-it('locks hold their position while the rest fill around them; unknown locks are skipped', function () {
+it('locks hold their position while the rest fill around them; a lock on an unknown id is reported unavailable, not silently skipped', function () {
     $items = [orderingItem('a', '2026-08-09T00:00:00+00:00'), orderingItem('b', '2026-08-08T00:00:00+00:00'), orderingItem('c', '2026-08-07T00:00:00+00:00'), orderingItem('d', '2026-08-06T00:00:00+00:00')];
-    $out = PoolOrdering::applyLocks($items, [['position' => 0, 'id' => 'd'], ['position' => 2, 'id' => 'gone'], ['position' => 3, 'id' => 'a']]);
-    expect(array_column($out, 'id'))->toBe(['d', 'b', 'c', 'a']);
+    $result = PoolOrdering::applyLocks($items, [['position' => 0, 'id' => 'd'], ['position' => 2, 'id' => 'gone'], ['position' => 3, 'id' => 'a']]);
+    expect(array_column($result['items'], 'id'))->toBe(['d', 'b', 'c', 'a']);
+    expect($result['unavailable'])->toBe(['gone']);
 });
 
 it('a lock past the end lands last; no locks is a no-op', function () {
     $items = [orderingItem('a', null), orderingItem('b', null)];
-    expect(array_column(PoolOrdering::applyLocks($items, [['position' => 9, 'id' => 'a']]), 'id'))->toBe(['b', 'a'])
-        ->and(PoolOrdering::applyLocks($items, []))->toBe($items);
+    $result = PoolOrdering::applyLocks($items, [['position' => 9, 'id' => 'a']]);
+    expect(array_column($result['items'], 'id'))->toBe(['b', 'a']);
+    expect($result['unavailable'])->toBe([]);
+
+    $noLocks = PoolOrdering::applyLocks($items, []);
+    expect($noLocks['items'])->toBe($items);
+    expect($noLocks['unavailable'])->toBe([]);
+});
+
+it('#RANK-2: two locks at the same position — the first wins, the second is reported unavailable rather than silently dropped', function () {
+    $items = [orderingItem('a', '2026-08-09T00:00:00+00:00'), orderingItem('b', '2026-08-08T00:00:00+00:00'), orderingItem('c', '2026-08-07T00:00:00+00:00')];
+    $result = PoolOrdering::applyLocks($items, [['position' => 0, 'id' => 'b'], ['position' => 0, 'id' => 'c']]);
+    // 'b' survives at position 0; 'c' loses the collision but still renders — it just falls into the fill, unpinned.
+    expect(array_column($result['items'], 'id'))->toBe(['b', 'a', 'c']);
+    expect($result['unavailable'])->toBe(['c']);
+});
+
+it('#RANK-2: applyLocksPerCollection aggregates unavailable across buckets — same-category collisions and ids outside the selection both surface', function () {
+    $collections = ['mains' => ['name' => 'Mains', 'position' => 0], 'starters' => ['name' => 'Starters', 'position' => 1]];
+    $items = [
+        orderingItem('steak', '2026-08-09T00:00:00+00:00', collections: ['mains']),
+        orderingItem('fish', '2026-08-08T00:00:00+00:00', collections: ['mains']),
+        orderingItem('soup', '2026-08-07T00:00:00+00:00', collections: ['starters']),
+    ];
+    $locks = [
+        ['position' => 0, 'id' => 'fish'],   // mains #0 — placed
+        ['position' => 0, 'id' => 'steak'],  // mains #0 — collides with the lock above, same category
+        ['position' => 5, 'id' => 'ghost'],  // not in the selection at all, in ANY category
+    ];
+    $result = PoolOrdering::applyLocksPerCollection($items, $locks, $collections);
+    expect(array_column($result['items'], 'id'))->toBe(['fish', 'steak', 'soup']);
+    // 'ghost' is caught in the id-matching pass (never homed to a bucket); 'steak' surfaces
+    // later when its bucket's applyLocks() call resolves the position collision.
+    expect($result['unavailable'])->toBe(['ghost', 'steak']);
 });

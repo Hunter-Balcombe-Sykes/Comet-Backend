@@ -68,7 +68,7 @@
 ## Progress
 
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -120,7 +120,27 @@
 
 ## P2 — Should fix
 
-- [ ] **#RANK-2** · P2 — Duplicate within-category pool lock positions pass validation and one lock is silently dropped
+- [x] **#RANK-2** · P2 — Duplicate within-category pool lock positions pass validation and one lock is silently dropped
+    - **FIXED 2026-08-26 (PART 2 unit 8).** Mirrored `ActionSlots::resolve()`'s `unavailable` channel rather
+      than adding request-layer validation: a new 422 on a pin request would be a WIRE BREAK, while an added
+      key is additive, and the in-file precedent already existed.
+      `PoolOrdering::applyLocks()` / `applyLocksPerCollection()` now return `{items, unavailable}` and report
+      BOTH skip reasons — position collision and id-not-in-selection. `PoolResolver::assemble()`/`resolve()`
+      thread it out as `unavailablePoolLocks`.
+    - **A SECOND silent-drop path was found and fixed, not named in this finding:** in the pre-change code a
+      lock whose id matched no bucket member AND no loose member fell through both `foreach` loops with no
+      `else`, so it never entered `$locksByBucket` and never reached `applyLocks()` at all — `applyLocks()`'s
+      own reporting alone would still have missed it for category pools. Verified against
+      `git show HEAD:app/Site/Pools/PoolOrdering.php` by the independent reviewer.
+    - **The public wire is unaffected.** `PoolWire::forSite()` builds the visitor payload from an explicit
+      key allowlist (`items`, `latestItemId`, `collections`, `stats`, `diningModes`) rather than spreading, so
+      `unavailablePoolLocks` cannot reach `data.profile.pools`. It surfaces only on the dashboard paths
+      (`PoolController::show`, `PoolItemCreateController::created()`), matching the precedent
+      `IndividualProfilePayloadBuilder` already set for `ActionSlots`' `unavailable`.
+    - **Residual, stated:** no dashboard UI consumes `unavailablePoolLocks` yet, and it reports WHICH lock was
+      dropped but not WHY (collision vs. removed item). Same scope boundary `ActionSlots` sits at.
+    - Ordering behaviour is unchanged — the reviewer proved it with a 2000-trial randomised fuzz against a
+      reconstruction of the pre-change algorithm, zero mismatches. Two mutations each went RED. Review: PASS.
     - **Where:** app/Http/Requests/Concerns/SiteOrderingValidationRules.php:120-136 (`poolLockPositionsRule`); app/Site/Pools/PoolOrdering.php:56-68 (`applyLocks`)
     - **Affects:** Owners using per-category "Lock in position" on menus or services. A settings write containing two locks at the same position inside the same category is accepted, and one silently loses its lock.
     - **Effort:** M (~2–4h)

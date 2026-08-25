@@ -191,6 +191,7 @@ class PoolResolver
      *   collections: array<string, array<string, mixed>>,
      *   stats: array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string}|null,
      *   diningModes: list<string>|null,
+     *   unavailablePoolLocks: list<string>,
      * }
      */
     public function resolve(Site $site, string $pool): array
@@ -360,6 +361,7 @@ class PoolResolver
      *   collections: array<string, array<string, mixed>>,
      *   stats: array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string}|null,
      *   diningModes: list<string>|null,
+     *   unavailablePoolLocks: list<string>,
      * }
      */
     public function assemble(Site $site, string $pool, array $plan, array $payloads, Collection $stores, bool $withLibrary = true): array
@@ -392,15 +394,23 @@ class PoolResolver
         $mode = in_array($pool, ['events', 'reviews'], true) ? 'manual' : $settings->poolMode($pool);
         $selection = PoolOrdering::order($mode, $selection);
         $collections = PoolOrdering::orderCollections($mode, $this->collectionsFor($pool, $site, $selection, $stores), $selection);
+        // #RANK-2: a lock that couldn't be placed (item not in the
+        // selection, or its position collided with another lock in the same
+        // category) is reported here instead of silently dropped — mirrors
+        // ActionSlots' `unavailable` contract. Dashboard-only: PoolWire's
+        // public wire allowlists its keys explicitly and never forwards this.
+        $unavailablePoolLocks = [];
         if ($mode !== 'manual') {
             // Owner locks (settings.pool_locks) hold items in place while the
             // mode fills the rest — the dashboard's "Lock in position". A
             // category pool (menus / services) displays grouped by category
             // (D4), so its locks hold a position WITHIN the item's category
             // and the wire is flattened in category order.
-            $selection = isset(ItemFamily::CATEGORY_FAMILIES[$pool])
+            $lockResult = isset(ItemFamily::CATEGORY_FAMILIES[$pool])
                 ? PoolOrdering::applyLocksPerCollection($selection, $settings->poolLocksFor($pool), $collections)
                 : PoolOrdering::applyLocks($selection, $settings->poolLocksFor($pool));
+            $selection = $lockResult['items'];
+            $unavailablePoolLocks = $lockResult['unavailable'];
         }
 
         $library = [];
@@ -431,6 +441,7 @@ class PoolResolver
             // W8: the platforms a manual link may be added for on this pool —
             // ItemLinkRules::ROSTER, so the dashboard stops hand-copying it.
             'linkRoster' => ItemLinkRules::rosterFor($pool),
+            'unavailablePoolLocks' => $unavailablePoolLocks,
         ];
     }
 
