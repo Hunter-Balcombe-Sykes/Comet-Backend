@@ -200,6 +200,22 @@ return [
         '4e9c7786a8d6', // ComputeContentPopularityScores — driver-conditional day expr
         '8b917c6a4e49', // ComputeContentPopularityScores — driver-conditional day expr
         'ea1a37cc2567', // ComputeContentPopularityScores — driver-conditional day expr
+        // Vetted 2026-08-25 (#SEC-14 unit): DevInsightsController gained the SAME
+        // dayBucketExpr() shape as ActionScorer/ComputeContentPopularityScores above.
+        // It was added because the endpoint had no test file at all and its literal
+        // `occurred_at::date` is invalid SQLite, so nothing could exercise it. The
+        // method returns one of exactly two hardcoded literals chosen on
+        // getDriverName() — "strftime('%Y-%m-%d', occurred_at)" or 'occurred_at::date'
+        // — with no parameter and no caller-supplied input; $siteId and $since still
+        // travel as bindings on every one of these queries. Route is own-site-only and
+        // now carries an explicit authorizeForUser() check.
+        '3da7d2b37672', // DevInsightsController:225 — driver-conditional day expr
+        'f8ac60867ac6', // DevInsightsController:226 + :239 — driver-conditional day expr (identical text, one hash)
+        '89e9b11a91ae', // DevInsightsController:238 — driver-conditional day expr
+        'c2e0659e57a3', // DevInsightsController:260 — driver-conditional day expr
+        '982196d15f89', // DevInsightsController:261 — driver-conditional day expr
+        'b95bf8f90553', // DevInsightsController:268 — driver-conditional day expr
+        '3246b9c2c938', // DevInsightsController:269 — driver-conditional day expr
         // Re-minted 2026-08-03 (COV-LANE): both files moved to tests/Schema/ and had
         // their per-test savepointSuiteIsPostgres()/markTestSkipped() driver-check
         // stripped out (SchemaTestCase::setUp() already gates the whole class), which
