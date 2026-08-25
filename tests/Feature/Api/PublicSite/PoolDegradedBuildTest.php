@@ -116,7 +116,11 @@ function degradedPoolResolver(string $failingPool, array $answers): PoolResolver
             return ['pinned' => [], 'ruleIds' => [], 'autoSet' => [], 'selectionIds' => [], 'libraryIds' => []];
         }
 
-        public function hydrateItems(Site $site, array $ids): array
+        // #API-7 / #SCALE-9: signature must track PoolResolver::hydrateItems()'s
+        // new trailing $withDuplicateCandidates param (LSP), same precedent as
+        // assemble()'s $withLibrary below — unused here since this override
+        // never builds a duplicateCandidates map either way.
+        public function hydrateItems(Site $site, array $ids, bool $withDuplicateCandidates = true): array
         {
             return [[], collect()];
         }

@@ -350,7 +350,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 4 of 4 complete
-- P2 Medium: 7 of 8 complete
+- P2 Medium: 8 of 8 complete
 - P3 Low: 0 of 5 complete
 
 ---
@@ -595,7 +595,8 @@
             ->pluck('id');
         ```
 
-- [ ] **SCALE-9** · P2 — Public payload build unconditionally runs a dashboard-only duplicate-detection join and then strips the result
+- [x] **SCALE-9** · P2 — Public payload build unconditionally runs a dashboard-only duplicate-detection join and then strips the result
+    - **Resolved 2026-08-26** — same fix as the delta sweep's `#API-7`; see its entry. `itemPayloads()`/`hydrateItems()` take `bool $withDuplicateCandidates = true` (the `$withLibrary` idiom already in this class), `PoolWire::forSite()` passes false, and the `content.identity_candidates` join is skipped outright on the public path. Public wire byte-identical: `duplicateCandidates` was already in `DASHBOARD_ONLY_ITEM_KEYS` and already stripped by `PoolWire`, and the key is still emitted as `[]` so the array shape does not vary. Measured: public 82 -> 81 queries (`identity_candidates` 1 -> 0), dashboard 25 -> 25. Mutation-proved both directions; full suite 9319 passed / 3 skipped / 0 failed.
     - **Where:** app/Site/Pools/PoolResolver.php:72, 880-892
     - **Affects:** Public sitepage response time and DB read volume on every payload build, including cache-miss rebuilds.
     - **Technical:** `itemPayloads()` unconditionally joins `content.identity_candidates` for every item id passed in and attaches `duplicateCandidates` to each resulting payload. `PoolResolver::DASHBOARD_ONLY_ITEM_KEYS` (line 72) already lists `duplicateCandidates`, and `PoolWire::forSite` strips that key before building the public wire. So every public sitepage build — the hottest read path on this platform — performs this join and builds the in-memory duplicate map for data no visitor will ever see.

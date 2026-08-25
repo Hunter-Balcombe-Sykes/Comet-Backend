@@ -122,7 +122,11 @@ class PoolWire
         }
 
         try {
-            [$payloads, $stores] = $this->pools->hydrateItems($site, array_values(array_unique($allIds)));
+            // #API-7 / #SCALE-9: duplicateCandidates is dashboard-only (already
+            // stripped below by DASHBOARD_ONLY_ITEM_KEYS), so the public hydrate
+            // has no use for the content.identity_candidates join it would
+            // otherwise run on every profile build.
+            [$payloads, $stores] = $this->pools->hydrateItems($site, array_values(array_unique($allIds)), withDuplicateCandidates: false);
         } catch (QueryException $e) {
             if ($this->poolLaneAbsent($e)) {
                 return [];

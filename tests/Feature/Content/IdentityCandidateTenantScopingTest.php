@@ -1,7 +1,9 @@
 <?php
 
 use App\Models\Core\Site\Site;
+use App\Services\PublicSite\SitepageDataResolverService;
 use App\Site\Pools\PoolResolver;
+use App\Site\Pools\PoolWire;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -18,12 +20,19 @@ use Illuminate\Support\Str;
  * Goes through PoolResolver::hydrateItems() — the public seam itemPayloads()
  * sits behind — rather than resolve(), which provisions a pool section as a
  * side effect (reference_poolresolver_resolve_provisions_a_section).
+ *
+ * #API-7 / #SCALE-9 (bottom of file): the same query, run unconditionally on
+ * BOTH the dashboard and public path even though `duplicateCandidates` is
+ * dashboard-only and PoolWire::forSite() strips it before the public wire
+ * ships. The fix is a $withDuplicateCandidates flag threaded through
+ * hydrateItems()/itemPayloads(), same idiom as assemble()'s $withLibrary.
  */
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupContentTables();
     setupSectionsTables();
+    setupMediaTables();
     Queue::fake();
 });
 
@@ -83,5 +92,54 @@ it('still surfaces a legitimate same-tenant identity candidate', function () {
     ]);
     expect($payloads[$itemA2]['duplicateCandidates'])->toBe([
         ['itemId' => $itemA1, 'headline' => 'Owner A Video One', 'evidence' => 'title_similarity'],
+    ]);
+});
+
+it('never runs the content.identity_candidates query on the public PoolWire hydrate path', function () {
+    [$pro, $siteId] = poolTenant();
+    $source = poolSource($pro->id, poolConnection($pro->id));
+
+    $itemA1 = poolItem($pro->id, $source, 'video', 'Video One', now()->toDateTimeString());
+    $itemA2 = poolItem($pro->id, $source, 'video', 'Video Two', now()->toDateTimeString());
+    poolPin($siteId, 'watch', $itemA1);
+    poolPin($siteId, 'watch', $itemA2);
+
+    // A real candidate row so a query that DID run would have work to do —
+    // otherwise an empty table would make "no rows found" indistinguishable
+    // from "query never ran".
+    identityCandidateRow($pro->id, $itemA1, $itemA2);
+
+    $site = Site::query()->findOrFail($siteId);
+
+    $sawIdentityCandidatesQuery = false;
+    DB::connection('pgsql')->listen(function ($q) use (&$sawIdentityCandidatesQuery): void {
+        if (str_contains(strtolower((string) $q->sql), 'identity_candidates')) {
+            $sawIdentityCandidatesQuery = true;
+        }
+    });
+
+    app(PoolWire::class)->forSite($site, app(SitepageDataResolverService::class));
+
+    expect($sawIdentityCandidatesQuery)->toBeFalse();
+});
+
+it('still populates duplicateCandidates on the dashboard resolve() path', function () {
+    [$pro, $siteId] = poolTenant();
+    $source = poolSource($pro->id, poolConnection($pro->id));
+
+    $itemA1 = poolItem($pro->id, $source, 'video', 'Video One', now()->toDateTimeString());
+    $itemA2 = poolItem($pro->id, $source, 'video', 'Video Two', now()->toDateTimeString());
+    poolPin($siteId, 'watch', $itemA1);
+    poolPin($siteId, 'watch', $itemA2);
+
+    identityCandidateRow($pro->id, $itemA1, $itemA2);
+
+    $site = Site::query()->findOrFail($siteId);
+    $out = app(PoolResolver::class)->resolve($site, 'watch');
+
+    $item1 = collect($out['selection'])->firstWhere('id', $itemA1);
+    expect($item1)->not->toBeNull();
+    expect($item1['duplicateCandidates'])->toBe([
+        ['itemId' => $itemA2, 'headline' => 'Video Two', 'evidence' => 'title_similarity'],
     ]);
 });
