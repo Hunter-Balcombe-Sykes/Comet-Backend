@@ -33,7 +33,11 @@
 // from. Every local identifier is pwsr_-prefixed so this file's Pest globals and SQL identifiers
 // cannot collide with either sibling file's.
 
+use App\Content\Identity\Decision;
+use App\Content\Identity\IdentityKey;
+use App\Content\Identity\IdentityScope;
 use App\Content\Identity\KeyClass;
+use App\Content\Identity\SourceItem;
 use App\Ingest\Projection\ProjectionWriter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -436,6 +440,22 @@ const PWSR_APPLE_CHAIN_B_COORD = 'apple_music:acct-existing:chain-b';
 
 const PWSR_SOUNDCLOUD_CHAIN_C_COORD = 'soundcloud:acct-existing:chain-c';
 
+// Guard-review addition: a coord genuinely UNREACHABLE from every touched/seed
+// coord above — no shared signature, no 'same' ruling naming it, and (via
+// pwsrMintExisting()) an item_id that is NOT NULL, so seed source 3 (unbound
+// rows, §A.4) does not sweep it in either. Without this coord the fixture's
+// touched component IS the whole live kind (all 9 other coords are 1-2 hops
+// from a touched Spotify coord), so "scoped == whole-kind" compared the same
+// computation to itself. With it, the two passes are genuinely different
+// computations, and the differential test below asserts the isolated coord is
+// excluded from IdentityScope::component()'s output directly, not merely
+// inferred from the final mapping (which is identical either way regardless
+// of component membership, since bindGroup() is a no-op for an
+// already-anchored singleton).
+const PWSR_APPLE_ISOLATED_COORD = 'apple_music:acct-existing:isolated';
+
+const PWSR_ISOLATED_TITLE = 'Completely Isolated Preexisting Track';
+
 /** The coord projectStream() will build for one of the Spotify docs below. */
 function pwsrSpotifyCoord(string $key): string
 {
@@ -567,6 +587,17 @@ function pwsrSeedPreexisting(string $userId): void
     pwsrMintExisting($userId, $scSourceId, PWSR_SOUNDCLOUD_CHAIN_C_COORD, $now->copy()->subHours(2)->toDateTimeString(), [
         [KeyClass::TitleOnly, PWSR_CHAIN_MIDDLE_TITLE],
     ]);
+
+    // Strict-subset guard (review addition): a coord with no signature and no
+    // 'same' ruling connecting it to anything above, so it must stay OUT of
+    // the touched Spotify component while still being a live, already-bound
+    // ("already-anchored" — see pwsrMintExisting()'s own docblock) coord the
+    // whole-kind pass would also see. See the differential test's direct
+    // IdentityScope::component() call below for the assertion this exists
+    // to make possible.
+    pwsrMintExisting($userId, $appleSourceId, PWSR_APPLE_ISOLATED_COORD, $now->copy()->subHours(5)->toDateTimeString(), [
+        [KeyClass::TitleOnly, PWSR_ISOLATED_TITLE],
+    ]);
 }
 
 /**
@@ -635,6 +666,60 @@ function pwsrItemIdByCoord(string $userId): array
         ->pluck('si.item_id', 'si.coord')
         ->map(fn ($id) => (string) $id)
         ->all();
+}
+
+/**
+ * Rebuilds the exact SourceItem/Decision inputs resolveItemsLocked() would
+ * pass to IdentityScope::component() for this (user, kind) — same joins,
+ * same columns — so the differential test can call component() directly and
+ * assert what it excludes, rather than inferring exclusion from the final
+ * coord => item mapping (which cannot tell "excluded from the component" apart
+ * from "included but bindGroup() was a no-op for an already-anchored
+ * singleton either way").
+ *
+ * @return array{0: list<SourceItem>, 1: list<Decision>}
+ */
+function pwsrResolverInputs(string $userId, string $kind): array
+{
+    $pg = DB::connection('pgsql');
+
+    $rows = $pg->table('content.source_items as si')
+        ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+        ->where('cs.user_id', $userId)
+        ->where('si.kind', $kind)
+        ->whereNull('si.removed_at')
+        ->get(['si.id', 'si.coord', 'si.source_id', 'si.kind', 'si.first_seen_at']);
+
+    $keysBySourceItem = $pg->table('content.identity_keys')
+        ->whereIn('source_item_id', $rows->pluck('id'))
+        ->get(['source_item_id', 'key_class', 'key_value'])
+        ->groupBy('source_item_id');
+
+    $items = $rows->map(function (object $row) use ($keysBySourceItem) {
+        $keys = [];
+        foreach ($keysBySourceItem->get($row->id, collect()) as $key) {
+            $class = KeyClass::tryFrom((string) $key->key_class);
+            if ($class !== null) {
+                $keys[] = new IdentityKey($class, (string) $key->key_value);
+            }
+        }
+
+        return new SourceItem(
+            coord: (string) $row->coord,
+            sourceId: (string) $row->source_id,
+            kind: (string) $row->kind,
+            keys: $keys,
+            firstSeenAt: $row->first_seen_at === null ? null : (string) $row->first_seen_at,
+        );
+    })->all();
+
+    $decisions = $pg->table('content.identity_decisions')
+        ->where('user_id', $userId)
+        ->get(['left_coord', 'right_coord', 'verdict'])
+        ->map(fn (object $d) => new Decision((string) $d->left_coord, (string) $d->right_coord, (string) $d->verdict))
+        ->all();
+
+    return [$items, $decisions];
 }
 
 /**
@@ -722,9 +807,10 @@ it('produces the same item mapping scoped as it does whole-kind', function () {
 
     // The exact expected partition, independent of which config produced it: singleton alone;
     // the isrc pair merged; all three "Wandering Star Song" coords kept apart (poisoned); the
-    // 3-hop chain merged into one group. If the whole-kind pass does not already match this, the
-    // fixture (not the narrowing) is wrong — assert that BEFORE comparing the two passes, so a
-    // failure here is never misread as narrowing breaking the proof.
+    // 3-hop chain merged into one group; the isolated coord alone. If the whole-kind pass does
+    // not already match this, the fixture (not the narrowing) is wrong — assert that BEFORE
+    // comparing the two passes, so a failure here is never misread as narrowing breaking the
+    // proof.
     $expectedShape = pwsrGroupShape([
         pwsrSpotifyCoord('singleton') => 'g1',
         pwsrSpotifyCoord('isrcpair') => 'g2',
@@ -735,13 +821,53 @@ it('produces the same item mapping scoped as it does whole-kind', function () {
         pwsrSpotifyCoord('chaina') => 'g6',
         PWSR_APPLE_CHAIN_B_COORD => 'g6',
         PWSR_SOUNDCLOUD_CHAIN_C_COORD => 'g6',
+        PWSR_APPLE_ISOLATED_COORD => 'g7',
     ]);
     expect(pwsrGroupShape($wholeMapping))->toBe($expectedShape, 'the fixture itself does not produce the shape this test assumes — fix the fixture, not the comparison below');
 
-    // §A.1's invariant: the SAME shape scoped as whole-kind.
+    // §A.1's invariant: the SAME shape scoped as whole-kind. 'projected' is
+    // unaffected by scoping either way — it counts records this run actually
+    // read off the stream, before identity resolution runs at all.
     expect(pwsrGroupShape($scopedMapping))->toBe(pwsrGroupShape($wholeMapping))
-        ->and($scoped['items'])->toBe($whole['items'])
         ->and($scoped['projected'])->toBe($whole['projected']);
+
+    // 'items' is NOT expected to match, and now that the fixture has a coord
+    // genuinely outside the touched component (PWSR_APPLE_ISOLATED_COORD),
+    // it legitimately does not: it counts distinct items across whatever
+    // resolveItems() actually resolved THIS run — the component under
+    // scoping, the whole live kind otherwise. Whole-kind touches 7 groups
+    // (g1-g7); scoped touches only the 6 the touched component reaches
+    // (g1-g6), leaving the isolated coord's g7 alone. Asserting equality here
+    // would be asserting away the very difference the narrowing exists to
+    // produce.
+    expect($whole['items'])->toBe(7)
+        ->and($scoped['items'])->toBe(6);
+
+    // The above proves the two passes agree on the FINAL mapping — true for the isolated coord
+    // regardless of component membership, since bindGroup() is a no-op for an already-anchored
+    // singleton either pass touches it or not. That alone would let a component that wrongly
+    // includes everything (i.e. "scoped == whole-kind" by construction, not by the closure rule)
+    // pass silently. Verify the closure itself instead: rebuild resolveItemsLocked()'s own inputs
+    // from the DB state this run left behind and call IdentityScope::component() directly with
+    // the same four touched Spotify coords the scoped pass above used.
+    [$items, $decisions] = pwsrResolverInputs($userId, 'track');
+    $touched = [
+        pwsrSpotifyCoord('singleton'),
+        pwsrSpotifyCoord('isrcpair'),
+        pwsrSpotifyCoord('wandering'),
+        pwsrSpotifyCoord('chaina'),
+    ];
+    $component = app(IdentityScope::class)->component($items, $decisions, $touched);
+
+    // 10 live coords total (4 touched + 5 pre-existing connected + 1 isolated); the isolated
+    // coord must be the ONE excluded — a strict subset, not "scoped == whole-kind by definition."
+    expect($component['capped'])->toBeFalse()
+        ->and($component['coords'])->not->toContain(PWSR_APPLE_ISOLATED_COORD)
+        ->and($component['coords'])->toHaveCount(9)
+        // And it is still there in BOTH final mappings, unaffected either way — present, just
+        // never a candidate for this run's resolve.
+        ->and($wholeMapping)->toHaveKey(PWSR_APPLE_ISOLATED_COORD)
+        ->and($scopedMapping)->toHaveKey(PWSR_APPLE_ISOLATED_COORD);
 });
 
 it('does not merge a pair whose corroborating key a same-source duplicate poisons', function () {

@@ -752,9 +752,13 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
      * retirements have freed their bases — see the call site.
      *
      * A no-op for every dish whose slug already matches its name (one SELECT
-     * each, the same cost ProjectionWriter::refreshItemCaches() already pays
-     * per item), so this only ever moves a dish that was parked on a `-N`
-     * suffix by a name the vendor has since dropped.
+     * per dish here — this loop is unchanged), so this only ever moves a dish
+     * that was parked on a `-N` suffix by a name the vendor has since dropped.
+     * NOTE: the cost-equivalence this comment used to claim against
+     * ProjectionWriter::refreshItemCaches() no longer holds — that method now
+     * batches its slug read once per BATCH_SIZE chunk and skips it entirely
+     * for a batch with no slugged kind (#SCALE-9/#API-7), so it is cheaper
+     * per item than this one-SELECT-per-dish loop, not equal to it.
      *
      * Best-effort, matching every other slug call site: a permalink must never
      * fail a scrape, and this runs before writePlatformSyncStatus() in

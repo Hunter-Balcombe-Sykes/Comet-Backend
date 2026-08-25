@@ -272,6 +272,30 @@ inside its transaction, and repairing an invariant this branch breaks is in scop
 that no test in the plan would have caught, found before merge rather than by an owner whose
 de-duplication ruling stopped working.
 
+**Known limitation, stated rather than fixed (found in final review, 2026-08-26): the seed misses
+coords whose resolution changed because the graph SHRANK.** Every seed source above (touched
+coords, `same` rulings, unbound coords) grows the component from what the graph looks like AFTER
+this run's own writes land — `IdentityScope::component()` is built from post-write keys. A run that
+REMOVES the last copy of a poisoning key (e.g. a source stops carrying a duplicate title, or the
+duplicate itself gets retired) un-poisons a signature for a pair the closure has no way to reach:
+neither coord in that pair was touched, named by a ruling, or unbound, so nothing seeds a walk that
+would discover the now-clean signature connects them. The whole-kind resolve healed this
+incidentally on the very next run of ANY stream for that kind, because it re-walked every live
+coord's signatures regardless of what changed. A narrowed resolve does not.
+
+The direction is bounded and self-healing: **this can only produce a merge NOT made (two coords
+that could now legitimately merge stay apart, i.e. a visible duplicate) — never a false merge**,
+because the closure only ever shrinks what gets RE-examined, not what CAN merge; nothing about a
+smaller seed set makes `Resolver::unionAll()`/`poisonedKeys()` behave more permissively than a full
+resolve would. It self-heals the next time either coord's own connector stream projects again
+(that run's touch makes the coord a seed, the walk reaches the now-clean signature, and the pair
+merges on that pass) — permanent only in the edge case where every affected coord is
+manual-source, since a manual coord is never re-touched by a scheduled connector run and only
+re-resolves when its owner edits it or names it in a `same` ruling. Not fixed in this plan: closing
+it would mean detecting "this run made a signature less poisoned than it was" and seeding from
+every coord that ever carried that signature, which reintroduces a form of the whole-kind read the
+narrowing exists to remove. Revisit only if a real duplicate report traces back to this path.
+
 ### A.2 The cap
 
 `IdentityScope::MAX_COMPONENT = 2000`. On exceed: return the full coord list with
@@ -2547,6 +2571,11 @@ time.
 
 ### Full regression (Step 2)
 
+**UPDATED 2026-08-26, post-fix — see below for the corrected final state.** The table and the
+13-failure account immediately following are the ORIGINAL Task 8 measurement, taken at HEAD
+`4407f68c4`, before the fix landed. Left in place as the record of what was found; do not read it
+as the branch's current state.
+
 **Fast lane, `php artisan test --parallel`** (same invocation as the recorded baseline, which was
 also captured with `--parallel`, 10 processes):
 
@@ -2572,7 +2601,10 @@ IS catching it — that test is 1 of the 13 failures. The other 12 are every tes
 whenever paratest assigns that file to a worker that does not also get `ProjectionWriterTest.php`.
 Confirmed reproducible on demand:
 - `./vendor/bin/pest tests/Feature/Ingest/ProjectionSyncShapesTest.php` (alone) → 12/12 fail,
-  `Call to undefined function projectableBandcamp()`.
+  `Call to undefined function projectableBandcamp()`. **STALE as of commit `95782bd6b`
+  (2026-08-26): the four helpers moved to `tests/Helpers/ProjectionTestHelpers.php`, loaded via
+  `tests/Pest.php` for every worker — this file now passes 12/12 standalone. See "What stayed
+  open" below for the closure record.**
 - The same file run together with `ProjectionWriterTest.php` → all pass (both files' tests
   discovered, helper resolves).
 - `./vendor/bin/pest tests/Feature/Architecture/CrossFileTestHelperGuardTest.php` alone, **with no
@@ -2656,8 +2688,21 @@ other unticked findings (`#SCALE-13`, `#SCALE-14`, etc.) outside this plan's sco
   `#SCALE-9` ≡ `#API-7` pairing... was too shallow").
 - `#SCALE-13`, `#SCALE-14`, and the rest of the overnight-run sweep's P2/P3 backlog — out of this
   plan's scope, untouched.
-- **The cross-file test helper regression above** — new, found by this task, not previously known,
-  blocking for merge, requires a `tests/`-only fix this task is not permitted to make.
+- ~~**The cross-file test helper regression above** — new, found by this task, not previously
+  known, blocking for merge, requires a `tests/`-only fix this task is not permitted to make.~~
+  **CLOSED 2026-08-26 by commit `95782bd6b`** (`test(ingest): move cross-file projection helpers
+  into tests/Helpers/`), outside this task's own `tests/`-touching restriction. The three helpers
+  `ProjectionSyncShapesTest.php` called but did not declare (`projectableBandcamp`, `bandcampDoc`,
+  `landCurrentRecord`, `projectOne`) now live in `tests/Helpers/ProjectionTestHelpers.php`,
+  `require_once` from `tests/Pest.php`, so every paratest worker loads them regardless of which
+  test files it is assigned — `ProjectionSyncShapesTest.php` now passes standalone (verified:
+  `./vendor/bin/pest tests/Feature/Ingest/ProjectionSyncShapesTest.php` alone → 12/12 pass, where
+  the "12/12 fail" reading two paragraphs up was the PRE-FIX state). **This was NOT one of the
+  four blocking items in the final-review fix wave** (docs `.superpowers/sdd/2026-08-25-
+  projectionwriter-identity-scope/final-fixes-report.md`) — it had already been fixed by the time
+  that review ran. Current true state, verified 2026-08-26: `php artisan test --parallel` →
+  **9,253 passed, 3 skipped, 0 failed** (32,550 assertions, 10 processes). The branch is not
+  blocked by any test regression.
 
 ### Where §A was right, where it needed correcting, and what this task learned beyond §A
 

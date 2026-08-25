@@ -1212,9 +1212,38 @@ return [
         // Identity-scope narrowing (#CACHE-2, #CACHE-4). When on,
         // resolveItemsLocked() resolves only the CONNECTED COMPONENT of the
         // coords a run touched instead of the user's whole catalogue for the
-        // kind. The kill switch, not a tuning knob: off restores the
-        // whole-kind path byte-for-byte without a deploy, which is the
-        // primary rollback for this change.
+        // kind. This is the kill switch, not a tuning knob — but it is
+        // PARTIAL, not a full byte-for-byte rollback, and it does NOT take
+        // effect without a redeploy. Read both caveats before reaching for it
+        // mid-incident:
+        //
+        // What flipping this OFF reverts: the identity-resolution narrowing
+        // itself (resolveItemsLocked() goes back to resolving the whole kind
+        // on every call), the closing source_items re-read/UPDATE predicate,
+        // and mergeInto()'s anchor-repair block (gated on $narrowed, which
+        // this flag controls).
+        //
+        // What it does NOT revert — four changes that ship UNGATED because
+        // each is safe independently of the narrowing:
+        //   - refreshItemCaches() being called with only the touched item
+        //     id(s) instead of the whole (user, kind) set (ProjectionWriter.php
+        //     writeManualItem()/projectStream() call sites, #CACHE-4's cache
+        //     half).
+        //   - forAccumulator() slimming each accumulator entry to the columns
+        //     writeFacets()/replaceCollections() actually read (#SCALE-8).
+        //   - the batched slug read in refreshItemCaches(), including its
+        //     skip when a chunk has no slugged kind (#SCALE-9/#API-7).
+        //   - resolveItemsLocked()'s $rows select carrying si.item_id, used to
+        //     seed unbound coords (§A.4 seed source 3).
+        //
+        // Flipping this off does not take effect on its own: Laravel Cloud
+        // runs `php artisan optimize` (config:cache) at BUILD time, so a
+        // running instance is serving the config baked in at its last deploy
+        // regardless of what the env var says now. A redeploy
+        // (`cloud deploy partna development`, or the prod equivalent) is
+        // required before this flag's new value is observed. See
+        // scripts/launch-check/k6/results/2026-08-10-swr-verification.md:120
+        // for the same fact recorded against a different config flag.
         'identity_scope' => (bool) env('PARTNA_CONTENT_IDENTITY_SCOPE', true),
 
         // Component size past which the narrowing gives up and resolves

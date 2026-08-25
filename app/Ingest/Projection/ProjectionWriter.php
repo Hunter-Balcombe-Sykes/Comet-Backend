@@ -295,7 +295,7 @@ class ProjectionWriter
             // across ordered calls; a wholesale replace does not). Replaying
             // without that hazard would need either a second read of the
             // records (ruled out — lazy(500) already bounds that read; see
-            // :155-157) or grouping slices by resolved item, which needs the
+            // :193-202) or grouping slices by resolved item, which needs the
             // resolve, which needs the loop to finish first — circular.
             //
             // So the accumulator stays whole-run, and the fix is per-entry: only
@@ -510,9 +510,12 @@ class ProjectionWriter
         // "someone else finished my write" from "someone else bound my row and wrote no facets
         // for it", and the second was the common case. Narrowing the resolve to IdentityScope's
         // connected component of the TOUCHED coords (below) makes that guarantee WEAKER, not
-        // stronger: a concurrent run only sweeps this row in if it shares a key signature with
-        // THAT run's own touched coords, so "is it bound" can now simply be false. Rolling the
-        // upsert back removes the question either way.
+        // stronger: a concurrent run sweeps this row in only if it shares a key signature with
+        // THAT run's own touched coords, OR unconditionally via seed source 3 (§A.4) for as long
+        // as this row's own item_id is still NULL — which is exactly the window this method is
+        // in before its own resolve commits one. Once that resolve has run, neither seed reaches
+        // this row again without a shared signature, so "is it bound" can still be false. Rolling
+        // the upsert back removes the question either way.
         //
         // The keys must still land in the same transaction as the source item, for the original
         // reason: a committed source item visible with ZERO identity keys resolves as an
@@ -1444,10 +1447,13 @@ class ProjectionWriter
             DB::table('content.items')->where('id', $discardedItemId)->delete();
         }
 
-        // The loser's anchors are GONE: item_anchors.item_id FKs to
-        // content.items ON DELETE CASCADE, so deleting the discarded item takes
-        // every anchor that pointed at it — including anchors for coords the
-        // unscoped source_items repoint above just moved onto the kept item.
+        // WHEN the discarded item is actually deleted (the !$hasCuration branch four lines up),
+        // its anchors are GONE too: item_anchors.item_id FKs to content.items ON DELETE CASCADE,
+        // so the delete takes every anchor that still pointed at it — including anchors for
+        // coords the unscoped source_items repoint above just moved onto the kept item. When
+        // $hasCuration is true the item survives and nothing cascades, so there is nothing to
+        // repair; the block below still runs unconditionally on $narrowed in that case, but
+        // insertOrIgnore makes it a no-op against anchors that were never touched.
         //
         // Gated on $narrowed, not merely on the config flag: this repair
         // compensates for coords the narrowing left OUT of this pass, and with
@@ -1479,9 +1485,17 @@ class ProjectionWriter
         // Bounded by the KEPT item's source items minus the current group — a
         // handful — and only runs when a merge actually happens. insertOrIgnore
         // makes it a no-op for coords that still have their anchor.
+        //
+        // removed_at IS NULL, same as every other live-row read in this class
+        // (resolveItemsLocked()'s $liveSource / whereNull('si.removed_at')):
+        // without it a retired coord — one whose source_items row still points
+        // at $keptItemId but is no longer live — would mint a fresh anchor it
+        // has no business holding, a flag-on-only divergence from the
+        // whole-kind path, which never re-anchors retired rows either.
         if ($narrowed) {
             $keptCoords = DB::table('content.source_items')
                 ->where('item_id', $keptItemId)
+                ->whereNull('removed_at')
                 ->whereNotIn('coord', $groupCoords)
                 ->pluck('coord');
 
@@ -1607,10 +1621,16 @@ class ProjectionWriter
         // Test-visible high-water mark only — serialize() is a cheap, honest
         // proxy for "how big is this entry" that does not depend on the PHP
         // process's OTHER allocations the way memory_get_peak_usage() does
-        // (see the skipped test above). Not on the hot path's correctness.
-        $bytes = strlen(serialize($slim));
-        if ($bytes > ($this->peakProjectionEntryBytes ?? 0)) {
-            $this->peakProjectionEntryBytes = $bytes;
+        // (see the skipped test above). Not on the hot path's correctness, and
+        // gated on runningUnitTests() so a real projection run — which can
+        // walk thousands of records per stream — never pays a
+        // strlen(serialize()) per record just to feed a seam nothing in
+        // production reads.
+        if (app()->runningUnitTests()) {
+            $bytes = strlen(serialize($slim));
+            if ($bytes > ($this->peakProjectionEntryBytes ?? 0)) {
+                $this->peakProjectionEntryBytes = $bytes;
+            }
         }
 
         return $slim;

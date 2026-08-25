@@ -33,6 +33,16 @@ function coordsByItem(string $userId): array
 
     $out = [];
     foreach ($rows as $row) {
+        // A NULL item_id means resolveItemsLocked() never bound this coord.
+        // Grouping every such row into a shared "" bucket would let two
+        // never-bound coords masquerade as "merged into one item" to a
+        // toHaveCount(1) assertion below — the exact same shape a real merge
+        // produces. Every fixture in this file expects a completed
+        // projection run to leave nothing unbound, so treat it as a hard
+        // failure instead of a silent bucket.
+        if ($row->item_id === null) {
+            throw new RuntimeException("coordsByItem(): coord {$row->coord} has no item_id — resolution left it unbound.");
+        }
         $out[(string) $row->item_id][] = (string) $row->coord;
     }
     foreach ($out as $itemId => $coords) {

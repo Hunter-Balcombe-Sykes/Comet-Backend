@@ -155,6 +155,13 @@ final class IdentityScope
                 }
             }
 
+            // NOT the mechanism that makes a 'same' ruling take effect — that is the seeding
+            // step above (every key of $sameEdges, both directions, is pushed into $queue before
+            // this loop starts). Because $sameEdges is built symmetrically, every neighbour this
+            // walk would find here is itself a $sameEdges key and so was already seeded and
+            // marked $seen. This traversal is therefore always a no-op today; kept for symmetry
+            // with the signature loop above and as a defensive no-op if the seeding step above it
+            // ever stops seeding both endpoints of every same-edge.
             foreach ($sameEdges[$coord] ?? [] as $neighbour) {
                 if (! isset($seen[$neighbour])) {
                     $seen[$neighbour] = true;
