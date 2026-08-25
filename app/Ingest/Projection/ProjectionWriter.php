@@ -284,7 +284,16 @@ class ProjectionWriter
         if ($projections !== []) {
             $itemByCoord = $this->resolveItems($userId, $projector::kind(), $touchedCoords);
             $this->writeFacets($contentSourceId, $userId, $projections, $itemByCoord);
-            $this->refreshItemCaches($userId, array_values(array_unique(array_values($itemByCoord))));
+
+            // Touched items only (#CACHE-4). $itemByCoord is now the component,
+            // but even within it only the coords this run wrote can have new
+            // facets — writeFacets() above is already scoped to $projections,
+            // so anything else would be a no-op refresh at ~18 queries per 500.
+            $touchedItemIds = array_values(array_unique(array_filter(array_map(
+                fn (string $coord): ?string => $itemByCoord[$coord] ?? null,
+                $touchedCoords,
+            ))));
+            $this->refreshItemCaches($userId, $touchedItemIds);
         }
 
         if ($projections !== [] || $removed > 0) {
@@ -484,7 +493,9 @@ class ProjectionWriter
         }
 
         $this->writeFacets($contentSourceId, $userId, [$coord => $projection], $itemByCoord);
-        $this->refreshItemCaches($userId, array_values(array_unique(array_values($itemByCoord))));
+
+        // The one item the caller wrote, not every item of the kind (#CACHE-2).
+        $this->refreshItemCaches($userId, [$itemByCoord[$coord]]);
         $this->bumpSite($userId);
 
         return $itemByCoord[$coord];

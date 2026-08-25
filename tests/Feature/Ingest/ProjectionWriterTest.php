@@ -954,3 +954,26 @@ it('leaves existing source_stats alone when a later run carries none', function 
     expect((float) DB::table('content.source_stats')->where('source_id', $contentSourceId)->value('rating_avg'))
         ->toBe(4.7);
 });
+
+it('refreshes the merged item when only one of its coords was touched', function () {
+    // Two sources carrying the SAME release url merge into one content.items
+    // row via the CanonicalUrl joining key. Projecting only the SECOND stream
+    // must still leave that merged item's headline_cache populated: the
+    // refresh list is derived from $itemByCoord, so it names the SURVIVING
+    // item rather than the touched coord's own pre-merge singleton. If the
+    // narrowing had keyed off the touched coords' old item ids instead, this
+    // is the test that would go red.
+    $url = 'https://side.bandcamp.com/album/shared-release';
+
+    [$userId, , $sourceA, $streamA] = projectableBandcamp(['r1' => bandcampDoc('Shared Release', $url)]);
+    [, , $sourceB, $streamB] = projectableBandcamp(['r1' => bandcampDoc('Shared Release', $url)], $userId);
+
+    $writer = app(ProjectionWriter::class);
+    $writer->projectStream($sourceA, $streamA, 'releases');
+    $writer->projectStream($sourceB, $streamB, 'releases');
+
+    $items = DB::table('content.items')->where('user_id', $userId)->get(['id', 'headline_cache']);
+
+    expect($items)->toHaveCount(1)
+        ->and($items->first()->headline_cache)->toBe('Shared Release');
+});
