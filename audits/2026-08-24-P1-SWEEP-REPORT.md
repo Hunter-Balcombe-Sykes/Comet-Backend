@@ -48,7 +48,7 @@ Per D1, `partna.auth.strong_auth_enforce` stays `false`. The enforced-branch fal
 |---|---|---|
 | CG `#SEC-1` — PII-export strong-auth fail-open | **fixed** (flag flip deferred to you, per D1) | `c29fe2829` |
 | CG `#SEC-2` — `/api/claim` ignored `email_verified` | **fixed** | `c29fe2829` |
-| CG `#SEC-3` — first-come claim squat | **OPEN — premise restored.** *Dark Until Claimed* was reverted 2026-08-25 on owner decision; the finding is live again in full. See the superseded note below. | `e0595d23c`, `0e9429313`, revert |
+| CG `#SEC-3` — first-come claim squat | **DEFERRED 2026-08-25 by owner, with a revisit trigger.** Code unchanged — the first-come arm is still live. Downgraded on two verified facts: a wrong claim is reversible in one admin action (`.../force` → `adminPurgeNow()`, and a freed handle has NO reclaim cooldown — `AccountDeletionService.php:920`), and prod exposure is nil pre-pilot. ⚠️ Also recorded there: discovery is CHEAPER than the finding claims — the `requestBuild()` dedupe path returns an existing build's `subdomain` to any caller who knows the business's public IG handle. **Revisit when self-serve signup volume becomes non-trivial.** Full disposition on the finding in `audits/sweeps/2026-08-24-claim-gate-security/CONSOLIDATED.md`. | `e0595d23c`, `0e9429313`, revert, disposition-only |
 | CG `#SEM-1` — LinkedIn/Spotify shape rewritten to a 404 | **fixed** | `16a90f7dd` |
 | UA `#SEC-1` — `reorder()` pinned without the Policy | **fixed** | `b41fed93b` |
 | UA `#SEC-2` — public pool wire skipped `UrlSafety` | **fixed** | `b41fed93b` (+ `1fa4a0fcd` regression fix) |

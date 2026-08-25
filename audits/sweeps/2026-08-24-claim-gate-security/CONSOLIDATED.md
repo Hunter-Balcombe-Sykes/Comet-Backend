@@ -59,7 +59,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 2 of 3 complete
+- P1 High: 3 of 3 complete
 - P2 Medium: 0 of 2 complete
 
 ---
@@ -127,7 +127,7 @@
         }
         ```
 
-- [ ] **#SEC-3** · P1 — Self-serve pre-account builds are claimed first-come with nothing tying the claimer to the original builder
+- [x] **#SEC-3** · P1 — Self-serve pre-account builds are claimed first-come with nothing tying the claimer to the original builder
     - **Where:** app/Services/PreAccount/ClaimSiteService.php:85-97
     - **Affects:** Unclaimed self-serve (`built_via=signup`) pre-account sites — publicly reachable pre-claim at `<handle>.partna.au` by design (per the pre-account doctrine) — including their scraped business name, photos, and hours.
     - **Effort:** L (~1–2d) — requires a claim-continuity primitive (token/nonce), not a config tweak
@@ -189,6 +189,53 @@
       The D2 deferral is unaffected — it rested on the CLAIM_TOKEN primitive needing a frontend
       counterpart, which is still true. This note only corrects the severity the finding text
       argues for.
+
+    - **DISPOSITION 2026-08-25 — DEFERRED by owner, with a stated revisit trigger. Ticked as
+      "resolved as an open question", NOT as "the code changed".** `ClaimSiteService::claim()` is
+      unchanged and the first-come arm is still live exactly as the finding describes. What changed
+      is the severity argument, on two verified facts:
+        1. **The damage is reversible in one admin action** — this is the load-bearing correction.
+           The finding's P1 rests on a wrong claim being unrecoverable. It is not.
+           `DELETE /api/staff/professionals/{professional}/force` →
+           `AccountDeletionService::adminPurgeNow()` pseudonymises, deletes the Supabase auth user
+           (freeing the squatter's email), hard-deletes the row and retires the KV entry. And
+           `AccountDeletionService.php:920` states the freed handle carries **NO reclaim cooldown**
+           (unlike a rename's 14d/90d alias window), so the handle is immediately re-buildable by
+           the rightful owner. Recovery is: victim complains → admin force-delete → owner rebuilds
+           from their source. No SQL surgery, no alias wait.
+        2. **Exposure is near-zero pre-pilot** — production carries no customer rows
+           (`core.users` = 0), the platform is unadvertised, and the payoff for winning a race is a
+           scraped starter site for a business you do not own. There is no attacker population yet.
+      **Residual, recorded so this does not read as closed:**
+        - Recovery is **destructive and complaint-driven**: the owner must rebuild (a fresh
+          Apify-billed scrape), and nothing detects a squat — it surfaces only if the victim
+          notices and contacts support. A non-destructive staff *unclaim* (release the binding,
+          keep the built site) is the follow-up in flight; it makes recovery cheap rather than
+          removing the hole.
+        - ⚠️ **The finding UNDERSTATES its own discovery step, and this matters for the trigger
+          below.** It models discovery as browsing or guessing the handle. There is a cheaper path:
+          `PreAccountBuildService::requestBuild()` dedupes on the source key *before* anything else
+          (lines 62-74) and early-returns `['reused' => true]`, which the controller serialises
+          through `PreAccountBuildStatusResource` — a resource that ships `subdomain`
+          unconditionally. So `POST /api/public/signup/build` with a victim's *public Instagram
+          handle* returns the existing unclaimed build's subdomain directly. Discovery is one
+          unauthenticated API call keyed on a public identifier, not blind guessing. Metered by
+          `throttle:pre-account-build` (3/min + 10/h per IP) and the per-IP outstanding-build cap
+          inside `reserve()`; `bot.token` is `mode=off` by default (see #SEC-4), so the bot layer
+          is not currently carrying any of this.
+        - Window is up to `PARTNA_PRE_ACCOUNT_EXPIRY_DAYS` = **30 days** per abandoned self-serve
+          build, not the few minutes of a live signup session.
+      **REVISIT TRIGGER — this stops being fine when self-serve signup volume becomes non-trivial
+      (outreach at scale, press, or any public launch of the site-first flow).** Obscurity is doing
+      the security work today, not the code. When handles become findable at scale the cheap
+      dedupe-oracle path above turns a rare accident into a farmable one, and the real fix is owed.
+      **The real fix, when triggered, is still at the CLAIM step** (hiding the site was tried in
+      `ee1c22784` and reverted): a claim-continuity token minted at build time, withheld on the
+      `reused: true` dedupe path, persisted by the frontend, mailed as a fallback for device
+      switches, with an ownership-proof lane (IG bio code / Google-listed contact / staff) for a
+      lost token — because "I lost my ticket" and "I am a stranger" are indistinguishable to the
+      server, so any self-service recovery re-opens the hole. Cross-repo, L (~1-2d), needs a
+      product call on collecting an email at the preview step.
 
 ## P2 — Should fix
 

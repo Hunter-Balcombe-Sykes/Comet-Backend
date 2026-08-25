@@ -12,15 +12,21 @@ use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserRequest;
 use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserStatusRequest;
 use App\Http\Resources\Staff\StaffUserListResource;
 use App\Http\Resources\UserStaffResource;
+use App\Models\Core\Site\Enquiry;
+use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Staff\PartnaStaff;
+use App\Models\Core\User\Customer;
 use App\Models\Core\User\User;
 use App\Services\Auth\Aal2FreshnessGate;
+use App\Services\PreAccount\ClaimSiteService;
 use App\Services\User\AccountDeletionService;
 use Illuminate\Auth\Access\Response as GateResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 
 // V2: Staff browses, searches, and manages professionals (status updates, archive, restore, hard delete). Primary staff dashboard entry point.
 class StaffUserController extends ApiController
@@ -360,5 +366,85 @@ class StaffUserController extends ApiController
             'permanently_deleted' => true,
             'email_freed' => true,
         ]);
+    }
+
+    /**
+     * Release a claim — the NON-destructive counterpart to forceDestroy().
+     *
+     * A wrongly-claimed pre-account site previously had only one recovery:
+     * /force, which destroys the scraped site and makes the rightful owner
+     * rebuild it. This unbinds the claimer and returns the row to 'unclaimed'
+     * so they can claim it through the ordinary public endpoint.
+     *
+     * Owner ruling 2026-08-25: the site returns to OPEN first-come — there is
+     * deliberately no email lock — so a release is only safe while staff are in
+     * contact with the rightful owner. And the release ALWAYS proceeds: content
+     * the previous claimer added produces a WARNING in the response, never a
+     * refusal. That warning is the control — a non-empty one means they used the
+     * account and /force, not this, is the correct tool.
+     */
+    public function releaseClaim(Request $request, User $professional): JsonResponse
+    {
+        $gate = $this->requiresFreshAal2($request);
+        if (! $gate->allowed()) {
+            return response()->json([
+                'message' => $gate->message() ?: 'Recent MFA verification required',
+                'code' => 'mfa_fresh_required',
+            ], $gate->status() ?? 401);
+        }
+
+        /** @var PartnaStaff $staff */
+        $staff = $request->attributes->get('partna_staff');
+        $this->authorizeForUser($staff, 'staffReleaseClaim', $professional);
+
+        // Counted BEFORE the release: this is what the incoming owner would
+        // inherit, so it must describe the state staff are deciding about.
+        $warnings = $this->releaseClaimWarnings($professional);
+
+        try {
+            app(ClaimSiteService::class)->release($professional);
+        } catch (RuntimeException $e) {
+            // $extra (not $errors) puts `code` at the TOP level, matching the
+            // discriminator contract ClaimController and PreAccountBuildController use.
+            return match ($e->getMessage()) {
+                'NOT_CLAIMED' => $this->error(
+                    'This site is not currently claimed, so there is nothing to release.',
+                    409, [], ['code' => 'NOT_CLAIMED']
+                ),
+                'NOT_PRE_ACCOUNT' => $this->error(
+                    'This account has no pre-account build, so it has no claim to release.',
+                    409, [], ['code' => 'NOT_PRE_ACCOUNT']
+                ),
+                default => throw $e,
+            };
+        }
+
+        return $this->success([
+            'released' => true,
+            'warnings' => $warnings,
+            'message' => $warnings === []
+                ? 'Claim released. The site is unclaimed and open to be claimed again.'
+                : 'Claim released, but the previous claimer had added content — review it before the owner claims, or force-delete instead.',
+        ]);
+    }
+
+    /**
+     * What the incoming owner would inherit from the previous claimer.
+     *
+     * Only non-zero categories are returned, so an empty array is an unambiguous
+     * "clean release" signal rather than a row of zeros staff have to read.
+     *
+     * @return array<string, int>
+     */
+    private function releaseClaimWarnings(User $professional): array
+    {
+        $siteId = $professional->site?->id;
+
+        return array_filter([
+            'customers' => Customer::query()->where('user_id', $professional->id)->count(),
+            'enquiries' => Enquiry::query()->where('user_id', $professional->id)->count(),
+            'integration_connections' => IntegrationConnection::query()->where('user_id', $professional->id)->count(),
+            'media' => $siteId ? SiteMedia::query()->where('site_id', $siteId)->count() : 0,
+        ], fn (int $count) => $count > 0);
     }
 }

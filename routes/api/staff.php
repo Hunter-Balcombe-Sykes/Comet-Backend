@@ -219,6 +219,12 @@ Route::prefix('staff')
         // Hard delete (admin only)
         Route::delete('/professionals/{professional}/force', [StaffUserController::class, 'forceDestroy']);
 
+        // Release a claim (admin only) — the NON-destructive recovery for a
+        // wrongly-claimed pre-account site. POST, not DELETE: nothing is
+        // deleted, the binding is undone and the built site survives. Sits in
+        // this group (not the read-mostly one) because it transfers ownership.
+        Route::post('/professionals/{professional}/release-claim', [StaffUserController::class, 'releaseClaim']);
+
         // Bulk suspend/reactivate a wave of professionals (compliance sweep, admin only).
         Route::middleware('throttle:5,1')
             ->post('/professionals/bulk-status', [StaffUserController::class, 'bulkUpdateStatus']);
