@@ -10,7 +10,9 @@ class StaffReorderServiceLayoutRequest extends BaseFormRequest
     public function rules(): array
     {
         return [
-            'categories' => ['required', 'array'],
+            // #SEC-13: same bound as PoolController::reorder's itemIds — kept
+            // identical to the owner twin, per the no-drift comment below.
+            'categories' => ['required', 'array', 'max:200'],
 
             'categories.*.id' => ['nullable', 'uuid'], // null = Uncategorized bucket
             // `present`, not `required`: an EMPTY block is legitimate and, for
@@ -27,7 +29,7 @@ class StaffReorderServiceLayoutRequest extends BaseFormRequest
             // block, and `present` still catches it. Kept identical to
             // ReorderServiceLayoutRequest (the owner twin) on purpose: the two
             // surfaces gate the same payload and must not drift.
-            'categories.*.service_ids' => ['present', 'array'],
+            'categories.*.service_ids' => ['present', 'array', 'max:200'],
             // No cross-block `distinct` (2026-08-24) — same reasoning as the
             // user request: a multi-category service would 422 the layout.
             // Per-block uniqueness is the controller's check.

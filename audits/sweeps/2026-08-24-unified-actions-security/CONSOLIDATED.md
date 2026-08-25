@@ -82,7 +82,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 6 of 15 complete
+- P2 Medium: 7 of 15 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -387,7 +387,26 @@
             }
         ```
 
-- [ ] **#SEC-13** · P2 — Service-layout reorder requests accept unbounded collection sizes
+- [x] **#SEC-13** · P2 — Service-layout reorder requests accept unbounded collection sizes
+    - **FIXED 2026-08-26 (PART 2 unit 10c).** Added `max:200` to four Form Requests — the layout twins
+      (`ReorderServiceLayoutRequest`, `StaffReorderServiceLayoutRequest`: `categories` AND
+      `categories.*.service_ids`) and the category twins (`ReorderServiceCategoryRequest`,
+      `StaffReorderServiceCategoryRequest`: `ids`). Bound copied verbatim from `PoolController::reorder`
+      (`app/Http/Controllers/Api/Content/PoolController.php:163`), not invented.
+    - **The number is independently corroborated:** `config/partna.php:426` `service_categories_max` already
+      defaults to **200** and is enforced as a hard `->take(200)` in four list controllers. So `max:200` on
+      `categories` matches an existing product-level cap exactly.
+    - **Nothing else was touched.** The `present`-not-`required` decision on `service_ids` and the deliberate
+      absence of a cross-block `distinct` are both preserved verbatim — the files' own comments explain that
+      `required` would deadlock against the controller's coverage rule and `distinct` would 422 a legitimate
+      multi-category service. User/staff twins verified still identical in rule shape.
+    - **Residual, flagged not hidden:** the per-block `service_ids` cap of 200 has no matching config cap —
+      only `services_max = 500` exists. A professional filing >200 services under ONE category would 422 on
+      reorder for that block. Extreme edge case (>40% of a 500-service ceiling in one category) and it follows
+      the finding's instruction to copy the bound, so it ships — but it is a real, if narrow, ceiling.
+    - Mutation-proved: stripping `max:200` from all four turns exactly the 5 "rejects more than 200" tests RED
+      while the 5 "accepts exactly 200" tests stay green — the correct signature, since 200 was already
+      accepted before the fix. Regression suites: 108 passed (688 assertions). Review: **PASS**.
     - **Where:** app/Http/Requests/Api/User/Services/ReorderServiceLayoutRequest.php:12-36, app/Http/Requests/Api/Staff/UserSite/Services/StaffReorderServiceLayoutRequest.php:12-36
     - **Affects:** Authenticated professional and staff service-layout reorder endpoints.
     - **Effort:** S (~0.5–1h)
