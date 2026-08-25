@@ -13,6 +13,7 @@ use App\Routing\IriCanonicalizer;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
 use App\Routing\ShortLinkExpander;
+use App\Services\Cache\CacheLockService;
 use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Support\Facades\Cache;
@@ -103,8 +104,12 @@ it('takes a single-flight lock on the shortlink key before fetching', function (
     // Initial miss, then the post-lock double-check (also a miss).
     Cache::shouldReceive('get')->with($key)->twice()->andReturn(null, null);
     Cache::shouldReceive('lock')->with('lock:'.$key, 20)->once()->andReturn($lock);
-    // 86400 = ShortLinkExpander::SUCCESS_TTL_SECONDS.
-    Cache::shouldReceive('put')->with($key, 'https://soundcloud.com/sam-akhurst', 86400)->once();
+    // 86400 = ShortLinkExpander::SUCCESS_TTL_SECONDS, now jittered +/-20% by
+    // CacheLockService (CCH-3), so assert the band. It cannot overlap the 3600
+    // failure band (2880..4320), so this still pins WHICH ttl was used.
+    Cache::shouldReceive('put')
+        ->with($key, 'https://soundcloud.com/sam-akhurst', Mockery::on(fn ($ttl) => is_int($ttl) && $ttl >= 69120 && $ttl <= 103680))
+        ->once();
 
     $this->mock(SafeUrlFetcher::class, function ($m) {
         $m->shouldReceive('tryFetch')->once()->andReturn(['finalUrl' => 'https://soundcloud.com/sam-akhurst']);
@@ -129,7 +134,11 @@ it('caches a failed expansion under the SHORT failure TTL', function () {
     Cache::shouldReceive('get')->with($key)->twice()->andReturn(null, null);
     Cache::shouldReceive('lock')->with('lock:'.$key, 20)->once()->andReturn($lock);
     // 3600 = ShortLinkExpander::FAILURE_TTL_SECONDS, NOT the 86400 success TTL.
-    Cache::shouldReceive('put')->with($key, '__cache_lock_null_sentinel__', 3600)->once();
+    // Jittered +/-20% (CCH-3); the two bands cannot overlap, so this still pins
+    // that the FAILURE ttl was the one used.
+    Cache::shouldReceive('put')
+        ->with($key, '__cache_lock_null_sentinel__', Mockery::on(fn ($ttl) => is_int($ttl) && $ttl >= 2880 && $ttl <= 4320))
+        ->once();
 
     $this->mock(SafeUrlFetcher::class, function ($m) {
         $m->shouldReceive('tryFetch')->once()->andReturn(['finalUrl' => null]);
@@ -233,4 +242,28 @@ it('hands downstream consumers the EXPANDED url — probes never chase the short
 
     Queue::assertPushed(CommerceProbeJob::class, fn ($job) => $job->url === 'https://example.org/shop');
     Queue::assertNotPushed(CommerceProbeJob::class, fn ($job) => str_contains($job->url, 'bit.ly'));
+});
+
+// CCH-5: resolveFinal()'s catch had an empty body — comment only. The null it
+// returns is negative-cached for FAILURE_TTL_SECONDS, so a real defect or a
+// budget exhaustion looked exactly like "not expandable" for an hour, with
+// nothing at all reaching Nightwatch.
+it('logs a breadcrumb when short-link expansion throws, instead of failing silently', function () {
+    Log::spy();
+
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $fetcher->shouldReceive('tryFetch')->once()->andThrow(new RuntimeException('fetch budget exhausted'));
+
+    $expander = new ShortLinkExpander($fetcher, app(CacheLockService::class));
+
+    $result = $expander->expandIfShort('https://on.soundcloud.com/AbC123');
+
+    // Still fail-OPEN: the caller gets the original URL back, never an exception.
+    expect($result)->toBe('https://on.soundcloud.com/AbC123');
+
+    // Multi-argument matcher on purpose: a single-arg shouldHaveReceived is a
+    // documented vacuous shape in this repo.
+    Log::shouldHaveReceived('warning')
+        ->with('routing.shortlink_expand_failed', Mockery::type('array'))
+        ->once();
 });

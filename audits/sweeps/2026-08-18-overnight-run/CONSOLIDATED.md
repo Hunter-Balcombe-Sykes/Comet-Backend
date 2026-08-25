@@ -327,7 +327,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
-- P2 Medium: 2 of 11 complete
+- P2 Medium: 5 of 11 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -616,7 +616,19 @@
         }
         ```
 
-- [ ] **#LIFE-15** · P2 — Ingest-badge lookup swallows every `QueryException` with zero logging
+- [x] **#LIFE-15** · P2 — Ingest-badge lookup swallows every `QueryException` with zero logging
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 3). The catch is now
+      `catch (QueryException $e)` + `Log::warning('pools.ingest_badges_read_failed', …)` +
+      `self::escalateIfSustained($e, 'pool_ingest_badges')`, following the existing
+      `EscalatesRepeatedFaults` precedent in `ContentPopularityReader` rather than inventing a
+      convention. Deliberately still **fail-open** — the sheet renders, badges read "never" — and
+      deliberately a *warning*, not a `report()`, per fault: "ingest schema absent in this env" is a
+      legitimate shape here, so only a SUSTAINED run (5 in 10 min) escalates to Nightwatch.
+      Note the file moved to `app/Site/Pools/PoolResolver.php`; the audit's
+      `app/Services/PublicSite/` path and its :559-570 line numbers were both stale.
+      Tests: `tests/Feature/Content/PoolIngestBadgeFailOpenTest.php` — one asserting the breadcrumb
+      fires and the pool still renders, one asserting it does NOT fire on the healthy path.
+      Both mutation-proved (removing the log -> RED; logging unconditionally -> the negative test RED).
     - **Where:** app/Site/Pools/PoolResolver.php:559-570 (`itemPayloads()`)
     - **Affects:** The dashboard item sheet's "last synced" / auto-sync badges; Nightwatch observability of the same public-hot-path query.
     - **Effort:** S (~0.5–1h)
@@ -640,7 +652,25 @@
         }
         ```
 
-- [ ] **#LIFE-16** · P2 — `platforms:enrich-pending-cards` is missing all three of this file's own mandatory scheduler conventions
+- [x] **#LIFE-16** · P2 — `platforms:enrich-pending-cards` is missing all three of this file's own mandatory scheduler conventions
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 4). Both entries now follow this
+      file's own convention header (`:11-24`): `->onOneServer()` + `->withoutOverlapping(30)` +
+      `->runInBackground()` + `->onFailure($reportScheduledFailure(...))`.
+    - ⚠️ **Deviation from the EXECUTE file's DECIDED, stated deliberately.** It said to copy
+      `analytics:compute-popularity`'s shape *including its exact expiry value* (16). That 16 is
+      documented in-file as "cadence + 1" for an **everyFifteenMinutes** command, and the
+      convention header's cadence clause applies only to sub-hourly cadences. Both of these are
+      **dailyAt**, so a 16-minute lock would expire mid-run on a long backfill and reintroduce the
+      very overlap this finding exists to prevent. Used **30** instead, matching the daily-sweep
+      precedent in the same file (`partna:analytics:purge-raw-events`, `:88-93`, which is
+      `dailyAt` + `withoutOverlapping(30)` + `runInBackground` + `onFailure`) — an in-file
+      precedent, as the DECIDED intended, just the RIGHT one.
+    - Test: `tests/Feature/Console/SchedulerLockExpiryTest.php`. Two per-command assertions plus a
+      file-wide guard that NO scheduled command sits on the bare 1440-minute default. Both
+      mutations proved RED: reverting to bare `withoutOverlapping()` (caught by the specific test
+      AND the file-wide guard) and removing `onFailure()` (caught via reflection on
+      `afterCallbacks` — verified `runInBackground()` alone does not populate it, so the assertion
+      is not vacuous).
     - **Where:** routes/console.php:499-502
     - **Affects:** The link-card enrichment safety net — silent failure with no Nightwatch alert, a 24-hour stale-lock window after any crashed run, and potential blocking of the per-minute scheduler tick.
     - **Effort:** S (~0.5–1h)
@@ -658,7 +688,25 @@
             ->onOneServer();
         ```
 
-- [ ] **#LIFE-17** · P2 — `content:refresh-item-caches` is missing all three of this file's own mandatory scheduler conventions
+- [x] **#LIFE-17** · P2 — `content:refresh-item-caches` is missing all three of this file's own mandatory scheduler conventions
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 4). Both entries now follow this
+      file's own convention header (`:11-24`): `->onOneServer()` + `->withoutOverlapping(30)` +
+      `->runInBackground()` + `->onFailure($reportScheduledFailure(...))`.
+    - ⚠️ **Deviation from the EXECUTE file's DECIDED, stated deliberately.** It said to copy
+      `analytics:compute-popularity`'s shape *including its exact expiry value* (16). That 16 is
+      documented in-file as "cadence + 1" for an **everyFifteenMinutes** command, and the
+      convention header's cadence clause applies only to sub-hourly cadences. Both of these are
+      **dailyAt**, so a 16-minute lock would expire mid-run on a long backfill and reintroduce the
+      very overlap this finding exists to prevent. Used **30** instead, matching the daily-sweep
+      precedent in the same file (`partna:analytics:purge-raw-events`, `:88-93`, which is
+      `dailyAt` + `withoutOverlapping(30)` + `runInBackground` + `onFailure`) — an in-file
+      precedent, as the DECIDED intended, just the RIGHT one.
+    - Test: `tests/Feature/Console/SchedulerLockExpiryTest.php`. Two per-command assertions plus a
+      file-wide guard that NO scheduled command sits on the bare 1440-minute default. Both
+      mutations proved RED: reverting to bare `withoutOverlapping()` (caught by the specific test
+      AND the file-wide guard) and removing `onFailure()` (caught via reflection on
+      `afterCallbacks` — verified `runInBackground()` alone does not populate it, so the assertion
+      is not vacuous).
     - **Where:** routes/console.php:506-509
     - **Affects:** The item-cache repair backstop for content that missed its projection refresh — same failure modes as #LIFE-16.
     - **Effort:** S (~0.5–1h)
@@ -1051,7 +1099,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 4 of 6 complete
-- P2 Medium: 1 of 16 complete
+- P2 Medium: 3 of 16 complete
 - P3 Low: 0 of 7 complete
 
 ---
@@ -1497,7 +1545,25 @@ None.
         }
         ```
 
-- [ ] **#SCALE-20** · P2 — `platforms:enrich-pending-cards` scheduled entry uses a bare `withoutOverlapping()` with no `runInBackground`/`onFailure`
+- [x] **#SCALE-20** · P2 — `platforms:enrich-pending-cards` scheduled entry uses a bare `withoutOverlapping()` with no `runInBackground`/`onFailure`
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 4). Both entries now follow this
+      file's own convention header (`:11-24`): `->onOneServer()` + `->withoutOverlapping(30)` +
+      `->runInBackground()` + `->onFailure($reportScheduledFailure(...))`.
+    - ⚠️ **Deviation from the EXECUTE file's DECIDED, stated deliberately.** It said to copy
+      `analytics:compute-popularity`'s shape *including its exact expiry value* (16). That 16 is
+      documented in-file as "cadence + 1" for an **everyFifteenMinutes** command, and the
+      convention header's cadence clause applies only to sub-hourly cadences. Both of these are
+      **dailyAt**, so a 16-minute lock would expire mid-run on a long backfill and reintroduce the
+      very overlap this finding exists to prevent. Used **30** instead, matching the daily-sweep
+      precedent in the same file (`partna:analytics:purge-raw-events`, `:88-93`, which is
+      `dailyAt` + `withoutOverlapping(30)` + `runInBackground` + `onFailure`) — an in-file
+      precedent, as the DECIDED intended, just the RIGHT one.
+    - Test: `tests/Feature/Console/SchedulerLockExpiryTest.php`. Two per-command assertions plus a
+      file-wide guard that NO scheduled command sits on the bare 1440-minute default. Both
+      mutations proved RED: reverting to bare `withoutOverlapping()` (caught by the specific test
+      AND the file-wide guard) and removing `onFailure()` (caught via reflection on
+      `afterCallbacks` — verified `runInBackground()` alone does not populate it, so the assertion
+      is not vacuous).
     - **Where:** routes/console.php:499-502
     - **Affects:** Reliability/observability of the daily card-enrichment safety net (see #SCALE-16, same command).
     - **Effort:** S (~0.5–1h)
@@ -1514,7 +1580,25 @@ None.
             ->onOneServer();
         ```
 
-- [ ] **#SCALE-21** · P2 — `content:refresh-item-caches` scheduled entry uses a bare `withoutOverlapping()` with no `runInBackground`/`onFailure`
+- [x] **#SCALE-21** · P2 — `content:refresh-item-caches` scheduled entry uses a bare `withoutOverlapping()` with no `runInBackground`/`onFailure`
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 4). Both entries now follow this
+      file's own convention header (`:11-24`): `->onOneServer()` + `->withoutOverlapping(30)` +
+      `->runInBackground()` + `->onFailure($reportScheduledFailure(...))`.
+    - ⚠️ **Deviation from the EXECUTE file's DECIDED, stated deliberately.** It said to copy
+      `analytics:compute-popularity`'s shape *including its exact expiry value* (16). That 16 is
+      documented in-file as "cadence + 1" for an **everyFifteenMinutes** command, and the
+      convention header's cadence clause applies only to sub-hourly cadences. Both of these are
+      **dailyAt**, so a 16-minute lock would expire mid-run on a long backfill and reintroduce the
+      very overlap this finding exists to prevent. Used **30** instead, matching the daily-sweep
+      precedent in the same file (`partna:analytics:purge-raw-events`, `:88-93`, which is
+      `dailyAt` + `withoutOverlapping(30)` + `runInBackground` + `onFailure`) — an in-file
+      precedent, as the DECIDED intended, just the RIGHT one.
+    - Test: `tests/Feature/Console/SchedulerLockExpiryTest.php`. Two per-command assertions plus a
+      file-wide guard that NO scheduled command sits on the bare 1440-minute default. Both
+      mutations proved RED: reverting to bare `withoutOverlapping()` (caught by the specific test
+      AND the file-wide guard) and removing `onFailure()` (caught via reflection on
+      `afterCallbacks` — verified `runInBackground()` alone does not populate it, so the assertion
+      is not vacuous).
     - **Where:** routes/console.php:506-509
     - **Affects:** Reliability/observability of the daily item-cache repair safety net (see #SCALE-17, same command; added by commit `e8e0c2d0f`).
     - **Effort:** S (~0.5–1h)

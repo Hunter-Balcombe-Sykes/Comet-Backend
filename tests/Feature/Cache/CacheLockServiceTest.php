@@ -212,7 +212,10 @@ it('nullable: caches non-null callback result with ttl', function () {
 
     Cache::shouldReceive('get')->with('test:n:miss')->twice()->andReturn(null, null);
     Cache::shouldReceive('lock')->with('lock:test:n:miss', 10)->once()->andReturn($lock);
-    Cache::shouldReceive('put')->with('test:n:miss', 'value', 60)->once();
+    // Jittered ±20% of 60 (CCH-3), so band not exact value.
+    Cache::shouldReceive('put')
+        ->with('test:n:miss', 'value', M::on(fn ($ttl) => is_int($ttl) && $ttl >= 48 && $ttl <= 72))
+        ->once();
 
     $result = $this->service->rememberLockedNullable(
         'test:n:miss',
@@ -230,7 +233,10 @@ it('nullable: caches sentinel when callback returns null, using ttl by default',
 
     Cache::shouldReceive('get')->with('test:n:null')->twice()->andReturn(null, null);
     Cache::shouldReceive('lock')->with('lock:test:n:null', 10)->once()->andReturn($lock);
-    Cache::shouldReceive('put')->with('test:n:null', '__cache_lock_null_sentinel__', 60)->once();
+    // Jittered ±20% of 60 (CCH-3), so band not exact value.
+    Cache::shouldReceive('put')
+        ->with('test:n:null', '__cache_lock_null_sentinel__', M::on(fn ($ttl) => is_int($ttl) && $ttl >= 48 && $ttl <= 72))
+        ->once();
 
     $result = $this->service->rememberLockedNullable(
         'test:n:null',
@@ -248,8 +254,12 @@ it('nullable: uses nullTtl when caching the sentinel', function () {
 
     Cache::shouldReceive('get')->with('test:n:nullttl')->twice()->andReturn(null, null);
     Cache::shouldReceive('lock')->with('lock:test:n:nullttl', 10)->once()->andReturn($lock);
-    // Sentinel uses 30s, NOT the 600s positive ttl.
-    Cache::shouldReceive('put')->with('test:n:nullttl', '__cache_lock_null_sentinel__', 30)->once();
+    // Sentinel uses 30s, NOT the 600s positive ttl. Jittered ±20% (CCH-3), and the
+    // two bands cannot overlap (30 -> 24..36; 600 -> 480..720), so this still pins
+    // which of the two TTLs was used.
+    Cache::shouldReceive('put')
+        ->with('test:n:nullttl', '__cache_lock_null_sentinel__', M::on(fn ($ttl) => is_int($ttl) && $ttl >= 24 && $ttl <= 36))
+        ->once();
 
     $result = $this->service->rememberLockedNullable(
         'test:n:nullttl',
@@ -268,7 +278,11 @@ it('nullable: uses positive ttl for non-null even when nullTtl is set', function
 
     Cache::shouldReceive('get')->with('test:n:posttl')->twice()->andReturn(null, null);
     Cache::shouldReceive('lock')->with('lock:test:n:posttl', 10)->once()->andReturn($lock);
-    Cache::shouldReceive('put')->with('test:n:posttl', 'fresh', 600)->once();
+    // Jittered ±20% of the 600s positive ttl (CCH-3). The 30s nullTtl band is
+    // 24..36, so this still proves the positive ttl was the one used.
+    Cache::shouldReceive('put')
+        ->with('test:n:posttl', 'fresh', M::on(fn ($ttl) => is_int($ttl) && $ttl >= 480 && $ttl <= 720))
+        ->once();
 
     $result = $this->service->rememberLockedNullable(
         'test:n:posttl',
@@ -471,4 +485,97 @@ it('rememberLockedNullable with nullTtl 0 remembers nothing', function () {
     expect($second)->toBeNull();
     expect($calls)->toBe(2); // nothing was remembered, so the closure ran twice
     expect(Cache::has('test:n:realzero'))->toBeFalse();
+});
+
+// CCH-3: rememberLockedNullable wrote every entry with the raw TTL, so a whole
+// fleet's entries expired on the same second and re-queried the same upstream
+// together. Its sibling rememberLocked has always jittered via writeWithJitter().
+it('nullable: jitters the ttl so same-tick entries do not expire in lockstep', function () {
+    // Seeded: two consecutive draws are then deterministic, so "they differ"
+    // cannot flake. Without the seed a jitter test is a coin toss.
+    mt_srand(1);
+
+    $ttls = [];
+    foreach (['test:n:jit:a', 'test:n:jit:b'] as $key) {
+        $lock = M::mock(Lock::class);
+        $lock->shouldReceive('block')->with(5)->once();
+        $lock->shouldReceive('release')->once()->andReturn(true);
+
+        Cache::shouldReceive('get')->with($key)->twice()->andReturn(null, null);
+        Cache::shouldReceive('lock')->with('lock:'.$key, 10)->once()->andReturn($lock);
+        Cache::shouldReceive('put')
+            ->with($key, 'value', M::on(function ($ttl) use (&$ttls) {
+                $ttls[] = $ttl;
+
+                return true;
+            }))
+            ->once();
+
+        $this->service->rememberLockedNullable($key, 60, fn () => 'value');
+    }
+
+    // Separate statements, not a chain: a chained expect() aborts at the first
+    // failure, so one run would only ever prove one of these.
+    expect($ttls)->toHaveCount(2);
+    expect($ttls[0])->toBeInt();
+    expect($ttls[1])->toBeInt();
+    expect($ttls[0])->not->toBe($ttls[1]);
+    expect($ttls[0])->toBeGreaterThanOrEqual(48)->toBeLessThanOrEqual(72);
+    expect($ttls[1])->toBeGreaterThanOrEqual(48)->toBeLessThanOrEqual(72);
+});
+
+// The SENTINEL branch needs its own differential test, not just a band check.
+// A +/-20% band around N always CONTAINS N, so the band assertions above stay
+// green even with jitter removed entirely — they pin which TTL was chosen, not
+// that it was jittered. This is the negative-cache path CCH-3 was actually
+// filed for (AppleSearch, InstagramScraper, AnalyticsCacheService::insights,
+// FeatureAvailability's failopen sentinel all write through it).
+it('nullable: jitters the null-sentinel ttl too, not just the value ttl', function () {
+    mt_srand(1);
+
+    $ttls = [];
+    foreach (['test:n:jitnull:a', 'test:n:jitnull:b'] as $key) {
+        $lock = M::mock(Lock::class);
+        $lock->shouldReceive('block')->with(5)->once();
+        $lock->shouldReceive('release')->once()->andReturn(true);
+
+        Cache::shouldReceive('get')->with($key)->twice()->andReturn(null, null);
+        Cache::shouldReceive('lock')->with('lock:'.$key, 10)->once()->andReturn($lock);
+        Cache::shouldReceive('put')
+            ->with($key, '__cache_lock_null_sentinel__', M::on(function ($ttl) use (&$ttls) {
+                $ttls[] = $ttl;
+
+                return true;
+            }))
+            ->once();
+
+        $this->service->rememberLockedNullable($key, 60, fn () => null, nullTtl: 30);
+    }
+
+    expect($ttls)->toHaveCount(2);
+    expect($ttls[0])->toBeInt();
+    expect($ttls[1])->toBeInt();
+    expect($ttls[0])->not->toBe($ttls[1]);
+    // Band too, so a mutation to the WRONG ttl (60 not 30) is also caught.
+    expect($ttls[0])->toBeGreaterThanOrEqual(24)->toBeLessThanOrEqual(36);
+    expect($ttls[1])->toBeGreaterThanOrEqual(24)->toBeLessThanOrEqual(36);
+});
+
+// The other half of the contract: applyJitter() is int-typed and a
+// DateTimeInterface TTL is a deadline the caller chose, so it must survive
+// untouched — the same rule writeWithJitter() follows.
+it('nullable: passes a DateTimeInterface ttl through without jittering it', function () {
+    $deadline = now()->addMinutes(5);
+
+    $lock = M::mock(Lock::class);
+    $lock->shouldReceive('block')->with(5)->once();
+    $lock->shouldReceive('release')->once()->andReturn(true);
+
+    Cache::shouldReceive('get')->with('test:n:deadline')->twice()->andReturn(null, null);
+    Cache::shouldReceive('lock')->with('lock:test:n:deadline', 10)->once()->andReturn($lock);
+    Cache::shouldReceive('put')->with('test:n:deadline', 'value', $deadline)->once();
+
+    $result = $this->service->rememberLockedNullable('test:n:deadline', $deadline, fn () => 'value');
+
+    expect($result)->toBe('value');
 });

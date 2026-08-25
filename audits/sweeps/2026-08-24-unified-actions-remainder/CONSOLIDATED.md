@@ -814,7 +814,7 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 5 of 11 complete
+- P2 Medium: 8 of 11 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -895,7 +895,24 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 
 ## P2 — Should fix
 
-- [ ] **CCH-3** · P2 — `ShortLinkExpander` writes hardcoded TTLs with no jitter
+- [x] **CCH-3** · P2 — `ShortLinkExpander` writes hardcoded TTLs with no jitter
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 2). The stated premise is stale: the CCH-2
+      rewrite landed, so `ShortLinkExpander` no longer calls `Cache::put` at all — it routes through
+      `CacheLockService::rememberLockedNullable` (`:84-90`), and the TTL constants are the deliberate
+      negative-cache pair, not a defect. The REAL residual was one level down:
+      `rememberLockedNullable` wrote both its branches with the raw TTL while its sibling
+      `rememberLocked` jittered via `writeWithJitter()`, so every entry it wrote still expired in
+      fleet-wide lockstep. Fixed at that single seam (`jitterUnlessDeadline()`), which closes every
+      caller at once. A `DateTimeInterface` TTL is a caller-chosen deadline and passes through
+      untouched, matching `writeWithJitter()`'s contract.
+    - ⚠️ **Both write branches need their own differential test.** Review round 2 caught that a
+      +/-20% band ALWAYS contains the un-jittered value, so the band assertions pin *which* TTL was
+      used, not *that* it was jittered — stripping jitter from the sentinel branch alone left all
+      23 tests green. Three mutations now proved RED: value-branch jitter removed, sentinel-branch
+      jitter removed (`Expecting 30 not to be 30`), and the DateTimeInterface guard dropped
+      (TypeError). Collateral: four exact-TTL assertions in `CacheLockServiceTest` plus three at
+      caller sites (`ShortLinkExpanderTest` x2, `RefreshHostLimitsTest` x1) were pinning the
+      un-jittered TTL and became bands.
     - **Where:** app/Routing/ShortLinkExpander.php:52-54, 101
     - **Affects:** Short-link cache entries expire in synchronised lockstep across the fleet, risking a coordinated refetch burst at the expiry boundary.
     - **Effort:** S (~0.5–1h)
@@ -929,7 +946,20 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
         }
         ```
 
-- [ ] **CCH-5** · P2 — `ShortLinkExpander` swallows every exception and caches an invisible negative sentinel
+- [x] **CCH-5** · P2 — `ShortLinkExpander` swallows every exception and caches an invisible negative sentinel
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 3). `resolveFinal()`'s catch had an
+      empty body — comment only. Now `catch (\Throwable $e)` +
+      `Log::warning('routing.shortlink_expand_failed', ['url' => …, 'error' => …])` +
+      `self::escalateIfSustained($e, 'shortlink_expand')`, same `EscalatesRepeatedFaults`
+      precedent as `#LIFE-15`.
+    - ⚠️ **The negative TTL was deliberately NOT changed.** The finding's "invisible negative
+      sentinel" half is about the 1h `FAILURE_TTL_SECONDS`, and the code carries an explicit
+      "Do NOT change these TTLs" instruction — a long negative TTL on a transient failure is a
+      real concern, but shortening it is a separate judgement call, not this fix. What changed is
+      that the failure is no longer INVISIBLE while it is cached.
+    - Test: `tests/Feature/Routing/ShortLinkExpanderTest.php` — a throwing fetcher still returns the
+      original URL (fail-open preserved) AND emits the breadcrumb. Mutation-proved: removing the
+      log line turns it RED.
     - **Where:** app/Routing/ShortLinkExpander.php:96-101
     - **Affects:** Error observability. A defect or budget exhaustion is cached as "not expandable" for up to an hour with nothing reaching Nightwatch.
     - **Effort:** S (~0.5–1h)
@@ -947,7 +977,13 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
         Cache::put($key, $final ?? '', $final === null ? self::FAILURE_TTL_SECONDS : self::SUCCESS_TTL_SECONDS);
         ```
 
-- [ ] **CCH-6** · P2 — `AppleSearch::itunes()` writes a literal int TTL with no jitter
+- [x] **CCH-6** · P2 — `AppleSearch::itunes()` writes a literal int TTL with no jitter
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 2). Two halves, both closed. The
+      "literal int TTL" half was already stale — `itunes()` reads
+      `config('partna.refresh.host_limits.itunes.cache_ttl_seconds')` (`AppleSearch.php:131`). The
+      jitter half was real and survived the CCH-1 rewrite: `itunes()` now goes through
+      `rememberLockedNullable` (`:129`), which was the one `CacheLockService` path that did NOT
+      jitter. The same one-line fix as CCH-3 closes it — no change in `AppleSearch.php` itself.
     - **Where:** app/Services/Platforms/AppleSearch.php:130
     - **Affects:** All cached iTunes responses; synchronised TTL expiry across the fleet.
     - **Effort:** S (~0.5–1h) — folds into the CCH-1 fix

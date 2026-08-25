@@ -3,6 +3,7 @@
 namespace App\Site\Pools;
 
 use App\Models\Core\Site\Site;
+use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Analytics\ItemFamily;
 use App\Services\Cache\CacheKeyGenerator;
@@ -18,6 +19,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * The ONE pool read — live, no document cache (owner chose Option B:
@@ -42,6 +44,8 @@ use Illuminate\Support\Facades\DB;
  */
 class PoolResolver
 {
+    use EscalatesRepeatedFaults;
+
     /**
      * THE public wire contract for a pool item — the #API-1 enforcement point
      * for this lane (spec §3.7).
@@ -810,8 +814,16 @@ class PoolResolver
                     ->unique('connection_id')
                     ->keyBy('connection_id')
                     ->all();
-            } catch (QueryException) {
-                // No ingest schema in this environment: badges read "never".
+            } catch (QueryException $e) {
+                // Fail-open: the sheet still renders, badges just read "never".
+                // But #LIFE-15: this was indistinguishable from a real DB fault
+                // on a query the PUBLIC payload also runs, with no log line at
+                // all. A missing ingest schema is a legitimate shape here, so
+                // it stays a warning breadcrumb; only a SUSTAINED run reaches
+                // Nightwatch (EscalatesRepeatedFaults, same as
+                // ContentPopularityReader). Never fail-closed.
+                Log::warning('pools.ingest_badges_read_failed', ['error' => $e->getMessage()]);
+                self::escalateIfSustained($e, 'pool_ingest_badges');
                 $ingestByConnection = [];
             }
         }
