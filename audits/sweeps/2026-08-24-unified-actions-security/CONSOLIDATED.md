@@ -562,7 +562,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 7 of 16 complete
+- P2 Medium: 8 of 16 complete
 - P3 Low: 0 of 8 complete
 
 ---
@@ -757,7 +757,7 @@
             }
         ```
 
-- [ ] **SEM-7** · P2 — Pool reorder leaves un-listed pinned items behind with stale sort keys
+- [x] **SEM-7** · P2 — Pool reorder leaves un-listed pinned items behind with stale sort keys
     - **Where:** app/Http/Controllers/Api/Content/PoolController.php:186-204
     - **Affects:** Any pool reorder where the client's `itemIds` list omits a currently-pinned item — that item's old position can collide with, or land between, the freshly-assigned positions.
     - **Effort:** S (~0.5–1h)

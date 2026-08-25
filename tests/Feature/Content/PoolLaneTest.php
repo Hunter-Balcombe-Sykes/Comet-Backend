@@ -212,6 +212,122 @@ it('rejects a reorder naming an item outside the pool', function () {
     expect(app(PoolController::class)->reorder($request, 'watch')->getStatusCode())->toBe(422);
 });
 
+// SEM-7: a pin the client's itemIds list omits is NOT deleted by reorder()'s
+// delete/insert pair (that only touches listed ids), so it used to keep its
+// OLD sort_key and interleave with the fresh 1..N sequence — the public
+// sitepage then rendered an order nobody chose. Asserting on the RESOLVED
+// order the endpoint returns (poolHeadlines), not the raw sort_key values,
+// because that resolved order is what a visitor actually sees and is exactly
+// what a repeat of the original bug would corrupt.
+it('reorder renumbers a pin the client omitted to sit after the listed items, not interleaved', function () {
+    [$pro, $siteId] = poolTenant();
+    poolOrderMode($siteId, 'watch', 'manual');
+    $pro = $pro->fresh(['site']);
+    $source = poolSource($pro->id, poolConnection($pro->id));
+
+    $a = poolItem($pro->id, $source, 'video', 'A', now()->subDays(3)->toDateTimeString());
+    $b = poolItem($pro->id, $source, 'video', 'B', now()->subDays(2)->toDateTimeString());
+    $c = poolItem($pro->id, $source, 'video', 'C', now()->subDay()->toDateTimeString());
+
+    // Seed all three as pins in A, B, C order.
+    $seed = Request::create('/api/content/pools/watch/order', 'PUT', ['itemIds' => [$a, $b, $c]]);
+    $seed->attributes->set('professional', $pro);
+    app(PoolController::class)->reorder($seed, 'watch');
+
+    // The drag commit only lists A and C — B is the stranded survivor.
+    $request = Request::create('/api/content/pools/watch/order', 'PUT', ['itemIds' => [$a, $c]]);
+    $request->attributes->set('professional', $pro);
+    $data = app(PoolController::class)->reorder($request, 'watch')->getData(true);
+
+    $headlines = poolHeadlines($data);
+
+    // (i) B is not interleaved between A and C — it lands after both, at the
+    // last position.
+    expect(array_search('B', $headlines, true))->toBe(2);
+    // (ii) the A→C relative order is exactly what was sent.
+    expect(array_slice($headlines, 0, 2))->toBe(['A', 'C']);
+});
+
+it('reorder keeps omitted survivors in their prior relative order, occupying consecutive positions after the listed ones', function () {
+    [$pro, $siteId] = poolTenant();
+    poolOrderMode($siteId, 'watch', 'manual');
+    $pro = $pro->fresh(['site']);
+    $source = poolSource($pro->id, poolConnection($pro->id));
+
+    $a = poolItem($pro->id, $source, 'video', 'A', now()->subDays(4)->toDateTimeString());
+    $b = poolItem($pro->id, $source, 'video', 'B', now()->subDays(3)->toDateTimeString());
+    $c = poolItem($pro->id, $source, 'video', 'C', now()->subDays(2)->toDateTimeString());
+    $d = poolItem($pro->id, $source, 'video', 'D', now()->subDay()->toDateTimeString());
+
+    // Seed all four as pins in A, B, C, D order.
+    $seed = Request::create('/api/content/pools/watch/order', 'PUT', ['itemIds' => [$a, $b, $c, $d]]);
+    $seed->attributes->set('professional', $pro);
+    app(PoolController::class)->reorder($seed, 'watch');
+
+    // The drag commit lists only A — B, C, D all survive as omitted pins.
+    $request = Request::create('/api/content/pools/watch/order', 'PUT', ['itemIds' => [$a]]);
+    $request->attributes->set('professional', $pro);
+    $data = app(PoolController::class)->reorder($request, 'watch')->getData(true);
+
+    $headlines = poolHeadlines($data);
+
+    // (iii) no row was dropped or duplicated by the renumbering — checked
+    // BEFORE the order assertion below so a count-only regression fails here
+    // rather than being masked by an out-of-bounds slice comparison.
+    expect($headlines)->toHaveCount(4);
+    // Survivors keep their own relative order (B, C, D) and sit in
+    // consecutive positions right after the one listed item — no gap, no
+    // reordering among themselves.
+    expect(array_slice($headlines, 1))->toBe(['B', 'C', 'D']);
+});
+
+// `sort_key` is nullable with no default (20260727150000). No app write path
+// today produces a NULL on a pinned row — ManualPoolWriter::pin() type-hints
+// a non-nullable float, and every other writer (SectionItemController,
+// PoolItemCreateController, ManualEventWriter, LinkPoolWriter) falls back to
+// nextSortKey() via `??`/`??=` — but the column itself allows it, and SQLite
+// (tests) sorts NULL FIRST on ASC while Postgres sorts NULL LAST, so an
+// ordering bug here would only ever surface in production. C's sort_key is
+// set to NULL directly via DB write (poolPin()-style, bypassing the app
+// layer) to exercise the query's NULL-handling regardless of reachability.
+it('reorder still renumbers a survivor whose sort_key is NULL, deterministically, instead of skipping or stranding it', function () {
+    [$pro, $siteId] = poolTenant();
+    poolOrderMode($siteId, 'watch', 'manual');
+    $pro = $pro->fresh(['site']);
+    $source = poolSource($pro->id, poolConnection($pro->id));
+
+    $a = poolItem($pro->id, $source, 'video', 'A', now()->subDays(4)->toDateTimeString());
+    $b = poolItem($pro->id, $source, 'video', 'B', now()->subDays(3)->toDateTimeString());
+    $c = poolItem($pro->id, $source, 'video', 'C', now()->subDays(2)->toDateTimeString());
+    $d = poolItem($pro->id, $source, 'video', 'D', now()->subDay()->toDateTimeString());
+
+    // Seed all four as pins in A, B, C, D order (sort_key 1..4).
+    $seed = Request::create('/api/content/pools/watch/order', 'PUT', ['itemIds' => [$a, $b, $c, $d]]);
+    $seed->attributes->set('professional', $pro);
+    app(PoolController::class)->reorder($seed, 'watch');
+
+    // Blank C's sort_key — a state no app write path can reach, but the
+    // column allows it.
+    DB::connection('pgsql')->table('site.section_items')->where('item_id', $c)->update(['sort_key' => null]);
+
+    // The drag commit lists only A — B, C, D all survive; C's sort_key is
+    // NULL and B/D's are the ordinary floats 2 and 4.
+    $request = Request::create('/api/content/pools/watch/order', 'PUT', ['itemIds' => [$a]]);
+    $request->attributes->set('professional', $pro);
+    $data = app(PoolController::class)->reorder($request, 'watch')->getData(true);
+
+    $headlines = poolHeadlines($data);
+
+    // C is neither dropped nor stranded — all four items are still present.
+    expect($headlines)->toHaveCount(4);
+    // C (the NULL) sorts after every non-NULL survivor on BOTH dialects, so
+    // it lands last among the survivors — B and D (both non-NULL) keep their
+    // relative order ahead of it. A NULL-unsafe `orderBy('sort_key')` would
+    // instead put C FIRST on SQLite (this suite's driver), producing
+    // [A, C, B, D].
+    expect(array_slice($headlines, 1))->toBe(['B', 'D', 'C']);
+});
+
 // ── The library delete ──────────────────────────────────────────────────────
 
 it('removing a pinned item keeps it off the site — an exclusion, not a bare un-pin', function () {
