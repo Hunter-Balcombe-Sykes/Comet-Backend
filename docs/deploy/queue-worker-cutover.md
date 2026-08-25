@@ -1,6 +1,11 @@
 # Queue worker cutover — sync → Horizon readiness
 
-**Compiled:** 2026-07-20 · **Status:** pre-cutover · **Sibling doc:** [`production-cutover.md`](./production-cutover.md)
+**Compiled:** 2026-07-20 · **Status:** ⚠️ **DEV CUT OVER 2026-08-25; PROD UNVERIFIED** · **Sibling doc:** [`production-cutover.md`](./production-cutover.md)
+
+> **Status update 2026-08-25 (verified live, not assumed).** `QUEUE_CONNECTION=redis` is set on **both** dev and prod (`cloud environment:get … --show-sensitive`).
+> On **dev** the cutover is genuinely complete: `horizon:status` reports *"Horizon is running"*, 1 master supervisor, `llen(queues:default)` = **0** (draining, not backlogged), 5 historical failed jobs.
+> On **prod** the env is **stopped**, so B1 below — *"is a Horizon/worker process actually provisioned?"* — is **still unverified there** and its checkbox stays unticked.
+> **This is the doc's own worst case if it is wrong:** `redis` with no worker enqueues to an unbounded backlog nobody drains, which is strictly worse than the inline execution it replaced. **Confirm a worker is provisioned in the Cloud dashboard BEFORE prod is started.**
 **Re-verified 2026-07-22** against live dev env + post-07-20 code delta — see §9 for item status and new findings.
 **Prod reuses this doc:** §1–§7 are env-agnostic (prod runs the same code); §10 adds only the prod-specific post-cutover flip.
 

@@ -336,7 +336,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 3 of 4 complete
+- P1 High: 4 of 4 complete
 - P2 Medium: 1 of 8 complete
 - P3 Low: 0 of 5 complete
 
@@ -344,7 +344,12 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **SCALE-1** · P1 — Accepting a legacy synced-platform suggestion can hold an HTTP worker for ~110s on an inline Apify scrape
+- [x] **SCALE-1** · P1 — Accepting a legacy synced-platform suggestion can hold an HTTP worker for ~110s on an inline Apify scrape
+    - **RESOLVED BY ENVIRONMENT 2026-08-25 — no code change, and none was appropriate.** The 2026-08-24 BLOCKED note was right that this is misdiagnosed: `applyFinding()`'s vendor-facing arm ALREADY ends in `InstagramConnectJob::dispatch(...)`, so the ~110s was that job's own scrape budget running in-request *only because the deployed queue driver was `sync`*. The note named the real remediation as the Horizon worker cutover — **that has now landed.**
+        Verified live rather than assumed (`cloud environment:get … --show-sensitive`): `QUEUE_CONNECTION=redis` on **both** dev and prod. On dev, `horizon:status` reports "Horizon is running" with 1 master supervisor, `llen(queues:default)` = 0 (draining, not backlogged). The dispatch therefore returns immediately and no HTTP worker is held.
+        Landing a code "fix" would have been actively harmful, exactly as the BLOCKED note argued: dispatching a second job is a literal no-op under `sync` and unnecessary under `redis`, and it would risk the 403 capability-denial contract pinned by `AutoSyncApplyCapabilityDenialTest` (an `AuthorizationException` inside a job fails silently — the user would sit on 202 "pending" forever) and lose the synchronous 423 retry signal.
+        Only the stale code comment was corrected (`SuggestionsController` ~:330): the ORDERING reason for keeping `applyFinding()` outside the platform lock is load-bearing and independent of the queue driver, so it is now stated first; the sync/110s reason is marked historical.
+        **Carried forward as a pre-launch gate, NOT closed by this tick:** prod's env is currently **stopped**, so whether a Horizon worker is actually provisioned there is unverified. `docs/deploy/queue-worker-cutover.md` §B1 warns that `redis` WITHOUT a worker is strictly worse than inline execution — an unbounded backlog nobody drains. Confirm the worker before prod is started; the doc's status header now says so.
     - **BLOCKED (2026-08-24) — not fixed, and the finding is misdiagnosed.** `applyFinding()`'s only
       vendor-facing arm already ends in `InstagramConnectJob::dispatch(...)` — it is ALREADY a queued
       job. The ~110s is that job's own scrape budget, and it runs in-request only because prod is on

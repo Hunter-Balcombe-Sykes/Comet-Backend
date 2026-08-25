@@ -327,14 +327,19 @@ class SuggestionsController extends ApiController
             ? app(InstagramAutoSync::class)
             : app(GoogleBusinessAutoSync::class);
 
-        // applyFinding stays OUTSIDE the platform lock — it writes OTHER
-        // platforms' rows and dispatches InstagramConnectJob, which runs
-        // inline (~110s) only under QUEUE_CONNECTION=sync, which a
-        // 10s-TTL lock would expire in the middle of, reopening the very
-        // lost-update window the lock exists to close. It also takes its own
-        // booking/reservations XOR lock internally, and this call fully
-        // releasing first is what keeps that ordering acyclic (§9.4 of the U1
-        // plan). Do not move it inside the closure below.
+        // applyFinding stays OUTSIDE the platform lock. The load-bearing reason
+        // is ORDERING: it takes its own booking/reservations XOR lock
+        // internally, and this call fully releasing first is what keeps that
+        // ordering acyclic (§9.4 of the U1 plan). Do not move it inside the
+        // closure below.
+        //
+        // SCALE-1's second reason is now historical: it dispatches
+        // InstagramConnectJob, which ran inline (~110s) — long enough for a
+        // 10s-TTL lock to expire mid-flight — only under QUEUE_CONNECTION=sync.
+        // Both envs are on `redis` as of 2026-08-25 (dev verified running
+        // Horizon, 1 supervisor, 0 queued), so the job no longer holds the
+        // request. Keep the ordering rule regardless; it does not depend on the
+        // queue driver.
         //
         // False means a contended XOR lock: nothing was removed and nothing
         // written, so the finding must NOT be settled — marking it done for a
