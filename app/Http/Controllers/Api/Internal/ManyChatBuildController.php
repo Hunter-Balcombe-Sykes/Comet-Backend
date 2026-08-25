@@ -63,6 +63,11 @@ class ManyChatBuildController extends ApiController
         // leaked webhook secret could fetch a working capability for a build
         // someone else created, which is the takeover this rule exists to stop.
         $claimUrl = null;
+        // The null check looks redundant — hash_equals((string) null, $idempotencyKey)
+        // already fails on length. It is redundant ONLY because ManyChatBuildRequest
+        // requires idempotency_key, so $idempotencyKey can never be ''. Loosen that
+        // rule and hash_equals('', '') is true, making every null-key (self-serve)
+        // build mintable — the takeover spec §5.4 exists to stop.
         $isRetryOfOurOwn = $result['reused']
             && $build->claim_idempotency_key !== null
             && hash_equals((string) $build->claim_idempotency_key, $idempotencyKey);
