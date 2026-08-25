@@ -73,35 +73,119 @@ final class MediaMirror
      */
     public function mirror(string $userId, string $assetId, string $sourceUrl): bool
     {
+        // #SCALE-3. The bytes land on temp disk, never in PHP memory — see
+        // stream()'s docblock for why. Created and deleted HERE so that every
+        // return path below, including the failure ones, drops the file.
+        //
+        // The one case this cannot cover is a SIGKILL — Horizon's own memory
+        // restart, or the box OOM-killing the worker — which leaves the file
+        // orphaned because no `finally` runs. That is a real residual, stated
+        // rather than hidden: the trade is an OOM-restart failure mode for an
+        // occasional orphaned temp file reclaimed with the container. It is
+        // the better half of that trade, and it is strictly less likely now
+        // that the 80 MB is no longer on the heap causing the restart.
+        $temp = tempnam($this->tempDir(), 'media-mirror-');
+        if ($temp === false) {
+            return $this->fail($assetId, 'store_failed', $sourceUrl, 'could not open a temp file', $userId);
+        }
+
+        try {
+            return $this->stream($userId, $assetId, $sourceUrl, $temp);
+        } finally {
+            @unlink($temp);
+        }
+    }
+
+    /**
+     * The mirror itself, with $temp guaranteed to exist and be cleaned up.
+     *
+     * #SCALE-3: this used to hold the whole response as a PHP string. The
+     * fetcher's byte cap does not prevent that — its own docblock says Guzzle
+     * has already buffered the body by the time the cap sees it — so an 80 MB
+     * reel was 80 MB of heap, and `Storage::put()` on a string copies it again
+     * into the write stream. Against supervisor-1's 256 MB restart threshold
+     * one large reel could take the worker out mid-job, which is a mirror that
+     * fails with no reason recorded on the row.
+     *
+     * The video branch never needs the bytes in memory at all (it stores them
+     * verbatim under a content hash), so it works entirely off the file. The
+     * image branch still needs a string, because GD's imagecreatefromstring()
+     * takes one — but only AFTER the size check has bounded it at 15 MB, so
+     * the 80 MB ceiling no longer reaches PHP memory on any path.
+     */
+    private function stream(string $userId, string $assetId, string $sourceUrl, string $temp): bool
+    {
         // Category B. An Instagram CDN url arrived in a third-party scrape
         // payload and is untrusted by definition — a host allowlist would not
         // be the fix here, it would be a way of not asking the question.
         // A reel's mp4 is well over the fetcher's 10 MB page/image default;
         // the video branch below enforces its own cap after the fact.
-        $response = $this->fetcher->withMaxBytes(self::MAX_VIDEO_BYTES)->tryFetch($sourceUrl);
+        $response = $this->fetcher->withMaxBytes(self::MAX_VIDEO_BYTES)->tryFetchToFile($sourceUrl, $temp);
 
-        // tryFetch returns null on refusal or transport failure; dereferencing
-        // before this null check is the repo's known trap. Past it, the shape
-        // is guaranteed — no `?? 0` defaults, which would only hide a change to
-        // SafeUrlFetcher's contract behind a plausible-looking fallback.
+        // tryFetchToFile returns null on refusal or transport failure;
+        // dereferencing before this null check is the repo's known trap. Past
+        // it, the shape is guaranteed — no `?? 0` defaults, which would only
+        // hide a change to SafeUrlFetcher's contract behind a plausible-looking
+        // fallback. Note there is no 'body' key by design: the bytes are in
+        // $temp, and reading a `body` here would put them straight back on the
+        // heap.
         if ($response === null || $response['status'] < 200 || $response['status'] >= 300) {
             return $this->fail($assetId, 'fetch_failed', $sourceUrl, userId: $userId);
         }
 
-        $body = $response['body'];
+        // Belt-and-braces, and deliberately NOT justified by a failure anyone
+        // has reproduced: PHP invalidates its own stat cache for writes it
+        // performs, and both file_put_contents() and an fopen/fwrite/fclose
+        // cycle (which is how Guzzle fills a sink) were checked on this repo's
+        // PHP 8.4 — filesize() reports the post-write size with or without
+        // this call. It is kept because the size below is the ONLY thing
+        // standing between an 80 MB file and file_get_contents(), and one free
+        // stat invalidation is a cheaper insurance premium than reasoning
+        // about which stream wrapper a future fetcher change might use.
+        clearstatcache(true, $temp);
+        $bytes = (int) filesize($temp);
+
         // Video (a reel's mp4, R7): stored as-is under its content hash — no
         // re-encode, its own byte cap. Detected by the ISO BMFF 'ftyp' box at
-        // offset 4, never by extension (a signed CDN url has none).
-        if (strlen($body) > 12 && substr($body, 4, 4) === 'ftyp') {
-            if (strlen($body) > self::MAX_VIDEO_BYTES) {
+        // offset 4, never by extension (a signed CDN url has none). Read as 12
+        // bytes off the front of the file rather than a substr of the whole
+        // body — same test, none of the memory.
+        if ($this->isIsoBaseMedia($temp, $bytes)) {
+            if ($bytes > self::MAX_VIDEO_BYTES) {
                 return $this->fail($assetId, 'video_too_large', $sourceUrl, userId: $userId);
             }
-            $path = 'content-media/'.$userId.'/'.substr(hash('sha256', $body), 0, 32).'.mp4';
+            // hash_file streams the file in blocks; hash() on a string would
+            // need the string. Same digest, same path, no heap.
+            $path = 'content-media/'.$userId.'/'.substr(hash_file('sha256', $temp), 0, 32).'.mp4';
             try {
-                Storage::disk(config('partna.media_disk'))->put($path, $body, ['ContentType' => 'video/mp4']);
+                $handle = fopen($temp, 'rb');
+                if ($handle === false) {
+                    return $this->fail($assetId, 'store_failed', $sourceUrl, 'could not reopen the temp file', $userId);
+                }
+                try {
+                    // writeStream, not put: put() takes a string and would undo
+                    // the whole point of streaming into $temp.
+                    $stored = Storage::disk(config('partna.media_disk'))
+                        ->writeStream($path, $handle, ['ContentType' => 'video/mp4']);
+                } finally {
+                    // The adapter consumes the handle but does not own it.
+                    if (is_resource($handle)) {
+                        fclose($handle);
+                    }
+                }
             } catch (\Throwable $e) {
                 return $this->fail($assetId, 'store_failed', $sourceUrl, $e->getMessage(), $userId);
             }
+
+            // The media disk is `throw => true`, so a failed write normally
+            // arrives as the exception above — but PARTNA_MEDIA_DISK can point
+            // at the non-throwing `public_dev` alias, where a failed write is a
+            // false return. Unchecked, that wrote a storage_path for an object
+            // that does not exist and reported success.
+            if ($stored === false) {
+                return $this->fail($assetId, 'store_failed', $sourceUrl, 'the disk rejected the write', $userId);
+            }
+
             $wrote = DB::connection('pgsql')->table('content.media_assets')
                 ->where('id', $assetId)
                 // #SEC-5: keyed on id AND owner. The id alone is sufficient in
@@ -130,8 +214,22 @@ final class MediaMirror
             // stop. The log line and the false return carry the signal instead.
             return $wrote === 1 ? true : $this->fail($assetId, 'asset_unwritable', $sourceUrl, userId: $userId);
         }
-        if ($body === '' || strlen($body) > self::MAX_BYTES) {
+        // Checked BEFORE the file is read into a string, which is the other
+        // half of #SCALE-3 (and closes #SCALE-15): every fetch here is capped
+        // at the 80 MB video ceiling because we cannot know it is not a reel
+        // until the bytes arrive, so an oversized image used to be buffered in
+        // full and only then rejected. Now the 80 MB lands on disk and the 15 MB
+        // image cap is what bounds PHP memory.
+        if ($bytes === 0 || $bytes > self::MAX_BYTES) {
             return $this->fail($assetId, 'body_rejected', $sourceUrl, userId: $userId);
+        }
+
+        // Bounded at MAX_BYTES by the check above. GD's imagecreatefromstring()
+        // needs a string, so the image path is where the bytes legitimately
+        // become one.
+        $body = file_get_contents($temp);
+        if ($body === false) {
+            return $this->fail($assetId, 'store_failed', $sourceUrl, 'could not read the temp file', $userId);
         }
 
         // #SEC-1. The byte cap above is not a decompression-bomb defence and
@@ -192,6 +290,34 @@ final class MediaMirror
     }
 
     /**
+     * The ISO BMFF 'ftyp' box at offset 4 — an mp4/mov, read off the front of
+     * the file instead of out of a full-body string (#SCALE-3).
+     *
+     * The `> 12` length guard is kept exactly as it was: a file of 12 bytes or
+     * fewer cannot carry a box header AND payload, and treating one as a video
+     * would store a truncated object under a content hash.
+     */
+    private function isIsoBaseMedia(string $temp, int $bytes): bool
+    {
+        if ($bytes <= 12) {
+            return false;
+        }
+
+        $handle = fopen($temp, 'rb');
+        if ($handle === false) {
+            return false;
+        }
+
+        try {
+            $head = fread($handle, 12);
+        } finally {
+            fclose($handle);
+        }
+
+        return is_string($head) && substr($head, 4, 4) === 'ftyp';
+    }
+
+    /**
      * May this projected media entry's bytes be mirrored?
      *
      * @param  array<string, mixed>  $entry
@@ -210,6 +336,19 @@ final class MediaMirror
         }
 
         return false;
+    }
+
+    /**
+     * Where the fetched body is spooled. Defaults to the system temp dir, which
+     * is correct on Laravel Cloud; overridable because the spool is a real file
+     * on a real shared directory (a worker box may want a specific volume, and
+     * the leak tests need a directory a parallel worker is not also writing to).
+     */
+    private function tempDir(): string
+    {
+        $configured = config('partna.media_mirror_temp_dir');
+
+        return is_string($configured) && $configured !== '' ? $configured : sys_get_temp_dir();
     }
 
     private function maxEdge(): int

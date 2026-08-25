@@ -88,3 +88,38 @@ dataset('analyticsUserScopedIndexes', [
 it('has a user-leading erasure index on each explicitly-purged analytics table', function (string $table, string $index) {
     assertIndexExists('analytics', $table, $index);
 })->with('analyticsUserScopedIndexes');
+
+// ─── pool candidate sort: item-leading facet indexes (#SCALE-1) ─────────────
+//
+// SectionCandidates::ruleCandidates() sorts every automatic pool by a
+// CORRELATED aggregate over one of these two facet tables — MAX(published_from)
+// for recency, MIN(starts_at_utc) for occurrence. It has to stay correlated:
+// both tables are keyed (item_id, source_id), so an item carried by two sources
+// has two facet rows and the obvious join emits it twice (pinned by
+// tests/Feature/Site/SectionCandidateOrderingTest.php).
+//
+// Correlated means one probe per candidate row, so the probe's cost IS the
+// query's cost. The PRIMARY KEY leads with item_id and finds the row, but does
+// not carry the sorted column — measured on dev 2026-08-25, the probes were
+// 4022 of the query's 4099 shared buffers. These two indexes let Postgres serve
+// the aggregate as an Index Only Scan Backward + LIMIT 1 instead.
+//
+// Neither index has any other reader, which is exactly why this guard exists: a
+// future "unused index" sweep would find nothing pointing at them from app/.
+// The reader is the ORDER BY in SectionCandidates, and it names them in a
+// comment for the same reason.
+//
+// Write side: both tables are upserted by ProjectionWriter on every connector
+// run, so this is two more btree entries per facet row written. Measured on dev
+// at the same date — 120 kB against f_published's 192 kB PK over 2953 rows, and
+// 16 kB on f_occurrence. Two narrow two-column indexes on tables whose rows are
+// written once per sync and read on every public render.
+
+dataset('poolCandidateSortIndexes', [
+    'f_published' => ['f_published', 'idx_f_published_item_published'],
+    'f_occurrence' => ['f_occurrence', 'idx_f_occurrence_item_starts'],
+]);
+
+it('has an item-leading covering index on each pool candidate sort facet', function (string $table, string $index) {
+    assertIndexExists('content', $table, $index);
+})->with('poolCandidateSortIndexes');

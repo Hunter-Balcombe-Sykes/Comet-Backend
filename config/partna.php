@@ -1576,6 +1576,21 @@ return [
     'media_mirror_max_attempts' => (int) env('PARTNA_MEDIA_MIRROR_MAX_ATTEMPTS', 5),
 
     /*
+    |--------------------------------------------------------------------------
+    | Media mirror temp directory
+    |--------------------------------------------------------------------------
+    |
+    | Where MediaMirror spools a fetched body before storing it (#SCALE-3).
+    | Null = the system temp dir, which is right on Laravel Cloud. Exists as a
+    | seam because the spool is a REAL file on a REAL shared directory: a worker
+    | box that wants it on a specific volume sets this, and the leak tests point
+    | it at a per-test directory so they can assert on an empty glob without
+    | seeing a parallel worker's in-flight file.
+    |
+    */
+    'media_mirror_temp_dir' => env('PARTNA_MEDIA_MIRROR_TEMP_DIR'),
+
+    /*
     |----------------------------------------------------------------------
     | Image pools – per-professional limits
     |----------------------------------------------------------------------

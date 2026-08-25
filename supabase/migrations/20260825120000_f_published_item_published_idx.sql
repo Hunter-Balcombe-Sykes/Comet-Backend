@@ -1,0 +1,11 @@
+-- #SCALE-1 (overnight 2026-08-18). SectionCandidates::ruleCandidates() sorts the
+-- recency pools by a correlated `MAX(published_from)` per candidate row. The PK
+-- is (item_id, source_id), so `WHERE item_id = ?` already index-probes — but
+-- published_from is not in the index, so every probe pays a heap fetch.
+--
+-- Measured on dev (548-item library, EXPLAIN ANALYZE 2026-08-25): the two probes
+-- were 4022 of the query's 4099 shared buffers. With this index Postgres rewrites
+-- the aggregate as an Index Only Scan Backward + LIMIT 1 and the whole query drops
+-- to 3013 buffers / 5.0ms from 4099 / 7.6ms.
+-- ROLLBACK: DROP INDEX CONCURRENTLY IF EXISTS "content"."idx_f_published_item_published";
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_f_published_item_published" ON "content"."f_published" ("item_id", "published_from");

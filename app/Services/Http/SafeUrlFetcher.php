@@ -171,7 +171,7 @@ class SafeUrlFetcher
      * @throws SafeUrlException
      * @throws ConnectionException
      */
-    private function send(string $method, string $url, array $headers, array $body = []): array
+    private function send(string $method, string $url, array $headers, array $body = [], ?string $sink = null): array
     {
         $current = $url;
 
@@ -201,6 +201,16 @@ class SafeUrlFetcher
                 ->connectTimeout(min($this->connectTimeoutSeconds, $hopTimeout))
                 ->withoutRedirecting();
 
+            // #SCALE-3. With a sink Guzzle writes the body straight to the file
+            // and never materialises it as a PHP string. Applied on EVERY hop,
+            // not just the last: a 3xx body is small but still a body, and
+            // Guzzle opens the sink with 'w', so each hop truncates whatever the
+            // previous one wrote. The terminal hop is therefore the only content
+            // left in the file.
+            if ($sink !== null) {
+                $request = $request->sink($sink);
+            }
+
             $response = $method === 'POST' ? $request->post($current, $body) : $request->get($current);
 
             $status = $response->status();
@@ -223,11 +233,16 @@ class SafeUrlFetcher
                 continue;
             }
 
-            $this->assertWithinByteCap($response);
+            $sink === null
+                ? $this->assertWithinByteCap($response)
+                : $this->assertSinkWithinByteCap($response, $sink);
 
             return [
                 'status' => $status,
-                'body' => $response->body(),
+                // Empty on the sink path BY DESIGN — the bytes are in the file.
+                // tryFetchToFile() strips the key entirely rather than handing
+                // back an empty string a caller could mistake for an empty body.
+                'body' => $sink === null ? $response->body() : '',
                 'finalUrl' => $current,
                 'contentType' => (string) $response->header('Content-Type'),
                 // Conditional-request validators (Plan 5). getHeaderLine() returns ''
@@ -284,6 +299,69 @@ class SafeUrlFetcher
         } catch (SafeUrlException|ConnectionException) {
             return null;
         }
+    }
+
+    /**
+     * tryFetch(), but the body is STREAMED to $destination instead of being
+     * held in PHP memory (#SCALE-3).
+     *
+     * Why this exists: the byte cap on the buffering path is not a memory
+     * guard and never claimed to be — see assertWithinByteCap()'s docblock,
+     * Guzzle has already buffered the whole body by the time the cap sees it.
+     * So `withMaxBytes(80MB)->tryFetch()` peaks at 80 MB of PHP heap (twice
+     * that once Storage::put() copies the string into a write stream) inside a
+     * worker Horizon restarts at 256 MB. Streaming trades that heap for temp
+     * disk, which is the resource we can actually afford to spend.
+     *
+     * The return array is fetch()'s MINUS `body` — the bytes are at
+     * $destination, and the caller owns deleting the file. The key is removed
+     * rather than left empty so that a caller reading it fails loudly instead
+     * of quietly seeing "".
+     *
+     * $destination is opened by Guzzle with 'w' — it is truncated, not
+     * appended to, so a stale temp file cannot leak into a later fetch.
+     *
+     * @return array{status:int, finalUrl:string, contentType:string, etag:?string, lastModified:?string}|null
+     */
+    public function tryFetchToFile(string $url, string $destination, array $headers = []): ?array
+    {
+        $merged = array_merge([
+            'User-Agent' => $this->userAgent,
+            'Accept' => '*/*',
+        ], $headers);
+
+        try {
+            $result = $this->send('GET', $url, $merged, [], $destination);
+
+            // The same anti-bot 403 retry fetch() does, for the same reason —
+            // some WAFs 403 any `Mozilla/…` UA without a browser TLS
+            // fingerprint. Kept in step with fetch(): a media CDN sits behind
+            // the same WAFs as the page that linked it.
+            if ($result['status'] === 403 && str_starts_with((string) $merged['User-Agent'], 'Mozilla/')) {
+                try {
+                    $retry = $this->send('GET', $url, array_merge($merged, [
+                        'User-Agent' => $this->fallbackUserAgent,
+                    ]), [], $destination);
+
+                    // `< 400`, matching fetch() exactly — NOT `!== 403`. A
+                    // retry that comes back 500 is not an improvement on the
+                    // original 403, and accepting it would discard the real
+                    // answer for a worse one while this method's own docblock
+                    // promises the opposite.
+                    if ($retry['status'] < 400) {
+                        $result = $retry;
+                    }
+                } catch (SafeUrlException|ConnectionException) {
+                    // Never worse than the original outcome — keep the 403.
+                }
+            }
+        } catch (SafeUrlException|ConnectionException) {
+            return null;
+        }
+
+        unset($result['body']);
+
+        return $result;
     }
 
     /**
@@ -537,6 +615,33 @@ class SafeUrlFetcher
     private function assertWithinByteCap(Response $response): void
     {
         if ($this->exceedsByteCap($response)) {
+            throw new SafeUrlException("Response body exceeds the {$this->maxBytes}-byte cap");
+        }
+    }
+
+    /**
+     * The sink-path counterpart (#SCALE-3): same cap, measured on disk.
+     *
+     * It must NOT go through exceedsByteCap(), because that calls
+     * `$response->body()` — which on a sink response reads the file straight
+     * back into a PHP string and undoes the entire point of streaming.
+     * `filesize()` answers the same question for free.
+     *
+     * The declared Content-Length is still checked first so a server that
+     * announces an oversized body is rejected on the same terms as before. The
+     * filesize check behind it is a DISK bound, not a memory one: an
+     * undeclared/chunked body is written before it can be measured. That is the
+     * deliberate trade — the hop timeout bounds how much of it can land, and
+     * temp disk is what we swapped the heap for.
+     *
+     * @throws SafeUrlException
+     */
+    private function assertSinkWithinByteCap(Response $response, string $sink): void
+    {
+        $declared = (int) $response->header('Content-Length');
+        $written = is_file($sink) ? (int) filesize($sink) : 0;
+
+        if ($declared > $this->maxBytes || $written > $this->maxBytes) {
             throw new SafeUrlException("Response body exceeds the {$this->maxBytes}-byte cap");
         }
     }
