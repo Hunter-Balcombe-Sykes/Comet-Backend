@@ -1,13 +1,19 @@
 <?php
 
 use App\Jobs\PreAccount\GeneratePreAccountSiteJob;
+use App\Models\Core\Site\Site;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\PreAccountBuild;
+use App\Models\Core\User\User;
 use App\Services\PreAccount\PreAccountBuildException;
 use App\Services\PreAccount\PreAccountBuildService;
+use App\Services\User\SiteProvisioningService;
 use Illuminate\Bus\UniqueLock;
 use Illuminate\Contracts\Cache\Repository;
+use Illuminate\Database\Events\TransactionRolledBack;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -306,4 +312,151 @@ it('creates an early-access build with null expiry and built_via early_access', 
     expect($build->built_via)->toBe('early_access')
         ->and($build->expires_at)->toBeNull()
         ->and($build->contact_email)->toBe('lead@example.com');
+});
+
+/*
+|--------------------------------------------------------------------------
+| #SEM-4 — the race-loser branch must reconcile contact_email too
+|--------------------------------------------------------------------------
+| requestBuild() re-serves an existing live build from TWO places: the dedupe
+| early-return (covered above) and the catch (UniqueConstraintViolationException)
+| arm that fires when a concurrent request's INSERT committed first. Only the
+| first one reconciled the caller's contact_email; losing the insert race threw
+| the address away with no exception, no log, and no field in
+| PreAccountBuildStatusResource to notice it by — so staff believed they had
+| invite-gated a scraped business's site that was in fact still first-come
+| claimable.
+|
+| HOW THE RACE IS DRIVEN. The SQLite lane's core.pre_account_builds carries no
+| indexes at all — pre_account_builds_live_source_unique is a PARTIAL unique
+| index that only exists on Postgres (baseline 20260726000000, line 2923) — so a
+| genuine concurrent INSERT cannot raise the violation here, and a single
+| in-memory connection cannot hold a competing row that survives the outer
+| transaction's rollback either. Both halves are therefore staged explicitly:
+|
+|   1. SiteProvisioningService is swapped for one that throws the real
+|      UniqueConstraintViolationException from inside the build transaction —
+|      the exception class the catch arm keys on, thrown from a call the arm
+|      genuinely sits downstream of.
+|   2. The competitor build is seeded up front with claimed_at set, so
+|      findLive()'s live() scope cannot see it on the way in, and un-claimed on
+|      the TransactionRolledBack event — i.e. it becomes visible exactly between
+|      the rollback and the catch arm's findLive(), which is where the winning
+|      request's row appears in production.
+|
+| That stages the TIMING, not the assertion: everything from the catch arm
+| onwards is the real code path.
+*/
+
+/** Seed the build that "won" the race — invisible to findLive() until revealed. */
+function seedRaceCompetitor(PartnaStaff $staff, string $refLc, ?string $contactEmail): PreAccountBuild
+{
+    $user = User::factory()->create([
+        'status' => 'unclaimed', 'auth_user_id' => null, 'primary_email' => null,
+    ]);
+
+    $build = new PreAccountBuild([
+        'source_type' => 'instagram',
+        'source_ref' => $refLc,
+        'source_ref_lc' => $refLc,
+        'built_via' => PreAccountBuild::VIA_STAFF, // outreach — the attach guard's precondition
+        'contact_email' => $contactEmail,
+        'expires_at' => now()->addDays(30),
+    ]);
+    $build->user()->associate($user);
+    $build->builtByStaff()->associate($staff);
+    $build->build_state = PreAccountBuild::STATE_PENDING;
+    $build->save();
+
+    // Hidden from findLive() on the way in (scopeLive is whereNull('claimed_at')).
+    $build->forceFill(['claimed_at' => now()])->save();
+
+    return $build;
+}
+
+/**
+ * Make the build transaction lose the insert race, and let the winner become
+ * visible the instant that transaction rolls back.
+ */
+function stageLostInsertRace(PreAccountBuild $competitor): void
+{
+    app()->instance(SiteProvisioningService::class, new class extends SiteProvisioningService
+    {
+        public function createSiteForHandle(string $userId, string $handleLc, bool $published = true): Site
+        {
+            throw new UniqueConstraintViolationException(
+                'pgsql',
+                'insert into "core"."pre_account_builds" ...',
+                [],
+                new PDOException('SQLSTATE[23505]: Unique violation: duplicate key value violates unique constraint "pre_account_builds_live_source_unique"'),
+            );
+        }
+    });
+
+    Event::listen(
+        TransactionRolledBack::class,
+        function ($event) use ($competitor) {
+            // Only the OUTER rollback — a savepoint rollback from the handle
+            // retry loop fires this event too, at transactionLevel >= 1.
+            if ($event->connection->transactionLevel() !== 0) {
+                return;
+            }
+            $competitor->forceFill(['claimed_at' => null])->save();
+        }
+    );
+}
+
+it('attaches the caller contact_email when the build LOSES the insert race', function () {
+    $staff = makePartnaStaff();
+    $competitor = seedRaceCompetitor($staff, 'raceattach', null);
+    stageLostInsertRace($competitor);
+
+    $result = app(PreAccountBuildService::class)->requestBuild(
+        'partna', 'instagram', 'raceattach', null, null,
+        staff: $staff, contactEmail: 'Lead@Example.com',
+    );
+
+    expect($result['reused'])->toBeTrue()
+        ->and($result['build']->id)->toBe($competitor->id);
+
+    // The whole point: the address the caller supplied is ON the row, not dropped.
+    expect($competitor->fresh()->contact_email)->toBe('lead@example.com');
+});
+
+it('raises CONTACT_EMAIL_CONFLICT when the build LOSES the insert race against a different address', function () {
+    $staff = makePartnaStaff();
+    $competitor = seedRaceCompetitor($staff, 'raceconflict', 'first@example.com');
+    stageLostInsertRace($competitor);
+
+    try {
+        app(PreAccountBuildService::class)->requestBuild(
+            'partna', 'instagram', 'raceconflict', null, null,
+            staff: $staff, contactEmail: 'second@example.com',
+        );
+        expect(false)->toBeTrue('Expected a PreAccountBuildException.');
+    } catch (PreAccountBuildException $e) {
+        expect($e->errorCode)->toBe(PreAccountBuildException::CONTACT_EMAIL_CONFLICT);
+    }
+
+    // ...and the address on file is untouched — no silent overwrite either.
+    expect($competitor->fresh()->contact_email)->toBe('first@example.com');
+});
+
+it('does not attach a staff address to a SELF-SERVE build that wins the race', function () {
+    // The isOutreach() guard travels with the extracted helper — a race loser
+    // must not become the back door into a self-serve build's invite gate.
+    $staff = makePartnaStaff();
+    $competitor = seedRaceCompetitor($staff, 'raceselfserve', null);
+    $competitor->forceFill(['built_via' => PreAccountBuild::VIA_SIGNUP])->save();
+    $competitor->builtByStaff()->dissociate();
+    $competitor->save();
+    stageLostInsertRace($competitor);
+
+    $result = app(PreAccountBuildService::class)->requestBuild(
+        'partna', 'instagram', 'raceselfserve', null, null,
+        staff: $staff, contactEmail: 'staff@example.com',
+    );
+
+    expect($result['reused'])->toBeTrue()
+        ->and($competitor->fresh()->contact_email)->toBeNull();
 });

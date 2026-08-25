@@ -1233,6 +1233,27 @@ return [
         // lock nor races a still-legitimately-running job.
         'stuck_build_sla_minutes' => (int) env('PARTNA_PRE_ACCOUNT_STUCK_BUILD_SLA_MINUTES', 30),
 
+        // PRIV-3: the pepper for core.pre_account_builds.created_ip_hash
+        // (PreAccountBuild::hashIp()). An unsalted sha256 of an IP is a
+        // pseudonym only against someone who cannot enumerate — and the whole
+        // IPv4 space is 4.3B digests, i.e. minutes of commodity GPU time — so
+        // the stored value has to be keyed on a secret the attacker lacks.
+        //
+        // Defaults to APP_KEY rather than introducing a new secret: it already
+        // exists in every environment, differs between dev and prod (so the two
+        // keyspaces can't be cross-referenced), and is already handled as a
+        // secret. The dedicated env var exists for the case where the IP pepper
+        // must rotate WITHOUT rotating APP_KEY (rotating either one invalidates
+        // every stored digest, which only costs the per-IP build cap a window).
+        // Note APP_KEY is stored 'base64:'-prefixed; hashIp() decodes it.
+        //
+        // `?:` not a default argument: an env var PRESENT BUT BLANK
+        // (`PARTNA_PRE_ACCOUNT_IP_HASH_KEY=` — exactly how .env.example ships
+        // it) makes env() return '' rather than the default, which would
+        // silently pepper every digest with the empty string, i.e. re-open the
+        // finding while looking configured.
+        'ip_hash_key' => env('PARTNA_PRE_ACCOUNT_IP_HASH_KEY') ?: env('APP_KEY', ''),
+
         // account_type => allowed source_types. THE one pairing map (spec §4) —
         // relaxing a pairing later is a config edit, not a validation hunt.
         'sources' => [

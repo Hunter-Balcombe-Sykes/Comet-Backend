@@ -93,3 +93,47 @@ it('is not visible while unclaimed for a VIA_STAFF build with a deleted staff ro
 
     expect($build->isVisibleWhileUnclaimed())->toBeFalse();
 });
+
+/*
+|--------------------------------------------------------------------------
+| #PRIV-3 — created_ip_hash must not be a reversible digest
+|--------------------------------------------------------------------------
+| sha256(ip) is a pseudonym only against someone who cannot enumerate the
+| inputs, and the whole IPv4 space is 4.3B candidates. hashIp() keys the digest
+| on a secret so the stored value is not a lookup away from the visitor's IP.
+*/
+
+it('hashes a visitor IP with a keyed HMAC, not a bare digest', function () {
+    config(['partna.pre_account.ip_hash_key' => 'test-pepper']);
+
+    expect(PreAccountBuild::hashIp('1.2.3.4'))
+        ->not->toBe(hash('sha256', '1.2.3.4'))
+        ->and(PreAccountBuild::hashIp('1.2.3.4'))
+        ->toBe(hash_hmac('sha256', '1.2.3.4', 'test-pepper'));
+});
+
+it('produces a different digest for the same IP under a different key', function () {
+    config(['partna.pre_account.ip_hash_key' => 'key-a']);
+    $a = PreAccountBuild::hashIp('1.2.3.4');
+
+    config(['partna.pre_account.ip_hash_key' => 'key-b']);
+
+    expect(PreAccountBuild::hashIp('1.2.3.4'))->not->toBe($a);
+});
+
+it('decodes a base64: prefixed APP_KEY before using it as the pepper', function () {
+    // Laravel stores APP_KEY as "base64:<b64>"; hashing the literal prefixed
+    // string would work but would disagree with any consumer that decodes.
+    $raw = random_bytes(32);
+    config(['partna.pre_account.ip_hash_key' => 'base64:'.base64_encode($raw)]);
+
+    expect(PreAccountBuild::hashIp('1.2.3.4'))->toBe(hash_hmac('sha256', '1.2.3.4', $raw));
+});
+
+it('returns null rather than a constant digest when there is no IP', function () {
+    // Staff-built rows have no visitor IP; a digest of '' would be a shared,
+    // meaningless value that the per-IP build cap would then count together.
+    expect(PreAccountBuild::hashIp(null))->toBeNull()
+        ->and(PreAccountBuild::hashIp(''))->toBeNull()
+        ->and(PreAccountBuild::hashIp('   '))->toBeNull();
+});

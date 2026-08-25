@@ -36,7 +36,8 @@ class PreAccountBuildController extends ApiController
                 sourceType: $data['source_type'],
                 rawSourceRef: $data['source_ref'],
                 sourceName: $data['source_name'] ?? null,
-                ipHash: hash('sha256', (string) $ip),
+                // PRIV-3: HMAC, not a bare digest — see PreAccountBuild::hashIp().
+                ipHash: PreAccountBuild::hashIp((string) $ip),
             );
         } catch (PreAccountBuildException $e) {
             $status = $e->errorCode === PreAccountBuildException::IP_BUILD_CAP ? 429 : 422;

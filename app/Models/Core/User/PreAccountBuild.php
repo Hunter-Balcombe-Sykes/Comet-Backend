@@ -22,7 +22,7 @@ use Illuminate\Support\Carbon;
  * @property string $build_state One of STATE_* — text NOT NULL DEFAULT 'pending' with a matching CHECK constraint (supabase/migrations/20260718200000_pre_account_sites.sql).
  * @property string|null $failure_code One of FAILURE_* (e.g. FAILURE_SOURCE_NOT_FOUND, FAILURE_SCRAPE_FAILED) when build_state is 'failed' — not DB-CHECK-enforced, app-level vocabulary only.
  * @property Carbon|null $thin_scrape_at Stamped when the source scrape returned no post timeline. INDEPENDENT of build_state — a thin build stays 'ready' because the site still renders. Not fillable (state column, SEC-4).
- * @property string|null $created_ip_hash sha256(CF-Connecting-IP); NULL for staff-built rows (no visitor IP to hash).
+ * @property string|null $created_ip_hash HMAC-SHA256 of CF-Connecting-IP under config('partna.pre_account.ip_hash_key') — see hashIp(); NULL for staff-built rows (no visitor IP to hash).
  * @property Carbon|null $expires_at Drives builds:prune-expired; irrelevant once claimed. NULL = never-expire (early-access builds, until staff approval).
  * @property string|null $contact_email Notify address + email-gate value; NULL = first-come claim.
  * @property Carbon|null $invited_at When the claim invite was sent (ClaimNotifier stamps it after queueing the mail). NULL = not yet invited — the idempotency guard.
@@ -157,6 +157,48 @@ class PreAccountBuild extends BaseModel
     {
         return $this->built_by_staff_id !== null
             || ($this->built_via === self::VIA_EARLY_ACCESS && $this->expires_at !== null);
+    }
+
+    /**
+     * PRIV-3: pseudonymise a visitor IP for created_ip_hash.
+     *
+     * NOT a bare sha256. A digest is only a pseudonym against someone who
+     * cannot enumerate the input space, and the entire IPv4 space is 4.3B
+     * candidates — so an unsalted sha256 stored beside a site is a
+     * de-anonymisation primitive for anyone who reads the table, not a
+     * privacy measure. HMAC under a secret the reader does not have is.
+     *
+     * The pepper is config('partna.pre_account.ip_hash_key'), which defaults
+     * to APP_KEY. APP_KEY is stored 'base64:'-prefixed, so it is decoded
+     * first: hashing the literal "base64:..." string would work, but would
+     * silently disagree with any other consumer that decodes properly.
+     *
+     * Returns NULL for an absent/blank IP so callers keep the "no visitor IP
+     * to hash" contract instead of storing a constant digest of "".
+     */
+    public static function hashIp(?string $ip): ?string
+    {
+        $ip = trim((string) $ip);
+
+        if ($ip === '') {
+            return null;
+        }
+
+        return hash_hmac('sha256', $ip, self::ipHashKey());
+    }
+
+    private static function ipHashKey(): string
+    {
+        $key = (string) config('partna.pre_account.ip_hash_key', '');
+
+        if (str_starts_with($key, 'base64:')) {
+            $decoded = base64_decode(substr($key, 7), true);
+            if ($decoded !== false) {
+                $key = $decoded;
+            }
+        }
+
+        return $key;
     }
 
     /** Live = not yet claimed (the partial-unique-index predicate). */

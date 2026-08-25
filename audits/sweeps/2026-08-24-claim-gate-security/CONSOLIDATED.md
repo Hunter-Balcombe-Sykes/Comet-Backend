@@ -249,7 +249,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 1 of 3 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -303,7 +303,8 @@ None.
         Schedule::command('moderation:prune-resolved-signal-pii')
         ```
 
-- [ ] **#PRIV-3** · P2 — Pre-account build IP hash uses unsalted SHA-256, which is reversible for the entire IPv4 address space (Cat 5)
+- [x] **#PRIV-3** · P2 — Pre-account build IP hash uses unsalted SHA-256, which is reversible for the entire IPv4 address space (Cat 5)
+    - **FIXED** — `created_ip_hash` is now `hash_hmac('sha256', $ip, config('partna.pre_account.ip_hash_key'))` via `PreAccountBuild::hashIp()`; the pepper defaults to `APP_KEY` (decoded past its `base64:` prefix). Config uses `env(...) ?: env('APP_KEY','')` NOT a default argument — a present-but-blank env var (how `.env.example` ships it) makes `env()` return `''`, which would have peppered every digest with the empty string and re-opened the finding while looking configured. No migration: `created_ip_hash` is already nullable `text` (`baseline_pilot.sql:1028`). All readers tolerate NULL; `pre_account_builds_ip_idx` is partial on `created_ip_hash IS NOT NULL`. **Existing rows still hold bare sha256 — a post-merge `UPDATE … SET created_ip_hash = NULL` is required per Josh's 2026-08-24 ruling; see the run report.** Mixed state is safe: a legacy digest cannot equality-match a new HMAC, so it silently stops counting toward its IP's cap.
     - **Where:** app/Models/Core/User/PreAccountBuild.php:25,77-80
     - **Affects:** Every visitor who triggers a site-first (pre-account) build — signup and staff-outreach flows both write `created_ip_hash`.
     - **Effort:** S (~0.5–1h)
@@ -387,7 +388,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 2 of 3 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -431,7 +432,8 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#SEM-2** · P2 — `isOutreach()` reverts a staff-built site to first-come claiming if the creating staff row is later hard-deleted
+- [x] **#SEM-2** · P2 — `isOutreach()` reverts a staff-built site to first-come claiming if the creating staff row is later hard-deleted
+    - **ALREADY FIXED — verified, not re-fixed.** `isOutreach()` (`PreAccountBuild.php:130-134`) already carries the `built_via === VIA_STAFF` arm, landed in `b41cfbd71` ("#8: isOutreach() only checked built_by_staff_id, which is ON DELETE SET NULL"). Residual closed here: the pre-existing tests (`PreAccountBuildTest.php:42,87`) build an in-memory `new PreAccountBuild([...])` and never touch a DB, so they proved the boolean but nothing about the FK that is this finding's premise. New integration pin `tests/Feature/PreAccount/PreAccountBuildStaffDeletionTest.php` creates a real `PartnaStaff` row, hard-deletes it, re-fetches, and asserts both that `built_by_staff_id` nulled AND that `isOutreach()` still holds; a companion test pins the FK clause text against the baseline so the hand-written SQLite mirror cannot drift.
     - **Where:** app/Models/Core/User/PreAccountBuild.php:122-126
     - **Affects:** Outreach pre-account builds (real businesses scraped and profiled by staff before they know Partna exists) whose creating staff account is later removed — the claim invite-gate silently disengages.
     - **Effort:** S (~0.5–1h)
@@ -476,7 +478,10 @@ None.
         ),
         ```
 
-- [ ] **#SEM-4** · P2 — The unique-constraint race-loser branch re-serves an existing build without applying the same-day contact-email conflict/attach logic
+- [x] **#SEM-4** · P2 — The unique-constraint race-loser branch re-serves an existing build without applying the same-day contact-email conflict/attach logic
+    - **FIXED** — the reconcile logic is extracted to `PreAccountBuildService::reconcileContactEmail()` (`:195-256`) and called from BOTH the primary `findLive()` branch (`:71`) and the `catch (UniqueConstraintViolationException)` race-loser branch (`:178`). Semantics preserved exactly: staff-only gate, `lockForUpdate()` in a transaction, `isOutreach()` guard on the empty-current attach, `CONTACT_EMAIL_CONFLICT` on disagreement. Dedupe still runs BEFORE the pairing map (spec §4.1, unchanged).
+        **Note on a prior claim:** the P1 sweep's post-merge addendum (`68c5c5ee8`) maps this finding to `b41cfbd71`'s `#9`/`#21` as already fixed. That mapping is WRONG — `b41cfbd71` added the guard and the lock to the PRIMARY branch only; the race-loser arm still called `reserve()` with no reconciliation. Verified by reading both branches before working the unit.
+        **Test honesty:** `pre_account_builds_live_source_unique` is a PARTIAL index that exists only on Postgres, so the SQLite lane cannot raise a genuine concurrent `UniqueConstraintViolationException`. Rather than fake it, the timing is staged and said so in the test header; everything from the catch arm onward is real production code. Non-vacuity is shown by a path proof: deleting the PRIMARY branch's reconcile call leaves all three race tests green, proving they exercise the catch arm alone.
     - **Where:** app/Services/PreAccount/PreAccountBuildService.php:193-204 (compare :81-97)
     - **Affects:** Concurrent requests for the same brand-new source (two staff members, or a staff single-create racing a batch-CSV row) where the losing request carries a `contact_email` — the invite-gate silently loses that address with no error surfaced to the caller.
     - **Effort:** S (~0.5–1h)

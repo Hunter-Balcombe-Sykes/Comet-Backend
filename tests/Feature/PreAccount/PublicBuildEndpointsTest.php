@@ -98,3 +98,20 @@ it('stays reachable and correct after the build has been claimed — no new auth
 it('404s an unknown build id (public enumeration-safe)', function () {
     $this->getJson('/api/public/signup/builds/'.Str::uuid())->assertStatus(404);
 });
+
+// #PRIV-3: the wire pin for PreAccountBuild::hashIp(). The unit tests cover the
+// helper; this covers the ONE call site that feeds it — a revert to a bare
+// sha256 in the controller would otherwise be invisible from the endpoint.
+it('stores a keyed HMAC of the visitor IP, never a bare sha256', function () {
+    config(['partna.pre_account.ip_hash_key' => 'endpoint-pepper']);
+
+    $this->withHeader('CF-Connecting-IP', '203.0.113.9')
+        ->postJson('/api/public/signup/build', [
+            'account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'iphashwire',
+        ])->assertStatus(202);
+
+    $stored = PreAccountBuild::firstOrFail()->created_ip_hash;
+
+    expect($stored)->toBe(hash_hmac('sha256', '203.0.113.9', 'endpoint-pepper'));
+    expect($stored)->not->toBe(hash('sha256', '203.0.113.9'));
+});

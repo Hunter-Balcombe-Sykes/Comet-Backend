@@ -68,56 +68,7 @@ class PreAccountBuildService
         // (spec §4.1); e.g. a claim-flow retry can legitimately arrive with a
         // different (even mismatched) account_type than the build was created with.
         if ($existing = $this->findLive($sourceType, $refLc)) {
-            // A staff request carrying an address for an existing live build must
-            // not have it silently dropped. This early return sits ABOVE the
-            // create block that writes contact_email, so before 2026-08-24 a CSV
-            // row naming an already-built source left staff believing they had
-            // gated a site that was in fact wide open — and after the invite-gate
-            // landed, believing they had UNBLOCKED one that was still stranded.
-            //
-            // Staff only. A public caller must never be able to write
-            // contact_email onto an existing row: that is the field deciding who
-            // may claim it, so an anonymous write would be a takeover primitive.
-            if ($staff !== null && $contactEmail !== null && trim($contactEmail) !== '') {
-                $incoming = mb_strtolower(trim($contactEmail));
-
-                // Locked read-modify-write: without lockForUpdate, two concurrent
-                // requests for the same source (e.g. two CSV rows, or a retry
-                // racing a CSV import) can both read an empty contact_email and
-                // both write, one silently overwriting the other with no conflict
-                // ever detected.
-                $existing = DB::connection('pgsql')->transaction(function () use ($existing, $incoming) {
-                    /** @var PreAccountBuild $locked */
-                    $locked = PreAccountBuild::query()->whereKey($existing->id)->lockForUpdate()->firstOrFail();
-                    $current = mb_strtolower(trim((string) $locked->contact_email));
-
-                    if ($current === '') {
-                        // Self-serve builds have contact_email NULL by
-                        // construction — an empty current value on a build that
-                        // is NOT outreach means a real person is mid-signup on
-                        // their own source. A staff CSV/import naming the same
-                        // source must not attach its address here: that would
-                        // silently hand the build's invite-gate to staff's
-                        // address and lock the actual signer-upper out.
-                        if ($locked->isOutreach()) {
-                            // contact_email is not fillable — trusted staff
-                            // lifecycle write.
-                            $locked->forceFill(['contact_email' => $incoming])->save();
-                        }
-                    } elseif ($current !== $incoming) {
-                        // Loudly, not silently: two different addresses claiming
-                        // the same business is a human question, and picking
-                        // either one automatically can hand the site to the
-                        // wrong person.
-                        throw new PreAccountBuildException(
-                            PreAccountBuildException::CONTACT_EMAIL_CONFLICT,
-                            "A build for this source already exists with a different contact email. Use PATCH /staff/builds/{$locked->id}/contact-email to change it deliberately."
-                        );
-                    }
-
-                    return $locked;
-                });
-            }
+            $existing = $this->reconcileContactEmail($existing, $staff, $contactEmail);
 
             return ['build' => $this->reserve($existing, $staff, $ipHash), 'reused' => true];
         }
@@ -216,8 +167,18 @@ class PreAccountBuildService
         } catch (UniqueConstraintViolationException) {
             // Lost the race on pre_account_builds_live_source_unique — the other
             // request's build is the canonical one; re-serve it (spec §4.1).
+            //
+            // SEM-4: this branch reaches the SAME outcome as the dedupe branch
+            // above and must reconcile contact_email the same way. Losing the
+            // insert race is a timing accident, not a different request: before
+            // this call, a staff CSV row that happened to lose it had its address
+            // dropped with no exception, no log, and no field in
+            // PreAccountBuildStatusResource to notice it by — so staff believed
+            // they had gated a site that was in fact still first-come claimable.
             $existing = $this->findLive($sourceType, $refLc);
             if ($existing) {
+                $existing = $this->reconcileContactEmail($existing, $staff, $contactEmail);
+
                 return ['build' => $this->reserve($existing, $staff, $ipHash), 'reused' => true];
             }
             throw new PreAccountBuildException(
@@ -229,6 +190,69 @@ class PreAccountBuildService
         GeneratePreAccountSiteJob::dispatch($build->id, $build->source_type, $publish)->afterCommit();
 
         return ['build' => $build, 'reused' => false];
+    }
+
+    /**
+     * Reconcile a staff-supplied contact_email against an EXISTING live build,
+     * returning the (possibly updated) row.
+     *
+     * A staff request carrying an address for an existing live build must not
+     * have it silently dropped. Both re-serve paths sit ABOVE/AROUND the create
+     * block that writes contact_email, so before 2026-08-24 a CSV row naming an
+     * already-built source left staff believing they had gated a site that was
+     * in fact wide open — and after the invite-gate landed, believing they had
+     * UNBLOCKED one that was still stranded.
+     *
+     * Staff only. A public caller must never be able to write contact_email onto
+     * an existing row: that is the field deciding who may claim it, so an
+     * anonymous write would be a takeover primitive.
+     *
+     * ONE implementation deliberately shared by the dedupe branch and the
+     * unique-violation race-loser branch (SEM-4) — the two differ only in how
+     * they discovered the existing row.
+     *
+     * @throws PreAccountBuildException CONTACT_EMAIL_CONFLICT
+     */
+    private function reconcileContactEmail(PreAccountBuild $existing, ?PartnaStaff $staff, ?string $contactEmail): PreAccountBuild
+    {
+        if ($staff === null || $contactEmail === null || trim($contactEmail) === '') {
+            return $existing;
+        }
+
+        $incoming = mb_strtolower(trim($contactEmail));
+
+        // Locked read-modify-write: without lockForUpdate, two concurrent
+        // requests for the same source (e.g. two CSV rows, or a retry racing a
+        // CSV import) can both read an empty contact_email and both write, one
+        // silently overwriting the other with no conflict ever detected.
+        return DB::connection('pgsql')->transaction(function () use ($existing, $incoming) {
+            /** @var PreAccountBuild $locked */
+            $locked = PreAccountBuild::query()->whereKey($existing->id)->lockForUpdate()->firstOrFail();
+            $current = mb_strtolower(trim((string) $locked->contact_email));
+
+            if ($current === '') {
+                // Self-serve builds have contact_email NULL by construction — an
+                // empty current value on a build that is NOT outreach means a
+                // real person is mid-signup on their own source. A staff
+                // CSV/import naming the same source must not attach its address
+                // here: that would silently hand the build's invite-gate to
+                // staff's address and lock the actual signer-upper out.
+                if ($locked->isOutreach()) {
+                    // contact_email is not fillable — trusted staff lifecycle write.
+                    $locked->forceFill(['contact_email' => $incoming])->save();
+                }
+            } elseif ($current !== $incoming) {
+                // Loudly, not silently: two different addresses claiming the same
+                // business is a human question, and picking either one
+                // automatically can hand the site to the wrong person.
+                throw new PreAccountBuildException(
+                    PreAccountBuildException::CONTACT_EMAIL_CONFLICT,
+                    "A build for this source already exists with a different contact email. Use PATCH /staff/builds/{$locked->id}/contact-email to change it deliberately."
+                );
+            }
+
+            return $locked;
+        });
     }
 
     private function findLive(string $sourceType, string $refLc): ?PreAccountBuild
