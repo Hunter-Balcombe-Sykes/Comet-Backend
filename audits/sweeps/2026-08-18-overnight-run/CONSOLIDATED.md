@@ -327,7 +327,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
-- P2 Medium: 6 of 11 complete
+- P2 Medium: 7 of 11 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -497,7 +497,36 @@
             ->all();
         ```
 
-- [ ] **#LIFE-9** · P2 — Manual retry of a failed website scan re-dispatches billed OCR/AI sub-jobs with no dedup guard
+- [x] **#LIFE-9** · P2 — Manual retry of a failed website scan re-dispatches billed OCR/AI sub-jobs with no dedup guard
+    - **FIXED 2026-08-26 (PART 2 unit 14e), after a FAILED first review round.**
+    - `ScanPreviousWebsiteContentJob::claimSubJobDispatch($kind, $payload)` — an atomic `Cache::add()` (SETNX)
+      claim keyed `(user_id, kind, sha1(content))`, TTL `config('horizon.trim.failed')` minutes (7d default,
+      chosen because a Retry button only exists while Horizon still lists the job as failed). Checked before
+      BOTH the PDF-loop dispatch and the HTML fallback. The guard can only ever REFUSE spend, never enable it;
+      no budget, cap or limit was touched, and no billed call was made to verify it.
+    - **Round 1 FAILED on two real defects, both now closed:**
+      1. The guard silently defeated `BackfillPreviousWebsiteContentScanCommand`'s documented *fleet-wide
+         re-scan escape hatch* — a bare `continue`, no logging, while the command still reported
+         "Dispatched N …". **A `--force` bypass was deliberately NOT added:** re-enabling a billed re-scan is
+         an owner spend decision and out of bounds for this run. Instead the refusal is now logged
+         (`website_scan.subjob_dispatch_already_claimed`, covering both paths by construction since both route
+         through the one method, with no URL or credential in the context), and that command's docblock was
+         corrected — a re-run OUTSIDE the window or against genuinely NEW content still re-bills and remains
+         the escape hatch; re-billing UNCHANGED content INSIDE the window now has **no mechanism**, stated
+         plainly as an owner decision rather than quietly broken.
+      2. The HTML-fallback guard had **zero** test coverage — round 1 proved it by mutation (deleting it left
+         the suite fully green). Now covered by its own test.
+    - **This unit hit the false-pass trap THREE times and it is worth recording:** `drainDatabaseQueue()` masks
+      it (the sub-job is deliberately left un-popped), and `Bus::fake()` + `::dispatch()` masks it because
+      `PendingDispatch::__destruct()` acquires the `UniqueLock` BEFORE reaching the faked Dispatcher — so the
+      sub-job's own `ShouldBeUnique` (`uniqueFor = 3600`) absorbs the second dispatch regardless of the fix.
+      The working shape is `app()->call([$job, 'handle'])` + `Bus::fake()` + `travel(3601)->seconds()`, and
+      the reviewer confirmed `WebsiteMenuHtmlScanJob::$uniqueFor` is genuinely 3600 so the travel distance is
+      sufficient, and that the HTML fixture carries no PDF link so the two claims are isolated.
+    - Mutation-proved BOTH guards independently in round 2: removing either pushes its sub-job 2 times instead
+      of 1, and each failure is confined to its own test. Review round 2: **PASS**.
+    - Nice-to-have left open: no test asserts the new log line itself fires (the behaviour is proved by
+      mutation; the log is code-reviewed on both paths).
     - **Where:** app/Jobs/Platforms/ScanPreviousWebsiteContentJob.php:73-121, 497-509
     - **Affects:** Users with `previous_website` set; vendor OCR/AI spend if a support engineer clicks Horizon's "Retry" on a failed run.
     - **Effort:** M (~2–4h)

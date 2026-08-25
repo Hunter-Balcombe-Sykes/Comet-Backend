@@ -466,6 +466,23 @@ class CacheKeyGenerator
     }
 
     /**
+     * Claim marker for one billed OCR/AI sub-job dispatch out of
+     * ScanPreviousWebsiteContentJob (#LIFE-9). $kind distinguishes the PDF-OCR
+     * and HTML-structuring sub-jobs (same pdf/html url could theoretically
+     * collide otherwise); $payloadHash is sha1 of the exact document URL (PDF)
+     * or extracted visible text (HTML) — the CONTENT that makes the vendor
+     * call idempotent, not the parent job's attempt number. Claimed via
+     * Cache::add() (atomic SETNX) BEFORE dispatch, same shape as
+     * googleBusinessApifyInflight/Result above: a manual Horizon retry of the
+     * parent re-runs handle() from scratch, and this is what stops it from
+     * re-dispatching (and re-billing) a sub-job a prior attempt already sent.
+     */
+    public static function websiteScanSubJobDispatched(string $userId, string $kind, string $payloadHash): string
+    {
+        return "platforms:website-scan:subjob:{$kind}:{$userId}:{$payloadHash}";
+    }
+
+    /**
      * Short-link expansion memo (CCH-2). Byte-identical to the key
      * ShortLinkExpander hand-built before this was centralised — preserves the
      * warm cache and the `shortlink` metrics prefix in RecordCacheMetrics.
