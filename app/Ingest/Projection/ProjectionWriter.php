@@ -1156,7 +1156,7 @@ class ProjectionWriter
                 // outright rather than route through the full mergeInto() ceremony.
                 DB::table('content.items')->where('id', $winner)->delete();
             } else {
-                $this->mergeInto($userId, keptItemId: $lostTo, discardedItemId: $winner);
+                $this->mergeInto($userId, keptItemId: $lostTo, discardedItemId: $winner, groupCoords: $group);
             }
 
             // Both branches touch anchors outside this group's coords (the delete cascades),
@@ -1174,7 +1174,7 @@ class ProjectionWriter
         // unique(), so this is identical to slice(1) whenever the winner is
         // first, which is every connection-only group.
         foreach ($effective->reject(fn (string $itemId) => $itemId === $winner) as $loser) {
-            $this->mergeInto($userId, keptItemId: $winner, discardedItemId: (string) $loser);
+            $this->mergeInto($userId, keptItemId: $winner, discardedItemId: (string) $loser, groupCoords: $group);
             $merged = true;
         }
 
@@ -1348,7 +1348,7 @@ class ProjectionWriter
      * redirect the loser's anchors, repoint its rows, log the merge, and
      * delete the loser only when it carries no curation of its own.
      */
-    private function mergeInto(string $userId, string $keptItemId, string $discardedItemId): void
+    private function mergeInto(string $userId, string $keptItemId, string $discardedItemId, array $groupCoords = []): void
     {
         DB::table('content.item_anchors')
             ->where('user_id', $userId)
@@ -1376,6 +1376,47 @@ class ProjectionWriter
 
         if (! $hasCuration) {
             DB::table('content.items')->where('id', $discardedItemId)->delete();
+        }
+
+        // The loser's anchors are GONE: item_anchors.item_id FKs to
+        // content.items ON DELETE CASCADE, so deleting the discarded item takes
+        // every anchor that pointed at it — including anchors for coords the
+        // unscoped source_items repoint above just moved onto the kept item.
+        //
+        // The whole-kind resolve hid this: every affected coord was in the same
+        // pass, so bindGroup() re-minted its anchor through insertOrIgnore
+        // before the run ended. With a narrowed component (2026-08-25) a coord
+        // OUTSIDE the component keeps a valid item_id and loses its anchor, and
+        // its next touch reads an empty anchor set, mints a fresh item and
+        // duplicates the row.
+        //
+        // $groupCoords EXCLUDES the current bindGroup() call's own coords —
+        // deliberately, not an oversight. A coord already IN the resolved
+        // group (e.g. a tied pair's loser) is bindGroup()'s own business: it
+        // was already read into $anchors up top, so it is NOT in $missing and
+        // gets no fresh insertOrIgnore there BY DESIGN — that is how exactly
+        // one of a merged pair keeps an anchor row, which
+        // ProjectionWriterIdentityRaceTest's collation test asserts on
+        // directly. Sweeping the group's own coords back in here would give
+        // BOTH sides of that pair an anchor and silently defeat that
+        // assertion. This block exists for coords OUTSIDE any group this pass
+        // even considered — the ones nothing else will ever re-mint.
+        //
+        // Bounded by the KEPT item's source items minus the current group — a
+        // handful — and only runs when a merge actually happens. insertOrIgnore
+        // makes it a no-op for coords that still have their anchor.
+        $keptCoords = DB::table('content.source_items')
+            ->where('item_id', $keptItemId)
+            ->whereNotIn('coord', $groupCoords)
+            ->pluck('coord');
+
+        if ($keptCoords->isNotEmpty()) {
+            DB::table('content.item_anchors')->insertOrIgnore($keptCoords->map(fn (string $coord) => [
+                'coord' => $coord,
+                'user_id' => $userId,
+                'item_id' => $keptItemId,
+                'bound_at' => now(),
+            ])->all());
         }
     }
 
