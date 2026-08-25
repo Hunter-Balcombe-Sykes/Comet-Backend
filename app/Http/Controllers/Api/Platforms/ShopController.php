@@ -22,6 +22,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\CacheLockService;
 use App\Services\Cache\Concerns\JitteredTtl;
 use App\Services\Http\FetchBudget;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
@@ -146,6 +147,7 @@ class ShopController extends ApiController
         private readonly ShopContentWriter $content,
         private readonly ShopConnections $shop,
         private readonly ProductPageAdder $products,
+        private readonly CacheLockService $cacheLock,
     ) {}
 
     // The FAMILY key: the per-user lock and FeatureAvailability only. Rows carry
@@ -855,10 +857,31 @@ class ShopController extends ApiController
 
         $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
         try {
-            $products = Cache::remember(
+            // CCH-10: Cache::remember took no lock, so a cold picker opened in
+            // two tabs (same owner — bounded blast radius, see the finding)
+            // independently re-scraped the upstream store twice. rememberLocked,
+            // not rememberLockedNullable: providerProducts() always returns an
+            // array — [] for a genuinely empty store, never null — so there is
+            // no null case for the nullable variant's sentinel to protect.
+            // Jitter now comes from rememberLocked itself (same JitteredTtl
+            // trait CATALOG_TTL_MINUTES used directly here before); a manual
+            // applyJitter() call on the TTL passed in would double-jitter it.
+            //
+            // lockSeconds/blockSeconds are derived from $seconds — the SAME
+            // FetchBudget the closure runs under (connect_budget_seconds,
+            // default 45s) — rather than the method defaults (10s/5s), which
+            // are far too short for a scrape that can legitimately run the
+            // whole budget: lockSeconds exceeds the closure's worst case (the
+            // method's own contract) so a slow scrape can't outlive its lock,
+            // and blockSeconds matches $seconds so a second tab waits for the
+            // FIRST fetch's own budget to resolve rather than giving up early
+            // and re-scraping itself — the exact stampede this fix closes.
+            $products = $this->cacheLock->rememberLocked(
                 $this->catalogKey($id),
-                self::applyJitter(self::CATALOG_TTL_MINUTES * 60),
+                self::CATALOG_TTL_MINUTES * 60,
                 fn () => $this->budget->open($seconds, fn () => $this->providerProducts($map[$id])),
+                lockSeconds: (int) $seconds + 5,
+                blockSeconds: (int) $seconds,
             );
         } catch (HttpException $e) {
             // Scrapers abort(502) when the store's catalog endpoint is blocked

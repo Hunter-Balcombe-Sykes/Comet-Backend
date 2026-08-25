@@ -840,7 +840,7 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 8 of 11 complete
+- P2 Medium: 9 of 11 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -1073,7 +1073,25 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
             ->block(5, fn () => $this->bridge->settlePayloadFinding($located['connection'], $located['index'], 'seeded'));
         ```
 
-- [ ] **CCH-10** · P2 — `ShopController::brandProducts` product-picker cache has no single-flight lock
+- [x] **CCH-10** · P2 — `ShopController::brandProducts` product-picker cache has no single-flight lock
+    - **FIXED 2026-08-26 (PART 2 unit 14d).** Routed the picker-catalog read through `CacheLockService::rememberLocked()`
+      instead of a bare `Cache::remember()`, using the existing seam rather than a bespoke `Cache::lock`.
+      Severity is low and stays low: owner-scoped, one store, a picker-cache stampede — not a data bug.
+    - **`rememberLocked`, NOT `rememberLockedNullable` — and this is enforced by the language, not just by
+      inspection:** `ShopCatalog::providerProducts()` is declared `: array`, and the one nullable-returning
+      scraper (`GenericShopScraper::fetchPage(): ?array`) is guarded by `?? []` before its value can leave. A null
+      would be a fatal `TypeError`, not a silent poisoning of the stale twin.
+    - TTL passed raw — `rememberLocked` applies its own ±20% jitter via `writeWithJitter()`, so the old call
+      site's manual `applyJitter()` was dropped rather than duplicated (double-jitter checked for, not present).
+    - `lockSeconds`/`blockSeconds` derived from `connect_budget_seconds` (45) rather than the 10s/5s defaults,
+      which are far too short for a scrape that may legitimately use the whole budget. **Watch-note, not a
+      defect:** a 45s block can hold a PHP-FPM worker — acceptable here because the path is owner-scoped and
+      low-fan-in, unlike `ShortLinkExpander`, which chose `blockSeconds: 2` precisely because it is public.
+    - **The test is WIRING-only and now says so in its own docblock** — it asserts which seam is called with which
+      key/TTL/lock/block; it does NOT run two concurrent requests and cannot demonstrate serialisation. The
+      mutation (revert to `Cache::remember`) does go RED, but indirectly: the mock goes uninvoked, the real
+      scraper runs against an unroutable fixture domain and 422s. A real discriminator, but a fragile one —
+      recorded rather than dressed up. Review: **PASS**.
     - **Where:** app/Http/Controllers/Api/Platforms/ShopController.php:839-843
     - **Affects:** The authenticated owner of a connected shop brand, when the picker's 10-minute cache is cold — repeated opens/reloads within the same window each independently re-scrape the upstream store.
     - **Effort:** S (~0.5–1h)
