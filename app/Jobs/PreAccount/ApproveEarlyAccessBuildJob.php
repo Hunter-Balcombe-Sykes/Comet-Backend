@@ -122,6 +122,13 @@ class ApproveEarlyAccessBuildJob implements ShouldBeUnique, ShouldQueue, Throttl
                     'signup_id' => $signup->id, 'error' => $e->getMessage(),
                 ]);
                 report($e);
+                // #JOB-3: the build did not happen, so Horizon must not record
+                // this as processed — staff approved an invite that will never
+                // be sent. report() alone reaches Nightwatch but leaves the
+                // queue signal saying "fine". report() is KEPT alongside:
+                // Job::fail() skips failed() entirely when the job is already
+                // deleted, so it is not a guaranteed reporting path.
+                $this->fail($e);
 
                 return;
             }
@@ -134,6 +141,10 @@ class ApproveEarlyAccessBuildJob implements ShouldBeUnique, ShouldQueue, Throttl
                     'signup_id' => $signup->id,
                     'built_via' => $result['build']->built_via,
                 ]);
+                // Deliberately NOT $this->fail() (#JOB-3): a collision means a
+                // live build for this source already exists, which is a
+                // legitimate no-op, not a failure. Its three sibling paths above
+                // and below DO fail the job.
 
                 return;
             }
@@ -172,11 +183,15 @@ class ApproveEarlyAccessBuildJob implements ShouldBeUnique, ShouldQueue, Throttl
                 $build->forceFill(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => $e->failureCode])->save();
                 report($e);
                 Log::warning('early_access.approve.scrape_failed', ['build_id' => $build->id, 'failure_code' => $e->failureCode]);
+                // #JOB-3: the invitee would get an empty site. Staff must see it.
+                $this->fail($e);
 
                 return;
             } catch (Throwable $e) {
                 $build->forceFill(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => PreAccountBuild::FAILURE_SCRAPE_FAILED])->save();
                 report($e);
+                // #JOB-3: an unclassified fault is the clearest case of all.
+                $this->fail($e);
 
                 return;
             }

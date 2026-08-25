@@ -1223,7 +1223,7 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -1299,7 +1299,32 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 
 ## P2 — Should fix
 
-- [ ] **#JOB-3** · P2 — ApproveEarlyAccessBuildJob reports build/scrape failures but never calls `$this->fail()`, so Horizon's failed-jobs dashboard never reflects the failure
+- [x] **#JOB-3** · P2 — ApproveEarlyAccessBuildJob reports build/scrape failures but never calls `$this->fail()`, so Horizon's failed-jobs dashboard never reflects the failure
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 7). `$this->fail($e)` added to THREE of
+      the four paths, per the per-path disposition in `EXECUTE-PART-1.md` §4 unit 7:
+      `early_access.approve.build_failed` (the build did not happen), `.scrape_failed` (the invitee
+      gets an empty site), and the unclassified `\Throwable` arm in the same block.
+    - **`early_access.approve.build_collision` deliberately stays a quiet `return`** — a collision
+      means a live build for this source already exists, which is a legitimate no-op, not a failure.
+      Recorded in an inline comment so it is not "fixed" by a later sweep.
+    - The audit located the generic arm at ~:198; that line is `failed()`. Matched by SYMBOL per the
+      stale-line-number rule — the real arm is the `catch (Throwable $e)` inside the `$needsScrape`
+      block. Two further quiet returns exist that this finding does not name
+      (`.no_link`, `.no_source`); both are legitimate no-ops and were left alone.
+    - ⚠️ **`public int $tries = 0`** — this job retries indefinitely by design (the Apify-stampede
+      limiter RELEASES when over budget, and a release counts as an attempt, so a finite `$tries`
+      would hard-fail on the first throttle). That CUTS BOTH WAYS and is worth knowing: `fail()` is
+      now the only way these paths can ever terminate as failed, which strengthens the fix — but it
+      is also final, with no retry, on `scrape_failed`, the one plausibly-transient path. Retry-policy
+      changes were out of scope and none was made.
+    - `report($e)` was KEPT alongside each `fail()`, not replaced by it. `Job::fail()` returns early
+      without invoking `failed()` when the job is already deleted, so `failed()`'s own `report()` is
+      not a guaranteed path. The cost is a duplicate Nightwatch report on the normal path.
+    - Tests in `tests/Feature/PreAccount/ApproveEarlyAccessBuildJobTest.php` attach a mock
+      `Illuminate\Contracts\Queue\Job` (same shape as `CloudflareCachePurgeJobTest`) because
+      `InteractsWithQueue::fail()` is a NO-OP without one — a test that skipped this would have been
+      vacuous. Three mutations proved RED: removing either `fail()`, and adding one to the happy path
+      (which the negative test catches, so a mutant that failed indiscriminately cannot pass).
     - **Where:** app/Jobs/PreAccount/ApproveEarlyAccessBuildJob.php:107-127, 163-182
     - **Affects:** Staff early-access approvals; a transient DB/build error or a real scrape failure (Apify outage, `SourceGenerationException`) leaves the signup uninvited with a correctly-updated `build_state`/log entry and a Nightwatch report, but Horizon shows the job as processed — staff have no dashboard signal that the approval silently didn't complete.
     - **Effort:** S (~0.5–1h)
