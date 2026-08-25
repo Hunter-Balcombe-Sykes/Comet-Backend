@@ -604,6 +604,13 @@ class ShopController extends ApiController
                 return $this->error('Brand not found.', 404);
             }
 
+            // #SEC-10 defence-in-depth: store() is already user-scoped, but a
+            // second lock on the real anchor connection catches a future
+            // scoping regression. No-op when unminted (mirrors removeBrand()).
+            if (($anchor = $this->shop->anchorFor($user, $id)) !== null) {
+                $this->authorizeForUser($user, 'update', $anchor);
+            }
+
             // Re-home Task 7: the edit folds onto the record content.* holds and
             // goes back through upsertStore(), which is now the only writer.
             //
@@ -807,9 +814,17 @@ class ShopController extends ApiController
     // warm the same picker cache the live scrape would have.
     public function catalog(SubmitShopCatalogRequest $request, string $id): JsonResponse
     {
-        $map = $this->brandMap($this->currentUser($request));
+        $user = $this->currentUser($request);
+        $map = $this->brandMap($user);
         if (! isset($map[$id])) {
             return $this->error('Brand not found.', 404);
+        }
+
+        // #SEC-10 defence-in-depth: brandMap() is already user-scoped, but a
+        // second lock on the real anchor connection catches a future scoping
+        // regression. No-op when unminted (mirrors removeBrand()).
+        if (($anchor = $this->shop->anchorFor($user, $id)) !== null) {
+            $this->authorizeForUser($user, 'update', $anchor);
         }
 
         $products = $this->woocommerce->productsFromClient($map[$id]['url'], $request->validated()['products']);
@@ -912,6 +927,13 @@ class ShopController extends ApiController
             $store = $this->shop->store($user, $id);
             if (! $store) {
                 return $this->error('Brand not found.', 404);
+            }
+
+            // #SEC-10 defence-in-depth: store() is already user-scoped, but a
+            // second lock on the real anchor connection catches a future
+            // scoping regression. No-op when unminted (mirrors removeBrand()).
+            if (($anchor = $this->shop->anchorFor($user, $id)) !== null) {
+                $this->authorizeForUser($user, 'update', $anchor);
             }
 
             // A fresher catalog may have landed in the cache while the pre-lock
@@ -1038,6 +1060,12 @@ class ShopController extends ApiController
         // staff takedown of the shop integration still accept a product add.
         $this->assertPlatformAvailable($user);
 
+        // #SEC-10 defence-in-depth: there is no route-supplied id to mis-scope
+        // (the write always lands in $user's own reserved bucket via
+        // individualAnchor($user)) — pre-create idiom, mirrors the
+        // `new SiteMedia([...])` shape CLAUDE.md documents elsewhere.
+        $this->authorizeForUser($user, 'create', new IntegrationConnection(['user_id' => $user->id]));
+
         // ONE way in (2026-08-17): ProductPageAdder is the page read + the
         // reserved-bucket write this method used to carry inline, shared with
         // the pool lane's POST /content/pools/shop/items — which also pins.
@@ -1079,6 +1107,13 @@ class ShopController extends ApiController
             $individual = $this->shop->store($user, StoreRecord::INDIVIDUAL_REF);
             if (! $individual) {
                 return $this->error('Product not found.', 404);
+            }
+
+            // #SEC-10 defence-in-depth: store() is already user-scoped, but a
+            // second lock on the real anchor connection catches a future
+            // scoping regression. No-op when unminted (mirrors removeBrand()).
+            if (($anchor = $this->shop->anchorFor($user, StoreRecord::INDIVIDUAL_REF)) !== null) {
+                $this->authorizeForUser($user, 'update', $anchor);
             }
 
             // Reconstruct what remains (mirrors addProduct()'s currentCatalogue()

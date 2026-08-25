@@ -82,7 +82,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 7 of 15 complete
+- P2 Medium: 8 of 15 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -311,7 +311,33 @@
         }
         ```
 
-- [ ] **#SEC-10** · P2 — Shop brand mutation endpoints resolve by user-scoped lookup but never call `authorizeForUser`
+- [x] **#SEC-10** · P2 — Shop brand mutation endpoints resolve by user-scoped lookup but never call `authorizeForUser`
+    - **FIXED 2026-08-26 (PART 2 unit 9) — DEFENCE-IN-DEPTH, not a closed live hole. Do not read this tick as
+      "a vulnerability was fixed".** All five methods were, and remain, structurally user-scoped via
+      `$this->shop->store($user, …)` / `brandMap($user)`; a cross-tenant id 404s before authorization is ever
+      consulted. Same class as `#SEC-14` (2026-08-25). This adds a SECOND lock, it does not relax a first.
+    - `updateBrand`, `catalog`, `setProducts`, `removeProduct` → `authorizeForUser($user, 'update', $anchor)`
+      on the existing `IntegrationConnectionPolicy`. `addProduct` → `'create'` on an unsaved skeleton
+      (`new IntegrationConnection(['user_id' => $user->id])`), the CLAUDE.md pre-create idiom, because that
+      method takes no route id. **No new policy method was needed.**
+    - **The anchor is resolved with the READ-ONLY `anchorFor()`, deliberately not `anchor()` /
+      `individualAnchor()`** — those two are `updateOrCreate` and would MINT a connection row as a side effect
+      of an authorization check, on every request. The reviewer proved this is load-bearing by mutating
+      `anchorFor()` → `anchor()`, which broke an unrelated pre-existing test (`ShopSelectionLockTest` T16c)
+      because `anchor()`'s mint-time default flips an absent auto-sync flag to an explicit `false`.
+    - **Honest gap, recorded not hidden:** `anchorFor()` returns null for a store whose anchor never minted,
+      and all four sites then SKIP the authorize call (`if (($anchor = …) !== null)`). That is a verbatim copy
+      of the pre-existing `removeBrand()` precedent, so it is consistent rather than a regression — but the
+      second lock genuinely does not apply to that class of store.
+    - **404 still precedes 403 on all five** (verified per-method, not inferred): the existence lookup runs
+      first and returns 404 on miss. No status code on any path changed — a 403 there would be an enumeration
+      oracle. `setProducts` re-reads `store()` inside its lock before authorizing, which is correct.
+    - **Is any denial reachable? No — stated plainly rather than papered over with a vacuous assertion.** The
+      tests instead force the policy to deny via a partial mock and assert the response flips to 403, which
+      proves the call is on the request path; a companion test uses `shouldNotReceive` on an unknown id to
+      prove 404 short-circuits before the policy is consulted. Mutation-proved on 3 of 5 methods. Review: PASS.
+    - Note: `tests/Authz/CrossTenantTest.php` (the strongest evidence here) is genuinely SKIPPED locally — it
+      needs a reachable Postgres host. Known documented gotcha, not introduced here. It should run in CI.
     - **Where:** app/Http/Controllers/Api/Platforms/ShopController.php (`updateBrand`, `catalog`, `setProducts`, `addProduct`, `removeProduct`)
     - **Affects:** Authenticated shop integration endpoints; `content.storefronts` rows and integration-connection lifecycle.
     - **Effort:** M (~2–4h)
