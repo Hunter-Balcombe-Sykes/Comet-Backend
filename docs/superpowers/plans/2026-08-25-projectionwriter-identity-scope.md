@@ -204,6 +204,70 @@ attempt rewrote the closing re-read's query shape unconditionally, which broke t
 `DB::listen` text match. The flag is this change's primary rollback, so "off" must mean the
 original statement, unchanged. Task 2's Step 4 now carries both branches explicitly.
 
+**Third seed source — UNBOUND source items (amendment 2, after Task 2's second BLOCKED report).**
+
+The remaining two race-test failures were not instrumentation. `pgirScenario()` builds a live
+`content.source_items` row with **`item_id IS NULL` against a live `content.item_anchors` row** — a
+row that exists but has never been bound to an item. The whole-kind resolve REPAIRED that
+incidentally on any run, because it rebound every live source item of the kind. A touched-only seed
+never revisits it, so the row stays unbound forever.
+
+**This is the same shape as the ruling hole above: the old resolve was silently acting as a repair
+sweep, and narrowing removes the sweep.** Finding it twice is the signal — the seed's job is not
+"what changed", it is **"everything that needs attention"**, which is three things:
+
+1. what this run wrote (`$touchedCoords`),
+2. what carries a pending `same` ruling (seeded inside `IdentityScope`),
+3. **what is not yet resolved at all (`item_id IS NULL`).**
+
+**Ruling: seed from unbound coords too, and take them from the read that already happens.**
+`resolveItemsLocked()` already reads every live source item for the (user, kind) into `$rows` — that
+read is one of the two the narrowing does not remove. Add `si.item_id` to its select and derive the
+unbound coords in PHP. **Zero extra queries**, and in steady state the unbound set is EMPTY, so the
+seed is unchanged and the narrowing's win is untouched. A user with unbound rows pays to repair
+them, which is the correct trade.
+
+Safety is the same argument as before: seeding more only ever GROWS the component, and §A.1 shows
+items outside a component cannot affect items inside it. The limit case is the whole kind — today's
+behaviour.
+
+**Fourth finding — a merge orphans anchors OUTSIDE the component (amendment 3).**
+
+Found by the Task 2 implementer as a 70-vs-71 assertion gap and verified against the schema. The
+mechanism:
+
+1. `content.item_anchors.item_id` REFERENCES `content.items (id)` **ON DELETE CASCADE**.
+2. `mergeInto()` sets `superseded_by = kept` on the loser's anchors but leaves their `item_id`
+   pointing at the loser, then repoints `content.source_items.item_id` with an **unscoped** UPDATE
+   (`where('item_id', $discardedItemId)` — no component filter, by design), then hard-deletes the
+   discarded item.
+3. That delete cascades away **every anchor** that pointed at the loser.
+
+Under the whole-kind resolve this was invisible: every affected coord was in the same pass, so
+`bindGroup()` re-minted its anchor through `insertOrIgnore` before the run ended. **With a narrowed
+component, a coord outside the component is repointed by that unscoped UPDATE but never
+re-anchored.** It is left with a valid `item_id` and NO anchor — and the next touch on it reads an
+empty anchor set, so `bindGroup()` mints a fresh item via `createItem()` and duplicates the row.
+
+That is a genuine regression introduced by the narrowing, and it is the exact failure mode this
+whole change exists to avoid. **It is fixed, not parked.**
+
+**Ruling: re-mint the anchors where the merge destroys them.** After `mergeInto()` repoints
+`source_items` and deletes the discarded item, insert an anchor for every coord now pointing at the
+kept item that lacks one. `insertOrIgnore` makes it a no-op for coords that already have one. The
+set is bounded by the KEPT ITEM's source items — a handful — not by the catalogue, so this is O(1)
+in practice and runs only when a merge actually happens (rare in steady state).
+
+Fixing it inside `mergeInto()` rather than by widening the seed is deliberate: the coords needing
+repair are exactly the ones that merge repointed, which `mergeInto()` already knows. Widening the
+seed to find them would mean reading anchors for the whole kind — reinstating the read the
+narrowing removes.
+
+**Note this is NOT one of the three "Standalone — do NOT bundle" hard-delete paths** (`ItemMerger::merge()`,
+`StaffServiceManagementController::forceDestroy()`, `ContentRetireChannelKindCommand`). Those are
+the UNLOCKED mutators. `mergeInto()` runs inside `resolveItemsLocked()`, under the advisory lock and
+inside its transaction, and repairing an invariant this branch breaks is in scope for this branch.
+
 **What this cost:** one BLOCKED task and one plan amendment. What it bought: a production hole
 that no test in the plan would have caught, found before merge rather than by an owner whose
 de-duplication ruling stopped working.
@@ -966,55 +1030,94 @@ Then narrow the CLOSING re-read at the end of the same method. Replace the
 trailing `->get(['id', 'coord', 'item_id']);` chain with a `coord`-scoped read when narrowed:
 
 ```php
-⚠️ **This narrowing MUST be conditional. Do not rewrite the query unconditionally.** The plan
-promises `PARTNA_CONTENT_IDENTITY_SCOPE=false` restores the old path *byte-for-byte*, and that
-promise is this change's primary rollback. A Task 2 attempt that rewrote this query shape
-unconditionally broke three PG-lane tests **even with the flag off**, because they hook the query
-via a `DB::listen` text match. Keep the original statement verbatim on the unnarrowed path:
+⚠️ **PRESERVE THIS STATEMENT'S SHAPE. Narrow INSIDE the existing subquery — do not restructure
+the query into a join.** (Controller ruling, 2026-08-25, after two BLOCKED Task 2 attempts.)
+
+The first attempt rewrote this read as `content.source_items as si` + join + `whereIn('si.coord')`.
+That is semantically fine and it broke four PG-lane tests, because
+`tests/Postgres/ProjectionWriterIdentityRaceTest.php` widens its read→write window by hooking THIS
+statement through `DB::listen` and matching its **text**:
 
 ```php
-        // Scoped to the resolved coords rather than the whole kind: rows this
-        // resolve did not consider cannot have a new target, so re-reading them
-        // only to compare equal is pure cost.
-        //
-        // CONDITIONAL, not unconditional: with the scope off (or capped) this
-        // must issue the ORIGINAL statement, unchanged. That is what makes the
-        // flag a real rollback — and PG-lane tests match on this query's text,
-        // so a rewritten shape breaks them even when the narrowing is disabled.
-        if ($narrowed) {
-            $bySourceItemId = collect();
-            foreach (array_chunk(array_keys($itemByCoord), self::BATCH_SIZE) as $coordChunk) {
-                $bySourceItemId = $bySourceItemId->concat(
-                    DB::table('content.source_items as si')
-                        ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
-                        ->where('cs.user_id', $userId)
-                        ->where('si.kind', $kind)
-                        ->whereNull('si.removed_at')
-                        ->tap($liveSource)
-                        ->whereIn('si.coord', $coordChunk)
-                        ->get(['si.id', 'si.coord', 'si.item_id'])
-                );
-            }
-        } else {
-            // UNCHANGED from before this branch — do not reformat it.
-            $bySourceItemId = DB::table('content.source_items')
-                ->whereIn('id', function ($sub) use ($userId, $kind, $liveSource) {
-                    $sub->select('si.id')->from('content.source_items as si')
-                        ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
-                        ->where('cs.user_id', $userId)
-                        ->where('si.kind', $kind)
-                        ->tap($liveSource)
-                        ->whereNull('si.removed_at');
-                })
-                ->get(['id', 'coord', 'item_id']);
-        }
+if (! str_contains($sql, 'from "content"."source_items" where "id" in (select')) { return; }
+if (! str_contains($sql, '"item_id"')) { return; }
 ```
 
-Set `$narrowed` where you narrow `$sourceItems` — it is true only when the flag is on AND the
-component was computed AND the cap did not bite.
+A join changes that text, the hook never fires, no `pg_sleep` runs, the race is never staged, and
+four tests fail for a reason that has nothing to do with identity resolution. **The hook's position
+is load-bearing and deliberate:** the file's header records that an earlier version hooked the
+`item_anchors` INSERT instead, and a review found that made every test in the file pass *with the
+advisory lock deleted* — a false-pass trap. It was deliberately moved to this closing re-read.
+
+**So keep the outer statement exactly as it is and put the narrowing in the subquery**, which needs
+no test change and keeps flag-off identical for free:
+
+```php
+        // Narrowed INSIDE the subquery, deliberately: the outer statement's
+        // shape is unchanged (`... from "content"."source_items" where "id" in
+        // (select ...)`) because ProjectionWriterIdentityRaceTest hooks this
+        // exact text through DB::listen to widen its read->write window, and
+        // that hook's position is what makes the file prove the advisory lock
+        // rather than an item_anchors unique-index collision (see that file's
+        // header). Rewriting this into a join breaks four race tests for a
+        // reason unrelated to identity.
+        //
+        // Rows this resolve did not consider cannot have a new target, so
+        // re-reading them only to compare equal is pure cost. When the scope is
+        // off or capped, $componentCoords is null and the predicate is
+        // byte-for-byte what it was before this branch.
+        $bySourceItemId = DB::table('content.source_items')
+            ->whereIn('id', function ($sub) use ($userId, $kind, $liveSource, $componentCoords) {
+                $sub->select('si.id')->from('content.source_items as si')
+                    ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+                    ->where('cs.user_id', $userId)
+                    ->where('si.kind', $kind)
+                    ->tap($liveSource)
+                    ->whereNull('si.removed_at');
+
+                if ($componentCoords !== null) {
+                    $sub->whereIn('si.coord', $componentCoords);
+                }
+            })
+            ->get(['id', 'coord', 'item_id']);
+```
+
+Set `$componentCoords` to `array_keys($itemByCoord)` when the narrowing actually applied (flag on,
+component computed, cap did NOT bite), and to `null` otherwise. With `null` the closure adds
+nothing and the emitted SQL is identical to the pre-branch statement — which is what makes
+`PARTNA_CONTENT_IDENTITY_SCOPE=false` a true byte-for-byte rollback.
+
+**Do NOT chunk this read.** The pre-branch statement was a single subquery with no chunking, and
+the bind list stays a subquery (server-side) rather than a materialised array, so there is no
+65,535-parameter risk to chunk around — that was the whole point of `#SCALE-7`'s original fix.
+Chunking would also emit N statements and fire the fire-once hook on the first, changing timing.
+
 ```
 
 - [ ] **Step 5: Update the two call sites**
+
+**Before the two call sites — build the unbound seed.** In `resolveItemsLocked()`, add `si.item_id`
+to the `$rows` select (it currently selects `si.id`, `si.coord`, `si.source_id`, `si.kind`,
+`si.first_seen_at`), then derive:
+
+```php
+        // Seed source 3 (plan §A.4): rows that are not resolved AT ALL. The
+        // whole-kind resolve rebound every live source item on every run, which
+        // silently repaired an `item_id IS NULL` row; a touched-only seed would
+        // never revisit one, leaving it unbound forever. Taken from $rows, which
+        // is already read in full, so this costs no extra query — and in steady
+        // state the set is EMPTY, so the narrowing's saving is unchanged.
+        $unboundCoords = $rows
+            ->filter(fn (object $row) => $row->item_id === null)
+            ->pluck('coord')
+            ->map(fn ($coord) => (string) $coord)
+            ->all();
+```
+
+Pass `array_values(array_unique([...$touchedCoords, ...$unboundCoords]))` as `component()`'s
+`$touched` argument. (`IdentityScope` adds the `same`-ruling coords itself — do not add them here.)
+Adding a column to that select is harmless: `$sourceItems` maps rows into `SourceItem` DTOs, which
+do not carry `item_id`.
 
 `projectStream()` at `:281`:
 
@@ -2275,15 +2378,62 @@ Append a `## RESULT` section: the two measurements, which findings closed and ho
 contradicts §A. **If §A's proof turned out wrong anywhere, say so plainly here** — a plan that
 is honest about where it was wrong is worth more than one that reads clean.
 
-- [ ] **Step 4: Tick the source findings**
+- [ ] **Step 4: Tick the source findings — EXACT lines, verified 2026-08-26**
 
-Tick `#CACHE-2`, `#CACHE-4`, `#SCALE-8`, `#SCALE-9`, `#API-7` and `#SCALE-12` in the overnight-run
-sweep's `CONSOLIDATED.md`. **Key them by ID plus source file** — `#SCALE-8`, `#SCALE-9`,
-`#SCALE-11` and `#SCALE-12` all have same-ID twins in the remainder sweep that are DIFFERENT
-findings and are NOT in scope.
+⚠️ **Every one of these IDs has a same-ID TWIN in another sweep that is a DIFFERENT defect.** Tick by
+ID **plus file plus line**, never by a bare grep for the ID. The controller located and verified each
+line; do not re-derive them.
 
-`#SCALE-9` ≡ `#API-7` is confirmed as a duplicate pair at `BACKLOG-TRIAGE.md:84` ("fix once, tick
-both") — verified 2026-08-25, so no hand-back is needed.
+**TICK — `audits/sweeps/2026-08-18-overnight-run/CONSOLIDATED.md`:**
+
+| Line | ID | Finding text (confirms it is ours) |
+|---|---|---|
+| 811 | `CACHE-2` | *"`writeManualItem` recomputes the whole user's identity graph on every single owner write"* |
+| 860 | `CACHE-4` | *"a connector run touching one record rebuilds identity + caches for the user's entire kind"* |
+| 1224 | `#SCALE-8` | *"Projection writer accumulates the entire stream's projections in PHP memory"* |
+| 1245 | `#SCALE-9` | *"Slug maintenance runs `ensureCurrent()` once per item inside the … batch loop"* |
+| 1311 | `#SCALE-12` | *"Media-mirror dispatch enqueues one job per asset"* — tick **WONTFIX**, see below |
+
+Note the sweep is internally inconsistent: `CACHE-2`/`CACHE-4` carry **no** `#`, while
+`#SCALE-8/9/12` do. Match both forms.
+
+Also tick the per-lens file the consolidated one was built from:
+`audits/sweeps/2026-08-18-overnight-run/audit-2026-08-18-scaling-antipatterns.md` — `CACHE-4` at
+`:110`, and `CACHE-2` at its corresponding line. `AuditPipelineIntegrityTest` and
+`archive-done.sh` read the consolidated file, but leaving the lens file red is how a later sweep
+re-files a closed finding.
+
+**DO NOT TICK — these are different defects that merely share an ID:**
+
+| File | Line | ID | What it actually is |
+|---|---|---|---|
+| `sweeps/2026-08-24-unified-actions-delta/CONSOLIDATED.md` | 300 | `#API-7` | Public pool hydration runs a dashboard-only duplicate-detection query |
+| `sweeps/2026-08-24-unified-actions-remainder/CONSOLIDATED.md` | 545 | `SCALE-8` | Suggestions inbox per-intent lookup on GET |
+| `sweeps/2026-08-24-unified-actions-remainder/CONSOLIDATED.md` | 569 | `SCALE-9` | Public payload duplicate-detection join |
+| `sweeps/2026-08-24-unified-actions-remainder/CONSOLIDATED.md` | 631 | `SCALE-12` | `ContentPopularityReader` loads a full score set with no cursor |
+| `sweeps/2026-08-24-unified-actions-remainder/CONSOLIDATED.md` | 162 | `CACHE-4` | `IntegrationConnectionObserver::deleted()` inlines five cleanup paths |
+
+**`#API-7` — CORRECTED, do NOT tick it.** The PLAN-PROMPT flagged the `#SCALE-9` ≡ `#API-7` pairing
+as *inferred, not certain*, and told this session to confirm it before ticking. An early check
+confirmed only that `BACKLOG-TRIAGE.md:84` contains the string `SCALE-9 ≡ #API-7` — **that was too
+shallow.** Comparing the actual finding TEXTS settles it:
+
+- our overnight `#SCALE-9` = *slug `ensureCurrent()` N+1 inside the projection cache-refresh loop*;
+- `#API-7` = *public pool hydration runs a dashboard-only duplicate-detection query*;
+- the REMAINDER sweep's `SCALE-9` = *public payload runs a dashboard-only duplicate-detection join*.
+
+`#API-7` and the **remainder** `SCALE-9` are plainly the same defect. The triage line pairs `#API-7`
+with that one — note it writes `SCALE-9` **without** the `#`, matching the remainder sweep's
+convention, while ours is `#SCALE-9`. **Task 5 does not close `#API-7`. Leave it open and hand it
+back as its own item**, exactly as the PLAN-PROMPT instructed for this case.
+
+**`#SCALE-12` — tick as WONTFIX with the reason, not as fixed.** Record: no batching API preserves
+`ShouldBeUnique`. `UniqueLock` is acquired only in `PendingDispatch` (`vendor/laravel/framework/src/Illuminate/Foundation/Bus/PendingDispatch.php:204-208`);
+`Queue::bulk()` is a bare `foreach { push() }` (`Queue.php:97-102`); and `UniqueLock` appears nowhere
+in `Illuminate/Bus/`, so `Bus::batch()` never honours it either. **State that the disposition does
+not depend on the asset count** — a duplicate mirror job costs an R2 write plus an outbound fetch, so
+batching is a bad trade at any volume. Written this way, a future sweep cannot reopen it by producing
+a bigger count.
 
 Then:
 
