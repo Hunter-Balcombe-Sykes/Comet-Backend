@@ -69,19 +69,36 @@ it('merges two sources carrying the same release into one item', function () {
         ->and(reset($byItem))->toHaveCount(2);
 });
 
-it('keeps two merely SIMILAR releases apart', function () {
-    // Different urls, different titles that share words but are not the same
-    // release. Nothing joins them, so nothing may merge them.
-    [$userId, , $sourceA, $streamA] = projectableBandcamp([
-        'r1' => bandcampDoc('Wandering Star', 'https://a.bandcamp.com/album/wandering-star'),
-    ]);
-    [, , $sourceB, $streamB] = projectableBandcamp([
-        'r1' => bandcampDoc('Wandering Stars Live', 'https://b.bandcamp.com/album/wandering-stars-live'),
-    ], $userId);
+it('keeps two same-source releases apart despite a shared title', function () {
+    // A single source listing the same title twice is real corroborating
+    // evidence — but Resolver::unionAll() requires cross-source for the
+    // Corroborating tier precisely so one platform's own two listings never
+    // merge on a title alone (a discography's two "Live" pressings, say).
+    //
+    // The identical title within ONE source ALSO poisons that signature
+    // (Resolver::poisonedKeys()) — a same-source duplicate of a value is, by
+    // construction, exactly what poisons it. Both mechanisms fire on this
+    // fixture and either one alone is enough to keep the pair apart, which
+    // was verified empirically by mutation (restored before commit, see
+    // task-7b-report.md): stubbing `requireCrossSource: true` to `false`
+    // alone leaves this test GREEN (poisonedKeys() still drops the
+    // signature); stubbing `poisonedKeys()` to return `[]` alone ALSO leaves
+    // it green (requireCrossSource still blocks the same-source pair). Only
+    // disabling BOTH in Resolver::resolve() (app/Content/Identity/Resolver.php)
+    // at once merges them and turns this test red. That is the real,
+    // confirmed falsifier — not either guard in isolation — and it is why
+    // this test cannot be used to pin `requireCrossSource` specifically; the
+    // poisoned-key test elsewhere in this file is what pins poisonedKeys()
+    // with a fixture that isolates it (a cross-source pair unaffected by
+    // requireCrossSource).
+    $title = 'Wandering Under Northern Skies';
 
-    $writer = app(ProjectionWriter::class);
-    $writer->projectStream($sourceA, $streamA, 'releases');
-    $writer->projectStream($sourceB, $streamB, 'releases');
+    [$userId, , $source, $stream] = projectableBandcamp([
+        'r1' => bandcampDoc($title, 'https://a.bandcamp.com/album/wandering-1'),
+        'r2' => bandcampDoc($title, 'https://a.bandcamp.com/album/wandering-2'),
+    ]);
+
+    app(ProjectionWriter::class)->projectStream($source, $stream, 'releases');
 
     expect(coordsByItem($userId))->toHaveCount(2);
 });
@@ -264,33 +281,65 @@ it('honours an owner "different" ruling over a joining key', function () {
 it('ignores a source whose connection the owner removed', function () {
     // disconnect = hide. A removed connection's items must not vote on
     // identity — this shipped as a live bug once: an old Apple connection's
-    // compilation copies poisoned a title key and kept the live pair apart.
-    $url = 'https://a.bandcamp.com/album/legacy';
+    // FIVE compilation copies of one song poisoned the title|artist key and
+    // kept a live Spotify <-> Apple pair apart, even though neither Spotify
+    // nor Apple item was itself duplicated anywhere.
+    //
+    // The disconnected source below carries the SAME title twice under two
+    // urls — that duplicate is what would poison the title corroborating key
+    // if this source were still counted. Two LIVE sources each carry ONE item
+    // with that same title and no shared url, so the title is the only thing
+    // that could join them.
+    //
+    // Falsifier: neutralise the $liveSource filter in
+    // ProjectionWriter::resolveItemsLocked() (app/Ingest/Projection/ProjectionWriter.php,
+    // e.g. `$liveSource = fn ($q) => $q;`) and this fails — verified
+    // empirically (mutation run, restored before commit; see
+    // task-7b-report.md). The disconnected source's rows get read back into
+    // $sourceItems, poisonedKeys() sees the title repeated within that one
+    // source, the title signature is poisoned GLOBALLY (Resolver::poisonedKeys()
+    // keys poison by signature value alone, not per-source), the live pair
+    // stops sharing any usable key, and A's and B's item ids come back
+    // different instead of equal.
+    $title = 'Chasing Distant Mountains';
 
-    [$userId, $connA, $sourceA, $streamA] = projectableBandcamp(['r1' => bandcampDoc('Legacy', $url)]);
-    [, , $sourceB, $streamB] = projectableBandcamp(['r1' => bandcampDoc('Legacy', $url)], $userId);
+    [$userId, $connX, $sourceX, $streamX] = projectableBandcamp([
+        'r1' => bandcampDoc($title, 'https://x.bandcamp.com/album/chasing-1'),
+        'r2' => bandcampDoc($title, 'https://x.bandcamp.com/album/chasing-2'),
+    ]);
+    app(ProjectionWriter::class)->projectStream($sourceX, $streamX, 'releases');
+    $connX->delete(); // soft delete — disconnect = hide
+
+    [, $connA, $sourceA, $streamA] = projectableBandcamp([
+        'r1' => bandcampDoc($title, 'https://a.bandcamp.com/album/chasing'),
+    ], $userId);
+    [, $connB, $sourceB, $streamB] = projectableBandcamp([
+        'r1' => bandcampDoc($title, 'https://b.bandcamp.com/album/chasing'),
+    ], $userId);
 
     $writer = app(ProjectionWriter::class);
     $writer->projectStream($sourceA, $streamA, 'releases');
     $writer->projectStream($sourceB, $streamB, 'releases');
 
-    expect(coordsByItem($userId))->toHaveCount(1);
+    // The two LIVE items merge on the shared title — which they can only do
+    // if the disconnected source's duplicate copies were excluded from the
+    // poison calculation. Look up A's and B's own item ids directly by
+    // CONNECTION (content.sources.id is a distinct id from ingest.sources.id
+    // — content.sources.connection_id is what ties back to the connection
+    // projectableBandcamp() returns) rather than re-deriving the writer's
+    // connection filter: this only passes if the WRITER actually excluded
+    // source X, not because the assertion repeats its predicate.
+    $contentSourceA = DB::table('content.sources')->where('connection_id', $connA->id)->value('id');
+    $contentSourceB = DB::table('content.sources')->where('connection_id', $connB->id)->value('id');
+    $contentSourceX = DB::table('content.sources')->where('connection_id', $connX->id)->value('id');
 
-    $connA->delete(); // soft delete — deleted_at set
+    $itemA = DB::table('content.source_items')->where('source_id', $contentSourceA)->value('item_id');
+    $itemB = DB::table('content.source_items')->where('source_id', $contentSourceB)->value('item_id');
+    $itemsX = DB::table('content.source_items')->where('source_id', $contentSourceX)->pluck('item_id');
 
-    $writer->projectStream($sourceB, $streamB, 'releases');
-
-    // A's coord no longer participates, so B stands alone. Assert on the LIVE
-    // set only: the retired row may still exist in content.source_items.
-    $live = DB::table('content.source_items as si')
-        ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
-        ->leftJoin('site.platform_connections as pc', 'pc.id', '=', 'cs.connection_id')
-        ->where('cs.user_id', $userId)
-        ->whereNull('si.removed_at')
-        ->where(fn ($q) => $q->whereNull('cs.connection_id')->orWhereNull('pc.deleted_at'))
-        ->count();
-
-    expect($live)->toBe(1);
+    expect($itemA)->not->toBeNull()
+        ->and($itemA)->toBe($itemB)
+        ->and($itemsX->contains($itemA))->toBeFalse();
 });
 
 it('is idempotent — a second identical sync mints nothing and moves nothing', function () {
