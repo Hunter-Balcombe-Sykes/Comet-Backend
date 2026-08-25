@@ -98,3 +98,38 @@ it('states the same block once when a nightly re-sync finds the second store aga
 
     expect(DB::connection('pgsql')->table('routing.source_intents')->count())->toBe(1);
 });
+
+it('does not resurrect an ordering store the owner disconnected', function () {
+    // SEM-2: the tombstone is built directly (not via a real seed-then-delete
+    // round trip) so this test's setup can't itself be blocked by a broken
+    // wasDisconnected() — see the mutation table in the plan, row 5. Same url
+    // as the tombstone: sharper than a different url, because it proves
+    // updateOrCreate() would have INSERTED a second live row past the
+    // tombstone (same surface_key + resource_id, which is url-derived here)
+    // rather than updating the trashed one.
+    $user = orderingUser('ord-tombstone');
+    $url = 'https://www.ubereats.com/au/store/ghost/abc';
+
+    $tombstone = new IntegrationConnection([
+        'surface_key' => 'uber_eats.order', 'routing_class' => 'ordering',
+        'resource_id' => 'order-'.substr(sha1(strtolower($url)), 0, 16),
+        'payload' => ['url' => $url, 'provider' => 'Uber Eats', 'name' => 'Uber Eats', 'source' => 'auto'],
+        'is_active' => true,
+    ]);
+    $tombstone->user_id = $user->id;
+    // No ->platform assignment, same reason as the M-6 test above: 'uber_eats'
+    // is not a legacy platform key and the mutator would overwrite surface_key.
+    $tombstone->save();
+    $tombstone->delete();
+
+    $result = app(LinkRouter::class)->routeOrdering($user, $url);
+
+    expect($result->outcome)->toBe('custom');
+    expect($result->handled)->toBeTrue();
+    expect($result->unmatched)->toHaveCount(1);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->count())->toBe(0);
+    expect(IntegrationConnection::onlyTrashed()->where('user_id', $user->id)->count())->toBe(1);
+    // Distinguishes the tombstone outcome from a cap-block: recordCapBlock
+    // must not have fired on this path.
+    expect(DB::connection('pgsql')->table('routing.source_intents')->where('user_id', $user->id)->count())->toBe(0);
+});

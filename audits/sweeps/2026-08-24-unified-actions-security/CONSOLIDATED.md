@@ -562,7 +562,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 1 of 16 complete
+- P2 Medium: 3 of 16 complete
 - P3 Low: 0 of 8 complete
 
 ---
@@ -608,7 +608,14 @@
 
 ## P2 — Should fix
 
-- [ ] **SEM-2** · P2 — LinkRouter's reservation/ordering seeders skip the soft-delete tombstone guard, silently resurrecting removed connections
+- [x] **SEM-2** · P2 — LinkRouter's reservation/ordering seeders skip the soft-delete tombstone guard, silently resurrecting removed connections
+    - **FIXED** — the guard existed as TWO VERBATIM INLINE COPIES in `BuildsAutoSyncFindings` (`resolveBookingLink` :680-686, `resolveSocialLink` :777-783), which is exactly why the two seeders that bypass `outcomeFrom()` never had it. Extracted to one `wasDisconnected($userId, $column, $value)` helper (`:810-822`), both copies now call it (pure refactor, no behaviour change), and both seeders guard on `$family->isEmpty() && $this->wasDisconnected(...)` -> `RouteResult::custom([...], handled: true)`.
+        **Mechanism, verified:** `write()` is an `updateOrCreate` on `(user_id, surface_key, resource_id)` under the default SoftDeletes scope, and `idx_platform_connections_unique_active` is PARTIAL — `WHERE (deleted_at IS NULL)` (`20260727110005_connections_idx_unique_active.sql`). A tombstone sits outside that predicate, so the insert does not conflict: it SUCCEEDS, creating a live row beside the tombstone. Hence check-before-write; `write()` itself is untouched (five other callers already behave correctly).
+        **The `isEmpty()` conjunct is load-bearing:** both `$incumbent` filters exclude same-URL rows, so a live connection re-syncing to its own URL also yields `$incumbent === null`. `$family`/`$stores` come from `->get()` under the SoftDeletes scope, so they hold only LIVE rows — a live re-sync makes the collection non-empty and short-circuits the guard before `wasDisconnected()` is called.
+        **`recordCapBlock` cannot fire on the tombstone path** — the guard sits structurally after the `$incumbent !== null` branch, which returns.
+        Tests: `ReservationCapSwapOriginTest` (tombstone + the required anti-over-fire seeding control) and `OrderingSlotSwapTest` (tombstone). Every test asserts `outcome === 'custom'` as its OWN statement, because `RouteResult::skipped()` — returned by the reentrancy guard — also carries `handled === true`, so asserting on `handled` alone could pass on the guard tripping instead of on the tombstone.
+        Mutation-proved 5 ways, incl. the critical control: `wasDisconnected()` hardwired to `return true;` turns the SEEDING test red while both tombstone tests stay green — proving the seeders were not simply made to refuse everything.
+        Adjacent, deliberately NOT in scope: `#TEST-20` (these check-then-write spans are unlocked; `withReservationsXorLock()` exists and is tempting, but it is a concurrency change with its own blast radius).
     - **Where:** app/Services/Platforms/LinkRouter.php:434-441 (`seedReservation`), 495-502 (`seedOnlineOrdering`)
     - **Affects:** Any professional who disconnects a reservation or online-ordering platform and whose site/bio still carries the old link — a later Instagram/link-in-bio scan resurrects the removed connection.
     - **Effort:** M (~2–4h)
@@ -665,7 +672,8 @@
         $linkOnly = ['facebook' => 'Facebook', 'tiktok' => 'TikTok', 'twitter' => 'X', 'linkedin' => 'LinkedIn'];
         ```
 
-- [ ] **SEM-4** · P2 — `pageRanksFromActions()` discards ActionScorer's hysteresis-based rank and re-sorts by raw score
+- [x] **SEM-4** · P2 — `pageRanksFromActions()` discards ActionScorer's hysteresis-based rank and re-sorts by raw score
+    - **SUPERSEDED by `#RANK-1`** (`audits/correctness/2026-08-24-actions-ordering-math`) — same `pageRanksFromActions()` defect; `#RANK-1` additionally covers `ActionSlots::order()`, so this finding is a strict subset. Fixed in `16a90f7dd`. Verified against the code 2026-08-25: `ContentPopularityReader::actionRanksForSite()` now selects and orders by the stored `rank` column (`:112-113`, `:45-46`) and `pageRanksFromActions()` consumes it instead of `arsort()`-ing raw score (`:141-157`); `ActionSlots::order()` likewise consumes the stored hysteresis rank (`app/Site/Actions/ActionSlots.php:84-96`).
     - **Where:** app/Services/Analytics/ContentPopularityReader.php:99-116
     - **Affects:** Public sitepage page ordering when a page's score is close to the one ranked above it — the two anti-thrash mechanisms disagree on the displayed order.
     - **Effort:** S (~0.5–1h)

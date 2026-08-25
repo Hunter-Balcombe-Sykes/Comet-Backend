@@ -128,3 +128,60 @@ it('coalesces query-variant ordering links of one store into ONE Swap, keeps dis
     expect($identifiers->count())->toBe(2)
         ->and($identifiers->unique()->count())->toBe(2);
 });
+
+it('does not resurrect a reservation connection the owner disconnected', function () {
+    // SEM-2: a soft-deleted family row is a TOMBSTONE (owner disconnected),
+    // not "never connected". updateOrCreate() can't see it (default scope)
+    // and the unique index is partial on deleted_at IS NULL, so without the
+    // guard this would INSERT a live duplicate beside the tombstone.
+    $pro = User::create([
+        'handle' => 'sem2-resv-tomb', 'handle_lc' => 'sem2-resv-tomb', 'display_name' => 'SEM2',
+        'first_name' => 'SEM2', 'account_type' => 'business', 'sector' => 'restaurant',
+        'status' => 'active',
+    ]);
+
+    $tombstone = new IntegrationConnection([
+        'surface_key' => 'opentable.reserve', 'routing_class' => 'reservations',
+        'resource_id' => 'opentable',
+        'payload' => ['url' => 'https://www.opentable.com.au/r/ghost-diner', 'source' => 'google-business'],
+        'is_active' => true,
+    ]);
+    $tombstone->user_id = $pro->id;
+    $tombstone->platform = 'opentable';
+    $tombstone->save();
+    $tombstone->delete();
+
+    $result = app(LinkRouter::class)->route(
+        $pro,
+        'https://www.opentable.com.au/r/ghost-diner',
+        new RouteContext,
+    );
+
+    expect($result->outcome)->toBe('custom');
+    expect($result->handled)->toBeTrue();
+    expect($result->unmatched)->toHaveCount(1);
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
+    expect(IntegrationConnection::onlyTrashed()->where('user_id', $pro->id)->count())->toBe(1);
+    // Distinguishes the tombstone outcome from a cap-block: recordCapBlock
+    // must not have fired on this path.
+    expect(DB::table('routing.source_intents')->where('user_id', $pro->id)->count())->toBe(0);
+});
+
+it('still seeds a reservation when the owner has no tombstone', function () {
+    // Anti-over-fire control (REQUIRED): without this, a mutation that makes
+    // wasDisconnected() always return true would pass every other test here.
+    $pro = User::create([
+        'handle' => 'sem2-resv-fresh', 'handle_lc' => 'sem2-resv-fresh', 'display_name' => 'SEM2Fresh',
+        'first_name' => 'SEM2Fresh', 'account_type' => 'business', 'sector' => 'restaurant',
+        'status' => 'active',
+    ]);
+
+    $result = app(LinkRouter::class)->route(
+        $pro,
+        'https://www.opentable.com.au/r/never-connected-diner',
+        new RouteContext,
+    );
+
+    expect($result->outcome)->toBe('seeded');
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1);
+});

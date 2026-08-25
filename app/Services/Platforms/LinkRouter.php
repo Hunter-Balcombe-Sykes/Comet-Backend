@@ -431,14 +431,15 @@ class LinkRouter
         // — a taken family slot becomes a Swap offer in the inbox, exactly
         // like the ordering arm below. routing_class is the family key, so
         // this spans brands the classifier has never heard of.
-        $incumbent = IntegrationConnection::query()
-            ->where('user_id', (string) $user->id)
+        $userId = (string) $user->id;
+        $family = IntegrationConnection::query()
+            ->where('user_id', $userId)
             ->where('routing_class', 'reservations')
             ->orderBy('created_at')
-            ->get()
-            ->first(fn (IntegrationConnection $row) => ! $this->sameUrl(
-                (string) (CardPayload::fromArray($row->payload)->url() ?? ''), $url,
-            ));
+            ->get();
+        $incumbent = $family->first(fn (IntegrationConnection $row) => ! $this->sameUrl(
+            (string) (CardPayload::fromArray($row->payload)->url() ?? ''), $url,
+        ));
 
         if ($incumbent !== null) {
             // M-4 (matrix run 2, chinchin live): this passed origin 'auto',
@@ -460,6 +461,13 @@ class LinkRouter
             );
 
             return RouteResult::custom(handled: true);
+        }
+
+        // SEM-2: only when the family holds NO live row at all is "nothing
+        // here" ambiguous. Mirrors outcomeFrom():589 — handled, so a second
+        // reservations link in the run does not retry, but nothing is written.
+        if ($family->isEmpty() && $this->wasDisconnected($userId, 'routing_class', 'reservations')) {
+            return RouteResult::custom([['url' => $url, 'label' => $classified['label']]], handled: true);
         }
 
         $payload = [
@@ -492,14 +500,15 @@ class LinkRouter
         //
         // Same URL is not a second store: that is a re-sync, and write() below
         // is an updateOrCreate on it.
-        $incumbent = IntegrationConnection::query()
-            ->where('user_id', (string) $user->id)
+        $userId = (string) $user->id;
+        $stores = IntegrationConnection::query()
+            ->where('user_id', $userId)
             ->where('surface_key', $surface)
             ->orderBy('created_at')
-            ->get()
-            ->first(fn (IntegrationConnection $row) => ! $this->sameUrl(
-                (string) (CardPayload::fromArray($row->payload)->url() ?? ''), $url,
-            ));
+            ->get();
+        $incumbent = $stores->first(fn (IntegrationConnection $row) => ! $this->sameUrl(
+            (string) (CardPayload::fromArray($row->payload)->url() ?? ''), $url,
+        ));
 
         if ($incumbent !== null) {
             // It becomes a SWAP OFFER, not a links-pool card (owner,
@@ -528,6 +537,12 @@ class LinkRouter
             );
 
             return RouteResult::custom(handled: true);
+        }
+
+        // SEM-2: only when this brand holds NO live store at all is "nothing
+        // here" ambiguous. Mirrors seedReservation() above.
+        if ($stores->isEmpty() && $this->wasDisconnected($userId, 'surface_key', $surface)) {
+            return RouteResult::custom([['url' => $url, 'label' => $classified['label']]], handled: true);
         }
 
         $payload = [

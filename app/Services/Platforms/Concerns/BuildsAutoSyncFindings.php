@@ -677,11 +677,7 @@ trait BuildsAutoSyncFindings
             ->first();
 
         if ($existing === null) {
-            $wasDisconnected = IntegrationConnection::onlyTrashed()
-                ->where('user_id', $userId)->where('platform', $platform)
-                ->exists();
-
-            if ($wasDisconnected) {
+            if ($this->wasDisconnected($userId, 'platform', $platform)) {
                 return ['findings' => [], 'unmatched' => [['url' => $url, 'label' => $classified['label']]], 'consumed' => true];
             }
 
@@ -768,17 +764,7 @@ trait BuildsAutoSyncFindings
             ->first();
 
         if ($existing === null) {
-            // A soft-deleted row means the user explicitly disconnected this
-            // platform before (ManagesIntegrationConnection::forgetConnection()
-            // soft-deletes on disconnect) — a tombstone, not "never connected".
-            // The default Eloquent scope hides it, so treating "no live row" as a
-            // blank slate would silently resurrect a connection the user chose to
-            // remove. Route the link to unmatched instead (still addable by hand).
-            $wasDisconnected = IntegrationConnection::onlyTrashed()
-                ->where('user_id', $userId)->where('platform', $platform)
-                ->exists();
-
-            if ($wasDisconnected) {
+            if ($this->wasDisconnected($userId, 'platform', $platform)) {
                 return ['findings' => [], 'unmatched' => [['url' => $url, 'label' => $classified['label']]], 'consumed' => true];
             }
 
@@ -804,6 +790,29 @@ trait BuildsAutoSyncFindings
             'unmatched' => [],
             'consumed' => true,
         ];
+    }
+
+    /**
+     * True when the user explicitly disconnected this slot before
+     * (ManagesIntegrationConnection::forgetConnection() soft-deletes), so a
+     * "no live row" answer is a TOMBSTONE, not a blank slate. The default
+     * Eloquent scope hides it, and write() is an updateOrCreate that will not
+     * see it either — the unique index is partial on `deleted_at IS NULL`, so
+     * the insert SUCCEEDS and resurrects a connection the user chose to remove.
+     *
+     * $column mirrors whatever axis the caller's LIVE lookup used, so both
+     * questions are asked about the same rows: 'platform' for the per-platform
+     * social/booking rows, 'routing_class' for the reservations family slot,
+     * 'surface_key' for one ordering brand.
+     *
+     * @param  'platform'|'surface_key'|'routing_class'  $column
+     */
+    protected function wasDisconnected(string $userId, string $column, string $value): bool
+    {
+        return IntegrationConnection::onlyTrashed()
+            ->where('user_id', $userId)
+            ->where($column, $value)
+            ->exists();
     }
 
     protected function sameUrl(string $a, string $b): bool
