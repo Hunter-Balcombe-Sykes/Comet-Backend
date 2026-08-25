@@ -82,7 +82,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 4 of 15 complete
+- P2 Medium: 5 of 15 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -316,7 +316,13 @@
         }
         ```
 
-- [ ] **#SEC-11** · P2 — `AnalyticsController::pageview` has no bot filter and no dedup, unlike every other event type
+- [x] **#SEC-11** · P2 — `AnalyticsController::pageview` has no bot filter and no dedup, unlike every other event type
+    - **WONTFIX — deliberate, see `AnalyticsController.php:58` (2026-08-26, PART 2 unit 10d).** The absence is a
+      documented carry-forward, not an oversight. Verbatim at the call site:
+      `// NOTE: pageview intentionally has NO bot filter and NO dedup (preserved). A bot`
+      `// UA still records a pageview today; changing that is a separate metrics decision.`
+      Adding a bot filter changes what "a pageview" means in every historical comparison, which is a
+      metrics-policy call and not an engineering one. No code changed.
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php:45-74
     - **Affects:** Public analytics ingest queue and job volume for every site.
     - **Effort:** S (~0.5–1h)
@@ -563,7 +569,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
 - P2 Medium: 9 of 16 complete
-- P3 Low: 0 of 8 complete
+- P3 Low: 0 of 7 complete
 
 ---
 
