@@ -12,11 +12,16 @@
 // and the refusal is still honoured, because the decision travels through
 // PlacementPolicy exactly as a pasted link does.
 
+use App\Http\Controllers\Api\Platforms\ShopController;
 use App\Jobs\Brand\IngestBrandAssetJob;
+use App\Jobs\Platforms\ConnectStoreFromProductJob;
 use App\Jobs\Platforms\ShopInitialFillJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Brand\StoreBrandSeeder;
+use App\Services\Platforms\IntegrationConnectionCacheRefresher;
+use App\Services\Platforms\ShopBrandIdentity;
+use App\Services\Platforms\ShopBrandProfiler;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
 use App\Services\Shop\StoreRecord;
@@ -302,11 +307,7 @@ it('caps the store after the cap the config declares, and all three enforcement 
     // each reads the same key — rather than by three hand-copied literals.
     $cap = (int) config('partna.shop_brands_max');
     expect($cap)->toBe(10);
-    foreach ([
-        App\Services\Brand\StoreBrandSeeder::class,
-        App\Http\Controllers\Api\Platforms\ShopController::class,
-        App\Jobs\Platforms\ConnectStoreFromProductJob::class,
-    ] as $class) {
+    foreach ([StoreBrandSeeder::class, ShopController::class, ConnectStoreFromProductJob::class] as $class) {
         $m = new ReflectionMethod($class, 'maxBrands');
         $m->setAccessible(true);
         expect($m->invoke(null))->toBe($cap, "{$class} disagrees with partna.shop_brands_max");
@@ -379,4 +380,41 @@ it('dispatches the initial fill and disarms auto-latest on a first connect only 
     // A re-scan of the SAME store is not a new connect — no second fill.
     app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
     Bus::assertDispatchedTimes(ShopInitialFillJob::class, 1);
+});
+
+// The AUTO-PROBE path's own behavioural cap test. The sweep's standalone note
+// asked for proof that both the auto-probe and the manual-connect path refuse at
+// the same count; ShopController's half is covered by ShopAsyncConnectTest (T10),
+// but ConnectStoreFromProductJob had no cap coverage at all before or after
+// #CFG-3. The reflection guard above proves the three accessors cannot DISAGREE;
+// this proves the auto-probe path actually ENFORCES what it reads.
+// Lives in this file so it can reuse seedExistingStores() — a cross-file test
+// helper fatals under --parallel.
+it('the auto-probe path refuses a store past the same configured cap (#CFG-3)', function () {
+    Log::spy();
+    $cap = (int) config('partna.shop_brands_max');
+    $pro = createTenant('probe-capped');
+    seedExistingStores($pro, $cap);
+
+    (new ConnectStoreFromProductJob((string) $pro->id, [
+        'provider' => 'bigcartel',
+        'origin' => 'https://overcap.example.com',
+        'sourceUrl' => 'https://overcap.example.com/product/x',
+        'page' => null,
+        'store' => null,
+        'clientBrand' => ['id' => 'overcap-store'],
+    ]))->handle(
+        app(ShopBrandIdentity::class),
+        app(ShopBrandProfiler::class),
+        app(ShopConnections::class),
+        app(ShopContentWriter::class),
+        app(IntegrationConnectionCacheRefresher::class),
+    );
+
+    // Refused cleanly: no new store, and never a half-connected one.
+    expect(seededStoreCount($pro))->toBe($cap);
+    expect(seededStore($pro, 'overcap-store'))->toBeNull();
+    Log::shouldHaveReceived('info')
+        ->with('shop.connect_from_product.cap_reached', Mockery::type('array'))
+        ->once();
 });

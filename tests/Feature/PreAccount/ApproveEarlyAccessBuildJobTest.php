@@ -12,6 +12,7 @@ use App\Services\PreAccount\Generators\SiteSourceGenerator;
 use App\Services\PreAccount\PreAccountBuildService;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Services\PreAccount\SourceGeneratorRegistry;
+use Illuminate\Contracts\Queue\Job;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
@@ -333,7 +334,7 @@ it('fails the job when the re-scrape throws SourceGenerationException (#JOB-3)',
     });
 
     $job = new ApproveEarlyAccessBuildJob($signup->id, 'instagram');
-    $queueJob = Mockery::mock(Illuminate\Contracts\Queue\Job::class);
+    $queueJob = Mockery::mock(Job::class);
     $queueJob->shouldReceive('fail')->once()->with(Mockery::type(SourceGenerationException::class));
     $job->setJob($queueJob);
 
@@ -353,7 +354,7 @@ it('fails the job when the re-scrape throws an unclassified Throwable (#JOB-3)',
     });
 
     $job = new ApproveEarlyAccessBuildJob($signup->id, 'instagram');
-    $queueJob = Mockery::mock(Illuminate\Contracts\Queue\Job::class);
+    $queueJob = Mockery::mock(Job::class);
     $queueJob->shouldReceive('fail')->once()->with(Mockery::type(RuntimeException::class));
     $job->setJob($queueJob);
 
@@ -391,7 +392,7 @@ it('does NOT fail the job on a happy approval — fail() is not fired indiscrimi
     });
 
     $job = new ApproveEarlyAccessBuildJob($signup->id, 'instagram');
-    $queueJob = Mockery::mock(Illuminate\Contracts\Queue\Job::class);
+    $queueJob = Mockery::mock(Job::class);
     $queueJob->shouldNotReceive('fail');
     $job->setJob($queueJob);
 
