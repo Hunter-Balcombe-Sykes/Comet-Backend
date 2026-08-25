@@ -2,7 +2,6 @@
 
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
-use Illuminate\Support\Str;
 use Tests\TestCase;
 
 // Relationship assertions require a booted Laravel app (DB resolver).
@@ -53,47 +52,6 @@ it('does not treat a VIA_SIGNUP build as outreach', function () {
 
     expect($build->isOutreach())->toBeFalse();
 });
-
-// Dark Until Claimed: deliberately narrower than isOutreach(). expires_at
-// !== null is the "staff approved this early-access lead" signal — requestBuild()
-// gives every early-access build a null expiry at creation; only
-// ApproveEarlyAccessBuildJob re-stamps a real one.
-it('is visible while unclaimed for a staff-built build regardless of expiry', function () {
-    // built_by_staff_id is not fillable — direct property set.
-    $build = new PreAccountBuild;
-    $build->built_by_staff_id = (string) Str::uuid();
-
-    expect($build->isVisibleWhileUnclaimed())->toBeTrue();
-});
-
-it('is visible while unclaimed for a staff-approved early-access build', function () {
-    $build = new PreAccountBuild(['built_via' => PreAccountBuild::VIA_EARLY_ACCESS, 'expires_at' => now()->addDays(30)]);
-
-    expect($build->isVisibleWhileUnclaimed())->toBeTrue();
-});
-
-it('is not visible while unclaimed for an unapproved early-access build', function () {
-    $build = new PreAccountBuild(['built_via' => PreAccountBuild::VIA_EARLY_ACCESS, 'expires_at' => null]);
-
-    expect($build->isVisibleWhileUnclaimed())->toBeFalse();
-});
-
-it('is not visible while unclaimed for a self-serve signup build', function () {
-    $build = new PreAccountBuild(['built_via' => PreAccountBuild::VIA_SIGNUP]);
-
-    expect($build->isVisibleWhileUnclaimed())->toBeFalse();
-});
-
-it('is not visible while unclaimed for a VIA_STAFF build with a deleted staff row', function () {
-    // Deliberately different from isOutreach(): visibility does not carry the
-    // VIA_STAFF-survives-staff-deletion arm — failing toward dark is the safe
-    // default here, unlike the claim gate where failing to recognise outreach
-    // status would make the build first-come claimable.
-    $build = new PreAccountBuild(['built_via' => PreAccountBuild::VIA_STAFF]);
-
-    expect($build->isVisibleWhileUnclaimed())->toBeFalse();
-});
-
 /*
 |--------------------------------------------------------------------------
 | #PRIV-3 — created_ip_hash must not be a reversible digest

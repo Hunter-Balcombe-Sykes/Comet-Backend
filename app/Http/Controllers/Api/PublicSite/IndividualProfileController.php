@@ -98,21 +98,12 @@ class IndividualProfileController extends ApiController
                     'updated_at_ts' => $site?->updated_at?->timestamp
                         ?? $pro->updated_at?->timestamp
                         ?? 0,
-                    // Dark Until Claimed: an unclaimed build is only publicly
-                    // resolvable if it's been vetted (staff-built, or a
-                    // staff-approved early-access lead) — see
-                    // PreAccountBuild::isVisibleWhileUnclaimed(). Computed
-                    // here, not inside IndividualProfilePayloadBuilder, so a
-                    // dark answer rides this cache's existing 30s staleness
-                    // window rather than getting baked into the long-lived,
-                    // timestamp-keyed payload cache.
-                    'dark' => $pro->isUnclaimed() && ! $pro->preAccountBuild?->isVisibleWhileUnclaimed(),
                 ];
             }
         );
 
-        if (($resolved['not_found'] ?? false) || ($resolved['dark'] ?? false)) {
-            $this->logIfSlow($handleLc, ($resolved['dark'] ?? false) ? '404-dark' : '404', $startedAt);
+        if ($resolved['not_found'] ?? false) {
+            $this->logIfSlow($handleLc, '404', $startedAt);
 
             return $this->error('Not found.', 404);
         }

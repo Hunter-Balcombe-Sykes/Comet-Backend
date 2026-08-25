@@ -139,19 +139,7 @@ class SyncSubdomainToKvJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
         // rewriting the entry permanent (null TTL).
         $ttl = null;
         if ($pro->isUnclaimed()) {
-            $build = $pro->preAccountBuild;
-
-            // Dark Until Claimed: an unclaimed self-serve build (or an
-            // unapproved early-access lead) must not be publicly routable at
-            // all — only a vetted build (staff-built, or staff-approved
-            // early-access) may be. See PreAccountBuild::isVisibleWhileUnclaimed().
-            if (! $build?->isVisibleWhileUnclaimed()) {
-                $this->retire($kv, $pro);
-
-                return;
-            }
-
-            $expiresAt = $build->expires_at;
+            $expiresAt = $pro->preAccountBuild?->expires_at;
             if (! $expiresAt || now()->gte($expiresAt)) {
                 $this->retire($kv, $pro); // expired (or buildless) unclaimed — treat as gone
 
