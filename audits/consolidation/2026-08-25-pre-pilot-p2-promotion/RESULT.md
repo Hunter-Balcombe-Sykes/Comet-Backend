@@ -3,7 +3,8 @@
 **Branch:** `audit-fix/pre-pilot-p2-2026-08-25` (off `development` @ `fe3f4f36d`)
 **Status:** all 11 units worked. **0 blocked, 0 deferred.**
 **Suite:** 9167 passed, 3 skipped, 0 failed after merging `origin/development` (32374 assertions). Pre-merge this branch stood at 9183; the delta is the upstream "Dark Until Claimed" revert deleting its own tests, not a regression here. Baseline at branch point was 9121/3/0 — **+62 tests from this tranche, no pre-existing red**.
-**`pint --test`:** passed. **Not pushed** — review and merge is yours.
+**`pint --test`:** passed.
+**Merged and pushed to `development`** 2026-08-25 (`2ed632343`); **CI green, all 9 jobs**. `production` untouched — that push is the prod deploy. Branch deleted after merge. The `#PRIV-3` data scrub in §2.1 has been run on both refs.
 
 ---
 
@@ -39,7 +40,7 @@ The P1 parent `#SEM-1` was already fixed and ticked before this run; unit 1 veri
 
 ## 2. Post-merge steps for Josh
 
-### 2.1 REQUIRED — null the legacy IP hashes (`#PRIV-3`)
+### 2.1 ~~REQUIRED~~ — **DONE 2026-08-25, both refs.** Null the legacy IP hashes (`#PRIV-3`)
 
 New writes are `hash_hmac('sha256', $ip, pepper)`. **Existing rows still hold bare, reversible `sha256(ip)`** — they cannot be re-hashed because the raw IPs are gone, and they are the exact liability. Your 2026-08-24 ruling was to null them.
 
@@ -52,7 +53,16 @@ Run against **each ref separately**:
 - **dev** `glncumufgaqcmqhzwrxm`
 - **prod** `edplucmvkcnokyygxqsb` — prod carries **no customer data** (`core.users` = 0), so this is very likely a 0-row no-op. Run it anyway for parity.
 
-Not executed here, and deliberately **not** committed as a migration — it is a data scrub, not schema. Safe to run any time after merge; mixed old/new state is harmless because a legacy digest cannot equality-match a new HMAC, so a stale row simply stops counting toward its IP's build cap. Cost is one day of same-day dedupe.
+**Executed 2026-08-25 after CI went green**, on Josh's instruction, deliberately **not** committed as a migration — it is a data scrub, not schema:
+
+| Ref | Before | Rows nulled | After |
+|---|---|---|---|
+| dev `glncumufgaqcmqhzwrxm` | 17 rows, 15 carrying a hash | **15** | 17 rows, **0** carrying a hash |
+| prod `edplucmvkcnokyygxqsb` | 0 rows | **0** (genuine no-op) | 0 rows |
+
+Counts were taken on each ref before writing, and dev was re-verified after. Prod was empty as predicted (`core.users` = 0) and was run anyway for parity.
+
+Original note retained: Safe to run any time after merge; mixed old/new state is harmless because a legacy digest cannot equality-match a new HMAC, so a stale row simply stops counting toward its IP's build cap. Cost is one day of same-day dedupe.
 
 ### 2.2 Optional — set a dedicated IP pepper
 
