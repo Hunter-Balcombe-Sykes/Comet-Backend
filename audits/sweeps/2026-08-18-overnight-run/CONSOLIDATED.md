@@ -327,7 +327,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
-- P2 Medium: 2 of 11 complete
+- P2 Medium: 3 of 11 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -531,7 +531,7 @@
         }
         ```
 
-- [ ] **#LIFE-11** · P2 — `GoogleBusinessAutoSync::seedWorkplace()` is a check-then-write with no lock, unlike every sibling seed method in the same class
+- [x] **#LIFE-11** · P2 — `GoogleBusinessAutoSync::seedWorkplace()` is a check-then-write with no lock, unlike every sibling seed method in the same class
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:414-460
     - **Affects:** A site whose owner edits their workplace description/category/website at the same moment a Google Business enrich job runs and tries to seed the same fields.
     - **Effort:** S (~0.5–1h)
