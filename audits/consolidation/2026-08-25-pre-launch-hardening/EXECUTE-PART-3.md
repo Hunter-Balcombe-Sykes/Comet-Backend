@@ -7,7 +7,8 @@ question.** Every decision this part needs has been made in advance and is writt
 `**DECIDED:**` line. There are no sign-off gates in this part. §1 is the no-stop policy; read it
 before §4.
 
-**One unit (the original unit 13), split into seven sub-units, ~12 defects.** These are the scale
+**One unit (the original unit 13), split into eight sub-units, ~13 defects.** 13h was an
+orphaned finding rescued during the 2026-08-26 refresh. These are the scale
 findings: unbounded reads, per-row round-trips, and one quadratic. **Every one of them needs a
 measurement, not an opinion** — see §3.
 Sourced from `audits/consolidation/2026-08-25-pre-pilot-p2-promotion/BACKLOG-TRIAGE.md`, verified
@@ -16,15 +17,29 @@ against `development` at `d52a604c5`.
 Follow `scripts/audit/fix-flow.md` for the per-unit plan → implement → **independent** review loop.
 **Where this file and `fix-flow.md` disagree, THIS FILE WINS.**
 
-> ### The original unit 1 is NOT in this file and must NOT be attempted
-> `ProjectionWriter`'s identity-resolution scope (`#CACHE-2`, `#CACHE-4`, `#SCALE-8`,
-> `#SCALE-9` ≡ `#API-7`, `#SCALE-12`, all overnight-run) was **deferred out of this tranche by Josh on
-> 2026-08-25.** It is a
-> re-architecture of a 2,456-line file whose correctness boundary is a genuine design decision, and it
-> gets its own planning session: `docs/superpowers/plans/2026-08-25-projectionwriter-identity-scope-PLAN-PROMPT.md`.
-> **Leave those findings unticked. Do not "just fix the easy part" of them.** If a sub-unit below
-> leads you into `resolveItems()`/`projectStream()`'s resolution scope, that is a DEFER, not an
-> opportunity.
+> ### The original unit 1 SHIPPED on 2026-08-26 — do not re-open it, do not disturb it
+> `ProjectionWriter`'s identity-resolution scope was deferred out of this tranche, planned, and then
+> **implemented and merged to `development`** (`3c88c5925`..`c529f16ac`). Dispositions are final and
+> were ticked by **`ad8922d15`**, whose commit body is the authority:
+>
+> | Finding (overnight-run) | Disposition |
+> |---|---|
+> | `#CACHE-2`, `#CACHE-4` | **Fixed** — `52dcde93a` resolves only the component a run can change |
+> | `#SCALE-8` | **Fixed** — `6099b4571` bounds the accumulator's per-entry size |
+> | `#SCALE-9` | **Fixed** — `df2530971` + `fa97b55f7` batch the slug read out of the refresh loop |
+> | `#SCALE-12` | **WONTFIX** — recorded as such, with reasoning, in the sweep |
+>
+> **`#API-7` was NOT closed by that work and is still open.** `ad8922d15` settles the pairing my
+> earlier draft got wrong: *"#API-7 is NOT closed by this work and stays open — it pairs with the
+> remainder sweep's `SCALE-9`, not ours."* It is now **sub-unit 13h** below.
+>
+> **What you must not touch.** That work added `app/Content/Identity/IdentityScope.php` (a transitive
+> closure of a change) behind a kill switch — `config('partna.content.identity_scope')`, default
+> **true**, bounded by `identity_scope_max` (default 2000). `13g` below works inside the same identity
+> cycle. **Do not change `IdentityScope`, the kill switch, the closure bound, or the resolve scope.**
+> Any of those is a DEFER (§1.2 trigger 3). `5556f0b78` added a PG differential test asserting a
+> scoped resolve equals a whole-kind resolve — if your change makes that test fail, your change is
+> wrong, not the test.
 
 ---
 
@@ -142,14 +157,23 @@ defer more here than in PART 1 or 2** — scale fixes have a habit of turning ou
 
 ## 2. Setup + preconditions
 
-> ### ⚠️ The verification ref is STALE — re-verify before you fix
-> These findings were verified against `development` at **`d52a604c5`**. `development` has since
-> advanced by nine commits to **`a38cf6557`** (2026-08-25), and three of those commits **closed audit
-> findings**: `9a84b3721` (`#SCALE-3`, `#SCALE-15`), `924008fea` (`#SCALE-1`). Files already changed
-> under `app/`: `Services/Media/MediaMirror.php`, `Services/Http/SafeUrlFetcher.php`,
-> `Site/Sections/SectionCandidates.php`, plus `config/partna.php`.
-> **Treat every finding's premise as unverified until you check it against the code you actually
-> pulled.** This is the ~40% already-fixed rate in action, not a hypothetical.
+> ### ⚠️ Premise freshness — refreshed 2026-08-26, re-verify anyway
+> These findings were originally verified at `d52a604c5`. `development` has since advanced **41
+> commits** to **`c529f16ac`**. This file was refreshed against that head on 2026-08-26; the
+> per-unit `DECIDED` blocks below reflect it. What landed in between:
+>
+> - **The whole `ProjectionWriter` identity-scope cluster shipped** (`3c88c5925`..`c529f16ac`) —
+>   see each file's own note; `#CACHE-2`, `#CACHE-4`, `#SCALE-8`, `#SCALE-9` are **fixed** and
+>   `#SCALE-12` is **WONTFIX**, all ticked by `ad8922d15`. Do not re-open them.
+> - **PR #310 `feat/staff-release-claim` + the ManyChat claim-link work** — `ClaimController.php`,
+>   `StaffPreAccountBuildController.php`, `PreAccountBuild.php`, `AppServiceProvider.php`,
+>   `routes/api.php`, `config/partna.php`, two migrations.
+> - `755fdbdbd` storefront `logoMarkSvg` on the public collections wire (`PoolResolver.php`).
+> - Earlier: `9a84b3721` (`#SCALE-3`, `#SCALE-15`), `924008fea` (`#SCALE-1`).
+>
+> **Still treat every premise as unverified until you check it against the code you pulled.** The
+> refresh confirmed the units in this file, but `development` moves — this repo's backlog carries a
+> measured ~40% already-fixed rate and this tranche has now been overtaken twice.
 
 1. `git fetch && git pull` on `development`.
 2. Branch/checkout `audit-fix/pre-launch-hardening-2026-08-25` per §0.
@@ -197,6 +221,8 @@ Rules that stop a measurement from lying to you:
 > The tranche also carries two `SCALE-1`s and two `SCALE-3`s. **Neither is a unit in this file, and
 > both of the overnight-run ones are already closed on `development`** — `#SCALE-1` by `924008fea`,
 > `#SCALE-3` by `9a84b3721`. If you find yourself about to work one, you have matched the wrong twin.
+> As of 2026-08-26 the overnight-run `#SCALE-8`, `#SCALE-9` and `#SCALE-12` are **also closed** (box
+> above). **Every remaining `SCALE-8`/`SCALE-9` in scope here is the REMAINDER twin** — 13f and 13h.
 
 ### 13a — `#SCALE-15`: `MediaMirror` downloads at the wrong cap · S · **EXPECT ALREADY FIXED**
 
@@ -301,7 +327,14 @@ performs a **write**.
 - `#CACHE-1` ≡ `#SCALE-11`: one `insertOrIgnore` round-trip **per identity candidate**.
 - `#SCALE-10` ≡ `#CACHE-6`: **uncapped O(m²) candidate generation**, which directly amplifies it.
 
-**⚠️ This sub-unit is adjacent to the deferred-out unit 1. Read the box at the top of this file.**
+**Premise re-verified 2026-08-26 — it SURVIVES the identity-scope work.** `recordCandidates()` still
+loops `foreach ($candidates as $candidate) { DB::table('content.identity_candidates')->insertOrIgnore([...]) }`
+at ~:1587-1594 — one round-trip per candidate, unbatched. Note that a *different* multi-row batching
+already landed nearby for `#CACHE-5` (`content.item_anchors`, ~:1161) — **that is not this finding**;
+do not tick `#CACHE-1` on the strength of it.
+
+**⚠️ This sub-unit sits inside the identity cycle that shipped on 2026-08-26. Read the box at the top
+of this file before touching anything.**
 `recordCandidates()` sits inside the identity cycle that `resolveItemsLocked()` holds an advisory lock
 across. **You may batch the writes and cap the generation. You may NOT change the resolution scope,
 the lock, the transaction boundary, or which candidates are considered.** Any of those is a DEFER
@@ -322,6 +355,27 @@ the lock, the transaction boundary, or which candidates are considered.** Any of
 - **Measure:** query count for a projection run with a realistic candidate set, and the candidate-count
   growth curve at two or three input sizes to show the quadratic is actually capped.
 - **Plan and implement as separate instances** (§0b); implement on **Opus 5**.
+
+### 13h — `#API-7` ≡ `SCALE-9` (**remainder** sweep) · S · **NEW — was an orphan**
+**⚠️ Read the ID collision warning at the top of §4 first.** This is the **remainder** sweep's
+`SCALE-9`, **not** the overnight-run `#SCALE-9` that shipped on 2026-08-26.
+
+**Why it is here.** `#API-7` was listed in the undivided tranche's duplicate-pair table but assigned
+to **no unit**, so a unit-by-unit agent would never have reached it. An earlier draft of these files
+guessed it paired with the overnight `#SCALE-9`; `ad8922d15` settled that it does not — *"it pairs
+with the remainder sweep's `SCALE-9`, not ours"* — and explicitly left it **open**.
+
+**DECIDED — read the finding text before doing anything.** These files do not carry its description,
+because the pairing was only settled after they were written.
+
+1. Find both IDs in the source sweeps under `audits/` (grep for `API-7` and for `SCALE-9`, and keep
+   the **remainder** sweep's copy — the overnight one is closed).
+2. Confirm they are genuinely the same defect. **If they are not, work neither and write it up in §7**
+   — a wrong pairing is exactly what produced this orphan.
+3. If the premise is already fixed, close it `WONTFIX — premise refuted` per §5 with evidence.
+4. Otherwise work it under this file's normal rules, with a measurement (§3), and **tick both IDs**.
+5. If it turns out to be M or larger, **DEFER** (§1.2 trigger 4) — it arrived late and is not worth
+   blowing the night on.
 
 ---
 
@@ -356,9 +410,10 @@ the lock, the transaction boundary, or which candidates are considered.** Any of
   `WONTFIX — <reason>`. State the disposition of every finding ID.
 - **A measurement table** — before/after per sub-unit, with the metric named. A sub-unit ticked `DONE`
   with no number in this table is not done.
-- **Explicit confirmation that unit 1's findings (`#CACHE-2`, `#CACHE-4`, `#SCALE-8`, `#SCALE-9` ≡ `#API-7`,
-  `#SCALE-12`, overnight-run) are still unticked and `ProjectionWriter`'s resolution scope is
-  unchanged**, with a `git diff --stat` of that file as evidence.
+- **Explicit confirmation that the 2026-08-26 identity-scope work is undisturbed**: `IdentityScope.php`
+  unchanged, `partna.content.identity_scope` / `identity_scope_max` unchanged, the resolve scope
+  unchanged, and `5556f0b78`'s PG differential test still green. Give a `git diff --stat` of
+  `app/Content/Identity/` and `app/Ingest/Projection/ProjectionWriter.php` as evidence.
 - **Where you stopped**, if you stopped partway, and why.
 - **Surfaced, not worked** — including every index you wanted and did not create (§1.2 trigger 1).
   That list is genuinely useful to Josh; write it properly.

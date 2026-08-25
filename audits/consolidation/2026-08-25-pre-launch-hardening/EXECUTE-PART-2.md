@@ -19,8 +19,8 @@ which §1.1 explicitly discharges.
 
 > **Unit numbers are the ORIGINAL ones** from the undivided tranche (6, 8, 9, 10, 12, 14), kept so
 > cross-references to `BACKLOG-TRIAGE.md` and the source sweeps still resolve. Units 2, 3, 4, 5, 7, 11
-> are PART 1; unit 13 is PART 3; unit 1 is deferred out of the tranche entirely (see
-> `docs/superpowers/plans/2026-08-25-projectionwriter-identity-scope-PLAN-PROMPT.md`).
+> are PART 1; unit 13 is PART 3; unit 1 was deferred out and has since **shipped** on 2026-08-26
+> (`3c88c5925`..`c529f16ac`) — nothing in this file touches it.
 
 ---
 
@@ -137,14 +137,23 @@ a DEFER (§1.2), not a pause.
 
 ## 2. Setup + preconditions
 
-> ### ⚠️ The verification ref is STALE — re-verify before you fix
-> These findings were verified against `development` at **`d52a604c5`**. `development` has since
-> advanced by nine commits to **`a38cf6557`** (2026-08-25), and three of those commits **closed audit
-> findings**: `9a84b3721` (`#SCALE-3`, `#SCALE-15`), `924008fea` (`#SCALE-1`). Files already changed
-> under `app/`: `Services/Media/MediaMirror.php`, `Services/Http/SafeUrlFetcher.php`,
-> `Site/Sections/SectionCandidates.php`, plus `config/partna.php`.
-> **Treat every finding's premise as unverified until you check it against the code you actually
-> pulled.** This is the ~40% already-fixed rate in action, not a hypothetical.
+> ### ⚠️ Premise freshness — refreshed 2026-08-26, re-verify anyway
+> These findings were originally verified at `d52a604c5`. `development` has since advanced **41
+> commits** to **`c529f16ac`**. This file was refreshed against that head on 2026-08-26; the
+> per-unit `DECIDED` blocks below reflect it. What landed in between:
+>
+> - **The whole `ProjectionWriter` identity-scope cluster shipped** (`3c88c5925`..`c529f16ac`) —
+>   see each file's own note; `#CACHE-2`, `#CACHE-4`, `#SCALE-8`, `#SCALE-9` are **fixed** and
+>   `#SCALE-12` is **WONTFIX**, all ticked by `ad8922d15`. Do not re-open them.
+> - **PR #310 `feat/staff-release-claim` + the ManyChat claim-link work** — `ClaimController.php`,
+>   `StaffPreAccountBuildController.php`, `PreAccountBuild.php`, `AppServiceProvider.php`,
+>   `routes/api.php`, `config/partna.php`, two migrations.
+> - `755fdbdbd` storefront `logoMarkSvg` on the public collections wire (`PoolResolver.php`).
+> - Earlier: `9a84b3721` (`#SCALE-3`, `#SCALE-15`), `924008fea` (`#SCALE-1`).
+>
+> **Still treat every premise as unverified until you check it against the code you pulled.** The
+> refresh confirmed the units in this file, but `development` moves — this repo's backlog carries a
+> measured ~40% already-fixed rate and this tranche has now been overtaken twice.
 
 1. `git fetch && git pull` on `development`.
 2. Branch/checkout `audit-fix/pre-launch-hardening-2026-08-25` per §0.
@@ -201,6 +210,11 @@ timeout staff get no response at all, so they cannot tell which rows landed.
 The row loop already catches `PreAccountBuildException` per row. **So the wire shape is not the
 problem** — the problem is that a timeout returns none of it, and that a non-`PreAccountBuildException`
 `\Throwable` aborts the whole loop.
+
+✅ **Re-verified 2026-08-26: `batch()` is byte-for-byte unchanged** by PR #310 / the ManyChat work,
+so the analysis above still holds exactly. The surrounding **file** did change — a new
+`POST /api/staff/builds/{build}/claim-token` re-issue method was added — so line numbers moved and
+there is now a sibling method to keep consistent with. Match by symbol.
 
 **DECIDED — time-budget the synchronous loop. Do NOT queue it.**
 Queueing changes the staff contract to a job id plus polling, which needs frontend work nobody is

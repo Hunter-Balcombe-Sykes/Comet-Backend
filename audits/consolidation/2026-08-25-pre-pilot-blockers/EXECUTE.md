@@ -123,14 +123,23 @@ per §7 before stopping):
 
 ## 2. Setup + preconditions
 
-> ### ⚠️ The verification ref is STALE — re-verify before you fix
-> These findings were verified against `development` at **`d52a604c5`**. `development` has since
-> advanced by nine commits to **`a38cf6557`** (2026-08-25), and three of those commits **closed audit
-> findings**: `9a84b3721` (`#SCALE-3`, `#SCALE-15`), `924008fea` (`#SCALE-1`). Files already changed
-> under `app/`: `Services/Media/MediaMirror.php`, `Services/Http/SafeUrlFetcher.php`,
-> `Site/Sections/SectionCandidates.php`, plus `config/partna.php`.
-> **Treat every finding's premise as unverified until you check it against the code you actually
-> pulled.** This is the ~40% already-fixed rate in action, not a hypothetical.
+> ### ⚠️ Premise freshness — refreshed 2026-08-26, re-verify anyway
+> These findings were originally verified at `d52a604c5`. `development` has since advanced **41
+> commits** to **`c529f16ac`**. This file was refreshed against that head on 2026-08-26; the
+> per-unit `DECIDED` blocks below reflect it. What landed in between:
+>
+> - **The whole `ProjectionWriter` identity-scope cluster shipped** (`3c88c5925`..`c529f16ac`) —
+>   see each file's own note; `#CACHE-2`, `#CACHE-4`, `#SCALE-8`, `#SCALE-9` are **fixed** and
+>   `#SCALE-12` is **WONTFIX**, all ticked by `ad8922d15`. Do not re-open them.
+> - **PR #310 `feat/staff-release-claim` + the ManyChat claim-link work** — `ClaimController.php`,
+>   `StaffPreAccountBuildController.php`, `PreAccountBuild.php`, `AppServiceProvider.php`,
+>   `routes/api.php`, `config/partna.php`, two migrations.
+> - `755fdbdbd` storefront `logoMarkSvg` on the public collections wire (`PoolResolver.php`).
+> - Earlier: `9a84b3721` (`#SCALE-3`, `#SCALE-15`), `924008fea` (`#SCALE-1`).
+>
+> **Still treat every premise as unverified until you check it against the code you pulled.** The
+> refresh confirmed the units in this file, but `development` moves — this repo's backlog carries a
+> measured ~40% already-fixed rate and this tranche has now been overtaken twice.
 
 1. `git fetch && git pull` on `development`.
 2. Branch `audit-fix/pre-pilot-blockers-2026-08-25` off freshly-pulled `development`.
@@ -361,6 +370,9 @@ why. The sibling `catch (\Throwable)` immediately below correctly does `report()
 anchor**, so any host starting `order.` (e.g. `order.attacker.example`) is accepted and rendered on
 a public sitepage **under Square's brand identity**.
 
+- **Premise re-verified 2026-08-26: still live, still unanchored**, at `config/partna.php:993`:
+  `'~(^|\.)square\.site$|(^|\.)square\.com$|^order\.(?!online$|toasttab\.com$|ubereats\.com$|doordash\.com$|menulog\.com\.au$)~'`.
+  The file changed for other reasons since, so **match by symbol, not by that line number.**
 - One character-class/anchor fix. **Do not widen the allowlist.**
 - **Use the repo's differential convention** (`feedback_differential_test_for_keyword_map_changes`):
   diff the OLD vs NEW pattern over a generated corpus of hosts, so a legitimate Square host silently
@@ -380,9 +392,26 @@ Any free Supabase account can sweep public handles and separate "nothing here" f
 outreach site awaiting invite" — a target list of exactly the sites worth squatting. The branch's own
 comment says it must not become this oracle.
 
-**DECIDED — collapse `CLAIM_NOT_INVITED` into the existing `CLAIM_NOT_FOUND` response.**
-Byte-for-byte indistinguishable: same status, same `code`, same message, same body keys, same headers.
-Do not invent a third shared code — reuse the 404 that already exists, so nothing new is learnable.
+**⚠️ RE-VERIFIED 2026-08-26 — the premise SURVIVES, but the file changed under it.** PR #310 and the
+ManyChat claim-link work landed. `CLAIM_NOT_INVITED` is still a distinct 409 (now ~:77-81) and
+`CLAIM_NOT_FOUND` still a bare 404 (~:66), so the finding stands. **But there is now a THIRD branch
+the original finding never saw:** `CLAIM_EMAIL_MISMATCH` → **409**, *"This site is reserved for a
+different email address"* (~:71). That leaks site existence in exactly the same way.
+
+**DECIDED — collapse `CLAIM_NOT_INVITED` into the existing `CLAIM_NOT_FOUND` response. Leave
+`CLAIM_EMAIL_MISMATCH` ALONE and write it up instead.**
+Byte-for-byte indistinguishable for the one you change: same status, same `code`, same message, same
+body keys, same headers. Do not invent a third shared code — reuse the 404 that already exists, so
+nothing new is learnable.
+
+**Why `CLAIM_EMAIL_MISMATCH` is out of scope tonight, despite being the same class of leak:**
+`CLAUDE.md` now pins it as **load-bearing for the ManyChat design** — the claim token *"satisfies the
+invite-gate only and does NOT override `CLAIM_EMAIL_MISMATCH`."* Collapsing it would silently weaken a
+guard that shipped days ago, and it also breaks a real UX path (an invited user who signed up under
+the wrong email would get a bare 404 instead of a usable message). That trade — enumeration hardening
+versus a documented product guard — is Josh's call, not an unattended one.
+**Put it in §7 as a surfaced residual**, naming
+`docs/superpowers/specs/2026-08-25-manychat-claim-link-design.md`, with your recommendation.
 
 - **DECIDED — timing:** do not add an artificial delay. A constant-time claim path is out of scope
   and would be a DEFER; note any timing residual in §7 instead.
@@ -416,6 +445,8 @@ is wrong.
 already carries **three** boot guards of exactly this shape (`~:292` throttle, `~:298` public_domain,
 `~:307` JWKS fail-closed), each `if (app()->isProduction() && <bad combo>) throw new \RuntimeException(...)`.
 Add a fourth for `mode=enforce && driver=null`. Outside production, log at `warning` instead of throwing.
+⚠️ `AppServiceProvider.php` and `routes/api.php` both changed on 2026-08-26 (ManyChat webhook + claim
+routes), so **those line numbers have moved — find the guards by their `isProduction()` shape.**
 
 **DECIDED — verify the guard is inert on both current envs and say so in `RESULT.md`.** Prod is
 `turnstile`/`shadow` and dev is `null`/`off`; neither is `enforce`+`null`, so the guard cannot fire

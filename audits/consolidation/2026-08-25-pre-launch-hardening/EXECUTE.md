@@ -21,16 +21,24 @@ Unit numbers are the **original** ones from the undivided tranche, kept so cross
 `audits/consolidation/2026-08-25-pre-pilot-p2-promotion/BACKLOG-TRIAGE.md` and the source sweeps still
 resolve.
 
-## Unit 1 is NOT in any part — it was deferred out
+## Unit 1 was deferred out — and has since SHIPPED
 
-`ProjectionWriter`'s identity-resolution scope (`#CACHE-2`, `#CACHE-4`, `#SCALE-8`, `#SCALE-9`
-(≡ `#API-7`), `#SCALE-12`, all overnight-run) is a re-architecture of a 2,456-line file whose correctness boundary is
-a real design decision, not an implementation detail. Josh deferred it out of the overnight tranche on
-2026-08-25. It gets its own **attended planning session**:
+`ProjectionWriter`'s identity-resolution scope was pulled from the overnight tranche on 2026-08-25,
+planned in an attended session, then implemented and merged to `development` on 2026-08-26
+(`3c88c5925`..`c529f16ac`). Final dispositions, ticked by `ad8922d15`:
 
-→ `docs/superpowers/plans/2026-08-25-projectionwriter-identity-scope-PLAN-PROMPT.md`
+| Finding (overnight-run) | Disposition |
+|---|---|
+| `#CACHE-2`, `#CACHE-4`, `#SCALE-8`, `#SCALE-9` | **Fixed** |
+| `#SCALE-12` | **WONTFIX**, with reasoning recorded in the sweep |
+| `#API-7` | **Still open** — it pairs with the *remainder* sweep's `SCALE-9`, not the overnight one. Rescued as **sub-unit 13h** in PART 3. |
 
-Those five findings stay unticked until that session produces a plan and the plan is executed.
+The planning prompt that produced this was deleted once the work shipped, per the repo convention for
+`docs/superpowers/plans/`. The plan itself survives at
+`docs/superpowers/plans/2026-08-25-projectionwriter-identity-scope.md`.
+
+**PART 3 must not disturb any of it** — `app/Content/Identity/IdentityScope.php`, the
+`partna.content.identity_scope` kill switch, or the resolve scope. Its §4 box says so explicitly.
 
 ## What changed when this was split
 

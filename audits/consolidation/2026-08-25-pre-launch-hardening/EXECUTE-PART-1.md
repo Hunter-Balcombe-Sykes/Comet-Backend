@@ -135,14 +135,23 @@ If you find yourself composing a question for Josh, that is a DEFER (§1.2), not
 
 ## 2. Setup + preconditions
 
-> ### ⚠️ The verification ref is STALE — re-verify before you fix
-> These findings were verified against `development` at **`d52a604c5`**. `development` has since
-> advanced by nine commits to **`a38cf6557`** (2026-08-25), and three of those commits **closed audit
-> findings**: `9a84b3721` (`#SCALE-3`, `#SCALE-15`), `924008fea` (`#SCALE-1`). Files already changed
-> under `app/`: `Services/Media/MediaMirror.php`, `Services/Http/SafeUrlFetcher.php`,
-> `Site/Sections/SectionCandidates.php`, plus `config/partna.php`.
-> **Treat every finding's premise as unverified until you check it against the code you actually
-> pulled.** This is the ~40% already-fixed rate in action, not a hypothetical.
+> ### ⚠️ Premise freshness — refreshed 2026-08-26, re-verify anyway
+> These findings were originally verified at `d52a604c5`. `development` has since advanced **41
+> commits** to **`c529f16ac`**. This file was refreshed against that head on 2026-08-26; the
+> per-unit `DECIDED` blocks below reflect it. What landed in between:
+>
+> - **The whole `ProjectionWriter` identity-scope cluster shipped** (`3c88c5925`..`c529f16ac`) —
+>   see each file's own note; `#CACHE-2`, `#CACHE-4`, `#SCALE-8`, `#SCALE-9` are **fixed** and
+>   `#SCALE-12` is **WONTFIX**, all ticked by `ad8922d15`. Do not re-open them.
+> - **PR #310 `feat/staff-release-claim` + the ManyChat claim-link work** — `ClaimController.php`,
+>   `StaffPreAccountBuildController.php`, `PreAccountBuild.php`, `AppServiceProvider.php`,
+>   `routes/api.php`, `config/partna.php`, two migrations.
+> - `755fdbdbd` storefront `logoMarkSvg` on the public collections wire (`PoolResolver.php`).
+> - Earlier: `9a84b3721` (`#SCALE-3`, `#SCALE-15`), `924008fea` (`#SCALE-1`).
+>
+> **Still treat every premise as unverified until you check it against the code you pulled.** The
+> refresh confirmed the units in this file, but `development` moves — this repo's backlog carries a
+> measured ~40% already-fixed rate and this tranche has now been overtaken twice.
 
 1. `git fetch && git pull` on `development`.
 2. Branch/checkout `audit-fix/pre-launch-hardening-2026-08-25` per §0.
@@ -220,6 +229,8 @@ Same shape as `CCH-11`, closed 2026-08-25: `catch (QueryException) { $x = []; }`
 `catch (\Throwable) {}` with no log, on paths where the failure is invisible.
 
 - `PoolResolver` ~:812 — ingest badges blank silently; the same query is on the public hot path.
+  ⚠️ That file changed on 2026-08-26 (`755fdbdbd`, storefront `logoMarkSvg` on the collections wire) —
+  an additive change that does not touch this catch, but **the line number has moved.** Match by symbol.
 - `ShortLinkExpander::resolveFinal()` — empty catch body, comment only. A defect or budget exhaustion
   is cached as "not expandable" for 1h with nothing reaching Nightwatch.
 - **DECIDED — the fix is the log line, not the TTL.** The negative TTL is deliberate and documented
