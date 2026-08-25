@@ -479,3 +479,80 @@ it('re-anchors a coord an out-of-component merge repoints, so a later touch does
     expect($pg->table('content.items')->where('user_id', $userId)->whereNotIn('id', [$keptItemId])->count())
         ->toBe(1, 'exactly one OTHER item should exist — the trigger coord\'s own item — not a second duplicate for R.');
 });
+
+it('does not run the anchor repair when narrowing is off — the flag is a byte-for-byte rollback', function () {
+    // Explicit, not relying on config/partna.php's default: this test is ABOUT the off state.
+    config(['partna.content.identity_scope' => false]);
+
+    $pg = DB::connection('pgsql');
+
+    $userId = (string) Str::uuid();
+    $pg->table('core.users')->insert(['id' => $userId]);
+    $pg->table('site.sites')->insert(['id' => (string) Str::uuid(), 'user_id' => $userId]);
+
+    $manualSourceId = app(ProjectionWriter::class)->ensureManualSource($userId);
+
+    // Identical fixture shape to the ON-narrowing test above: P/Q merge via a 'same' decision,
+    // R shares nothing with either and sits on the doomed item too.
+    $keptItemId = (string) Str::uuid();
+    $doomedItemId = (string) Str::uuid();
+    foreach ([[$keptItemId, 3], [$doomedItemId, 2]] as [$itemId, $hoursAgo]) {
+        $pg->table('content.items')->insert([
+            'id' => $itemId, 'user_id' => $userId, 'kind' => 'link',
+            'first_seen_at' => now()->subHours($hoursAgo), 'last_seen_at' => now()->subHours($hoursAgo),
+            'created_at' => now()->subHours($hoursAgo), 'updated_at' => now()->subHours($hoursAgo),
+        ]);
+    }
+
+    $coords = [
+        ['pma:off-p', $keptItemId, 3],
+        ['pma:off-q', $doomedItemId, 2],
+        ['pma:off-r', $doomedItemId, 1],
+    ];
+    foreach ($coords as [$coord, $itemId, $hoursAgo]) {
+        $pg->table('content.source_items')->insert([
+            'id' => (string) Str::uuid(), 'source_id' => $manualSourceId, 'coord' => $coord,
+            'item_id' => $itemId, 'kind' => 'link', 'projector_version' => 0,
+            'first_seen_at' => now()->subHours($hoursAgo), 'last_seen_at' => now()->subHours($hoursAgo),
+        ]);
+        $pg->table('content.item_anchors')->insert([
+            'coord' => $coord, 'user_id' => $userId, 'item_id' => $itemId,
+            'bound_at' => now()->subHours($hoursAgo),
+        ]);
+    }
+
+    $pg->table('content.identity_decisions')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $userId, 'verdict' => 'same',
+        'left_coord' => 'pma:off-p', 'right_coord' => 'pma:off-q', 'decided_at' => now(),
+    ]);
+
+    $trigger = 'manual:'.sha1('pma-off-trigger-'.Str::random(8));
+    app(ProjectionWriter::class)->writeManualItem($userId, $trigger, pmaLinkProjection($trigger));
+
+    expect($pg->table('content.items')->where('id', $doomedItemId)->exists())->toBeFalse(
+        'the merge did not happen, so this test proves nothing.',
+    );
+
+    // With narrowing OFF, resolveItemsLocked() resolves the WHOLE (user, kind) set on every call,
+    // exactly as it did before 2026-08-25 — so R is NOT left outside this pass at all: it is its
+    // own singleton group (no shared key, no decision), read and rebound in the SAME transaction
+    // as {P,Q}'s merge, by bindGroup()'s OWN pre-existing insertOrIgnore logic, not by the new
+    // mergeInto() repair (which is gated off and never runs). That is precisely what "the repair
+    // did not run" looks like from the outside: R does NOT silently inherit the kept item the way
+    // it does with narrowing on — it gets rebound onto a BRAND NEW item, the same churn the
+    // pre-branch code always produced for an identity-isolated coord caught up in someone else's
+    // merge. This is the behaviour PARTNA_CONTENT_IDENTITY_SCOPE=false exists to restore
+    // byte-for-byte; asserting "R equals kept" here would mean the repair leaked into the
+    // supposedly-off path.
+    $rItemId = (string) $pg->table('content.source_items')->where('coord', 'pma:off-r')->value('item_id');
+    expect($rItemId)->not->toBe($keptItemId,
+        'R ended up on the kept item with narrowing OFF — the mergeInto() repair ran when it should have been gated off.');
+    expect($rItemId)->not->toBe($doomedItemId,
+        'R is still pointing at the hard-deleted item — the whole-kind resolve did not rebind it, so this fixture is not exercising what it claims to.');
+
+    // R DOES get an anchor — via bindGroup()'s own pre-existing per-group insertOrIgnore for its
+    // freshly-minted item, the mechanism that has always run, not the new repair. Confirms this
+    // is the OLD self-healing path, not a silent no-op.
+    expect($pg->table('content.item_anchors')->where('user_id', $userId)->where('coord', 'pma:off-r')->exists())
+        ->toBeTrue('R has no anchor at all — neither the old whole-kind self-heal nor the new repair ran.');
+});

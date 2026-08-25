@@ -124,6 +124,13 @@ final class IdentityScope
             }
         }
 
+        // Every seed coord was filtered out by $known — none of $touched or the
+        // same-ruling coords is a LIVE source item this pass ($liveSource /
+        // removed_at at the caller). The caller treats an empty result as
+        // "narrowed to nothing to bind", where a whole-kind resolve would have
+        // re-bound the catalogue instead. Safe, not merely convenient: there is
+        // nothing here for a whole-kind resolve to have found either — a coord
+        // that resolves to nothing bound is a coord with nothing live to bind.
         if ($queue === []) {
             return ['coords' => [], 'capped' => false];
         }

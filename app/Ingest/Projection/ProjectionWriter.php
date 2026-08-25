@@ -965,7 +965,7 @@ class ProjectionWriter
 
         $itemByCoord = [];
         foreach ($resolution->groups as $group) {
-            [$itemId, $merged] = $this->bindGroup($userId, $kind, $group, $snapshot);
+            [$itemId, $merged] = $this->bindGroup($userId, $kind, $group, $snapshot, $narrowed);
             if ($merged) {
                 $snapshot = null;
             }
@@ -1046,7 +1046,7 @@ class ProjectionWriter
      *                                                or null to read fresh
      * @return array{0: string, 1: bool} [item id, whether this call merged and so staled $snapshot]
      */
-    private function bindGroup(string $userId, string $kind, array $group, ?array $snapshot = null): array
+    private function bindGroup(string $userId, string $kind, array $group, ?array $snapshot = null, bool $narrowed = false): array
     {
         // Unordered on purpose — sortAnchors() below is the ONE ordering, shared with the
         // #SCALE-4 prefetch path. An `ORDER BY coord` here would sort under the DATABASE
@@ -1156,7 +1156,7 @@ class ProjectionWriter
                 // outright rather than route through the full mergeInto() ceremony.
                 DB::table('content.items')->where('id', $winner)->delete();
             } else {
-                $this->mergeInto($userId, keptItemId: $lostTo, discardedItemId: $winner, groupCoords: $group);
+                $this->mergeInto($userId, keptItemId: $lostTo, discardedItemId: $winner, groupCoords: $group, narrowed: $narrowed);
             }
 
             // Both branches touch anchors outside this group's coords (the delete cascades),
@@ -1174,7 +1174,7 @@ class ProjectionWriter
         // unique(), so this is identical to slice(1) whenever the winner is
         // first, which is every connection-only group.
         foreach ($effective->reject(fn (string $itemId) => $itemId === $winner) as $loser) {
-            $this->mergeInto($userId, keptItemId: $winner, discardedItemId: (string) $loser, groupCoords: $group);
+            $this->mergeInto($userId, keptItemId: $winner, discardedItemId: (string) $loser, groupCoords: $group, narrowed: $narrowed);
             $merged = true;
         }
 
@@ -1348,7 +1348,7 @@ class ProjectionWriter
      * redirect the loser's anchors, repoint its rows, log the merge, and
      * delete the loser only when it carries no curation of its own.
      */
-    private function mergeInto(string $userId, string $keptItemId, string $discardedItemId, array $groupCoords = []): void
+    private function mergeInto(string $userId, string $keptItemId, string $discardedItemId, array $groupCoords = [], bool $narrowed = false): void
     {
         DB::table('content.item_anchors')
             ->where('user_id', $userId)
@@ -1383,12 +1383,20 @@ class ProjectionWriter
         // every anchor that pointed at it — including anchors for coords the
         // unscoped source_items repoint above just moved onto the kept item.
         //
-        // The whole-kind resolve hid this: every affected coord was in the same
-        // pass, so bindGroup() re-minted its anchor through insertOrIgnore
-        // before the run ended. With a narrowed component (2026-08-25) a coord
-        // OUTSIDE the component keeps a valid item_id and loses its anchor, and
-        // its next touch reads an empty anchor set, mints a fresh item and
-        // duplicates the row.
+        // Gated on $narrowed, not merely on the config flag: this repair
+        // compensates for coords the narrowing left OUT of this pass, and with
+        // narrowing off (or capped back to whole-kind) there are none — every
+        // live source item of the (user, kind) was already in $sourceItems, so
+        // bindGroup() re-mints any cascade-orphaned anchor through its own
+        // insertOrIgnore before the run ends, exactly as it always did. Running
+        // this unconditionally would not just be redundant: it would issue a
+        // SELECT + insertOrIgnore the pre-narrowing code never ran, and it can
+        // change outcomes even then — a coord on the loser item but in a LATER
+        // group used to be left anchor-less until that group's own bindGroup()
+        // call re-minted it fresh; pre-emptively repairing it here would make
+        // it survive under the wrong (soon-to-be-superseded) identity instead.
+        // Leaving it ungated would make PARTNA_CONTENT_IDENTITY_SCOPE=false a
+        // false rollback claim.
         //
         // $groupCoords EXCLUDES the current bindGroup() call's own coords —
         // deliberately, not an oversight. A coord already IN the resolved
@@ -1405,18 +1413,20 @@ class ProjectionWriter
         // Bounded by the KEPT item's source items minus the current group — a
         // handful — and only runs when a merge actually happens. insertOrIgnore
         // makes it a no-op for coords that still have their anchor.
-        $keptCoords = DB::table('content.source_items')
-            ->where('item_id', $keptItemId)
-            ->whereNotIn('coord', $groupCoords)
-            ->pluck('coord');
+        if ($narrowed) {
+            $keptCoords = DB::table('content.source_items')
+                ->where('item_id', $keptItemId)
+                ->whereNotIn('coord', $groupCoords)
+                ->pluck('coord');
 
-        if ($keptCoords->isNotEmpty()) {
-            DB::table('content.item_anchors')->insertOrIgnore($keptCoords->map(fn (string $coord) => [
-                'coord' => $coord,
-                'user_id' => $userId,
-                'item_id' => $keptItemId,
-                'bound_at' => now(),
-            ])->all());
+            if ($keptCoords->isNotEmpty()) {
+                DB::table('content.item_anchors')->insertOrIgnore($keptCoords->map(fn (string $coord) => [
+                    'coord' => $coord,
+                    'user_id' => $userId,
+                    'item_id' => $keptItemId,
+                    'bound_at' => now(),
+                ])->all());
+            }
         }
     }
 

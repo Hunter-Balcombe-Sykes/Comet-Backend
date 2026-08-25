@@ -313,15 +313,17 @@ class ShopContentWriter
      * Supavisor against a 10s lock TTL, where the pre-branch path was one
      * DELETE and one bulk INSERT.
      *
-     * The resolve side is narrowed as of #CACHE-2/#CACHE-4: writeManualItem()
-     * now resolves only IdentityScope's connected component of the touched
-     * coord, so that half no longer scales with the user's whole product set.
-     * refreshItemCaches() narrowing is separate, later work — until it lands,
-     * that call still runs over every resulting item id, so the OVERALL cost
-     * here still grows with the user's whole product set even though the
-     * resolve no longer contributes to it. Real bounds: the individual bucket
-     * caps at 20, dev's largest store holds 8, and syncLatest() takes at most
-     * the user's existing selection size — all comfortably inside the lock.
+     * As of #CACHE-2/#CACHE-4, writeManualItem() resolves only IdentityScope's
+     * connected component of the touched coord — and refreshItemCaches()
+     * inherits that narrowing for free, since it is called with
+     * array_values($itemByCoord), which IS the component's resolved map, not
+     * the whole (user, kind) set. So both halves now scale with the affected
+     * component rather than the user's whole product set; a later task
+     * narrows the component itself further (component → touched-only), which
+     * only shrinks that scope more, so this framing stays true either way.
+     * Real bounds: the individual bucket caps at 20, dev's largest store
+     * holds 8, and syncLatest() takes at most the user's existing selection
+     * size — all comfortably inside the lock.
      * Restructuring to a bulk write (resolve once, refresh once, at the end
      * of the loop) remains DELIBERATELY DEFERRED for the refreshItemCaches()
      * side — it means reaching into ProjectionWriter's per-item contract,
