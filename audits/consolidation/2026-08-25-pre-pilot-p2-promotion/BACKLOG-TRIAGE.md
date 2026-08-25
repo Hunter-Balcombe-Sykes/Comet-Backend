@@ -55,7 +55,11 @@ Ordered by what I'd do first.
 
 ---
 
-## PRE-LAUNCH — ~30 IDs, ~26 actual defects
+## PRE-LAUNCH — ~52 IDs, ~47 distinct defects
+
+(13 from unified-security + claim-gate · ~22 from the overnight run · 12 from delta/remainder. An
+earlier draft of this file said "~26" — that was my own undercount from compressing three batches;
+the per-batch figures are the authoritative ones.)
 
 Grouped, because several are one change:
 
