@@ -32,6 +32,7 @@ class ClaimSiteService
         private readonly SignupSideEffects $sideEffects,
         private readonly UserCacheService $userCache,
         private readonly SiteCacheService $siteCache,
+        private readonly ClaimTokenIssuer $tokens,
     ) {}
 
     /**
@@ -39,9 +40,9 @@ class ClaimSiteService
      *
      * @throws RuntimeException CLAIM_NOT_FOUND|ALREADY_CLAIMED|BUILD_FAILED|ACCOUNT_EXISTS|EMAIL_ALREADY_REGISTERED|CLAIM_EMAIL_MISMATCH|CLAIM_NOT_INVITED
      */
-    public function claim(string $uid, string $verifiedEmail, string $subdomain, bool $marketingOptIn = false): array
+    public function claim(string $uid, string $verifiedEmail, string $subdomain, bool $marketingOptIn = false, ?string $claimToken = null): array
     {
-        $result = DB::connection('pgsql')->transaction(function () use ($uid, $verifiedEmail, $subdomain, $marketingOptIn) {
+        $result = DB::connection('pgsql')->transaction(function () use ($uid, $verifiedEmail, $subdomain, $marketingOptIn, $claimToken) {
             $site = Site::query()->whereRaw('lower(subdomain) = ?', [strtolower(trim($subdomain))])->first();
             if (! $site) {
                 throw new RuntimeException('CLAIM_NOT_FOUND');
@@ -82,15 +83,20 @@ class ClaimSiteService
             // So: an outreach build with nobody to invite is not claimable at
             // all until staff attach an address (StaffPreAccountBuildController
             // ::attachContactEmail). Self-serve builds are untouched.
+            // A valid claim token IS proof of invitation (spec §6.2). It stands
+            // in for contact_email on the outreach lane, which is what lets a
+            // DM'd lead claim with no email ever entering the flow.
+            $tokenOk = $this->tokens->matches($build, $claimToken);
+
             $contactEmail = trim((string) $build->contact_email);
-            if ($build->isOutreach() && $contactEmail === '') {
+            if ($build->isOutreach() && $contactEmail === '' && ! $tokenOk) {
                 throw new RuntimeException('CLAIM_NOT_INVITED');
             }
 
-            // Email-gate (spec §3.2): a build carrying a contact_email may only be
-            // claimed by someone who verified control of THAT inbox via Supabase OTP.
-            // Absent contact_email = first-come (self-serve only, per the gate above).
-            // Case-insensitive.
+            // NOTE the absence of $tokenOk here — deliberate (owner, 2026-08-25).
+            // The token is NARROW: it proves INVITATION, not identity. A build
+            // carrying a contact_email still requires that address, so a token
+            // holder cannot claim an email-gated build with some other inbox.
             if ($contactEmail !== ''
                 && strtolower(trim($verifiedEmail)) !== strtolower($contactEmail)) {
                 throw new RuntimeException('CLAIM_EMAIL_MISMATCH');
@@ -132,7 +138,12 @@ class ClaimSiteService
 
             // SEC-4: claimed_at is no longer fillable — forceFill so a dropped write
             // can't leave the build re-servable forever (scopeLive() filters on it).
-            $build->forceFill(['claimed_at' => now()])->save();
+            // Single-use = USED, not opened (spec §4). Folded into the
+            // claimed_at write rather than issued separately: this is the last
+            // write in the claim, so the burn lands strictly AFTER every throw
+            // above. That makes "a failed claim does not consume the lead's
+            // link" structural, not dependent on transaction rollback.
+            $build->forceFill(['claimed_at' => now()] + ($tokenOk ? $this->tokens->burn() : []))->save();
 
             // Auto-publish on claim (spec §3.3). Flow 2 sites are already published
             // (no-op); Flow 1 / early-access flip live here.
