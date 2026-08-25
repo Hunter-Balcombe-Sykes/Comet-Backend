@@ -312,6 +312,33 @@ it('cards a private-suffix link directly once the probe budget is spent', functi
     expect($urls)->toContain('https://canva.link/hxwh4ybxzn38wkg');
 });
 
+// ── #SEC-7: a secret-bearing query param must not reach the probe dispatch ──
+
+it('redacts a secret-shaped query param before dispatching the commerce probe job', function () {
+    Queue::fake();
+    $pro = createTenant('bio-secret-probe');
+    bioPage('<html><body><a href="https://canva.link/hxwh4ybxzn38wkg?access_token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig">Portfolio</a></body></html>');
+
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/secretprobe');
+
+    Queue::assertPushed(CommerceProbeJob::class, function ($job) {
+        expect($job->url)->not->toContain('eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig');
+        expect($job->url)->toContain('access_token=[redacted]');
+
+        return true;
+    });
+});
+
+it('leaves a non-secret query param on the probe dispatch unchanged', function () {
+    Queue::fake();
+    $pro = createTenant('bio-benign-probe');
+    bioPage('<html><body><a href="https://canva.link/hxwh4ybxzn38wkg?ref=portfolio">Portfolio</a></body></html>');
+
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/benignprobe');
+
+    Queue::assertPushed(CommerceProbeJob::class, fn ($job) => $job->url === 'https://canva.link/hxwh4ybxzn38wkg?ref=portfolio');
+});
+
 it('keeps a bare platform host as a link rather than connecting it', function () {
     // Admitting private suffixes also admits the bare platform hosts that sit
     // in the suffix-override table (square.site, myshopify.com). Those match

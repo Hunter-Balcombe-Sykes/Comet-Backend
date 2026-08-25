@@ -92,7 +92,11 @@ class RoutingController extends ApiController
         // via LinkInBioScanJob) and keep the page itself as a link card, so
         // nothing the owner pasted is lost (overnight 2026-08-18 F15).
         if (app(LinkInBioDetector::class)->matches($url)) {
-            $write = $this->links->addManual($user, trim($url));
+            // redactUrl() fails closed (returns '' on a PCRE engine error) —
+            // same reason as the Note branch below: a pasted bio-page URL is
+            // kept as a public link card, and a `?token=`/JWT query param on
+            // it must never publish verbatim (#SEC-7).
+            $write = $this->links->addManual($user, SecretParams::redactUrl(trim($url)) ?? '');
             if ($write['status'] === 'cap_full') {
                 return $this->error('You can add up to '.CustomLinkSeeder::MAX_LINKS.' links.', 422, extra: ['code' => 'link_cap_reached']);
             }

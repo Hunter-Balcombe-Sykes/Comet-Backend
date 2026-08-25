@@ -82,7 +82,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 4 of 15 complete
+- P2 Medium: 5 of 15 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -234,7 +234,7 @@
         Cache::put($key, $final ?? '', $final === null ? self::FAILURE_TTL_SECONDS : self::SUCCESS_TTL_SECONDS);
         ```
 
-- [ ] **#SEC-7** · P2 — `LinkInBioImporter` persists/dispatches unredacted URLs in two spots, redacts in two others in the same file
+- [x] **#SEC-7** · P2 — `LinkInBioImporter` persists/dispatches unredacted URLs in two spots, redacts in two others in the same file
     - **Where:** app/Routing/Importers/LinkInBioImporter.php:107 (`ImportRun::start`), 530 (`CommerceProbeJob::dispatch`)
     - **Affects:** `routing.import_runs.source_url` (durable DB column) and `CommerceProbeJob`'s queued payload — both may carry secret-bearing query/fragment params from a pasted bio page or a link it contained.
     - **Effort:** S (~0.5–1h)

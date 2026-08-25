@@ -642,7 +642,12 @@ class LinkInBioImporter
             // construction), so the event dispatches above never eat a slot.
             if (! isset($probedHosts[$host]) && count($probedHosts) < self::MAX_PROBES) {
                 $probedHosts[$host] = true;
-                CommerceProbeJob::dispatch((string) $context->user->id, $url);
+                // redactUrl(), not minimiseUrl(): the job FETCHES this URL, so
+                // tracking params must survive. A miss falls through to
+                // seedCustom() (a PUBLIC link card) and a failed job persists
+                // the whole payload in public.failed_jobs — either way an
+                // unredacted secret must not reach this dispatch (#SEC-7).
+                CommerceProbeJob::dispatch((string) $context->user->id, SecretParams::redactUrl($url) ?? '');
                 $tally['probed']++;
 
                 return;
