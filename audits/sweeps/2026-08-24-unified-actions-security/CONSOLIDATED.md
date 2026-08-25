@@ -562,7 +562,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 6 of 16 complete
+- P2 Medium: 7 of 16 complete
 - P3 Low: 0 of 8 complete
 
 ---
@@ -1042,7 +1042,7 @@
         return $normalized === '/' ? '/' : rtrim($normalized, '/');
         ```
 
-- [ ] **SEM-16** · P2 — Order-platform sidecar fallback collection is computed but never assigned, so sidecar-only dishes never group under their menu
+- [x] **SEM-16** · P2 — Order-platform sidecar fallback collection is computed but never assigned, so sidecar-only dishes never group under their menu
     - **Where:** app/Site/Actions/ActionCandidates.php:183-223
     - **Affects:** Menu/service items that belong only to a provider-bearing sidecar collection (e.g. an item that's only on the Uber Eats menu, not in any owner-authored category) — they render as standalone item actions instead of grouping under that ordering platform's action.
     - **Effort:** S (~0.5–1h)

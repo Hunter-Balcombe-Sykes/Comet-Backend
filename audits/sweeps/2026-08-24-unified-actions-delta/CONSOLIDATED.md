@@ -738,7 +738,7 @@ None.
 ## Progress
 
 - P1 High: 1 of 1 complete
-- P2 Medium: 3 of 19 complete
+- P2 Medium: 4 of 19 complete
 - P3 Low: 0 of 5 complete
 
 ---
@@ -921,7 +921,7 @@ None.
         );
         ```
 
-- [ ] **#TEST-10** · P2 — `ActionCandidates::forSite()` silently swallows a content-lane `QueryException` into `$pools = []` with no failure-path test
+- [x] **#TEST-10** · P2 — `ActionCandidates::forSite()` silently swallows a content-lane `QueryException` into `$pools = []` with no failure-path test
     - **Where:** app/Site/Actions/ActionCandidates.php:158-161
     - **Affects:** Public sitepage action candidates — a real content-lane outage silently drops item/category candidates while page/platform candidates keep rendering, with no log or Nightwatch signal.
     - **Effort:** S (~0.5–1h)
