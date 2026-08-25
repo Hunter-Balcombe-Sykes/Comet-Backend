@@ -350,7 +350,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 4 of 4 complete
-- P2 Medium: 2 of 8 complete
+- P2 Medium: 5 of 8 complete
 - P3 Low: 0 of 5 complete
 
 ---
@@ -510,7 +510,8 @@
                 $unavailable++;
         ```
 
-- [ ] **SCALE-6** · P2 — Pool section curation is read with no row limit on both the public payload path and the presence probe
+- [x] **SCALE-6** · P2 — Pool section curation is read with no row limit on both the public payload path and the presence probe
+    - **Resolved 2026-08-26** — the primary remedy (column projection) landed in `baa54b91e` as `#SCALE-13`: all THREE `site.section_items` reads — `hasSelection()`, `plan()` and `preloadCuration()` — now select `['section_id','item_id','state','sort_key']`; `id` and `created_at` are read nowhere. Measured on a 2000-row section: 432,000 -> 274,000 bytes returned, same 2000 rows. The secondary suggestion (an early-exit query shape for `hasSelection()`) is deliberately NOT done: the comment above its `in_array('review', ...)` branch records that answering from `site.section_items` alone is what lets the presence probe succeed where `content.*` is absent, and it is pinned by `PresenceProbeEscalationTest`/`PresenceProbeLoggingTest`. A `LIMIT 1` does not drop in there.
     - **Where:** app/Site/Pools/PoolResolver.php:116-118 (`hasSelection`), 230-232 (`plan`)
     - **Affects:** Public sitepage payload build and page-presence probing for heavily-curated users; both queries load a section's entire curation history in full before filtering in PHP.
     - **Effort:** S (~0.5–1h)
@@ -635,7 +636,8 @@
         );
         ```
 
-- [ ] **SCALE-11** · P2 — ContentFreshness loads every non-removed item across a site's catalogue on every scoring run, no chunking
+- [x] **SCALE-11** · P2 — ContentFreshness loads every non-removed item across a site's catalogue on every scoring run, no chunking
+    - **Resolved 2026-08-26** — de-duplication moved into SQL. `content.f_published`'s PK is `(item_id, source_id)`, so the LEFT JOIN multiplied rows per source and PHP re-derived a minimum the database can compute: now `MIN(fp.published_from)` with `GROUP BY i.id, i.kind, i.first_seen_at`, one row per item, and the two accumulation loops collapse to one. Fail-open `catch (QueryException)` untouched. Measured on 300 items x 3 sources: 900 -> 300 rows returned, 1 query either way; at 3300 items the heap delta for the read fell 6,384,040 -> 375,472 bytes. Coverage was VACUOUS before this (nothing in the suite made two `f_published` rows for one item, so MIN vs MAX was invisible) — `ContentFreshnessTest` gained a two-source case that fails under a MIN->MAX mutation, plus an all-NULL fallback case.
     - **Where:** app/Services/Analytics/ContentFreshness.php:47-58
     - **Affects:** Popularity/freshness scoring for prolific users with many shop/menu/service/gallery/link items; memory during the scheduled scoring job.
     - **Effort:** S (~0.5–1h)
@@ -654,7 +656,8 @@
             ->get(['i.id', 'i.kind', 'i.first_seen_at', 'fp.published_from']);
         ```
 
-- [ ] **SCALE-12** · P2 — ContentPopularityReader loads a site's full popularity-score set with no cursor across three read methods
+- [x] **SCALE-12** · P2 — ContentPopularityReader loads a site's full popularity-score set with no cursor across three read methods
+    - **WONTFIX 2026-08-26 — the suggested remedy is a regression, measured not argued.** `lazy()` pages with plain LIMIT/OFFSET (`BuildsQueries::lazy()` re-issues `forPage(...)->get()`), not a keyset cursor. Measured at N=20,000 rows for one site: `->get()` = 1 query / ~10 MB peak delta; `->lazy(1000)` = **21 queries** / ~0-2 MB. The 8 MB is bought with 21x the round-trips on a path that sits behind the 60s public-profile cache. Worse, the table's only uniqueness is `UNIQUE(site_id, content_type, content_key)` — there is NO unique key on `(site_id, content_type, rank)`, which is what these queries order by — so OFFSET paging silently skips rows when the table mutates mid-scan. Demonstrated empirically: 5000 uniquely-ranked rows, `lazy(1000)`, delete 7 already-visited rows after page 1, and the 7 rows at ranks 1001-1007 were **never visited** — no error, no log. `ComputeContentPopularityScores` upserts this exact table on a schedule while `PoolResolver::popularityRanks()` reads it, so that race is live. Row counts here are also per-site and bounded per family, not unbounded. If memory ever bites at higher N the answer is `chunkById()` on the `id` PK (which IS unique), not `lazy()`. Measurement script + raw output: `.audit-work/part3/measure-13c.php`.
     - **Where:** app/Services/Analytics/ContentPopularityReader.php:33-59 (`forSite`), 68-90 (`actionScoresForSite`), 125-148 (`itemScoresForSite`)
     - **Affects:** Public sitepage payload builds on a cache miss (this reader sits behind the 60s public-profile cache, per its own docblock) and the popularity scoring job, for sites with a large content catalogue.
     - **Effort:** M (~2–4h)
