@@ -82,7 +82,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 3 of 15 complete
+- P2 Medium: 4 of 15 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -189,7 +189,8 @@
         'f_text' => $view->string('description') === null ? null : ['body' => $view->string('description')],
         ```
 
-- [ ] **#SEC-5** · P2 — Dashboard duplicate-candidate query in `PoolResolver` doesn't scope `identity_candidates` to the current owner
+- [x] **#SEC-5** · P2 — Dashboard duplicate-candidate query in `PoolResolver` doesn't scope `identity_candidates` to the current owner
+    - **FIXED** — three explicit predicates (`ic.user_id`, `li.user_id`, `ri.user_id` = `$site->user_id`) added to the `content.identity_candidates` query in `PoolResolver::itemPayloads()`, making same-tenancy a property of the query rather than a convention upheld by one writer. Placed in `WHERE` not `ON` — equivalent for INNER joins, and matches the query's existing style. Not over-scoped: `ProjectionWriter::recordCandidates()` (`:1341-1364`) is the only insert path and always writes `ic.user_id === li.user_id === ri.user_id`, so no legitimate pairing is cross-tenant. Regression + same-tenant control in `tests/Feature/Content/IdentityCandidateTenantScopingTest.php`, mutation-proved by removing the three predicates (cross-tenant test red, same-tenant test green throughout).
     - **Where:** app/Site/Pools/PoolResolver.php:880-892
     - **Affects:** Dashboard-only "possible duplicate" view — hardening against a future write path, not currently reachable.
     - **Effort:** S (~0.5–1h)

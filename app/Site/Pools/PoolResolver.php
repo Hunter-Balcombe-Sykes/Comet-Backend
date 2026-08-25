@@ -890,9 +890,20 @@ class PoolResolver
         // resolver's Evidential tier — "these might be the same thing" — for
         // the dashboard's Possible-duplicate chip + same/different verbs.
         // Dashboard-only; stripped from the public wire.
+        // #SEC-5: the OR below only requires ONE side to be in $ids, so a
+        // same-tenant pairing convention isn't enough — a row that (by writer
+        // bug or otherwise) pairs one of this user's items with another
+        // tenant's would leak that tenant's headline_cache. Scope ic/li/ri to
+        // $site->user_id explicitly so tenancy is a property of the query,
+        // not of whatever wrote the row. WHERE (not ON) is equivalent here:
+        // these are INNER joins, so a WHERE predicate drops the same rows an
+        // ON predicate would, and it matches this query's existing style.
         $candidateRows = DB::connection('pgsql')->table('content.identity_candidates as ic')
             ->join('content.items as li', 'li.id', '=', 'ic.left_item_id')
             ->join('content.items as ri', 'ri.id', '=', 'ic.right_item_id')
+            ->where('ic.user_id', $site->user_id)
+            ->where('li.user_id', $site->user_id)
+            ->where('ri.user_id', $site->user_id)
             ->whereNull('ic.dismissed_at')
             ->whereNull('li.removed_at')->whereNull('ri.removed_at')
             ->where(fn ($w) => $w->whereIn('ic.left_item_id', $ids)->orWhereIn('ic.right_item_id', $ids))
