@@ -64,15 +64,16 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#MONEY-1** · P1 — A billed effect that succeeds is mislabeled 'failed' and its paid-for result is discarded if the settlement UPDATE throws
+- [x] **#MONEY-1** · P1 — A billed effect that succeeds is mislabeled 'failed' and its paid-for result is discarded if the settlement UPDATE throws
+    - **FIXED — already on `development`, box was stale.** `b5d5e7aec` ("a settle-write failure no longer discards a paid result"). `EffectLedger::once()` now has ONLY the vendor call `$effect()` inside its try (`app/Ingest/Runtime/EffectLedger.php:122`); the settlement write moved out to a separate `settleOk()` (`:222`) that never throws. On a persistence failure the row is deliberately left `claimed`/unsettled so `reconcileAbandoned()` files an honest `effect_abandoned` anomaly, instead of the old behaviour of marking a SUCCESSFUL paid call 'failed' and discarding its result. The code carries explicit `#MONEY-1` markers at `:122` and `:164`. Regression test at the HttpIo seam in `b4f7fcae4`. Verified 2026-08-25: all three commits are ancestors of `development`.
     - **Where:** app/Ingest/Runtime/EffectLedger.php:107-170 (`once()`'s second try block)
     - **Affects:** Every billed effect (Places details, Instagram actor runs) whose vendor call succeeds but whose immediately-following settlement `UPDATE` fails — deadlock, connection loss, or Supavisor pool exhaustion (a documented recurring failure mode on this project's free-tier Postgres pooler). Money is spent, the paid result is thrown away, and the digest is locked 'failed' for the full 7-day freshness window (`partna.ingest.effect_freshness_seconds`, default 604800s) with a misleading `QueryException` in `meta` instead of any signal that the vendor call actually succeeded.
     - **Effort:** M (~2–4h)
@@ -125,7 +126,8 @@
 
 ## P3 — Nice to have
 
-- [ ] **#MONEY-2** · P3 — Places driver takes a ledger claim before its budget/config denial is known, causing an unnecessary insert-then-delete cycle and a (small) stranding window
+- [x] **#MONEY-2** · P3 — Places driver takes a ledger claim before its budget/config denial is known, causing an unnecessary insert-then-delete cycle and a (small) stranding window
+    - **FIXED — already on `development`, box was stale.** `5ef774bbb` ("refuse a billed effect before claiming its ledger row"). The budget/config denial now runs AFTER the existing-row read but BEFORE the claim, so the insert-then-delete cycle and its stranding window are gone. Explicit `#MONEY-2` marker at `EffectLedger.php:77`. Verified 2026-08-25.
     - **Where:** app/Ingest/Runtime/Effects/PlacesDetailsDriver.php:46-90, contrasted with app/Services/Platforms/GoogleBusinessService.php:232-246 and app/Ingest/Runtime/Effects/InstagramActorDriver.php:56-63
     - **Affects:** Every `places.details` effect request where the per-user Places budget is exhausted or `GOOGLE_MAPS_SERVER_API_KEY` is unset. Wastes one DB INSERT + DELETE per attempt via `EffectLedger::once()`, and on a process crash between the two, strands a `claimed` ledger row that blocks the digest until `reconcileAbandoned()` marks it `abandoned` (~15 min, `partna.ingest.effect_abandon_after_seconds`) and an operator resolves it.
     - **Effort:** S (~0.5–1h)
