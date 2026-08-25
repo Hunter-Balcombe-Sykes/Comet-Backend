@@ -5,6 +5,7 @@ namespace App\Ingest\Projection;
 use App\Content\Identity\Candidate;
 use App\Content\Identity\Decision;
 use App\Content\Identity\IdentityKey;
+use App\Content\Identity\IdentityScope;
 use App\Content\Identity\KeyClass;
 use App\Content\Identity\Resolver;
 use App\Content\Identity\SourceItem;
@@ -127,6 +128,7 @@ class ProjectionWriter
         private readonly ValueResolver $values,
         private readonly ContentItemSlugAllocator $slugs,
         private readonly IdentityKeyDeriver $identityKeys,
+        private readonly IdentityScope $scope,
     ) {}
 
     /**
@@ -179,6 +181,7 @@ class ProjectionWriter
             ->lazy(500);
 
         $projections = [];
+        $touchedCoords = [];
         $projectsToNothing = [];
         $sourceStats = null;
 
@@ -248,6 +251,7 @@ class ProjectionWriter
             });
 
             $projections[$coord] = $projection;
+            $touchedCoords[] = $coord;
         }
 
         // Slice 6 §5.2: source-level aggregates. Last record wins — they are
@@ -278,7 +282,7 @@ class ProjectionWriter
 
         $itemByCoord = [];
         if ($projections !== []) {
-            $itemByCoord = $this->resolveItems($userId, $projector::kind());
+            $itemByCoord = $this->resolveItems($userId, $projector::kind(), $touchedCoords);
             $this->writeFacets($contentSourceId, $userId, $projections, $itemByCoord);
             $this->refreshItemCaches($userId, array_values(array_unique(array_values($itemByCoord))));
         }
@@ -435,12 +439,16 @@ class ProjectionWriter
         // It has to be all-or-nothing, and an earlier version of this that committed the source
         // item first and compensated afterwards could not be made correct. The compensation has
         // to decide whether retiring the row destroys anything, and by the time it runs the
-        // answer has changed: resolveItemsLocked() binds EVERY live source item of the
-        // (user, kind), not just this caller's coord, so the lock holder that made this caller
-        // time out has already bound this row — while writeFacets() only ever covers the
-        // caller's OWN projection. "Is it bound" therefore stops distinguishing "someone else
-        // finished my write" from "someone else bound my row and wrote no facets for it", and
-        // the second is the common case. Rolling the upsert back removes the question.
+        // answer has changed: before 2026-08-25, resolveItemsLocked() bound EVERY live source
+        // item of the (user, kind) on every call, so the lock holder that made this caller time
+        // out was guaranteed to have already bound this row — while writeFacets() only ever
+        // covers the caller's OWN projection. "Is it bound" therefore stopped distinguishing
+        // "someone else finished my write" from "someone else bound my row and wrote no facets
+        // for it", and the second was the common case. Narrowing the resolve to IdentityScope's
+        // connected component of the TOUCHED coords (below) makes that guarantee WEAKER, not
+        // stronger: a concurrent run only sweeps this row in if it shares a key signature with
+        // THAT run's own touched coords, so "is it bound" can now simply be false. Rolling the
+        // upsert back removes the question either way.
         //
         // The keys must still land in the same transaction as the source item, for the original
         // reason: a committed source item visible with ZERO identity keys resolves as an
@@ -460,14 +468,18 @@ class ProjectionWriter
             );
             $this->writeIdentityKeys($sourceItemId, $coord, $projection);
 
-            return $this->resolveItemsLocked($userId, $kind);
+            return $this->resolveItemsLocked($userId, $kind, [$coord]);
         });
 
         if (! isset($itemByCoord[$coord])) {
-            // Unreachable: the row was just written live and resolveItems()
-            // reads every live source item for (user, kind). Loud rather than
-            // a null return, because a silent miss here would hand a caller
-            // an id for the wrong item.
+            // Unreachable: the row was written live inside the lock above, and
+            // IdentityScope::component() seeds its walk FROM $coord, so the
+            // component always contains it. (Before 2026-08-25 the reason was
+            // that the resolve covered every live source item of the kind —
+            // that is no longer true, but the guarantee is stronger, not
+            // weaker: it now holds by construction rather than by breadth.)
+            // Loud rather than a null return, because a silent miss here would
+            // hand a caller an id for the wrong item.
             throw new \RuntimeException("Manual coord {$coord} did not resolve to an item.");
         }
 
@@ -641,11 +653,17 @@ class ProjectionWriter
      * Run the pure resolver over the user's live source-items of this kind
      * and bind every group to a stable item id.
      *
+     * $touchedCoords is what this run WROTE. The resolve narrows to the
+     * connected component of those coords (plan 2026-08-25 §A.1); the LOCK
+     * stays (user, kind) regardless — see withIdentityLock()'s docblock for
+     * why the protected set cannot be narrowed even when the computation is.
+     *
+     * @param  list<string>  $touchedCoords
      * @return array<string, string> coord => item id
      */
-    private function resolveItems(string $userId, string $kind): array
+    private function resolveItems(string $userId, string $kind, array $touchedCoords): array
     {
-        return $this->withIdentityLock($userId, $kind, fn (): array => $this->resolveItemsLocked($userId, $kind));
+        return $this->withIdentityLock($userId, $kind, fn (): array => $this->resolveItemsLocked($userId, $kind, $touchedCoords));
     }
 
     /**
@@ -783,9 +801,10 @@ class ProjectionWriter
     /**
      * The body of resolveItems(), which must only ever run under its lock and transaction.
      *
+     * @param  list<string>  $touchedCoords
      * @return array<string, string> coord => item id
      */
-    private function resolveItemsLocked(string $userId, string $kind): array
+    private function resolveItemsLocked(string $userId, string $kind, array $touchedCoords): array
     {
         // Deterministic group order (recommended, plan §b.3): no user-visible
         // change on its own (bindGroup() picks the winner by bound_at), but
@@ -810,7 +829,7 @@ class ProjectionWriter
             ->tap($liveSource)
             ->orderBy('si.first_seen_at')
             ->orderBy('si.id')
-            ->get(['si.id', 'si.coord', 'si.source_id', 'si.kind', 'si.first_seen_at']);
+            ->get(['si.id', 'si.coord', 'si.source_id', 'si.kind', 'si.first_seen_at', 'si.item_id']);
 
         if ($rows->isEmpty()) {
             return [];
@@ -858,6 +877,70 @@ class ProjectionWriter
             ->map(fn (object $d) => new Decision((string) $d->left_coord, (string) $d->right_coord, (string) $d->verdict))
             ->all();
 
+        // Seed source 3 (plan §A.4): rows that are not resolved AT ALL. The
+        // whole-kind resolve rebound every live source item on every run, which
+        // silently repaired an `item_id IS NULL` row; a touched-only seed would
+        // never revisit one, leaving it unbound forever. Taken from $rows, which
+        // is already read in full, so this costs no extra query — and in steady
+        // state the set is EMPTY, so the narrowing's saving is unchanged.
+        $unboundCoords = $rows
+            ->filter(fn (object $row) => $row->item_id === null)
+            ->pluck('coord')
+            ->map(fn ($coord) => (string) $coord)
+            ->all();
+
+        // Narrow to what can actually change (#CACHE-2/#CACHE-4, plan
+        // 2026-08-25 §A.1). Everything above this line still reads the whole
+        // (user, kind): $sourceItems is the graph the closure walks, and the
+        // identity_keys read is a subquery on the same predicate, so the DB
+        // touches source_items either way. The saving is everything BELOW —
+        // the O(n^2) resolve, the anchor snapshot, the bind loop, the
+        // candidate writes and the closing re-read.
+        //
+        // The lock is NOT narrowed with it: the protected set is still every
+        // live source item of this (user, kind), which a racing writer may
+        // GROW mid-computation. See withIdentityLock().
+        $capped = false;
+        $narrowed = false;
+        if (config('partna.content.identity_scope') && $touchedCoords !== []) {
+            $component = $this->scope->component(
+                $sourceItems,
+                $decisions,
+                array_values(array_unique([...$touchedCoords, ...$unboundCoords])),
+                (int) config('partna.content.identity_scope_max', IdentityScope::MAX_COMPONENT),
+            );
+            $capped = $component['capped'];
+
+            if (! $capped) {
+                $narrowed = true;
+                $inComponent = array_flip($component['coords']);
+                $sourceItems = array_values(array_filter(
+                    $sourceItems,
+                    fn (SourceItem $item) => isset($inComponent[$item->coord]),
+                ));
+                $decisions = array_values(array_filter(
+                    $decisions,
+                    fn (Decision $d) => isset($inComponent[$d->left]) || isset($inComponent[$d->right]),
+                ));
+            }
+        }
+
+        if ($capped) {
+            // NOT silent: an invisible fallback reads as "narrowing works" while
+            // every run pays the full cost. user + kind so it is attributable.
+            Log::warning('identity scope cap hit — resolving whole kind', [
+                'user_id' => $userId,
+                'kind' => $kind,
+                'touched_count' => count($touchedCoords),
+                // NOT 'component_size' (controller ruling, pre-flight scan): the
+                // walk ABORTED at the cap, so the true component size is unknown.
+                // What this counts is the whole-kind set we fell back to. Naming
+                // it component_size would log a number that is not the thing its
+                // key claims.
+                'resolving_count' => count($sourceItems),
+            ]);
+        }
+
         $resolution = $this->resolver->resolve($sourceItems, $decisions);
 
         // #SCALE-4: bindGroup() used to read content.item_anchors once PER GROUP, and in steady
@@ -902,14 +985,39 @@ class ProjectionWriter
         // second, unnamed N+1. Replaced with one UPDATE per distinct TARGET
         // item id (typically 0 in steady state, since most rows already
         // point at their resolved item).
+        //
+        // Narrowed INSIDE the subquery, deliberately: the outer statement's
+        // shape is unchanged (`... from "content"."source_items" where "id" in
+        // (select ...)`) because ProjectionWriterIdentityRaceTest hooks this
+        // exact text through DB::listen to widen its read->write window, and
+        // that hook's position is what makes the file prove the advisory lock
+        // rather than an item_anchors unique-index collision (see that file's
+        // header). Rewriting this into a join breaks four race tests for a
+        // reason unrelated to identity.
+        //
+        // Rows this resolve did not consider cannot have a new target, so
+        // re-reading them only to compare equal is pure cost. When the scope is
+        // off or capped, $componentCoords is null and the predicate is
+        // byte-for-byte what it was before this branch.
+        //
+        // Not chunked: the bind list is a server-side subquery, not a
+        // materialised array, so there is no 65,535-parameter limit to chunk
+        // around (#SCALE-7's original fix). Chunking would also emit N
+        // statements and fire the fire-once hook above on the first,
+        // changing the timing the race test depends on.
+        $componentCoords = $narrowed ? array_keys($itemByCoord) : null;
         $bySourceItemId = DB::table('content.source_items')
-            ->whereIn('id', function ($sub) use ($userId, $kind, $liveSource) {
+            ->whereIn('id', function ($sub) use ($userId, $kind, $liveSource, $componentCoords) {
                 $sub->select('si.id')->from('content.source_items as si')
                     ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
                     ->where('cs.user_id', $userId)
                     ->where('si.kind', $kind)
                     ->tap($liveSource)
                     ->whereNull('si.removed_at');
+
+                if ($componentCoords !== null) {
+                    $sub->whereIn('si.coord', $componentCoords);
+                }
             })
             ->get(['id', 'coord', 'item_id']);
 

@@ -304,21 +304,30 @@ class ShopContentWriter
      *
      * COST — this loop is O(N²) in database round-trips, and its callers hold
      * a 10s lock (CacheKeyGenerator::platformConnectionLock) while it runs.
-     * Every writeManualItem() call re-runs resolveItems() over ALL of the
-     * user's product source items and refreshItemCaches() over all the
-     * resulting item ids, so per-product cost grows with the user's whole
-     * product set, not with this store's. Roughly ~25 round-trips per product
-     * at that scale. Real bounds: the individual bucket caps at 20, dev's
-     * largest store holds 8, and syncLatest() takes at most the user's
-     * existing selection size — all comfortably inside the lock. The
-     * pathological case is a hand-built setProducts() payload at the 250
-     * request cap: ~6,000 round-trips over Supavisor against a 10s lock TTL,
-     * where the pre-branch path was one DELETE and one bulk INSERT.
+     * Before 2026-08-25, every writeManualItem() call re-ran resolveItems()
+     * over ALL of the user's product source items AND refreshItemCaches()
+     * over all the resulting item ids, so per-product cost grew with the
+     * user's whole product set, not with this store's — roughly ~25
+     * round-trips per product at that scale, and a hand-built setProducts()
+     * payload at the 250 request cap reached ~6,000 round-trips over
+     * Supavisor against a 10s lock TTL, where the pre-branch path was one
+     * DELETE and one bulk INSERT.
+     *
+     * The resolve side is narrowed as of #CACHE-2/#CACHE-4: writeManualItem()
+     * now resolves only IdentityScope's connected component of the touched
+     * coord, so that half no longer scales with the user's whole product set.
+     * refreshItemCaches() narrowing is separate, later work — until it lands,
+     * that call still runs over every resulting item id, so the OVERALL cost
+     * here still grows with the user's whole product set even though the
+     * resolve no longer contributes to it. Real bounds: the individual bucket
+     * caps at 20, dev's largest store holds 8, and syncLatest() takes at most
+     * the user's existing selection size — all comfortably inside the lock.
      * Restructuring to a bulk write (resolve once, refresh once, at the end
-     * of the loop) is DELIBERATELY DEFERRED — it means reaching into
-     * ProjectionWriter's per-item contract, which every connector shares, and
-     * no observed workload is near the ceiling. Revisit if a real store
-     * exceeds ~50 products or the lock starts timing out.
+     * of the loop) remains DELIBERATELY DEFERRED for the refreshItemCaches()
+     * side — it means reaching into ProjectionWriter's per-item contract,
+     * which every connector shares, and no observed workload is near the
+     * ceiling. Revisit if a real store exceeds ~50 products or the lock
+     * starts timing out.
      *
      * @param  list<array<string,mixed>>  $products  raw scraper blobs, catalogue order
      */

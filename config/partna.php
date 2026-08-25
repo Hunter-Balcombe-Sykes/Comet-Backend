@@ -1208,6 +1208,21 @@ return [
         // BackfillContentItemSlugs: chunkById() page size for the
         // content.items walk.
         'slug_backfill_chunk' => (int) env('PARTNA_CONTENT_SLUG_BACKFILL_CHUNK', 500),
+
+        // Identity-scope narrowing (#CACHE-2, #CACHE-4). When on,
+        // resolveItemsLocked() resolves only the CONNECTED COMPONENT of the
+        // coords a run touched instead of the user's whole catalogue for the
+        // kind. The kill switch, not a tuning knob: off restores the
+        // whole-kind path byte-for-byte without a deploy, which is the
+        // primary rollback for this change.
+        'identity_scope' => (bool) env('PARTNA_CONTENT_IDENTITY_SCOPE', true),
+
+        // Component size past which the narrowing gives up and resolves
+        // whole-kind anyway. A PERFORMANCE guard only: it must never
+        // truncate, because a truncated component can miss the same-source
+        // sibling that poisons a key and so produce a merge the full resolve
+        // would not make — and mergeInto() hard-deletes the loser.
+        'identity_scope_max' => (int) env('PARTNA_CONTENT_IDENTITY_SCOPE_MAX', 2000),
     ],
 
     'media' => [
