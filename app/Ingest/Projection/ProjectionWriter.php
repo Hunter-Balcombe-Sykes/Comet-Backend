@@ -2516,6 +2516,12 @@ class ProjectionWriter
             $rowsById = DB::table('content.items')->whereIn('id', $batch)
                 ->get(['id', 'user_id', 'kind', 'headline_cache', 'facets_cache'])->keyBy('id');
 
+            // One read for the batch instead of one per item (#SCALE-9/#API-7).
+            // ensureCurrent() is still the writer — it owns collision
+            // suffixing, rename-back and retirement — it just no longer has to
+            // ask whether there is anything to do.
+            $liveSlugs = $this->slugs->currentSlugs($userId, $batch);
+
             // Every item in the batch is "seen" this run regardless of
             // whether its cache changed — one UPDATE for the whole batch.
             DB::table('content.items')->whereIn('id', $batch)->update([
@@ -2568,9 +2574,18 @@ class ProjectionWriter
                 //
                 // Best-effort by design: slug bookkeeping must never fail a
                 // projection run, and ensureCurrent() is a no-op when the live
-                // slug already matches, so the common path costs one SELECT.
+                // slug already matches. The gate below skips ONLY that exact
+                // live === base case using the batched read above — an item
+                // legitimately holding a collision suffix (e.g. `-2`) does not
+                // match, so ensureCurrent() is still called and returns early
+                // via its own collision-suffix arm. Do not widen this into
+                // reimplementing collisionSuffix()/canonicalSlug() out here:
+                // ensureCurrent()'s docblock warns that re-minting on a
+                // collided item walks -3, -4, … and changes the public URL
+                // every run.
                 if ($headline !== null && $headline !== ''
-                    && in_array((string) $row->kind, ContentItemSlugAllocator::SLUGGED_KINDS, true)) {
+                    && in_array((string) $row->kind, ContentItemSlugAllocator::SLUGGED_KINDS, true)
+                    && ($liveSlugs[$itemId] ?? null) !== $this->slugs->baseSlug((string) $headline, (string) $itemId)) {
                     try {
                         $this->slugs->ensureCurrent((string) $row->user_id, (string) $itemId, (string) $headline);
                     } catch (\Throwable $e) {

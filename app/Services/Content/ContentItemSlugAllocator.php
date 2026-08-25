@@ -166,6 +166,50 @@ class ContentItemSlugAllocator
             ->delete();
     }
 
+    /**
+     * The LIVE slug per item for a whole batch (#SCALE-9/#API-7).
+     *
+     * ensureCurrent() short-circuits when the live slug already equals the
+     * base, but still pays one currentRow() SELECT to discover that — inside
+     * refreshItemCaches()'s per-item loop that was one round trip per item on
+     * every projection run. This answers it once for the chunk.
+     *
+     * `is_current = true`, NOT `retired_at IS NULL`: 20260731210000 added
+     * retired_at without a backfill, so a stranded row carries is_current =
+     * false AND retired_at NULL. See this class's header note 2.
+     *
+     * Leaner than lookupCurrent() on purpose — that one also assembles the
+     * 301 alias window, which a refresh pass has no use for.
+     *
+     * @param  list<string>  $itemIds
+     * @return array<string, string> item id => live slug
+     */
+    public function currentSlugs(string $userId, array $itemIds): array
+    {
+        if ($itemIds === []) {
+            return [];
+        }
+
+        /** @var array<string, string> */
+        return DB::connection('pgsql')->table(self::TABLE)
+            ->where('user_id', $userId)
+            ->whereIn('item_id', $itemIds)
+            ->where('is_current', true)
+            ->pluck('slug', 'item_id')
+            ->all();
+    }
+
+    /**
+     * The slug this name would take before collision suffixing.
+     *
+     * Public only so a batch caller can skip the guaranteed no-op case without
+     * reimplementing what a slug is — this class stays the one owner of that.
+     */
+    public function baseSlug(string $name, string $itemId): string
+    {
+        return $this->base($name, $itemId);
+    }
+
     private function base(string $name, string $itemId): string
     {
         $slug = Str::slug($name);

@@ -1,5 +1,6 @@
 <?php
 
+use App\Ingest\Projection\ProjectionWriter;
 use App\Services\Content\ContentItemSlugAllocator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -309,4 +310,56 @@ it('queries content.item_slugs once per chunk, not once per item', function () {
     $pg->disableQueryLog();
 
     expect($slugSelects)->toHaveCount(3);
+});
+
+// ── #SCALE-9/#API-7: batch the slug read out of refreshItemCaches()'s loop ──
+
+/**
+ * Seeds $count EVENT items (SLUGGED_KINDS is ['event', 'menu_item'] — a
+ * track or release never enters the slug branch at all, so seeding one of
+ * those would make the query-count test below vacuously green) each with a
+ * real content.f_text contribution (refreshItemCaches() resolves the
+ * headline from f_text, not from headline_cache) and a slug already minted
+ * to match that headline via ensureCurrent() — the exact no-op case the
+ * batched read exists to skip.
+ *
+ * @return array{0: string, 1: list<string>} [$userId, $itemIds]
+ */
+function seedSluggedItems(int $count): array
+{
+    $pro = createTenant('slug-'.Str::lower(Str::random(6)));
+    $sourceId = app(ProjectionWriter::class)->ensureManualSource($pro->id);
+    $allocator = app(ContentItemSlugAllocator::class);
+
+    $itemIds = [];
+    foreach (range(1, $count) as $i) {
+        $headline = "Slugged item {$i} ".Str::lower(Str::random(4));
+        $itemId = slugItem($pro->id, $headline);
+        DB::table('content.f_text')->insert([
+            'item_id' => $itemId, 'source_id' => $sourceId,
+            'headline' => $headline, 'updated_at' => now(),
+        ]);
+        $allocator->ensureCurrent($pro->id, $itemId, $headline);
+        $itemIds[] = $itemId;
+    }
+
+    return [$pro->id, $itemIds];
+}
+
+it('reads existing slugs once per batch, not once per item', function () {
+    // Three EVENT items whose headlines already match their slugs:
+    // ensureCurrent() would issue three SELECTs and write nothing. The
+    // batched read issues one.
+    [$userId, $itemIds] = seedSluggedItems(3);
+
+    $pg = DB::connection('pgsql');
+    $pg->flushQueryLog();
+    $pg->enableQueryLog();
+    app(ProjectionWriter::class)->refreshCachesFor($userId, $itemIds);
+    $slugReads = collect($pg->getQueryLog())
+        ->filter(fn (array $q) => str_contains($q['query'], 'item_slugs'))
+        ->count();
+    $pg->disableQueryLog();
+
+    expect($slugReads)->toBe(1);
 });
