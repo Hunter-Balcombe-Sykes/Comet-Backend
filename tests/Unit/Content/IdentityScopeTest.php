@@ -138,3 +138,33 @@ it('returns nothing when nothing was touched', function () {
     expect($result['coords'])->toBe([])
         ->and($result['capped'])->toBeFalse();
 });
+
+// §A.4: a manual source has no connection_id, so
+// IdentityDecisionController's reprojection join can silently dispatch
+// nothing for a ruling on two hand-added items — neither coord is ever
+// "touched". The closure must seed from the ruling itself or the owner's
+// verdict would never take effect under the narrowed resolve.
+it('seeds from a "same" ruling even when neither side was touched', function () {
+    $result = (new IdentityScope)->component([
+        scopeItem('a', 'src-a', 'track', [scopeKey(KeyClass::Isrc, 'USRC17607839')]),
+        scopeItem('b', 'src-b', 'track', [scopeKey(KeyClass::Isrc, 'GBAYE0601498')]),
+    ], [new Decision('a', 'b', 'same')], []);
+
+    expect($result['coords'])->toHaveCount(2)
+        ->and($result['coords'])->toContain('a')
+        ->and($result['coords'])->toContain('b');
+});
+
+// A cut only ever SUPPRESSES a union, so it can only matter between coords
+// that already share a signature — reachable once either side is touched.
+// Seeding from it too would drag unrelated groups into every resolve for
+// no benefit (§A.4).
+it('does NOT seed from a "different" ruling', function () {
+    $result = (new IdentityScope)->component([
+        scopeItem('a', 'src-a', 'track', [scopeKey(KeyClass::Isrc, 'USRC17607839')]),
+        scopeItem('b', 'src-b', 'track', [scopeKey(KeyClass::Isrc, 'GBAYE0601498')]),
+    ], [new Decision('a', 'b', 'different')], []);
+
+    expect($result['coords'])->toBe([])
+        ->and($result['capped'])->toBeFalse();
+});

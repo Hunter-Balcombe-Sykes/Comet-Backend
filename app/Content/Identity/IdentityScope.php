@@ -10,8 +10,12 @@ namespace App\Content\Identity;
  * assert "scoped == whole-kind" rather than trust it.
  *
  * The rule: two coords are adjacent when they share ANY canonicalised key
- * signature, or when the user ruled them 'same'. The component containing the
- * touched coords, taken to FIXPOINT, is the answer.
+ * signature, or when the user ruled them 'same'. The component is seeded from
+ * the touched coords PLUS every coord a live 'same' ruling names (§A.4 —
+ * a manual source has no connection_id, so IdentityDecisionController's
+ * reprojection join can silently dispatch nothing for a ruling on two
+ * hand-added items; seeding from the ruling itself closes that hole at the
+ * invariant instead of at one controller's query), taken to FIXPOINT.
  *
  * THE BREADTH IS DELIBERATE and mirrors Resolver::poisonedKeys(): no tier(),
  * no minLength(), no appliesTo() filter. poisonedKeys() disables a signature
@@ -64,7 +68,7 @@ final class IdentityScope
      */
     public function component(array $items, array $decisions, array $touched, int $max = self::MAX_COMPONENT): array
     {
-        if ($touched === [] || $items === []) {
+        if ($items === []) {
             return ['coords' => [], 'capped' => false];
         }
 
@@ -99,13 +103,29 @@ final class IdentityScope
             $sameEdges[$decision->right][] = $decision->left;
         }
 
+        // Seed from the touched coords AND every coord a live 'same' ruling
+        // names (§A.4). A manual source has no connection_id, so
+        // IdentityDecisionController's reprojection query — an INNER JOIN on
+        // ingest.sources.connection_id — dispatches no reprojection for a
+        // ruling on two hand-added items, and neither coord is ever
+        // "touched" as a result. Seeding the ruling's own coords means the
+        // owner's "these are the same" verdict still takes effect the next
+        // time anything in this kind resolves. 'different' is NOT seeded
+        // here: a cut only ever suppresses a union, so it can only matter
+        // between coords that already share a signature — already reachable
+        // once either side is touched — and seeding from it would drag in
+        // unrelated groups for no benefit (§A.4).
         $seen = [];
         $queue = [];
-        foreach ($touched as $coord) {
+        foreach ([...$touched, ...array_keys($sameEdges)] as $coord) {
             if (isset($known[$coord]) && ! isset($seen[$coord])) {
                 $seen[$coord] = true;
                 $queue[] = $coord;
             }
+        }
+
+        if ($queue === []) {
+            return ['coords' => [], 'capped' => false];
         }
 
         // Breadth-first to fixpoint. Each signature is expanded at most once —
