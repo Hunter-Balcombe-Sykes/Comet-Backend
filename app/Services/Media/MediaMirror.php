@@ -84,7 +84,7 @@ final class MediaMirror
         // occasional orphaned temp file reclaimed with the container. It is
         // the better half of that trade, and it is strictly less likely now
         // that the 80 MB is no longer on the heap causing the restart.
-        $temp = tempnam(sys_get_temp_dir(), 'media-mirror-');
+        $temp = tempnam($this->tempDir(), 'media-mirror-');
         if ($temp === false) {
             return $this->fail($assetId, 'store_failed', $sourceUrl, 'could not open a temp file', $userId);
         }
@@ -336,6 +336,19 @@ final class MediaMirror
         }
 
         return false;
+    }
+
+    /**
+     * Where the fetched body is spooled. Defaults to the system temp dir, which
+     * is correct on Laravel Cloud; overridable because the spool is a real file
+     * on a real shared directory (a worker box may want a specific volume, and
+     * the leak tests need a directory a parallel worker is not also writing to).
+     */
+    private function tempDir(): string
+    {
+        $configured = config('partna.media_mirror_temp_dir');
+
+        return is_string($configured) && $configured !== '' ? $configured : sys_get_temp_dir();
     }
 
     private function maxEdge(): int

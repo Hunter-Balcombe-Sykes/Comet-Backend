@@ -547,10 +547,30 @@ it('the pixel-budget guard fails CLOSED on an allowlisted mime whose header will
 // the temp file is always cleaned up, and the size cap is applied to the FILE
 // before anything reads it into a string.
 
-/** Temp files this class leaves behind, by its tempnam() prefix. */
-function mirrorTempFiles(): array
+/**
+ * Temp files this class leaves behind, in a directory only THIS test owns.
+ *
+ * Not sys_get_temp_dir(): that is process-global, and under `--parallel` the
+ * glob sees a sibling worker's in-flight mirror. Caught for real on 2026-08-25
+ * — these passed in isolation and the oversized-image case failed in a 10-process
+ * run against another worker's `media-mirror-*` file. An absolute assertion about
+ * a shared directory is not an assertion about this code.
+ */
+function mirrorTempDir(): string
 {
-    return glob(sys_get_temp_dir().'/media-mirror-*') ?: [];
+    $dir = sys_get_temp_dir().'/mirror-leak-'.getmypid().'-'.Str::lower(Str::random(8));
+    if (! is_dir($dir)) {
+        mkdir($dir, 0700, true);
+    }
+    config()->set('partna.media_mirror_temp_dir', $dir);
+
+    return $dir;
+}
+
+/** Whatever MediaMirror left in the directory handed to it. */
+function mirrorTempFiles(string $dir): array
+{
+    return glob($dir.'/media-mirror-*') ?: [];
 }
 
 it('leaves no temp file behind on a successful mirror', function () {
@@ -558,11 +578,11 @@ it('leaves no temp file behind on a successful mirror', function () {
     $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:TMP1:0'));
     Http::fake(['*' => Http::response(mirrorImageBytes(400, 400), 200, ['Content-Type' => 'image/jpeg'])]);
 
-    $before = mirrorTempFiles();
+    $dir = mirrorTempDir();
     $ok = app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/photo.jpg');
 
     expect($ok)->toBeTrue()
-        ->and(mirrorTempFiles())->toBe($before);
+        ->and(mirrorTempFiles($dir))->toBe([]);
 });
 
 it('leaves no temp file behind when the fetch fails', function () {
@@ -573,11 +593,11 @@ it('leaves no temp file behind when the fetch fails', function () {
     $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:TMP2:0'));
     Http::fake(['*' => Http::response('', 404)]);
 
-    $before = mirrorTempFiles();
+    $dir = mirrorTempDir();
     $ok = app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/gone.jpg');
 
     expect($ok)->toBeFalse()
-        ->and(mirrorTempFiles())->toBe($before);
+        ->and(mirrorTempFiles($dir))->toBe([]);
 });
 
 it('rejects an oversized image on its file size, before it is ever read into a string', function () {
@@ -592,6 +612,7 @@ it('rejects an oversized image on its file size, before it is ever read into a s
     // so it must land in the image branch and be rejected on size alone.
     Http::fake(['*' => Http::response(str_repeat('x', 16 * 1024 * 1024), 200, ['Content-Type' => 'image/jpeg'])]);
 
+    $dir = mirrorTempDir();
     $ok = app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/huge.jpg');
     $row = DB::table('content.media_assets')->where('id', $assetId)->first();
 
@@ -600,5 +621,5 @@ it('rejects an oversized image on its file size, before it is ever read into a s
         // 'body_rejected', not 'undecodable': the size gate must fire BEFORE
         // anything hands the bytes to the decoder.
         ->and($row->mirror_last_reason)->toBe('body_rejected')
-        ->and(mirrorTempFiles())->toBe([]);
+        ->and(mirrorTempFiles($dir))->toBe([]);
 });
