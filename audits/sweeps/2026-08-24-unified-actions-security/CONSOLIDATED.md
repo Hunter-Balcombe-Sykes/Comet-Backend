@@ -82,7 +82,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 5 of 15 complete
+- P2 Medium: 6 of 15 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -251,7 +251,28 @@
         CommerceProbeJob::dispatch((string) $context->user->id, $url);
         ```
 
-- [ ] **#SEC-8** · P2 — `IriCanonicalizer::trimPastedJunk()`'s URL-extraction regex runs before the length cap, and is quadratic on adversarial input
+- [x] **#SEC-8** · P2 — `IriCanonicalizer::trimPastedJunk()`'s URL-extraction regex runs before the length cap, and is quadratic on adversarial input
+    - **FIXED 2026-08-26 (PART 2 unit 10b).** Moved the length cap ABOVE the regex — a `strlen($input) > 2048`
+      guard at the top of `canonicalize()`, returning `Iri::reject($input, 'too_long')` before
+      `trimPastedJunk()` runs. The regex was NOT rewritten and the 2048 number was NOT changed. The original
+      post-trim check is kept as belt-and-braces and remains the only path to `'malformed'`.
+    - **Why this is safe, verified branch-by-branch by the independent reviewer:** `trimPastedJunk()` only ever
+      SHRINKS its input — every branch (wrapped-URL rejoin, prose extraction via `$m[0]`, whitespace strip,
+      the trim/punctuation loop) removes characters; none has a substitution, back-reference or padding that
+      could grow it. So the new pre-cap is a strict superset of the old post-cap, not a parallel rule.
+    - **Behaviour change, stated:** a >2048-char prose paste that would have trimmed down to a valid short URL
+      is now `too_long`. No real user regresses — `RouteLinkRequest.php:25` already enforces `max:2048` on the
+      only HTTP path (verified, not assumed). Only scraper/seed callers are affected
+      (`WebsiteLinkHarvester`, `CustomLinkSeeder`, `ShopProductSeeder`, `StoreBrandSeeder`,
+      `GoogleBusinessAutoSync`, `CommerceProbeJob`). Severity is NOT overclaimed: the user path was never exposed.
+    - Checked and cleared: the later `'https://'.$raw` prefix grows the string, but runs AFTER both caps, so the
+      worst case reaching `parse_url()` is a fixed 2056 bytes — not attacker-scalable.
+    - Mutation-proved: the test uses prose padded past 2048 wrapping a SHORT valid URL, so removing the pre-cap
+      makes it trim down and canonicalize successfully — RED with `Failed asserting that null is identical to
+      'too_long'`. That is the discriminating shape, not a both-sides-over-cap vacuous case. Review: **PASS**.
+    - Noted, pre-existing and NOT introduced here: `tests/fixtures/Routing/corpus-negatives.php:177` labels its
+      over-length case `'reason' => 'malformed'` where the code returns `'too_long'`. Cosmetic — the corpus test
+      only interpolates the label into a failure message, never asserts it.
     - **Where:** app/Routing/IriCanonicalizer.php:302-321 (`trimPastedJunk`), :82-85 (`canonicalize`)
     - **Affects:** Every internal `canonicalize()` caller that doesn't sit behind a Form Request `max:` rule (e.g. `ShopProductSeeder`, `MediaParentSuggester`, `GoogleBusinessAutoSync`, `StoreBrandSeeder` — all process third-party/scraped URLs).
     - **Effort:** S (~0.5–1h)
