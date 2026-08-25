@@ -7,6 +7,7 @@ use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Mail\Account\WelcomeMail;
+use App\Models\Core\Notifications\Notification;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
@@ -210,6 +211,119 @@ class ClaimSiteService
     }
 
     /**
+     * Staff release: undo a claim WITHOUT destroying the built site.
+     *
+     * The only pre-existing recovery was adminPurgeNow() (force-delete), which
+     * takes the scraped site with it and forces the rightful owner to rebuild.
+     * This returns the row to the state claim() found it in, so the owner can
+     * claim through the normal public endpoint.
+     *
+     * @return array{professional: User, build: PreAccountBuild}
+     *
+     * @throws RuntimeException NOT_CLAIMED|NOT_PRE_ACCOUNT
+     */
+    public function release(User $professional): array
+    {
+        $result = DB::connection('pgsql')->transaction(function () use ($professional) {
+            // Same lock claim() takes: a release racing a claim must serialise,
+            // or the release can land between claim()'s check and its write and
+            // leave a bound auth_user_id sitting on an 'unclaimed' row.
+            $locked = User::query()->whereKey($professional->id)->lockForUpdate()->first();
+            if (! $locked) {
+                throw new RuntimeException('NOT_PRE_ACCOUNT');
+            }
+
+            $build = PreAccountBuild::query()->where('user_id', $locked->id)->lockForUpdate()->first();
+            if (! $build) {
+                throw new RuntimeException('NOT_PRE_ACCOUNT');
+            }
+
+            if ($locked->auth_user_id === null) {
+                throw new RuntimeException('NOT_CLAIMED');
+            }
+
+            // auth_user_id / primary_email are not fillable — direct assignment,
+            // matching claim()'s own convention.
+            $locked->auth_user_id = null;
+            $locked->primary_email = null;
+            $locked->status = 'unclaimed';
+            $locked->save();
+
+            // SEC-4: claimed_at is not fillable. Nulling it is what returns the
+            // build to scopeLive() — without it the build is neither claimable
+            // nor prunable, so a released site would be permanently stranded.
+            $build->forceFill(['claimed_at' => null])->save();
+
+            // claim() gates the welcome EMAIL on createWelcomeNotification()
+            // returning > 0, and that insertOrIgnore dedupes on
+            // (user_id, dedupe_key). The user_id SURVIVES a release — the
+            // provisional row is reused, not recreated — so a surviving welcome
+            // row makes the next claim return 0 and the rightful owner silently
+            // never receives a welcome email. Delete it to re-arm the next claim.
+            //
+            // Not covered by a SQLite-lane assertion on Mail: the stand-in
+            // `notifications` table has no unique index on dedupe_key, so
+            // insertOrIgnore never conflicts there. Asserted on the row instead.
+            Notification::query()
+                ->where('user_id', $locked->id)
+                ->where('dedupe_key', 'welcome:'.$locked->id)
+                ->delete();
+
+            // Restore the pre-claim publish state. A self-serve build is
+            // provisioned unpublished (PreAccountBuildService::requestBuild ->
+            // createSiteForHandle(published: false)) and claim() flips it true;
+            // leaving that flip in place would leave the site MORE publicly
+            // exposed after the release than before the claim, and owned by
+            // nobody — PublicSiteResolver gates on is_published.
+            //
+            // An outreach build is provisioned PUBLISHED, so unpublishing one
+            // would not be a restore but a state the site was never in.
+            // isOutreach() is the same discriminator claim()'s invite-gate uses.
+            $site = Site::query()->where('user_id', $locked->id)->first();
+            if ($site && ! $build->isOutreach() && (bool) $site->is_published) {
+                $site->is_published = false;
+                $site->unpublished_at = now();
+                // saveQuietly for the same reason claim() does: the post-commit
+                // block below busts cache and purges the edge for this handle,
+                // so a plain save() would double-dispatch via SiteObserver.
+                $site->saveQuietly();
+            }
+
+            return ['professional' => $locked->fresh(), 'build' => $build->fresh(), 'site' => $site?->fresh()];
+        });
+
+        // Post-commit, mirroring claim()'s lanes — same per-step isolation so a
+        // Redis blip cannot report an already-committed release as a failure.
+        $userId = (string) $result['professional']->id;
+
+        $this->afterClaim('cache.user', $userId, fn () => $this->userCache->invalidateUser($result['professional']), 'release');
+
+        if ($result['site']) {
+            $this->afterClaim('cache.site', $userId, fn () => $this->siteCache->invalidateSite($result['site']), 'release');
+        }
+
+        // SyncSubdomainToKvJob is the ONLY KV writer. The claim turned this
+        // handle's KV entry into a PERMANENT one (status 'active'); the release
+        // must put it back to the unclaimed pointer with its expiry TTL, or a
+        // released site keeps a permanent routing entry it is no longer entitled
+        // to and outlives its own build expiry.
+        $this->afterClaim('kv.sync', $userId, fn () => SyncSubdomainToKvJob::dispatch($userId), 'release');
+
+        // EDGE-1, same reasoning as claim(): the status flip is invisible to
+        // SiteObserver (PUBLIC_PROFILE_USER_FIELDS excludes 'status'), so
+        // without this the squatter's cached payload survives at the edge.
+        $handle = strtolower(trim((string) ($result['site']->subdomain ?? '')));
+        if ($handle !== '') {
+            $customDomain = $result['site']->custom_domain_status === 'active' && $result['site']->custom_domain
+                ? (string) $result['site']->custom_domain
+                : null;
+            $this->afterClaim('edge.purge', $userId, fn () => CloudflareCachePurgeJob::dispatch($handle, $customDomain), 'release');
+        }
+
+        return $result;
+    }
+
+    /**
      * Runs one post-commit side effect without letting it fail the claim.
      *
      * Everything below the transaction runs against an ALREADY COMMITTED claim:
@@ -230,12 +344,12 @@ class ClaimSiteService
      * Per-step isolation is the point: one wrapper around the whole block would
      * let a failed cache bust skip the KV sync behind it.
      */
-    private function afterClaim(string $step, string $userId, callable $effect): void
+    private function afterClaim(string $step, string $userId, callable $effect, string $event = 'claim'): void
     {
         try {
             $effect();
         } catch (\Throwable $e) {
-            Log::warning('claim.post_commit_failed', [
+            Log::warning($event.'.post_commit_failed', [
                 'step' => $step,
                 'user_id' => $userId,
                 'error' => $e->getMessage(),

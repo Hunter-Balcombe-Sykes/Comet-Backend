@@ -1198,6 +1198,7 @@ Staff routes are for internal staff tooling. They require a staff JWT (user must
 - PATCH /api/staff/professionals/{professional}/status
 - PATCH /api/staff/professionals/{professional}
 - DELETE /api/staff/professionals/{professional}/force (full immediate purge — see below)
+- POST /api/staff/professionals/{professional}/release-claim (non-destructive claim release — see below)
 - PATCH /api/staff/professionals/{professional}/customers/{customer}
 - DELETE /api/staff/professionals/{professional}/customers/{customer} (soft delete)
 - DELETE /api/staff/professionals/{professional}/customers/{customer}/hard (hard delete)
@@ -1241,6 +1242,37 @@ force-delete button must collect a reason before calling this endpoint.
 - `403` — non-admin staff (`staffForceDelete` policy is admin-only even within the staff-admin route group)
 - `502` — the Supabase auth-user deletion failed; the account is left in `pending_deletion` and is
   retried automatically by the daily purge command (safe to re-run `/force` too)
+
+#### `POST /api/staff/professionals/{professional}/release-claim`
+
+Admin-only. The **non-destructive** counterpart to `/force`: unbinds the claimer and returns the row to
+`status='unclaimed'` so the rightful owner can claim it through `POST /api/claim`. **The built site
+survives** — no rebuild, no fresh scrape. Use this when the wrong person claimed a pre-account site; use
+`/force` when they also used the account. Requires a fresh AAL2 verification, same window as `/force`.
+
+What it undoes (the exact inverse of `ClaimSiteService::claim()`): nulls `auth_user_id` and
+`primary_email`, sets `status='unclaimed'`, nulls `pre_account_builds.claimed_at` (returning the build to
+`scopeLive()`), deletes the welcome notification, and — for **self-serve** builds only — unpublishes the
+site. Outreach builds stay published because that is their provisioned state. Post-commit it re-syncs KV
+(the permanent routing entry reverts to the unclaimed expiry-TTL pointer) and purges the edge.
+
+⚠️ **The site returns to OPEN first-come** (owner ruling 2026-08-25) — there is deliberately no email lock,
+so nothing stops the same person re-claiming it. Release while you are in contact with the rightful owner,
+not as a fire-and-forget action. See `#SEC-3` in `audits/sweeps/2026-08-24-claim-gate-security/`.
+
+⚠️ **A release always proceeds**, even when the previous claimer added content. `warnings` reports what the
+incoming owner would inherit; a **non-empty `warnings` means `/force` was the right tool**, because
+releasing hands a stranger's uploads — and any customer/enquiry records — to a different person.
+
+**Request body:** none.
+
+- `200` — body: `{ "released": true, "warnings": { "customers"?: int, "enquiries"?: int,
+  "integration_connections"?: int, "media"?: int }, "message": "..." }`. `warnings` is `[]` when clean —
+  only non-zero categories appear.
+- `409` — `NOT_CLAIMED` (the row is not currently claimed) or `NOT_PRE_ACCOUNT` (the user has no
+  `pre_account_builds` row, so there is no claim to release)
+- `401` — `mfa_fresh_required`
+- `403` — non-admin staff (`staffReleaseClaim` is admin-only even within the staff-admin route group)
 
 ### Pre-account builds (marketing pipeline)
 

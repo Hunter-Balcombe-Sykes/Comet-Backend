@@ -134,6 +134,20 @@ class UserSelfPolicy extends BasePolicy
     }
 
     /**
+     * Release a claim — unbind the claimer, keep the built site.
+     *
+     * Admin-only for the same defence-in-depth reason as staffForceDelete: this
+     * transfers ownership of a site away from whoever currently holds it, so a
+     * support-tier staffer who ever reached the route group must still be denied
+     * here. It is the NON-destructive recovery lane (the site survives), but the
+     * ownership consequence is identical, so it sits at the same privilege tier.
+     */
+    public function staffReleaseClaim(PartnaStaff $actor, User $target): bool
+    {
+        return $actor->isAdmin();
+    }
+
+    /**
      * Bulk status update — affects many users at once.
      *
      * Treated as admin-only because the blast radius of a bulk suspend/activate
