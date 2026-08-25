@@ -25,11 +25,15 @@
 
 Every unit passed an **independent** review by a fresh instance that did not write the code. Two reviews died to an infrastructure watchdog rather than to a verdict; Unit 2's I performed myself (I was not its implementer), re-verifying each claim against primary sources rather than accepting the report.
 
-### Final disposition of all 17 in-scope findings
+### Final disposition — 23 findings
 
-- **Fixed (13):** `#SEC-14`, `#SEC-17`, `#SEC-18`, `#SEC-5`, `#PRIV-3`, claim-gate `#SEM-4`, `SEM-9`, `SEM-10`, unified `SEM-2`, `CCH-11`, `SCALE-10`, `#TEST-4`, `#TEST-6`, `#TEST-18`
+The run file's header counts "16 P2s plus one open P1" = 17, which covers §4's units only. §11's close list adds six more (`CACHE-1`, `CCH-8`, `CCH-9`, unified `SEM-4`, `#TEST-6`, `#TEST-18`), so 23 distinct findings were dispositioned in total. Every one is now ticked with its evidence inline in its source sweep.
+
+- **Fixed (14):** `#SEC-14`, `#SEC-17`, `#SEC-18`, `#SEC-5`, `#PRIV-3`, claim-gate `#SEM-4`, `SEM-9`, `SEM-10`, unified `SEM-2`, `CCH-11`, `SCALE-10`, `#TEST-4`, `#TEST-6`, `#TEST-18`
 - **Already fixed / superseded (4):** `SEM-13`, claim-gate `#SEM-2`, unified `SEM-4`, `CACHE-1`
 - **WONTFIX, premise refuted (5):** `CCH-8`, `CCH-9`, `CCH-12`, `CCH-13`, `SEM-11`
+
+The P1 parent `#SEM-1` was already fixed and ticked before this run; unit 1 verified that and closed its P2 duplicate `SEM-13`.
 
 ---
 
