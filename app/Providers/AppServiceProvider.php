@@ -645,6 +645,32 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        // ManyChat build webhook. Each call can trigger an Apify-billed scrape,
+        // so this is a spend guard as much as an abuse guard.
+        //
+        // TWO buckets on purpose. The shared 'manychat:h' key is a global
+        // quota, and throttle middleware runs BEFORE the secret check — so a
+        // constant key alone is a DoS handle: any stranger who knows the URL
+        // could burn the quota and lock the real flow out with 429s. The
+        // per-IP bucket is the narrower one an anonymous caller hits first.
+        RateLimiter::for('manychat-build', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return [Limit::none()];
+            }
+
+            $ip = $request->header('CF-Connecting-IP') ?: $request->ip();
+
+            return [
+                Limit::perMinute((int) config('partna.throttle.manychat_build_per_minute', 10))
+                    ->by('manychat:ip:'.$ip)
+                    ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
+
+                Limit::perHour((int) config('partna.throttle.manychat_build_per_hour', 120))
+                    ->by('manychat:h')
+                    ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
+            ];
+        });
+
         // Public early-access signups (OV-A). Same posture as the retired waitlist limiter,
         // plus a per-IP daily cap (SEC-1): 5/min + 20/day per IP (CF-Connecting-IP
         // preferred) + 12/h per email. A bot-token bootstrap isn't available here — the

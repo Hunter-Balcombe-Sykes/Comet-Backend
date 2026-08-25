@@ -14,6 +14,7 @@ use App\Http\Middleware\Auth\RequireAal2;
 use App\Http\Middleware\Auth\RequireEmailVerified;
 use App\Http\Middleware\Auth\RequireStrongAuth;
 use App\Http\Middleware\Auth\RequireVerifiedRevocation;
+use App\Http\Middleware\Auth\VerifyManyChatWebhook;
 use App\Http\Middleware\Auth\VerifyResendWebhookSignature;
 use App\Http\Middleware\Auth\VerifySupabaseHookSignature;
 use App\Http\Middleware\Auth\VerifySupabaseJwt;
@@ -180,6 +181,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'supabase.auth-hook' => VerifySupabaseHookSignature::class.':services.supabase.auth_hook_secret,supabase.auth_hook,Auth',
             'supabase.email-hook' => VerifySupabaseHookSignature::class.':services.supabase.email_hook_secret,supabase.email_hook,Email',
             'resend.webhook' => VerifyResendWebhookSignature::class,
+            'manychat.webhook' => VerifyManyChatWebhook::class,
             'feature' => FeatureGate::class,
             'bot.token' => VerifyBotToken::class,
             'require.aal2' => RequireAal2::class,
