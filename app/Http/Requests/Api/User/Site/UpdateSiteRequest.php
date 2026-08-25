@@ -113,7 +113,13 @@ class UpdateSiteRequest extends BaseFormRequest
     public function withValidator($validator): void
     {
         $validator->after(function ($validator) {
-            if ($this->input('is_published') === true) {
+            // SEM-9: prepareForValidation() (NormalizesSiteUpdateInput) already
+            // coerces a present is_published to a native bool, so this is
+            // normally comparing a real true/false. filter_var is a second,
+            // independent layer — if that normalization is ever bypassed or
+            // reordered, a truthy non-bool (1, "1") must still trip this guard
+            // rather than silently skipping it via a bare `=== true`.
+            if (filter_var($this->input('is_published'), FILTER_VALIDATE_BOOLEAN)) {
                 $professional = $this->attributes->get('professional');
                 $site = $professional?->site;
 

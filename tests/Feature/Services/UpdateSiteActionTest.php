@@ -193,6 +193,34 @@ it('refuses to publish a site whose professional has no display name', function 
     expect((bool) DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('is_published'))->toBeFalse();
 });
 
+// SEM-9: direct callers of execute() (ReclaimHandleAction, tests, any future
+// caller) bypass UpdateSiteRequest's own normalization entirely, so the
+// Action's guard must not rely on the caller having already coerced the
+// value to a real bool. A bare `=== true` lets a truthy non-bool slip past
+// with no display-name enforcement.
+it('refuses to publish via a truthy non-bool is_published value, even called directly bypassing the Form Request', function () {
+    $pro = makeSiteOwner(userOverrides: ['display_name' => '']);
+
+    foreach ([1, '1'] as $truthyNonBool) {
+        try {
+            app(UpdateSiteAction::class)->execute($pro, ['is_published' => $truthyNonBool]);
+            $this->fail('Expected a ValidationException for is_published='.var_export($truthyNonBool, true));
+        } catch (ValidationException $e) {
+            expect($e->errors())->toHaveKey('is_published');
+        }
+    }
+
+    expect((bool) DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('is_published'))->toBeFalse();
+});
+
+it('publishes via a truthy non-bool is_published value when a display name is present, called directly', function () {
+    $pro = makeSiteOwner();
+
+    app(UpdateSiteAction::class)->execute($pro, ['is_published' => '1']);
+
+    expect((bool) DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('is_published'))->toBeTrue();
+});
+
 it('merges settings PATCH-style, preserving unknown keys and stripping the dead design path', function () {
     $pro = makeSiteOwner(siteOverrides: [
         'settings' => json_encode(['keep_me' => 'yes', 'booking_mode' => 'manual']),

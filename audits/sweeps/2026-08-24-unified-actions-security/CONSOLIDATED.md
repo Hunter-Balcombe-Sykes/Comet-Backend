@@ -562,7 +562,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 3 of 16 complete
+- P2 Medium: 5 of 16 complete
 - P3 Low: 0 of 8 complete
 
 ---
@@ -817,7 +817,11 @@
         }
         ```
 
-- [ ] **SEM-9** · P2 — Publish-blocked-on-empty-display-name guard uses `=== true`, so `is_published=1` slips through
+- [x] **SEM-9** · P2 — Publish-blocked-on-empty-display-name guard uses `=== true`, so `is_published=1` slips through
+    - **FIXED — and the exposure was wider than the finding stated.** Normalised at the source: `App\Http\Requests\Concerns\NormalizesSiteUpdateInput::prepareForValidation()` coerces a PRESENT scalar `is_published` with `filter_var(..., FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)` before validation runs. That trait is shared by `UpdateSiteRequest` AND `StaffUpdateSiteRequest`.
+        **Why the Action was hardened too, not just the request:** `StaffUpdateSiteRequest` has NO `withValidator()` guard of its own and relied entirely on `UpdateSiteAction`'s check; and `ReclaimHandleAction` (`:48`) plus ~15 tests call `UpdateSiteAction::execute()` DIRECTLY, bypassing the Form Request. So `UpdateSiteAction:95` now uses `filter_var(...)` rather than `=== true`.
+        `'sometimes'` semantics preserved: the trait gates on `array_key_exists('is_published', $this->all())`, so an ABSENT key is never touched and never merged — pinned by a test asserting an omitted key leaves publish state alone. Garbage cannot become `true`: `FILTER_NULL_ON_FAILURE` leaves `"banana"` untouched and Laravel's `boolean` rule then 422s it.
+        Mutation-proved: reverting `UpdateSiteAction` to `=== true` -> "Expected a ValidationException for is_published=1"; disabling the trait's normalisation -> the `'true'`/`'on'` permit-cases 422. Stated honestly: the `UpdateSiteRequest::withValidator()` `filter_var` line could NOT be mutation-proved in isolation, because `prepareForValidation()` always runs first in the same lifecycle. Kept as defense-in-depth on the reviewer's recommendation (symmetric with the proven Action guard; a future subclass overriding `prepareForValidation()` without calling the parent would otherwise regress silently).
     - **Where:** app/Http/Requests/Api/User/Site/UpdateSiteRequest.php:111-130; app/Services/Site/UpdateSiteAction.php:90-102
     - **Affects:** Any non-strict-JSON client publishing a site (form-encoded submission, some third-party API tooling) with an empty display name — the intended "cannot publish without a display name" block is bypassed in both the request validator and the action's own duplicate check.
     - **Effort:** S (~0.5–1h)
@@ -846,7 +850,10 @@
         }
         ```
 
-- [ ] **SEM-10** · P2 — Promoted-settings hoist reads from the merged JSONB, so a stale legacy value can overwrite a fresh typed column
+- [x] **SEM-10** · P2 — Promoted-settings hoist reads from the merged JSONB, so a stale legacy value can overwrite a fresh typed column
+    - **FIXED** — the hoist loop now reads `$incomingSettings` (what this request actually sent) instead of `$merged` (on-disk JSONB ∪ incoming), so a stale legacy key on disk can no longer be hoisted over a typed column the request never touched. `unset($merged[$key])` stays UNCONDITIONAL and outside the `if`, so stale keys are still stripped from the JSONB and the column remains the sole write target. The misleading comment (which claimed "only keys the client actually sent are written" — true of `$incomingSettings`, not of `$merged`) is corrected.
+        The `lockForUpdate` transaction and the merge ORDER are untouched (LIFE-3) — only the hoist's source array changed.
+        Test: `tests/Feature/Services/UpdateSiteSettingsPromotionTest.php` seeds a stale `booking_mode: 'manual'` in JSONB alongside a newer column value `'none'`, PATCHes an unrelated key, and asserts the column is unchanged and the stale key stripped. Mutation-proved by reverting the hoist to `$merged`: "Failed asserting that two strings are identical. -'none' +'manual'".
     - **Where:** app/Services/Site/UpdateSiteAction.php:104-158
     - **Affects:** Any PATCH to `settings` on a site whose on-disk `settings` JSONB still carries a pre-promotion value for `show_branding` / `charlie_enabled` / `services_auto_sync_enabled` / `booking_mode` / `manual_booking_url` — an unrelated settings PATCH can silently resurrect that stale value into the now-authoritative typed column.
     - **Effort:** S (~0.5–1h)

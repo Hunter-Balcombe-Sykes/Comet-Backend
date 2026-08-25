@@ -142,6 +142,50 @@ it('rejects a genuinely unknown architecture id with a 422', function () {
         ->toBe('staple');
 });
 
+// SEM-9: Laravel's 'boolean' rule accepts 1/'1'/0/'0' (and, once
+// NormalizesSiteUpdateInput coerces them pre-validation, 'true'/'on' too)
+// without casting them — validated() used to hand back the raw scalar, and
+// both this Request's withValidator() guard and UpdateSiteAction's own guard
+// compared with a bare `=== true`, so a truthy non-bool sailed through both
+// checks and published with no display name enforced.
+it('blocks publishing via a truthy non-bool is_published value when display_name is empty', function (mixed $value) {
+    $pro = createTenant('sem9-blocked-'.md5(json_encode($value)), ['display_name' => '']);
+    // createTenant() seeds is_published=1 by default — start unpublished so the
+    // DB assertion below actually proves the PATCH was rejected, not just that
+    // the seed value survived untouched.
+    DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->update(['is_published' => 0]);
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['is_published' => $value])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['is_published']);
+
+    expect((bool) DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('is_published'))
+        ->toBeFalse();
+})->with([1, '1', 'true', 'on', true]);
+
+it('permits publishing via a truthy non-bool is_published value when display_name is set', function (mixed $value) {
+    $pro = createTenant('sem9-permitted-'.md5(json_encode($value)));
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['is_published' => $value])
+        ->assertOk();
+
+    expect((bool) DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('is_published'))
+        ->toBeTrue();
+})->with([1, '1', 'true', 'on', true]);
+
+it('leaves publish state untouched when is_published is omitted entirely, even with no display name', function () {
+    // 'sometimes' must keep meaning "sometimes" — an omitted key must never
+    // normalize to false and silently unpublish, nor should its absence
+    // spuriously trip the publish-readiness guard.
+    $pro = createTenant('sem9-omitted', ['display_name' => '']);
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['settings' => ['booking_mode' => 'manual']])
+        ->assertOk();
+});
+
 it('rejects retired legacy architecture ids, still ignores the dropped skeleton_id field', function () {
     // The skeleton_id field alias and LEGACY_ARCHITECTURE_IDS collapse were
     // removed 2026-08-05 and stay gone — 'skeleton_id' is still an unknown

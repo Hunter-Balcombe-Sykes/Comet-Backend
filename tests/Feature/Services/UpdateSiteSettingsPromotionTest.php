@@ -76,3 +76,38 @@ it('leaves unmentioned columns untouched when only some keys are sent', function
     expect($row->booking_mode)->toBe('none')
         ->and((int) $row->show_branding)->toBe(0);
 });
+
+// SEM-10: a stale promoted key can still be sitting in the on-disk settings
+// JSONB (e.g. from before the Phase 2 strip, or a write race). The hoist
+// loop used to read from $merged (existing ∪ incoming), so that stale value
+// clobbered the typed column on every subsequent PATCH — even one that never
+// mentioned the key. It must read from $incomingSettings (what THIS request
+// actually sent) instead.
+it('does not let a stale promoted key in the settings JSONB overwrite a newer typed-column value', function () {
+    $pro = createTenant('promote-stale');
+
+    // Simulate a straggler: the JSONB mirror still holds an old booking_mode,
+    // but the typed column has since moved on to a newer value. This shape
+    // cannot arise from UpdateSiteAction itself post-fix, but a pre-fix write
+    // race or a direct DB fix-up could still leave it behind.
+    DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->update([
+        'settings' => json_encode(['booking_mode' => 'manual', 'keep_me' => 'yes']),
+        'booking_mode' => 'none',
+    ]);
+
+    // PATCH an unrelated key — booking_mode is never mentioned by this request.
+    app(UpdateSiteAction::class)->execute($pro->fresh()->load('site'), [
+        'settings' => ['unrelated_key' => 'z'],
+    ]);
+
+    $row = DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->first();
+
+    // The typed column must be untouched by the stale JSONB value.
+    expect($row->booking_mode)->toBe('none');
+
+    // The stale key is stripped from the JSONB mirror regardless (Phase 2:
+    // the column is the sole write target), and unrelated keys survive.
+    $settings = json_decode($row->settings, true) ?? [];
+    expect($settings)->not->toHaveKey('booking_mode')
+        ->and($settings)->toMatchArray(['keep_me' => 'yes', 'unrelated_key' => 'z']);
+});

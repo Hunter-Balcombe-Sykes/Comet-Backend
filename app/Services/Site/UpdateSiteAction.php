@@ -87,7 +87,12 @@ class UpdateSiteAction
         // If publishing, enforce completeness unless staff force_publish is allowed + true.
         // Throwing before the transaction is strictly better — no transaction to roll back
         // on a validation failure.
-        if (($data['is_published'] ?? null) === true) {
+        // SEM-9: UpdateSiteAction is also called directly (ReclaimHandleAction,
+        // tests) bypassing the Form Request's own normalization, so this check
+        // cannot rely solely on the Request having already coerced the value.
+        // filter_var catches a truthy non-bool (1, "1") that a bare `=== true`
+        // would silently let through with no display-name enforcement.
+        if (filter_var($data['is_published'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
             $canBypass = $allowForcePublish && $forcePublish;
 
             if (! $canBypass) {
@@ -135,23 +140,25 @@ class UpdateSiteAction
                 }
 
                 // FOUND-16: hoist the promoted keys out of settings JSONB into
-                // typed columns. We extract from $merged (post-PATCH) so only keys
-                // the client actually sent are written — columns the request didn't
-                // touch keep their existing DB value. The client still SENDS these
-                // under settings.* (no frontend change); columns are the source of
-                // truth. Phase 2 (strip active): the key is removed from $merged so
-                // new writes no longer populate the JSONB mirror — the column is the
-                // sole write target. Migration 20260701200000 re-injects columns into
-                // both public-read views so the emitted settings blob is byte-identical.
+                // typed columns. SEM-10: we extract from $incomingSettings (what
+                // THIS request actually sent), not $merged (existing-on-disk ∪
+                // incoming) — $merged can still hold a stale promoted key from
+                // before the JSONB mirror was retired, and hoisting from it would
+                // overwrite a newer typed-column value with that stale value on
+                // every unrelated PATCH. Columns the request didn't touch keep
+                // their existing DB value. The client still SENDS these under
+                // settings.* (no frontend change); columns are the source of
+                // truth. Phase 2 (strip active): the key is removed from $merged
+                // unconditionally (even if the client didn't send it this time) so
+                // a stale mirror entry can't linger and so new writes never
+                // repopulate the JSONB mirror — the column is the sole write
+                // target. Migration 20260701200000 re-injects columns into both
+                // public-read views so the emitted settings blob is byte-identical.
                 foreach (Site::PROMOTED_SETTINGS_KEYS as $key) {
-                    if (array_key_exists($key, $merged)) {
-                        $data[$key] = $merged[$key];
-                        // Phase 2: strip the key from settings so the column is the
-                        // sole write target. The views re-inject columns into the
-                        // emitted settings blob (migration 20260701200000), so the
-                        // wire shape is byte-identical — no frontend change required.
-                        unset($merged[$key]);
+                    if (array_key_exists($key, $incomingSettings)) {
+                        $data[$key] = $incomingSettings[$key];
                     }
+                    unset($merged[$key]);
                 }
 
                 $data['settings'] = $merged;
