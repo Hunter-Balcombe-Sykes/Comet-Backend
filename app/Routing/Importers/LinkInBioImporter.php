@@ -20,6 +20,7 @@ use App\Services\Platforms\MediaSeeder;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Sleep;
 
 /**
  * Link-in-bio unroll (Linktree, Beacons, Stan…), on the new router.
@@ -122,8 +123,10 @@ class LinkInBioImporter
         $unavailable = 0;
         $unavailableReasons = [];
         $unrolled = [];
+        $pageCount = count($pages);
+        $pageDelayMs = (int) config('partna.routing.link_in_bio.page_delay_ms', 250);
 
-        foreach ($pages as $pageUrl) {
+        foreach ($pages as $index => $pageUrl) {
             $response = $this->fetcher->tryFetch($pageUrl);
 
             if ($response === null || $response['status'] !== 200 || $response['body'] === '') {
@@ -144,6 +147,10 @@ class LinkInBioImporter
                     ]);
                 }
 
+                // SCALE-5: a refused request still hit the host — a 403 burst
+                // is exactly what escalates a soft throttle into a hard block.
+                $this->paceNextFetch($index, $pageCount, $pageDelayMs);
+
                 continue;
             }
 
@@ -158,6 +165,8 @@ class LinkInBioImporter
                 $unrolled[] = $pageUrl;
                 $unrolled[] = $response['finalUrl'];
             }
+
+            $this->paceNextFetch($index, $pageCount, $pageDelayMs);
         }
 
         $fetched = count($pages) - $unavailable;
@@ -299,6 +308,25 @@ class LinkInBioImporter
             $status === 200 => 'empty_body',
             default => 'http_'.$status,
         };
+    }
+
+    /**
+     * SCALE-5: space out successive fetches at ONE bio-link host inside a
+     * single import. Never before the first page, never after the last —
+     * skipped entirely on a single-page import, which is the common case.
+     *
+     * Gated on `runningInConsole()` (the same idiom DefersRecompute uses):
+     * the only caller, LinkInBioScanJob, is a queued job, but the `sync`
+     * queue driver runs a job inline in the web request — a sleep on that
+     * path would be a worse bug than the WAF block it exists to prevent.
+     */
+    private function paceNextFetch(int $index, int $pageCount, int $delayMs): void
+    {
+        if ($delayMs <= 0 || $index >= $pageCount - 1 || ! app()->runningInConsole()) {
+            return;
+        }
+
+        Sleep::for($delayMs)->milliseconds();
     }
 
     /**

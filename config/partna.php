@@ -2252,6 +2252,16 @@ return [
         // rather than one report per request. `catalog:compile` is the real
         // gate; this covers what bypasses it.
         'malformed_pattern_report_ttl_seconds' => (int) env('PARTNA_ROUTING_MALFORMED_PATTERN_REPORT_TTL_SECONDS', 3600),
+
+        'link_in_bio' => [
+            // SCALE-5. Paces successive fetches at ONE host inside a single
+            // import — 50 rapid sequential requests with no delay is exactly
+            // the shape a bio-link host's bot-detection is built to catch, and
+            // a block degrades every future import from that host, not just
+            // this one. The T9 grant already raised MAX_PAGES 20 -> 50; this
+            // is about spacing those requests out, not about how many there are.
+            'page_delay_ms' => (int) env('PARTNA_LINK_IN_BIO_PAGE_DELAY_MS', 250),
+        ],
     ],
 
     'video_variants' => [

@@ -350,7 +350,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 4 of 4 complete
-- P2 Medium: 5 of 8 complete
+- P2 Medium: 6 of 8 complete
 - P3 Low: 0 of 5 complete
 
 ---
@@ -489,7 +489,8 @@
 
 ## P2 — Should fix
 
-- [ ] **SCALE-5** · P2 — Link-in-bio importer fetches up to 50 pages of one host sequentially with no per-request delay
+- [x] **SCALE-5** · P2 — Link-in-bio importer fetches up to 50 pages of one host sequentially with no per-request delay
+    - **Resolved 2026-08-26** — pacing, not volume: `MAX_PAGES` stays at 50. `import()` now calls `paceNextFetch()` once per iteration on BOTH loop paths (the unavailable branch pauses too — a 403 burst is what escalates a soft throttle into a hard block), reading `config('partna.routing.link_in_bio.page_delay_ms')`, default 250ms via `PARTNA_LINK_IN_BIO_PAGE_DELAY_MS`. Never before the first page, never after the last, no-op at <= 0. Uses `Illuminate\Support\Sleep`, not `usleep()`, so the spacing is assertable without a slow suite. **Never sleeps on a request path**: gated on `app()->runningInConsole()`, so a queue worker paces and an inline `sync` dispatch inside an HTTP request does not — the only production caller is `LinkInBioScanJob::handle()`, and Octane (the one case that would misreport that gate) is not installed. Measured against recorded fixtures: 50 pages -> 49 sleeps x 250ms = 12,250ms simulated; 1 page -> 0 sleeps; unfaked 3 pages at 50ms -> 135.5ms real wall-clock, so it genuinely sleeps rather than recording an intent. Five tests added, mutation-proved twice (no-op the pacer -> red; drop the last-page guard -> red, including on the single-page case). **NOT done, surfaced instead:** the second bullet's shared delay budget with the scheduled `integrations:refresh` path. That is a per-host token bucket in Redis keyed on the registrable host, consulted by both this loop and the batch refresh's fetches — cross-cutting shared state, its own plan. See RESULT-PART-3.md.
     - **Where:** app/Routing/Importers/LinkInBioImporter.php:53, 121-134
     - **Affects:** The bio-link host being imported from (Linktree, Beacons, etc.); a single import run can burst up to 50 rapid requests at one host, risking a throttle/WAF block for that user's import (and any concurrent import against the same host).
     - **Effort:** S-M (~1–2h)
