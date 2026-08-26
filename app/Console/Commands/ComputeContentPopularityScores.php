@@ -8,6 +8,7 @@ use App\Services\Analytics\ContentFreshness;
 use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Analytics\ItemFamily;
 use App\Services\Analytics\ScoringWindow;
+use App\Services\Profile\SectorActionRecipes;
 use App\Services\PublicSite\SitepageDataResolverService;
 use App\Site\Actions\ActionCandidates;
 use App\Site\Pools\PoolWire;
@@ -301,6 +302,24 @@ class ComputeContentPopularityScores extends Command
             ) {
                 $userIds[(string) $userId] = true;
             }
+            // Identity boosts read users.sector (smart-scoring plan): a
+            // sector edit must re-rank without waiting for traffic, so a
+            // SECTOR-CARRYING user's row update in the window scopes their
+            // site in. The trigger is coarse (any edit on such a user
+            // qualifies) — that only costs a recompute — but deliberately
+            // requires a sector so a brand-new idle account doesn't ride its
+            // own signup write into every sweep (SCALE-3's skip contract).
+            // A cleared sector re-ranks on the next event/content change via
+            // the shape-inference fallback — accepted narrow staleness.
+            foreach (
+                DB::connection('pgsql')->table('core.users')
+                    ->where('updated_at', '>=', $sinceSql)
+                    ->whereNotNull('sector')
+                    ->distinct()
+                    ->pluck('id') as $userId
+            ) {
+                $userIds[(string) $userId] = true;
+            }
             if ($userIds !== []) {
                 foreach (
                     DB::connection('pgsql')->table('site.sites')
@@ -413,6 +432,13 @@ class ComputeContentPopularityScores extends Command
      * Item reach reads the item-family scores computed THIS run (so a first
      * run already folds pool engagement in), falling back to stored rows.
      *
+     * Identity boosts (smart-scoring plan, 2026-08-27): the sector's action
+     * recipe resolves against the candidate set and rides the stored score.
+     * The inference ladder when users.sector is unset — the explicit sector
+     * (any source: manual or google-business sync) → integration-shape
+     * identity (SectorActionRecipes::inferIdentity, EPHEMERAL by design) →
+     * none (global priors only).
+     *
      * @param  list<array<string, mixed>>  $itemRows  this run's item-family rows
      * @return array{rows: list<array<string, mixed>>, deletes: list<string>}
      */
@@ -429,7 +455,14 @@ class ComputeContentPopularityScores extends Command
         }
         $candidates = $this->candidates->forSite($pro, $site, null, $pools);
 
-        return $this->scorer->computeForSite($site, $candidates, $itemScores);
+        $identity = trim((string) ($pro->sector ?? ''));
+        $boosts = SectorActionRecipes::resolve(
+            $identity !== '' ? $identity : SectorActionRecipes::inferIdentity($candidates),
+            $candidates,
+            $itemScores,
+        );
+
+        return $this->scorer->computeForSite($site, $candidates, $itemScores, $boosts);
     }
 
     /**

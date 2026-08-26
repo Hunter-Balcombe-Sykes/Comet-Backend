@@ -8,6 +8,9 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Services\Analytics\ContentFreshness;
+use App\Services\Analytics\ContentPopularityReader;
+use App\Services\Profile\SectorActionRecipes;
+use App\Site\Actions\ActionCandidates;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -33,6 +36,8 @@ class DevInsightsController extends ApiController
 
     public function __construct(
         private readonly ContentFreshness $freshness,
+        private readonly ActionCandidates $candidates,
+        private readonly ContentPopularityReader $popularity,
     ) {}
 
     /**
@@ -73,7 +78,21 @@ class DevInsightsController extends ApiController
         // breakdown can show the additive term per item (family => id => boost).
         $fresh = $this->freshness->boostsForSite($site);
 
+        // The organic/boost split is INTERNAL by owner decision (2026-08-27):
+        // the dashboard shows one blended number; only this dev endpoint says
+        // which actions ride an identity boost and how big it is, so "why is
+        // this first" stays debuggable. Recomputed live, same inputs as the
+        // scoring job.
+        $identityCandidates = $this->candidates->forSite($professional, $site);
+        $identity = trim((string) ($professional->sector ?? ''));
+        $identity = $identity !== '' ? $identity : SectorActionRecipes::inferIdentity($identityCandidates);
+
         return $this->success([
+            'identity' => [
+                'resolved' => $identity,
+                'source' => trim((string) ($professional->sector ?? '')) !== '' ? 'sector' : ($identity !== null ? 'inferred' : null),
+                'boosts' => SectorActionRecipes::resolve($identity, $identityCandidates, $this->popularity->itemScoresForSite($site->id)),
+            ],
             'pages' => $this->pageScores($site->id),
             'items' => $this->itemScores($site->id, $fresh),
             'daily_series' => [

@@ -108,8 +108,20 @@ final class SectorActionRecipes
     }
 
     /**
-     * The ordered role recipe for a sector slug (slug refinement, else its
-     * bucket's table, else []).
+     * Neutral pseudo-identities the INFERENCE ladder may answer with when
+     * users.sector is unset — an integration shape is evidence of a funnel,
+     * not of a profession, so these stay deliberately generic.
+     *
+     * @var array<string, list<string>>
+     */
+    private const PSEUDO_RECIPES = [
+        '_booking_led' => ['book', 'contact', 'top-social'],
+    ];
+
+    /**
+     * The ordered role recipe for an identity string: a sector slug (slug
+     * refinement, else its bucket's table), a bare bucket key, or a pseudo
+     * identity from inferIdentity(). [] when nothing matches.
      *
      * @return list<string>
      */
@@ -121,9 +133,60 @@ final class SectorActionRecipes
         if (isset(self::SLUG_RECIPES[$sector])) {
             return self::SLUG_RECIPES[$sector];
         }
+        if (isset(self::PSEUDO_RECIPES[$sector])) {
+            return self::PSEUDO_RECIPES[$sector];
+        }
+        if (isset(self::BUCKET_RECIPES[$sector])) {
+            return self::BUCKET_RECIPES[$sector];
+        }
         $bucket = SectorTaxonomy::bucketFor($sector);
 
         return $bucket !== null ? (self::BUCKET_RECIPES[$bucket] ?? []) : [];
+    }
+
+    /**
+     * The inference ladder's integration-shape tier (smart-scoring plan):
+     * when users.sector is unset, the connected-platform MIX still names a
+     * funnel. Food signals (a menu page, ordering or reservation providers)
+     * beat booking signals beat music signals — a restaurant with a booking
+     * link is still a restaurant. Returns an identity string recipeFor()
+     * understands, or null (global priors, no boosts).
+     *
+     * Pure over the candidate set; EPHEMERAL by design — never written back
+     * to users.sector (a wrong write would flip the FOOD capability set).
+     *
+     * @param  list<array<string, mixed>>  $candidates
+     */
+    public static function inferIdentity(array $candidates): ?string
+    {
+        $reservationKeys = ['opentable', 'resdiary', 'nowbookit'];
+        $food = false;
+        $booking = false;
+        $music = false;
+        foreach ($candidates as $c) {
+            if ($c['kind'] === 'page' && in_array($c['id'], ['page:menu'], true)) {
+                $food = true;
+            }
+            if ($c['kind'] !== 'platform') {
+                continue;
+            }
+            $key = (string) ($c['meta']['platformKey'] ?? '');
+            $page = $c['meta']['page'] ?? null;
+            if ($page === 'menu' || in_array($key, $reservationKeys, true)) {
+                $food = true;
+            } elseif ($page === 'services') {
+                $booking = true;
+            } elseif (in_array($key, self::LISTEN_RANK, true)) {
+                $music = true;
+            }
+        }
+
+        return match (true) {
+            $food => SectorStylePresets::FOOD_DRINK,
+            $booking => '_booking_led',
+            $music => 'musician',
+            default => null,
+        };
     }
 
     /**
