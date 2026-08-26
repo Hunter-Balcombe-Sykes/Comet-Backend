@@ -192,3 +192,35 @@ it('leaves an owner-edited dish (manual_overrides) in its current removed state'
         ->and(DB::connection('pgsql')->table('content.items')
             ->where('id', $colaId)->whereNotNull('removed_at')->exists())->toBeTrue();
 });
+
+it('keeps a dish\'s per-platform identity when a later scrape fails to re-supply it (sticky identity)', function () {
+    $user = mfjrUser('mfjr5');
+    mfjrOrdering($user);
+
+    // Run 1: the actor returned identity for the dish.
+    mfjrScrape($user, [[
+        'name' => 'Cola', 'pickupPrice' => 3.0, 'deliveryPrice' => 3.0,
+        'itemUrl' => 'https://ue/store/x/sec/sub/uuid-cola', 'externalId' => 'uuid-cola',
+    ]]);
+
+    $offer = fn () => DB::connection('pgsql')->table('content.offers as o')
+        ->join('content.items as i', 'i.id', '=', 'o.item_id')
+        ->where('i.user_id', $user->id)->where('o.platform', 'uber-eats')
+        ->whereNotNull('o.item_url')->first(['o.item_url', 'o.external_ref']);
+    expect($offer()->item_url)->toBe('https://ue/store/x/sec/sub/uuid-cola');
+
+    // Run 2: same dish, but the actor's flaky identity output came back empty.
+    mfjrScrape($user, [['name' => 'Cola', 'pickupPrice' => 3.0, 'deliveryPrice' => 3.0]]);
+
+    // The stable identity survives the wholesale rebuild.
+    expect($offer())->not->toBeNull()
+        ->and($offer()->item_url)->toBe('https://ue/store/x/sec/sub/uuid-cola')
+        ->and($offer()->external_ref)->toBe('uuid-cola');
+
+    // Run 3: fresh identity wins over the carried one.
+    mfjrScrape($user, [[
+        'name' => 'Cola', 'pickupPrice' => 3.0, 'deliveryPrice' => 3.0,
+        'itemUrl' => 'https://ue/store/x/sec/sub/uuid-cola-v2', 'externalId' => 'uuid-cola-v2',
+    ]]);
+    expect($offer()->item_url)->toBe('https://ue/store/x/sec/sub/uuid-cola-v2');
+});

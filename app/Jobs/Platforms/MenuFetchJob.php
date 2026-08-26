@@ -406,6 +406,8 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 
         $absent = $this->absentDishIds($menu, $coords, $ownerNames['protected'], $ownerNames['locked_coords']);
 
+        $knownIdentity = $this->knownItemIdentity($menu);
+
         $itemIds = [];
         $namesById = [];
         foreach ($dishes as $dish) {
@@ -430,7 +432,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             $itemId = $writer->write($userId, $coord, $writer->projectionFor(
                 $this->dishRow($dish['item']),
                 $dish['categories'],
-                $this->platformRows($dish['item']),
+                $this->stickyIdentity($this->platformRows($dish['item']), $coord, $knownIdentity),
                 $menu,
             ));
             $itemIds[] = $itemId;
@@ -473,6 +475,68 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             // having been fixed. Do not stamp this anywhere else.
             'last_successful_fetch_at' => $now,
         ])->save();
+    }
+
+    /**
+     * Per-platform identity already persisted for this menu's dishes:
+     * "{coord}|{platform}" => {item_url, external_ref}. The Uber actor's
+     * identity output is time-variable (34/82 one run, 82/82 another — live
+     * measurements, 2026-08-26), so identity a scrape fails to RE-supply
+     * must not be erased by the wholesale rebuild. Item uuids and product
+     * URLs are stable facts about the platform's catalog; carrying them
+     * forward converges coverage upward across scrapes. Stock
+     * (availability) is deliberately NOT sticky — stale sold-out is worse
+     * than no claim.
+     *
+     * @return array<string, array{item_url:?string, external_ref:?string}>
+     */
+    private function knownItemIdentity(Menu $menu): array
+    {
+        $rows = DB::connection('pgsql')->table('content.offers as o')
+            ->join('content.items as i', 'i.id', '=', 'o.item_id')
+            ->join('content.source_items as si', 'si.item_id', '=', 'i.id')
+            ->where('i.user_id', (string) $menu->user_id)
+            ->where('i.kind', 'menu_item')
+            ->where('si.coord', 'like', 'manual:menu:'.$menu->id.':%')
+            ->whereNotNull('o.platform')
+            ->where(function ($w) {
+                $w->whereNotNull('o.item_url')->orWhereNotNull('o.external_ref');
+            })
+            ->distinct()
+            ->get(['si.coord', 'o.platform', 'o.item_url', 'o.external_ref']);
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[$row->coord.'|'.$row->platform] ??= [
+                'item_url' => $row->item_url,
+                'external_ref' => $row->external_ref,
+            ];
+        }
+
+        return $map;
+    }
+
+    /**
+     * Fill a platform row's NULL identity from what previous scrapes proved.
+     * Fresh non-null values always win — this only stops a partial actor run
+     * erasing links it failed to re-fetch.
+     *
+     * @param  list<object>  $rows
+     * @param  array<string, array{item_url:?string, external_ref:?string}>  $known
+     * @return list<object>
+     */
+    private function stickyIdentity(array $rows, string $coord, array $known): array
+    {
+        foreach ($rows as $row) {
+            $prior = $known[$coord.'|'.$row->platform] ?? null;
+            if ($prior === null) {
+                continue;
+            }
+            $row->item_url ??= $prior['item_url'];
+            $row->external_ref ??= $prior['external_ref'];
+        }
+
+        return $rows;
     }
 
     /**
