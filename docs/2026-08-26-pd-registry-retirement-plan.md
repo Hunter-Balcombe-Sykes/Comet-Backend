@@ -262,3 +262,39 @@ hand-written: the 11 refreshables (P4: spotify, soundcloud, youtube,
 youtube-music, vimeo, bandcamp, apple-music, apple-podcast, eventbrite,
 humanitix, google-business) + the bespoke-controller set (P5: fresha,
 square, opentable, resdiary, nowbookit, instagram, shop, acuity?).
+
+---
+
+## RUN CHECKPOINT — 2026-08-27 late night (session ended at owner's request; hand off here)
+
+**Branch:** `feature/pd-retirement-2026-08-27`, pushed. Last commit `339e5d956`. Working tree clean. NOT yet merged to `development` (see "immediate next steps").
+
+### Done so far (with gate evidence in earlier checkpoints above)
+- P0–P3 SHIPPED and merged to development: 54 of ~65 hand-written entries retired (4 ordering, 27 detect-only, 25 link-only via `LinkOnlyBindings`, mixcloud+tidal embeds). Harness (`php artisan registry:dump`) diff proof at every gate: zero contract drift.
+- **P4 vimeo canary: CODE COMPLETE on the branch, tests green, NOT live-verified yet.**
+  - New pattern: `app/Services/Platforms/Registry/Bindings/VimeoBinding.php` (full verbatim contract) + `BEHAVIOUR_BINDINGS` const/seam at the end of `DerivedDescriptorFactory::descriptorFor()` (applied LAST so it may override Brand defaults).
+  - Provider: all 5 vimeo blocks deleted (register/fetch/connect/deferred, connectInput, displayToggles, refreshEvery, routes).
+  - Harness diff vs P3 baseline (`scratchpad/registry-after-p3.json` → `registry-after-p4a.json`): ONLY vimeo changed, only `derived false→true` + `surface_key null→'vimeo.account'`. Every behavioural field byte-identical.
+  - `RegistryCoverageTest` retired list includes 'vimeo' (both spots). Registry+vimeo suites: 100 passed. Full suite green after the 3 fixes below.
+- **Regression fixes found by the P4 full-suite run (shipped in same commit — these were LIVE bugs on dev):**
+  1. `CustomLinkSeeder::writeCard()` lock closure never captured `$origin` → fatal on EVERY scrape-seeded custom link since the R2 commit (43c8a4afb). Fixed: `use (..., $origin)`.
+  2. `WorkplaceObserver` card-sweep dispatch was outside the never-crash-the-parent-save guard → new `dispatchCardSweep()` with try/catch.
+  3. Architecture guards: `app/Services/Media` added to audit.sh caching-gold-standard scope map + `InstagramMediaUrl.php` added to `RawCacheCallScanner::ALLOWLIST` (justified: R3 failed-refresh negative cache, never tenant-keyed).
+
+### Immediate next steps (finish the vimeo canary gate)
+1. Merge `feature/pd-retirement-2026-08-27` → `development`, push (deploys dev). The two regression fixes make this merge URGENT-ish: dev's custom-link seeding is currently fatal.
+2. Live-verify vimeo on dev: find a vimeo connection (`database-query` on dev Supabase or `cloud tinker development`), trigger a refresh (`PlatformRefresher` via tinker or the refresh command), confirm fresh payload + no errors in `cloud env:logs partna development --minutes 10`. Also sanity-check vimeo connect route exists (`api/platforms/vimeo/connect`) and a connect attempt 422s with the frozen copy.
+3. Fresh-eyes Sonnet critic on the P4 canary diff (binding pattern + the 3 fixes).
+4. Checkpoint here, then proceed.
+
+### P4 remainder (one at a time, same recipe as vimeo)
+For each of: **bandcamp, youtube, youtube-music, apple-music, apple-podcast, spotify, soundcloud, eventbrite, humanitix** (google-business WAITS for P5):
+`grep -n "<slug>"` the provider → move every block verbatim into `Bindings/<Slug>Binding.php` → add to `BEHAVIOUR_BINDINGS` → delete provider blocks → harness diff (only that slug, only derived/surface_key) → add slug to RegistryCoverageTest retired list → suites → live refresh spot-check (at least every 2-3 platforms) → commit. Merge to development per batch. NOTE: if a slug has no compiled url detector, extend the `candidates()` relaxation (currently LinkOnlyBindings-only) to BEHAVIOUR_BINDINGS slugs.
+
+### P5 — bespoke controllers (after P4)
+fresha, square booking, opentable/resdiary/nowbookit, google-business, apple routes, shop family, instagram LAST (NEVER_UPGRADE decision). Includes the deferred `ProviderDetector` deletion (`GoogleBusinessAutoSync:374` booking special-cases). Run `PlatformEnumSyncTest` for enum slugs.
+
+### P6 — teardown
+Shrink `handWrittenFreeze()`; delete `upgrades()` if nothing left; provider reduced to singleton + derivation + bindings; sweep orphaned `feature_availability` rows and `config('partna.refresh.*')` keys per batch; doc sweep; final full-roster regression + final registry:dump archived.
+
+Harness baselines live in the session scratchpad; regenerate a fresh baseline with `php artisan registry:dump` BEFORE each phase — do not trust stale files across sessions.
