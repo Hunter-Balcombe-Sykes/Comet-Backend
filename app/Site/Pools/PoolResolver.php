@@ -202,6 +202,10 @@ class PoolResolver
         [$payloads, $stores] = $this->itemPayloads(
             $site,
             array_values(array_unique([...$plan['selectionIds'], ...$plan['libraryIds']])),
+            // #API-7: THIS is the dashboard entry point (PoolController::show,
+            // PoolItemCreateController::store), the only reader of
+            // duplicateCandidates. PoolWire's hydrateItems() seam opts out.
+            withDuplicateCandidates: true,
         );
 
         return $this->assemble($site, $pool, $plan, $payloads, $stores);
@@ -327,11 +331,20 @@ class PoolResolver
      * order-dependent (and unsafe under a reused instance).
      *
      * @param  list<string>  $ids
+     * @param  bool  $withDuplicateCandidates  #API-7 (= SCALE-9, remainder sweep): run the
+     *                                         content.identity_candidates read. Defaults OFF because
+     *                                         this seam's only production caller is PoolWire, whose
+     *                                         three consumers all strip the key
+     *                                         (DASHBOARD_ONLY_ITEM_KEYS) before anyone reads it.
+     *                                         Opt-in, not opt-out: a future caller that forgets the
+     *                                         flag loses a dashboard chip, which is visible;
+     *                                         forgetting to pass `false` would silently put a query
+     *                                         back on the hot path, which is not.
      * @return array{array<string, array<string, mixed>>, Collection<string, object>}
      */
-    public function hydrateItems(Site $site, array $ids): array
+    public function hydrateItems(Site $site, array $ids, bool $withDuplicateCandidates = false): array
     {
-        return $this->itemPayloads($site, $ids);
+        return $this->itemPayloads($site, $ids, $withDuplicateCandidates);
     }
 
     /**
@@ -561,9 +574,12 @@ class PoolResolver
      * the sibling collections map without re-querying.
      *
      * @param  list<string>  $ids
+     * @param  bool  $withDuplicateCandidates  see hydrateItems(). Deliberately has no
+     *                                         default: both call sites state which audience
+     *                                         they are building for.
      * @return array{array<string, array<string, mixed>>, Collection<string, object>}
      */
-    private function itemPayloads(Site $site, array $ids): array
+    private function itemPayloads(Site $site, array $ids, bool $withDuplicateCandidates): array
     {
         if ($ids === []) {
             return [[], collect()];
@@ -890,7 +906,16 @@ class PoolResolver
         // Open identity candidates involving these items (task #18): the
         // resolver's Evidential tier — "these might be the same thing" — for
         // the dashboard's Possible-duplicate chip + same/different verbs.
-        // Dashboard-only; stripped from the public wire.
+        //
+        // #API-7 (= SCALE-9 in the 2026-08-24 remainder sweep): "dashboard-only;
+        // stripped from the public wire" used to describe the OUTPUT only — the
+        // query ran for every audience and PoolWire then unset the key. It is
+        // now gated, so the public payload build, GET /site/actions and the
+        // scoring job each drop one round trip. Row volume was never the cost
+        // (idx_identity_candidates_open makes the empty case an index scan whose
+        // two content.items joins never execute); the round trip was, and that
+        // is what the 2026-08-24 batching work was denominated in.
+        //
         // #SEC-5: the OR below only requires ONE side to be in $ids, so a
         // same-tenant pairing convention isn't enough — a row that (by writer
         // bug or otherwise) pairs one of this user's items with another
@@ -899,21 +924,23 @@ class PoolResolver
         // not of whatever wrote the row. WHERE (not ON) is equivalent here:
         // these are INNER joins, so a WHERE predicate drops the same rows an
         // ON predicate would, and it matches this query's existing style.
-        $candidateRows = DB::connection('pgsql')->table('content.identity_candidates as ic')
-            ->join('content.items as li', 'li.id', '=', 'ic.left_item_id')
-            ->join('content.items as ri', 'ri.id', '=', 'ic.right_item_id')
-            ->where('ic.user_id', $site->user_id)
-            ->where('li.user_id', $site->user_id)
-            ->where('ri.user_id', $site->user_id)
-            ->whereNull('ic.dismissed_at')
-            ->whereNull('li.removed_at')->whereNull('ri.removed_at')
-            ->where(fn ($w) => $w->whereIn('ic.left_item_id', $ids)->orWhereIn('ic.right_item_id', $ids))
-            ->get(['ic.left_item_id', 'ic.right_item_id', 'ic.evidence', 'li.headline_cache as left_headline', 'ri.headline_cache as right_headline']);
         $candidatesByItem = [];
-        foreach ($candidateRows as $row) {
-            $evidence = is_string($row->evidence) ? (json_decode($row->evidence, true)['key'] ?? null) : null;
-            $candidatesByItem[(string) $row->left_item_id][] = ['itemId' => (string) $row->right_item_id, 'headline' => $row->right_headline, 'evidence' => $evidence];
-            $candidatesByItem[(string) $row->right_item_id][] = ['itemId' => (string) $row->left_item_id, 'headline' => $row->left_headline, 'evidence' => $evidence];
+        if ($withDuplicateCandidates) {
+            $candidateRows = DB::connection('pgsql')->table('content.identity_candidates as ic')
+                ->join('content.items as li', 'li.id', '=', 'ic.left_item_id')
+                ->join('content.items as ri', 'ri.id', '=', 'ic.right_item_id')
+                ->where('ic.user_id', $site->user_id)
+                ->where('li.user_id', $site->user_id)
+                ->where('ri.user_id', $site->user_id)
+                ->whereNull('ic.dismissed_at')
+                ->whereNull('li.removed_at')->whereNull('ri.removed_at')
+                ->where(fn ($w) => $w->whereIn('ic.left_item_id', $ids)->orWhereIn('ic.right_item_id', $ids))
+                ->get(['ic.left_item_id', 'ic.right_item_id', 'ic.evidence', 'li.headline_cache as left_headline', 'ri.headline_cache as right_headline']);
+            foreach ($candidateRows as $row) {
+                $evidence = is_string($row->evidence) ? (json_decode($row->evidence, true)['key'] ?? null) : null;
+                $candidatesByItem[(string) $row->left_item_id][] = ['itemId' => (string) $row->right_item_id, 'headline' => $row->right_headline, 'evidence' => $evidence];
+                $candidatesByItem[(string) $row->right_item_id][] = ['itemId' => (string) $row->left_item_id, 'headline' => $row->left_headline, 'evidence' => $evidence];
+            }
         }
 
         $manualLinks = DB::connection('pgsql')->table('content.item_links')

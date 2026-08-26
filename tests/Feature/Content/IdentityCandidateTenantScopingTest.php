@@ -18,6 +18,13 @@ use Illuminate\Support\Str;
  * Goes through PoolResolver::hydrateItems() — the public seam itemPayloads()
  * sits behind — rather than resolve(), which provisions a pool section as a
  * side effect (reference_poolresolver_resolve_provisions_a_section).
+ *
+ * #API-7 gated that read behind `withDuplicateCandidates`, defaulting OFF on
+ * this seam. Both cases below pass it explicitly: without the flag the query
+ * never runs, `duplicateCandidates` is [] for every input, and the first case
+ * would pass for the wrong reason — a vacuous guard over the leak it exists to
+ * pin. The flag is what keeps this test about TENANCY rather than about the
+ * gate. resolve() (the dashboard) passes true, so this matches production.
  */
 beforeEach(function () {
     setupUsersTable();
@@ -57,7 +64,7 @@ it('never surfaces a cross-tenant identity candidate, and never leaks the other 
     identityCandidateRow($proA->id, $itemA, $itemB);
 
     $siteA = Site::query()->findOrFail($siteAId);
-    [$payloads] = app(PoolResolver::class)->hydrateItems($siteA, [$itemA]);
+    [$payloads] = app(PoolResolver::class)->hydrateItems($siteA, [$itemA], withDuplicateCandidates: true);
 
     expect($payloads[$itemA]['duplicateCandidates'])->toBe([]);
 
@@ -76,7 +83,7 @@ it('still surfaces a legitimate same-tenant identity candidate', function () {
     identityCandidateRow($proA->id, $itemA1, $itemA2);
 
     $siteA = Site::query()->findOrFail($siteAId);
-    [$payloads] = app(PoolResolver::class)->hydrateItems($siteA, [$itemA1, $itemA2]);
+    [$payloads] = app(PoolResolver::class)->hydrateItems($siteA, [$itemA1, $itemA2], withDuplicateCandidates: true);
 
     expect($payloads[$itemA1]['duplicateCandidates'])->toBe([
         ['itemId' => $itemA2, 'headline' => 'Owner A Video Two', 'evidence' => 'title_similarity'],

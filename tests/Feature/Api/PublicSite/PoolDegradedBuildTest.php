@@ -116,7 +116,12 @@ function degradedPoolResolver(string $failingPool, array $answers): PoolResolver
             return ['pinned' => [], 'ruleIds' => [], 'autoSet' => [], 'selectionIds' => [], 'libraryIds' => []];
         }
 
-        public function hydrateItems(Site $site, array $ids): array
+        // #API-7: signature must track PoolResolver::hydrateItems()'s new
+        // trailing $withDuplicateCandidates param (LSP) — same reason as
+        // $withLibrary below. PHP fatals at CLASS-DECLARATION time when a
+        // child drops a parent's optional param, so getting this wrong shows
+        // up as pest exiting 2 with no output at all, not as a test failure.
+        public function hydrateItems(Site $site, array $ids, bool $withDuplicateCandidates = false): array
         {
             return [[], collect()];
         }
