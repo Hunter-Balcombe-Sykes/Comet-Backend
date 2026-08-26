@@ -794,7 +794,8 @@ class PoolResolver
                 // Stored attribution + item link first; host-derived store
                 // link only for legacy rows that predate the columns.
                 if (is_string($row->item_url) && trim($row->item_url) !== '') {
-                    $platform = self::wirePlatform((string) $row->offer_platform) ?? ItemLinkRules::platformForUrl(trim($row->item_url));
+                    $stored = is_string($row->offer_platform) && $row->offer_platform !== '' ? self::wirePlatform($row->offer_platform) : null;
+                    $platform = $stored ?? ItemLinkRules::platformForUrl(trim($row->item_url));
 
                     return $platform === null ? null : (object) ['item_id' => $row->item_id, 'url' => trim($row->item_url), 'source_kind' => (string) $row->source_kind, 'platform' => $platform];
                 }

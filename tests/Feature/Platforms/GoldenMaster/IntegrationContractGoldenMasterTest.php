@@ -558,7 +558,10 @@ it('covers every integration GET read-route in the golden master', function () {
     // 141 → 142 on 2026-08-20 (F7): gumroad.store joined the multi-account
     // store caps (10, lockstep with MAX_BRANDS), which grows its registry
     // routes by the /accounts read.
-    expect($readRoutes->count())->toBe(142);
+    // 142 → 143 on 2026-08-26: square.order became connectable (menu
+    // deep-links plan A1) — the upgraded square-ordering descriptor gains
+    // its /selection read.
+    expect($readRoutes->count())->toBe(143);
     expect($readRoutes->all())->toEqual([
         'api/platforms/acuity/selection',
         'api/platforms/apple/music/accounts',
@@ -662,6 +665,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/spotify/accounts',
         'api/platforms/spotify/connect/status',
         'api/platforms/spotify/selection',
+        'api/platforms/square-ordering/selection',
         'api/platforms/square/selection',
         'api/platforms/strava/selection',
         'api/platforms/substack/selection',

@@ -63,12 +63,17 @@ class DerivedDescriptorFactory
      */
     public static function classifierAliases(): array
     {
-        // Empty today: the two brands this existed for went with the
-        // pseudo-platform link lane (ea6450eda). Kept as the extension point
-        // its docblock describes — and as a METHOD rather than a const so the
-        // declared array<string, list<string>> survives, instead of PHPStan
-        // narrowing an empty const to array{} and calling every consumer dead.
-        return [];
+        return [
+            // square.site is deliberately claimed by BOOKING on host evidence
+            // (Square.php — ordering stores also serve at the bare root, so
+            // the URL alone cannot disambiguate). When the user has EXPLICITLY
+            // chosen the Square Online tile, their choice IS the
+            // disambiguation: a square.site URL classified 'square' must not
+            // 422 the square-ordering connect (menu deep-links plan A1,
+            // 2026-08-26). Custom domains never classify at all and ride the
+            // storefront-marker probe instead.
+            'square-ordering' => ['square'],
+        ];
     }
 
     /**
