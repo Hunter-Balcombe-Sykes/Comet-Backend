@@ -178,3 +178,31 @@ it('a latest-* boost migrates to the newer target and the old one decays, then d
     $r3 = app(ActionScorer::class)->computeForSite($site, [$rel2], [], ['item:rel2' => 1.125]);
     expect($r3['deletes'])->toContain('item:rel1');
 });
+
+it('recipe order asserts itself over stale pre-boost rank seeds in one run (live dev find)', function () {
+    $site = createTenant('sb-stale-seed')->site;
+    // The pre-boost world ranked contact above the reserve platform.
+    foreach ([['page:contact', 0.46, 1], ['platform:opentable', 0.15, 2]] as [$key, $score, $rank]) {
+        DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
+            'id' => (string) Str::uuid(), 'site_id' => $site->id, 'content_type' => 'action',
+            'content_key' => $key, 'score' => $score, 'rank' => $rank,
+            'computed_at' => now()->subDay()->toISOString(),
+        ]);
+    }
+
+    $result = app(ActionScorer::class)->computeForSite(
+        $site,
+        [boostCandidate('platform:opentable', 'platform'), boostCandidate('page:contact', 'page')],
+        [],
+        ['platform:opentable' => 2.0, 'page:contact' => 0.63], // recipe #1 vs #5
+    );
+    $ranks = [];
+    foreach ($result['rows'] as $row) {
+        $ranks[$row['content_key']] = (int) $row['rank'];
+    }
+
+    // No earned signal on either side: the recipe ladder decides, stale
+    // seed notwithstanding.
+    expect($ranks['platform:opentable'])->toBe(1)
+        ->and($ranks['page:contact'])->toBe(2);
+});

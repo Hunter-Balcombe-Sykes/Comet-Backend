@@ -304,10 +304,28 @@ class ActionScorer
                 $above = $keys[$i];
                 $below = $keys[$i + 1];
                 $bothBoosted = isset($boosts[$above], $boosts[$below]);
-                $scoreAbove = $bothBoosted ? ($signals[$above] ?? 0.0) : $blended[$above];
-                $scoreBelow = $bothBoosted ? ($signals[$below] ?? 0.0) : $blended[$below];
-                $clears = $scoreBelow > $scoreAbove * (1 + self::RANK_SWAP_THRESHOLD)
-                    && (! $bothBoosted || ($scoreBelow - $scoreAbove) > self::BOOSTED_SWAP_EPSILON);
+                if ($bothBoosted) {
+                    // Recipe entries rank by RECIPE ORDER first (the boost
+                    // ladder), earned signal second: a below-row with the
+                    // LARGER boost climbs unless the incumbent holds a real
+                    // earned advantage, and a below-row with the smaller
+                    // boost climbs only WITH one. Without the first arm, a
+                    // stale pre-boost rank seed pinned recipe #1 under
+                    // recipe #5 forever (live dev find, 2026-08-27:
+                    // opentable at blended 2.19 stuck at rank 8 under a
+                    // 0.63-boosted contact).
+                    $sigAbove = $signals[$above] ?? 0.0;
+                    $sigBelow = $signals[$below] ?? 0.0;
+                    $signalAdvantageBelow = $sigBelow > $sigAbove * (1 + self::RANK_SWAP_THRESHOLD)
+                        && ($sigBelow - $sigAbove) > self::BOOSTED_SWAP_EPSILON;
+                    $signalAdvantageAbove = $sigAbove > $sigBelow * (1 + self::RANK_SWAP_THRESHOLD)
+                        && ($sigAbove - $sigBelow) > self::BOOSTED_SWAP_EPSILON;
+                    $clears = $boosts[$below] > $boosts[$above]
+                        ? ! $signalAdvantageAbove
+                        : $signalAdvantageBelow;
+                } else {
+                    $clears = $blended[$below] > $blended[$above] * (1 + self::RANK_SWAP_THRESHOLD);
+                }
                 if ($clears) {
                     [$keys[$i], $keys[$i + 1]] = [$keys[$i + 1], $keys[$i]];
                     $swapped = true;
