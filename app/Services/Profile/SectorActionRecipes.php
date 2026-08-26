@@ -329,7 +329,7 @@ final class SectorActionRecipes
             'shop' => self::page($candidates, 'shop') ?? self::singlePlatformForPage($candidates, 'shop'),
             'listen' => self::rankedPlatform($candidates, 'listen', self::LISTEN_RANK),
             'latest-release' => self::latestItem($candidates, 'listen'),
-            'latest-event' => self::latestItem($candidates, 'events'),
+            'latest-event' => self::nextEvent($candidates),
             'top-product' => self::topItem($candidates, 'shop', $itemScores) ?? self::page($candidates, 'shop'),
             'top-social' => self::rankedPlatform($candidates, null, self::SOCIAL_RANK),
             'contact' => self::page($candidates, 'contact'),
@@ -436,6 +436,45 @@ final class SectorActionRecipes
         }
 
         return $best;
+    }
+
+    /**
+     * The event the calendar says matters: the SOONEST UPCOMING occurrence,
+     * else the most recent past one — the same peak-at-the-date shape
+     * EventTimeRelevance scores with. Resolves off meta.startsAt
+     * (ActionCandidates carries f_occurrence through), because real
+     * ingested events never have a publishedAt — dating them by
+     * publish metadata left this role permanently null on production data
+     * (critic find, 2026-08-27).
+     *
+     * @param  list<array<string, mixed>>  $candidates
+     */
+    private static function nextEvent(array $candidates): ?string
+    {
+        $now = now()->getTimestamp();
+        $bestUpcoming = null;
+        $bestUpcomingAt = PHP_INT_MAX;
+        $bestPast = null;
+        $bestPastAt = PHP_INT_MIN;
+        foreach ($candidates as $c) {
+            if ($c['kind'] !== 'item' || (($c['ref']['pool'] ?? null) !== 'events')) {
+                continue;
+            }
+            $raw = $c['meta']['startsAt'] ?? null;
+            $at = is_string($raw) && $raw !== '' ? strtotime($raw) : false;
+            if ($at === false) {
+                continue;
+            }
+            if ($at >= $now && $at < $bestUpcomingAt) {
+                $bestUpcomingAt = $at;
+                $bestUpcoming = $c['id'];
+            } elseif ($at < $now && $at > $bestPastAt) {
+                $bestPastAt = $at;
+                $bestPast = $c['id'];
+            }
+        }
+
+        return $bestUpcoming ?? $bestPast;
     }
 
     /**

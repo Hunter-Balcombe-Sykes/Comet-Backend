@@ -21,13 +21,18 @@ function sarPage(string $id): array
     ];
 }
 
-function sarItem(string $id, string $pool, ?string $at, bool $undated = false): array
+function sarItem(string $id, string $pool, ?string $at, bool $undated = false, ?string $startsAt = null): array
 {
+    $meta = ['pool' => $pool, 'undated' => $undated];
+    if ($startsAt !== null) {
+        $meta['startsAt'] = $startsAt;
+    }
+
     return [
         'id' => 'item:'.$id, 'kind' => 'item', 'label' => 'Item '.$id,
         'url' => '/'.$pool.'#'.$id, 'thumb' => null, 'connectedAt' => $at,
         'ref' => ['pool' => $pool, 'itemId' => $id],
-        'meta' => ['pool' => $pool, 'undated' => $undated],
+        'meta' => $meta,
     ];
 }
 
@@ -80,13 +85,17 @@ it('a restaurant leads reserve → order → menu, with reserve resolving to the
         ->toBe(['platform:resdiary', 'platform:uber-eats', 'page:menu']);
 });
 
-it('a musician leads listen (editorial pick) → latest event → latest release', function () {
+it('a musician leads listen (editorial pick) → next event → latest release', function () {
+    \Illuminate\Support\Carbon::setTestNow('2026-08-27T00:00:00+00:00');
     $candidates = [
         sarPlatform('soundcloud', 'listen'),
         sarPlatform('spotify', 'listen'),
         sarPlatform('instagram', null),
-        sarItem('ev1', 'events', '2026-09-01T00:00:00+00:00'),
-        sarItem('ev0', 'events', '2026-08-01T00:00:00+00:00'),
+        // Real-ingest shape: events carry f_occurrence (startsAt) and NEVER
+        // a publishedAt, so they arrive undated — the next-event role must
+        // resolve them anyway (critic find, 2026-08-27).
+        sarItem('ev1', 'events', '2026-09-01T00:00:00+00:00', undated: true, startsAt: '2026-09-01T00:00:00+00:00'),
+        sarItem('ev0', 'events', '2026-08-01T00:00:00+00:00', undated: true, startsAt: '2026-08-01T00:00:00+00:00'),
         sarItem('rel1', 'listen', '2026-08-15T00:00:00+00:00'),
         sarItem('relUndated', 'listen', '2026-08-20T00:00:00+00:00', undated: true),
     ];
@@ -95,6 +104,38 @@ it('a musician leads listen (editorial pick) → latest event → latest release
 
     expect(array_slice(array_keys($boosts), 0, 4))
         ->toBe(['platform:spotify', 'item:ev1', 'item:rel1', 'platform:instagram']);
+    \Illuminate\Support\Carbon::setTestNow();
+});
+
+it('next-event picks the soonest UPCOMING occurrence, not the furthest-future or newest-synced', function () {
+    \Illuminate\Support\Carbon::setTestNow('2026-08-27T00:00:00+00:00');
+    $candidates = [
+        sarPlatform('spotify', 'listen'),
+        sarItem('far', 'events', null, undated: true, startsAt: '2026-10-15T00:00:00+00:00'),
+        sarItem('soon', 'events', null, undated: true, startsAt: '2026-09-02T00:00:00+00:00'),
+        sarItem('gone', 'events', null, undated: true, startsAt: '2026-08-20T00:00:00+00:00'),
+    ];
+
+    $boosts = SectorActionRecipes::resolve('musician', $candidates);
+
+    expect(array_keys($boosts))->toContain('item:soon')
+        ->and(array_keys($boosts))->not->toContain('item:far');
+    \Illuminate\Support\Carbon::setTestNow();
+});
+
+it('next-event falls back to the most recent past occurrence when nothing is upcoming', function () {
+    \Illuminate\Support\Carbon::setTestNow('2026-08-27T00:00:00+00:00');
+    $candidates = [
+        sarPlatform('spotify', 'listen'),
+        sarItem('older', 'events', null, undated: true, startsAt: '2026-07-01T00:00:00+00:00'),
+        sarItem('recent', 'events', null, undated: true, startsAt: '2026-08-20T00:00:00+00:00'),
+    ];
+
+    $boosts = SectorActionRecipes::resolve('musician', $candidates);
+
+    expect(array_keys($boosts))->toContain('item:recent')
+        ->and(array_keys($boosts))->not->toContain('item:older');
+    \Illuminate\Support\Carbon::setTestNow();
 });
 
 it('top-product picks the highest-scored shop item, undated latest-* never wins', function () {
@@ -120,13 +161,15 @@ it('a role that resolves to an id already claimed is skipped, later entries move
     // ordering platform and no menu page, both 'menu'(→null) and 'order'
     // resolve against the same platform space — order takes the single
     // ordering platform; nothing double-claims.
+    \Illuminate\Support\Carbon::setTestNow('2026-08-27T00:00:00+00:00');
     $candidates = [
         sarPlatform('opentable', null),
         sarPlatform('doordash', 'menu'),
-        sarItem('gig', 'events', '2026-09-01T00:00:00+00:00'),
+        sarItem('gig', 'events', '2026-09-01T00:00:00+00:00', undated: true, startsAt: '2026-09-01T00:00:00+00:00'),
     ];
 
     $boosts = SectorActionRecipes::resolve('bar', $candidates);
+    \Illuminate\Support\Carbon::setTestNow();
 
     expect(array_keys($boosts))->toBe(['platform:opentable', 'item:gig', 'platform:doordash'])
         ->and($boosts['platform:doordash'])->toBe(round(2.0 * 0.75 ** 2, 10));

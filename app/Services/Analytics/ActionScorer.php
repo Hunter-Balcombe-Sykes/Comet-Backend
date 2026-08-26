@@ -68,12 +68,23 @@ class ActionScorer
     private const RANK_SWAP_THRESHOLD = 0.10;
 
     /**
-     * Absolute earned-signal delta a boosted pair must ALSO clear to swap
-     * (see rankWithHysteresis) — above the ~0.12 cold-start spread the
-     * smoothing priors alone can produce, below a real 2× tap-rate gap
-     * (~0.19 at moderate traffic).
+     * One recipe-ladder rung's worth of earned signal (see
+     * rankWithHysteresis): a boosted action's effective rank score is
+     * earnedSignal + LADDER_RUNG_STEP × (rungs below it), so overtaking
+     * ONE rung of recipe order costs 0.15 of real signal advantage —
+     * above the ~0.12 cold-start spread the smoothing priors alone can
+     * produce, below a real 2× tap-rate gap (~0.19 at moderate traffic) —
+     * and overtaking N rungs costs N× that.
      */
-    private const BOOSTED_SWAP_EPSILON = 0.15;
+    private const LADDER_RUNG_STEP = 0.15;
+
+    /**
+     * The margin band on that effective score (absolute, since the score
+     * is an absolute construction): an overtake must clear the incumbent
+     * by more than this so scores drifting a hair past each other do not
+     * flip ranks run-to-run.
+     */
+    private const BOOSTED_SWAP_HYSTERESIS = 0.02;
 
     /**
      * @param  list<array<string, mixed>>  $candidates  ActionCandidates::forSite output
@@ -266,18 +277,29 @@ class ActionScorer
      * Previous-rank seed (newcomers last, ties by score), then bubble: a row
      * overtakes the one above only when its score beats it by > 10%.
      *
-     * HYSTERESIS ON THE EARNED SIGNAL FOR BOOSTED PAIRS (smart-scoring plan,
-     * 2026-08-27): at boosted absolute scores (~3.0) a relative 10% margin is
-     * ~0.3 — flipping recipe #1↔#2 would need the boost gap (0.5) PLUS ~0.26
-     * of organic delta, silently turning "reorderable on strong signal" into
-     * "pinned". When BOTH rows carry a recipe boost, the bubble therefore
-     * compares their earned signal (this run's demand + reach — no freshness,
-     * no floor) under the same 10% margin PLUS an absolute epsilon: the
-     * cold-start signal is 0.45·smoothing-prior, whose spread across kinds
-     * reaches ~0.12, so prior arithmetic alone must never clear the bar —
-     * only real engagement (a 2× tap-rate advantage clears ~0.19). Mixed
-     * pairs keep comparing full blended scores, so the boost wall against
-     * organic candidates stands.
+     * BOOSTED PAIRS RANK ON ONE SCALAR (third design, 2026-08-27 — the
+     * critic's find): the previous form made each pairwise swap decision
+     * from the pair's own boosts and signals, which is antisymmetric per
+     * pair but NOT transitive across three or more boosted actions — a
+     * constructed triangle (verified with a standalone replica) converged
+     * to a stable order with recipe #1 ranked LAST when seeded from a
+     * stale pre-boost rank. Every boosted action therefore gets one
+     * effective score,
+     *
+     *   eff = earnedSignal + LADDER_RUNG_STEP × (ladder rungs below it)
+     *
+     * (earned signal = this run's demand + reach — no freshness, no floor;
+     * the rung term encodes recipe order), and the bubble compares THAT,
+     * with a small absolute band (BOOSTED_SWAP_HYSTERESIS) for run-to-run
+     * stability. A scalar is transitive by construction, so no seed can
+     * cycle or wedge; with comparable signals the ladder term dominates
+     * and recipe order asserts itself over any stale seed (the live dev
+     * find: opentable at blended 2.19 pinned at rank 8 under a
+     * 0.63-boosted contact); flipping one rung of recipe order costs 0.15
+     * of real signal advantage (> the ~0.12 cold-start prior spread,
+     * < a 2× tap-rate gap's ~0.19), and flipping N rungs costs N×.
+     * Mixed pairs keep comparing full blended scores, so the boost wall
+     * against organic candidates stands.
      *
      * @param  array<string, float>  $blended
      * @param  array<string, int>  $prevRank
@@ -287,6 +309,16 @@ class ActionScorer
      */
     private function rankWithHysteresis(array $blended, array $prevRank, array $boosts = [], array $signals = []): array
     {
+        // The ladder term: distinct boost values, ascending — an action's
+        // rung count is how many distinct rungs sit strictly below its own.
+        $rungValues = array_values(array_unique($boosts));
+        sort($rungValues);
+        $eff = [];
+        foreach ($boosts as $id => $boost) {
+            $rungsBelow = count(array_filter($rungValues, static fn (float $v): bool => $v < $boost));
+            $eff[$id] = ($signals[$id] ?? 0.0) + self::LADDER_RUNG_STEP * $rungsBelow;
+        }
+
         $keys = array_keys($blended);
         usort($keys, static function (string $a, string $b) use ($blended, $prevRank): int {
             $ra = $prevRank[$a] ?? PHP_INT_MAX;
@@ -303,26 +335,8 @@ class ActionScorer
             for ($i = 0; $i < $n - 1; $i++) {
                 $above = $keys[$i];
                 $below = $keys[$i + 1];
-                $bothBoosted = isset($boosts[$above], $boosts[$below]);
-                if ($bothBoosted) {
-                    // Recipe entries rank by RECIPE ORDER first (the boost
-                    // ladder), earned signal second: a below-row with the
-                    // LARGER boost climbs unless the incumbent holds a real
-                    // earned advantage, and a below-row with the smaller
-                    // boost climbs only WITH one. Without the first arm, a
-                    // stale pre-boost rank seed pinned recipe #1 under
-                    // recipe #5 forever (live dev find, 2026-08-27:
-                    // opentable at blended 2.19 stuck at rank 8 under a
-                    // 0.63-boosted contact).
-                    $sigAbove = $signals[$above] ?? 0.0;
-                    $sigBelow = $signals[$below] ?? 0.0;
-                    $signalAdvantageBelow = $sigBelow > $sigAbove * (1 + self::RANK_SWAP_THRESHOLD)
-                        && ($sigBelow - $sigAbove) > self::BOOSTED_SWAP_EPSILON;
-                    $signalAdvantageAbove = $sigAbove > $sigBelow * (1 + self::RANK_SWAP_THRESHOLD)
-                        && ($sigAbove - $sigBelow) > self::BOOSTED_SWAP_EPSILON;
-                    $clears = $boosts[$below] > $boosts[$above]
-                        ? ! $signalAdvantageAbove
-                        : $signalAdvantageBelow;
+                if (isset($eff[$above], $eff[$below])) {
+                    $clears = $eff[$below] > $eff[$above] + self::BOOSTED_SWAP_HYSTERESIS;
                 } else {
                     $clears = $blended[$below] > $blended[$above] * (1 + self::RANK_SWAP_THRESHOLD);
                 }

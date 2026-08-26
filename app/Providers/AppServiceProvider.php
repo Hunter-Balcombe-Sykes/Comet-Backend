@@ -594,31 +594,51 @@ class AppServiceProvider extends ServiceProvider
                 ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429));
         });
 
-        // Analytics endpoints (pageviews, clicks). CF-Connecting-IP preferred
-        // (SEC-2) — same rationale as public-site.
+        // Analytics endpoints (pageviews, clicks). Two limits since
+        // 2026-08-27 (plan-01 critic find): beacons arrive via the pages
+        // Worker's /t/* proxy, and the subrequest's own CF-Connecting-IP is
+        // often a shared Cloudflare colo IP (observed live) — keying only on
+        // it starved one bucket across many real visitors. The proxy now
+        // forwards the ORIGINAL request's connecting IP as x-visitor-ip
+        // (pass-through, never synthesized), which keys the fine-grained
+        // per-visitor limit; the true connecting IP keeps a higher-ceiling
+        // flood backstop, so a direct caller spoofing x-visitor-ip to
+        // rotate buckets still runs into the real-IP ceiling.
         RateLimiter::for('analytics', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
-                return Limit::none();
+                return [Limit::none()];
             }
 
-            $key = $request->header('CF-Connecting-IP') ?? $request->ip();
+            $trueIp = (string) ($request->header('CF-Connecting-IP') ?? $request->ip());
+            $visitorIp = (string) ($request->header('x-visitor-ip') ?? $trueIp);
 
-            return Limit::perMinute((int) config('partna.throttle.analytics_per_minute', 120))
-                ->by((string) $key);
+            return [
+                Limit::perMinute((int) config('partna.throttle.analytics_per_minute', 120))
+                    ->by('v:'.$visitorIp),
+                Limit::perMinute((int) config('partna.throttle.analytics_ip_backstop_per_minute', 3000))
+                    ->by('ip:'.$trueIp),
+            ];
         });
 
-        // Per-link click cap — secondary defense against sustained single-link spam.
-        // CF-Connecting-IP preferred (SCALE-1) — same rationale as analytics above.
+        // Per-link click cap — secondary defense against sustained single-link
+        // spam. Same visitor-ip/true-ip split as 'analytics' above: at 5/min
+        // keyed on a shared colo IP, TWO visitors clicking the same link
+        // through one colo would have starved each other.
         RateLimiter::for('analytics-click', function (Request $request) use ($throttleEnabled) {
             if (! $throttleEnabled) {
-                return Limit::none();
+                return [Limit::none()];
             }
 
             $blockId = $request->input('block_id', 'unknown');
-            $key = $request->header('CF-Connecting-IP') ?? $request->ip();
+            $trueIp = (string) ($request->header('CF-Connecting-IP') ?? $request->ip());
+            $visitorIp = (string) ($request->header('x-visitor-ip') ?? $trueIp);
 
-            return Limit::perMinute((int) config('partna.throttle.analytics_click_per_minute', 5))
-                ->by($key.':click:'.$blockId);
+            return [
+                Limit::perMinute((int) config('partna.throttle.analytics_click_per_minute', 5))
+                    ->by('v:'.$visitorIp.':click:'.$blockId),
+                Limit::perMinute((int) config('partna.throttle.analytics_click_ip_backstop_per_minute', 120))
+                    ->by('ip:'.$trueIp.':click:'.$blockId),
+            ];
         });
 
         // Customer lead submissions (form submissions). CF-Connecting-IP

@@ -206,3 +206,69 @@ it('recipe order asserts itself over stale pre-boost rank seeds in one run (live
     expect($ranks['platform:opentable'])->toBe(1)
         ->and($ranks['page:contact'])->toBe(2);
 });
+
+it('three boosted actions with similar signals converge to recipe order from a fully REVERSED stale seed (critic regression)', function () {
+    // The second comparator design decided each boosted-pair swap from the
+    // pair alone — antisymmetric per pair, NOT transitive across three.
+    // A reversed seed (every live site pre-deploy) converged to a stable
+    // order with recipe #1 ranked LAST. The scalar effective score
+    // (signal + 0.15/rung) cannot cycle: this pins the exact scenario.
+    $site = createTenant('sb-triangle')->site;
+    $candidates = [
+        boostCandidate('platform:a', 'platform'),
+        boostCandidate('platform:b', 'platform'),
+        boostCandidate('platform:c', 'platform'),
+    ];
+    $boosts = ['platform:a' => 2.0, 'platform:b' => 1.5, 'platform:c' => 1.125];
+
+    // Signals slightly INCREASING down the ladder — each pairwise gap under
+    // one rung's worth, exactly the shape that wedged the old comparator.
+    boostTapBurst($site, 'platform:a', taps: 10, exposures: 100);
+    boostTapBurst($site, 'platform:b', taps: 11, exposures: 100);
+    boostTapBurst($site, 'platform:c', taps: 12, exposures: 100);
+
+    // The pre-boost world ranked them exactly backwards.
+    foreach ([['platform:c', 0.9, 1], ['platform:b', 0.6, 2], ['platform:a', 0.3, 3]] as [$key, $score, $rank]) {
+        DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
+            'id' => (string) Str::uuid(), 'site_id' => $site->id, 'content_type' => 'action',
+            'content_key' => $key, 'score' => $score, 'rank' => $rank,
+            'computed_at' => now()->subDay()->toISOString(),
+        ]);
+    }
+
+    $result = app(ActionScorer::class)->computeForSite($site, $candidates, [], $boosts);
+    $ranks = [];
+    foreach ($result['rows'] as $row) {
+        $ranks[$row['content_key']] = (int) $row['rank'];
+    }
+
+    expect($ranks['platform:a'])->toBe(1)
+        ->and($ranks['platform:b'])->toBe(2)
+        ->and($ranks['platform:c'])->toBe(3);
+});
+
+it('a signal advantage worth more than the rung gap lifts recipe #3 over both rungs above it', function () {
+    $site = createTenant('sb-two-rungs')->site;
+    $candidates = [
+        boostCandidate('platform:a', 'platform'),
+        boostCandidate('platform:b', 'platform'),
+        boostCandidate('platform:c', 'platform'),
+    ];
+    $boosts = ['platform:a' => 2.0, 'platform:b' => 1.5, 'platform:c' => 1.125];
+
+    // c: dominant real engagement; a/b: near-none. c's earned signal
+    // (~0.75 at site max) clears two rungs (0.30) plus the band.
+    boostTapBurst($site, 'platform:a', taps: 2, exposures: 100);
+    boostTapBurst($site, 'platform:b', taps: 2, exposures: 100);
+    boostTapBurst($site, 'platform:c', taps: 60, exposures: 100);
+
+    $result = app(ActionScorer::class)->computeForSite($site, $candidates, [], $boosts);
+    $ranks = [];
+    foreach ($result['rows'] as $row) {
+        $ranks[$row['content_key']] = (int) $row['rank'];
+    }
+
+    expect($ranks['platform:c'])->toBe(1)
+        ->and($ranks['platform:a'])->toBe(2)
+        ->and($ranks['platform:b'])->toBe(3);
+});

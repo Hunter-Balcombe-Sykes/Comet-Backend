@@ -502,7 +502,20 @@ class AnalyticsController extends ApiController
      */
     private function dedupIdentifier(array $data, Request $request): string
     {
-        return $data['visitor_id'] ?? $data['session_id'] ?? 'ip:'.$this->hashIp($request->ip());
+        return $data['visitor_id'] ?? $data['session_id'] ?? 'ip:'.$this->hashIp($this->visitorIp($request));
+    }
+
+    /**
+     * The visitor's real IP: the /t/* proxy forwards the original request's
+     * connecting IP as x-visitor-ip (the subrequest's own is often a shared
+     * Cloudflare colo IP — 2026-08-27); direct hits fall through to the
+     * request IP.
+     */
+    private function visitorIp(Request $request): ?string
+    {
+        $forwarded = $request->header('x-visitor-ip');
+
+        return is_string($forwarded) && $forwarded !== '' ? $forwarded : $request->ip();
     }
 
     // Front-loads every request-derived field into the DTO (occurred_at, geo, device,
@@ -532,7 +545,7 @@ class AnalyticsController extends ApiController
             siteId: $site->id,
             sessionId: $data['session_id'] ?? null,
             visitorId: $data['visitor_id'] ?? null,
-            ipHash: $this->hashIp($request->ip()),
+            ipHash: $this->hashIp($this->visitorIp($request)),
             // PGR-20: same JOB-1 choke-point rationale as referrer below — sanitise
             // here so a raw UA never reaches the Redis queue payload, not just the
             // Postgres row. Idempotent with PostgresEventWriter's own call.

@@ -273,6 +273,14 @@ class ActionCandidates
         }
         $label = trim((string) ($item['headline'] ?? ''));
 
+        $meta = ['pool' => $pool, 'undated' => ! self::isDated($item)];
+        if (is_string($item['startsAt'] ?? null) && $item['startsAt'] !== '') {
+            // The occurrence date rides along so SectorActionRecipes can
+            // resolve the next-event role against the calendar, not the
+            // sync order.
+            $meta['startsAt'] = $item['startsAt'];
+        }
+
         return [
             'id' => 'item:'.$id,
             'kind' => 'item',
@@ -283,28 +291,35 @@ class ActionCandidates
             'ref' => ['pool' => $pool, 'itemId' => $id],
             // undated: the timestamp is when WE first saw it, not a release
             // date (X5) — newest order puts every dated candidate first.
-            'meta' => ['pool' => $pool, 'undated' => ! self::isDated($item)],
+            'meta' => $meta,
         ];
     }
 
     /**
-     * Dated = carries a real publishedAt, OR is a link-pool item — those are
-     * hand-added by definition, so "first seen" IS the add date. Every other
-     * item without a publishedAt is undated (X5: synced-but-undated content
-     * never outranks dated content on the strength of when we saw it).
+     * Dated = carries a real publishedAt, OR an occurrence date (an event's
+     * own start date IS its date — real ingested events carry f_occurrence
+     * and never f_published, so publishedAt-only dating left every real
+     * event undated and the latest-event recipe role dead; critic find,
+     * 2026-08-27), OR is a link-pool item — those are hand-added by
+     * definition, so "first seen" IS the add date. Every other item without
+     * one of those is undated (X5: synced-but-undated content never
+     * outranks dated content on the strength of when we saw it).
      *
      * @param  array<string, mixed>  $item
      */
     private static function isDated(array $item): bool
     {
         return (is_string($item['publishedAt'] ?? null) && $item['publishedAt'] !== '')
+            || (is_string($item['startsAt'] ?? null) && $item['startsAt'] !== '')
             || ($item['kind'] ?? null) === 'link';
     }
 
     /** @param  array<string, mixed>  $item */
     private static function connectedAt(array $item): ?string
     {
-        $at = $item['publishedAt'] ?? $item['firstSeenAt'] ?? null;
+        // An event's date is its occurrence, then the generic publish/seen
+        // ladder — same precedence isDated() implies.
+        $at = $item['publishedAt'] ?? $item['startsAt'] ?? $item['firstSeenAt'] ?? null;
 
         return is_string($at) && $at !== '' ? $at : null;
     }

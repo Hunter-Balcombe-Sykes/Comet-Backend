@@ -130,3 +130,19 @@ it('flags synced items without a publishedAt as undated, but never a hand-added 
     $out = collect(ActionCandidates::fromPools($pools))->keyBy('id');
     expect($out['item:v']['meta']['undated'])->toBeTrue()->and($out['item:l']['meta']['undated'])->toBeFalse();
 });
+
+it('an event is dated by its occurrence: startsAt rides meta and stands in for the missing publishedAt', function () {
+    // Real ingested events carry f_occurrence and never f_published (the
+    // projector writes no publish row), so publishedAt-only dating left
+    // every real event undated and the next-event recipe role dead
+    // (critic find, 2026-08-27).
+    $pools = ['events' => ['items' => [[
+        'id' => 'ev', 'kind' => 'event', 'headline' => 'Gig', 'url' => 'https://tix/ev',
+        'thumbnail' => null, 'publishedAt' => null, 'firstSeenAt' => '2026-08-20T00:00:00+00:00',
+        'startsAt' => '2026-09-05T19:00:00+00:00', 'collectionIds' => [],
+    ]]]];
+    $out = collect(ActionCandidates::fromPools($pools))->keyBy('id');
+    expect($out['item:ev']['meta']['undated'])->toBeFalse()
+        ->and($out['item:ev']['meta']['startsAt'])->toBe('2026-09-05T19:00:00+00:00')
+        ->and($out['item:ev']['connectedAt'])->toBe('2026-09-05T19:00:00+00:00');
+});
