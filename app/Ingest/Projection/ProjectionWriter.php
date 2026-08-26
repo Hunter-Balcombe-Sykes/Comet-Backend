@@ -1508,7 +1508,7 @@ class ProjectionWriter
             // DELETE CASCADE, so afterwards there is nothing left to carry.
             // Inside this branch ONLY — a curated loser survives and keeps its
             // own facets (spec §5.2).
-            $this->foldCollections($keptItemId, $discardedItemId);
+            $this->foldCollections($userId, $keptItemId, $discardedItemId);
 
             DB::table('content.items')->where('id', $discardedItemId)->delete();
         }
@@ -1597,8 +1597,15 @@ class ProjectionWriter
      * transaction, and no try/catch that RECOVERS — this repo has shipped
      * 25P02 that way three times.
      */
-    private function foldCollections(string $keptItemId, string $discardedItemId): void
+    private function foldCollections(string $userId, string $keptItemId, string $discardedItemId): void
     {
+        // The cap bounds what ONE fold may ADD, and applies to media only:
+        // normal projection is untouched, because a connector legitimately
+        // returning 50 images must not be truncated.
+        $cap = max(1, (int) config('partna.content.merge_media_cap', 8));
+        $mediaHeld = DB::table('content.item_media')->where('item_id', $keptItemId)->count();
+        $mediaDropped = 0;
+
         // table => the value tuple that decides whether the survivor already
         // carries this contribution. Single-value facets (f_text, f_link, …)
         // are absent deliberately: their PK is (item_id, source_id), so only
@@ -1632,6 +1639,21 @@ class ProjectionWriter
                     // reference to one asset and would render twice.
                     continue;
                 }
+
+                if ($table === 'item_media') {
+                    if ($mediaHeld >= $cap) {
+                        // Only ever drops INCOMING rows. The survivor's own are
+                        // never removed: a connector item legitimately carrying
+                        // 20 images must not be truncated the moment anything
+                        // merges into it. Not marked $seen — it was not moved,
+                        // so it must not mask a later identical row.
+                        $mediaDropped++;
+
+                        continue;
+                    }
+                    $mediaHeld++;
+                }
+
                 $seen[$key] = true;
 
                 DB::table("content.{$table}")->where('id', $row->id)->update([
@@ -1642,6 +1664,17 @@ class ProjectionWriter
                     'source_item_id' => $row->source_item_id ?? $keptOrigin,
                 ]);
             }
+        }
+
+        if ($mediaDropped > 0) {
+            // A silent cap is a defect in this codebase. user + item so it is
+            // attributable.
+            Log::warning('content.merge_fold.media_capped', [
+                'user_id' => $userId,
+                'item_id' => $keptItemId,
+                'kept' => $mediaHeld,
+                'dropped' => $mediaDropped,
+            ]);
         }
     }
 

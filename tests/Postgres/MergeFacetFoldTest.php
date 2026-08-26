@@ -23,6 +23,7 @@
 
 use App\Ingest\Projection\ProjectionWriter;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Tests\PostgresTestCase;
 
@@ -485,4 +486,41 @@ it('leaves a curated loser its own media, because it is not deleted', function (
     expect(DB::table('content.items')->where('id', $itemB)->exists())->toBeTrue()
         ->and(DB::table('content.item_media')->where('item_id', $itemB)->count())->toBe(1)
         ->and(DB::table('content.item_media')->where('item_id', $itemA)->count())->toBe(1);
+});
+
+it('caps what a fold adds without ever removing what the survivor already had', function () {
+    config(['partna.content.merge_media_cap' => 2]);
+    Log::spy();
+
+    [$userId, $coordA, , $itemA] = mffRuledPair(
+        [
+            mffPhoto('https://cdn.test/a1.jpg', 'gallery'),
+            mffPhoto('https://cdn.test/a2.jpg', 'gallery'),
+            mffPhoto('https://cdn.test/a3.jpg', 'gallery'),
+        ],
+        [
+            mffPhoto('https://cdn.test/b1.jpg', 'gallery'),
+            mffPhoto('https://cdn.test/b2.jpg', 'gallery'),
+        ],
+    );
+
+    $kept = app(ProjectionWriter::class)->resolveIdentityFor($userId, 'release', [$coordA])[$coordA];
+
+    // The survivor was ALREADY over the cap with 3. The cap must drop only
+    // INCOMING rows — trimming the combined set to 2 would destroy live data to
+    // enforce a guard that exists to prevent growth.
+    $urls = DB::table('content.item_media as im')
+        ->join('content.media_assets as ma', 'ma.id', '=', 'im.asset_id')
+        ->where('im.item_id', $kept)->pluck('ma.source_url');
+
+    expect($kept)->toBe($itemA)
+        ->and($urls)->toHaveCount(3)
+        ->and($urls->filter(fn ($u) => str_contains((string) $u, '/b'))->all())->toBe([]);
+
+    // A silent cap is a defect in this codebase.
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message, array $context = []) => $message === 'content.merge_fold.media_capped'
+            && $context['item_id'] === $kept
+            && $context['dropped'] === 2)
+        ->once();
 });
