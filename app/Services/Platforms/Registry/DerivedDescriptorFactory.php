@@ -363,6 +363,7 @@ class DerivedDescriptorFactory
         'apple-podcast' => Bindings\ApplePodcastBinding::class,
         'bandcamp' => Bindings\BandcampBinding::class,
         'eventbrite' => Bindings\EventbriteBinding::class,
+        'humanitix' => Bindings\HumanitixBinding::class,
         'soundcloud' => Bindings\SoundcloudBinding::class,
         'spotify' => Bindings\SpotifyBinding::class,
         'vimeo' => Bindings\VimeoBinding::class,

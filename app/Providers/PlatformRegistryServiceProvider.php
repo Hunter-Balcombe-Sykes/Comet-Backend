@@ -23,12 +23,10 @@ use App\Services\Platforms\FreshaAutoSelector;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\GoogleBusinessService;
-use App\Services\Platforms\HumanitixScraper;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\NowBookitService;
 use App\Services\Platforms\OpenTableService;
 use App\Services\Platforms\Payloads\CardPayload;
-use App\Services\Platforms\Payloads\EventsAccountPayload;
 use App\Services\Platforms\Payloads\FeedPayload;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
@@ -51,7 +49,6 @@ use App\Services\Platforms\Strategies\Detect\ServiceMatch;
 use App\Services\Platforms\Strategies\Fetch\FreshaConnectFetch;
 use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
-use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
 use App\Services\Shop\ShopConnections;
 use App\Site\Pools\PoolResolver;
@@ -125,16 +122,8 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // 2026-08-27) — its full behavioural contract (including the
             // CA-W5 no-deferredConnect ruling and its smart-detect matcher)
             // attaches from Registry\Bindings\EventbriteBinding.
-            $r->register(PD::make('humanitix')->label('Humanitix')->category(Cat::Events)->refreshable()->payload(EventsAccountPayload::class));
-            // Attach the live event fetch strategy (Plan 6). Consumed by the registry-driven refresher.
-            $r->get('humanitix')->fetch(fn () => new HumanitixFetch(app(HumanitixScraper::class)));
-            // CA-W5 — see the binding notes: the message ConnectFetchJob
-            // stores when the deferred scrape fails, verbatim from
-            // addAccount()'s own synchronous 422. Deliberately NOT
-            // ->deferredConnect() — no ConnectStrategy exists (connect is
-            // bespoke, via DefersBespokeConnect), so that flag would falsely
-            // claim one (RegistryConnectCoverageTest pins flag<=>instanceof).
-            $r->get('humanitix')->connectFetchError('Could not load that Humanitix page.');
+            // humanitix: retired to a catalog-derived descriptor (P4,
+            // 2026-08-27) — same shape, via Registry\Bindings\HumanitixBinding.
             // 'events-custom' left the registry 2026-08-19 with the
             // pseudo-platform retirement: a standalone event is an events-pool
             // item (ManualEventWriter), never a connection row.
@@ -208,9 +197,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('opentable')->detect(new ServiceMatch(fn (string $u) => $openTable->isOpenTableUrl($u)));
             $r->get('resdiary')->detect(new ServiceMatch(fn (string $u) => $resDiary->isResDiaryUrl($u)));
             $r->get('nowbookit')->detect(new ServiceMatch(fn (string $u) => $nowBookit->isNowBookitUrl($u)));
-            // Events: Humanitix is single-domain (Eventbrite's regional-TLD
-            // matcher rides its binding).
-            $r->get('humanitix')->detect(new HostMatch('~(^|\.)humanitix\.com$~'));
+            // Events: both event platforms' matchers ride their bindings now.
 
             // ── 2026-07-26 Platform expansion: Booking detect-only ──
             // ── PD-retirement P1 (2026-08-27): the 23 detect-only card
@@ -284,7 +271,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
 
             // url-shaped (17). The max differs per platform — these are NOT uniform.
             $r->get('fresha')->connectInput('url', ['required', 'string', 'max:500', 'regex:#^https?://(www\.)?fresha\.com/(?:[a-z]{2,3}(-[a-z]{2})?/)?a/[a-z0-9-]+/?$#i'], [], true);
-            $r->get('humanitix')->connectInput('url', ['required', 'string', 'max:500']);
             $r->get('nowbookit')->connectInput('url', ['required', 'string', 'max:2048']);
             $r->get('opentable')->connectInput('url', ['required', 'string', 'max:2048']);
             $r->get('resdiary')->connectInput('url', ['required', 'string', 'max:2048']);
@@ -328,17 +314,8 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('shop')->displayToggles([
                 ['key' => 'auto_sync_latest', 'label' => 'Latest products', 'description' => 'Each store keeps showing its newest products automatically.'],
             ]);
-            // Tickets & Events: per-user "auto sync latest from each organiser"
-            // switch. Not a payload-suppression toggle (no DisplaySettingsFilter
-            // entry) — the events FETCH strategies read it and 304 an account row
-            // when it's off, freezing the stored upcoming list while standalone
-            // event rows keep refreshing (sold-out/price freshness is separate).
-            // Declared per platform; the dashboard's single Tickets card PATCHes
-            // both eventbrite and humanitix together (eventbrite's toggle
-            // rides its binding).
-            $r->get('humanitix')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Auto sync latest from each organiser', 'description' => 'Automatically refresh each connected organiser\'s upcoming events.'],
-            ]);
+            // Tickets & Events: the per-user "auto sync latest from each
+            // organiser" switches ride the eventbrite/humanitix bindings.
 
             // ── Refresh cadences ─────────────────────────────────────────────────
             // Per-platform re-fetch intervals for the hourly dispatcher; anything
@@ -348,7 +325,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // its fetch keeps a 40h internal freshness gate so ratings stay
             // ≤2 days stale instead of the old 6-day drift, while still
             // respecting Google's caching guidance.
-            $r->get('humanitix')->refreshEvery((int) config('partna.refresh.intervals.humanitix', 6 * 3600));
             $r->get('google-business')->refreshEvery((int) config('partna.refresh.intervals.google-business', 2 * 86400));
 
             // ── Route archetypes (FOUND-21) ─────────────────────────────────────
