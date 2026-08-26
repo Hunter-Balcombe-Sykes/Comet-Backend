@@ -5,7 +5,6 @@ namespace App\Providers;
 use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
 use App\Http\Resources\Platforms\AppleMusicConnectionResource;
 use App\Http\Resources\Platforms\ApplePodcastConnectionResource;
-use App\Http\Resources\Platforms\BandcampConnectionResource;
 use App\Http\Resources\Platforms\FreshaSelectionResource;
 use App\Http\Resources\Platforms\GoogleBusinessConnectionResource;
 use App\Http\Resources\Platforms\InstagramConnectionResource;
@@ -25,7 +24,6 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\AppleSearch;
-use App\Services\Platforms\BandcampScraper;
 use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\FreshaAutoSelector;
 use App\Services\Platforms\FreshaScraper;
@@ -50,7 +48,6 @@ use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Registry\PlatformRouteShape;
 use App\Services\Platforms\ResDiaryService;
 use App\Services\Platforms\ShopCatalog;
-use App\Services\Platforms\Strategies\Connect\BandcampConnect;
 use App\Services\Platforms\Strategies\Connect\BrandLinkConnect;
 use App\Services\Platforms\Strategies\Connect\NowBookitConnect;
 use App\Services\Platforms\Strategies\Connect\OpenTableConnect;
@@ -64,7 +61,6 @@ use App\Services\Platforms\Strategies\Detect\HostMatch;
 use App\Services\Platforms\Strategies\Detect\ServiceMatch;
 use App\Services\Platforms\Strategies\Fetch\AppleMusicFetch;
 use App\Services\Platforms\Strategies\Fetch\ApplePodcastFetch;
-use App\Services\Platforms\Strategies\Fetch\BandcampFetch;
 use App\Services\Platforms\Strategies\Fetch\EventbriteFetch;
 use App\Services\Platforms\Strategies\Fetch\FreshaConnectFetch;
 use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
@@ -162,19 +158,9 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // vimeo: retired to a catalog-derived descriptor (P4 canary,
             // 2026-08-27) — its full behavioural contract attaches from
             // Registry\Bindings\VimeoBinding.
-            $r->register(PD::make('bandcamp')->label('Bandcamp')->category(Cat::Music)->resource(BandcampConnectionResource::class)->refreshable()
-                ->payload(FeedPayload::class));
-            // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
-            $r->get('bandcamp')->fetch(fn () => new BandcampFetch(
-                app(BandcampScraper::class),
-            ));
-            // Connect strategy (FOUND-24, Task 9) — moved verbatim from the
-            // deleted BandcampController.
-            $r->get('bandcamp')->connect(fn () => new BandcampConnect(app(BandcampScraper::class)), 'Enter your Bandcamp page URL (yourname.bandcamp.com).');
-            // Deferred-connect seam (Phase 2, W4) — BandcampConnect implements
-            // DeferredConnect. Message copied verbatim from resolve()'s
-            // fetch-stage failure.
-            $r->get('bandcamp')->deferredConnect()->connectFetchError('Could not find releases on that Bandcamp page.');
+            // bandcamp: retired to a catalog-derived descriptor (P4,
+            // 2026-08-27) — its full behavioural contract attaches from
+            // Registry\Bindings\BandcampBinding.
             $r->register(PD::make('apple-music')->label('Apple Music')->category(Cat::Music)->resource(AppleMusicConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b / Task 8). Consumed by Plan 6's registry-driven refresher.
@@ -373,7 +359,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // (multi-field) and keeps ConnectGoogleBusinessRequest.
 
             // url-shaped (17). The max differs per platform — these are NOT uniform.
-            $r->get('bandcamp')->connectInput('url', ['required', 'string', 'max:500']);
             $r->get('eventbrite')->connectInput('url', ['required', 'string', 'max:500']);
             $r->get('fresha')->connectInput('url', ['required', 'string', 'max:500', 'regex:#^https?://(www\.)?fresha\.com/(?:[a-z]{2,3}(-[a-z]{2})?/)?a/[a-z0-9-]+/?$#i'], [], true);
             $r->get('humanitix')->connectInput('url', ['required', 'string', 'max:500']);
@@ -454,14 +439,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                     ['key' => 'auto_sync_latest', 'label' => 'Auto sync latest from each organiser', 'description' => 'Automatically refresh each connected organiser\'s upcoming events.'],
                 ]);
             }
-            // Bandcamp (Listen section): latest-tile sync. show_all_releases
-            // left with Featured (2026-08-06) — which releases appear is the
-            // Listen pool's selection now, not a wire-visibility switch.
-            // auto_sync_latest defaults ON and gates BandcampFetch's scheduled
-            // re-pull, mirroring the events toggle semantics.
-            $r->get('bandcamp')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Newest release', 'description' => 'Your newest album or single joins your site automatically.'],
-            ]);
             // Spotify + SoundCloud source `track` items into the listen pool
             // since convergence Phase 4, so their connections take the same
             // sparse auto_sync_latest toggle every other sourcing platform
@@ -495,7 +472,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('youtube-music')->refreshEvery((int) config('partna.refresh.intervals.youtube-music', 12 * 3600));
             $r->get('spotify')->refreshEvery((int) config('partna.refresh.intervals.spotify', 12 * 3600));
             $r->get('soundcloud')->refreshEvery((int) config('partna.refresh.intervals.soundcloud', 12 * 3600));
-            $r->get('bandcamp')->refreshEvery((int) config('partna.refresh.intervals.bandcamp', 12 * 3600));
             $r->get('apple-music')->refreshEvery((int) config('partna.refresh.intervals.apple-music', 12 * 3600));
             $r->get('apple-podcast')->refreshEvery((int) config('partna.refresh.intervals.apple-podcast', 12 * 3600));
             $r->get('google-business')->refreshEvery((int) config('partna.refresh.intervals.google-business', 2 * 86400));
@@ -523,7 +499,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('soundcloud')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('youtube')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('youtube-music')->routes(PlatformRouteShape::MultiAccount, null, true);
-            $r->get('bandcamp')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('resdiary')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('opentable')->routes(PlatformRouteShape::MultiAccount, null, false);
