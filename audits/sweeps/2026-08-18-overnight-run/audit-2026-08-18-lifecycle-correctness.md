@@ -22,7 +22,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 6 complete
-- P2 Medium: 0 of 11 complete
+- P2 Medium: 2 of 11 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -270,7 +270,7 @@
         }
         ```
 
-- [ ] **#LIFE-13** · P2 — Generic `QueryException` catch in `IntegrationConnectionObserver::syncIngestSource()` hides real database failures at debug level
+- [x] **#LIFE-13** · P2 — Generic `QueryException` catch in `IntegrationConnectionObserver::syncIngestSource()` hides real database failures at debug level
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:234-252
     - **Affects:** Ingest-source provisioning for every platform connection save. A real DB failure (transaction abort, unique-constraint race from concurrent saves) is swallowed at debug level, invisible to Nightwatch.
     - **Effort:** S (~0.5–1h)
@@ -289,7 +289,7 @@
         }
         ```
 
-- [ ] **#LIFE-14** · P2 — `SourceProvisioner::sync()`'s find-then-insert has no guard against its own unique constraint, so a concurrent connection save throws uncaught inside an observer
+- [x] **#LIFE-14** · P2 — `SourceProvisioner::sync()`'s find-then-insert has no guard against its own unique constraint, so a concurrent connection save throws uncaught inside an observer
     - **Where:** app/Ingest/SourceProvisioner.php:76-99
     - **Affects:** Any user whose platform connection is saved twice in close succession (dashboard save racing a scheduled refresh, or the deferred-connect payload-fill write racing the initial insert).
     - **Effort:** S (~0.5–1h)

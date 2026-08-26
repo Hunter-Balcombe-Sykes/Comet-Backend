@@ -83,7 +83,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 1 of 5 complete
+- P2 Medium: 3 of 5 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -151,7 +151,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#SEC-3** · P2 — Square's `host_pattern` matches any `order.*` host, not just the five explicitly excluded brand hosts
+- [x] **#SEC-3** · P2 — Square's `host_pattern` matches any `order.*` host, not just the five explicitly excluded brand hosts
     - **Where:** config/partna.php:931
     - **Affects:** Platform classification for menu/link detection (`WebsiteLinkHarvester` / catalog host-pattern matching) — a submitted URL whose host merely starts with `order.` (e.g. `order.attacker-controlled.example`) is classified as Square.
     - **Effort:** S (~0.5–1h)
@@ -240,7 +240,7 @@
         $this->assertWithinByteCap($response);
         ```
 
-- [ ] **#SEC-7** · P2 — Link-in-bio custom-link write stores the raw pasted URL, bypassing the secret-param redaction the sibling "note" branch applies
+- [x] **#SEC-7** · P2 — Link-in-bio custom-link write stores the raw pasted URL, bypassing the secret-param redaction the sibling "note" branch applies
     - **Where:** app/Http/Controllers/Api/Routing/RoutingController.php:67, :79 (link-in-bio branch); compare :118 (note branch)
     - **Affects:** Any user pasting a link-in-bio page URL (linktr.ee, beacons.ai, msha.ke, stan.store) that carries a query-string token — the raw URL is persisted as a public custom-link card and dispatched to a scan job verbatim.
     - **Effort:** S (~0.5–1h)
@@ -327,7 +327,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
-- P2 Medium: 2 of 11 complete
+- P2 Medium: 5 of 11 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -531,7 +531,7 @@
         }
         ```
 
-- [ ] **#LIFE-11** · P2 — `GoogleBusinessAutoSync::seedWorkplace()` is a check-then-write with no lock, unlike every sibling seed method in the same class
+- [x] **#LIFE-11** · P2 — `GoogleBusinessAutoSync::seedWorkplace()` is a check-then-write with no lock, unlike every sibling seed method in the same class
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:414-460
     - **Affects:** A site whose owner edits their workplace description/category/website at the same moment a Google Business enrich job runs and tries to seed the same fields.
     - **Effort:** S (~0.5–1h)
@@ -575,7 +575,7 @@
         }
         ```
 
-- [ ] **#LIFE-13** · P2 — Generic `QueryException` catch in `IntegrationConnectionObserver::syncIngestSource()` hides real database failures at debug level
+- [x] **#LIFE-13** · P2 — Generic `QueryException` catch in `IntegrationConnectionObserver::syncIngestSource()` hides real database failures at debug level
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:234-252
     - **Affects:** Ingest-source provisioning for every platform connection save. A real DB failure (transaction abort, unique-constraint race from concurrent saves) is swallowed at debug level, invisible to Nightwatch.
     - **Effort:** S (~0.5–1h)
@@ -594,7 +594,7 @@
         }
         ```
 
-- [ ] **#LIFE-14** · P2 — `SourceProvisioner::sync()`'s find-then-insert has no guard against its own unique constraint, so a concurrent connection save throws uncaught inside an observer
+- [x] **#LIFE-14** · P2 — `SourceProvisioner::sync()`'s find-then-insert has no guard against its own unique constraint, so a concurrent connection save throws uncaught inside an observer
     - **Where:** app/Ingest/SourceProvisioner.php:76-99
     - **Affects:** Any user whose platform connection is saved twice in close succession (dashboard save racing a scheduled refresh, or the deferred-connect payload-fill write racing the initial insert).
     - **Effort:** S (~0.5–1h)
@@ -771,7 +771,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 4 complete
+- P2 Medium: 3 of 4 complete
 - P3 Low: 1 of 4 complete
 
 ---
@@ -1050,8 +1050,8 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 4 of 6 complete
-- P2 Medium: 1 of 16 complete
+- P1 High: 6 of 6 complete
+- P2 Medium: 5 of 16 complete
 - P3 Low: 0 of 7 complete
 
 ---
@@ -1780,7 +1780,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 3 complete
+- P2 Medium: 2 of 3 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -1810,7 +1810,7 @@ None.
         }
         ```
 
-- [ ] **#CCH-2** · P2 · Category 4 — Deferred Fresha reconnect merges the payload, leaving the previous salon's `teamMenuCache` live under the new URL
+- [x] **#CCH-2** · P2 · Category 4 — Deferred Fresha reconnect merges the payload, leaving the previous salon's `teamMenuCache` live under the new URL
     - **Where:** app/Http/Controllers/Api/Platforms/FreshaController.php:245-252 (write: `connectDeferred()`), app/Http/Controllers/Api/Platforms/FreshaController.php:356-359 (read: `team()`)
     - **Affects:** Fresha users on the deferred-connect flow (`config('partna.connect.deferred')` includes `fresha`) who reconnect to a *different* salon while the previous salon's up-to-24h `teamMenuCache` is still fresh.
     - **Effort:** S (~0.5–1h)

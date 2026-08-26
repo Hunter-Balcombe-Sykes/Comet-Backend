@@ -14,6 +14,7 @@ use App\Models\Core\User\User;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\PlatformRefresher;
 use App\Services\Platforms\Strategies\Fetch\FetchShapeException;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -50,6 +51,13 @@ it('does not report on a healthy Place-Details fetch', function () {
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // #LIFE-13: a QueryException in the observer's ingest-source seam is now
+    // reported + warned instead of silently Log::debug'd, so a missing ingest
+    // mirror turns every Eloquent-created connection into a spurious report.
+    // Provision it; Bus::fake() because provisioning switches the eager-run
+    // dispatch on, and these tests drive jobs via ->handle() directly.
+    setupIngestTables();
+    Bus::fake();
 });
 
 function obsUser(): User

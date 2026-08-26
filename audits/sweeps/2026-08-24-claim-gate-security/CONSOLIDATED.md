@@ -60,7 +60,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 1 of 2 complete
 
 ---
 
@@ -239,7 +239,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#SEC-4** · P2 — Bot protection defaults to fully off (`driver=null`, `mode=off`)
+- [x] **#SEC-4** · P2 — Bot protection defaults to fully off (`driver=null`, `mode=off`)
     - **Where:** config/partna.php:2557-2560
     - **Affects:** Public mutation endpoints depending on bot protection (enquiry, lead capture, early access, report) whenever an environment doesn't explicitly set the driver/mode env vars.
     - **Effort:** S (~0.5–1h)
@@ -443,7 +443,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 2 of 3 complete
+- P2 Medium: 3 of 3 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -510,7 +510,7 @@ None.
          * @property string|null $built_by_staff_id FK to core.partna_staff.id, ON DELETE SET NULL. NULL for signup-originated builds. Not fillable — set via ->builtByStaff()->associate().
         ```
 
-- [ ] **#SEM-3** · P2 — `CLAIM_NOT_INVITED` returns a distinct 409 on the public claim endpoint, creating the exact oracle its own inline comment says it must avoid
+- [x] **#SEM-3** · P2 — `CLAIM_NOT_INVITED` returns a distinct 409 on the public claim endpoint, creating the exact oracle its own inline comment says it must avoid
     - **Where:** app/Http/Controllers/Api/PublicSite/ClaimController.php:54-64
     - **Affects:** The unauthenticated-but-JWT-required public claim endpoint (`POST /api/claim`); any caller with a valid Supabase account can distinguish "no site at this handle" from "a staff-groomed outreach site exists here awaiting invite."
     - **Effort:** S (~0.5–1h)

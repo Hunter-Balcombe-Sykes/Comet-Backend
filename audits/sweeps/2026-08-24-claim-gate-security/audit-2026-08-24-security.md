@@ -21,7 +21,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 3 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 1 of 2 complete
 
 ---
 
@@ -108,7 +108,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#SEC-4** · P2 — Bot protection defaults to fully off (`driver=null`, `mode=off`)
+- [x] **#SEC-4** · P2 — Bot protection defaults to fully off (`driver=null`, `mode=off`)
     - **Where:** config/partna.php:2557-2560
     - **Affects:** Public mutation endpoints depending on bot protection (enquiry, lead capture, early access, report) whenever an environment doesn't explicitly set the driver/mode env vars.
     - **Effort:** S (~0.5–1h)

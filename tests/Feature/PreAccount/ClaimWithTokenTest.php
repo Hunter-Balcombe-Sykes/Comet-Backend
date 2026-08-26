@@ -156,13 +156,39 @@ it('claims over HTTP when claim_token travels in the POST body', function () {
         ->assertJsonPath('professional.status', 'active');
 });
 
-it('409s CLAIM_NOT_INVITED over HTTP when claim_token is omitted from the body', function () {
+// #SEM-3: the service still THROWS CLAIM_NOT_INVITED (every toThrow test above
+// still holds) — only the HTTP shape changed. It now answers with the existing
+// CLAIM_NOT_FOUND 404, byte-for-byte, so a sweep of public handles cannot
+// separate "nothing here" from "a staff-groomed outreach site awaiting invite".
+it('answers a bare 404 over HTTP when claim_token is omitted, leaking nothing', function () {
     [$build] = outreachBuildWithToken();
     actingAsUser(claimJwtUser('http-auth-uid-2', 'someone@example.com'));
 
     $this->postJson('/api/claim', [
         'subdomain' => $build->user->site->subdomain,
     ])
-        ->assertStatus(409)
-        ->assertJsonPath('code', 'CLAIM_NOT_INVITED');
+        ->assertStatus(404)
+        ->assertJsonPath('code', 'CLAIM_NOT_FOUND');
+});
+
+// The equality proof the finding actually asks for: assert the FULL body, not
+// just the status, so a future edit that reintroduces any discriminator — a
+// different message, an extra key, a changed status — fails here. Mutation-proved
+// by restoring the distinct 409 arm and watching this go red.
+it('is byte-for-byte indistinguishable from a genuinely unknown subdomain', function () {
+    [$build] = outreachBuildWithToken();
+    actingAsUser(claimJwtUser('http-auth-uid-3', 'someone@example.com'));
+
+    $notInvited = $this->postJson('/api/claim', [
+        'subdomain' => $build->user->site->subdomain,
+    ]);
+
+    actingAsUser(claimJwtUser('http-auth-uid-4', 'someone.else@example.com'));
+
+    $notFound = $this->postJson('/api/claim', [
+        'subdomain' => 'definitely-no-such-site-'.bin2hex(random_bytes(4)),
+    ]);
+
+    expect($notInvited->getStatusCode())->toBe($notFound->getStatusCode())
+        ->and($notInvited->json())->toBe($notFound->json());
 });

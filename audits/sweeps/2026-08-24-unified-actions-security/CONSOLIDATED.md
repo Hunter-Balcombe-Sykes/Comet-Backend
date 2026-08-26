@@ -82,7 +82,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 4 of 15 complete
+- P2 Medium: 6 of 15 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -234,7 +234,7 @@
         Cache::put($key, $final ?? '', $final === null ? self::FAILURE_TTL_SECONDS : self::SUCCESS_TTL_SECONDS);
         ```
 
-- [ ] **#SEC-7** · P2 — `LinkInBioImporter` persists/dispatches unredacted URLs in two spots, redacts in two others in the same file
+- [x] **#SEC-7** · P2 — `LinkInBioImporter` persists/dispatches unredacted URLs in two spots, redacts in two others in the same file
     - **Where:** app/Routing/Importers/LinkInBioImporter.php:107 (`ImportRun::start`), 530 (`CommerceProbeJob::dispatch`)
     - **Affects:** `routing.import_runs.source_url` (durable DB column) and `CommerceProbeJob`'s queued payload — both may carry secret-bearing query/fragment params from a pasted bio page or a link it contained.
     - **Effort:** S (~0.5–1h)
@@ -413,7 +413,7 @@
         private const MAX_REDIRECTS = 5;
         ```
 
-- [ ] **#SEC-16** · P2 — Bot protection ships disabled (`mode=off`, `driver=null`) by default
+- [x] **#SEC-16** · P2 — Bot protection ships disabled (`mode=off`, `driver=null`) by default
     - **Where:** config/partna.php (`bot_protection`)
     - **Affects:** Public mutation endpoints (enquiries, leads, early-access, reports, subscriptions) on any deploy that doesn't explicitly set the bot-protection env vars.
     - **Effort:** S (~0.5–1h)
@@ -562,8 +562,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 6 of 16 complete
-- P3 Low: 0 of 8 complete
+- P2 Medium: 8 of 16 complete
+- P3 Low: 0 of 7 complete
 
 ---
 
@@ -757,7 +757,7 @@
             }
         ```
 
-- [ ] **SEM-7** · P2 — Pool reorder leaves un-listed pinned items behind with stale sort keys
+- [x] **SEM-7** · P2 — Pool reorder leaves un-listed pinned items behind with stale sort keys
     - **Where:** app/Http/Controllers/Api/Content/PoolController.php:186-204
     - **Affects:** Any pool reorder where the client's `itemIds` list omits a currently-pinned item — that item's old position can collide with, or land between, the freshly-assigned positions.
     - **Effort:** S (~0.5–1h)
@@ -1042,7 +1042,7 @@
         return $normalized === '/' ? '/' : rtrim($normalized, '/');
         ```
 
-- [ ] **SEM-16** · P2 — Order-platform sidecar fallback collection is computed but never assigned, so sidecar-only dishes never group under their menu
+- [x] **SEM-16** · P2 — Order-platform sidecar fallback collection is computed but never assigned, so sidecar-only dishes never group under their menu
     - **Where:** app/Site/Actions/ActionCandidates.php:183-223
     - **Affects:** Menu/service items that belong only to a provider-bearing sidecar collection (e.g. an item that's only on the Uber Eats menu, not in any owner-authored category) — they render as standalone item actions instead of grouping under that ordering platform's action.
     - **Effort:** S (~0.5–1h)

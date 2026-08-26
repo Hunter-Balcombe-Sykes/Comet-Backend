@@ -990,7 +990,20 @@ return [
                 // parse_url PHP_URL_HOST), so anchor on $ -- a trailing slash
                 // both closed the ~ delimiter early, making the rest of the
                 // pattern parse as modifiers, and could never match a host.
-                'host_pattern' => '~(^|\.)square\.site$|(^|\.)square\.com$|^order\.(?!online$|toasttab\.com$|ubereats\.com$|doordash\.com$|menulog\.com\.au$)~',
+                // #SEC-3: the third arm used to be `^order\.(?!online$|toasttab...)`.
+                // That lookahead is zero-width with NO terminal anchor, so it was an
+                // allowlist-by-exclusion: every host starting `order.` that was not
+                // one of five named competitors matched, and `order.attacker.example`
+                // was scraped and rendered on a public sitepage under Square's brand.
+                // It cannot be repaired by anchoring, because a Square Online custom
+                // domain is indistinguishable from an attacker's by hostname alone --
+                // which is exactly why app/Catalog/Definitions/Square.php gives
+                // square.order NO detector ("detector intentionally absent"). Dropping
+                // the arm aligns this registry with the catalog and with every other
+                // entry here, all of which are exact-domain. Cost: a hypothetical
+                // `order.<merchant>.com` Square Online store stops being auto-detected
+                // and must be connected explicitly.
+                'host_pattern' => '~(^|\.)square\.site$|(^|\.)square\.com$~',
                 'driver' => SquareMenuDriver::class,
             ],
             'uber-eats' => [

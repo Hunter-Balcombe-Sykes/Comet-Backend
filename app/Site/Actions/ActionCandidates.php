@@ -6,12 +6,15 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\PublicSite\SitepageDataResolverService;
+use App\Site\Pools\PoolOrdering;
 use App\Site\Pools\PoolWire;
 use App\Support\UrlSafety;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 /**
  * The action candidate set for one site — everything that CAN occupy a
@@ -32,6 +35,8 @@ use Illuminate\Support\Collection;
  */
 class ActionCandidates
 {
+    use EscalatesRepeatedFaults;
+
     public const PAGE_LABELS = [
         'services' => 'Book',
         'reservations' => 'Reserve',
@@ -158,7 +163,16 @@ class ActionCandidates
         if ($pools === null) {
             try {
                 $pools = $this->poolWire->forSite($site, $this->resolver);
-            } catch (QueryException) {
+            } catch (QueryException $e) {
+                // #TEST-10: this used to swallow the fault with no log and no
+                // report — a content-lane fault silently blanked every
+                // pool-derived candidate (200 OK, content gone, nothing in
+                // Nightwatch). Fail-open stays: the page renders with
+                // whatever page:/platform: candidates it already built. A
+                // SUSTAINED run escalates via the shared trait (CCH-11
+                // precedent) instead of a single blip paging anyone.
+                Log::warning('sitepage.action_candidates_pools_failed', ['site_id' => $site->id, 'error' => $e->getMessage()]);
+                self::escalateIfSustained($e, 'action_candidates_pools');
                 $pools = [];
             }
         }
@@ -172,10 +186,13 @@ class ActionCandidates
     /**
      * Item + category candidates from the PoolWire map — pure, so "an entry
      * may only reference an item the payload serves" is structural. Reviews
-     * never rank. Category homing (lifted from the item-feed branch): a dish
-     * belongs to the first served collection with a null provider (a real
-     * menu/service category); provider-bearing collections (order-platform
-     * sidecars) are only a fallback, and a dish with none floats as an item.
+     * never rank. Category homing delegates to PoolOrdering::homeCollection()
+     * (#SEM-16, kept in sync with the item-feed branch by construction): a
+     * dish belongs to the first served collection with a null provider (a
+     * real menu/service category); provider-bearing collections (order-
+     * platform sidecars) are only a fallback, used when no real category
+     * matched, and a dish with NO matching collection at all floats as an
+     * item.
      *
      * @param  array<string, array<string, mixed>>  $pools
      * @return list<array<string, mixed>>
@@ -200,19 +217,11 @@ class ActionCandidates
             }
             $grouped = [];
             foreach ($items as $item) {
-                $home = null;
-                $fallback = null;
-                foreach ((array) ($item['collectionIds'] ?? []) as $cid) {
-                    $cid = (string) $cid;
-                    if (! isset($collections[$cid])) {
-                        continue;
-                    }
-                    $fallback ??= $cid;
-                    if (($collections[$cid]['provider'] ?? null) === null) {
-                        $home = $cid;
-                        break;
-                    }
-                }
+                // #SEM-16: was a hand-copied duplicate of PoolOrdering::homeCollection()
+                // that dropped the `$fallback ??= $cid` result on the floor — the two
+                // paths homed the same sidecar-only item differently. Call the shared
+                // helper instead of re-deriving it, so this can't drift again.
+                $home = PoolOrdering::homeCollection($item, $collections);
                 if ($home === null) {
                     if (($c = self::itemCandidate($pool, $page, $item)) !== null) {
                         $out[] = $c;
