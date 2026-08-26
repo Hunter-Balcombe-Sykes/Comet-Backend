@@ -280,15 +280,15 @@ function seedExistingStores(User $user, int $count): void
     }
 }
 
-it('caps a 6th store the same way the legacy seeder did (MAX_BRANDS parity, WAVE-2C)', function () {
-    // Mirrors ShopController::MAX_BRANDS / the legacy ShopBrandSeeder's own
+it('caps an 11th store the same way the legacy seeder did (MAX_BRANDS parity, WAVE-2C)', function () {
+    // Mirrors ShopController::MAX_BRANDS / ConnectStoreFromProductJob's own
     // copy. StoreBrandSeeder never decides placement itself — but a store cap
     // is genuinely its own concern (the store row is "the only thing left that
     // is genuinely its own"), so this one thing IS reimplemented here rather
     // than sourced from PlacementPolicy.
     $pro = createTenant('store-capped');
-    seedExistingStores($pro, 5);
-    storeResponds(['id' => 9999, 'name' => 'The 6th Store', 'currency' => 'AUD']);
+    seedExistingStores($pro, 10);
+    storeResponds(['id' => 9999, 'name' => 'The 11th Store', 'currency' => 'AUD']);
 
     $result = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
 
@@ -302,21 +302,38 @@ it('caps a 6th store the same way the legacy seeder did (MAX_BRANDS parity, WAVE
     // the legacy seeder's own ordering (its connection upsert always ran;
     // only the store write was skipped past the cap).
     expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->exists())->toBeTrue()
-        ->and(seededStoreCount($pro))->toBe(5)
+        ->and(seededStoreCount($pro))->toBe(10)
         ->and(seededStore($pro, '9999'))->toBeNull();
+});
+
+it('places a 6th store — the aggregate cap is ten, in lockstep with ShopController (T9)', function () {
+    // T9 (08ab05389, 2026-08-20) raised every cap 2-3x with owner permission:
+    // ShopController::MAX_BRANDS and ConnectStoreFromProductJob's copy both
+    // went 5 -> 10, and this seeder's copy was missed. Its own docblock claims
+    // to mirror ShopController, so the two disagreeing is the bug, not the
+    // number: a 6th store connected through the picker but was refused here.
+    $pro = createTenant('store-sixth');
+    seedExistingStores($pro, 5);
+    storeResponds(['id' => 9999, 'name' => 'The 6th Store', 'currency' => 'AUD']);
+
+    $result = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
+
+    expect($result['outcome'])->toBe('placed')
+        ->and($result['reason'])->toBeNull()
+        ->and(seededStoreCount($pro))->toBe(6);
 });
 
 it('never counts a re-scan of an already-connected store against the cap', function () {
     $pro = createTenant('store-recheck-capped');
-    // Four existing stores plus this one lands exactly ON the cap (5), never
+    // Nine existing stores plus this one lands exactly ON the cap (10), never
     // over it — the interesting case for "a re-scan doesn't count against
     // the cap" is being AT the boundary, not comfortably under it.
-    seedExistingStores($pro, 4);
+    seedExistingStores($pro, 9);
     storeResponds();
 
     $first = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
     expect($first['outcome'])->toBe('placed');
-    expect(seededStoreCount($pro))->toBe(5);
+    expect(seededStoreCount($pro))->toBe(10);
 
     // Re-scanning the SAME store while the account sits exactly at MAX_BRANDS
     // must still succeed — it's a re-scan of an existing store, not a new one.
@@ -325,7 +342,7 @@ it('never counts a re-scan of an already-connected store against the cap', funct
     $result = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
 
     expect($result['outcome'])->toBe('placed')
-        ->and(seededStoreCount($pro))->toBe(5);
+        ->and(seededStoreCount($pro))->toBe(10);
 });
 
 it('dispatches the initial fill and disarms auto-latest on a first connect only (L-4/L-5)', function () {

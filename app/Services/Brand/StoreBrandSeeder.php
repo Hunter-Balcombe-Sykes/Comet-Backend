@@ -46,11 +46,17 @@ use Illuminate\Support\Facades\Log;
 class StoreBrandSeeder
 {
     /**
-     * Mirrors ShopController::MAX_BRANDS / the legacy ShopBrandSeeder's own
+     * Mirrors ShopController::MAX_BRANDS / ConnectStoreFromProductJob's own
      * copy — keep in lockstep. The reserved individual-products bucket
      * (is_individual = true) never counts against this.
+     *
+     * Was 5 until 2026-08-26. T9 (08ab05389) raised every cap 2-3x with owner
+     * permission and moved the other two copies to 10; this one was missed, so
+     * the docblock above claimed a parity that had not held for six days. The
+     * visible symptom was a 6th store that the picker accepted and the
+     * suggestion inbox's Add silently degraded to a plain link card.
      */
-    private const MAX_BRANDS = 5;
+    private const MAX_BRANDS = 10;
 
     public function __construct(
         private readonly IriCanonicalizer $canonicalizer,
