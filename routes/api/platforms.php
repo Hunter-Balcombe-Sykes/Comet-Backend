@@ -162,6 +162,7 @@ $registerIntegrationRoutes = function (string $base): void {
 
     // Menu — the fetched Uber Eats / DoorDash menu (the single site.menus row),
     // auto-populated from the online-ordering links, plus direct write paths:
+    // /scan OCRs an uploaded photo/PDF into that batch (MenuAiExtractor);
     // /scan/apply merges AI-extracted items from a user-uploaded menu photo/PDF
     // (independent of any scrape — see MenuScanApplier); /categories + /items
     // are owner-authored (manual) content management (MenuContentController).
@@ -175,6 +176,7 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::get('/status', [MenuController::class, 'status']);
             Route::get('/', [MenuController::class, 'show']);
             Route::post('/refresh', [MenuController::class, 'refresh']);
+            Route::post('/scan', [MenuController::class, 'scan'])->middleware('throttle:menu-scan');
             Route::post('/scan/apply', [MenuController::class, 'applyScan']);
 
             // Owner-authored (manual) menu content. {category}/{item} are UUIDs,

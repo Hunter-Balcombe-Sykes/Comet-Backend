@@ -788,6 +788,27 @@ class AppServiceProvider extends ServiceProvider
                 });
         });
 
+        // Manual menu scans (POST /platforms/menu/scan). Each request bills
+        // Mistral OCR + DeepSeek — per-user daily cap on top of the shared
+        // AiSpendBudget global caps. Keyed like `authenticated`: supabase_uid,
+        // set by the user.api JWT middleware that runs before throttle.
+        RateLimiter::for('menu-scan', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return Limit::none();
+            }
+
+            $uid = $request->attributes->get('supabase_uid')
+                ?? throw new \RuntimeException('supabase_uid missing on menu-scan route — JWT middleware not applied');
+
+            return Limit::perDay((int) config('partna.throttle.menu_scan_per_day', 15))
+                ->by('menu-scan|'.$uid)
+                ->response(function () {
+                    return response()->json([
+                        'message' => "You've reached today's scan limit. Try again tomorrow.",
+                    ], 429);
+                });
+        });
+
         // User-submitted feedback. Two limits combined: tight per-hour to stop
         // floods, looser per-day to keep a determined user from drowning the
         // notify_emails inbox. Per-user (supabase_uid) keyed.

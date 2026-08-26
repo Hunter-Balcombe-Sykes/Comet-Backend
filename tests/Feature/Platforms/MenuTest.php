@@ -1886,3 +1886,46 @@ it('commits a scan apply whose new dish collides with an existing slug base', fu
     expect($existingAfter->id)->toBe($existingRow->id);
     expect($existingAfter->slug)->toBe('cafe-latte');
 });
+
+it('scan apply persists the batch to scan_items for post-rebuild re-apply', function () {
+    $user = menuUser('scanpersist1');
+
+    actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [['name' => 'Margherita Pizza', 'description' => 'Classic.', 'price' => 14.5, 'category' => 'Pizzas']],
+    ])->assertOk();
+
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+    expect($menu->scan_items['source'])->toBe('upload');
+    expect($menu->scan_items['scannedAt'])->not->toBeNull();
+    expect($menu->scan_items['items'])->toHaveCount(1);
+    expect($menu->scan_items['items'][0]['name'])->toBe('Margherita Pizza');
+});
+
+it('scan apply merges scan_items with an existing blob, new batch winning by name', function () {
+    $user = menuUser('scanpersist2');
+    Menu::create([
+        'user_id' => $user->id, 'content_source' => 'uber-eats', 'currency' => 'AUD', 'fetch_status' => 'ok',
+        'scan_items' => [
+            'items' => [
+                ['name' => 'Garlic Bread', 'description' => 'From Google.', 'price' => 8.0, 'category' => 'Sides', 'dietary' => null],
+                ['name' => 'Tiramisu', 'description' => null, 'price' => 12.0, 'category' => 'Desserts', 'dietary' => null],
+            ],
+            'source' => 'google-photos',
+            'scannedAt' => now()->subDay()->toIso8601String(),
+        ],
+    ]);
+
+    actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [['name' => 'garlic bread', 'description' => 'From my upload.', 'price' => 9.0, 'category' => 'Starters']],
+    ])->assertOk();
+
+    $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
+    $items = collect($menu->scan_items['items']);
+
+    // Google's Tiramisu kept; Google's Garlic Bread replaced by the upload's
+    // (name match is case-insensitive + trimmed).
+    expect($items->pluck('name')->all())->toContain('Tiramisu', 'garlic bread');
+    expect($items->firstWhere('name', 'garlic bread')['description'])->toBe('From my upload.');
+    expect($items->pluck('name')->all())->not->toContain('Garlic Bread');
+    expect($menu->scan_items['source'])->toBe('upload');
+});
