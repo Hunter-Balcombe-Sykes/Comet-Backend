@@ -66,11 +66,16 @@ storage is content.*, `ManualMenuItems` folds back the wire shape).
   the item card in-browser (hash = category anchor, optional).
   **Consequences:** SquareMenuDriver becomes a first-party HTTP scraper
   (no Apify, no AI extraction, zero scrape billing for Square); the
-  menus-r-us actor is a deletion casualty (Part C). The `MenuPlatformDriver`
-  seam assumes an Apify run (buildInput/mapItems) — the registry needs a
-  driver-lane field (actor vs http) so MenuApifyScraper dispatches Square to
-  the HTTP fetcher. The old failed menus-r-us runs ("All discovered sources
-  failed extraction" on square.site test URLs) stop mattering entirely.
+  menus-r-us actor is a deletion casualty (Part C). CORRECTED seam scope
+  (verification pass): the `MenuPlatformDriver` interface is generic —
+  the Apify coupling lives in `MenuApifyScraper::fetch()/fetchStores()/
+  attemptScrape()` control flow (ApifyBudget::tryClaim, actorUrl,
+  Http::pool, the billed-run retry/fallback ladder). Square needs a REAL
+  BRANCH there: no budget claim, no actor URL, its own fetch/retry
+  semantics, and no pickup/delivery mode split. Design it as a clean
+  per-platform "transport" seam in MenuApifyScraper (actor transport vs
+  http transport), not a config flag bolted onto the existing loop. The
+  old failed menus-r-us runs stop mattering entirely.
 - **A0.2 Square ordering PATH shapes.** Enumerate real Square Online
   ordering URL paths (`/s/order`, `/order`, others?) across a few live
   stores — feeds the Q2 path detector. Also confirm what `order.square.*`
@@ -101,12 +106,19 @@ In `app/Catalog/Definitions/Square.php`:
 
 ## A2. Connection → menu pipeline
 
+**CORRECTED by verification pass (2026-08-26): the `order.*` host
+alternative was DELIBERATELY REMOVED from Square's menu host_pattern
+TODAY** (commit `2a941daef0`, #SEC-3 — `order.attacker.example` was
+matching and rendering under Square's brand; open-redirect/spoofing fix).
+Current pattern (config/partna.php:~1028) matches ONLY
+`square.site`/`square.com`. DO NOT reintroduce any `order.*` host rule —
+the D7 probe-time platform stamp is therefore LOAD-BEARING for every
+custom-domain Square store, not a rare-case fallback. Host patterns only
+ever match Square's own domains.
+
 - Verify (dev, live) that a catalog-placed square.order connection lands
-  with `routing_class='ordering'` and that `MenuSource::platformOf`
-  classifies the stored URL as `square` (the `^order\.`/square.site
-  host_pattern in config/partna.php:966 predates this work — re-test it
-  against real square.site hosts; square.site matches the FIRST alternative,
-  order.* custom domains the third).
+  with `routing_class='ordering'` and that `MenuSource` resolves it — via
+  host pattern for square.site hosts, via the D7 stamp for custom domains.
 - Confirm `MenuFetchJob` runs the Square driver end-to-end on a real
   connected store and the merged menu lands in content.* with Square as the
   top-priority content source (Q4). ollies/fat-tuna on dev is the fixture.
@@ -122,9 +134,11 @@ In `app/Catalog/Definitions/Square.php`:
   brands. Identify the exact seam in the probe → suggestion pipeline
   (CommerceProbeJob / SuggestionApplier) and land the ordering suggestion
   with `surface_key='square.order'` + the custom-domain URL.
-- The menu registry host_pattern already matches `order.*` custom domains;
-  for custom domains NOT starting with `order.` (rare but possible), the
-  scrape registry needs a fallback — OPEN: D7 below.
+- Custom domains match NO host pattern (post-#SEC-3, see A2) — the D7
+  probe-time platform stamp is the ONLY scrape-resolution path for them,
+  for every custom-domain store. Build it as such: stamp written when the
+  probe's storefront-marker evidence identifies Square Online; MenuSource
+  trusts the stamp first, host patterns second.
 
 ## A4. Harvester
 
@@ -232,8 +246,27 @@ new column.
 - `MenuItemDeepLinks`: rewrite to read stored `item_url`s keyed by platform
   (wire keys underscore-cased: uber_eats / doordash / square). Un-regresses
   DoorDash, lights Uber + Square in one change.
+- **`PoolResolver.php:776-796`** (verification pass finding — the ACTUAL
+  public-sitepage per-dish link reader): reads `content.offers.url WHERE
+  url IS NOT NULL`, deriving the platform via `ItemLinkRules::
+  platformForUrl()` — a THIRD independent host heuristic. Update it to
+  prefer `item_url` with `offers.platform` as the label; without this the
+  live sitepage keeps store links per dish and G8 cannot pass.
+  `ItemLinkRules::platformForUrl` joins the heuristic-deletion list once
+  stored platforms cover all rows.
+- **Slug decision for `offers.platform`**: store the MENU-REGISTRY slug
+  (`square`/`uber-eats`/`doordash`) — what platformRows and the
+  `order:{platform}` collection refs already carry; underscore-casing
+  stays a wire-boundary concern. C10 revisits the whole naming space in
+  one place (three spellings exist for Square alone: `square`,
+  `square-ordering`, wire `square`).
 - `MenuPayloadComposer` (dashboard) + sitepage wire: per-dish `links[]`
   carries the item URLs. Frontend "ORDER ON" overlay: zero changes.
+  NOTE (verification pass): repo-wide grep finds NO monorepo frontend file
+  consuming `pickupUrl`/`deliveryUrl`/`links` by name — the frontend is a
+  generic pass-through renderer, so the D1 shape-change sweep is done by
+  LIVE PAYLOAD + rendered-page verification at G5, plus the PoolResolver
+  change above, not by editing named frontend files.
 
 ---
 
@@ -241,6 +274,10 @@ new column.
 
 Ordered AFTER the replacement is live in each case.
 
+0. Note (verification pass): the four entries' `->detect(HostMatch)` half
+   is ALREADY dead code — `ProviderDetector` is queried only for category
+   'booking' (GoogleBusinessAutoSync:374), never 'online-ordering'. The
+   risky half is registration/availability/DSAR wiring, not detectors.
 1. **PD-registry ordering entries** (after A1/A5 verification): delete
    `square-ordering`, `bopple`, `hungrypanda`, `easi` registrations +
    HostMatches from `PlatformRegistryServiceProvider` (each has a catalog
