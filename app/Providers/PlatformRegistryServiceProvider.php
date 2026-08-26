@@ -93,7 +93,13 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // attaches from Registry\Bindings\GoogleBusinessBinding, deriving
             // through the notConnectable relaxation (its connect is never a
             // pasted URL).
-            $r->register(PD::make('instagram')->label('Instagram')->category(Cat::Social)->resource(InstagramConnectionResource::class)->payload(InstagramPayload::class)); // refresh = paid Apify, not in cron
+            // instagram: retired to a catalog-derived descriptor (P5,
+            // 2026-08-27) — the LAST hand-written brand entry. Its contract
+            // (Social, InstagramConnectionResource, InstagramPayload, the
+            // auto_sync_latest toggle, Bespoke routes, not refreshable —
+            // refresh is paid Apify, never in the cron) attaches from
+            // Registry\Bindings\InstagramBinding; NEVER_UPGRADE still guards
+            // its connectField-less Bespoke shape from the upgrades() pass.
 
             // ── Events (refreshable; organiser accounts + standalone events) ──
             // eventbrite: retired to a catalog-derived descriptor (P4,
@@ -209,15 +215,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // the sitepage. Read by DisplaySettingsController (settings UI +
             // PATCH validation) and PublicIntegrationConnectionResource /
             // PoolResolver's menus pool (payload suppression). Absent key = shown.
-            // Instagram (2026-08-05, platforms-as-sources): the old site-column
-            // gallery toggle (content_instagram_auto_enabled) migrated into the
-            // connection's own display_settings under the ONE auto-sync key.
-            // Turning it off still hides ALL auto Instagram content — the
-            // curated reel/post slots and the integration card read the same
-            // value through AutoSyncSetting.
-            $r->get('instagram')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Latest post', 'description' => 'Your newest post joins your site automatically.'],
-            ]);
+            // Every retired platform's toggles ride its binding now.
 
             // The pools' auto half (2026-08-05): every source with a
             // time-ordered item stream carries the SAME auto_sync toggle. Read

@@ -371,6 +371,7 @@ class DerivedDescriptorFactory
         'fresha' => Bindings\FreshaBinding::class,
         'google-business' => Bindings\GoogleBusinessBinding::class,
         'humanitix' => Bindings\HumanitixBinding::class,
+        'instagram' => Bindings\InstagramBinding::class,
         'nowbookit' => Bindings\NowbookitBinding::class,
         'opentable' => Bindings\OpentableBinding::class,
         'resdiary' => Bindings\ResdiaryBinding::class,
