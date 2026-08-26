@@ -37,8 +37,10 @@ it('keeps the hand-written registry frozen to the legacy map', function () {
         );
     }
 
-    // The first four retirees stay retired: derived, never re-hand-written.
-    foreach (['square-ordering', 'bopple', 'hungrypanda', 'easi'] as $slug) {
+    // The retirees stay retired: derived, never re-hand-written. Four
+    // ordering slugs went with the menu plan (2026-08-26); the 23 detect-only
+    // card entries followed in PD-retirement P1 (2026-08-27).
+    foreach (['square-ordering', 'bopple', 'hungrypanda', 'easi', 'booksy', 'vagaro', 'timely', 'kitomba', 'phorest', 'shortcuts', 'bella-booking', 'boulevard', 'glossgenius', 'mangomint', 'zenoti', 'mindbody', 'ovatu', 'resy', 'quandoo', 'sevenrooms', 'tock', 'tablecheck', 'ticketek', 'oztix', 'trybooking', 'resident-advisor', 'ticketmaster'] as $slug) {
         expect($registry->get($slug)?->isDerived())->toBeTrue(
             "'{$slug}' was retired to a catalog-derived descriptor (2026-08-26); a hand-written entry has crept back."
         );
@@ -50,8 +52,8 @@ it('never lets a derived descriptor shadow a hand-written one', function () {
 
     // register() throws on a duplicate key, so a shadow can only appear if the
     // derived registration site stopped skipping on has(). Belt to that brace.
-    // The retired ordering slugs are excluded: derived IS their end state.
-    $retired = ['square-ordering', 'bopple', 'hungrypanda', 'easi'];
+    // Retired slugs are excluded: derived IS their end state.
+    $retired = ['square-ordering', 'bopple', 'hungrypanda', 'easi', 'booksy', 'vagaro', 'timely', 'kitomba', 'phorest', 'shortcuts', 'bella-booking', 'boulevard', 'glossgenius', 'mangomint', 'zenoti', 'mindbody', 'ovatu', 'resy', 'quandoo', 'sevenrooms', 'tock', 'tablecheck', 'ticketek', 'oztix', 'trybooking', 'resident-advisor', 'ticketmaster'];
     foreach (array_diff(PlatformRegistry::handWrittenFreeze(), $retired) as $slug) {
         expect($registry->get($slug)?->isDerived())->toBeFalse(
             "Derived descriptor shadowed the hand-written '{$slug}'."
