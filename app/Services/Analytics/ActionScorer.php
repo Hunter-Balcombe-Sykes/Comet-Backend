@@ -59,9 +59,10 @@ class ActionScorer
      * @param  list<array<string, mixed>>  $candidates  ActionCandidates::forSite output
      * @param  array<string, float>  $itemScores  content item key => stored item-family score
      * @param  array<string, float>  $boosts  action id => identity boost (SectorActionRecipes::resolve)
+     * @param  array<string, float>  $priorOverrides  action id => sector-keyed prior (SectorActionRecipes::pagePriorsFor)
      * @return array{rows: list<array<string, mixed>>, deletes: list<string>}
      */
-    public function computeForSite(Site $site, array $candidates, array $itemScores = [], array $boosts = []): array
+    public function computeForSite(Site $site, array $candidates, array $itemScores = [], array $boosts = [], array $priorOverrides = []): array
     {
         $previous = $this->previousRows($site);
         if ($candidates === []) {
@@ -91,7 +92,9 @@ class ActionScorer
         $signals = [];
         foreach ($candidates as $c) {
             $id = (string) $c['id'];
-            $prior = self::priorFor($id);
+            // Sector-keyed page priors override the global table (smart-
+            // scoring plan): the identity re-weights cold-start floors.
+            $prior = $priorOverrides[$id] ?? self::priorFor($id);
             $e = $exposures[$id] ?? 0.0;
             $t = $taps[$id] ?? 0.0;
             // The smoothing prior inside demand stays for every id — it is a

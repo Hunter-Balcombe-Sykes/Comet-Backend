@@ -108,6 +108,92 @@ final class SectorActionRecipes
     }
 
     /**
+     * Sector-keyed FRONT of the canonical page order — the pages this
+     * industry's visitors expect first, in order; every taxonomy page not
+     * named follows in enum order. Read by
+     * SitepageDataResolverService::buildPageOrder for the rank-less seed, so
+     * day one already reads right (menu first for a restaurant, listen for a
+     * musician, services for a barber) and data refines within that frame.
+     *
+     * @var array<string, list<string>>
+     */
+    private const PAGE_FRONTS = [
+        SectorStylePresets::FOOD_DRINK => ['menu', 'events', 'gallery'],
+        SectorStylePresets::BEAUTY_PERSONAL_CARE => ['services', 'gallery', 'shop'],
+        SectorStylePresets::HEALTH_FITNESS => ['services', 'events', 'gallery'],
+        SectorStylePresets::PROFESSIONAL_SERVICES => ['contact', 'services', 'documents'],
+        SectorStylePresets::RETAIL_SHOPPING => ['shop', 'gallery', 'events'],
+        SectorStylePresets::HOME_SERVICES => ['contact', 'services', 'gallery'],
+        SectorStylePresets::HOSPITALITY => ['services', 'events', 'gallery', 'menu'],
+        SectorStylePresets::AUTOMOTIVE => ['contact', 'services', 'gallery'],
+        SectorStylePresets::CREATIVE_ENTERTAINMENT => ['gallery', 'watch', 'shop', 'events'],
+        SectorStylePresets::EDUCATION_COACHING => ['services', 'contact', 'events'],
+    ];
+
+    /** @var array<string, list<string>> */
+    private const SLUG_PAGE_FRONTS = [
+        'musician' => ['listen', 'events', 'watch', 'shop'],
+        'content-creator' => ['watch', 'listen', 'shop'],
+        'restaurant' => ['menu', 'events', 'gallery'],
+        'bar' => ['events', 'menu', 'gallery'],
+        'photographer' => ['gallery', 'services', 'contact'],
+        'videographer' => ['watch', 'gallery', 'contact'],
+    ];
+
+    /**
+     * The identity's preferred page order applied over the canonical roster:
+     * the sector front first (present-or-not filtering is the caller's job),
+     * then every remaining canonical page in enum order. Falls back to the
+     * untouched canonical order for unknown/absent identities.
+     *
+     * @param  list<string>  $canonical  SitepageId::canonicalOrder()
+     * @return list<string>
+     */
+    public static function pageOrderFor(?string $identity, array $canonical): array
+    {
+        $front = null;
+        if ($identity !== null && $identity !== '') {
+            $front = self::SLUG_PAGE_FRONTS[$identity]
+                ?? self::PAGE_FRONTS[$identity]
+                ?? (($bucket = SectorTaxonomy::bucketFor($identity)) !== null ? (self::PAGE_FRONTS[$bucket] ?? null) : null);
+        }
+        if ($front === null) {
+            return $canonical;
+        }
+
+        $ordered = array_values(array_intersect($front, $canonical));
+
+        return array_merge($ordered, array_values(array_diff($canonical, $ordered)));
+    }
+
+    /**
+     * Sector-keyed cold-start page PRIORS — the importance floors for pages
+     * the identity re-weights away from the global config table. Consulted
+     * by the scoring job before `config('partna.actions.priors')`.
+     *
+     * @return array<string, float> action id => prior
+     */
+    public static function pagePriorsFor(?string $identity): array
+    {
+        if ($identity === null || $identity === '') {
+            return [];
+        }
+        $bucket = SectorTaxonomy::bucketFor($identity) ?? $identity;
+
+        return match ($bucket) {
+            // Menu is a restaurant's front door; events matter, shop rarely.
+            SectorStylePresets::FOOD_DRINK => ['page:menu' => 0.30, 'page:events' => 0.18, 'page:shop' => 0.08],
+            // The work sells creative accounts; events + merch over enquiry.
+            SectorStylePresets::CREATIVE_ENTERTAINMENT => ['page:events' => 0.22, 'page:shop' => 0.18, 'page:menu' => 0.01],
+            // A store's storefront outranks everything else it could show.
+            SectorStylePresets::RETAIL_SHOPPING => ['page:shop' => 0.30, 'page:menu' => 0.01],
+            // Stays/venues: what's-on and the venue's menu both carry weight.
+            SectorStylePresets::HOSPITALITY => ['page:events' => 0.22, 'page:menu' => 0.20],
+            default => [],
+        };
+    }
+
+    /**
      * Neutral pseudo-identities the INFERENCE ladder may answer with when
      * users.sector is unset — an integration shape is evidence of a funnel,
      * not of a profession, so these stay deliberately generic.

@@ -131,3 +131,44 @@ it('a role that resolves to an id already claimed is skipped, later entries move
     expect(array_keys($boosts))->toBe(['platform:opentable', 'item:gig', 'platform:doordash'])
         ->and($boosts['platform:doordash'])->toBe(round(2.0 * 0.75 ** 2, 10));
 });
+
+it('pageOrderFor puts the identity front first, then the canonical remainder (restaurant/musician/barber)', function () {
+    $canonical = ['home', 'listen', 'watch', 'shop', 'menu', 'services', 'events', 'gallery', 'reviews', 'documents', 'contact', 'links'];
+
+    expect(array_slice(SectorActionRecipes::pageOrderFor('restaurant', $canonical), 0, 3))
+        ->toBe(['menu', 'events', 'gallery'])
+        ->and(array_slice(SectorActionRecipes::pageOrderFor('musician', $canonical), 0, 4))
+        ->toBe(['listen', 'events', 'watch', 'shop'])
+        ->and(array_slice(SectorActionRecipes::pageOrderFor('barber', $canonical), 0, 3))
+        ->toBe(['services', 'gallery', 'shop'])
+        ->and(SectorActionRecipes::pageOrderFor(null, $canonical))->toBe($canonical)
+        ->and(SectorActionRecipes::pageOrderFor('not-a-sector', $canonical))->toBe($canonical);
+
+    // Nothing lost, nothing invented — same members, reordered.
+    $reordered = SectorActionRecipes::pageOrderFor('restaurant', $canonical);
+    sort($canonical);
+    $check = $reordered;
+    sort($check);
+    expect($check)->toBe($canonical);
+});
+
+it('pagePriorsFor re-weights cold-start floors per identity and stays empty otherwise', function () {
+    expect(SectorActionRecipes::pagePriorsFor('restaurant'))->toMatchArray(['page:menu' => 0.30])
+        ->and(SectorActionRecipes::pagePriorsFor('musician')['page:menu'])->toBe(0.01)
+        ->and(SectorActionRecipes::pagePriorsFor('plumber'))->toBe([])
+        ->and(SectorActionRecipes::pagePriorsFor(null))->toBe([]);
+});
+
+it('inferIdentity reads the integration shape: food beats booking beats music, else null', function () {
+    $menuPage = sarPage('menu');
+    $booking = sarPlatform('fresha', 'services');
+    $music = sarPlatform('spotify', 'listen');
+
+    expect(SectorActionRecipes::inferIdentity([$menuPage, $booking, $music]))->toBe('food_drink')
+        ->and(SectorActionRecipes::inferIdentity([$booking, $music]))->toBe('_booking_led')
+        ->and(SectorActionRecipes::inferIdentity([$music]))->toBe('musician')
+        ->and(SectorActionRecipes::inferIdentity([sarPage('contact')]))->toBeNull();
+
+    // The pseudo identity resolves to the neutral booking-led recipe.
+    expect(SectorActionRecipes::recipeFor('_booking_led'))->toBe(['book', 'contact', 'top-social']);
+});

@@ -456,13 +456,16 @@ class ComputeContentPopularityScores extends Command
         $candidates = $this->candidates->forSite($pro, $site, null, $pools);
 
         $identity = trim((string) ($pro->sector ?? ''));
-        $boosts = SectorActionRecipes::resolve(
-            $identity !== '' ? $identity : SectorActionRecipes::inferIdentity($candidates),
+        $identity = $identity !== '' ? $identity : SectorActionRecipes::inferIdentity($candidates);
+        $boosts = SectorActionRecipes::resolve($identity, $candidates, $itemScores);
+
+        return $this->scorer->computeForSite(
+            $site,
             $candidates,
             $itemScores,
+            $boosts,
+            SectorActionRecipes::pagePriorsFor($identity),
         );
-
-        return $this->scorer->computeForSite($site, $candidates, $itemScores, $boosts);
     }
 
     /**
