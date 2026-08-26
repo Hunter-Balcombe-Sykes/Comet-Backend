@@ -10,6 +10,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Routing\ConnectionIdentity;
 use App\Routing\RoutingCapabilityGate;
 use App\Routing\SuggestionApplier;
 use App\Routing\SyncFindingsBridge;
@@ -59,6 +60,7 @@ class SuggestionsController extends ApiController
         private readonly SuggestionApplier $applier,
         private readonly SyncFindingsBridge $bridge,
         private readonly OpenTableService $openTable,
+        private readonly ConnectionIdentity $identity,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -71,6 +73,29 @@ class SuggestionsController extends ApiController
             ->orderByDesc('first_seen_at')
             ->limit(100)
             ->get();
+
+        // An account the user connected by ANOTHER route (the connect sheet,
+        // an OAuth return) leaves its standing intent untouched: nothing
+        // re-checks a 'proposed' row after the fact, so the inbox went on
+        // asking "is this yours?" about something already on the page. The
+        // check is a READ — the ledger row is settled where a write already
+        // happens, never from this handler.
+        //
+        // One query for the whole page, grouped in memory, rather than
+        // ConnectionIdentity::matchExisting() per card: this handler renders
+        // up to 100 of them.
+        $connected = $intents->isEmpty() ? collect() : IntegrationConnection::query()
+            ->where('user_id', $user->id)
+            ->whereIn('surface_key', $intents->pluck('surface_key')->unique()->all())
+            ->whereNull('deleted_at')
+            ->get(['id', 'surface_key', 'resource_id', 'canonical_key', 'payload'])
+            ->groupBy('surface_key');
+
+        $intents = $intents->reject(fn (object $intent): bool => $this->identity->matchWithin(
+            $connected->get($intent->surface_key, collect()),
+            (string) $intent->surface_key,
+            (string) $intent->identifier,
+        ) !== null)->values();
 
         $suggestions = $intents->map(function (object $intent) use ($user): array {
             $surface = CompiledCatalog::surface($intent->surface_key);

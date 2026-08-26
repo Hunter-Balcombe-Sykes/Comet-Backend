@@ -6,6 +6,7 @@ use App\Catalog\CompiledCatalog;
 use App\Catalog\LegacyPlatformMap;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use Illuminate\Support\Collection;
 
 /**
  * Which of this user's existing connections IS this identity — across the
@@ -90,7 +91,23 @@ final class ConnectionIdentity
             $rows = $rows->reject(fn ($row) => (string) $row->id === $ignoreConnectionId);
         }
 
-        if ($rows->isEmpty()) {
+        return $this->matchWithin($rows, $surfaceKey, $identifier);
+    }
+
+    /**
+     * The same three-scheme comparison, against rows the caller ALREADY holds.
+     *
+     * Split out so a caller with many identifiers to check can pay for one
+     * query instead of one per identifier. The suggestions inbox renders up
+     * to 100 cards and asks this question of every one of them; going through
+     * matchExisting() there would have put 100 SELECTs on a GET, which is the
+     * cost SCALE-8 had just finished taking off that handler.
+     *
+     * @param  Collection<int, IntegrationConnection>  $rows  the user's live connections on $surfaceKey
+     */
+    public function matchWithin(Collection $rows, string $surfaceKey, string $identifier): ?string
+    {
+        if ($identifier === '' || $rows->isEmpty()) {
             return null;
         }
 

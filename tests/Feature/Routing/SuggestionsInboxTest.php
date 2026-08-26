@@ -495,3 +495,57 @@ it('gives an accept its own uniqueness slot, so a probe in flight cannot swallow
 
     expect($accepted->uniqueId())->not->toBe($discovery->uniqueId());
 });
+
+it('drops a suggestion for an account the user has already connected by another route', function () {
+    // The live dev row this reproduces (intent 154b947d, 2026-08-19):
+    // shopify.store / 11461296187 / https://natalieanne.com/ sat 'proposed'
+    // in the inbox while a connection with that exact resource_id already
+    // existed. resolveSwapIncumbent() only ever ran for 'cap_reached', so a
+    // proposed intent recorded BEFORE the user connected the same account
+    // through the connect sheet was never re-checked and stayed forever.
+    $pro = createTenant('inbox-already-connected');
+    seedIntent($pro->id, [
+        'surface_key' => 'shopify.store', 'routing_class' => 'shop',
+        'identifier' => '11461296187', 'canonical_url' => 'https://natalieanne.com/',
+        'block_reason' => 'below_threshold',
+    ]);
+    // A second, genuinely unconnected suggestion — the filter must remove one
+    // card, not empty the inbox.
+    seedIntent($pro->id, ['identifier' => 'not-connected-yet']);
+
+    IntegrationConnection::query()->create([
+        'user_id' => $pro->id,
+        'platform' => 'shopify',
+        'surface_key' => 'shopify.store',
+        'routing_class' => 'shop',
+        'resource_id' => '11461296187',
+        'payload' => [],
+    ]);
+
+    $suggestions = actingAsUser($pro)->getJson('/api/routing/suggestions')->assertOk()->json('suggestions');
+
+    expect(collect($suggestions)->pluck('surfaceKey'))->not->toContain('shopify.store')
+        ->and(collect($suggestions)->pluck('identifier'))->toContain('not-connected-yet');
+});
+
+it('folds case when deciding a suggestion is already connected (M-7 surfaces)', function () {
+    // tiktok.profile is on ConnectionIdentity's case-fold allowlist, so
+    // @STALi and @stali are the same account and must not be re-offered.
+    $pro = createTenant('inbox-already-connected-case');
+    seedIntent($pro->id, [
+        'surface_key' => 'tiktok.profile', 'routing_class' => 'social',
+        'identifier' => 'STALi', 'canonical_url' => 'https://www.tiktok.com/@STALi',
+    ]);
+
+    IntegrationConnection::query()->create([
+        'user_id' => $pro->id,
+        'platform' => 'tiktok',
+        'surface_key' => 'tiktok.profile',
+        'routing_class' => 'social',
+        'resource_id' => 'stali',
+        'payload' => [],
+    ]);
+
+    expect(actingAsUser($pro)->getJson('/api/routing/suggestions')->assertOk()->json('suggestions'))
+        ->toBe([]);
+});
