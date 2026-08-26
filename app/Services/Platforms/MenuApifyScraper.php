@@ -409,12 +409,33 @@ class MenuApifyScraper
         // the fuller menu), so a dish missing from one mode still appears.
         $base = $this->itemCount($deliveryMenu) >= $this->itemCount($pickupMenu) ? $deliveryMenu : $pickupMenu;
 
-        $base['categories'] = array_map(function (array $cat) use ($pickupMap, $deliveryMap) {
-            $cat['items'] = array_map(function (array $item) use ($pickupMap, $deliveryMap) {
+        // Identity is UNIONED across both mode scrapes (2026-08-26): memo23's
+        // includeItemCustomizations output is flaky per run — live evidence
+        // the day it shipped: one mode scrape returned itemUuid/href for 0/82
+        // items and the other for 34/82 (the verification run had 82/82) — so
+        // a dish whose base-mode row lacks its id/link gap-fills from the
+        // other mode's row (matched by name — the id side is the one that's
+        // missing). Coverage is logged so actor flakiness stays visible.
+        $identity = $this->identityMap($pickupMenu) + $this->identityMap($deliveryMenu);
+
+        $base['categories'] = array_map(function (array $cat) use ($pickupMap, $deliveryMap, $identity) {
+            $cat['items'] = array_map(function (array $item) use ($pickupMap, $deliveryMap, $identity) {
+                // id-key first, name-key fallback: when the actor returns
+                // ids for only ONE mode's scrape (its flaky-identity failure,
+                // 2026-08-26), an id-only lookup would silently lose the
+                // other mode's price for every id-carrying item.
                 $key = $this->itemKey($item);
-                $item['pickupPrice'] = $pickupMap[$key] ?? null;
-                $item['deliveryPrice'] = $deliveryMap[$key] ?? null;
+                $nameKey = 'name:'.$this->nameKey($item);
+                $item['pickupPrice'] = $pickupMap[$key] ?? $pickupMap[$nameKey] ?? null;
+                $item['deliveryPrice'] = $deliveryMap[$key] ?? $deliveryMap[$nameKey] ?? null;
                 unset($item['price']);
+
+                $donor = $identity[$this->nameKey($item)] ?? null;
+                if ($donor !== null) {
+                    $item['itemUrl'] = $item['itemUrl'] ?? $donor['itemUrl'];
+                    $item['externalId'] = $item['externalId'] ?? $donor['externalId'];
+                    $item['soldOut'] = $item['soldOut'] ?? $donor['soldOut'];
+                }
 
                 return $item;
             }, $cat['items']);
@@ -422,7 +443,58 @@ class MenuApifyScraper
             return $cat;
         }, $base['categories']);
 
+        $this->logIdentityCoverage($base);
+
         return $base;
+    }
+
+    /**
+     * name-key => the per-item identity fields a mode scrape carried. Keyed by
+     * NAME (not itemKey) deliberately: the row that needs the donor is the one
+     * MISSING its external id, so an id-first key could never pair them.
+     *
+     * @return array<string, array{itemUrl:?string, externalId:?string, soldOut:?bool}>
+     */
+    private function identityMap(array $menu): array
+    {
+        $map = [];
+        foreach ($menu['categories'] as $cat) {
+            foreach ($cat['items'] as $item) {
+                if (($item['itemUrl'] ?? null) === null && ($item['externalId'] ?? null) === null && ($item['soldOut'] ?? null) === null) {
+                    continue;
+                }
+                $map[$this->nameKey($item)] ??= [
+                    'itemUrl' => $item['itemUrl'] ?? null,
+                    'externalId' => $item['externalId'] ?? null,
+                    'soldOut' => $item['soldOut'] ?? null,
+                ];
+            }
+        }
+
+        return $map;
+    }
+
+    private function nameKey(array $item): string
+    {
+        return mb_strtolower(trim((string) ($item['name'] ?? '')));
+    }
+
+    /** Visibility for actor identity flakiness — never affects the result. */
+    private function logIdentityCoverage(array $menu): void
+    {
+        $total = 0;
+        $withId = 0;
+        foreach ($menu['categories'] as $cat) {
+            foreach ($cat['items'] as $item) {
+                $total++;
+                if (($item['externalId'] ?? null) !== null || ($item['itemUrl'] ?? null) !== null) {
+                    $withId++;
+                }
+            }
+        }
+        if ($total > 0 && $withId < $total) {
+            Log::info('menu.item_identity_partial', ['total' => $total, 'with_identity' => $withId]);
+        }
     }
 
     /**
@@ -441,8 +513,10 @@ class MenuApifyScraper
                 if (! is_numeric($price)) {
                     continue;
                 }
-                $key = $this->itemKey($item);
-                $map[$key] ??= (float) $price;
+                // Registered under BOTH keys so a lookup succeeds whichever
+                // side of the id-asymmetry this scrape sat on.
+                $map[$this->itemKey($item)] ??= (float) $price;
+                $map['name:'.$this->nameKey($item)] ??= (float) $price;
             }
         }
 
