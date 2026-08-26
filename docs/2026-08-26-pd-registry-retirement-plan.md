@@ -298,3 +298,69 @@ fresha, square booking, opentable/resdiary/nowbookit, google-business, apple rou
 Shrink `handWrittenFreeze()`; delete `upgrades()` if nothing left; provider reduced to singleton + derivation + bindings; sweep orphaned `feature_availability` rows and `config('partna.refresh.*')` keys per batch; doc sweep; final full-roster regression + final registry:dump archived.
 
 Harness baselines live in the session scratchpad; regenerate a fresh baseline with `php artisan registry:dump` BEFORE each phase — do not trust stale files across sessions.
+
+---
+
+## RUN CHECKPOINT — 2026-08-27 overnight (P4 COMPLETE)
+
+**Vimeo canary gate CLOSED:** merged to development (79faa511d, deploy
+succeeded), live-verified on dev — the derived descriptor ran VimeoFetch
+end-to-end with correct unavailable-bookkeeping; `vimeo_no_videos` is an
+UPSTREAM vimeo Simple API deprecation (API returns `[]` with HTTP 200 for
+motionarray AND blender, reproduced from a residential IP; blender had
+been failing identically since 08-18 under the hand-written descriptor) —
+not a P4 regression. All 6 vimeo routes live on dev; dev logs clean.
+Fresh-eyes Sonnet critic on the canary diff: CLEAN on all five risk areas
+(contract drift, seam ordering, url-detector coverage, the 3 regression
+fixes, coverage-test spots).
+
+**P4 remainder SHIPPED (9 platforms, one commit each):** bandcamp,
+youtube, youtube-music, apple-music (+ the bare-base refactor, below),
+apple-podcast, spotify, soundcloud, eventbrite, humanitix. Per-platform
+harness diff: ONLY that slug, only `derived false→true` + `surface_key
+null→<real key>`. Whole-P4 diff vs the canary baseline: exactly the 9
+intended slugs. Registry suites 41-green at every step.
+
+**Design correction found by the harness (apple-music):** the
+override-last seam leaked Brand defaults (BrandLinkConnect + its 422
+copy) onto binding slugs whose hand-written entries never carried a
+connect strategy. BEHAVIOUR_BINDINGS slugs now derive a BARE base
+(slug/label/derived/surfaceKey) and the binding attaches the ENTIRE
+contract; vimeo/bandcamp/youtube/youtube-music re-proven byte-identical
+under the bare path. Eventbrite/humanitix keep their null resource and
+their HostMatch detectors THROUGH the bindings (detect rides derivation).
+
+**Pre-existing breakage found and fixed on the way (all verified
+pre-dating tonight at 79faa511d):**
+1. `bootstrap/catalog/compiled.php` was STALE in git — P2's skool
+   connectable flip never landed in the committed artefact, so every
+   artefact-booted environment (dev included; deploys never recompile)
+   had skool VAPORIZED from the registry since the P2 deploy. Recompiled
+   + committed (one flag + digest).
+2. `HostSpoofingHotfixTest` still asserted the P1-retired quandoo
+   registry detector; rewritten against the detectors that remain
+   (booking fresha/square + events eventbrite).
+3. **The full suite has been silently dying since c13c4bd14 (01:23):**
+   that commit added `$failedPlatforms` to `MenuFetchJob::persist()` but
+   MenuTest's anonymous-class override kept the old signature — an
+   incompatible-declaration FATAL killed pest with exit 2 and NO output
+   the moment MenuTest compiled, so every "full suite" run since then
+   ended ~1400 tests early with no summary. Bisected, fixed; MenuTest
+   64-green. (The prior checkpoint's "full suite green" claims after
+   01:23 were artifacts of this.)
+4. `composer analyse` had 18 standing errors (all pre-dating tonight):
+   registry:dump's always-true `has_fetch` now reports fetchStrategy()
+   presence; stale array-shape docblocks, provably-redundant guards, and
+   one stale UberEats baseline entry cleaned. Analyse green.
+
+**P5 scouting notes (for the next session):** google_business surface is
+`notConnectable()` → its retirement needs the candidates() relaxation
+extended to BEHAVIOUR_BINDINGS slugs (GB has detectors; the connectable
+gate is the blocker). `shop` has NO catalog surface (family descriptor,
+not in the legacy map / freeze) — staying hand-written may be the correct
+end state; decide with evidence. ProviderDetector deletion must rework
+HostSpoofingHotfixTest again (it now pins detectFor booking) and replace
+GoogleBusinessAutoSync:374's fresha/square special-case classification.
+opentable/resdiary/nowbookit ServiceMatch closures should resolve their
+services lazily (`app()` inside the closure) instead of the provider's
+boot-time `$this->app->make()`.

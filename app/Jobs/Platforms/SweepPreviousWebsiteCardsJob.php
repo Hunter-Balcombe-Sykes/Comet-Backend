@@ -37,10 +37,24 @@ class SweepPreviousWebsiteCardsJob implements ShouldQueue
 
     public int $tries = 2;
 
+    /** One retry a minute later — a transient DB blip clears; anything else fails loud below. */
+    public array $backoff = [60];
+
     public function __construct(
         public readonly string $userId,
         public readonly string $previousWebsite,
     ) {}
+
+    public function failed(\Throwable $e): void
+    {
+        report($e);
+        Log::error('SweepPreviousWebsiteCardsJob: sweep exhausted retries — scrape-seeded cards for the owner\'s previous website may still be live', [
+            'user_id' => $this->userId,
+            'previous_website' => $this->previousWebsite,
+            'error' => $e->getMessage(),
+            'exception' => get_class($e),
+        ]);
+    }
 
     public function handle(): void
     {

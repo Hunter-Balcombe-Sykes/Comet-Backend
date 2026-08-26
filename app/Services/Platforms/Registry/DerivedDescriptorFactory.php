@@ -290,6 +290,25 @@ class DerivedDescriptorFactory
 
         $label = $this->labelFor($slug, $surface, $brand);
 
+        // P4 (2026-08-27): a platform with a behavioural binding derives a
+        // BARE base — slug, label, derived, surface key — and its Bindings
+        // class attaches the ENTIRE contract verbatim (resource, payload,
+        // strategies, toggles, cadence, route shape). No Brand defaults are
+        // applied first: platforms whose hand-written entries carried no
+        // connect strategy or resource (apple-music, eventbrite, humanitix)
+        // must not inherit BrandLinkConnect/LinkConnectionResource from the
+        // generic path — the registry:dump harness is what catches that.
+        $bindingClass = self::BEHAVIOUR_BINDINGS[$slug] ?? null;
+        if ($bindingClass !== null) {
+            $descriptor = PlatformDescriptor::make($slug)
+                ->label($label)
+                ->derived()
+                ->surfaceKey($surfaceKey);
+            $bindingClass::configure($descriptor);
+
+            return $descriptor;
+        }
+
         // P3 (2026-08-27): the two keyless music embeds keep their payload/
         // resource contract through derivation — everything else about them
         // is the Brand default their upgrades()-era descriptors already had.
@@ -335,28 +354,26 @@ class DerivedDescriptorFactory
             $descriptor->category($category);
         }
 
-        // P4 (2026-08-27): a platform with a behavioural binding gets its full
-        // contract — resource, payload, fetch/connect strategies, deferred
-        // connect, toggles, refresh cadence, route shape — attached from its
-        // Bindings class: everything the monolithic provider used to mutate
-        // on after registration. The binding runs LAST so it may override any
-        // Brand default set above.
-        $bindingClass = self::BEHAVIOUR_BINDINGS[$slug] ?? null;
-        if ($bindingClass !== null) {
-            $bindingClass::configure($descriptor);
-        }
-
         return $descriptor;
     }
 
     /** slug => binding class attaching the platform's full behavioural contract (P4). */
     private const BEHAVIOUR_BINDINGS = [
+        'apple-music' => Bindings\AppleMusicBinding::class,
+        'apple-podcast' => Bindings\ApplePodcastBinding::class,
+        'bandcamp' => Bindings\BandcampBinding::class,
+        'eventbrite' => Bindings\EventbriteBinding::class,
+        'humanitix' => Bindings\HumanitixBinding::class,
+        'soundcloud' => Bindings\SoundcloudBinding::class,
+        'spotify' => Bindings\SpotifyBinding::class,
         'vimeo' => Bindings\VimeoBinding::class,
+        'youtube' => Bindings\YoutubeBinding::class,
+        'youtube-music' => Bindings\YoutubeMusicBinding::class,
     ];
 
     /**
      * @param  array<string, mixed>  $surface
-     * @param  array{label: string, normalizer: ?class-string, error: ?string, category: ?PlatformCategory}  $binding
+     * @param  array{label: string, normalizer: ?class-string, error: ?string, category: ?PlatformCategory, field: ?string, max: ?int}  $binding
      */
     private function linkOnlyDescriptor(string $slug, string $surfaceKey, array $surface, array $binding): PlatformDescriptor
     {

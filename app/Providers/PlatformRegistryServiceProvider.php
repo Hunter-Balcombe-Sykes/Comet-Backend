@@ -3,9 +3,6 @@
 namespace App\Providers;
 
 use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
-use App\Http\Resources\Platforms\AppleMusicConnectionResource;
-use App\Http\Resources\Platforms\ApplePodcastConnectionResource;
-use App\Http\Resources\Platforms\BandcampConnectionResource;
 use App\Http\Resources\Platforms\FreshaSelectionResource;
 use App\Http\Resources\Platforms\GoogleBusinessConnectionResource;
 use App\Http\Resources\Platforms\InstagramConnectionResource;
@@ -16,28 +13,20 @@ use App\Http\Resources\Platforms\OpenTableConnectionResource;
 use App\Http\Resources\Platforms\ResDiaryConnectionResource;
 use App\Http\Resources\Platforms\ShopBrandResource;
 use App\Http\Resources\Platforms\TileConnectionResource;
-use App\Http\Resources\Platforms\YoutubeConnectionResource;
-use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
 use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Jobs\Platforms\ThrottledByProvider;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
-use App\Services\Platforms\AppleSearch;
-use App\Services\Platforms\BandcampScraper;
-use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\FreshaAutoSelector;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\GoogleBusinessService;
-use App\Services\Platforms\HumanitixScraper;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\NowBookitService;
-use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\OpenTableService;
 use App\Services\Platforms\Payloads\CardPayload;
-use App\Services\Platforms\Payloads\EventsAccountPayload;
 use App\Services\Platforms\Payloads\FeedPayload;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
@@ -50,31 +39,17 @@ use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Registry\PlatformRouteShape;
 use App\Services\Platforms\ResDiaryService;
 use App\Services\Platforms\ShopCatalog;
-use App\Services\Platforms\Strategies\Connect\BandcampConnect;
 use App\Services\Platforms\Strategies\Connect\BrandLinkConnect;
 use App\Services\Platforms\Strategies\Connect\NowBookitConnect;
 use App\Services\Platforms\Strategies\Connect\OpenTableConnect;
 use App\Services\Platforms\Strategies\Connect\ResDiaryConnect;
-use App\Services\Platforms\Strategies\Connect\SoundcloudConnect;
-use App\Services\Platforms\Strategies\Connect\SpotifyConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
-use App\Services\Platforms\Strategies\Connect\YoutubeConnect;
-use App\Services\Platforms\Strategies\Connect\YoutubeMusicConnect;
 use App\Services\Platforms\Strategies\Detect\HostMatch;
 use App\Services\Platforms\Strategies\Detect\ServiceMatch;
-use App\Services\Platforms\Strategies\Fetch\AppleMusicFetch;
-use App\Services\Platforms\Strategies\Fetch\ApplePodcastFetch;
-use App\Services\Platforms\Strategies\Fetch\BandcampFetch;
-use App\Services\Platforms\Strategies\Fetch\EventbriteFetch;
 use App\Services\Platforms\Strategies\Fetch\FreshaConnectFetch;
 use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
-use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
-use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
-use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
-use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
-use App\Services\Platforms\YoutubeScraper;
 use App\Services\Shop\ShopConnections;
 use App\Site\Pools\PoolResolver;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -103,105 +78,37 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // Brand connect onto the strategy-less ones exactly as it did
             // when they were hand-written.
             // ── oEmbed music (MusicEmbedConnectionResource, refreshable) ──
-            foreach (['spotify' => 'Spotify', 'soundcloud' => 'SoundCloud'] as $key => $label) {
-                $r->register(PD::oEmbed($key, $label, MusicEmbedConnectionResource::class));
-            }
+            // spotify: retired to a catalog-derived descriptor (P4,
+            // 2026-08-27) — its full behavioural contract attaches from
+            // Registry\Bindings\SpotifyBinding.
+            // soundcloud: retired to a catalog-derived descriptor (P4,
+            // 2026-08-27) — its full behavioural contract attaches from
+            // Registry\Bindings\SoundcloudBinding.
             // mixcloud + tidal: retired to catalog-derived descriptors (P3,
             // 2026-08-27) — the factory's embed overrides keep their
             // EmbedPayload + MusicEmbedConnectionResource contract.
 
-            // Attach the live fetch strategies (Plan 3a). Consumed by Plan 6's
-            // registry-driven refresher. Each is a lazy factory: the scraper/API
-            // client resolves at fetch-time, not when the registry is built (the
-            // registry is built at boot to emit routes — see PlatformDescriptor::fetch).
-            $r->get('spotify')->fetch(fn () => new OEmbedFetch(
-                app(OEmbedService::class), fn (string $link) => 'https://open.spotify.com/oembed?url='.rawurlencode($link), 'spotify',
-            ));
-            $r->get('soundcloud')->fetch(fn () => new OEmbedFetch(
-                app(OEmbedService::class), fn (string $link) => 'https://soundcloud.com/oembed?format=json&url='.rawurlencode($link), 'soundcloud',
-            ));
-
-            // Connect strategies (FOUND-24) — parse-fail messages are the frozen
-            // 422 contract, copied verbatim from the deleted controllers.
-            $r->get('spotify')->connect(fn () => new SpotifyConnect(app(OEmbedService::class)), 'Enter a Spotify link (open.spotify.com/artist/...).');
-            // Deferred-connect seam (Phase 2, W4) — SpotifyConnect implements
-            // DeferredConnect. Message copied verbatim from resolve()'s
-            // fetch-stage failure.
-            $r->get('spotify')->deferredConnect()->connectFetchError('Could not load that Spotify link.');
-            $r->get('soundcloud')->connect(fn () => new SoundcloudConnect(app(OEmbedService::class)), 'Enter your SoundCloud link (soundcloud.com/yourname).');
-
             // ── Scraped / API feed (per-platform resources, refreshable) ──
-            $r->register(PD::make('youtube')->label('YouTube')->category(Cat::Content)->resource(YoutubeConnectionResource::class)->refreshable()
-                ->payload(FeedPayload::class));
-            // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
-            $r->get('youtube')->fetch(fn () => new YoutubeFetch(
-                app(YoutubeScraper::class),
-            ));
-            // Connect strategy (FOUND-24, Task 7) — moved verbatim from the
-            // deleted YoutubeController; parse-fail message is the frozen
-            // 422 contract.
-            $r->get('youtube')->connect(fn () => new YoutubeConnect(app(YoutubeScraper::class)), 'Enter your YouTube channel.');
-            // Deferred-connect seam (Phase 2, W4) — YoutubeConnect implements
-            // DeferredConnect. Message copied verbatim from resolve()'s
-            // fetch-stage failure.
-            $r->get('youtube')->deferredConnect()->connectFetchError('Could not find that YouTube channel or its latest video.');
-            $r->register(PD::make('youtube-music')->label('YouTube Music')->category(Cat::Music)->resource(YoutubeMusicConnectionResource::class)->refreshable()
-                ->payload(FeedPayload::class));
-            // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
-            $r->get('youtube-music')->fetch(fn () => new YoutubeMusicFetch(
-                app(YoutubeScraper::class),
-            ));
-            // Connect strategy (FOUND-24, Task 8) — moved verbatim from
-            // the deleted YoutubeMusicController; parse-fail message is the frozen 422
-            // contract.
-            $r->get('youtube-music')->connect(fn () => new YoutubeMusicConnect(app(YoutubeScraper::class)), 'Enter your YouTube Music artist URL (music.youtube.com/channel/…) or your channel @handle.');
-            // Deferred-connect seam (Phase 2, W4) — YoutubeMusicConnect
-            // implements DeferredConnect. Message copied verbatim from
-            // resolve()'s fetch-stage failure.
-            $r->get('youtube-music')->deferredConnect()->connectFetchError('Could not load releases for that channel.');
+            // youtube: retired to a catalog-derived descriptor (P4,
+            // 2026-08-27) — its full behavioural contract attaches from
+            // Registry\Bindings\YoutubeBinding.
+            // youtube-music: retired to a catalog-derived descriptor (P4,
+            // 2026-08-27) — its full behavioural contract attaches from
+            // Registry\Bindings\YoutubeMusicBinding.
             // vimeo: retired to a catalog-derived descriptor (P4 canary,
             // 2026-08-27) — its full behavioural contract attaches from
             // Registry\Bindings\VimeoBinding.
-            $r->register(PD::make('bandcamp')->label('Bandcamp')->category(Cat::Music)->resource(BandcampConnectionResource::class)->refreshable()
-                ->payload(FeedPayload::class));
-            // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
-            $r->get('bandcamp')->fetch(fn () => new BandcampFetch(
-                app(BandcampScraper::class),
-            ));
-            // Connect strategy (FOUND-24, Task 9) — moved verbatim from the
-            // deleted BandcampController.
-            $r->get('bandcamp')->connect(fn () => new BandcampConnect(app(BandcampScraper::class)), 'Enter your Bandcamp page URL (yourname.bandcamp.com).');
-            // Deferred-connect seam (Phase 2, W4) — BandcampConnect implements
-            // DeferredConnect. Message copied verbatim from resolve()'s
-            // fetch-stage failure.
-            $r->get('bandcamp')->deferredConnect()->connectFetchError('Could not find releases on that Bandcamp page.');
-            $r->register(PD::make('apple-music')->label('Apple Music')->category(Cat::Music)->resource(AppleMusicConnectionResource::class)->refreshable()
-                ->payload(FeedPayload::class));
-            // Attach feed fetch strategy (Plan 3b / Task 8). Consumed by Plan 6's registry-driven refresher.
-            $r->get('apple-music')->fetch(fn () => new AppleMusicFetch(
-                app(AppleSearch::class),
-            ));
-            // CA-W3: the message ConnectFetchJob stores on the row when the
-            // deferred fetch fails — verbatim from connectFor()'s own synchronous
-            // 404 message. Deliberately NOT ->deferredConnect(): that flag means
-            // "this descriptor's ConnectStrategy implements DeferredConnect"
-            // (RegistryConnectCoverageTest pins flag<=>instanceof for every
-            // descriptor), but Apple has no ConnectStrategy at all — its connect
-            // is bespoke (AppleController::connectFor(), via DefersBespokeConnect),
-            // never routed through ConnectResolver/GenericPlatformController. The
-            // rollout flag check (config('partna.connect.deferred')) is read
-            // directly by DefersBespokeConnect::shouldDeferConnect(), not via
-            // supportsDeferredConnect() — so setting that flag here would just be
-            // a false claim that breaks the pinned invariant for no functional gain.
-            $r->get('apple-music')->connectFetchError('Could not find that Apple Music artist or an album.');
-            $r->register(PD::make('apple-podcast')->label('Apple Podcasts')->category(Cat::Content)->resource(ApplePodcastConnectionResource::class)->refreshable()
-                ->payload(FeedPayload::class));
-            // Attach feed fetch strategy (Plan 3b / Task 8). Consumed by Plan 6's registry-driven refresher.
-            $r->get('apple-podcast')->fetch(fn () => new ApplePodcastFetch(
-                app(AppleSearch::class),
-            ));
-            // CA-W3 — see apple-music's identical note above.
-            $r->get('apple-podcast')->connectFetchError('Could not find that Apple Podcast or an episode.');
+            // bandcamp: retired to a catalog-derived descriptor (P4,
+            // 2026-08-27) — its full behavioural contract attaches from
+            // Registry\Bindings\BandcampBinding.
+            // apple-music: retired to a catalog-derived descriptor (P4,
+            // 2026-08-27) — its full behavioural contract (including the
+            // CA-W3 no-deferredConnect ruling) attaches from
+            // Registry\Bindings\AppleMusicBinding.
+            // apple-podcast: retired to a catalog-derived descriptor (P4,
+            // 2026-08-27) — its full behavioural contract (including the
+            // CA-W3 no-deferredConnect ruling) attaches from
+            // Registry\Bindings\ApplePodcastBinding.
             $r->register(PD::make('google-business')->label('Google Business')->category(Cat::Business)->resource(GoogleBusinessConnectionResource::class)->refreshable()->payload(GoogleBusinessPayload::class));
             // Attach fetch strategy (Plan 3b). GoogleBusinessPayload is verbatim-preserving
             // (variable key set via array_intersect_key) — read paths migrated in Plan 5.
@@ -211,20 +118,12 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('instagram')->label('Instagram')->category(Cat::Social)->resource(InstagramConnectionResource::class)->payload(InstagramPayload::class)); // refresh = paid Apify, not in cron
 
             // ── Events (refreshable; organiser accounts + standalone events) ──
-            $r->register(PD::make('eventbrite')->label('Eventbrite')->category(Cat::Events)->refreshable()->payload(EventsAccountPayload::class));
-            $r->register(PD::make('humanitix')->label('Humanitix')->category(Cat::Events)->refreshable()->payload(EventsAccountPayload::class));
-            // Attach the live event fetch strategies (Plan 6). Consumed by the registry-driven refresher.
-            $r->get('eventbrite')->fetch(fn () => new EventbriteFetch(app(EventbriteScraper::class)));
-            $r->get('humanitix')->fetch(fn () => new HumanitixFetch(app(HumanitixScraper::class)));
-            // CA-W5 — see apple-music's identical note above: the message
-            // ConnectFetchJob stores when the deferred scrape fails, verbatim
-            // from addAccount()'s own synchronous 422. Deliberately NOT
-            // ->deferredConnect() — neither descriptor has a ConnectStrategy
-            // (their connect is bespoke, via DefersBespokeConnect), so that flag
-            // would falsely claim one exists (RegistryConnectCoverageTest pins
-            // flag<=>instanceof for every descriptor).
-            $r->get('eventbrite')->connectFetchError('Could not load that Eventbrite page.');
-            $r->get('humanitix')->connectFetchError('Could not load that Humanitix page.');
+            // eventbrite: retired to a catalog-derived descriptor (P4,
+            // 2026-08-27) — its full behavioural contract (including the
+            // CA-W5 no-deferredConnect ruling and its smart-detect matcher)
+            // attaches from Registry\Bindings\EventbriteBinding.
+            // humanitix: retired to a catalog-derived descriptor (P4,
+            // 2026-08-27) — same shape, via Registry\Bindings\HumanitixBinding.
             // 'events-custom' left the registry 2026-08-19 with the
             // pseudo-platform retirement: a standalone event is an events-pool
             // item (ManualEventWriter), never a connection row.
@@ -298,9 +197,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('opentable')->detect(new ServiceMatch(fn (string $u) => $openTable->isOpenTableUrl($u)));
             $r->get('resdiary')->detect(new ServiceMatch(fn (string $u) => $resDiary->isResDiaryUrl($u)));
             $r->get('nowbookit')->detect(new ServiceMatch(fn (string $u) => $nowBookit->isNowBookitUrl($u)));
-            // Events: Eventbrite has regional TLDs; Humanitix is single-domain.
-            $r->get('eventbrite')->detect(new HostMatch('~(^|\.)eventbrite\.(com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|pt|ie|at|ch|dk|fi|se|be|sg|hk|com\.br|com\.mx|com\.ar|com\.pe|cl)$~'));
-            $r->get('humanitix')->detect(new HostMatch('~(^|\.)humanitix\.com$~'));
+            // Events: both event platforms' matchers ride their bindings now.
 
             // ── 2026-07-26 Platform expansion: Booking detect-only ──
             // ── PD-retirement P1 (2026-08-27): the 23 detect-only card
@@ -373,22 +270,13 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // (multi-field) and keeps ConnectGoogleBusinessRequest.
 
             // url-shaped (17). The max differs per platform — these are NOT uniform.
-            $r->get('bandcamp')->connectInput('url', ['required', 'string', 'max:500']);
-            $r->get('eventbrite')->connectInput('url', ['required', 'string', 'max:500']);
             $r->get('fresha')->connectInput('url', ['required', 'string', 'max:500', 'regex:#^https?://(www\.)?fresha\.com/(?:[a-z]{2,3}(-[a-z]{2})?/)?a/[a-z0-9-]+/?$#i'], [], true);
-            $r->get('humanitix')->connectInput('url', ['required', 'string', 'max:500']);
             $r->get('nowbookit')->connectInput('url', ['required', 'string', 'max:2048']);
             $r->get('opentable')->connectInput('url', ['required', 'string', 'max:2048']);
             $r->get('resdiary')->connectInput('url', ['required', 'string', 'max:2048']);
-            $r->get('soundcloud')->connectInput('url', ['required', 'string', 'max:500']);
-            $r->get('spotify')->connectInput('url', ['required', 'string', 'max:500']);
             $r->get('square')->connectInput('url', ['required', 'string', 'max:1000', 'regex:#^https?://([a-z0-9-]+\.)*(squareup\.com|square\.site)(/[^\s]*)?$#i'], ['url.regex' => 'Enter a valid Square booking link (a squareup.com or square.site URL).'], true);
-            $r->get('youtube-music')->connectInput('url', ['required', 'string', 'max:300']);
 
             // single-named-field (3 distinct + 11 socials share 'username').
-            $r->get('apple-music')->connectInput('artist', ['required', 'string', 'max:200']);
-            $r->get('apple-podcast')->connectInput('show', ['required', 'string', 'max:200']);
-            $r->get('youtube')->connectInput('channel', ['required', 'string', 'max:200']);
             // P2: the retired link-only platforms' connect inputs (username
             // for the 11 socials; url for skool/strava/twitch with their
             // historical maxes) ride LinkOnlyBindings into the derived
@@ -417,69 +305,17 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             ]);
 
             // The pools' auto half (2026-08-05): every source with a
-            // time-ordered item stream carries the SAME toggle. Read at pool
-            // resolve time (latest_per_auto_source), NOT as a fetch gate —
-            // syncing keeps filling the library either way; the switch only
-            // decides whether the newest item auto-joins the site.
-            $r->get('youtube')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Latest video', 'description' => 'Your newest upload joins your site automatically.'],
-            ]);
-            // Listen restructure (owner, 2026-08-18): each switch names the
-            // FORMAT it publishes. YouTube Music's Topic-channel uploads are
-            // songs, so its switch is the track one; Apple Music emits both.
-            $r->get('youtube-music')->displayToggles([
-                ['key' => 'auto_sync_latest_track', 'label' => 'Newest track', 'description' => 'Your newest song joins your site automatically.'],
-            ]);
-            $r->get('apple-music')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Newest release', 'description' => 'Your newest album, EP or single joins your site automatically.'],
-                ['key' => 'auto_sync_latest_track', 'label' => 'Newest song', 'description' => 'Your newest song joins your site automatically.'],
-            ]);
-            $r->get('apple-podcast')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Newest episode', 'description' => 'Your newest episode joins your site automatically.'],
-            ]);
+            // time-ordered item stream carries the SAME auto_sync toggle. Read
+            // at pool resolve time (latest_per_auto_source), NOT as a fetch
+            // gate — syncing keeps filling the library either way; the switch
+            // only decides whether the newest item auto-joins the site.
             // Shop: the old site-wide shop_auto_latest column, same key, same
             // site-wide effect (AutoSyncSetting writes every store connection).
             $r->get('shop')->displayToggles([
                 ['key' => 'auto_sync_latest', 'label' => 'Latest products', 'description' => 'Each store keeps showing its newest products automatically.'],
             ]);
-            // Tickets & Events: per-user "auto sync latest from each organiser"
-            // switch. Not a payload-suppression toggle (no DisplaySettingsFilter
-            // entry) — the events FETCH strategies read it and 304 an account row
-            // when it's off, freezing the stored upcoming list while standalone
-            // event rows keep refreshing (sold-out/price freshness is separate).
-            // Declared per platform; the dashboard's single Tickets card PATCHes
-            // both eventbrite and humanitix together.
-            foreach (['eventbrite', 'humanitix'] as $eventsPlatform) {
-                $r->get($eventsPlatform)->displayToggles([
-                    ['key' => 'auto_sync_latest', 'label' => 'Auto sync latest from each organiser', 'description' => 'Automatically refresh each connected organiser\'s upcoming events.'],
-                ]);
-            }
-            // Bandcamp (Listen section): latest-tile sync. show_all_releases
-            // left with Featured (2026-08-06) — which releases appear is the
-            // Listen pool's selection now, not a wire-visibility switch.
-            // auto_sync_latest defaults ON and gates BandcampFetch's scheduled
-            // re-pull, mirroring the events toggle semantics.
-            $r->get('bandcamp')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Newest release', 'description' => 'Your newest album or single joins your site automatically.'],
-            ]);
-            // Spotify + SoundCloud source `track` items into the listen pool
-            // since convergence Phase 4, so their connections take the same
-            // sparse auto_sync_latest toggle every other sourcing platform
-            // has — without it PlatformSheet showed no Rules and the pool's
-            // latest_per_auto_source could never be switched off per source
-            // (overnight 2026-08-18, W2).
-            // Spotify also sources RELEASES (discography actor, listen
-            // restructure 2026-08-18), so it carries the same two switches
-            // Apple Music does — without the release key exposed the release
-            // arm was un-switchable and "Newest release" stayed on the site
-            // with Apple's + Bandcamp's switches both off (session 3, F27).
-            $r->get('spotify')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Newest release', 'description' => 'Your newest album, EP or single joins your site automatically.'],
-                ['key' => 'auto_sync_latest_track', 'label' => 'Newest track', 'description' => 'Your newest track joins your site automatically.'],
-            ]);
-            $r->get('soundcloud')->displayToggles([
-                ['key' => 'auto_sync_latest_track', 'label' => 'Newest track', 'description' => 'Your newest track joins your site automatically.'],
-            ]);
+            // Tickets & Events: the per-user "auto sync latest from each
+            // organiser" switches ride the eventbrite/humanitix bindings.
 
             // ── Refresh cadences ─────────────────────────────────────────────────
             // Per-platform re-fetch intervals for the hourly dispatcher; anything
@@ -489,15 +325,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // its fetch keeps a 40h internal freshness gate so ratings stay
             // ≤2 days stale instead of the old 6-day drift, while still
             // respecting Google's caching guidance.
-            $r->get('eventbrite')->refreshEvery((int) config('partna.refresh.intervals.eventbrite', 6 * 3600));
-            $r->get('humanitix')->refreshEvery((int) config('partna.refresh.intervals.humanitix', 6 * 3600));
-            $r->get('youtube')->refreshEvery((int) config('partna.refresh.intervals.youtube', 12 * 3600));
-            $r->get('youtube-music')->refreshEvery((int) config('partna.refresh.intervals.youtube-music', 12 * 3600));
-            $r->get('spotify')->refreshEvery((int) config('partna.refresh.intervals.spotify', 12 * 3600));
-            $r->get('soundcloud')->refreshEvery((int) config('partna.refresh.intervals.soundcloud', 12 * 3600));
-            $r->get('bandcamp')->refreshEvery((int) config('partna.refresh.intervals.bandcamp', 12 * 3600));
-            $r->get('apple-music')->refreshEvery((int) config('partna.refresh.intervals.apple-music', 12 * 3600));
-            $r->get('apple-podcast')->refreshEvery((int) config('partna.refresh.intervals.apple-podcast', 12 * 3600));
             $r->get('google-business')->refreshEvery((int) config('partna.refresh.intervals.google-business', 2 * 86400));
 
             // ── Route archetypes (FOUND-21) ─────────────────────────────────────
@@ -519,11 +346,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // deleted StravaController. OpenTable keeps its bespoke suggestion() endpoint
             // (routes/api/platforms.php) — it reads across platforms (Google Business),
             // which this generic shape has no seam for.
-            $r->get('spotify')->routes(PlatformRouteShape::MultiAccount, null, true);
-            $r->get('soundcloud')->routes(PlatformRouteShape::MultiAccount, null, true);
-            $r->get('youtube')->routes(PlatformRouteShape::MultiAccount, null, true);
-            $r->get('youtube-music')->routes(PlatformRouteShape::MultiAccount, null, true);
-            $r->get('bandcamp')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('resdiary')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('opentable')->routes(PlatformRouteShape::MultiAccount, null, false);

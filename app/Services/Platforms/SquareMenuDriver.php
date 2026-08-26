@@ -125,11 +125,11 @@ class SquareMenuDriver implements MenuHttpDriver, MenuPlatformDriver
             ];
         }
 
+        // Every $byCategory bucket is created by its first item, so none is
+        // ever empty — emit them all in first-seen order.
         $categories = [];
         foreach ($order as $category) {
-            if ($byCategory[$category] !== []) {
-                $categories[] = ['name' => $category, 'items' => $byCategory[$category]];
-            }
+            $categories[] = ['name' => $category, 'items' => $byCategory[$category]];
         }
 
         return $categories;
@@ -183,7 +183,7 @@ class SquareMenuDriver implements MenuHttpDriver, MenuPlatformDriver
     {
         for ($attempt = 1; $attempt <= self::FETCH_ATTEMPTS; $attempt++) {
             $result = $this->fetcher->tryFetch($storeUrl, ['User-Agent' => self::USER_AGENT]);
-            if ($result !== null && ($result['status'] ?? 0) < 400 && is_string($result['body'] ?? null)) {
+            if ($result !== null && $result['status'] < 400) {
                 return $result['body'];
             }
             if ($attempt < self::FETCH_ATTEMPTS) {

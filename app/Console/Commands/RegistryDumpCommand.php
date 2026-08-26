@@ -41,7 +41,7 @@ class RegistryDumpCommand extends Command
                 'multi_account' => $d->multiAccount(),
                 'has_detect' => $d->detection() !== null,
                 'has_connect_strategy' => $d->connectStrategy() !== null,
-                'has_fetch' => $d->refreshStrategy() !== null,
+                'has_fetch' => $d->fetchStrategy() !== null,
                 'has_completeness' => $d->hasCompletenessPredicate(),
                 'display_toggles' => array_keys($d->displayToggleDefs()),
             ];

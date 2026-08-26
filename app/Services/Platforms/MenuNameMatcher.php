@@ -221,14 +221,15 @@ class MenuNameMatcher
 
     private function allGeneric(string $phrase): bool
     {
-        $tokens = explode(' ', $this->normalizeName($phrase));
-        foreach ($tokens as $token) {
+        // explode() never returns an empty list, so surviving the loop IS the
+        // all-generic answer.
+        foreach (explode(' ', $this->normalizeName($phrase)) as $token) {
             if ($token !== '' && ! $this->isGenericWord($token) && ! $this->isUnit($token)) {
                 return false;
             }
         }
 
-        return $tokens !== [];
+        return true;
     }
 
     /** Glue split number+unit pairs so "1.2L", "1.2l" and "1 2 l" key equal. */
