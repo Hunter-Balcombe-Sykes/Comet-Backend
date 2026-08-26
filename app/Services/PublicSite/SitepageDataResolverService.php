@@ -90,13 +90,11 @@ class SitepageDataResolverService
         // silently restore the empty-page behaviour.
         // Services — booking links.
         'fresha' => 'services', 'square' => 'services', 'booking' => 'services',
-        // Reservations — keyless reservation widgets (Business-only page).
-        'opentable' => 'reservations', 'resdiary' => 'reservations',
-        'nowbookit' => 'reservations', 'reservations' => 'reservations',
+        // Reservations/Strava/Skool grant no page since 2026-08-27 (the
+        // pages left the taxonomy) — those connections are lander/link
+        // destinations now, not page grantors.
         // Google Business feeds the Contact page.
         'google-business' => 'contact',
-        // Standalone social pages.
-        'strava' => 'strava', 'skool' => 'skool',
         // Custom links → the Links page. Link items are sourced from custom
         // connections, so a live custom connection means the Links page exists
         // (previously Links presence relied only on link Blocks, which missed

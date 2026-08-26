@@ -1103,7 +1103,12 @@ return [
         // Shop > Events > Contact > platforms > categories > items, and the
         // freshness term lifts anything new above its floor for ~2 weeks.
         'priors' => [
-            'page:reservations' => 0.30,
+            // The reservations PAGE left the taxonomy 2026-08-27; the Reserve
+            // intent's floor now rides the reservation platforms themselves
+            // (destination candidates since the same change).
+            'platform:opentable' => 0.30,
+            'platform:resdiary' => 0.30,
+            'platform:nowbookit' => 0.30,
             'page:services' => 0.28,
             'page:menu' => 0.28,
             'page:shop' => 0.15,
@@ -2991,10 +2996,9 @@ return [
         // AnalyticsQueryService::pageTitle().
         'page_titles' => [
             'home' => 'Home', 'listen' => 'Listen', 'watch' => 'Watch', 'shop' => 'Shop',
-            'menu' => 'Menu', 'book' => 'Book', 'reservations' => 'Reservations',
+            'menu' => 'Menu', 'book' => 'Book',
             'events' => 'Events', 'gallery' => 'Gallery', 'reviews' => 'Reviews',
-            'documents' => 'Documents', 'contact' => 'Contact',
-            'strava' => 'Strava', 'skool' => 'Skool', 'links' => 'Links',
+            'documents' => 'Documents', 'contact' => 'Contact', 'links' => 'Links',
         ],
     ],
 ];

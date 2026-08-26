@@ -40,6 +40,11 @@ final class OpentableBinding
             // Connect strategy (FOUND-24) — parse-fail message is the frozen 422 contract.
             ->connect(fn () => new OpenTableConnect(app(OpenTableService::class)), 'Enter an OpenTable restaurant link (opentable.com.au/...).')
             ->connectInput('url', ['required', 'string', 'max:2048'])
+            // Smart-scoring plan (2026-08-27): the reservations PAGE left the
+            // taxonomy, so a reservation widget is a public DESTINATION in its
+            // own right — the lander's Reserve action sends visitors straight
+            // to this URL (ActionCandidates reads this flag).
+            ->destination()
             ->requiresCapability(
                 static fn (User $user): bool => AccountCapabilities::for($user)->can_use_reservations
             )

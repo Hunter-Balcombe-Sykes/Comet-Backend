@@ -39,17 +39,18 @@ class ActionCandidates
 
     public const PAGE_LABELS = [
         'services' => 'Book',
-        'reservations' => 'Reserve',
         'menu' => 'Menu',
         'shop' => 'Shop',
         'events' => 'Events',
         'contact' => 'Contact',
     ];
 
-    /** Which page a SOURCE platform powers — by descriptor category, then by routing class. */
+    /** Which page a SOURCE platform powers — by descriptor category, then by
+     *  routing class. Reservations left both maps 2026-08-27: the page is
+     *  gone, and reservation platforms are DESTINATIONS now (their bindings
+     *  set the flag), so a visitor reserves at the platform's own URL. */
     private const CATEGORY_PAGE = [
         'booking' => 'services',
-        'reservations' => 'reservations',
         'events' => 'events',
         'shop' => 'shop',
         'business' => 'contact',
@@ -57,7 +58,6 @@ class ActionCandidates
 
     private const ROUTING_PAGE = [
         'booking' => 'services',
-        'reservations' => 'reservations',
         'events' => 'events',
         'shop' => 'shop',
     ];
