@@ -2754,3 +2754,149 @@ other unticked findings (`#SCALE-13`, `#SCALE-14`, etc.) outside this plan's sco
   1 shared cross-source key) produced a touched component of 6 — nowhere near the cap. §G.2's
   standing note (revisit before pilot if real components approach the hundreds) is unchanged by
   this measurement and should not be read as resolved by it.
+
+---
+
+## §H — The three follow-ups, triaged 2026-08-26
+
+Branch `fix/identity-scope-followups-2026-08-26`, off `development` at `bb237b6b5`.
+
+### H.1 Owner rulings on manual items apply late — FIXED
+
+`IdentityDecisionController::store()` found the sources to reproject through an INNER JOIN onto
+`ingest.sources.connection_id`. A manual `content.sources` row has no `connection_id`, and
+`NULL = NULL` is never true, so a ruling on two hand-added items matched nothing, `$sourceIds` was
+empty, and **nothing at all was dispatched**.
+
+§A.4 called this latency rather than correctness, and that grading was right but its *scale* was
+optimistic. "The owner sees their ruling take effect on the next sync" assumes a sync exists. For a
+kind fed only by hand-added items there is no scheduled connector run, so the next resolve comes
+only when the owner happens to write to that kind again — which may be never. The reachable
+outcome is "applies never", not "applies late".
+
+Fixed by partitioning rather than widening:
+
+- The join became a LEFT JOIN, so unmatched (manual) coords survive into the result instead of
+  being silently dropped. **The predicate must stay in the JOIN clause** — moving any `isrc.*`
+  condition into `WHERE` turns the LEFT JOIN back into an INNER JOIN and restores the bug exactly.
+- Coords that DID match keep dispatching `ReprojectSourcesJob` — unchanged behaviour.
+- Coords that did NOT match dispatch the new `App\Jobs\Content\ApplyIdentityDecisionJob`, which
+  calls the new `ProjectionWriter::resolveIdentityFor()` (a thin public seam over the existing
+  private `resolveItems()`), then refreshes the affected item caches and busts all three cache
+  lanes. Scoped to the unmatched coords only, so a mixed pair is not resolved twice under the same
+  per-`(user, kind)` advisory lock.
+- Both verdicts dispatch, matching what the connector lane has always done. A `different` ruling
+  is a no-op through this path today (see H.3), but a verdict-conditional would be a trap.
+
+Response gains a `resolving` count beside `reprojecting`. The endpoint is not in `docs/api.md`, so
+this is additive only.
+
+Pinned by `tests/Feature/Content/IdentityDecisionReprojectionTest.php` — five tests, route-level,
+including an end-to-end one that drives two real `writeManualItem()` items through the ruling and
+asserts the job actually merges them. Verified red before the fix.
+
+**Amended after review (2026-08-26).** Four findings, all acted on:
+
+- **`same` ONLY now dispatches.** The first cut dispatched on both verdicts "for symmetry". Review
+  supplied the cost: an owner triaging twenty pairs as `different` bought twenty pointless resolves
+  and forty CDN purges for a provably zero-diff outcome. The proof that `different` is a no-op here
+  is the same one in H.3 — a cut can only prevent a future union, and both entry points require two
+  DISTINCT items, so there is no merge to reverse. Symmetry lost the argument to a concrete cost.
+- **`refreshCachesFor()` is narrowed to the items the RULED coords resolved to.** It was being
+  handed every item in `$itemByCoord` — which, with `PARTNA_CONTENT_IDENTITY_SCOPE=false` (the
+  documented rollback), is the WHOLE `(user, kind)`: 3,000 item-cache refreshes to apply one ruling,
+  inside a 300s timeout on a single-process supervisor. `projectStream()` narrows the identical call
+  the same way under `#CACHE-4`.
+- **The lane-2 comment's stated rationale was wrong** and is rewritten. Restricting lane 2 to
+  unmatched coords does NOT shrink the resolve: `IdentityScope::component()` seeds from every coord
+  a live `same` ruling names, so the job walks the identical component either way. What it avoids is
+  dispatching a second job to redo what `ingest:project` already does.
+- **A pre-existing lossy-merge defect was surfaced — see H.4.** Not fixed here.
+
+### H.4 OPEN, found by review 2026-08-26 — a manual merge loses the loser's facets
+
+`mergeInto()` hard-deletes the discarded item unless it carries `section_items`/`manual_overrides`
+curation, and every facet table FKs `content.items(id) **ON DELETE CASCADE**` (verified in
+`supabase/migrations/20260727140000_content_schema.sql`: `f_text`:189, `f_link`:199,
+`item_media`:372). `mergeInto()` moves `item_links` and `item_slugs` explicitly — `moveLinks()`'s
+docblock says why: *"no projection ever rewrites them, so the cascade on items.id would lose them
+for good."* **The facets have exactly that property on the manual lane and are not moved.**
+
+On the connector lane this is harmless: `ReprojectSourcesJob` replays `writeFacets()` under the kept
+id. A manual coord has nothing to replay, so the loser's cover image, offers and tags are gone
+permanently. Owner hand-adds two releases each with a cover, rules them `same` → survivor keeps one
+cover, the other is unrecoverable.
+
+**Not introduced by H.1, and not fixed by it.** The merge runs in `resolveItemsLocked()`, the
+identical path `writeManualItem()` already drives; before H.1 the same ruling produced the same
+merge and the same loss at the owner's next hand-add to that kind, because `IdentityScope` seeds
+from live `same` rulings. H.1 changes WHEN, not WHETHER. It does, however, make the ruling reliably
+apply, so the latent loss becomes reliably reachable — which is the honest reason to raise it now
+rather than file it quietly.
+
+**Deliberately not bundled.** The fix is to move the loser's collection facets in `mergeInto()`,
+which changes the merge path for the connector lane too. That is a hard-delete path on the identity
+spine, and `CLAUDE.md`'s opportunistic-fix bounds put it in its own unit with its own review.
+Recorded in `ApplyIdentityDecisionJob`'s class docblock so it cannot be silently inherited.
+
+### H.2 Shrinking-graph seed miss — WONTFIX, and the proposed close is only half a fix
+
+§A.4 offered "seed from coords whose keys this run REMOVED" as a possible close. **That covers only
+one of the two ways the graph shrinks**, which is the decisive argument against it:
+
+1. **A row is retired.** Its coord leaves `$known`, so seeding *that* coord does nothing —
+   `IdentityScope::component()` filters every seed through `$known`. The coords that actually need
+   seeding are the OTHER, untouched ones still carrying the now-clean signature.
+2. **A row is updated so it no longer carries the poisoning key.** Here the coord IS touched and IS
+   in `$known` — it is already seeded — but it no longer carries the signature, so the walk from it
+   never traverses the edge that matters. Seeding it changes nothing.
+
+The only correct fix therefore captures the PRE-write key set for every touched source item, diffs
+it against post-write, and seeds every coord still carrying any removed signature. That means
+threading pre-write key state out of `writeIdentityKeys()` through the per-record projection loop —
+a hot path — to close a defect whose worst outcome is a **merge not made** (a visible duplicate,
+never a false merge or data loss) that self-heals the next time either coord's own stream projects.
+
+A half-fix that closes case 1 and silently leaves case 2 would read as complete and is worse than
+the documented limitation. §A.4's paragraph stands as written; this entry records that the
+suggested remedy was evaluated and rejected on those grounds, not merely deferred.
+
+### H.3 `different` rulings fail to split ~50% — STALE, no live bug; docblock corrected
+
+The gap `ItemMerger::separate()`'s docblock described was **already closed twice over** before the
+identity-scope work began:
+
+- `05dd85465` — "a `different` ruling now cuts in both argument orders".
+- `08bf7d639` (FU-1) — removed in-place re-rooting entirely. `DisjointSet` now records union EDGES
+  and rebuilds the grouping from them in canonical order, skipping any edge a cut forbids.
+
+`tests/Unit/Content/DisjointSetTest.php` runs 14 green and explicitly pins
+`'splits the pair when the second argument is the group root'` — the exact shape the docblock
+claimed fails. The characterisation test it cited,
+`tests/Feature/Content/IdentityQueueTest.php`, was deleted in `1917be75b`.
+
+An earlier audit already caught this
+(`audits/consolidation/2026-08-17-programme-review/CONSOLIDATED.md` #730-731) and it was never
+actioned; the note has now drawn three separate re-diagnoses of a phantom P1. The docblock is
+replaced with a correction rather than deleted, because `ItemMerger` reads as live code while
+having **no production caller at all** (asserted in `PoolCacheLaneSeamTest` and
+`PoolCacheLanesTest` headers) — deleting the note would leave the next reader to rediscover the
+same question from scratch.
+
+**⚠️ REVISIT TRIGGER discharged.** The trigger — "if you fix the DisjointSet re-rooting bug,
+re-examine whether `different` rulings then need seeding" — had *already fired silently*, a month
+before this plan started. Re-examined: **`different` still correctly stays unseeded**, and the
+reason never depended on the DisjointSet bug.
+
+- The rationale recorded in the follow-up brief ("a cut cannot split an already-merged pair;
+  anchors are sticky") is *true* — `bindGroup()` resolves every group through its anchors, so two
+  cut-apart groups whose anchors point at one item re-bind to that same item — but it is **not
+  load-bearing**, because both entry points (`IdentityDecisionController::store()` and
+  `ItemMerger::separate()`) require two DISTINCT `Item` rows. Ruling on an already-merged pair is
+  unreachable through the API; a cut is purely preventative.
+- The rationale that IS load-bearing is the one already written correctly in `IdentityScope`'s own
+  docblock: a cut changes an outcome only when both its coords are in the resolve set, and a union
+  between them can only arise from a shared signature chain — which the fixpoint closure already
+  walks. `same` rulings, the one edge type joining coords that share no key, ARE seeded.
+
+Both statements are consistent and no seeding change is needed.

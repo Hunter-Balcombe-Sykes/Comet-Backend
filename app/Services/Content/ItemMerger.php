@@ -94,14 +94,26 @@ final class ItemMerger
      * Record `different`: a CUT the resolver applies after every union, so it
      * survives a shared key that says otherwise (C8).
      *
-     * KNOWN GAP (owned by app/Content/Identity/DisjointSet.php, not here):
-     * `separate()` re-roots its SECOND argument, so a cut only bites when that
-     * argument is the union child. The coords stored here are sorted, and
-     * which of them won the union is not knowable at write time — so a
-     * `different` ruling currently fails to split about half the time. Writing
-     * the row in both directions would hide the bug and have to be un-done the
-     * day it is fixed. Pinned by the characterisation test in
-     * tests/Feature/Content/IdentityQueueTest.php.
+     * THE KNOWN GAP THIS DOCBLOCK USED TO DESCRIBE IS CLOSED — do not restore
+     * it from memory. It read: "separate() re-roots its SECOND argument, so a
+     * cut only bites when that argument is the union child ... a `different`
+     * ruling currently fails to split about half the time." That was true of
+     * an in-place implementation deleted by 05dd85465 ('a different ruling now
+     * cuts in both argument orders') and superseded again by FU-1 (08bf7d639).
+     * DisjointSet no longer re-roots anything: it records union EDGES and
+     * rebuilds the grouping from them in canonical order, skipping any edge a
+     * cut forbids, so a cut bites whichever way round its coords are stored.
+     * Pinned by tests/Unit/Content/DisjointSetTest.php — 'splits the pair when
+     * the second argument is the group root' is the exact shape the old note
+     * claimed fails. The characterisation test it cited,
+     * tests/Feature/Content/IdentityQueueTest.php, was deleted in 1917be75b
+     * and does not exist.
+     *
+     * Left as a correction rather than deleted: the stale note outlived its
+     * fix by a month and drew three separate re-diagnoses of a phantom P1
+     * (audits/consolidation/2026-08-17-programme-review/CONSOLIDATED.md #730-731
+     * being the second), because this class reads as live code while having no
+     * production caller at all.
      *
      * @return array{decisionsWritten: int, warnings: list<string>}
      */

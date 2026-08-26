@@ -719,6 +719,38 @@ class ProjectionWriter
     }
 
     /**
+     * Apply the identity spine to one (user, kind) with no source-item write
+     * of its own — the owner-ruling counterpart of a connector run.
+     *
+     * IdentityDecisionController reprojects the ingest sources feeding a ruled
+     * pair, and `ingest:project` resolves as part of that replay. A MANUAL
+     * content source has no connection_id (see ensureManualSource: "a manual
+     * source has none") and therefore no ingest.sources row, so a ruling on
+     * two hand-added items had nothing to ride in on: the verdict sat in
+     * content.identity_decisions until the owner next happened to edit that
+     * kind, which for a kind fed only by hand-adds may be never. Plan
+     * 2026-08-25 §A.4 recorded the hole; this is the seam that closes it.
+     *
+     * $coords is passed as the TOUCHED set, so IdentityScope narrows to their
+     * connected component rather than the whole kind. Belt-and-braces rather
+     * than load-bearing — component() already seeds every coord a live `same`
+     * ruling names — but it keeps this method meaningful for a `different`
+     * verdict, which is not seeded, and keeps it correct if that seeding is
+     * ever narrowed.
+     *
+     * Idempotent: the resolve reads its entire input from the database and
+     * writes only what the resolution implies, so a retry is a no-op. Callers
+     * are responsible for cache lanes — this writes the spine, not the payload.
+     *
+     * @param  list<string>  $coords
+     * @return array<string, string> coord => item id
+     */
+    public function resolveIdentityFor(string $userId, string $kind, array $coords): array
+    {
+        return $this->resolveItems($userId, $kind, $coords);
+    }
+
+    /**
      * Run the pure resolver over the user's live source-items of this kind
      * and bind every group to a stable item id.
      *
