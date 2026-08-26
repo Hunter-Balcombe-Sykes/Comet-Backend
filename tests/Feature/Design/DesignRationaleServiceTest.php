@@ -2,7 +2,7 @@
 
 /**
  * Tests for DesignRationaleService — the transparency-line data. Under test:
- * the industry attribution line, the manual "You set this." line +
+ * the industry attribution line, the manual/brand line +
  * precedence, hasOverrides + summary copy, and the SAFETY contract — no raw
  * column name or internal key ever surfaces.
  */
@@ -55,8 +55,11 @@ it('puts the manual line first and drops overridden areas from the industry line
         ->forSite((string) $user->site->id, (string) $user->id);
 
     expect($out['hasOverrides'])->toBeTrue()
-        ->and($out['items'][0]['sourceLabel'])->toBe('You')
-        ->and($out['items'][0]['reason'])->toBe('You set this.');
+        ->and($out['items'][0]['sourceLabel'])->toBe('You & your brand')
+        // Copy corrected 2026-08-27 (plan 02 step 5): non-null columns have
+        // no provenance — user pick OR autopilot brand write — so the line
+        // claims both honestly.
+        ->and($out['items'][0]['reason'])->toBe('Saved choices — yours, or drawn from your brand — win over the industry look.');
 
     $industry = collect($out['items'])->firstWhere('sourceLabel', 'Your industry');
     expect($industry)->not->toBeNull()
@@ -79,7 +82,7 @@ it('shows only the manual line when every preset column is overridden', function
         ->forSite((string) $user->site->id, (string) $user->id);
 
     expect($out['items'])->toHaveCount(1)
-        ->and($out['items'][0]['sourceLabel'])->toBe('You')
+        ->and($out['items'][0]['sourceLabel'])->toBe('You & your brand')
         ->and($out['summary'])->toBe('Your design is set from your own choices.');
 });
 

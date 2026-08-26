@@ -92,10 +92,16 @@ class DesignRationaleService
 
         $hasOverrides = $manualColumns !== [];
         if ($hasOverrides) {
+            // Copy corrected 2026-08-27 (plan 02 step 5): a non-null column
+            // carries no provenance — it may be the user's own pick OR an
+            // autopilot fill-if-empty write from their brand evidence
+            // (accent/font since launch; corners/spacing now). "You set
+            // this." was a lie for the second kind, so the line claims
+            // both honestly. Wire SHAPE unchanged (frozen).
             array_unshift($items, [
                 'area' => 'Your changes',
-                'sourceLabel' => 'You',
-                'reason' => 'You set this.',
+                'sourceLabel' => 'You & your brand',
+                'reason' => 'Saved choices — yours, or drawn from your brand — win over the industry look.',
             ]);
         }
 

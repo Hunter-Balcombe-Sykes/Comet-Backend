@@ -123,6 +123,88 @@ it('proposes nothing for a page with no font evidence', function () {
     expect(app(DesignKitAutopilot::class)->fromWebsiteEvidence('<p>hello</p>')['proposals'])->toBe([]);
 });
 
+// ── corners + spacing from scanned CSS (plan 02 step 5) ──────────────────────
+
+it('reads a hard-edged site as sharp corners', function () {
+    $html = '<style>.a{border-radius:0px}.b{border-radius:2px}.c{border-radius:1px}</style>';
+
+    expect(app(DesignKitAutopilot::class)->fromWebsiteEvidence($html)['proposals']['corners'] ?? null)
+        ->toBe('sharp');
+});
+
+it('reads a soft consumer site as rounded corners, ignoring pill sentinels', function () {
+    $html = '<style>.a{border-radius:16px}.b{border-radius:12px}.chip{border-radius:9999px}.c{border-radius:1.25rem}</style>';
+
+    expect(app(DesignKitAutopilot::class)->fromWebsiteEvidence($html)['proposals']['corners'] ?? null)
+        ->toBe('rounded');
+});
+
+it('reads a mid-radius site as default corners — a real proposal, since evidence beats the sector look', function () {
+    $html = '<style>.a{border-radius:6px}.b{border-radius:4px}.c{border-radius:8px}</style>';
+
+    expect(app(DesignKitAutopilot::class)->fromWebsiteEvidence($html)['proposals']['corners'] ?? null)
+        ->toBe('default');
+});
+
+it('proposes no corners below the evidence floor (fewer than 3 declarations)', function () {
+    $html = '<style>.a{border-radius:0px}.b{border-radius:0px}</style>';
+    $derived = app(DesignKitAutopilot::class)->fromWebsiteEvidence($html);
+
+    expect($derived['proposals'])->not->toHaveKey('corners');
+});
+
+it('reads generous padding as spacious and tight padding as default', function () {
+    $airy = '<style>.a{padding:48px}.b{padding:2rem}.c{margin:40px}.d{padding:32px}.e{margin:3rem}</style>';
+    $dense = '<style>.a{padding:8px}.b{padding:4px}.c{margin:8px}.d{padding:12px}.e{margin:6px}</style>';
+
+    expect(app(DesignKitAutopilot::class)->fromWebsiteEvidence($airy)['proposals']['spacing'] ?? null)
+        ->toBe('spacious')
+        ->and(app(DesignKitAutopilot::class)->fromWebsiteEvidence($dense)['proposals']['spacing'] ?? null)
+        ->toBe('default');
+});
+
+it('proposes no spacing below the evidence floor (fewer than 5 declarations)', function () {
+    $html = '<style>.a{padding:48px}.b{padding:40px}</style>';
+
+    expect(app(DesignKitAutopilot::class)->fromWebsiteEvidence($html)['proposals'])->not->toHaveKey('spacing');
+});
+
+it('persists corners and spacing fill-if-empty but never clobbers a manual pick', function () {
+    $siteId = autopilotSite();
+    DB::connection('pgsql')->table('site.design_kits')->updateOrInsert(['site_id' => $siteId], ['corners' => 'rounded']);
+
+    $wrote = app(DesignKitAutopilot::class)->persistFillIfEmpty($siteId, [
+        'corners' => 'sharp',    // manual 'rounded' stands
+        'spacing' => 'spacious', // NULL → written
+    ]);
+
+    $kit = DB::connection('pgsql')->table('site.design_kits')->where('site_id', $siteId)->first();
+    expect($wrote)->toBe(['spacing'])
+        ->and($kit->corners)->toBe('rounded')
+        ->and($kit->spacing)->toBe('spacious');
+});
+
+// ── the gallery palette fallback (plan 02 step 5, decision 3) ────────────────
+
+it('falls back to the oldest ready gallery image palette when no logo palette exists', function () {
+    $siteId = autopilotSite();
+    // Blank the logo palettes; give the site one gallery image with a
+    // strong brand colour.
+    DB::connection('pgsql')->table('site.site_media')->where('site_id', $siteId)->delete();
+    DB::connection('pgsql')->table('site.site_media')->insert([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'site_id' => $siteId, 'pool' => 'gallery', 'purpose' => null,
+        'processing_state' => 'ready',
+        'palette' => json_encode(['dominant' => '#0f766e', 'colors' => ['#0f766e'], 'warm' => false]),
+        'created_at' => now()->toISOString(), 'updated_at' => now()->toISOString(),
+    ]);
+
+    $derived = app(DesignKitAutopilot::class)->fromBrandPalette($siteId);
+
+    expect($derived['reason'])->toBeNull()
+        ->and($derived['proposals']['color_accent'] ?? null)->not->toBeNull();
+});
+
 // ── persistFillIfEmpty ───────────────────────────────────────────────────────
 
 it('fills only the columns that are empty', function () {
@@ -137,7 +219,7 @@ it('fills only the columns that are empty', function () {
         'typography_font_family' => 'inter',
     ]);
 
-    $kit = DB::table('site.design_kits')->where('site_id', $siteId)->first();
+    $kit = DB::connection('pgsql')->table('site.design_kits')->where('site_id', $siteId)->first();
     expect($wrote)->toBe(['typography_font_family'])
         ->and($kit->color_accent)->toBe('#123456')
         ->and($kit->typography_font_family)->toBe('inter');

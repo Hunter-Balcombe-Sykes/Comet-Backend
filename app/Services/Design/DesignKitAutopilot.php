@@ -44,14 +44,26 @@ class DesignKitAutopilot
     /** Proposal reason when no processed logo palette exists yet. */
     public const REASON_NO_PALETTE = 'no_palette';
 
+    /** Proposal reason when scanned CSS holds too little shape evidence. */
+    public const REASON_NO_CORNER_EVIDENCE = 'no_corner_evidence';
+
+    /** Proposal reason when scanned CSS holds too little density evidence. */
+    public const REASON_NO_SPACING_EVIDENCE = 'no_spacing_evidence';
+
     /**
      * The only design_kits columns autopilot may ever write. Proposal arrays
      * reach a column-named UPDATE, so the boundary is a closed list here
      * rather than trust in every future caller.
      *
+     * Widened 2026-08-27 (plan 02 step 5): scanned-website CSS genuinely
+     * speaks to corners (the site's own border-radius usage IS the brand's
+     * shape language) and, coarsely, to spacing (measured padding density).
+     * text_size and typography_uppercase stay OUT — no honest evidence
+     * source proposes either (the taste map's honesty rule).
+     *
      * @var list<string>
      */
-    public const WRITABLE = ['color_accent', 'typography_font_family'];
+    public const WRITABLE = ['color_accent', 'typography_font_family', 'corners', 'spacing'];
 
     public function __construct(
         private readonly FontKeywordClassifier $fonts,
@@ -97,12 +109,117 @@ class DesignKitAutopilot
      */
     public function fromWebsiteEvidence(string $html): array
     {
+        $proposals = [];
+        $reasons = [];
+
         $font = $this->fonts->classify($html);
+        if ($font !== null) {
+            $proposals['typography_font_family'] = $font;
+        } else {
+            $reasons[] = 'no_font_evidence';
+        }
+
+        // Corners: the scanned site's own border-radius usage is real
+        // evidence of the brand's shape language (plan 02 step 5). Median
+        // declared radius snapped to the NEAREST kit rung (0 / 5.6 / 16px
+        // → boundaries 2.8 and 10.8); 'default' is a real proposal, not a
+        // no-op — evidence beats the sector look for this user.
+        $corners = $this->cornersFromCss($html);
+        if ($corners !== null) {
+            $proposals['corners'] = $corners;
+        } else {
+            $reasons[] = self::REASON_NO_CORNER_EVIDENCE;
+        }
+
+        // Spacing: coarse 2-bucket density read of the scanned CSS's own
+        // padding/margin values — airy sites pad generously.
+        $spacing = $this->spacingFromCss($html);
+        if ($spacing !== null) {
+            $proposals['spacing'] = $spacing;
+        } else {
+            $reasons[] = self::REASON_NO_SPACING_EVIDENCE;
+        }
 
         return [
-            'proposals' => $font === null ? [] : ['typography_font_family' => $font],
-            'reason' => $font === null ? 'no_font_evidence' : null,
+            'proposals' => $proposals,
+            'reason' => $proposals === [] ? implode(',', $reasons) : null,
         ];
+    }
+
+    /**
+     * The scanned site's shape language, as a corners selection — or null
+     * below the evidence floor (fewer than 3 usable declarations).
+     */
+    private function cornersFromCss(string $html): ?string
+    {
+        $values = $this->cssPxValues($html, 'border-radius');
+        // Pill/circle radii (50%, 999px…) are component shapes, not the
+        // brand's box language — cssPxValues drops percentages already;
+        // drop the huge sentinels here.
+        $values = array_values(array_filter($values, static fn (float $v): bool => $v < 100.0));
+        if (count($values) < 3) {
+            return null;
+        }
+
+        $median = self::median($values);
+        if ($median < 2.8) {
+            return 'sharp';
+        }
+
+        return $median < 10.8 ? 'default' : 'rounded';
+    }
+
+    /**
+     * The scanned site's density, as a spacing selection — or null below
+     * the evidence floor (fewer than 5 usable declarations).
+     */
+    private function spacingFromCss(string $html): ?string
+    {
+        $values = [...$this->cssPxValues($html, 'padding'), ...$this->cssPxValues($html, 'margin')];
+        if (count($values) < 5) {
+            return null;
+        }
+
+        return self::median($values) >= 24.0 ? 'spacious' : 'default';
+    }
+
+    /**
+     * Every px-comparable length declared for a property family in the
+     * page's CSS (style attributes + <style> blocks arrive as one HTML
+     * string). rem converts at 16; percentages and keywords are skipped —
+     * they say nothing absolute.
+     *
+     * @return list<float>
+     */
+    private function cssPxValues(string $html, string $property): array
+    {
+        $out = [];
+        if (preg_match_all(
+            '/'.preg_quote($property, '/').'[a-z-]*\s*:\s*([^;"}]+)/i',
+            $html,
+            $matches,
+        )) {
+            foreach ($matches[1] as $valueList) {
+                if (preg_match_all('/(\d*\.?\d+)(px|rem|em)\b/i', $valueList, $lengths, PREG_SET_ORDER)) {
+                    foreach ($lengths as $length) {
+                        $n = (float) $length[1];
+                        $out[] = strtolower($length[2]) === 'px' ? $n : $n * 16.0;
+                    }
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /** @param  non-empty-list<float>  $values */
+    private static function median(array $values): float
+    {
+        sort($values);
+        $n = count($values);
+        $mid = intdiv($n, 2);
+
+        return $n % 2 === 1 ? $values[$mid] : ($values[$mid - 1] + $values[$mid]) / 2.0;
     }
 
     /**
@@ -155,9 +272,15 @@ class DesignKitAutopilot
     }
 
     /**
-     * The persisted palette of the site's processed logo — logo_full
-     * preferred over logo_square, same preference (and same reason) as
-     * SiteAccentResolver: the fuller mark is the more representative one.
+     * The persisted palette of the site's brand imagery — logo_full over
+     * logo_square (the fuller mark is the more representative one, same
+     * preference as SiteAccentResolver), then the OLDEST ready gallery
+     * image as the last resort (plan 02 step 5 / decision 3: a site with
+     * no logo at all still has its own imagery to speak for it; the
+     * earliest upload is the one the owner led with). The plan's stub
+     * named "avatar" between logo and gallery — no avatar concept exists
+     * anywhere in the platform (no column, no purpose, no upload), so the
+     * chain goes straight to gallery; logged in the run log.
      *
      * @return array<string, mixed>|null
      */
@@ -172,15 +295,31 @@ class DesignKitAutopilot
                 ->whereNotNull('palette')
                 ->value('palette');
 
-            if (is_string($palette)) {
-                $palette = json_decode($palette, true);
-            }
-            if (is_array($palette)) {
-                return $palette;
+            $decoded = self::decodedPalette($palette);
+            if ($decoded !== null) {
+                return $decoded;
             }
         }
 
-        return null;
+        $galleryPalette = SiteMedia::query()
+            ->where('site_id', $siteId)
+            ->whereIn('pool', SiteMedia::GALLERY_POOLS)
+            ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
+            ->whereNotNull('palette')
+            ->orderBy('created_at')
+            ->value('palette');
+
+        return self::decodedPalette($galleryPalette);
+    }
+
+    /** @return array<string, mixed>|null */
+    private static function decodedPalette(mixed $palette): ?array
+    {
+        if (is_string($palette)) {
+            $palette = json_decode($palette, true);
+        }
+
+        return is_array($palette) ? $palette : null;
     }
 
     /**
