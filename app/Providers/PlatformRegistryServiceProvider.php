@@ -7,9 +7,6 @@ use App\Http\Resources\Platforms\GoogleBusinessConnectionResource;
 use App\Http\Resources\Platforms\InstagramConnectionResource;
 use App\Http\Resources\Platforms\LinkConnectionResource;
 use App\Http\Resources\Platforms\MusicEmbedConnectionResource;
-use App\Http\Resources\Platforms\NowBookitConnectionResource;
-use App\Http\Resources\Platforms\OpenTableConnectionResource;
-use App\Http\Resources\Platforms\ResDiaryConnectionResource;
 use App\Http\Resources\Platforms\ShopBrandResource;
 use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Jobs\Platforms\ThrottledByProvider;
@@ -19,25 +16,17 @@ use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
-use App\Services\Platforms\NowBookitService;
-use App\Services\Platforms\OpenTableService;
 use App\Services\Platforms\Payloads\CardPayload;
-use App\Services\Platforms\Payloads\FeedPayload;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
-use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Payloads\ShopPayload;
 use App\Services\Platforms\Registry\DerivedDescriptorFactory;
 use App\Services\Platforms\Registry\PlatformCategory as Cat;
 use App\Services\Platforms\Registry\PlatformDescriptor as PD;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Registry\PlatformRouteShape;
-use App\Services\Platforms\ResDiaryService;
 use App\Services\Platforms\ShopCatalog;
 use App\Services\Platforms\Strategies\Connect\BrandLinkConnect;
-use App\Services\Platforms\Strategies\Connect\NowBookitConnect;
-use App\Services\Platforms\Strategies\Connect\OpenTableConnect;
-use App\Services\Platforms\Strategies\Connect\ResDiaryConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Detect\HostMatch;
 use App\Services\Platforms\Strategies\Detect\ServiceMatch;
@@ -130,35 +119,18 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // — its full behavioural contract attaches from
             // Registry\Bindings\SquareBinding (bespoke SquareController connect,
             // like fresha).
-            $r->register(PD::make('opentable')->label('OpenTable')->category(Cat::Reservations)->resource(OpenTableConnectionResource::class)->payload(SelectionPayload::class));
-            $r->register(PD::make('resdiary')->label('ResDiary')->category(Cat::Reservations)->resource(ResDiaryConnectionResource::class)->payload(SelectionPayload::class));
-            $r->register(PD::make('nowbookit')->label('NowBookit')->category(Cat::Reservations)->resource(NowBookitConnectionResource::class)->payload(SelectionPayload::class));
-            // Connect strategies (FOUND-24) — parse-fail messages are the frozen
-            // 422 contract, copied verbatim from the deleted controllers.
-            $r->get('nowbookit')->connect(fn () => new NowBookitConnect(app(NowBookitService::class)), 'Enter a NowBookit booking link (nowbookit.com/...).');
-            $r->get('resdiary')->connect(fn () => new ResDiaryConnect(app(ResDiaryService::class)), 'Enter a ResDiary booking link (resdiary.com/...).');
-            $r->get('opentable')->connect(fn () => new OpenTableConnect(app(OpenTableService::class)), 'Enter an OpenTable restaurant link (opentable.com.au/...).');
-            // Sector-derived gate (2026-07-15): all three reservation-family
-            // providers route connect() through GenericPlatformController →
-            // IntegrationConnectionPolicy::connect → this predicate, so gating
-            // here covers all three in one place (unlike Fresha/Square, which
-            // are bespoke and gate themselves inline).
-            foreach (['opentable', 'resdiary', 'nowbookit'] as $reservationProvider) {
-                $r->get($reservationProvider)->requiresCapability(
-                    fn (User $user) => AccountCapabilities::for($user)->can_use_reservations,
-                );
-            }
+            // opentable / resdiary / nowbookit: retired to catalog-derived
+            // descriptors (P5, 2026-08-27) — each trio member's full contract
+            // (FOUND-24 ConnectStrategy + frozen 422 copy, the sector-derived
+            // can_use_reservations gate, the ServiceMatch smart-detect
+            // delegating to its service's isXUrl matcher — now resolved
+            // lazily at match time instead of eagerly at boot) attaches from
+            // Registry\Bindings\{Opentable,Resdiary,Nowbookit}Binding.
+            // OpenTable keeps its bespoke suggestion() endpoint in
+            // routes/api/platforms.php.
 
             // ── Smart-detect matchers (Plan 6). Registration order = detection priority. ──
-            // Booking: fresha's and square's host matchers ride their bindings.
-            // Reservations: keyless widgets delegate to their service's isXUrl matcher.
-            $openTable = $this->app->make(OpenTableService::class);
-            $resDiary = $this->app->make(ResDiaryService::class);
-            $nowBookit = $this->app->make(NowBookitService::class);
-            $r->get('opentable')->detect(new ServiceMatch(fn (string $u) => $openTable->isOpenTableUrl($u)));
-            $r->get('resdiary')->detect(new ServiceMatch(fn (string $u) => $resDiary->isResDiaryUrl($u)));
-            $r->get('nowbookit')->detect(new ServiceMatch(fn (string $u) => $nowBookit->isNowBookitUrl($u)));
-            // Events: both event platforms' matchers ride their bindings now.
+            // Booking + reservations + events matchers all ride their bindings now.
 
             // ── 2026-07-26 Platform expansion: Booking detect-only ──
             // ── PD-retirement P1 (2026-08-27): the 23 detect-only card
@@ -230,11 +202,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // frozen API contract — reproduce verbatim. GoogleBusiness is irreducible
             // (multi-field) and keeps ConnectGoogleBusinessRequest.
 
-            // url-shaped. The max differs per platform — these are NOT uniform.
-            $r->get('nowbookit')->connectInput('url', ['required', 'string', 'max:2048']);
-            $r->get('opentable')->connectInput('url', ['required', 'string', 'max:2048']);
-            $r->get('resdiary')->connectInput('url', ['required', 'string', 'max:2048']);
-
             // single-named-field (3 distinct + 11 socials share 'username').
             // P2: the retired link-only platforms' connect inputs (username
             // for the 11 socials; url for skool/strava/twitch with their
@@ -296,18 +263,12 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // Single-selection (connect/selection/forget all on the bespoke controller).
             $r->get('google-business')->routes(PlatformRouteShape::SingleSelection, GoogleBusinessController::class);
 
-            // Migrated reads: bespoke connect + generic reads. multiAccount gates /accounts.
-            // spotify/soundcloud/twitch/youtube/strava/nowbookit/resdiary/
-            // opentable are now fully registry-driven (FOUND-24) — null controller routes
-            // connect through GenericPlatformController + the descriptor's ConnectStrategy
-            // (registered above). Strava is the one platform whose READS also moved here
-            // (Task 4) — its stored payload hydrates through FeedPayload instead of the
-            // deleted StravaController. OpenTable keeps its bespoke suggestion() endpoint
-            // (routes/api/platforms.php) — it reads across platforms (Google Business),
-            // which this generic shape has no seam for.
-            $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, null, false);
-            $r->get('resdiary')->routes(PlatformRouteShape::MultiAccount, null, false);
-            $r->get('opentable')->routes(PlatformRouteShape::MultiAccount, null, false);
+            // Migrated reads (FOUND-24): every remaining registry-driven route
+            // shape rides its platform's binding now — the MultiAccount
+            // mutations that used to sit here went with the P4/P5 retirements.
+            // OpenTable keeps its bespoke suggestion() endpoint
+            // (routes/api/platforms.php) — it reads across platforms (Google
+            // Business), which the generic shape has no seam for.
 
             // Derived LAST, and only into free slugs. Everything above is
             // hand-written and authoritative: it carries connect strategies,
