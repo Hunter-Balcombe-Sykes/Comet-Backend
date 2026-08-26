@@ -76,14 +76,26 @@ storage is content.*, `ManualMenuItems` folds back the wire shape).
   per-platform "transport" seam in MenuApifyScraper (actor transport vs
   http transport), not a config flag bolted onto the existing loop. The
   old failed menus-r-us runs stop mattering entirely.
-- **A0.2 Square ordering PATH shapes.** Enumerate real Square Online
-  ordering URL paths (`/s/order`, `/order`, others?) across a few live
-  stores — feeds the Q2 path detector. Also confirm what `order.square.*`
-  hosts exist (the frontend regex references `order.square`).
-- **A0.3 Square Online storefront markers.** Fetch 2–3 custom-domain Square
-  Online stores; identify stable HTML signatures (Square Online is
-  Weebly-based — expect `editmysite.com` asset hosts / Square Online JS
-  context objects). Feeds A3.
+- **A0.2 Square ordering PATH shapes — RESOLVED (live probes, run
+  execution 2026-08-26).** Real Square Online ordering stores serve at the
+  BARE `<store>.square.site` ROOT (ischia-restaurant.square.site,
+  greenmugcafe.square.site — both `"store_mode":"cart"` at `/`; fat-tuna's
+  custom domain likewise at root). `/s/order` also serves (200); `/order`
+  404s. CONSEQUENCE for Q2: a path-only detector misses most real pastes
+  (users paste the root URL). Q2's intent (don't flip booking's host
+  default) is honoured with the mechanism that actually exists:
+  (a) catalog path detector for genuine `/s/order` square.site URLs
+  (clean, unambiguous ordering signal); (b) bare square.site stays
+  square.book by HOST default, and the Square Online TILE's connect flow
+  classifies by CONTENT evidence — the same storefront-marker probe A3
+  builds for custom domains, applied to square.site roots. One
+  classification mechanism, two ingresses.
+- **A0.3 Square Online storefront markers — RESOLVED (same probes).**
+  Stable signature present on square.site AND custom-domain stores:
+  `cdn\d*.editmysite.com` asset host + `__BOOTSTRAP_STATE__` +
+  `"store_mode"` / `/app/store/api/` commerce payload. MUST be a PAIRED
+  signature (CDN marker alone false-positives on plain Weebly sites —
+  same platform underneath). Exact regex pinned by tests in A3.
 
 ## A1. Catalog surface (the Uber Eats pattern)
 
