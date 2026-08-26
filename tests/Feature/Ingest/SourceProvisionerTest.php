@@ -514,15 +514,26 @@ it('provisions instagram from the payload username, unscheduled (actor-billed, m
 it('provisions menu sources only from urls the platform host-pattern recognises', function () {
     $userId = provisionerUser();
 
-    $squareOrder = makeConnection($userId, ['platform' => 'square-ordering', 'payload' => ['url' => 'https://order.fat-tuna.com/menu?mode=pickup']]);
+    $squareOrder = makeConnection($userId, ['platform' => 'square-ordering', 'payload' => ['url' => 'https://fat-tuna.square.site/menu?mode=pickup']]);
     // A square BOOKING link (squareup.com) is not a scrapeable menu.
     $squareBook = makeConnection($userId, ['platform' => 'square', 'payload' => ['url' => 'https://squareup.com/appointments/book/abc']]);
+    // #SEC-3: a Square Online CUSTOM domain (order.<merchant>.com) no longer
+    // provisions. The host pattern's `^order\.(?!...)` arm was an
+    // allowlist-by-exclusion — every order.* host that was not one of five named
+    // competitors matched, so order.attacker.example was scraped and rendered
+    // publicly under Square's brand. It cannot be anchored, because a real Square
+    // Online custom domain is indistinguishable from an attacker's by hostname;
+    // app/Catalog/Definitions/Square.php reached the same conclusion and gives
+    // square.order no detector at all. Owner ruling 2026-08-26: drop the arm and
+    // accept that such a store must be connected explicitly.
+    $squareCustomDomain = makeConnection($userId, ['platform' => 'square-ordering', 'payload' => ['url' => 'https://order.fat-tuna.com/menu?mode=pickup']]);
     $uber = makeConnection($userId, ['surface_key' => 'uber_eats.order', 'payload' => ['url' => 'https://www.ubereats.com/au/store/doc-pizza/abc?diningMode=DELIVERY']]);
     $doordash = makeConnection($userId, ['surface_key' => 'doordash.order', 'payload' => ['url' => 'https://www.doordash.com/store/burger-republic-123/']]);
 
-    expect(ingestSourceFor($squareOrder)->identifier)->toBe('https://order.fat-tuna.com/menu')
+    expect(ingestSourceFor($squareOrder)->identifier)->toBe('https://fat-tuna.square.site/menu')
         ->and((bool) ingestSourceFor($squareOrder)->auto_sync)->toBeFalse()
         ->and(ingestSourceFor($squareBook))->toBeNull()
+        ->and(ingestSourceFor($squareCustomDomain))->toBeNull()
         ->and(ingestSourceFor($uber)->identifier)->toBe('https://www.ubereats.com/au/store/doc-pizza/abc')
         ->and(ingestSourceFor($doordash)->identifier)->toBe('https://www.doordash.com/store/burger-republic-123');
 });
