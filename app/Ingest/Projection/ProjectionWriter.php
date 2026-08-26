@@ -1610,12 +1610,26 @@ class ProjectionWriter
         // carries this contribution. Single-value facets (f_text, f_link, …)
         // are absent deliberately: their PK is (item_id, source_id), so only
         // one row can exist per source and a winner is inherent to merging.
+        // `url` is in the offers tuple because PoolResolver turns it into one of
+        // the item's LINKS (PoolResolver::itemPayloads()'s offer-links query).
+        // Two hand-added items priced identically on one channel but pointing at
+        // different booking URLs are not the same fact, and deduping them on
+        // price alone silently drops a live link.
         $dedupe = [
             'item_media' => ['asset_id', 'role'],
-            'offers' => ['channel', 'variant_label', 'amount_minor', 'currency', 'qualifier'],
+            'offers' => ['channel', 'variant_label', 'amount_minor', 'currency', 'qualifier', 'url'],
             'item_tags' => ['tag', 'tag_type'],
             'item_variants' => ['label', 'sku'],
         ];
+
+        // The column that has to be PRESENT for the tuple to identify anything.
+        // A media entry whose URL yields no fingerprint gets a null asset_id
+        // (replaceCollections() documents that as unchanged behaviour), and
+        // every such row on one side would otherwise collapse into a single
+        // "|role" key and be discarded as a duplicate of a different photo.
+        // The other three tables have NOT NULL identity columns (tag, label) or
+        // no single one, so they are absent here and dedupe as before.
+        $identity = ['item_media' => 'asset_id'];
 
         // A live origin of the survivor PER SOURCE, to stamp a moved row that
         // has no origin of its own.
@@ -1638,15 +1652,31 @@ class ProjectionWriter
             ->orderBy('id')
             ->pluck('id', 'source_id');
 
+        $chunk = $this->writeChunk();
+
         foreach ($dedupe as $table => $keys) {
+            $identityColumn = $identity[$table] ?? null;
+
             $seen = [];
             foreach (DB::table("content.{$table}")->where('item_id', $keptItemId)->get() as $row) {
+                if ($identityColumn !== null && $row->{$identityColumn} === null) {
+                    continue;
+                }
                 $seen[$this->foldKey($row, $keys)] = true;
             }
 
+            // origin to stamp => the row ids taking it. Collected rather than
+            // updated per row: this runs inside the identity advisory lock AND
+            // resolveItemsLocked()'s transaction, and a shop product carrying a
+            // few hundred variants would otherwise hold both open for a few
+            // hundred sequential round-trips on a path that previously did no
+            // per-row work at all.
+            $moves = [];
             foreach (DB::table("content.{$table}")->where('item_id', $discardedItemId)->get() as $row) {
+                $identified = $identityColumn === null || $row->{$identityColumn} !== null;
                 $key = $this->foldKey($row, $keys);
-                if (isset($seen[$key])) {
+
+                if ($identified && isset($seen[$key])) {
                     // The survivor already says this. Let the cascade take it —
                     // image FILES are deduped by media_assets' UNIQUE
                     // (user_id, fingerprint), so a duplicate row is a second
@@ -1668,15 +1698,25 @@ class ProjectionWriter
                     $mediaHeld++;
                 }
 
-                $seen[$key] = true;
+                if ($identified) {
+                    $seen[$key] = true;
+                }
 
-                DB::table("content.{$table}")->where('id', $row->id)->update([
-                    'item_id' => $keptItemId,
-                    // Stamp origin if it has none: an un-attributed moved row
-                    // would be clobbered by the survivor's next save, which is
-                    // exactly the failure this whole change exists to prevent.
-                    'source_item_id' => $row->source_item_id ?? ($keptOriginBySource[$row->source_id] ?? null),
-                ]);
+                // Stamp origin if it has none: an un-attributed moved row would
+                // be clobbered by the survivor's next save, which is exactly the
+                // failure this whole change exists to prevent. '' is the
+                // no-origin bucket — array keys cannot be null.
+                $origin = $row->source_item_id ?? ($keptOriginBySource[$row->source_id] ?? null);
+                $moves[(string) $origin][] = $row->id;
+            }
+
+            foreach ($moves as $origin => $ids) {
+                foreach (array_chunk($ids, $chunk) as $slice) {
+                    DB::table("content.{$table}")->whereIn('id', $slice)->update([
+                        'item_id' => $keptItemId,
+                        'source_item_id' => $origin === '' ? null : $origin,
+                    ]);
+                }
             }
         }
 
@@ -2078,6 +2118,36 @@ class ProjectionWriter
         // and its rows are stamped null, which the IS NULL half still replaces.
         $originIds = array_values(array_filter($originByCoord->all()));
 
+        // The only rows worth PROTECTING: those contributed by a coord of this
+        // source that is still LIVE on one of these items and that this write
+        // does not cover. Everything else the delete must still reclaim.
+        //
+        // Expressed as "protect these" rather than "delete these" deliberately.
+        // Scoping the delete to the covered origins alone would strand two
+        // classes of row forever, because neither matches `IS NULL` nor
+        // `IN (covered)`:
+        //   - a RETIRED origin. retireAbsentSourceItems() soft-retires a coord
+        //     whose upstream record was tombstoned, and its facet rows outlive
+        //     it. The unscoped delete used to sweep them; PoolResolver reads
+        //     these tables by item_id with no source-item liveness filter, so
+        //     the photo/price/tag would render forever.
+        //   - an origin belonging to ANOTHER source, which the fold can no
+        //     longer create but older rows may carry.
+        // Both are reclaimed here, so this predicate is self-healing.
+        $preserveIds = [];
+        if ($originScoped) {
+            $covered = array_flip(array_map(strval(...), $originIds));
+            $preserveIds = DB::table('content.source_items')
+                ->where('source_id', $contentSourceId)
+                ->whereIn('item_id', array_keys($byItem))
+                ->whereNull('removed_at')
+                ->pluck('id')
+                ->map(strval(...))
+                ->reject(fn (string $id) => isset($covered[$id]))
+                ->values()
+                ->all();
+        }
+
         // Per-item flatten, preserving the old array_merge order. Positions
         // are assigned from these list indices below, so they stay 0..n-1
         // WITHIN an item — a counter running across the batch would silently
@@ -2285,7 +2355,7 @@ class ProjectionWriter
             // so this is the outermost one.
             $itemIdSet = array_fill_keys($itemIds, true);
             $chunkReseeds = array_values(array_filter($reseeds, fn ($r) => isset($itemIdSet[$r['item_id']])));
-            DB::transaction(function () use ($tables, $itemIds, $contentSourceId, $chunk, $chunkReseeds, $originScoped, $originIds) {
+            DB::transaction(function () use ($tables, $itemIds, $contentSourceId, $chunk, $chunkReseeds, $originScoped, $preserveIds) {
                 foreach ($tables as $table => $rows) {
                     $delete = DB::table("content.{$table}")
                         ->whereIn('item_id', $itemIds)
@@ -2297,18 +2367,20 @@ class ProjectionWriter
                     // statement unchanged — the identity-scope work learned
                     // that the hard way when a rewritten query shape broke
                     // PG-lane tests that hook statement text through DB::listen.
-                    if ($table !== 'collection_items' && $originScoped) {
-                        $delete->where(function ($q) use ($originIds) {
+                    //
+                    // Nothing to protect also means no predicate at all, which
+                    // keeps the single-coord steady state byte-for-byte.
+                    if ($table !== 'collection_items' && $originScoped && $preserveIds !== []) {
+                        $delete->where(function ($q) use ($preserveIds) {
                             // The IS NULL half is LOAD-BEARING, not redundant.
-                            // Without it, un-attributed rows are never deleted
-                            // by anything and survive forever as orphans
+                            // `NULL NOT IN (…)` is NULL, not true, so without
+                            // it un-attributed rows would never be deleted by
+                            // anything and would survive forever as orphans
                             // nothing replaces — turning a data-loss bug into a
                             // data-duplication one. NULL must keep meaning
                             // "unscoped, replaced exactly as today".
-                            $q->whereNull('source_item_id');
-                            if ($originIds !== []) {
-                                $q->orWhereIn('source_item_id', $originIds);
-                            }
+                            $q->whereNull('source_item_id')
+                                ->orWhereNotIn('source_item_id', $preserveIds);
                         });
                     }
 

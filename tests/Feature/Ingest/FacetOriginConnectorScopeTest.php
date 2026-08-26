@@ -23,6 +23,7 @@ use App\Ingest\Projection\ProjectionWriter;
 use App\Jobs\Ingest\RunSourceJob;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
@@ -55,8 +56,14 @@ function focsDoc(string $title, string $slug): array
 }
 
 /**
- * Two connector coords bound to ONE item (as a merge leaves them), then a
- * SECOND run that covers only the first coord.
+ * Two connector coords on ONE source but DIFFERENT streams, bound to one item,
+ * then a run that projects only the first stream.
+ *
+ * Two streams, not a tombstone. Tombstoning record B RETIRES its coord
+ * (retireAbsentSourceItems()), and a retired origin's rows are meant to be
+ * reclaimed, not preserved — so that fixture would assert the opposite of the
+ * intended behaviour. A second stream leaves coord B LIVE while
+ * projectStream('releases') never covers it, which is the real partial run.
  *
  * @return array{0: string, 1: int} [itemId, media rows on it after the partial run]
  */
@@ -66,11 +73,20 @@ function focsPartialRerun(bool $scoped): array
 
     [$userId, , $source, $streamId] = projectableBandcamp([
         'album/first' => focsDoc('First Album', 'first'),
-        'album/second' => focsDoc('Second Album', 'second'),
     ]);
+
+    // A SECOND stream on the SAME source — one content.sources row, so both
+    // coords share a source_id and are distinguishable only by origin.
+    $otherStreamId = (string) Str::uuid();
+    DB::table('ingest.streams')->insert([
+        'id' => $otherStreamId, 'source_id' => $source['id'], 'stream_name' => 'singles',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    landCurrentRecord($otherStreamId, 'album/second', focsDoc('Second Album', 'second'));
 
     $writer = app(ProjectionWriter::class);
     $writer->projectStream($source, $streamId, 'releases');
+    $writer->projectStream($source, $otherStreamId, 'releases');
 
     $contentSourceId = DB::table('content.sources')->where('user_id', $userId)->value('id');
     $keptItemId = DB::table('content.items')->where('user_id', $userId)->where('headline_cache', 'First Album')->value('id');
@@ -87,16 +103,8 @@ function focsPartialRerun(bool $scoped): array
 
     expect(DB::table('content.item_media')->where('item_id', $keptItemId)->count())->toBe(2);
 
-    // Tombstone the second record, so the next run covers ONE of the item's two
-    // coords. Without this, projectStream() writes both and the replace
-    // reinserts the union — which is exactly why this bug has stayed hidden.
-    // It must be tombstoned_at on ingest.record_state, not is_current on the
-    // VERSION: projectStream() joins record_state to its current_version_id and
-    // filters `rs.tombstoned_at IS NULL`, so clearing is_current changes nothing
-    // and the run silently stays whole — a fixture that proves nothing.
-    DB::table('ingest.record_state')->where('stream_id', $streamId)->where('key', 'album/second')
-        ->update(['tombstoned_at' => now()]);
-
+    // Re-run the FIRST stream only. It covers one of the item's two coords; the
+    // other is still live, on the same source, and simply not in this run.
     $writer->projectStream($source, $streamId, 'releases');
 
     return [$keptItemId, DB::table('content.item_media')->where('item_id', $keptItemId)->count()];
@@ -116,4 +124,40 @@ it('still clobbers them when the flag is off, which is what landing it off means
     // with the flag off, the manual-vs-connector gate has leaked: the manual
     // source is identified by content.sources.kind = 'manual', nothing else.
     expect($count)->toBe(1);
+});
+
+it('still reclaims rows whose origin coord has been retired', function () {
+    config(['partna.content.facet_origin_scope' => true]);
+
+    [$userId, , $source, $streamId] = projectableBandcamp([
+        'album/first' => focsDoc('First Album', 'first'),
+        'album/second' => focsDoc('Second Album', 'second'),
+    ]);
+
+    $writer = app(ProjectionWriter::class);
+    $writer->projectStream($source, $streamId, 'releases');
+
+    $contentSourceId = DB::table('content.sources')->where('user_id', $userId)->value('id');
+    $keptItemId = DB::table('content.items')->where('user_id', $userId)->where('headline_cache', 'First Album')->value('id');
+    $otherItemId = DB::table('content.items')->where('user_id', $userId)->where('headline_cache', 'Second Album')->value('id');
+
+    DB::table('content.source_items')->where('source_id', $contentSourceId)
+        ->where('item_id', $otherItemId)->update(['item_id' => $keptItemId]);
+    DB::table('content.item_media')->where('item_id', $otherItemId)->update(['item_id' => $keptItemId]);
+
+    // Tombstone the second record. retireAbsentSourceItems() soft-retires its
+    // coord on the next run, and a retired coord's facets must go with it.
+    DB::table('ingest.record_state')->where('stream_id', $streamId)->where('key', 'album/second')
+        ->update(['tombstoned_at' => now()]);
+
+    $writer->projectStream($source, $streamId, 'releases');
+
+    // Scoping the delete to the COVERED origins alone would strand this row
+    // forever: its origin matches neither the IS NULL half nor the covered set,
+    // and PoolResolver reads content.item_media by item_id with no source-item
+    // liveness filter, so the photo would render for good. The unscoped delete
+    // used to sweep it, and the predicate is written to preserve rather than to
+    // delete precisely so it still does.
+    expect(DB::table('content.source_items')->where('source_id', $contentSourceId)->whereNotNull('removed_at')->count())->toBe(1)
+        ->and(DB::table('content.item_media')->where('item_id', $keptItemId)->count())->toBe(1);
 });
