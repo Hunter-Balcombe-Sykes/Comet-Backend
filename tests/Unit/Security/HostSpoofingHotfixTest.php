@@ -89,10 +89,18 @@ it('rejects spoofed OpenTable hosts end to end', function () {
 it('rejects spoofed hosts in the platform registry detectors', function () {
     $detector = app(ProviderDetector::class);
 
+    // PD-retirement P1 (2026-08-27) dropped the detect-only reservation
+    // cards' registry detectors (quandoo et al.) — their detection was
+    // load-bearing only for ProviderDetector's fresha/square booking
+    // special-cases, so the spoof coverage now exercises the detectors that
+    // actually remain: booking (fresha/square) and events (eventbrite, whose
+    // detect rides its binding through derivation).
     expect($detector->detectFor('events', 'https://www.eventbrite.evil.com/o/organiser-123'))->toBeNull()
         ->and($detector->detectFor('events', 'https://www.eventbrite.com.au/o/organiser-123'))->toBe('eventbrite')
-        ->and($detector->detectFor('reservations', 'https://quandoo.phish.net/place/1'))->toBeNull()
-        ->and($detector->detectFor('reservations', 'https://www.quandoo.com.au/place/some-place-1234'))->toBe('quandoo');
+        ->and($detector->detectFor('booking', 'https://fresha.phish.net/a/some-salon'))->toBeNull()
+        ->and($detector->detectFor('booking', 'https://www.fresha.com/a/some-salon'))->toBe('fresha')
+        ->and($detector->detectFor('booking', 'https://squareup.evil.com/book/x'))->toBeNull()
+        ->and($detector->detectFor('booking', 'https://book.squareup.com/book/x'))->toBe('square');
 });
 
 // ── #TEST-12: per-TLD coverage over the closed enumerations ─────────────────
