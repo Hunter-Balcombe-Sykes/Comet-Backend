@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Api\Content\Concerns\ResolvesOwnedItem;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Jobs\Content\ApplyIdentityDecisionJob;
 use App\Jobs\Content\ReprojectSourcesJob;
 use App\Models\Content\Item;
 use App\Site\Documents\SiteCacheLanes;
@@ -84,23 +85,53 @@ class IdentityDecisionController extends ApiController
                 ->orWhere(fn ($p) => $p->where('left_item_id', $right->id)->where('right_item_id', $left->id)))
             ->update(['dismissed_at' => now()]);
 
-        // Every ingest source feeding either item, reprojected off its landed
-        // records: the resolver reads the new decisions and re-binds.
-        $sourceIds = DB::table('content.source_items as si')
+        // Every live coord of the pair, paired with the ingest source that can
+        // replay it — LEFT, not INNER (plan 2026-08-25 §A.4, follow-up 1).
+        // A MANUAL content source has no connection_id, and `NULL = NULL` is
+        // never true, so it simply does not match; under the old INNER JOIN it
+        // was dropped from the result entirely and a ruling on two hand-added
+        // items dispatched NOTHING. Keeping the unmatched rows is what lets the
+        // two lanes below be partitioned instead of silently truncated.
+        $coordSources = DB::table('content.source_items as si')
             ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
-            ->join('ingest.sources as isrc', 'isrc.connection_id', '=', 'cs.connection_id')
+            ->leftJoin('ingest.sources as isrc', 'isrc.connection_id', '=', 'cs.connection_id')
+            ->where('cs.user_id', $user->id)
             ->whereIn('si.item_id', [$left->id, $right->id])
             ->whereNull('si.removed_at')
-            ->distinct()->pluck('isrc.id')->map(fn ($id) => (string) $id)->all();
+            ->get(['si.coord', 'isrc.id as ingest_source_id']);
+
+        // Lane 1, unchanged: reproject off landed records, and the resolver
+        // reads the new decisions and re-binds as part of that replay.
+        $sourceIds = $coordSources->pluck('ingest_source_id')->filter()
+            ->map(fn ($id) => (string) $id)->unique()->values()->all();
         if ($sourceIds !== []) {
             ReprojectSourcesJob::dispatch((string) $user->id, $sourceIds);
         }
+
+        // Lane 2: coords no reprojection reaches. There are no landed records
+        // to replay for a manual coord and its facets are already written, so
+        // this resolves the identity spine directly instead. Scoped to the
+        // UNMATCHED coords only — a coord covered by lane 1 would otherwise be
+        // resolved twice for one ruling, and both callers take the same
+        // per-(user, kind) advisory lock.
+        $unreprojected = $coordSources->whereNull('ingest_source_id')->pluck('coord')
+            ->map(fn ($coord) => (string) $coord)->unique()->values()->all();
+        if ($unreprojected !== []) {
+            // Both verdicts, matching what lane 1 has always done for a
+            // connector pair. A `different` ruling cannot un-merge anything
+            // (bindGroup() resolves every group through its anchors), so this
+            // is a no-op for that verdict today — but the asymmetry would be a
+            // trap for the next reader, and the resolve is idempotent.
+            ApplyIdentityDecisionJob::dispatch((string) $user->id, $left->kind, $unreprojected);
+        }
+
         SiteCacheLanes::bust([(string) $site->id]);
 
         return $this->success([
             'verdict' => $data['verdict'],
             'decisions' => count($rows),
             'reprojecting' => count($sourceIds),
+            'resolving' => count($unreprojected),
         ], 202);
     }
 }

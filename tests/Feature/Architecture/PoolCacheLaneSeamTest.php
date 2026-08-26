@@ -35,13 +35,19 @@ const POOL_CACHE_LANE_FILES = [
     'app/Http/Controllers/Api/Site/SectionController.php',
     'app/Http/Controllers/Api/Site/SectionGroupController.php',
     'app/Http/Controllers/Api/Site/PageController.php',
+    // Added 2026-08-26 with the file itself (plan §H.1): a merge landing in
+    // this job changes the rendered headline AFTER the controller's
+    // request-time bust, so it fires its own. Enrolled on creation rather
+    // than after a regression — it is precisely the "brand-new writer the
+    // guard would be silent about" case the header above calls out.
+    'app/Jobs/Content/ApplyIdentityDecisionJob.php',
 ];
 
-it('resolves to exactly eleven known pool-cache-lane files, all present on disk', function () {
+it('resolves to exactly twelve known pool-cache-lane files, all present on disk', function () {
     // Non-vacuity: prove the list isn't empty and every path actually
     // exists BEFORE the negated assertions below run — a bad path or an
     // empty list would otherwise let those pass by finding nothing to search.
-    expect(POOL_CACHE_LANE_FILES)->toHaveCount(11);
+    expect(POOL_CACHE_LANE_FILES)->toHaveCount(12);
 
     foreach (POOL_CACHE_LANE_FILES as $relative) {
         expect(base_path($relative))->toBeFile();
