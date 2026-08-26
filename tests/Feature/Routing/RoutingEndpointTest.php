@@ -2,6 +2,7 @@
 
 use App\Jobs\Content\EnrichPoolLinkJob;
 use App\Jobs\Platforms\CommerceProbeJob;
+use App\Jobs\Platforms\LinkInBioScanJob;
 use App\Models\Core\FeatureAvailabilityRule;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\CacheKeyGenerator;
@@ -346,6 +347,47 @@ it('redacts a secret-shaped param on the note (custom-link) path while a benign 
         ->and($cards[0]['url'])->toContain('page=2')
         ->and($cards[0]['url'])->not->toContain('session=abc123')
         ->and($cards[0]['url'])->not->toContain('abc123');
+});
+
+it('redacts a secret-shaped query param on a pasted link-in-bio page before it becomes a link card', function () {
+    Queue::fake();
+    $pro = createTenant('routing-secret-bio');
+
+    // linktr.ee matches LinkInBioDetector — the link-in-bio unroll branch
+    // (store(), ~line 95), a SEPARATE call site from the Note-path write
+    // covered above. access_token carries a JWT-shaped value; page=2 is a
+    // benign param that must survive the redaction untouched.
+    $secretUrl = 'https://linktr.ee/someone?access_token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig&page=2';
+
+    $response = actingAsUser($pro)->postJson('/api/routing/links', ['url' => $secretUrl]);
+
+    $response->assertStatus(202)->assertJsonPath('unrolled', true);
+
+    $cards = app(LinkPoolReader::class)->cards($pro->refresh());
+    expect($cards)->toHaveCount(1);
+    expect($cards[0]['url'])->not->toContain('eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig');
+    expect($cards[0]['url'])->toContain('access_token=[redacted]');
+    expect($cards[0]['url'])->toContain('page=2');
+
+    // The persisted content.f_link.url column above is ALSO minimised by
+    // ProjectionWriter independently of this fix (defence-in-depth), so it
+    // alone would pass even without the controller-level redact. The job
+    // payload below is the layer this fix actually protects: LinkPoolWriter
+    // ::add() dispatches EnrichPoolLinkJob with its own local, unminimised
+    // `$url` whenever the new card carries no media/description yet (true on
+    // every fresh add) — and a queued Redis payload (or a failed_jobs row on
+    // failure) is exactly the kind of place a secret must never verbatim.
+    Queue::assertPushed(EnrichPoolLinkJob::class, function ($j) {
+        expect($j->url)->not->toContain('eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig');
+        expect($j->url)->toContain('access_token=[redacted]');
+        expect($j->url)->toContain('page=2');
+
+        return true;
+    });
+
+    // The scan job still fetches the RAW page — redacting this dispatch
+    // would break the unroll (it can't fetch a page it can't address).
+    Queue::assertPushed(LinkInBioScanJob::class, fn ($j) => $j->bioPageUrl === trim($secretUrl));
 });
 
 // ── #TEST-2: the two write outcomes RoutingEndpointTest was missing — busy

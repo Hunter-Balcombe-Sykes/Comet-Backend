@@ -79,6 +79,17 @@ class IriCanonicalizer
 
     public function canonicalize(string $input): Iri
     {
+        // Cap BEFORE trimPastedJunk's unanchored regex runs (#SEC-8) — some
+        // callers (scraper/seed paths) reach canonicalize() with no upstream
+        // max:2048, so the scan itself must not scale with attacker input.
+        // trimPastedJunk only ever shrinks its input, so this cap subsumes
+        // the post-trim one below for any input that passes it; the post-trim
+        // check stays as the belt-and-braces guard and the only path to
+        // 'malformed' on an empty trim result.
+        if (strlen($input) > 2048) {
+            return Iri::reject($input, 'too_long');
+        }
+
         $raw = $this->trimPastedJunk($input);
         if ($raw === '' || strlen($raw) > 2048) {
             return Iri::reject($input, $raw === '' ? 'malformed' : 'too_long');

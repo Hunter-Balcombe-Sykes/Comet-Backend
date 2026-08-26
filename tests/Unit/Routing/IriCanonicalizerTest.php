@@ -66,6 +66,17 @@ it('rejects an over-long url rather than parsing it', function () {
     expect(iri('https://example.com/'.str_repeat('a', 3000))->rejected)->toBe('too_long');
 });
 
+it('#SEC-8: caps by raw input length before trimPastedJunk runs, even when trimming would have yielded a valid short url', function () {
+    // Prose long enough to trip the cap, but shaped so trimPastedJunk's
+    // URL-extraction regex would pull out a short, otherwise-valid link if it
+    // ran first. Getting 'too_long' here (not a routed x.com result) proves
+    // the cap is checked against $input, not against the post-trim result.
+    $input = 'Check this out: https://x.com/someuser. '.str_repeat('lorem ipsum dolor sit amet ', 100);
+
+    expect(strlen($input))->toBeGreaterThan(2048);
+    expect(iri($input)->rejected)->toBe('too_long');
+});
+
 // ── Canonicalisation behaviour ───────────────────────────────────────────────
 
 it('lowercases the host and preserves a meaningful port', function () {

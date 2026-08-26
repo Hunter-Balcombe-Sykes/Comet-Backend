@@ -96,6 +96,7 @@ use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Horizon\Horizon;
@@ -306,6 +307,36 @@ class AppServiceProvider extends ServiceProvider
         // explicitly; refuse to boot if the flag is false.
         if (app()->isProduction() && ! (bool) config('supabase.jwks_fail_closed', true)) {
             throw new \RuntimeException('SUPABASE_JWKS_FAIL_CLOSED must be true in production (auth fails open without it).');
+        }
+
+        // #SEC-16 (unified-actions-security) = #SEC-4 (claim-gate) — bot protection
+        // that claims to enforce but cannot. VerifyBotToken short-circuits only on
+        // mode=off; at mode=enforce it runs the full path and then has no verifier
+        // to call, so every wired bot.token route either admits everyone or refuses
+        // everyone (depending on fail_open) while the config reads "enforced".
+        // Inert on both current environments by construction — production is
+        // turnstile/shadow and development is null/off, so neither is enforce+null.
+        // It exists to stop a future half-flip (mode raised without a driver).
+        // Outside production this warns rather than throws: a local .env mid-edit
+        // must not become unbootable.
+        // ⚠️ The absent-driver sentinel arrives in THREE shapes and all mean the
+        // same thing. .env.example ships `BOT_PROTECTION_DRIVER=null`, and
+        // Laravel's Env::get() coerces the literal string "null" to PHP null —
+        // so a `=== 'null'` test is false in every environment that sets the
+        // documented default, i.e. the guard would be dead in exactly the
+        // configuration it exists to catch. Unset gives the config default
+        // string 'null'; an empty assignment gives ''. Normalise all three.
+        $botDriver = config('partna.bot_protection.driver');
+        $botDriverAbsent = $botDriver === null || $botDriver === '' || $botDriver === 'null';
+
+        if (config('partna.bot_protection.mode') === 'enforce' && $botDriverAbsent) {
+            $botMisconfig = 'BOT_PROTECTION_MODE=enforce requires a real BOT_PROTECTION_DRIVER (got "null") — nothing would be verified.';
+
+            if (app()->isProduction()) {
+                throw new \RuntimeException($botMisconfig);
+            }
+
+            Log::warning($botMisconfig);
         }
 
         // F2 AUTH-1 — JWT issuer/audience must be configured outside local/testing.

@@ -85,3 +85,43 @@ it('boosts every scored family from publishedAt ?? firstSeenAt at its own weight
         expect($family)->not->toHaveKey($event);
     }
 });
+
+it('ages a multi-source item from the EARLIEST published_from, not the last one registered', function () {
+    $tenant = createTenant('fresh-dedup');
+    $sourceA = poolSource($tenant->id, null);
+    $itemId = poolItem($tenant->id, $sourceA, 'video', 'Clip', now()->subDays(5)->toISOString());
+    // A second source reports the SAME item published much earlier — e.g. a
+    // connector backfilling a video the manual source only just picked up.
+    $sourceB = poolSource($tenant->id, poolConnection($tenant->id, 'youtube.channel'));
+    DB::connection('pgsql')->table('content.f_published')->insert([
+        'item_id' => $itemId, 'source_id' => $sourceB,
+        'published_from' => now()->subDays(20)->toISOString(), 'updated_at' => now(),
+    ]);
+
+    $boosts = app(ContentFreshness::class)->boostsForSite($tenant->site);
+
+    // WHY: SQL MIN(published_from) means "earliest any source knows" — no
+    // other fixture in this suite attaches two sources to one item, so a
+    // regression from MIN to MAX (last-registered date wins) would go
+    // undetected without this pinning the 20-day boost over the 5-day one.
+    expect($boosts['watch_item'][$itemId])->toEqualWithDelta(1.1145, 0.05)
+        ->and($boosts['watch_item'][$itemId])->not->toEqualWithDelta(2.3421, 0.05);
+});
+
+it('falls back to first_seen_at when every source leaves published_from null', function () {
+    $tenant = createTenant('fresh-null-fallback');
+    $sourceA = poolSource($tenant->id, null);
+    $itemId = poolItem($tenant->id, $sourceA, 'video', 'Clip', now()->toISOString());
+    DB::connection('pgsql')->table('content.f_published')->where('item_id', $itemId)->update(['published_from' => null]);
+    DB::connection('pgsql')->table('content.items')->where('id', $itemId)->update(['first_seen_at' => now()->subDays(20)->toISOString()]);
+    $sourceB = poolSource($tenant->id, poolConnection($tenant->id, 'youtube.channel'));
+    DB::connection('pgsql')->table('content.f_published')->insert([
+        'item_id' => $itemId, 'source_id' => $sourceB, 'published_from' => null, 'updated_at' => now(),
+    ]);
+
+    $boosts = app(ContentFreshness::class)->boostsForSite($tenant->site);
+
+    // MIN(NULL, NULL) is NULL either way, so this pins the GROUP BY not
+    // collapsing two all-null rows into something other than the fallback.
+    expect($boosts['watch_item'][$itemId])->toEqualWithDelta(1.1145, 0.05);
+});

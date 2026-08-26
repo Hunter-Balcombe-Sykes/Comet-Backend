@@ -498,15 +498,25 @@ Schedule::command('ingest:dispatch')
 // idempotent, unique per card, so daily is plenty.
 Schedule::command('platforms:enrich-pending-cards --older-than=30')
     ->dailyAt('03:20')
-    ->withoutOverlapping()
-    ->onOneServer();
+    ->onOneServer()
+    // 30min lock, NOT the bare default: a bare withoutOverlapping() holds for
+    // 1440min, so one crashed run silently stopped this safety net for 24h
+    // (#LIFE-16 / #SCALE-20). 30 matches the daily-sweep precedent above
+    // (purge-raw-events); compute-popularity's 16 is cadence+1 for a
+    // FIFTEEN-MINUTE job and would expire mid-run here.
+    ->withoutOverlapping(30)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('enrich-pending-cards'));
 
 // Safety net for item caches that missed their projection refresh (X4):
 // stale-only by default, so a healthy database is a no-op read.
 Schedule::command('content:refresh-item-caches')
     ->dailyAt('03:25')
-    ->withoutOverlapping()
-    ->onOneServer();
+    ->onOneServer()
+    // 30min lock — see enrich-pending-cards above (#LIFE-17 / #SCALE-21).
+    ->withoutOverlapping(30)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('refresh-item-caches'));
 
 // Stranded-claim watchdog: releases an ingest.sources claim that outlived any plausible
 // run (a worker died mid-flight) and files the anomaly. Hourly is ample slack — a claim

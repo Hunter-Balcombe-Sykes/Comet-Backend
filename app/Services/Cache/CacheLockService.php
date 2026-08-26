@@ -281,6 +281,19 @@ class CacheLockService
     }
 
     /**
+     * Jitter an int TTL; pass a caller-specified deadline through untouched.
+     *
+     * The single-key twin of writeWithJitter(), for rememberLockedNullable —
+     * which writes one key with no stale twin and so cannot use that method.
+     * applyJitter() is int-typed, and a DateTimeInterface TTL is a deadline the
+     * caller chose, so honour it exactly, exactly as writeWithJitter() does.
+     */
+    private static function jitterUnlessDeadline(DateTimeInterface|int $ttl): DateTimeInterface|int
+    {
+        return $ttl instanceof DateTimeInterface ? $ttl : self::applyJitter($ttl);
+    }
+
+    /**
      * Read a key, treating a store fault as a miss.
      *
      * Every caller already handles null as "not cached", so degrading to null
@@ -395,8 +408,14 @@ class CacheLockService
      * Like rememberLocked, but the callback may return null. Null results are cached
      * as a sentinel so subsequent reads return null without re-running the callback.
      *
-     * Note: no jitter or SWR here — this method is used for negative-cache lookups
-     * (profile misses, etc.) where stale last-good semantics don't apply.
+     * Note: no SWR here — this method is used for negative-cache lookups (profile
+     * misses, etc.) where stale last-good semantics don't apply, and feeding a null
+     * through the SWR path would poison the stale twin with it.
+     *
+     * Jitter IS applied, and is a separate concern from SWR (shortenDegraded()
+     * likewise declines writeWithJitter() yet still jitters). Without it every
+     * entry this method wrote expired in fleet-wide lockstep, so a whole fleet
+     * re-queried the same upstream on the same second — CCH-3.
      *
      * @param  string  $key  Cache key
      * @param  DateTimeInterface|int  $ttl  TTL for non-null values
@@ -459,9 +478,9 @@ class CacheLockService
                 throw new \LogicException('Closure returned the cache null sentinel; this value is reserved.');
             }
             if ($value === null) {
-                $this->writeOrDegrade($key, self::NULL_SENTINEL, $nullTtl ?? $ttl);
+                $this->writeOrDegrade($key, self::NULL_SENTINEL, self::jitterUnlessDeadline($nullTtl ?? $ttl));
             } else {
-                $this->writeOrDegrade($key, $value, $ttl);
+                $this->writeOrDegrade($key, $value, self::jitterUnlessDeadline($ttl));
             }
 
             return $value;

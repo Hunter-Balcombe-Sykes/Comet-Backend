@@ -1,7 +1,9 @@
 <?php
 
 use App\Models\Core\Site\Site;
+use App\Services\PublicSite\SitepageDataResolverService;
 use App\Site\Pools\PoolResolver;
+use App\Site\Pools\PoolWire;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -31,6 +33,7 @@ beforeEach(function () {
     setupSitesTable();
     setupContentTables();
     setupSectionsTables();
+    setupMediaTables();
     Queue::fake();
 });
 
@@ -90,5 +93,54 @@ it('still surfaces a legitimate same-tenant identity candidate', function () {
     ]);
     expect($payloads[$itemA2]['duplicateCandidates'])->toBe([
         ['itemId' => $itemA1, 'headline' => 'Owner A Video One', 'evidence' => 'title_similarity'],
+    ]);
+});
+
+it('never runs the content.identity_candidates query on the public PoolWire hydrate path', function () {
+    [$pro, $siteId] = poolTenant();
+    $source = poolSource($pro->id, poolConnection($pro->id));
+
+    $itemA1 = poolItem($pro->id, $source, 'video', 'Video One', now()->toDateTimeString());
+    $itemA2 = poolItem($pro->id, $source, 'video', 'Video Two', now()->toDateTimeString());
+    poolPin($siteId, 'watch', $itemA1);
+    poolPin($siteId, 'watch', $itemA2);
+
+    // A real candidate row so a query that DID run would have work to do —
+    // otherwise an empty table would make "no rows found" indistinguishable
+    // from "query never ran".
+    identityCandidateRow($pro->id, $itemA1, $itemA2);
+
+    $site = Site::query()->findOrFail($siteId);
+
+    $sawIdentityCandidatesQuery = false;
+    DB::connection('pgsql')->listen(function ($q) use (&$sawIdentityCandidatesQuery): void {
+        if (str_contains(strtolower((string) $q->sql), 'identity_candidates')) {
+            $sawIdentityCandidatesQuery = true;
+        }
+    });
+
+    app(PoolWire::class)->forSite($site, app(SitepageDataResolverService::class));
+
+    expect($sawIdentityCandidatesQuery)->toBeFalse();
+});
+
+it('still populates duplicateCandidates on the dashboard resolve() path', function () {
+    [$pro, $siteId] = poolTenant();
+    $source = poolSource($pro->id, poolConnection($pro->id));
+
+    $itemA1 = poolItem($pro->id, $source, 'video', 'Video One', now()->toDateTimeString());
+    $itemA2 = poolItem($pro->id, $source, 'video', 'Video Two', now()->toDateTimeString());
+    poolPin($siteId, 'watch', $itemA1);
+    poolPin($siteId, 'watch', $itemA2);
+
+    identityCandidateRow($pro->id, $itemA1, $itemA2);
+
+    $site = Site::query()->findOrFail($siteId);
+    $out = app(PoolResolver::class)->resolve($site, 'watch');
+
+    $item1 = collect($out['selection'])->firstWhere('id', $itemA1);
+    expect($item1)->not->toBeNull();
+    expect($item1['duplicateCandidates'])->toBe([
+        ['itemId' => $itemA2, 'headline' => 'Video Two', 'evidence' => 'title_similarity'],
     ]);
 });

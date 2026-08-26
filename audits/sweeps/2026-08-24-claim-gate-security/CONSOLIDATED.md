@@ -60,7 +60,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 2 of 2 complete
 
 ---
 
@@ -239,7 +239,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#SEC-4** · P2 — Bot protection defaults to fully off (`driver=null`, `mode=off`)
+- [x] **#SEC-4** · P2 — Bot protection defaults to fully off (`driver=null`, `mode=off`)
     - **Where:** config/partna.php:2557-2560
     - **Affects:** Public mutation endpoints depending on bot protection (enquiry, lead capture, early access, report) whenever an environment doesn't explicitly set the driver/mode env vars.
     - **Effort:** S (~0.5–1h)
@@ -256,7 +256,21 @@
             'fail_open' => (bool) env('BOT_PROTECTION_FAIL_OPEN', false),
         ```
 
-- [ ] **#SEC-5** · P2 — Fresh-AAL2 requirement for profile updates defaults to off
+- [x] **#SEC-5** · P2 — Fresh-AAL2 requirement for profile updates defaults to off
+    - **CHECKLIST ITEM, not a defect — rollout state recorded 2026-08-26 (PART 2 unit 14h). No code changed.**
+      The finding is right that this is a staged rollout; the flag's own trigger is **not yet met**, so `false`
+      is the CORRECT value today, not drift.
+      - **Is TOTP enrolment shipped for end-users? NO.** `docs/auth/mfa-foundation.md:5`: the layer is
+        "**staff-enforced and dormant for end-users**: staff routes require aal2 immediately; user-facing MFA
+        enrollment is a future phase."
+      - **Is it enforced anywhere? YES, but only for staff** — the `require.aal2` middleware on the staff route
+        groups, which is independent of this flag.
+      - **The flag:** `config/partna.php:2450-2452`, `require_fresh_aal2_for_profile_update`, env
+        `SIDEST_MFA_REQUIRE_FRESH_AAL2_FOR_PROFILE_UPDATE`, default `false`; `.env.example:248` pins `false`.
+        Consumed by `BasePolicy::requiresFreshAal2()` → `ProfessionalSelfPolicy::update`.
+      - **Flip condition (unchanged):** once user-facing TOTP enrolment ships in the dashboard UI and is smoke-
+        tested in production per `docs/auth/mfa-foundation-runbook.md` steps 4–5. Flipping it before then would
+        lock every owner out of their own profile edits, since no end-user can reach `aal2` at all.
     - **Where:** config/partna.php:2316-2318
     - **Affects:** Authenticated self-service profile updates (`ProfessionalSelfPolicy::update`) — a hijacked session can change account-critical fields without a fresh second-factor challenge.
     - **Effort:** S (~0.5–1h)
@@ -443,7 +457,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 2 of 3 complete
+- P2 Medium: 3 of 3 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -510,7 +524,7 @@ None.
          * @property string|null $built_by_staff_id FK to core.partna_staff.id, ON DELETE SET NULL. NULL for signup-originated builds. Not fillable — set via ->builtByStaff()->associate().
         ```
 
-- [ ] **#SEM-3** · P2 — `CLAIM_NOT_INVITED` returns a distinct 409 on the public claim endpoint, creating the exact oracle its own inline comment says it must avoid
+- [x] **#SEM-3** · P2 — `CLAIM_NOT_INVITED` returns a distinct 409 on the public claim endpoint, creating the exact oracle its own inline comment says it must avoid
     - **Where:** app/Http/Controllers/Api/PublicSite/ClaimController.php:54-64
     - **Affects:** The unauthenticated-but-JWT-required public claim endpoint (`POST /api/claim`); any caller with a valid Supabase account can distinguish "no site at this handle" from "a staff-groomed outreach site exists here awaiting invite."
     - **Effort:** S (~0.5–1h)

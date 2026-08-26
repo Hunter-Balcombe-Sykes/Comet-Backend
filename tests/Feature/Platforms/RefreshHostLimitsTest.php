@@ -69,7 +69,11 @@ it('takes a single-flight lock on the itunes response key', function () {
 
     Cache::shouldReceive('get')->with($key)->twice()->andReturn(null, null);
     Cache::shouldReceive('lock')->with('lock:'.$key, 20)->once()->andReturn($lock);
-    Cache::shouldReceive('put')->with($key, Mockery::type('array'), 3600)->once();
+    // 3600 = the itunes cache_ttl_seconds config value, now jittered +/-20% by
+    // CacheLockService (CCH-3/CCH-6), so assert the band rather than the literal.
+    Cache::shouldReceive('put')
+        ->with($key, Mockery::type('array'), Mockery::on(fn ($ttl) => is_int($ttl) && $ttl >= 2880 && $ttl <= 4320))
+        ->once();
 
     $this->mock(SafeUrlFetcher::class, function ($m) {
         $m->shouldReceive('tryFetch')->once()->andReturn([

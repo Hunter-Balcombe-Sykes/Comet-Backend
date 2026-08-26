@@ -18,6 +18,7 @@ use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -468,30 +469,52 @@ class GoogleBusinessAutoSync
                 return;
             }
 
-            // Load existing row (or a fresh unsaved model) to preserve fields the user already set.
-            $workplace = Workplace::query()->firstOrNew(['site_id' => (string) $site->id]);
-            // site_id is not mass-assignable (#SEC-17) — the new-row branch needs it set explicitly.
-            $workplace->site_id = (string) $site->id;
-            $sources = is_array($workplace->field_sources) ? $workplace->field_sources : [];
-            $stamp = now()->toIso8601String();
-
-            $changed = false;
-            foreach ($fields as $key => $value) {
-                // Only fill if the column is currently blank — never overwrite user data.
-                if ($this->blank($workplace->{$key} ?? null)) {
-                    $workplace->{$key} = $value;
-                    // Same field_sources shape IdentitySync stamps, so a future
-                    // "synced from Google" badge works for every source, not
-                    // just IdentitySync's own writes.
-                    $sources[$key] = ['source' => 'google-business', 'at' => $stamp];
-                    $changed = true;
+            // LIFE-11: the blank()-then-save() span below is a read-modify-write
+            // against the SAME row the dashboard PATCH
+            // (UserWorkplaceController::upsert/setPreviousWebsite) writes
+            // unlocked — a cache lock would only bind a cooperating caller, and
+            // that controller never takes one. A row lock is enforced by
+            // Postgres against every writer regardless: the owner's concurrent
+            // UPDATE blocks until this transaction commits and then applies on
+            // top, so the owner's just-typed text always wins. Mirrors
+            // IdentitySync::applyWorkplaceFields (LIFE-108) exactly — same
+            // table, same hazard.
+            DB::connection($site->getConnectionName())->transaction(function () use ($site, $fields) {
+                $workplace = Workplace::query()->where('site_id', (string) $site->id)->lockForUpdate()->first();
+                if ($workplace === null) {
+                    // lockForUpdate() locks nothing when there's no row yet — a
+                    // concurrent first-ever sync racing this INSERT is bounded by
+                    // site.workplaces.site_id being the PRIMARY KEY (verified in
+                    // supabase/migrations/20260726000000_baseline_pilot.sql, not a
+                    // separate unique index): the loser gets a 23505, caught by
+                    // this method's outer try/catch (best-effort by contract —
+                    // see class docblock). Same reasoning IdentitySync's
+                    // applyWorkplaceFields docblock records for the same table.
+                    $workplace = new Workplace;
+                    // site_id is not mass-assignable (#SEC-17) — set explicitly.
+                    $workplace->site_id = (string) $site->id;
                 }
-            }
+                $sources = is_array($workplace->field_sources) ? $workplace->field_sources : [];
+                $stamp = now()->toIso8601String();
 
-            if ($changed) {
-                $workplace->field_sources = $sources;
-                $workplace->save();
-            }
+                $changed = false;
+                foreach ($fields as $key => $value) {
+                    // Only fill if the column is currently blank — never overwrite user data.
+                    if ($this->blank($workplace->{$key} ?? null)) {
+                        $workplace->{$key} = $value;
+                        // Same field_sources shape IdentitySync stamps, so a future
+                        // "synced from Google" badge works for every source, not
+                        // just IdentitySync's own writes.
+                        $sources[$key] = ['source' => 'google-business', 'at' => $stamp];
+                        $changed = true;
+                    }
+                }
+
+                if ($changed) {
+                    $workplace->field_sources = $sources;
+                    $workplace->save();
+                }
+            });
         } catch (Throwable $e) {
             report($e);
         }

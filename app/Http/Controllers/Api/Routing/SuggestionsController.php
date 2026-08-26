@@ -10,7 +10,6 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
-use App\Routing\RoutingCapabilityGate;
 use App\Routing\SuggestionApplier;
 use App\Routing\SyncFindingsBridge;
 use App\Services\Cache\CacheKeyGenerator;
@@ -18,10 +17,10 @@ use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\OpenTableService;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
-use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -72,9 +71,42 @@ class SuggestionsController extends ApiController
             ->limit(100)
             ->get();
 
-        $suggestions = $intents->map(function (object $intent) use ($user): array {
+        $surfacesByIntentId = [];
+        $surfaceKeysNeedingResolution = [];
+        foreach ($intents as $intent) {
             $surface = CompiledCatalog::surface($intent->surface_key);
-            $this->resolveSwapIncumbent($user, $intent, $surface);
+            $surfacesByIntentId[$intent->id] = $surface;
+            if ($this->needsSwapResolution($intent, $surface)) {
+                $surfaceKeysNeedingResolution[$intent->surface_key] = true;
+            }
+        }
+
+        // SCALE-8: this used to be resolveSwapIncumbent() per intent — up to
+        // 100 IntegrationConnection SELECTs, plus a conditional UPDATE, on a
+        // GET. The UPDATE was never load-bearing here: accept() calls
+        // decideSwapIncumbent() itself before it persists anything, so
+        // whatever this render computed was only ever a pre-warm. One query
+        // for the whole page, grouped in memory, replaces the per-intent
+        // fetch; nothing is written from this handler.
+        $connectionsBySurface = collect();
+        if ($surfaceKeysNeedingResolution !== []) {
+            $connectionsBySurface = IntegrationConnection::query()
+                ->where('user_id', $user->id)
+                ->whereIn('surface_key', array_keys($surfaceKeysNeedingResolution))
+                ->orderBy('created_at')
+                ->get(['id', 'surface_key', 'resource_id'])
+                ->groupBy('surface_key');
+        }
+
+        $suggestions = $intents->map(function (object $intent) use ($surfacesByIntentId, $connectionsBySurface): array {
+            $surface = $surfacesByIntentId[$intent->id];
+
+            if ($this->needsSwapResolution($intent, $surface)) {
+                $others = $connectionsBySurface->get($intent->surface_key, collect())
+                    ->reject(fn (IntegrationConnection $c) => $c->resource_id === (string) $intent->identifier)
+                    ->pluck('id');
+                $this->decideSwapIncumbent($intent, $surface, $others);
+            }
 
             return [
                 'id' => $intent->id,
@@ -372,10 +404,12 @@ class SuggestionsController extends ApiController
             return $this->error('That suggestion is no longer available.', 404);
         }
 
-        $denied = RoutingCapabilityGate::denialFor($user, 'reservations');
-        if ($denied !== null) {
-            throw new AuthorizationException($denied);
-        }
+        // #SEC-9: through the Policy, not a hand-rolled throw — see
+        // IntegrationConnectionPolicy::createForRoutingClass().
+        $this->authorizeForUser($user, 'createForRoutingClass', [
+            new IntegrationConnection(['user_id' => $user->id]),
+            'reservations',
+        ]);
 
         $connection = app(SuggestionApplier::class)->applyDirect(
             $user,
@@ -406,6 +440,22 @@ class SuggestionsController extends ApiController
     }
 
     /**
+     * Whether a cap-blocked intent has anything left to resolve — the guard
+     * both resolveSwapIncumbent() (accept(), which persists) and index()
+     * (which must not) need before they look anywhere near the database:
+     * index() uses it to decide which surfaces are even worth a connections
+     * query.
+     *
+     * @param  array<string, mixed>|null  $surface
+     */
+    private function needsSwapResolution(object $intent, ?array $surface): bool
+    {
+        return $intent->block_reason === 'cap_reached'
+            && $intent->conflicting_connection_id === null
+            && $surface !== null;
+    }
+
+    /**
      * Settle a cap-blocked intent against the cap AS IT IS NOW.
      *
      * A cap-blocked intent on a SINGLE-account surface names the one row a
@@ -421,9 +471,7 @@ class SuggestionsController extends ApiController
      */
     private function resolveSwapIncumbent(User $user, object $intent, ?array $surface): void
     {
-        if ($intent->block_reason !== 'cap_reached'
-            || $intent->conflicting_connection_id !== null
-            || $surface === null) {
+        if (! $this->needsSwapResolution($intent, $surface)) {
             return;
         }
 
@@ -433,6 +481,32 @@ class SuggestionsController extends ApiController
             ->where('resource_id', '!=', (string) $intent->identifier)
             ->orderBy('created_at')
             ->pluck('id');
+
+        $changes = $this->decideSwapIncumbent($intent, $surface, $others);
+        if ($changes !== null) {
+            DB::table('routing.source_intents')->where('id', $intent->id)->update($changes + ['updated_at' => now()]);
+        }
+    }
+
+    /**
+     * The cap-blocked decision itself, pure with respect to the database
+     * (SCALE-8): given the intent, its surface, and the user's OTHER
+     * connections on that surface (already fetched — oldest first, matching
+     * the per-intent query this replaced), it mutates $intent in place
+     * exactly as the two write branches below always did, and reports the
+     * columns that should be persisted, or null if nothing changed.
+     *
+     * Split out so index() (a GET) can render the same resolution accept()
+     * is about to persist, without writing anything itself — the row this
+     * used to update from a read handler, up to 100 times a page, was never
+     * load-bearing there: accept() calls this again, fresh, before it acts.
+     *
+     * @param  array<string, mixed>  $surface
+     * @param  Collection<int, string>  $others  ids of the user's other connections on this surface, oldest first
+     * @return array<string, mixed>|null
+     */
+    private function decideSwapIncumbent(object $intent, array $surface, Collection $others): ?array
+    {
         $max = max(1, (int) ($surface['max_accounts'] ?? 1));
 
         // The cap has moved under a standing intent — the catalog widened
@@ -440,31 +514,24 @@ class SuggestionsController extends ApiController
         // disconnected one — so it is no longer blocked at all: back to a
         // plain proposal, asked once as "add this?".
         if ($others->count() < $max) {
-            DB::table('routing.source_intents')->where('id', $intent->id)->update([
-                'state' => 'proposed',
-                'block_reason' => null,
-                'updated_at' => now(),
-            ]);
             $intent->state = 'proposed';
             $intent->block_reason = null;
 
-            return;
+            return ['state' => 'proposed', 'block_reason' => null];
         }
 
         if ($max > 1) {
-            return;
+            return null;
         }
 
         $incumbent = $others->first();
         if ($incumbent === null) {
-            return;
+            return null;
         }
 
-        DB::table('routing.source_intents')->where('id', $intent->id)->update([
-            'conflicting_connection_id' => $incumbent,
-            'updated_at' => now(),
-        ]);
         $intent->conflicting_connection_id = $incumbent;
+
+        return ['conflicting_connection_id' => $incumbent];
     }
 
     private function findIntent(string $userId, string $intentId): ?object

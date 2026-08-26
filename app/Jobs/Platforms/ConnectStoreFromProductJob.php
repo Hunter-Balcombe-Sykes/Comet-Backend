@@ -52,8 +52,11 @@ class ConnectStoreFromProductJob implements ShouldBeUnique, ShouldQueue
 
     public int $uniqueFor = 300;
 
-    /** Mirrors ShopController::MAX_BRANDS. */
-    private const MAX_BRANDS = 10;
+    /** The store cap, from `partna.shop_brands_max` — the ONE definition (#CFG-3). */
+    private static function maxBrands(): int
+    {
+        return (int) config('partna.shop_brands_max');
+    }
 
     /**
      * @param  array<string, mixed>  $detected  ShopProviderDetector's detected block
@@ -96,7 +99,7 @@ class ConnectStoreFromProductJob implements ShouldBeUnique, ShouldQueue
                         return null; // already connected — nothing to do
                     }
                     $storeCount = $stores->filter(fn (StoreRecord $s): bool => $s->isIndividual === false)->count();
-                    if ($storeCount >= self::MAX_BRANDS) {
+                    if ($storeCount >= self::maxBrands()) {
                         Log::info('shop.connect_from_product.cap_reached', ['user_id' => $user->id, 'origin' => $detected['origin'] ?? null]);
 
                         return null;

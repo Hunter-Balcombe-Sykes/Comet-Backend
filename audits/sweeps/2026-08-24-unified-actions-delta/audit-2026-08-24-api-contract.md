@@ -25,7 +25,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 8 complete
+- P3 Low: 1 of 8 complete
 
 ---
 
@@ -147,7 +147,8 @@
         * absent.
         ```
 
-- [ ] **#API-7** · P3 — Public pool hydration runs a dashboard-only duplicate-detection query on every request
+- [x] **#API-7** · P3 — Public pool hydration runs a dashboard-only duplicate-detection query on every request
+    - **Resolved 2026-08-26** — closed together with the remainder sweep's `SCALE-9`; they are ONE defect (same file, same lines, same remedy), and the pairing was only settled by `ad8922d15`, which is why this finding was an orphan assigned to no unit. `itemPayloads()` and `hydrateItems()` gained `bool $withDuplicateCandidates = true`, extending the `$withLibrary` audience-flag idiom already in this class; `PoolWire::forSite()` passes false, so the public build skips the `content.identity_candidates` join entirely rather than running it and discarding the result. Default true keeps `resolve()` and every dashboard caller byte-identical. The `duplicateCandidates` KEY is retained (valued `[]`) so the per-item array shape never varies — `PoolWire` strips it either way, so the public wire cannot change. Measured on a 20-item batch with 10 real candidate rows: public path 82 -> 81 queries, `identity_candidates` 1 -> 0; dashboard 25 -> 25 unchanged. This is one query per public render, not per item — the join was already batched by `whereIn($ids)` — so the honest claim is a removed join, not a collapsed N+1. Mutation-proved both ways. Trap found in passing: an anonymous `PoolResolver` subclass in `PoolDegradedBuildTest` overrides `hydrateItems()`, and a signature mismatch there crashes Pest with exit 2 and NO output rather than a normal failure.
     - **Where:** app/Site/Pools/PoolResolver.php:876-892
     - **Affects:** Public sitepage pool rendering — the hottest read path per the platform's scale profile.
     - **Effort:** M (~2–4h)

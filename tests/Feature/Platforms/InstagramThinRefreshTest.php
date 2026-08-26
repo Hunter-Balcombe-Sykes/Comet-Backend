@@ -18,6 +18,7 @@ use App\Models\Core\User\User;
 use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -25,6 +26,13 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // #LIFE-13: a QueryException in the observer's ingest-source seam is now
+    // reported + warned instead of silently Log::debug'd, so a missing ingest
+    // mirror turns every Eloquent-created connection into a spurious report.
+    // Provision it; Bus::fake() because provisioning switches the eager-run
+    // dispatch on, and these tests drive jobs via ->handle() directly.
+    setupIngestTables();
+    Bus::fake();
     config([
         'services.apify.token' => 'test-token',
         'partna.instagram.actor' => 'apify~instagram-profile-scraper',

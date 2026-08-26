@@ -112,6 +112,7 @@ final class RawCacheCallScanner
         // — vetted, not a tenant leak):
         'app/Http/Controllers/Api/Staff/Analytics/StaffAggregateAnalyticsController.php', // staff-only aggregate; key encodes the full scope (all|segment-hash)+window; cross-tenant BY DESIGN (staff see all), so tenant isolation is N/A
         'app/Jobs/Platforms/GoogleBusinessEnrichJob.php', // paid-Apify inflight/result guard, keys via CacheKeyGenerator::googleBusinessApify*(userId, placeId) (same pattern as InstagramController)
+        'app/Jobs/Platforms/ScanPreviousWebsiteContentJob.php', // #LIFE-9: Cache::add SETNX claim before dispatching a billed OCR/AI sub-job, so a manual Horizon retry can't re-dispatch (and re-bill) one a prior attempt already sent — keys via CacheKeyGenerator::websiteScanSubJobDispatched(userId, kind, sha1(payload)), same pattern as GoogleBusinessEnrichJob above
         // STALE — code drift, NOT the token migration: verified 2026-08-03 that
         // neither file exists under app/ any more (find turns up nothing at
         // either path). Whatever removed/relocated the Design Presets factors

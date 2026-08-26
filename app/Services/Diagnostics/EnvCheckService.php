@@ -119,6 +119,7 @@ class EnvCheckService
      *   status: 'ok'|'fail',
      *   required_missing: list<string>,
      *   recommended_missing: list<string>,
+     *   bot_protection: array{driver: string, mode: string, fail_open: bool, effective: string},
      * }
      */
     public function generate(): array
@@ -130,6 +131,45 @@ class EnvCheckService
             'status' => $requiredMissing === [] ? 'ok' : 'fail',
             'required_missing' => $requiredMissing,
             'recommended_missing' => $recommendedMissing,
+            'bot_protection' => $this->botProtection(),
+        ];
+    }
+
+    /**
+     * #SEC-16 = #SEC-4: the keys above being present says nothing about whether
+     * anything is actually VERIFIED — mode=shadow calls the real verifier, logs
+     * bot_protection.shadow_reject, then passes everyone through by design. That
+     * made "is bot protection on?" unanswerable without reading env vars on the
+     * box. `effective` answers it in one word. Secrets are never included, only
+     * whether a driver is named.
+     *
+     * @return array{driver: string, mode: string, fail_open: bool, effective: string}
+     */
+    private function botProtection(): array
+    {
+        // The absent-driver sentinel has three shapes — see the boot guard in
+        // AppServiceProvider. Env::get() turns .env.example's literal
+        // `BOT_PROTECTION_DRIVER=null` into PHP null, which `(string)` casts to
+        // '' rather than 'null', so comparing against 'null' alone would report
+        // "enforcing" for an environment with no verifier at all.
+        $rawDriver = config('partna.bot_protection.driver');
+        $driverAbsent = $rawDriver === null || $rawDriver === '' || $rawDriver === 'null';
+        $driver = $driverAbsent ? 'null' : (string) $rawDriver;
+        $mode = (string) config('partna.bot_protection.mode', 'off');
+        $failOpen = (bool) config('partna.bot_protection.fail_open', false);
+
+        $effective = match (true) {
+            $mode === 'off' => 'inert: middleware short-circuits before any work',
+            $driverAbsent => 'inert: no driver configured, nothing can be verified',
+            $mode === 'shadow' => 'observing: verifier runs and logs, but every request passes',
+            default => 'enforcing',
+        };
+
+        return [
+            'driver' => $driver,
+            'mode' => $mode,
+            'fail_open' => $failOpen,
+            'effective' => $effective,
         ];
     }
 

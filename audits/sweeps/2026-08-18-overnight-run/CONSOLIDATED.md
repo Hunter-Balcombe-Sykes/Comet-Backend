@@ -83,7 +83,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 1 of 5 complete
+- P2 Medium: 3 of 5 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -151,7 +151,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#SEC-3** · P2 — Square's `host_pattern` matches any `order.*` host, not just the five explicitly excluded brand hosts
+- [x] **#SEC-3** · P2 — Square's `host_pattern` matches any `order.*` host, not just the five explicitly excluded brand hosts
     - **Where:** config/partna.php:931
     - **Affects:** Platform classification for menu/link detection (`WebsiteLinkHarvester` / catalog host-pattern matching) — a submitted URL whose host merely starts with `order.` (e.g. `order.attacker-controlled.example`) is classified as Square.
     - **Effort:** S (~0.5–1h)
@@ -240,7 +240,7 @@
         $this->assertWithinByteCap($response);
         ```
 
-- [ ] **#SEC-7** · P2 — Link-in-bio custom-link write stores the raw pasted URL, bypassing the secret-param redaction the sibling "note" branch applies
+- [x] **#SEC-7** · P2 — Link-in-bio custom-link write stores the raw pasted URL, bypassing the secret-param redaction the sibling "note" branch applies
     - **Where:** app/Http/Controllers/Api/Routing/RoutingController.php:67, :79 (link-in-bio branch); compare :118 (note branch)
     - **Affects:** Any user pasting a link-in-bio page URL (linktr.ee, beacons.ai, msha.ke, stan.store) that carries a query-string token — the raw URL is persisted as a public custom-link card and dispatched to a scan job verbatim.
     - **Effort:** S (~0.5–1h)
@@ -327,7 +327,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
-- P2 Medium: 2 of 11 complete
+- P2 Medium: 10 of 11 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -497,7 +497,36 @@
             ->all();
         ```
 
-- [ ] **#LIFE-9** · P2 — Manual retry of a failed website scan re-dispatches billed OCR/AI sub-jobs with no dedup guard
+- [x] **#LIFE-9** · P2 — Manual retry of a failed website scan re-dispatches billed OCR/AI sub-jobs with no dedup guard
+    - **FIXED 2026-08-26 (PART 2 unit 14e), after a FAILED first review round.**
+    - `ScanPreviousWebsiteContentJob::claimSubJobDispatch($kind, $payload)` — an atomic `Cache::add()` (SETNX)
+      claim keyed `(user_id, kind, sha1(content))`, TTL `config('horizon.trim.failed')` minutes (7d default,
+      chosen because a Retry button only exists while Horizon still lists the job as failed). Checked before
+      BOTH the PDF-loop dispatch and the HTML fallback. The guard can only ever REFUSE spend, never enable it;
+      no budget, cap or limit was touched, and no billed call was made to verify it.
+    - **Round 1 FAILED on two real defects, both now closed:**
+      1. The guard silently defeated `BackfillPreviousWebsiteContentScanCommand`'s documented *fleet-wide
+         re-scan escape hatch* — a bare `continue`, no logging, while the command still reported
+         "Dispatched N …". **A `--force` bypass was deliberately NOT added:** re-enabling a billed re-scan is
+         an owner spend decision and out of bounds for this run. Instead the refusal is now logged
+         (`website_scan.subjob_dispatch_already_claimed`, covering both paths by construction since both route
+         through the one method, with no URL or credential in the context), and that command's docblock was
+         corrected — a re-run OUTSIDE the window or against genuinely NEW content still re-bills and remains
+         the escape hatch; re-billing UNCHANGED content INSIDE the window now has **no mechanism**, stated
+         plainly as an owner decision rather than quietly broken.
+      2. The HTML-fallback guard had **zero** test coverage — round 1 proved it by mutation (deleting it left
+         the suite fully green). Now covered by its own test.
+    - **This unit hit the false-pass trap THREE times and it is worth recording:** `drainDatabaseQueue()` masks
+      it (the sub-job is deliberately left un-popped), and `Bus::fake()` + `::dispatch()` masks it because
+      `PendingDispatch::__destruct()` acquires the `UniqueLock` BEFORE reaching the faked Dispatcher — so the
+      sub-job's own `ShouldBeUnique` (`uniqueFor = 3600`) absorbs the second dispatch regardless of the fix.
+      The working shape is `app()->call([$job, 'handle'])` + `Bus::fake()` + `travel(3601)->seconds()`, and
+      the reviewer confirmed `WebsiteMenuHtmlScanJob::$uniqueFor` is genuinely 3600 so the travel distance is
+      sufficient, and that the HTML fixture carries no PDF link so the two claims are isolated.
+    - Mutation-proved BOTH guards independently in round 2: removing either pushes its sub-job 2 times instead
+      of 1, and each failure is confined to its own test. Review round 2: **PASS**.
+    - Nice-to-have left open: no test asserts the new log line itself fires (the behaviour is proved by
+      mutation; the log is code-reviewed on both paths).
     - **Where:** app/Jobs/Platforms/ScanPreviousWebsiteContentJob.php:73-121, 497-509
     - **Affects:** Users with `previous_website` set; vendor OCR/AI spend if a support engineer clicks Horizon's "Retry" on a failed run.
     - **Effort:** M (~2–4h)
@@ -513,7 +542,30 @@
         'note' => 'single-attempt job; manual Horizon retry re-bills OCR/AI sub-jobs',
         ```
 
-- [ ] **#LIFE-10** · P2 — `FreshaConnector` discards the vendor's actual GraphQL error, replacing it with a fixed generic message
+- [x] **#LIFE-10** · P2 — `FreshaConnector` discards the vendor's actual GraphQL error, replacing it with a fixed generic message
+    - **FIXED 2026-08-26 (PART 2 unit 14f).** `fetchBookingFlow()` now logs
+      `ingest.fresha.booking_flow_graphql_rejected` with the slug and the vendor's own error messages, so a
+      rotated persisted-query hash is distinguishable from any other GraphQL rejection.
+    - **Nothing credential-shaped can reach the log, by construction.** A new `graphQlErrorMessages()` helper
+      can only ever emit `list<string>`: a non-array `errors` yields `[]`, non-array entries are skipped, and a
+      non-string `message` is skipped via `is_string()`. Capped at 3 errors x 500 chars. `extensions`, headers,
+      the persisted-query document and the request body are never read. The 500 matches `EffectLedger`'s
+      existing exception-text bound (`:158`, `:174`, `:247`) in the same `Ingest/Runtime` layer.
+    - `SecretParams` was deliberately NOT applied: `redactUrl`/`minimiseUrl` parse URL query params, so running
+      them over arbitrary vendor prose is a category error rather than a redaction. The structural bound above
+      is what does the work. Reviewer judged this defensible; recorded as a judgement call, not a certainty.
+    - **Log-only, not threaded into `Unavailable::reason`** — traced and confirmed that `reason` is never
+      persisted (`RunExecutor::recordStreamFailure()` writes only the outcome string `'unavailable'` plus
+      `consecutive_failures`/`suppressed_until`), so threading it would add plumbing across two call sites for
+      a benefit the logs already deliver.
+    - **The branch restructure is behaviour-identical, and this was checked rather than assumed:** the reviewer
+      traced all four cases of `is_array($decoded)` x `isset($decoded['errors'])` — including the
+      `errors => null` case where `isset` is false — across the old and new shapes and confirmed the set of
+      inputs returning `null` is unchanged. It was a genuine PHPStan `booleanAnd.alwaysFalse` fix, not a
+      behaviour change smuggled in under a lint fix.
+    - Mutation-proved: removing the `Log::warning` goes RED. The assertion is a POSITIVE `Log::spy()` +
+      `shouldHaveReceived('warning')->withArgs(...)` constraining the message key, slug and messages array —
+      not the vacuous negative-log pattern this repo has been bitten by. Review: **PASS**.
     - **Where:** app/Ingest/Connectors/FreshaConnector.php:105-118, 300-320
     - **Affects:** Anyone debugging a Fresha menu ingest failure — a rotated persisted-query hash and any other GraphQL rejection reason are indistinguishable in the logs.
     - **Effort:** S (~0.5–1h)
@@ -531,7 +583,7 @@
         }
         ```
 
-- [ ] **#LIFE-11** · P2 — `GoogleBusinessAutoSync::seedWorkplace()` is a check-then-write with no lock, unlike every sibling seed method in the same class
+- [x] **#LIFE-11** · P2 — `GoogleBusinessAutoSync::seedWorkplace()` is a check-then-write with no lock, unlike every sibling seed method in the same class
     - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:414-460
     - **Affects:** A site whose owner edits their workplace description/category/website at the same moment a Google Business enrich job runs and tries to seed the same fields.
     - **Effort:** S (~0.5–1h)
@@ -575,7 +627,7 @@
         }
         ```
 
-- [ ] **#LIFE-13** · P2 — Generic `QueryException` catch in `IntegrationConnectionObserver::syncIngestSource()` hides real database failures at debug level
+- [x] **#LIFE-13** · P2 — Generic `QueryException` catch in `IntegrationConnectionObserver::syncIngestSource()` hides real database failures at debug level
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:234-252
     - **Affects:** Ingest-source provisioning for every platform connection save. A real DB failure (transaction abort, unique-constraint race from concurrent saves) is swallowed at debug level, invisible to Nightwatch.
     - **Effort:** S (~0.5–1h)
@@ -594,7 +646,7 @@
         }
         ```
 
-- [ ] **#LIFE-14** · P2 — `SourceProvisioner::sync()`'s find-then-insert has no guard against its own unique constraint, so a concurrent connection save throws uncaught inside an observer
+- [x] **#LIFE-14** · P2 — `SourceProvisioner::sync()`'s find-then-insert has no guard against its own unique constraint, so a concurrent connection save throws uncaught inside an observer
     - **Where:** app/Ingest/SourceProvisioner.php:76-99
     - **Affects:** Any user whose platform connection is saved twice in close succession (dashboard save racing a scheduled refresh, or the deferred-connect payload-fill write racing the initial insert).
     - **Effort:** S (~0.5–1h)
@@ -616,7 +668,19 @@
         }
         ```
 
-- [ ] **#LIFE-15** · P2 — Ingest-badge lookup swallows every `QueryException` with zero logging
+- [x] **#LIFE-15** · P2 — Ingest-badge lookup swallows every `QueryException` with zero logging
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 3). The catch is now
+      `catch (QueryException $e)` + `Log::warning('pools.ingest_badges_read_failed', …)` +
+      `self::escalateIfSustained($e, 'pool_ingest_badges')`, following the existing
+      `EscalatesRepeatedFaults` precedent in `ContentPopularityReader` rather than inventing a
+      convention. Deliberately still **fail-open** — the sheet renders, badges read "never" — and
+      deliberately a *warning*, not a `report()`, per fault: "ingest schema absent in this env" is a
+      legitimate shape here, so only a SUSTAINED run (5 in 10 min) escalates to Nightwatch.
+      Note the file moved to `app/Site/Pools/PoolResolver.php`; the audit's
+      `app/Services/PublicSite/` path and its :559-570 line numbers were both stale.
+      Tests: `tests/Feature/Content/PoolIngestBadgeFailOpenTest.php` — one asserting the breadcrumb
+      fires and the pool still renders, one asserting it does NOT fire on the healthy path.
+      Both mutation-proved (removing the log -> RED; logging unconditionally -> the negative test RED).
     - **Where:** app/Site/Pools/PoolResolver.php:559-570 (`itemPayloads()`)
     - **Affects:** The dashboard item sheet's "last synced" / auto-sync badges; Nightwatch observability of the same public-hot-path query.
     - **Effort:** S (~0.5–1h)
@@ -640,7 +704,25 @@
         }
         ```
 
-- [ ] **#LIFE-16** · P2 — `platforms:enrich-pending-cards` is missing all three of this file's own mandatory scheduler conventions
+- [x] **#LIFE-16** · P2 — `platforms:enrich-pending-cards` is missing all three of this file's own mandatory scheduler conventions
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 4). Both entries now follow this
+      file's own convention header (`:11-24`): `->onOneServer()` + `->withoutOverlapping(30)` +
+      `->runInBackground()` + `->onFailure($reportScheduledFailure(...))`.
+    - ⚠️ **Deviation from the EXECUTE file's DECIDED, stated deliberately.** It said to copy
+      `analytics:compute-popularity`'s shape *including its exact expiry value* (16). That 16 is
+      documented in-file as "cadence + 1" for an **everyFifteenMinutes** command, and the
+      convention header's cadence clause applies only to sub-hourly cadences. Both of these are
+      **dailyAt**, so a 16-minute lock would expire mid-run on a long backfill and reintroduce the
+      very overlap this finding exists to prevent. Used **30** instead, matching the daily-sweep
+      precedent in the same file (`partna:analytics:purge-raw-events`, `:88-93`, which is
+      `dailyAt` + `withoutOverlapping(30)` + `runInBackground` + `onFailure`) — an in-file
+      precedent, as the DECIDED intended, just the RIGHT one.
+    - Test: `tests/Feature/Console/SchedulerLockExpiryTest.php`. Two per-command assertions plus a
+      file-wide guard that NO scheduled command sits on the bare 1440-minute default. Both
+      mutations proved RED: reverting to bare `withoutOverlapping()` (caught by the specific test
+      AND the file-wide guard) and removing `onFailure()` (caught via reflection on
+      `afterCallbacks` — verified `runInBackground()` alone does not populate it, so the assertion
+      is not vacuous).
     - **Where:** routes/console.php:499-502
     - **Affects:** The link-card enrichment safety net — silent failure with no Nightwatch alert, a 24-hour stale-lock window after any crashed run, and potential blocking of the per-minute scheduler tick.
     - **Effort:** S (~0.5–1h)
@@ -658,7 +740,25 @@
             ->onOneServer();
         ```
 
-- [ ] **#LIFE-17** · P2 — `content:refresh-item-caches` is missing all three of this file's own mandatory scheduler conventions
+- [x] **#LIFE-17** · P2 — `content:refresh-item-caches` is missing all three of this file's own mandatory scheduler conventions
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 4). Both entries now follow this
+      file's own convention header (`:11-24`): `->onOneServer()` + `->withoutOverlapping(30)` +
+      `->runInBackground()` + `->onFailure($reportScheduledFailure(...))`.
+    - ⚠️ **Deviation from the EXECUTE file's DECIDED, stated deliberately.** It said to copy
+      `analytics:compute-popularity`'s shape *including its exact expiry value* (16). That 16 is
+      documented in-file as "cadence + 1" for an **everyFifteenMinutes** command, and the
+      convention header's cadence clause applies only to sub-hourly cadences. Both of these are
+      **dailyAt**, so a 16-minute lock would expire mid-run on a long backfill and reintroduce the
+      very overlap this finding exists to prevent. Used **30** instead, matching the daily-sweep
+      precedent in the same file (`partna:analytics:purge-raw-events`, `:88-93`, which is
+      `dailyAt` + `withoutOverlapping(30)` + `runInBackground` + `onFailure`) — an in-file
+      precedent, as the DECIDED intended, just the RIGHT one.
+    - Test: `tests/Feature/Console/SchedulerLockExpiryTest.php`. Two per-command assertions plus a
+      file-wide guard that NO scheduled command sits on the bare 1440-minute default. Both
+      mutations proved RED: reverting to bare `withoutOverlapping()` (caught by the specific test
+      AND the file-wide guard) and removing `onFailure()` (caught via reflection on
+      `afterCallbacks` — verified `runInBackground()` alone does not populate it, so the assertion
+      is not vacuous).
     - **Where:** routes/console.php:506-509
     - **Affects:** The item-cache repair backstop for content that missed its projection refresh — same failure modes as #LIFE-16.
     - **Effort:** S (~0.5–1h)
@@ -771,14 +871,15 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 4 complete
-- P3 Low: 1 of 4 complete
+- P2 Medium: 4 of 4 complete
+- P3 Low: 2 of 4 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **CACHE-1** · P2 — Category 2: `recordCandidates` inserts one row per identity candidate in an unbatched loop
+- [x] **CACHE-1** · P2 — Category 2: `recordCandidates` inserts one row per identity candidate in an unbatched loop
+    - **Resolved 2026-08-26** — `recordCandidates()` collects rows and writes them with chunked multi-row `insertOrIgnore()` on the file's existing `writeChunk()` bound. Same guards, and semantics preserved exactly: rows are deduped WITHIN the batch on `(left_item_id, right_item_id)` **first-wins**, because the same pair can arise from two different key values and the per-row loop's second `insertOrIgnore` was silently swallowed by `idx_identity_candidates_pair` — a naive batch would have changed which `evidence` persists. `(left, right)` is NOT normalised; that index is directional and both orderings legitimately coexist. `content.identity_candidates` has no `updated_at`, and no consumer keys off a row timestamp (checked all four readers). Write statements for one shared key, before -> after: 50 members 1,225 -> 1; 200 members 19,900 -> 1; 1000 members 499,500 -> 1. Pinned in the **Postgres** lane (`composer test:pg`, mandatory here — a green SQLite run says nothing about this writer): batch count, first-wins evidence, the reversed `(b,a)` row, and a chunk-SPANNING case asserting 9 statements for 45 rows at chunk=5 with every pair present exactly once. Full lane 249 passed / 3 skipped, with 2 failures pre-existing (`LanderFoldAtomicityTest`, `ingest.record_state` first-creator-wins ordering) — verified pre-existing by restoring the test files from HEAD and re-running. `IdentityScope.php`, the kill switch, the closure bound, the advisory lock, the transaction boundary and the resolve scope are ALL untouched; `ProjectionWriterScopedResolveTest`'s scoped-vs-whole-kind differential still passes.
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:930-946 (`recordCandidates`)
     - **Affects:** Any projection run (connector sync or manual write) where several of a user's items share a loose evidential key (title, author, etc.) — DB round-trips scale with the number of candidate pairs, not the size of the record just written.
     - **Effort:** S (~0.5–1h)
@@ -903,7 +1004,8 @@
         }
         ```
 
-- [ ] **CACHE-6** · P3 — Category 5: `Resolver`'s evidential-tier pass is an O(m²) nested loop over every member of a shared loose key
+- [x] **CACHE-6** · P3 — Category 5: `Resolver`'s evidential-tier pass is an O(m²) nested loop over every member of a shared loose key
+    - **Resolved 2026-08-26** — capped, and the cap is SURFACED. `Resolver::resolve()` step 5 now takes `maxMembersPerKey` / `maxCandidatesPerKey` as ARGUMENTS (defaults 100 / 200, mirroring `config('partna.ingest.*')`): the member cap bounds the ITERATION, the candidate cap bounds what is appended and breaks out of that key's loops immediately. Two knobs deliberately — the candidate cap alone does not bound the work, because if nearly every pair is already grouped or cut the loops can run the full O(m^2) without ever appending enough to trip it. **The caps arrive as DATA, never as a config read inside the resolver** — the same rule `LinkProjector` follows for detector suspensions, and what keeps a resolve reproducible from its arguments alone; `ProjectionWriter::resolveItemsLocked()` owns the config read and the logging, because user + kind live at that seam. ONE `Log::warning` per RUN with a bounded 5-key sample, never one per key or per pair: a silent cap means items quietly stop being offered for merge, which is invisible on a green run. Growth curve for one shared key, before -> after: 50 members 1,225 -> 200 pairs; 200 members 19,900 -> 200; 1000 members 499,500 -> 200 (122.5ms -> 2.3ms). Deterministic first-N, not a sample, pinned by a two-run identity test; below the caps the candidates, their order and their evidence are unchanged.
     - **Where:** app/Content/Identity/Resolver.php:77-87 (`resolve`)
     - **Affects:** Projection CPU time for a user whose items happen to share a loose title/author key — cost is quadratic in the size of that key's member set.
     - **Effort:** M (~2–4h)
@@ -1050,8 +1152,8 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 4 of 6 complete
-- P2 Medium: 1 of 16 complete
+- P1 High: 6 of 6 complete
+- P2 Medium: 13 of 16 complete
 - P3 Low: 0 of 7 complete
 
 ---
@@ -1262,7 +1364,8 @@ None.
         }
         ```
 
-- [ ] **#SCALE-10** · P2 — Evidential-key candidate generation is O(n²) per shared key with no cap
+- [x] **#SCALE-10** · P2 — Evidential-key candidate generation is O(n²) per shared key with no cap
+    - **Resolved 2026-08-26** — capped, and the cap is SURFACED. `Resolver::resolve()` step 5 now takes `maxMembersPerKey` / `maxCandidatesPerKey` as ARGUMENTS (defaults 100 / 200, mirroring `config('partna.ingest.*')`): the member cap bounds the ITERATION, the candidate cap bounds what is appended and breaks out of that key's loops immediately. Two knobs deliberately — the candidate cap alone does not bound the work, because if nearly every pair is already grouped or cut the loops can run the full O(m^2) without ever appending enough to trip it. **The caps arrive as DATA, never as a config read inside the resolver** — the same rule `LinkProjector` follows for detector suspensions, and what keeps a resolve reproducible from its arguments alone; `ProjectionWriter::resolveItemsLocked()` owns the config read and the logging, because user + kind live at that seam. ONE `Log::warning` per RUN with a bounded 5-key sample, never one per key or per pair: a silent cap means items quietly stop being offered for merge, which is invisible on a green run. Growth curve for one shared key, before -> after: 50 members 1,225 -> 200 pairs; 200 members 19,900 -> 200; 1000 members 499,500 -> 200 (122.5ms -> 2.3ms). Deterministic first-N, not a sample, pinned by a two-run identity test; below the caps the candidates, their order and their evidence are unchanged.
     - **Where:** app/Content/Identity/Resolver.php:75-87
     - **Affects:** Any user whose catalogue has many items sharing one weak (evidential-tier) identity key — e.g. a generic track/episode title repeated across a large music or podcast catalogue.
     - **Effort:** M (~2–4h)
@@ -1285,7 +1388,8 @@ None.
         }
         ```
 
-- [ ] **#SCALE-11** · P2 — Identity candidates are inserted one row at a time
+- [x] **#SCALE-11** · P2 — Identity candidates are inserted one row at a time
+    - **Resolved 2026-08-26** — `recordCandidates()` collects rows and writes them with chunked multi-row `insertOrIgnore()` on the file's existing `writeChunk()` bound. Same guards, and semantics preserved exactly: rows are deduped WITHIN the batch on `(left_item_id, right_item_id)` **first-wins**, because the same pair can arise from two different key values and the per-row loop's second `insertOrIgnore` was silently swallowed by `idx_identity_candidates_pair` — a naive batch would have changed which `evidence` persists. `(left, right)` is NOT normalised; that index is directional and both orderings legitimately coexist. `content.identity_candidates` has no `updated_at`, and no consumer keys off a row timestamp (checked all four readers). Write statements for one shared key, before -> after: 50 members 1,225 -> 1; 200 members 19,900 -> 1; 1000 members 499,500 -> 1. Pinned in the **Postgres** lane (`composer test:pg`, mandatory here — a green SQLite run says nothing about this writer): batch count, first-wins evidence, the reversed `(b,a)` row, and a chunk-SPANNING case asserting 9 statements for 45 rows at chunk=5 with every pair present exactly once. Full lane 249 passed / 3 skipped, with 2 failures pre-existing (`LanderFoldAtomicityTest`, `ingest.record_state` first-creator-wins ordering) — verified pre-existing by restoring the test files from HEAD and re-running. `IdentityScope.php`, the kill switch, the closure bound, the advisory lock, the transaction boundary and the resolve scope are ALL untouched; `ProjectionWriterScopedResolveTest`'s scoped-vs-whole-kind differential still passes.
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:928-947 (`recordCandidates`)
     - **Affects:** Any projection run whose identity resolution surfaces evidential-tier candidates — directly amplified by #SCALE-10's uncapped candidate generation.
     - **Effort:** S (~0.5–1h)
@@ -1355,7 +1459,8 @@ None.
       within `::dispatch()`), which is a redesign of the media-mirror lane with its own plan and
       review, not a drive-by fix.
 
-- [ ] **#SCALE-13** · P2 — Pool resolution reads every `site.section_items` row for a section with no cap on accumulated excluded items
+- [x] **#SCALE-13** · P2 — Pool resolution reads every `site.section_items` row for a section with no cap on accumulated excluded items
+    - **Resolved 2026-08-26** — narrowed all three `site.section_items` reads (`hasSelection`, `plan`, `preloadCuration`) to `['section_id','item_id','state','sort_key']`; `id` and `created_at` are read nowhere. Measured on a 2000-row section: 432,000 -> 274,000 bytes returned, same 2000 rows. NOT fixed and deliberately not attempted: nothing prunes accumulated `state='excluded'` rows — a retention rule is a write path and a separate decision, carried forward in RESULT-PART-3.md.
     - **Where:** app/Site/Pools/PoolResolver.php:114-116 (`hasSelection`), 193-195 (`resolve`)
     - **Affects:** Public pool payload and dashboard pool page for any section whose owner has excluded many items over time.
     - **Effort:** M (~2–4h)
@@ -1371,7 +1476,8 @@ None.
             ->get();
         ```
 
-- [ ] **#SCALE-14** · P2 — Pool item-payload build selects the full JSONB `platform_connections.payload` for every source row on the public hot path
+- [x] **#SCALE-14** · P2 — Pool item-payload build selects the full JSONB `platform_connections.payload` for every source row on the public hot path
+    - **Resolved 2026-08-26** — the JSONB left the fan-out. `$sourceRows` returns one row per (item, source), so `payload` was re-materialised once per item; it is now fetched once per DISTINCT connection into `$payloadByConnection` (same idiom as the `$ingestByConnection` read beside it) and looked up by connection id. Same rows, same keys, same wire. Measured with 200 items on one connection carrying a ~230 KB payload: 46,065,400 -> 230,327 bytes of payload material, 1 -> 2 queries (queue driver `sync`). Mutation-checked: forcing `$payloadByConnection = []` turns PoolLaneTest's `accountName` and PoolSourceLivenessTest's fallback-url assertions red, so the coverage is not vacuous.
     - **Where:** app/Site/Pools/PoolResolver.php:528-550 (`itemPayloads`)
     - **Affects:** Public pool payload and dashboard item sheet for users with large connector payloads (Google Business place details, Instagram media metadata).
     - **Effort:** M (~2–4h)
@@ -1414,7 +1520,8 @@ None.
         }
         ```
 
-- [ ] **#SCALE-16** · P2 — Pending-card enrichment safety net loads its whole backlog with `->get()` and dispatches synchronously in a loop
+- [x] **#SCALE-16** · P2 — Pending-card enrichment safety net loads its whole backlog with `->get()` and dispatches synchronously in a loop
+    - **Resolved 2026-08-26** — `->get()` + `foreach` becomes `chunkById(100)`, dispatching inside the callback. `chunkById` keysets on the PK rather than paging by OFFSET, which matters here specifically: the dispatched job flips `last_refresh_status` out of this query's own WHERE, inline under the `sync` driver, and an OFFSET page window would shift under it. Proven, not assumed — a real inline run over 240 rows spanning three pages left 0 rows `pending` and reported `dispatched 240 of 240`. Measured at N=2000: heap delta 12,081,056 -> 4,163,168 bytes, 1 -> 21 queries, identical 1800 jobs dispatched.
     - **Where:** app/Console/Commands/EnrichPendingCardsCommand.php:26-45
     - **Affects:** `platforms:enrich-pending-cards` (scheduled daily, safety net for stuck enrichments) — normally near-empty, but grows to a real backlog after a queue outage.
     - **Effort:** S (~0.5–1h)
@@ -1439,7 +1546,8 @@ None.
         }
         ```
 
-- [ ] **#SCALE-17** · P2 — Item-cache repair safety net loads every stale item into memory and groups by user in PHP
+- [x] **#SCALE-17** · P2 — Item-cache repair safety net loads every stale item into memory and groups by user in PHP
+    - **Resolved 2026-08-26** — restructured into two phases: phase 1 collects the DISTINCT `user_id`s matching the filter (a deduped uuid column, and write-free so OFFSET paging cannot skip); phase 2 runs `chunkById(500, ..., 'i.id', 'id')` SCOPED TO ONE USER at a time. The per-user scoping is load-bearing and was learned the hard way: keyset-paging the whole backlog by `i.id` (the obvious reading of the finding) scatters one user's items across pages because ids are random UUIDs, fragmenting the batches `refreshItemCaches()` charges ~18 queries apiece for — that first cut measured **+54% queries for no memory win**. Scoped per user: N=2000 2441 -> 2461 queries (+0.8%), heap 4,378,848 -> 3,354,216; N=20,000 20,881 -> 20,941 (+0.3%), heap 40,491,432 -> 30,541,928. Identical item-id set refreshed at both sizes. Safe to split a user's ids across calls because `refreshCachesFor()` -> `refreshItemCaches()` already `array_chunk`s internally and is purely per-item with no whole-user semantics (verified at `ProjectionWriter.php:2581-2719`); `ProjectionWriter` itself is untouched. Both commands had NO test invoking `handle()` — `tests/Feature/Console/RepairCommandBackfillTest.php` is new and pins the paging, the multi-user clone guard and `--dry-run` writing nothing; it fails if `chunkById` is downgraded to `chunk`.
     - **Where:** app/Console/Commands/RefreshItemCachesCommand.php:47-57
     - **Affects:** `content:refresh-item-caches` (scheduled daily 03:25, added by commit `e8e0c2d0f` for X4) — a healthy database is a cheap no-op read, but a systemic projection bug or a wide backfill can leave many items stale at once.
     - **Effort:** M (~2–4h)
@@ -1497,7 +1605,25 @@ None.
         }
         ```
 
-- [ ] **#SCALE-20** · P2 — `platforms:enrich-pending-cards` scheduled entry uses a bare `withoutOverlapping()` with no `runInBackground`/`onFailure`
+- [x] **#SCALE-20** · P2 — `platforms:enrich-pending-cards` scheduled entry uses a bare `withoutOverlapping()` with no `runInBackground`/`onFailure`
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 4). Both entries now follow this
+      file's own convention header (`:11-24`): `->onOneServer()` + `->withoutOverlapping(30)` +
+      `->runInBackground()` + `->onFailure($reportScheduledFailure(...))`.
+    - ⚠️ **Deviation from the EXECUTE file's DECIDED, stated deliberately.** It said to copy
+      `analytics:compute-popularity`'s shape *including its exact expiry value* (16). That 16 is
+      documented in-file as "cadence + 1" for an **everyFifteenMinutes** command, and the
+      convention header's cadence clause applies only to sub-hourly cadences. Both of these are
+      **dailyAt**, so a 16-minute lock would expire mid-run on a long backfill and reintroduce the
+      very overlap this finding exists to prevent. Used **30** instead, matching the daily-sweep
+      precedent in the same file (`partna:analytics:purge-raw-events`, `:88-93`, which is
+      `dailyAt` + `withoutOverlapping(30)` + `runInBackground` + `onFailure`) — an in-file
+      precedent, as the DECIDED intended, just the RIGHT one.
+    - Test: `tests/Feature/Console/SchedulerLockExpiryTest.php`. Two per-command assertions plus a
+      file-wide guard that NO scheduled command sits on the bare 1440-minute default. Both
+      mutations proved RED: reverting to bare `withoutOverlapping()` (caught by the specific test
+      AND the file-wide guard) and removing `onFailure()` (caught via reflection on
+      `afterCallbacks` — verified `runInBackground()` alone does not populate it, so the assertion
+      is not vacuous).
     - **Where:** routes/console.php:499-502
     - **Affects:** Reliability/observability of the daily card-enrichment safety net (see #SCALE-16, same command).
     - **Effort:** S (~0.5–1h)
@@ -1514,7 +1640,25 @@ None.
             ->onOneServer();
         ```
 
-- [ ] **#SCALE-21** · P2 — `content:refresh-item-caches` scheduled entry uses a bare `withoutOverlapping()` with no `runInBackground`/`onFailure`
+- [x] **#SCALE-21** · P2 — `content:refresh-item-caches` scheduled entry uses a bare `withoutOverlapping()` with no `runInBackground`/`onFailure`
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 4). Both entries now follow this
+      file's own convention header (`:11-24`): `->onOneServer()` + `->withoutOverlapping(30)` +
+      `->runInBackground()` + `->onFailure($reportScheduledFailure(...))`.
+    - ⚠️ **Deviation from the EXECUTE file's DECIDED, stated deliberately.** It said to copy
+      `analytics:compute-popularity`'s shape *including its exact expiry value* (16). That 16 is
+      documented in-file as "cadence + 1" for an **everyFifteenMinutes** command, and the
+      convention header's cadence clause applies only to sub-hourly cadences. Both of these are
+      **dailyAt**, so a 16-minute lock would expire mid-run on a long backfill and reintroduce the
+      very overlap this finding exists to prevent. Used **30** instead, matching the daily-sweep
+      precedent in the same file (`partna:analytics:purge-raw-events`, `:88-93`, which is
+      `dailyAt` + `withoutOverlapping(30)` + `runInBackground` + `onFailure`) — an in-file
+      precedent, as the DECIDED intended, just the RIGHT one.
+    - Test: `tests/Feature/Console/SchedulerLockExpiryTest.php`. Two per-command assertions plus a
+      file-wide guard that NO scheduled command sits on the bare 1440-minute default. Both
+      mutations proved RED: reverting to bare `withoutOverlapping()` (caught by the specific test
+      AND the file-wide guard) and removing `onFailure()` (caught via reflection on
+      `afterCallbacks` — verified `runInBackground()` alone does not populate it, so the assertion
+      is not vacuous).
     - **Where:** routes/console.php:506-509
     - **Affects:** Reliability/observability of the daily item-cache repair safety net (see #SCALE-17, same command; added by commit `e8e0c2d0f`).
     - **Effort:** S (~0.5–1h)
@@ -1780,14 +1924,37 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 3 complete
+- P2 Medium: 3 of 3 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#CCH-1** · P2 · Category 4 — Instagram auto-sync flag write bypasses the observer's own cache-invalidation gate
+- [x] **#CCH-1** · P2 · Category 4 — Instagram auto-sync flag write bypasses the observer's own cache-invalidation gate
+    - **CLOSED 2026-08-26 (PART 2 unit 14c) — the explicit invalidation call was added, but the EFFECT premise is
+      REFUTED. Read this before re-filing it.** The finding is right that the raw `DB::table()->update()` bypasses
+      Eloquent and that CLAUDE.md therefore requires an explicit invalidation, which now exists
+      (`$this->refresher->refresh($connection->fresh())`). But it does **not** produce a second edge purge, and
+      it did not need to:
+      - `CloudflareCachePurgeJob` is `ShouldBeUnique` with a ~35s coalesce window whose lock is taken against the
+        REAL cache store (`Queue::fake()` does not bypass it), so this same-handle, same-request dispatch is
+        swallowed every time.
+      - The race was already covered independently: that job's `handle()` schedules a follow-up purge 15s after
+        **its own execution** — necessarily long after this synchronous sub-millisecond strip has committed — and
+        `purgeHandle()` evicts rather than reading `display_settings`, so it does not need to observe them.
+      The call is kept as the invalidation the write path owes under CLAUDE.md, and as cover if the coalesce
+      window or follow-up schedule ever changes. **The code comment now states all of this**, so the next reader
+      does not assume the line guarantees a purge.
+    - **Cache-lane decision: NARROW (edge purge only), not `SiteCacheLanes::bust()`** — verified on three counts:
+      `IntegrationConnectionCacheRefresher::refresh()` dispatches only the edge purge (no `BuildState::bump`, no
+      `site.updated_at`); `SiteCacheLanes` is wired for `content.*` POOL mutations and this writes
+      `site.platform_connections`; and `saved()`'s own gate already treats Instagram as edge-purge-only, because
+      `->complete(...)` is declared for `fresha`/`shop` only, so `hasCompletenessPredicate()` is false and the
+      neighbouring `site.touch()` is already skipped. Three-laning it would have been NEW, broader behaviour.
+    - `->fresh()` is defensive only — `refresh()` reads `user_id`, which the strip does not change. Noted in-code.
+    - Contested-file check: `syncIngestSource()` and `maybeRunEagerly()` are untouched, so the orphaned pre-pilot
+      stash still merges cleanly. Mutation-proved (removing the call → RED). Review: **PASS**.
     - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:184-193 (`enableContentInstagramAuto()`)
     - **Affects:** Newly-connected Instagram accounts; the Cloudflare edge purge / site-touch cascade that every other `display_settings` write triggers.
     - **Effort:** S (~0.5–1h)
@@ -1810,7 +1977,7 @@ None.
         }
         ```
 
-- [ ] **#CCH-2** · P2 · Category 4 — Deferred Fresha reconnect merges the payload, leaving the previous salon's `teamMenuCache` live under the new URL
+- [x] **#CCH-2** · P2 · Category 4 — Deferred Fresha reconnect merges the payload, leaving the previous salon's `teamMenuCache` live under the new URL
     - **Where:** app/Http/Controllers/Api/Platforms/FreshaController.php:245-252 (write: `connectDeferred()`), app/Http/Controllers/Api/Platforms/FreshaController.php:356-359 (read: `team()`)
     - **Affects:** Fresha users on the deferred-connect flow (`config('partna.connect.deferred')` includes `fresha`) who reconnect to a *different* salon while the previous salon's up-to-24h `teamMenuCache` is still fresh.
     - **Effort:** S (~0.5–1h)

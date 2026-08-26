@@ -2,6 +2,8 @@
 
 namespace App\Ingest\Projection;
 
+use App\Ingest\Connectors\FreshaConnector;
+
 /**
  * Fresha booking-flow service → the `service` item kind.
  *
@@ -58,7 +60,11 @@ class FreshaServiceProjector implements Projector
             'kind' => self::kind(),
             'headline' => $name,
             'facets' => array_filter([
-                'f_text' => $view->string('description') === null ? null : ['body' => $view->string('description')],
+                // #SEC-4 belt-and-braces: the connector already caps this at
+                // yield time (FreshaConnector::MAX_TEXT_LENGTH); re-capping
+                // here means a future producer that skips the connector's
+                // guard still can't push an unbounded body into content.f_text.
+                'f_text' => $view->string('description') === null ? null : ['body' => mb_substr($view->string('description'), 0, FreshaConnector::MAX_TEXT_LENGTH)],
                 // The service's booking deep link (FreshaConnector::bookingDeepLink).
                 'f_link' => $view->string('url') === null ? null : ['url' => $view->string('url')],
                 'f_duration' => $duration === null ? null : ['seconds' => $duration],

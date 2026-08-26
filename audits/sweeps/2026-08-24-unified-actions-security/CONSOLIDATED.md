@@ -82,7 +82,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 4 of 15 complete
+- P2 Medium: 12 of 15 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -167,7 +167,31 @@
 
 ## P2 — Should fix
 
-- [ ] **#SEC-4** · P2 — Fresha ingest stores third-party free-text with no length cap
+- [x] **#SEC-4** · P2 — Fresha ingest stores third-party free-text with no length cap
+    - **FIXED 2026-08-26 (PART 2 unit 14a). Dev-only — prod carries no `content` schema at all, so this could
+      not fire on production regardless.**
+    - Capped `name` and `description` with `mb_substr` (NOT `substr` — a byte truncation would split a
+      multi-byte character and emit invalid UTF-8) at a new shared `FreshaConnector::MAX_TEXT_LENGTH = 2000`,
+      applied in `mapServiceItem()` AND re-applied independently in `FreshaServiceProjector`'s `f_text`
+      mapping. One constant, referenced from both — not two hand-copied numbers.
+    - **The 2000 is an EXISTING convention, not invented** — that was the condition for not deferring, and it
+      was verified twice: `Html::plainText()`'s default `$limit = 2000` (`app/Ingest/Support/Html.php:59`) is
+      what `SchemaOrgEvent::fromNode()` already applies to a vendor `description` that
+      `SchemaOrgEventProjector.php:60` writes into **this same `f_text.body` facet** for Eventbrite/Humanitix.
+      `LinkObserver.php:50` independently caps at the same 2000. `content.f_text.body` itself
+      (`20260727140000_content_schema.sql:188-196`) is plain `text` — no CHECK, no `varchar(n)` — so the
+      column-DDL option genuinely did not exist.
+    - `Html::plainText()` was NOT reused wholesale: it also strips tags and decodes entities, the wrong
+      transform for Fresha's plain JSON-API prose (`__NEXT_DATA__.description`), where `strip_tags` could
+      mangle a stray `<`/`>` in real business copy. A judgement call, flagged as such by the reviewer.
+    - **The finding's control-character stripping was deliberately NOT done:** no existing convention for it
+      exists in `app/Ingest/` or `app/Routing/` (grepped by both implementer and reviewer), and inventing one
+      was out of bounds for this unit. Skipped on purpose, not overlooked.
+    - Lane: SQLite proves this fully — it is a PHP-level cap, not a Postgres constraint, and
+      `ProjectionWriter.php` is untouched (verified), so `composer test:pg` is not owed.
+    - Mutation-proved TWICE and independently re-run: removing the connector cap AND separately removing the
+      projector cap each go RED (`Failed asserting that 2500 is identical to 2000`), proving the
+      belt-and-braces is a real second guard rather than riding on the first. Review: **PASS**.
     - **Where:** app/Ingest/Connectors/FreshaConnector.php (`mapServiceItem`), app/Ingest/Projection/FreshaServiceProjector.php:61
     - **Affects:** `content.items` rows and sitepage rendering for owners with a Fresha connection.
     - **Effort:** S (~0.5–1h)
@@ -234,7 +258,7 @@
         Cache::put($key, $final ?? '', $final === null ? self::FAILURE_TTL_SECONDS : self::SUCCESS_TTL_SECONDS);
         ```
 
-- [ ] **#SEC-7** · P2 — `LinkInBioImporter` persists/dispatches unredacted URLs in two spots, redacts in two others in the same file
+- [x] **#SEC-7** · P2 — `LinkInBioImporter` persists/dispatches unredacted URLs in two spots, redacts in two others in the same file
     - **Where:** app/Routing/Importers/LinkInBioImporter.php:107 (`ImportRun::start`), 530 (`CommerceProbeJob::dispatch`)
     - **Affects:** `routing.import_runs.source_url` (durable DB column) and `CommerceProbeJob`'s queued payload — both may carry secret-bearing query/fragment params from a pasted bio page or a link it contained.
     - **Effort:** S (~0.5–1h)
@@ -251,7 +275,28 @@
         CommerceProbeJob::dispatch((string) $context->user->id, $url);
         ```
 
-- [ ] **#SEC-8** · P2 — `IriCanonicalizer::trimPastedJunk()`'s URL-extraction regex runs before the length cap, and is quadratic on adversarial input
+- [x] **#SEC-8** · P2 — `IriCanonicalizer::trimPastedJunk()`'s URL-extraction regex runs before the length cap, and is quadratic on adversarial input
+    - **FIXED 2026-08-26 (PART 2 unit 10b).** Moved the length cap ABOVE the regex — a `strlen($input) > 2048`
+      guard at the top of `canonicalize()`, returning `Iri::reject($input, 'too_long')` before
+      `trimPastedJunk()` runs. The regex was NOT rewritten and the 2048 number was NOT changed. The original
+      post-trim check is kept as belt-and-braces and remains the only path to `'malformed'`.
+    - **Why this is safe, verified branch-by-branch by the independent reviewer:** `trimPastedJunk()` only ever
+      SHRINKS its input — every branch (wrapped-URL rejoin, prose extraction via `$m[0]`, whitespace strip,
+      the trim/punctuation loop) removes characters; none has a substitution, back-reference or padding that
+      could grow it. So the new pre-cap is a strict superset of the old post-cap, not a parallel rule.
+    - **Behaviour change, stated:** a >2048-char prose paste that would have trimmed down to a valid short URL
+      is now `too_long`. No real user regresses — `RouteLinkRequest.php:25` already enforces `max:2048` on the
+      only HTTP path (verified, not assumed). Only scraper/seed callers are affected
+      (`WebsiteLinkHarvester`, `CustomLinkSeeder`, `ShopProductSeeder`, `StoreBrandSeeder`,
+      `GoogleBusinessAutoSync`, `CommerceProbeJob`). Severity is NOT overclaimed: the user path was never exposed.
+    - Checked and cleared: the later `'https://'.$raw` prefix grows the string, but runs AFTER both caps, so the
+      worst case reaching `parse_url()` is a fixed 2056 bytes — not attacker-scalable.
+    - Mutation-proved: the test uses prose padded past 2048 wrapping a SHORT valid URL, so removing the pre-cap
+      makes it trim down and canonicalize successfully — RED with `Failed asserting that null is identical to
+      'too_long'`. That is the discriminating shape, not a both-sides-over-cap vacuous case. Review: **PASS**.
+    - Noted, pre-existing and NOT introduced here: `tests/fixtures/Routing/corpus-negatives.php:177` labels its
+      over-length case `'reason' => 'malformed'` where the code returns `'too_long'`. Cosmetic — the corpus test
+      only interpolates the label into a failure message, never asserts it.
     - **Where:** app/Routing/IriCanonicalizer.php:302-321 (`trimPastedJunk`), :82-85 (`canonicalize`)
     - **Affects:** Every internal `canonicalize()` caller that doesn't sit behind a Form Request `max:` rule (e.g. `ShopProductSeeder`, `MediaParentSuggester`, `GoogleBusinessAutoSync`, `StoreBrandSeeder` — all process third-party/scraped URLs).
     - **Effort:** S (~0.5–1h)
@@ -273,7 +318,30 @@
         } elseif (preg_match('~[a-z][a-z0-9+.-]*://\S+~i', $s, $m)) {
         ```
 
-- [ ] **#SEC-9** · P2 — `SuggestionsController::acceptGoogleListing` gates on an inline `AuthorizationException` instead of a Policy
+- [x] **#SEC-9** · P2 — `SuggestionsController::acceptGoogleListing` gates on an inline `AuthorizationException` instead of a Policy
+    - **FIXED 2026-08-26 (PART 2 unit 14b). Doctrine drift, NOT a live hole** — the inline throw failed CLOSED;
+      what it cost was invisibility to `PolicyCoverageTest`/`InlineAuthBypassGuardTest`-style sweeps.
+    - `acceptGoogleListing` now calls `authorizeForUser($user, 'createForRoutingClass', [new IntegrationConnection([...]),
+      'reservations'])` against a NEW narrow ability on `IntegrationConnectionPolicy` that delegates to the shared
+      `RoutingCapabilityGate::denialFor()` (a call site of the shared gate, not a copy of it).
+    - **A new ability was added despite the "reuse what fits" rule, and both rejections were verified by the
+      reviewer:** `create()` is called generically with NO capability check from `ShopController:1090` and
+      `ManagesIntegrationConnection:216,321`, so gating it would silently change behaviour for every other caller;
+      `connect()` is pinned by `tests/Unit/Platforms/Registry/PlatformDescriptorTest.php:41-47` to "EXACTLY ONE
+      production site", so a second call site would violate a documented invariant. A narrow new ability was the
+      only option that broke neither.
+    - **The array-arg forwarding was verified in framework source, not assumed** — `Gate::authorize` → `raw()` →
+      `resolveAuthCallback` → `callPolicyMethod` does `$policy->{$method}($user, ...$arguments)`, so
+      `[$skeleton, 'reservations']` reaches the three-arg signature exactly. A silent mis-wire here would have
+      made the gate never deny.
+    - Status/message parity confirmed: identical 403 + body to the old bare throw. Noted for accuracy —
+      `Response::deny($msg, 403)`'s second arg is `$code`, not `$status`, so it renders via the
+      `AccessDeniedHttpException` branch; the 403 is right but not for the reason the code reads like. That is
+      pre-existing convention in this same file, not introduced here.
+    - Mutation-proved (stripping the capability check → RED). ⚠️ Reviewer's observation worth keeping: making the
+      policy return `true` unconditionally is caught ONLY by this unit's own new test — neither
+      `PolicyCoverageTest` nor `InlineAuthBypassGuardTest` notices, since neither is designed to catch a
+      per-ability logic bypass. Review: **PASS**.
     - **Where:** app/Http/Controllers/Api/Routing/SuggestionsController.php:369-372
     - **Affects:** Reservation-connection creation via the "use this OpenTable link" suggestion; falls outside `PolicyCoverageTest`'s structural sweep.
     - **Effort:** S (~0.5–1h)
@@ -290,7 +358,33 @@
         }
         ```
 
-- [ ] **#SEC-10** · P2 — Shop brand mutation endpoints resolve by user-scoped lookup but never call `authorizeForUser`
+- [x] **#SEC-10** · P2 — Shop brand mutation endpoints resolve by user-scoped lookup but never call `authorizeForUser`
+    - **FIXED 2026-08-26 (PART 2 unit 9) — DEFENCE-IN-DEPTH, not a closed live hole. Do not read this tick as
+      "a vulnerability was fixed".** All five methods were, and remain, structurally user-scoped via
+      `$this->shop->store($user, …)` / `brandMap($user)`; a cross-tenant id 404s before authorization is ever
+      consulted. Same class as `#SEC-14` (2026-08-25). This adds a SECOND lock, it does not relax a first.
+    - `updateBrand`, `catalog`, `setProducts`, `removeProduct` → `authorizeForUser($user, 'update', $anchor)`
+      on the existing `IntegrationConnectionPolicy`. `addProduct` → `'create'` on an unsaved skeleton
+      (`new IntegrationConnection(['user_id' => $user->id])`), the CLAUDE.md pre-create idiom, because that
+      method takes no route id. **No new policy method was needed.**
+    - **The anchor is resolved with the READ-ONLY `anchorFor()`, deliberately not `anchor()` /
+      `individualAnchor()`** — those two are `updateOrCreate` and would MINT a connection row as a side effect
+      of an authorization check, on every request. The reviewer proved this is load-bearing by mutating
+      `anchorFor()` → `anchor()`, which broke an unrelated pre-existing test (`ShopSelectionLockTest` T16c)
+      because `anchor()`'s mint-time default flips an absent auto-sync flag to an explicit `false`.
+    - **Honest gap, recorded not hidden:** `anchorFor()` returns null for a store whose anchor never minted,
+      and all four sites then SKIP the authorize call (`if (($anchor = …) !== null)`). That is a verbatim copy
+      of the pre-existing `removeBrand()` precedent, so it is consistent rather than a regression — but the
+      second lock genuinely does not apply to that class of store.
+    - **404 still precedes 403 on all five** (verified per-method, not inferred): the existence lookup runs
+      first and returns 404 on miss. No status code on any path changed — a 403 there would be an enumeration
+      oracle. `setProducts` re-reads `store()` inside its lock before authorizing, which is correct.
+    - **Is any denial reachable? No — stated plainly rather than papered over with a vacuous assertion.** The
+      tests instead force the policy to deny via a partial mock and assert the response flips to 403, which
+      proves the call is on the request path; a companion test uses `shouldNotReceive` on an unknown id to
+      prove 404 short-circuits before the policy is consulted. Mutation-proved on 3 of 5 methods. Review: PASS.
+    - Note: `tests/Authz/CrossTenantTest.php` (the strongest evidence here) is genuinely SKIPPED locally — it
+      needs a reachable Postgres host. Known documented gotcha, not introduced here. It should run in CI.
     - **Where:** app/Http/Controllers/Api/Platforms/ShopController.php (`updateBrand`, `catalog`, `setProducts`, `addProduct`, `removeProduct`)
     - **Affects:** Authenticated shop integration endpoints; `content.storefronts` rows and integration-connection lifecycle.
     - **Effort:** M (~2–4h)
@@ -316,7 +410,13 @@
         }
         ```
 
-- [ ] **#SEC-11** · P2 — `AnalyticsController::pageview` has no bot filter and no dedup, unlike every other event type
+- [x] **#SEC-11** · P2 — `AnalyticsController::pageview` has no bot filter and no dedup, unlike every other event type
+    - **WONTFIX — deliberate, see `AnalyticsController.php:58` (2026-08-26, PART 2 unit 10d).** The absence is a
+      documented carry-forward, not an oversight. Verbatim at the call site:
+      `// NOTE: pageview intentionally has NO bot filter and NO dedup (preserved). A bot`
+      `// UA still records a pageview today; changing that is a separate metrics decision.`
+      Adding a bot filter changes what "a pageview" means in every historical comparison, which is a
+      metrics-policy call and not an engineering one. No code changed.
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php:45-74
     - **Affects:** Public analytics ingest queue and job volume for every site.
     - **Effort:** S (~0.5–1h)
@@ -360,7 +460,26 @@
             }
         ```
 
-- [ ] **#SEC-13** · P2 — Service-layout reorder requests accept unbounded collection sizes
+- [x] **#SEC-13** · P2 — Service-layout reorder requests accept unbounded collection sizes
+    - **FIXED 2026-08-26 (PART 2 unit 10c).** Added `max:200` to four Form Requests — the layout twins
+      (`ReorderServiceLayoutRequest`, `StaffReorderServiceLayoutRequest`: `categories` AND
+      `categories.*.service_ids`) and the category twins (`ReorderServiceCategoryRequest`,
+      `StaffReorderServiceCategoryRequest`: `ids`). Bound copied verbatim from `PoolController::reorder`
+      (`app/Http/Controllers/Api/Content/PoolController.php:163`), not invented.
+    - **The number is independently corroborated:** `config/partna.php:426` `service_categories_max` already
+      defaults to **200** and is enforced as a hard `->take(200)` in four list controllers. So `max:200` on
+      `categories` matches an existing product-level cap exactly.
+    - **Nothing else was touched.** The `present`-not-`required` decision on `service_ids` and the deliberate
+      absence of a cross-block `distinct` are both preserved verbatim — the files' own comments explain that
+      `required` would deadlock against the controller's coverage rule and `distinct` would 422 a legitimate
+      multi-category service. User/staff twins verified still identical in rule shape.
+    - **Residual, flagged not hidden:** the per-block `service_ids` cap of 200 has no matching config cap —
+      only `services_max = 500` exists. A professional filing >200 services under ONE category would 422 on
+      reorder for that block. Extreme edge case (>40% of a 500-service ceiling in one category) and it follows
+      the finding's instruction to copy the bound, so it ships — but it is a real, if narrow, ceiling.
+    - Mutation-proved: stripping `max:200` from all four turns exactly the 5 "rejects more than 200" tests RED
+      while the 5 "accepts exactly 200" tests stay green — the correct signature, since 200 was already
+      accepted before the fix. Regression suites: 108 passed (688 assertions). Review: **PASS**.
     - **Where:** app/Http/Requests/Api/User/Services/ReorderServiceLayoutRequest.php:12-36, app/Http/Requests/Api/Staff/UserSite/Services/StaffReorderServiceLayoutRequest.php:12-36
     - **Affects:** Authenticated professional and staff service-layout reorder endpoints.
     - **Effort:** S (~0.5–1h)
@@ -413,7 +532,7 @@
         private const MAX_REDIRECTS = 5;
         ```
 
-- [ ] **#SEC-16** · P2 — Bot protection ships disabled (`mode=off`, `driver=null`) by default
+- [x] **#SEC-16** · P2 — Bot protection ships disabled (`mode=off`, `driver=null`) by default
     - **Where:** config/partna.php (`bot_protection`)
     - **Affects:** Public mutation endpoints (enquiries, leads, early-access, reports, subscriptions) on any deploy that doesn't explicitly set the bot-protection env vars.
     - **Effort:** S (~0.5–1h)
@@ -562,8 +681,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 6 of 16 complete
-- P3 Low: 0 of 8 complete
+- P2 Medium: 11 of 16 complete
+- P3 Low: 0 of 7 complete
 
 ---
 
@@ -757,7 +876,7 @@
             }
         ```
 
-- [ ] **SEM-7** · P2 — Pool reorder leaves un-listed pinned items behind with stale sort keys
+- [x] **SEM-7** · P2 — Pool reorder leaves un-listed pinned items behind with stale sort keys
     - **Where:** app/Http/Controllers/Api/Content/PoolController.php:186-204
     - **Affects:** Any pool reorder where the client's `itemIds` list omits a currently-pinned item — that item's old position can collide with, or land between, the freshly-assigned positions.
     - **Effort:** S (~0.5–1h)
@@ -783,7 +902,17 @@
         });
         ```
 
-- [ ] **SEM-8** · P2 — Manual action-slot contiguity guard silently skips string-typed positions
+- [x] **SEM-8** · P2 — Manual action-slot contiguity guard silently skips string-typed positions
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 11a). The gate now admits an int OR an
+      integer-valued numeric string and **casts to `(int)` on collection**. The cast is the part that
+      matters and the obvious fix misses it: the check below compares `$positions !== range(0, n-1)`,
+      and `range()` yields ints, so merely admitting `"0","1"` uncast makes `["0","1"] !== [0,1]` and
+      starts 422-ing VALID input. Matches the sibling rule's non-strict `integer`, per the DECIDED —
+      the sibling was NOT tightened to strict.
+    - Tests in `tests/Feature/Api/User/SiteManagement/ActionSettingsValidationTest.php`, both
+      directions: non-contiguous STRING positions must now 422, and contiguous string positions must
+      still pass. Two mutations RED — reverting to `is_int()` (the original bug), and the naive
+      admit-without-casting fix (which breaks valid input).
     - **Where:** app/Http/Requests/Concerns/SiteOrderingValidationRules.php:92-109
     - **Actual affects:** Any non-strict-JSON client (form-encoded, some API tooling) that submits `settings.actions.slots[*].position` as a numeric string in manual mode — an invalid, non-contiguous ordering can be accepted instead of rejected.
     - **Effort:** S (~0.5–1h)
@@ -990,7 +1119,23 @@
             ...
         ```
 
-- [ ] **SEM-14** · P2 — `ConnectionIdentity::matchExisting()`'s FOUND-14 lookup folds case for every surface, contradicting the allowlist its own step 1 enforces two lines above
+- [x] **SEM-14** · P2 — `ConnectionIdentity::matchExisting()`'s FOUND-14 lookup folds case for every surface, contradicting the allowlist its own step 1 enforces two lines above
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 11b). All three lookup schemes now go
+      through ONE `$normalize` closure gated on the same `$foldable`, so the allowlist cannot be
+      honoured by scheme 1 and ignored by the others again.
+    - ⚠️ Scope note: this finding's TITLE is precise (the FOUND-14 / `canonical_key` lookup) but
+      `EXECUTE-PART-1.md` §4 unit 11b paraphrased it as "`$foldable` … exists and is unused", which is
+      false — scheme 1 has always used it. Reading the paraphrase alone would have closed this
+      WONTFIX-refuted and left the real defect live. The finding is correct as written.
+    - Scheme 3 (the derived-identity compare) folded unconditionally too and shares the same `$needle`;
+      it was fixed in the same change rather than left as a matching-but-unnamed half.
+    - Correctly NOT overclaimed as a tenancy bug: the query is `where('user_id', …)`, so the collapse
+      is within one tenant.
+    - Tests: `tests/Feature/Routing/ConnectionIdentityFoldingTest.php` — a non-allowlisted
+      `discord.server` row with a `canonical_key` must NOT match a case-differing invite code; the same
+      code in the SAME case must still match (gating the fold must not break the lookup); and an
+      allowlisted `youtube.channel` row must STILL fold. Mutation-proved: restoring the unconditional
+      fold in scheme 2 turns the first RED.
     - **Where:** app/Routing/ConnectionIdentity.php:112-132
     - **Affects:** Users with a case-sensitive-handle connection (e.g. `discord.server`) that also has a `canonical_key` (FOUND-14 scheme row) — two genuinely distinct case-differing identifiers can incorrectly match as the same connection.
     - **Editorial:** already flagged by the scan tier with strong reasoning; adjudication confirmed.
@@ -1042,7 +1187,7 @@
         return $normalized === '/' ? '/' : rtrim($normalized, '/');
         ```
 
-- [ ] **SEM-16** · P2 — Order-platform sidecar fallback collection is computed but never assigned, so sidecar-only dishes never group under their menu
+- [x] **SEM-16** · P2 — Order-platform sidecar fallback collection is computed but never assigned, so sidecar-only dishes never group under their menu
     - **Where:** app/Site/Actions/ActionCandidates.php:183-223
     - **Affects:** Menu/service items that belong only to a provider-bearing sidecar collection (e.g. an item that's only on the Uber Eats menu, not in any owner-authored category) — they render as standalone item actions instead of grouping under that ordering platform's action.
     - **Effort:** S (~0.5–1h)
@@ -1069,7 +1214,21 @@
         }
         ```
 
-- [ ] **SEM-17** · P2 — Dashboard "sources" panel timestamps omit `->utc()`, in a file whose own comment warns about exactly this
+- [x] **SEM-17** · P2 — Dashboard "sources" panel timestamps omit `->utc()`, in a file whose own comment warns about exactly this
+    - **2026-08-26 (pre-launch-hardening PART 1, unit 11c) — `->utc()` ADDED, but the premise is
+      REFUTED: there is no live +10h bug.** `config/app.php:72` hardcodes `'timezone' => 'UTC'` as a
+      LITERAL (not env-driven), so `Carbon::parse()` on the query builder's naive "Y-m-d H:i:s" string
+      already yields UTC and `->utc()` is a **no-op** under the real configuration.
+    - ⚠️ **And `->utc()` would not have fixed it anyway.** Proved while writing the test: forcing
+      `app.timezone` to `Australia/Sydney` and storing `2026-08-26 01:00:00` emits
+      `2026-08-25T15:00:00+00:00` — a DIFFERENT INSTANT, not a re-labelling. `->utc()` CONVERTS a
+      string Carbon has already misread as local; it does not REINTERPRET it as UTC. The correct
+      hardening is `Carbon::parse($v, 'UTC')`, and the `latestFor()` precedent this finding points at
+      (`:462`) carries the identical latent issue. Surfaced in `RESULT-PART-1.md`, not fixed here: it
+      is a behaviour change to a comparison path, beyond this unit's S.
+    - `->utc()` is kept as defence-in-depth and for consistency with that precedent. Behaviour pinned
+      per fix-flow §5 step 3 by `tests/Feature/Content/PoolIngestBadgeFailOpenTest.php`, which asserts
+      the stamp carries an explicit `+00:00` and is not shifted.
     - **Where:** app/Site/Pools/PoolResolver.php:820-837 (`sourcesByItem`); cf. the correct pattern at PoolResolver.php:445-456 (`iso()`)
     - **Affects:** The owner dashboard's per-item "sources" list — `lastSeenAt` / `lastSyncedAt` — whenever the app server's local timezone isn't UTC.
     - **Effort:** S (~0.5–1h)

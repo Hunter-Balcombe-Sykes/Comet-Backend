@@ -73,13 +73,26 @@ class SourceProvisioner
 
         $selectionRef = $this->selectionRefFor($sourceKey, $connection);
 
-        $existing = DB::table('ingest.sources')
-            ->where('connection_id', $connection->id)
-            ->where('source_key', $sourceKey)
-            ->first(['id', 'identifier', 'auto_sync', 'selection_ref', 'cost_units']);
+        $existing = $this->existingRow($connection->id, $sourceKey);
 
         if ($existing === null) {
-            DB::table('ingest.sources')->insert([
+            // #LIFE-14: was a bare pre-read SELECT -> conditional INSERT with no
+            // catch anywhere in the call chain — two concurrent saves for the
+            // SAME connection (e.g. the observer's saved() firing twice in close
+            // succession) would both see "no existing row" and race straight
+            // into sources_unique_per_connection, and the loser raised an
+            // unhandled UniqueConstraintViolationException. insertOrIgnore
+            // compiles to `ON CONFLICT DO NOTHING` (pgsql) / `INSERT OR IGNORE`
+            // (sqlite) — same fix, same wording as
+            // App\Routing\SourceReconciler::upsertIntent() — so a 0-row return
+            // means a concurrent winner, not a failure. The loser then falls
+            // through into the update path below exactly as a caller that
+            // arrived 1ms later would: it must NOT report 'created' for a row it
+            // did not insert (see maybeRunEagerly()'s created/reselected gate),
+            // and it must still land its own identifier/selection_ref, which
+            // the winner's row may not carry (e.g. a deferred-connect payload
+            // fill racing the initial connect).
+            $inserted = DB::table('ingest.sources')->insertOrIgnore([
                 'id' => (string) Str::uuid(),
                 'user_id' => $connection->user_id,
                 'connection_id' => $connection->id,
@@ -96,7 +109,18 @@ class SourceProvisioner
                 'updated_at' => now(),
             ]);
 
-            return ['status' => 'created', 'source_key' => $sourceKey];
+            if ($inserted > 0) {
+                return ['status' => 'created', 'source_key' => $sourceKey];
+            }
+
+            $existing = $this->existingRow($connection->id, $sourceKey);
+
+            if ($existing === null) {
+                // The winner's row was deleted between the conflict and this
+                // re-read (e.g. account deletion racing the connect) — nothing
+                // left to update.
+                return ['status' => 'skipped', 'reason' => 'insert_lost', 'source_key' => $sourceKey];
+            }
         }
 
         // Update ONLY identity + activation — scheduling state (claims,
@@ -153,6 +177,15 @@ class SourceProvisioner
         }
 
         return ['status' => count($update) > 1 ? 'updated' : 'unchanged', 'source_key' => $sourceKey];
+    }
+
+    /** The row this connection's source lives in, with exactly the columns sync() compares. */
+    private function existingRow(string $connectionId, string $sourceKey): ?object
+    {
+        return DB::table('ingest.sources')
+            ->where('connection_id', $connectionId)
+            ->where('source_key', $sourceKey)
+            ->first(['id', 'identifier', 'auto_sync', 'selection_ref', 'cost_units']);
     }
 
     /**

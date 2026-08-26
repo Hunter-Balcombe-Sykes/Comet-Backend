@@ -7,6 +7,7 @@ use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Routing\Importers\WebsiteImporter;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Design\DesignKitAutopilot;
 use App\Services\Design\LogoAutoGrabber;
 use App\Services\Http\MetadataParser;
@@ -34,6 +35,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -279,6 +281,16 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
                 fn (array $pdf) => $this->isMenuRelevantPdf($pdf['url'], $pdf['text']),
             ));
             foreach (array_slice($relevantPdfs, 0, self::MAX_PDF_SCANS) as $index => $pdf) {
+                // #LIFE-9: a manual Horizon retry of THIS job re-runs handle()
+                // from scratch, so without this claim it would re-dispatch (and
+                // re-bill) the OCR call for a PDF a prior attempt already sent.
+                // See claimSubJobDispatch()'s docblock. Same claim window also
+                // silently narrows BackfillPreviousWebsiteContentScanCommand's
+                // documented re-scan escape hatch — see that command's docblock.
+                if (! $this->claimSubJobDispatch('pdf', $pdf['url'])) {
+                    continue;
+                }
+
                 WebsiteMenuPdfScanJob::dispatch($this->userId, $pdf['url'])
                     ->delay(now()->addSeconds(30 + $index * 15));
             }
@@ -296,7 +308,12 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
                     $menuApplier->apply($user, $squarespaceItems, enrichOnly: true, source: 'website-scan');
                 } else {
                     $visibleText = $visibleTextExtractor->extract($menuPageHtml);
-                    if ($this->looksMenuDense($visibleText)) {
+                    // #LIFE-9: same claim as the PDF loop above, keyed on the
+                    // extracted text itself so a re-scraped but byte-identical
+                    // page still dedupes against a prior attempt's dispatch.
+                    // Same backfill-command interaction noted at the PDF claim
+                    // site above applies here too.
+                    if ($this->looksMenuDense($visibleText) && $this->claimSubJobDispatch('html', $visibleText)) {
                         WebsiteMenuHtmlScanJob::dispatch($this->userId, $visibleText)->delay(now()->addSeconds(30));
                     }
                 }
@@ -502,6 +519,48 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         }
 
         return null;
+    }
+
+    /**
+     * Atomically claims the right to dispatch one billed OCR/AI sub-job
+     * (#LIFE-9). Cache::add() is SETNX — true only for the FIRST caller to
+     * claim a given (kind, content) pair; every later claim of the same pair
+     * (a manual Horizon retry re-running this job's handle() from scratch)
+     * returns false and the caller must skip the dispatch. Keyed on content
+     * (the PDF's URL, or the extracted visible text for the HTML path), not
+     * on this job's own attempt — the content is what makes the vendor call
+     * idempotent, and $tries=1 already means there is only ever one "attempt"
+     * for the queue's own purposes.
+     *
+     * TTL matches Horizon's own failed-job retention (`horizon.trim.failed`,
+     * default 10080 minutes = 7 days): a "Retry" button only exists on a job
+     * Horizon still lists as failed, so a claim that outlives trimming
+     * already covers every click that could ever happen — no reason to hold
+     * it (or the spend refusal it backs) any longer.
+     *
+     * A refused claim is logged (review round 2): a bare skip here previously
+     * looked identical to "nothing to scan" both to a manual Horizon retry
+     * and to BackfillPreviousWebsiteContentScanCommand's "Dispatched N"
+     * count, which does not distinguish a real dispatch from a refused one.
+     */
+    private function claimSubJobDispatch(string $kind, string $payload): bool
+    {
+        $claimed = Cache::add(
+            CacheKeyGenerator::websiteScanSubJobDispatched($this->userId, $kind, sha1($payload)),
+            true,
+            (int) config('horizon.trim.failed', 10080) * 60,
+        );
+
+        if (! $claimed) {
+            Log::warning('website_scan.subjob_dispatch_already_claimed', [
+                'user_id' => $this->userId,
+                'site_id' => $this->siteId,
+                'kind' => $kind,
+                'note' => 'billed sub-job dispatch skipped — an identical dispatch was already claimed within the claim window (#LIFE-9)',
+            ]);
+        }
+
+        return $claimed;
     }
 
     /** Menu-relevance keyword match against a PDF's own link text OR its URL path — either counts. */
