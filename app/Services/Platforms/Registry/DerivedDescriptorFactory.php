@@ -10,6 +10,7 @@ use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Strategies\Connect\BrandLinkConnect;
+use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Shop\ShopConnections;
 
 /**
@@ -115,7 +116,11 @@ class DerivedDescriptorFactory
             if (($surface['is_connectable'] ?? false) !== true) {
                 continue;
             }
-            if (! isset($detected[$key])) {
+            // URL-detected surfaces derive; so does any slug with a
+            // LinkOnlyBindings contract — its connect is an explicitly typed
+            // handle/URL, so the detector requirement is inapplicable (P2:
+            // skool has "Detect: none" by ground truth yet must derive).
+            if (! isset($detected[$key]) && LinkOnlyBindings::for(LegacyPlatformMap::legacyFor($key)) === null) {
                 continue;
             }
             // Shop brands are NOT derivable. Two independent reasons:
@@ -272,6 +277,15 @@ class DerivedDescriptorFactory
      */
     private function descriptorFor(string $slug, string $surfaceKey, array $surface, array $brand): PlatformDescriptor
     {
+        // P2 (2026-08-27): link-only platforms derive their ORIGINAL shape —
+        // username/url field, UrlConnect + the exact 422 copy, LinkPayload,
+        // LinkOnly routes — from LinkOnlyBindings, not the Brand default. The
+        // binding data is the retired hand-written registration verbatim.
+        $binding = LinkOnlyBindings::for($slug);
+        if ($binding !== null) {
+            return $this->linkOnlyDescriptor($slug, $surfaceKey, $surface, $binding);
+        }
+
         $label = $this->labelFor($slug, $surface, $brand);
 
         $descriptor = PlatformDescriptor::make($slug)
@@ -312,6 +326,39 @@ class DerivedDescriptorFactory
         $category = $this->categoryFor($surface);
         if ($category !== null) {
             $descriptor->category($category);
+        }
+
+        return $descriptor;
+    }
+
+    /**
+     * @param  array<string, mixed>  $surface
+     * @param  array{label: string, normalizer: ?class-string, error: ?string, category: ?PlatformCategory}  $binding
+     */
+    private function linkOnlyDescriptor(string $slug, string $surfaceKey, array $surface, array $binding): PlatformDescriptor
+    {
+        $descriptor = PlatformDescriptor::linkOnly($slug, $binding['label'], LinkOnlyBindings::resourceClass())
+            ->derived()
+            ->surfaceKey($surfaceKey);
+
+        if ($binding['normalizer'] !== null) {
+            $normalizer = $binding['normalizer'];
+            $descriptor->connect(
+                fn () => new UrlConnect(new $normalizer),
+                (string) $binding['error'],
+            );
+            $descriptor->connectInput(
+                (string) $binding['field'],
+                ['required', 'string', 'max:'.$binding['max']],
+            );
+            // The LinkOnly route archetype: connect/selection/forget via
+            // GenericPlatformController — verbatim the mutation the provider's
+            // route-archetype block applied to the hand-written entries.
+            $descriptor->routes(PlatformRouteShape::LinkOnly);
+        }
+
+        if ($binding['category'] !== null) {
+            $descriptor->category($binding['category']);
         }
 
         return $descriptor;

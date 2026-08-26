@@ -10,15 +10,13 @@ use App\Catalog\Surface;
 use App\Catalog\SurfaceBuilder;
 
 /**
- * Skool — bespoke connect (SkoolController, via DefersBespokeConnect); the
- * registry itself documents "no ConnectStrategy at all" (PRSP:170-174), so
- * there is no catalog 'connect' capability to name. No detector either
- * (ground truth: "Detect: none"). notConnectable() reflects that the CATALOG
- * has no way to drive a connection here at P1 — the bespoke controller still
- * works, entirely outside catalog awareness. SkoolFetch IS real but is
- * consumed only by the deferred connect-fetch job, never cron-refreshed —
- * hence refreshEvery(0). The fetch capability went with the 2026-08-16
- * demotion — there is nothing left to scrape.
+ * Skool — link-only since the 2026-08-16 demotion. PD-retirement P2
+ * (2026-08-27): the surface became CONNECTABLE — the P1-era
+ * notConnectable() reflected a bespoke controller that the demotion
+ * deleted, and the catalog now drives the connection through the derived
+ * LinkOnly descriptor (LinkOnlyBindings: UrlConnect + SkoolNormalizer,
+ * `url` field, the historical 422 copy). No detector (ground truth:
+ * "Detect: none"); refreshEvery(0) — nothing left to scrape.
  */
 class Skool
 {
@@ -45,7 +43,6 @@ class Skool
                 ->connect('connect.skool.url.v1')
                 ->note('link-only since 2026-08-16 (Phase 1.2): UrlConnect + SkoolNormalizer, no fetch, no refresh — the bespoke SkoolController and its scraper were deleted with the demotion')
                 ->canonicalUrl('https://www.skool.com/{handle}')
-                ->notConnectable()
                 ->build(),
         ];
     }
