@@ -59,10 +59,7 @@ class WorkplaceObserver
             // R2 (2026-08-27): the race-proof half of the previous-website
             // guard — scrape-seeded cards of the owner's own old site that
             // landed BEFORE this field did are retired now that it exists.
-            $userId = (string) $workplace->site?->user_id;
-            if ($userId !== '') {
-                SweepPreviousWebsiteCardsJob::dispatch($userId, (string) $workplace->previous_website);
-            }
+            $this->dispatchCardSweep($workplace);
         }
 
         // wasRecentlyCreated covers first insert (whole card is new content);
@@ -153,6 +150,23 @@ class WorkplaceObserver
             'workplace-delete',
             ['site_id' => $workplace->site_id],
         );
+    }
+
+    // Observer must never crash the parent write.
+    private function dispatchCardSweep(Workplace $workplace): void
+    {
+        try {
+            $userId = (string) $workplace->site?->user_id;
+            if ($userId !== '') {
+                SweepPreviousWebsiteCardsJob::dispatch($userId, (string) $workplace->previous_website);
+            }
+        } catch (\Throwable $e) {
+            report($e);
+            Log::warning('WorkplaceObserver card-sweep dispatch failed', [
+                'site_id' => $workplace->site_id,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     // Observer must never crash the parent write.

@@ -335,8 +335,24 @@ class DerivedDescriptorFactory
             $descriptor->category($category);
         }
 
+        // P4 (2026-08-27): a platform with a behavioural binding gets its full
+        // contract — resource, payload, fetch/connect strategies, deferred
+        // connect, toggles, refresh cadence, route shape — attached from its
+        // Bindings class: everything the monolithic provider used to mutate
+        // on after registration. The binding runs LAST so it may override any
+        // Brand default set above.
+        $bindingClass = self::BEHAVIOUR_BINDINGS[$slug] ?? null;
+        if ($bindingClass !== null) {
+            $bindingClass::configure($descriptor);
+        }
+
         return $descriptor;
     }
+
+    /** slug => binding class attaching the platform's full behavioural contract (P4). */
+    private const BEHAVIOUR_BINDINGS = [
+        'vimeo' => Bindings\VimeoBinding::class,
+    ];
 
     /**
      * @param  array<string, mixed>  $surface

@@ -88,6 +88,11 @@ final class RawCacheCallScanner
         // GS-1's five gated methods) — the Cache::add() this entry was
         // allowlisted for is gone.
         'app/Http/Controllers/Api/Platforms/InstagramController.php', // refresh budget + cooldown via atomic Cache::add (comments also match the grep)
+        // Plan 3 R3 (2026-08-27): 6h negative cache on a shortcode whose
+        // Instagram media refresh failed on BOTH legs — an internal cooldown
+        // keyed by shortcode/kind/position (never tenant-keyed), same class
+        // of exception as InstagramController's budget/cooldown above.
+        'app/Services/Media/InstagramMediaUrl.php', // Cache::put failed-refresh cooldown (media_mirror)
         'app/Http/Controllers/Api/Platforms/ShopController.php', // short-lived picker-catalog cache, keys via CacheKeyGenerator
         // STALE after the token migration; retire in a follow-up. This entry
         // was allowlisted for a docblock mention only ("grep matches the
