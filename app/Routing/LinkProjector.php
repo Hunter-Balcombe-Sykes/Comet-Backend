@@ -91,7 +91,27 @@ class LinkProjector
         usort($candidates, fn (array $a, array $b) => $b['confidence'] <=> $a['confidence'] ?: strcmp($a['detector'], $b['detector']));
 
         $best = $candidates[0];
-        $margin = $best['confidence'] - ($candidates[1]['confidence'] ?? 0);
+
+        // Margin is the gap to the best candidate for a DIFFERENT surface, not
+        // simply to the second-place row. Several detectors routinely describe
+        // ONE surface — Opentable.php declares a `rid` query rule and a
+        // `restRef` query rule per TLD, and a booking URL carrying both params
+        // matches both at the same score. Measured against the plain runner-up
+        // that reads as margin 0, i.e. maximum ambiguity, when the two rules in
+        // fact AGREE about the answer. Margin exists to express "which surface
+        // is this?" (see Projection's own docblock), so a surface competing
+        // only with itself has nothing to be ambiguous about and keeps its full
+        // confidence. $candidates is already sorted by confidence descending,
+        // so the first different-surface entry IS the strongest rival.
+        $rival = null;
+        foreach ($candidates as $candidate) {
+            if ($candidate['surface'] !== $best['surface']) {
+                $rival = $candidate;
+                break;
+            }
+        }
+
+        $margin = $best['confidence'] - ($rival['confidence'] ?? 0);
 
         return new Projection(
             surfaceKey: $best['surface'],
@@ -185,6 +205,32 @@ class LinkProjector
             if ($identifier === null || $identifier === '') {
                 return null;
             }
+        }
+
+        // A query-captured identifier is worth what a path-captured one is
+        // worth. `?rid=291533` names a restaurant exactly as precisely as
+        // `/restaurant/profile/291533`, and Opentable.php deliberately declares
+        // both shapes at the same EvidenceStrength — but structurally the path
+        // form scored 40+35 and the query form 40+15, a 20-point gap that says
+        // nothing about how well either identifies an account. On reservations
+        // (suggest 55) with the 10-point indirect penalty that gap IS the
+        // difference between a connection and a dead link card: the
+        // st-ali-bali signup's real booking link projected cleanly to
+        // opentable.reserve, scored 59, and was dropped as Verdict::Note.
+        // +20 brings the query form to +35 total — exact parity with the path
+        // form, not a thumb on the scale.
+        //
+        // Gated on an identifier having actually been captured: a detector that
+        // merely REQUIRES a query param has not thereby identified an account,
+        // and only the one that names its identifier from the query has.
+        //
+        // Cannot rescue a below-FLOOR detector into matching, which is the only
+        // shape that could regress the negative corpus: identifier_source
+        // 'query' implies at least one query_requires entry (+15), and the -8
+        // deep-path penalty above is gated on query_requires === [], so the
+        // worst case is 40+15-8 = 47 — already clear of FLOOR (25) before this.
+        if ($identifier !== null && ($detector['identifier_source'] ?? null) === 'query') {
+            $confidence += 20;
         }
 
         $confidence = max(0, min(100, $confidence));
