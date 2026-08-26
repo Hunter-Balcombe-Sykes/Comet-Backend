@@ -14,6 +14,8 @@ use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use Closure;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -718,6 +720,25 @@ trait BuildsAutoSyncFindings
      */
     protected function socialUsername(string $platform, string $url): string
     {
+        // The platform's own catalog-wired normalizer is the authority
+        // (UrlConnect wraps exactly the URL/handle parser each link platform
+        // already ships — Threads/Reddit/Snapchat/Twitch/Kick/Discord/
+        // Telegram/Medium/… all have one). The hand-kept pattern list below
+        // predates that wiring and silently returned '' for every platform
+        // it did not name — found live 2026-08-27 (plan 03): a pasted
+        // instagram profile seeded username:'', and so did every social
+        // outside the four listed. UrlConnect resolution is a pure parse
+        // (no network), so probing it here is free; bespoke/scraper connect
+        // strategies are deliberately NOT invoked.
+        $strategy = app(PlatformRegistry::class)->get($platform)?->connectStrategy();
+        if ($strategy instanceof UrlConnect) {
+            $selection = $strategy->resolve($url)->selection;
+            $username = (string) ($selection['username'] ?? $selection['handle'] ?? '');
+            if ($username !== '') {
+                return $username;
+            }
+        }
+
         if ($platform === 'facebook') {
             // A standalone regex here would share the blind spot for reserved
             // path segments (pages/people/…) that G4-4 fixed.
@@ -730,9 +751,14 @@ trait BuildsAutoSyncFindings
             'tiktok' => '~tiktok\.com/@?([A-Za-z0-9._]+)~i',
             'x' => '~(?:twitter|x)\.com/([A-Za-z0-9_]+)~i',
             'linkedin' => '~linkedin\.com/(?:in|company)/([A-Za-z0-9-]+)~i',
+            // Instagram's connect is bespoke (no UrlConnect to defer to), so
+            // its profile shape lives here. Reserved segments guarded below.
+            'instagram' => '~instagram\.com/([A-Za-z0-9._]+)~i',
         ];
         if (isset($patterns[$platform]) && preg_match($patterns[$platform], $url, $m)) {
-            return strtolower($m[1]) === 'profile.php' ? '' : $m[1];
+            $reserved = ['profile.php', 'p', 'reel', 'reels', 'stories', 'explore', 'accounts', 'share', 'tv'];
+
+            return in_array(strtolower($m[1]), $reserved, true) ? '' : $m[1];
         }
 
         return '';
