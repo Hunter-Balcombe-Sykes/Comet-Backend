@@ -61,8 +61,9 @@ class DoorDashMenuDriver implements MenuPlatformDriver
                     : $this->parsePrice(data_get($item, 'price_display'));
                 $ratingPct = data_get($item, 'rating_pct');
                 $ratingCount = data_get($item, 'rating_count');
+                $externalId = $this->cleanString((string) data_get($item, 'item_id'));
                 $catItems[] = [
-                    'externalId' => $this->cleanString((string) data_get($item, 'item_id')),
+                    'externalId' => $externalId,
                     'name' => $itemName,
                     'description' => $this->sentenceCase($this->cleanString(data_get($item, 'description'))),
                     'price' => $price,
@@ -70,6 +71,9 @@ class DoorDashMenuDriver implements MenuPlatformDriver
                     'rating' => is_numeric($ratingPct) ? round((float) $ratingPct, 2) : null,
                     'ratingCount' => is_numeric($ratingCount) ? (int) $ratingCount : null,
                     'badges' => $this->badges(data_get($item, 'badges')),
+                    'itemUrl' => $this->itemUrl(data_get($store, 'url'), $externalId),
+                    // dz_omar exposes no per-item stock field.
+                    'soldOut' => null,
                 ];
             }
             if ($catItems !== []) {
@@ -94,6 +98,26 @@ class DoorDashMenuDriver implements MenuPlatformDriver
             ],
             'categories' => $categories,
         ];
+    }
+
+    /**
+     * `{storeUrl}?itemId={item_id}` — DoorDash's item deep link, opening that
+     * exact dish's modal over the store. Browser-verified on a clean session
+     * 2026-08-26 (Don Tojo Carlton, two items); the OLD
+     * `?event_type=item_click&item_id=` form regressed on DoorDash's side and
+     * no longer opens anything. Store URL comes from the same actor payload,
+     * so the pair is always self-consistent. Emitted only when both halves
+     * exist — a real item link or nothing.
+     */
+    private function itemUrl(mixed $storeUrl, ?string $externalId): ?string
+    {
+        $store = $this->safeUrl($storeUrl);
+        if ($store === null || $externalId === null || $externalId === '') {
+            return null;
+        }
+        $base = rtrim($store, '/');
+
+        return $base.(str_contains($base, '?') ? '&' : '?').'itemId='.rawurlencode($externalId);
     }
 
     /**

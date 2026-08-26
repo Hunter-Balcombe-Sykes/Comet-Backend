@@ -2,51 +2,55 @@
 
 namespace App\Services\Platforms;
 
+use App\Models\Core\Site\MenuItemPlatform;
+use Illuminate\Support\Collection;
+
 /**
- * Builds the per-item "order this dish" deep links the menu payloads expose as
- * `links: {uber_eats?, doordash?}` — a link is emitted ONLY when it opens that
- * exact dish on the platform, never a store-level fallback (the store-level
- * typed order urls already ride on each item's platforms[] rows).
+ * Shapes the per-item "order this dish" deep links the menu payloads expose
+ * as `links: {uber_eats?, doordash?, square?}` — a link is emitted ONLY when
+ * it opens that exact dish on the platform, never a store-level fallback.
  *
- * Per-platform reality (2026-07-17, verified against the live consumer sites +
- * each Apify actor's output schema):
- *  - doordash: the store page honours the share-link query form
- *    `<store>/?event_type=item_click&item_id=<id>` by auto-opening that item's
- *    modal (verified in-browser against a live AU store). The item id is the
- *    dz_omar actor's per-item `item_id`, persisted as menu_items.dd_external_id.
- *  - uber_eats: memo23's flattened `menuItems` carries NO per-item id (the
- *    ue_external_id column was dropped for exactly that reason, 20260623130000),
- *    and Uber Eats deep links need an itemUuid inside the quickView `modctx`
- *    blob — underivable from the store URL alone. The key is therefore OMITTED
- *    until an actor exposes item uuids; emitting the store URL here would
- *    violate the "real item URLs only" contract.
+ * Since 2026-08-26 the links are STORED, not derived: each platform driver
+ * verifies and emits the dish's own item URL at scrape time (Uber Eats
+ * itemUuid href, DoorDash `?itemId=`, Square `absolute_site_link`), the
+ * projection persists it on the per-platform content.offers row
+ * (`item_url`), and this class only translates the platform slug into the
+ * sitepage wire key. The old derivation path (composing DoorDash's retired
+ * `event_type=item_click` form from menu_items.dd_external_id) is gone —
+ * that recipe regressed on DoorDash's side, and dd_external_id was dropped
+ * by the slice-7 projection anyway.
  *
  * Wire keys are underscore-cased per the sitepage contract (uber_eats /
- * doordash), NOT the registry's slug spelling (uber-eats).
+ * doordash / square), NOT the menu-registry slug spelling (uber-eats).
  */
 final class MenuItemDeepLinks
 {
+    /** Menu-registry slug → wire key. */
+    private const WIRE_KEYS = [
+        'uber-eats' => 'uber_eats',
+        'doordash' => 'doordash',
+        'square' => 'square',
+    ];
+
     /**
-     * The per-item deep links derivable for one dish, keyed by wire key.
-     * Empty when nothing item-level is knowable (callers emit null then).
+     * The dish's stored per-item deep links, keyed by wire key. Empty when no
+     * platform carries one (callers emit null then).
      *
-     * @param  string|null  $ddExternalId  menu_items.dd_external_id (DoorDash item_id)
-     * @param  array<string, string|null>  $storeUrls  registry slug => menu_platform_links.store_url (normalized, query-free)
-     * @return array{doordash?: string}
+     * @param  Collection<int, MenuItemPlatform>  $platformLinks
+     * @return array<string, string>
      */
-    public static function forItem(?string $ddExternalId, array $storeUrls): array
+    public static function forItem(Collection $platformLinks): array
     {
         $links = [];
-
-        $ddStore = $storeUrls['doordash'] ?? null;
-        if (is_string($ddStore) && $ddStore !== '' && is_string($ddExternalId) && trim($ddExternalId) !== '') {
-            // store_url is NORMALLY normalized (query + trailing slash
-            // stripped) — but MenuSource::normalize() passes schemeless/
-            // malformed URLs through untouched (critic 2026-07-17), so guard
-            // the separator instead of trusting the invariant.
-            $base = rtrim($ddStore, '/');
-            $separator = str_contains($base, '?') ? '&' : '/?';
-            $links['doordash'] = $base.$separator.'event_type=item_click&item_id='.rawurlencode(trim($ddExternalId));
+        foreach ($platformLinks as $entry) {
+            $url = $entry->item_url;
+            if (! is_string($url) || trim($url) === '') {
+                continue;
+            }
+            $key = self::WIRE_KEYS[(string) $entry->platform] ?? null;
+            if ($key !== null) {
+                $links[$key] = trim($url);
+            }
         }
 
         return $links;

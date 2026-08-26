@@ -76,7 +76,11 @@ it('prices pickup from DoorDash and delivery from Uber Eats for a matched item',
     expect($item['imageUrl'])->toBe('https://ue/img.jpg'); // UE image preferred
     expect($item['rating'])->toBe(95.0);                 // DoorDash-only
     expect($item['badges'][0]['text'])->toBe('#1 Most liked');
-    expect($item['ddExternalId'])->toBe('d1');
+    // Per-platform identity (2026-08-26): each entry carries its own item id
+    // + deep link; the old dish-level ddExternalId special case is gone.
+    expect(collect($item['platforms'])->firstWhere('platform', 'doordash')['externalId'])->toBe('d1');
+    expect(collect($item['platforms'])->firstWhere('platform', 'uber-eats')['externalId'])->toBe('u1');
+    expect($item)->not->toHaveKey('ddExternalId');
     // Both platforms carried distinct art → both captured, hero (=imageUrl) first.
     expect($item['images'])->toBe(['https://ue/img.jpg', 'https://dd/img.jpg']);
 });
@@ -98,10 +102,12 @@ it('collects the cross-platform image set without duplicating identical art, nul
     expect($artless['images'])->toBeNull();
 });
 
-it('builds a platforms array of length 2 with per-mode prices and urls for a dish on both platforms', function () {
+it('builds a platforms array of length 2 with per-mode prices and the item link for a dish on both platforms', function () {
     // UE offers both modes (same price each); DoorDash offers delivery only.
-    $ue = platformMenu([normItem(['name' => 'Chicken Burrito', 'pickupPrice' => 17.0, 'deliveryPrice' => 17.0])]);
-    $dd = platformMenu([normItem(['name' => 'Chicken Burrito', 'deliveryPrice' => 15.5])]);
+    // D1 (2026-08-26): per-dish entries carry the ITEM link + external id —
+    // the mode-typed store urls live at menu level, not on every dish.
+    $ue = platformMenu([normItem(['name' => 'Chicken Burrito', 'pickupPrice' => 17.0, 'deliveryPrice' => 17.0, 'itemUrl' => 'https://ue/item/u1', 'externalId' => 'u1'])]);
+    $dd = platformMenu([normItem(['name' => 'Chicken Burrito', 'deliveryPrice' => 15.5, 'itemUrl' => 'https://dd/store?itemId=d1', 'externalId' => 'd1', 'soldOut' => false])]);
 
     $links = storeLinks(['uber-eats' => ['pickup', 'delivery'], 'doordash' => ['delivery']]);
     $item = (new MenuMerger)->merge(['uber-eats' => $ue, 'doordash' => $dd], 'uber-eats', $links)['categories'][0]['items'][0];
@@ -110,14 +116,16 @@ it('builds a platforms array of length 2 with per-mode prices and urls for a dis
     // Content-priority order: Uber Eats first.
     expect($item['platforms'][0]['platform'])->toBe('uber-eats');
     expect($item['platforms'][0]['pickupPrice'])->toBe(17.0);
-    expect($item['platforms'][0]['pickupUrl'])->toBe('https://uber-eats/store?diningMode=PICKUP');
     expect($item['platforms'][0]['deliveryPrice'])->toBe(17.0);
-    expect($item['platforms'][0]['deliveryUrl'])->toBe('https://uber-eats/store?diningMode=DELIVERY');
+    expect($item['platforms'][0]['itemUrl'])->toBe('https://ue/item/u1');
+    expect($item['platforms'][0]['externalId'])->toBe('u1');
+    expect($item['platforms'][0]['soldOut'])->toBeNull();
+    expect($item['platforms'][0])->not->toHaveKey('pickupUrl');
     expect($item['platforms'][1]['platform'])->toBe('doordash');
     expect($item['platforms'][1]['pickupPrice'])->toBeNull();      // DoorDash doesn't offer pickup
-    expect($item['platforms'][1]['pickupUrl'])->toBeNull();
     expect($item['platforms'][1]['deliveryPrice'])->toBe(15.5);
-    expect($item['platforms'][1]['deliveryUrl'])->toBe('https://doordash/store?diningMode=DELIVERY');
+    expect($item['platforms'][1]['itemUrl'])->toBe('https://dd/store?itemId=d1');
+    expect($item['platforms'][1]['soldOut'])->toBeFalse();
 });
 
 it('includes a DoorDash-only item in the union (not dropped)', function () {
@@ -199,9 +207,8 @@ it('leaves a mode price null when no platform offers that mode', function () {
     expect($item['pickupSource'])->toBeNull();
     expect($item['platforms'])->toHaveCount(1);
     expect($item['platforms'][0]['pickupPrice'])->toBeNull();
-    expect($item['platforms'][0]['pickupUrl'])->toBeNull();
     expect($item['platforms'][0]['deliveryPrice'])->toBe(17.0);
-    expect($item['platforms'][0]['deliveryUrl'])->toBe('https://uber-eats/store?diningMode=DELIVERY');
+    expect($item['platforms'][0])->not->toHaveKey('deliveryUrl');
 });
 
 it('matches a trailing-qualifier variant but not a similar different dish', function () {
@@ -254,9 +261,7 @@ it('offers both modes at one price when a platform store link is untyped', funct
     $item = (new MenuMerger)->merge(['uber-eats' => $ue], 'uber-eats', $links)['categories'][0]['items'][0];
 
     expect($item['platforms'][0]['pickupPrice'])->toBe(12.0);
-    expect($item['platforms'][0]['pickupUrl'])->toBe('https://ue/store');
     expect($item['platforms'][0]['deliveryPrice'])->toBe(12.0);
-    expect($item['platforms'][0]['deliveryUrl'])->toBe('https://ue/store');
     expect($item['pickupPrice'])->toBe(12.0);
     expect($item['deliveryPrice'])->toBe(12.0);
 });
@@ -277,11 +282,13 @@ it('attaches a connected-but-unscraped platform to every dish as a priceless gho
     foreach ($items as $item) {
         expect(collect($item['platforms'])->pluck('platform')->all())->toBe(['uber-eats', 'doordash']);
         $ue = collect($item['platforms'])->firstWhere('platform', 'uber-eats');
-        // Ghost: no prices, but the order urls still route to the UE store.
+        // Ghost: platform membership survives the flaky scrape, but nothing
+        // item-level is known — no prices, no item link, no identity. Store
+        // routing lives at menu level (D1), not on the dish.
         expect($ue['pickupPrice'])->toBeNull();
         expect($ue['deliveryPrice'])->toBeNull();
-        expect($ue['pickupUrl'])->toBe('https://uber-eats/store?diningMode=PICKUP');
-        expect($ue['deliveryUrl'])->toBe('https://uber-eats/store?diningMode=DELIVERY');
+        expect($ue['itemUrl'])->toBeNull();
+        expect($ue['externalId'])->toBeNull();
     }
 
     // Aggregates come only from the platform that actually priced (DoorDash).

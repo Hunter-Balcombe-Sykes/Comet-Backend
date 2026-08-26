@@ -143,7 +143,8 @@ it('leaves every column the scan did not supply exactly as it was', function () 
         'rating_count' => 41,
         'badges' => ['Popular'],
     ], ['Drinks'], [[
-        'platform' => 'uber_eats', 'delivery_price' => 6.5, 'delivery_url' => 'https://ubereats.com/store/x/d',
+        'platform' => 'uber_eats', 'delivery_price' => 6.5,
+        'item_url' => 'https://ubereats.com/store/x/sec/sub/item-uuid', 'external_ref' => 'item-uuid', 'sold_out' => false,
     ]]);
 
     app(MenuScanApplier::class)->apply($user, [
@@ -164,7 +165,9 @@ it('leaves every column the scan did not supply exactly as it was', function () 
         ->and($row->badges)->toBe([['text' => 'Popular']])
         ->and($row->category_ids)->toHaveCount(1)
         ->and(collect($row->platforms)->pluck('platform')->all())->toBe(['uber_eats'])
-        ->and($row->platforms[0]->delivery_url)->toBe('https://ubereats.com/store/x/d');
+        ->and($row->platforms[0]->item_url)->toBe('https://ubereats.com/store/x/sec/sub/item-uuid')
+        ->and($row->platforms[0]->external_ref)->toBe('item-uuid')
+        ->and($row->platforms[0]->sold_out)->toBeFalse();
 });
 
 // ── One dish listed under several categories stays ONE dish ─────────────────

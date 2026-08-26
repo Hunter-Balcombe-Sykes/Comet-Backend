@@ -186,8 +186,11 @@ it('MenuFetchJob persists a per-platform offer + storefront for the registered p
     expect($storefront)->not->toBeNull();
     expect($storefront->external_ref)->toBe(MenuProjectionMapper::orderPlatformRef('menulog'));
 
+    // D1 (2026-08-26): per-platform offers carry the platform label instead
+    // of a copied store url (url is retired on menu offers).
     $offer = DB::connection('pgsql')->table('content.offers')
-        ->where('channel', 'pickup')->whereNotNull('url')->first();
+        ->where('channel', 'pickup')->whereNotNull('platform')->first();
     expect($offer)->not->toBeNull();
+    expect($offer->platform)->toBe('menulog');
     expect((int) $offer->amount_minor)->toBe(1000);
 });

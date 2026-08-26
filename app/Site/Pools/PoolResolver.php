@@ -766,10 +766,13 @@ class PoolResolver
             })
             ->groupBy('item_id');
 
-        // A dish's per-platform links (W5): every offer that knows the store
-        // url it came from contributes a synced link for that ordering
-        // platform (host → roster platform), so a dish on Uber Eats AND
-        // DoorDash shows both. Menu items had no f_link at all before this.
+        // A dish's per-platform links (W5, reshaped 2026-08-26): each
+        // per-platform offer contributes the dish's OWN item deep link
+        // (offers.item_url, stored by the projection with its platform slug)
+        // — a dish on Uber Eats AND DoorDash shows both, each opening that
+        // exact dish. Legacy rows (pre-migration, store url on offers.url
+        // with no platform label) keep contributing via the old host
+        // derivation until the next wholesale scrape rebuild replaces them.
         // #LIFE-4 again. This path landed AFTER the audit was taken and carries
         // the identical gap — it never joined platform_connections at all, so
         // there was nothing to filter on. Same helper, so the two cannot drift.
@@ -777,14 +780,27 @@ class PoolResolver
             ->join('content.sources', 'content.sources.id', '=', 'content.offers.source_id')
             ->leftJoin('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
             ->whereIn('content.offers.item_id', $ids)
-            ->whereNotNull('content.offers.url')
+            ->where(function ($w) {
+                $w->whereNotNull('content.offers.item_url')
+                    ->orWhereNotNull('content.offers.url');
+            })
             ->orderByDesc('content.sources.priority');
 
         LiveSourceScope::constrainToLiveSource($offerLinksQuery);
 
         $offerLinks = $offerLinksQuery
-            ->get(['content.offers.item_id', 'content.offers.url', 'content.sources.kind as source_kind'])
+            ->get(['content.offers.item_id', 'content.offers.url', 'content.offers.item_url', 'content.offers.platform as offer_platform', 'content.sources.kind as source_kind'])
             ->map(function (object $row): ?object {
+                // Stored attribution + item link first; host-derived store
+                // link only for legacy rows that predate the columns.
+                if (is_string($row->item_url) && trim($row->item_url) !== '') {
+                    $platform = self::wirePlatform((string) $row->offer_platform) ?? ItemLinkRules::platformForUrl(trim($row->item_url));
+
+                    return $platform === null ? null : (object) ['item_id' => $row->item_id, 'url' => trim($row->item_url), 'source_kind' => (string) $row->source_kind, 'platform' => $platform];
+                }
+                if (! is_string($row->url) || $row->url === '') {
+                    return null;
+                }
                 $platform = ItemLinkRules::platformForUrl((string) $row->url);
 
                 return $platform === null ? null : (object) ['item_id' => $row->item_id, 'url' => (string) $row->url, 'source_kind' => (string) $row->source_kind, 'platform' => $platform];

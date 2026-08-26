@@ -2275,6 +2275,14 @@ class ProjectionWriter
                     // 'availability' (every projector but Shop's, today)
                     // writes null, byte-identical to before this fix.
                     'availability' => $offer['availability'] ?? null,
+                    // Per-item ordering identity (2026-08-26): platform slug,
+                    // the dish's own deep link on that platform, and the
+                    // platform's item id. Set only by MenuProjectionMapper's
+                    // per-platform offers; every other projector writes null
+                    // (?? null discipline, additive as with availability).
+                    'platform' => $offer['platform'] ?? null,
+                    'item_url' => SecretParams::minimiseUrl($offer['item_url'] ?? null),
+                    'external_ref' => $offer['external_ref'] ?? null,
                     'updated_at' => now(),
                 ];
             }

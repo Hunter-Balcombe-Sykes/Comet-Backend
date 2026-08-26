@@ -586,11 +586,12 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 
     /**
      * The merged dish in the legacy `site.menu_items` column shape
-     * MenuProjectionMapper::project() reads. Three merged keys have no
+     * MenuProjectionMapper::project() reads. Two merged keys have no
      * projection target and are dropped here rather than carried nowhere:
-     * pickupSource / deliverySource (which platform backed the aggregate min)
-     * and ddExternalId — ManualMenuItems documents the same three as
-     * unrecoverable on the read side, so the two halves agree.
+     * pickupSource / deliverySource (which platform backed the aggregate
+     * min). Per-platform identity (external ids, item links, stock) rides on
+     * platformRows() → content.offers since 2026-08-26, so nothing else is
+     * lossy any more.
      *
      * @param  array<string, mixed>  $item
      */
@@ -633,9 +634,10 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             $rows[] = (object) [
                 'platform' => (string) $platform['platform'],
                 'pickup_price' => $platform['pickupPrice'] ?? null,
-                'pickup_url' => $platform['pickupUrl'] ?? null,
                 'delivery_price' => $platform['deliveryPrice'] ?? null,
-                'delivery_url' => $platform['deliveryUrl'] ?? null,
+                'item_url' => $platform['itemUrl'] ?? null,
+                'external_ref' => $platform['externalId'] ?? null,
+                'sold_out' => $platform['soldOut'] ?? null,
             ];
         }
 

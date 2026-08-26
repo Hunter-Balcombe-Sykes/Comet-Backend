@@ -28,7 +28,10 @@ use Throwable;
 //   [ 'store' => [ name, rating, reviewCount, currency, logo ],
 //     'categories' => [ [ 'name' => …, 'items' => [ [
 //        externalId, name, description, price, image,
-//        rating, ratingCount, badges (DD only) ] … ] ] ] ]
+//        rating, ratingCount, badges (DD only),
+//        itemUrl (per-item deep link — real or null, never a store
+//        fallback), soldOut (?bool — UE isSoldOut / Square !in_stock;
+//        DD exposes none) ] … ] ] ] ]
 class MenuApifyScraper
 {
     // These actors scrape WAF-protected pages and intermittently return an empty
