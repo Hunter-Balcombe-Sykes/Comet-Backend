@@ -1504,6 +1504,12 @@ class ProjectionWriter
             || DB::table('content.manual_overrides')->where('item_id', $discardedItemId)->exists();
 
         if (! $hasCuration) {
+            // BEFORE the delete: every facet table FKs content.items(id) ON
+            // DELETE CASCADE, so afterwards there is nothing left to carry.
+            // Inside this branch ONLY — a curated loser survives and keeps its
+            // own facets (spec §5.2).
+            $this->foldCollections($keptItemId, $discardedItemId);
+
             DB::table('content.items')->where('id', $discardedItemId)->delete();
         }
 
@@ -1568,6 +1574,81 @@ class ProjectionWriter
                 ])->all());
             }
         }
+    }
+
+    /**
+     * Carry the discarded item's collection facets onto the survivor before the
+     * delete cascades them away.
+     *
+     * Only the MANUAL lane actually loses data here — a connector coord's
+     * facets are re-derived by the next reprojection from
+     * ingest.record_versions — but the fold is unconditional because it is
+     * correct for both and a lane branch inside a merge is a trap.
+     * moveLinks()/moveSlugs() below already do exactly this for the two tables
+     * no projection rewrites.
+     *
+     * Callers MUST invoke this only where the discarded item is actually
+     * deleted. A loser spared by $hasCuration is still rendered wherever it is
+     * pinned, and emptying it would be a fresh data-loss bug on exactly the
+     * items the owner cared about most.
+     *
+     * Runs inside mergeInto(), so it is already under the identity advisory
+     * lock and inside resolveItemsLocked()'s transaction. No new lock, no new
+     * transaction, and no try/catch that RECOVERS — this repo has shipped
+     * 25P02 that way three times.
+     */
+    private function foldCollections(string $keptItemId, string $discardedItemId): void
+    {
+        // table => the value tuple that decides whether the survivor already
+        // carries this contribution. Single-value facets (f_text, f_link, …)
+        // are absent deliberately: their PK is (item_id, source_id), so only
+        // one row can exist per source and a winner is inherent to merging.
+        $dedupe = [
+            'item_media' => ['asset_id', 'role'],
+            'offers' => ['channel', 'variant_label', 'amount_minor', 'currency', 'qualifier'],
+            'item_tags' => ['tag', 'tag_type'],
+            'item_variants' => ['label', 'sku'],
+        ];
+
+        // The survivor's own live coord, used to stamp a moved row that has no
+        // origin of its own. Resolved once: it is the same for every table.
+        $keptOrigin = DB::table('content.source_items')
+            ->where('item_id', $keptItemId)
+            ->whereNull('removed_at')
+            ->value('id');
+
+        foreach ($dedupe as $table => $keys) {
+            $seen = [];
+            foreach (DB::table("content.{$table}")->where('item_id', $keptItemId)->get() as $row) {
+                $seen[$this->foldKey($row, $keys)] = true;
+            }
+
+            foreach (DB::table("content.{$table}")->where('item_id', $discardedItemId)->get() as $row) {
+                $key = $this->foldKey($row, $keys);
+                if (isset($seen[$key])) {
+                    // The survivor already says this. Let the cascade take it —
+                    // image FILES are deduped by media_assets' UNIQUE
+                    // (user_id, fingerprint), so a duplicate row is a second
+                    // reference to one asset and would render twice.
+                    continue;
+                }
+                $seen[$key] = true;
+
+                DB::table("content.{$table}")->where('id', $row->id)->update([
+                    'item_id' => $keptItemId,
+                    // Stamp origin if it has none: an un-attributed moved row
+                    // would be clobbered by the survivor's next save, which is
+                    // exactly the failure this whole change exists to prevent.
+                    'source_item_id' => $row->source_item_id ?? $keptOrigin,
+                ]);
+            }
+        }
+    }
+
+    /** @param  list<string>  $keys */
+    private function foldKey(object $row, array $keys): string
+    {
+        return implode('|', array_map(fn (string $k) => (string) ($row->{$k} ?? ''), $keys));
     }
 
     /**
