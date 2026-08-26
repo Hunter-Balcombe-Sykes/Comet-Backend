@@ -353,6 +353,7 @@ class DerivedDescriptorFactory
     private const BEHAVIOUR_BINDINGS = [
         'bandcamp' => Bindings\BandcampBinding::class,
         'vimeo' => Bindings\VimeoBinding::class,
+        'youtube' => Bindings\YoutubeBinding::class,
     ];
 
     /**

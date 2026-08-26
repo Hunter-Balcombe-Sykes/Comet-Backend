@@ -15,7 +15,6 @@ use App\Http\Resources\Platforms\OpenTableConnectionResource;
 use App\Http\Resources\Platforms\ResDiaryConnectionResource;
 use App\Http\Resources\Platforms\ShopBrandResource;
 use App\Http\Resources\Platforms\TileConnectionResource;
-use App\Http\Resources\Platforms\YoutubeConnectionResource;
 use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
 use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Jobs\Platforms\ThrottledByProvider;
@@ -55,7 +54,6 @@ use App\Services\Platforms\Strategies\Connect\ResDiaryConnect;
 use App\Services\Platforms\Strategies\Connect\SoundcloudConnect;
 use App\Services\Platforms\Strategies\Connect\SpotifyConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
-use App\Services\Platforms\Strategies\Connect\YoutubeConnect;
 use App\Services\Platforms\Strategies\Connect\YoutubeMusicConnect;
 use App\Services\Platforms\Strategies\Detect\HostMatch;
 use App\Services\Platforms\Strategies\Detect\ServiceMatch;
@@ -68,7 +66,6 @@ use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
-use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
 use App\Services\Platforms\YoutubeScraper;
 use App\Services\Shop\ShopConnections;
@@ -127,20 +124,9 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('soundcloud')->connect(fn () => new SoundcloudConnect(app(OEmbedService::class)), 'Enter your SoundCloud link (soundcloud.com/yourname).');
 
             // ── Scraped / API feed (per-platform resources, refreshable) ──
-            $r->register(PD::make('youtube')->label('YouTube')->category(Cat::Content)->resource(YoutubeConnectionResource::class)->refreshable()
-                ->payload(FeedPayload::class));
-            // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
-            $r->get('youtube')->fetch(fn () => new YoutubeFetch(
-                app(YoutubeScraper::class),
-            ));
-            // Connect strategy (FOUND-24, Task 7) — moved verbatim from the
-            // deleted YoutubeController; parse-fail message is the frozen
-            // 422 contract.
-            $r->get('youtube')->connect(fn () => new YoutubeConnect(app(YoutubeScraper::class)), 'Enter your YouTube channel.');
-            // Deferred-connect seam (Phase 2, W4) — YoutubeConnect implements
-            // DeferredConnect. Message copied verbatim from resolve()'s
-            // fetch-stage failure.
-            $r->get('youtube')->deferredConnect()->connectFetchError('Could not find that YouTube channel or its latest video.');
+            // youtube: retired to a catalog-derived descriptor (P4,
+            // 2026-08-27) — its full behavioural contract attaches from
+            // Registry\Bindings\YoutubeBinding.
             $r->register(PD::make('youtube-music')->label('YouTube Music')->category(Cat::Music)->resource(YoutubeMusicConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
@@ -373,7 +359,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // single-named-field (3 distinct + 11 socials share 'username').
             $r->get('apple-music')->connectInput('artist', ['required', 'string', 'max:200']);
             $r->get('apple-podcast')->connectInput('show', ['required', 'string', 'max:200']);
-            $r->get('youtube')->connectInput('channel', ['required', 'string', 'max:200']);
             // P2: the retired link-only platforms' connect inputs (username
             // for the 11 socials; url for skool/strava/twitch with their
             // historical maxes) ride LinkOnlyBindings into the derived
@@ -402,13 +387,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             ]);
 
             // The pools' auto half (2026-08-05): every source with a
-            // time-ordered item stream carries the SAME toggle. Read at pool
-            // resolve time (latest_per_auto_source), NOT as a fetch gate —
-            // syncing keeps filling the library either way; the switch only
-            // decides whether the newest item auto-joins the site.
-            $r->get('youtube')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Latest video', 'description' => 'Your newest upload joins your site automatically.'],
-            ]);
+            // time-ordered item stream carries the SAME auto_sync toggle. Read
+            // at pool resolve time (latest_per_auto_source), NOT as a fetch
+            // gate — syncing keeps filling the library either way; the switch
+            // only decides whether the newest item auto-joins the site.
             // Listen restructure (owner, 2026-08-18): each switch names the
             // FORMAT it publishes. YouTube Music's Topic-channel uploads are
             // songs, so its switch is the track one; Apple Music emits both.
@@ -468,7 +450,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // respecting Google's caching guidance.
             $r->get('eventbrite')->refreshEvery((int) config('partna.refresh.intervals.eventbrite', 6 * 3600));
             $r->get('humanitix')->refreshEvery((int) config('partna.refresh.intervals.humanitix', 6 * 3600));
-            $r->get('youtube')->refreshEvery((int) config('partna.refresh.intervals.youtube', 12 * 3600));
             $r->get('youtube-music')->refreshEvery((int) config('partna.refresh.intervals.youtube-music', 12 * 3600));
             $r->get('spotify')->refreshEvery((int) config('partna.refresh.intervals.spotify', 12 * 3600));
             $r->get('soundcloud')->refreshEvery((int) config('partna.refresh.intervals.soundcloud', 12 * 3600));
@@ -497,7 +478,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // which this generic shape has no seam for.
             $r->get('spotify')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('soundcloud')->routes(PlatformRouteShape::MultiAccount, null, true);
-            $r->get('youtube')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('youtube-music')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('resdiary')->routes(PlatformRouteShape::MultiAccount, null, false);
