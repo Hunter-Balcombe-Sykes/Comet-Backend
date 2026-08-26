@@ -158,6 +158,21 @@ class MenuScanApplier
             $byCoord[(string) $row->coord] ??= $row;
         }
 
+        // backend-fixes item 2: secondary match passes over the PRE-BATCH
+        // stored dishes only (the same-source guardrail — two items from one
+        // scan batch never merge into each other; the vendor listed them
+        // separately on purpose). Pass 2 keys by variantKey; pass 3
+        // (brand-line) walks the same snapshot.
+        $matcher = app(MenuNameMatcher::class);
+        $preBatch = array_values($byCoord);
+        $byVariantKey = [];
+        foreach ($preBatch as $row) {
+            $rowKey = $matcher->variantKey((string) $row->headline);
+            if ($rowKey !== '') {
+                $byVariantKey[$rowKey] ??= $row;
+            }
+        }
+
         $categoriesById = [];
         $positionByRef = [];
         $nextCategoryPosition = 0;
@@ -194,6 +209,40 @@ class MenuScanApplier
 
             $coord = $this->writer->coordFor((string) $menu->id, $name);
             $existing = $byCoord[$coord] ?? null;
+
+            // Pass 2: parenthetical/wrapper/unit-normalized twin among the
+            // stored dishes ("Orthodox Drip Coffee Bags" finds its
+            // "(7 Sachets)" twin). The stored dish's headline and coord win —
+            // a scan never renames a matched dish.
+            if ($existing === null) {
+                $variantKey = $matcher->variantKey($name);
+                $existing = $variantKey === '' ? null : ($byVariantKey[$variantKey] ?? null);
+                if ($existing !== null) {
+                    $coord = (string) $existing->coord;
+                }
+            }
+
+            // Pass 3 (brand-line): 'merge' adopts the stored dish; 'flag'
+            // logs a candidate for a human and lands the scan item as its
+            // own dish — never an auto-merge below certainty.
+            if ($existing === null) {
+                foreach ($preBatch as $candidate) {
+                    $verdict = $matcher->brandLineMatch($name, (string) $candidate->headline);
+                    if ($verdict === 'merge') {
+                        $existing = $candidate;
+                        $coord = (string) $candidate->coord;
+
+                        break;
+                    }
+                    if ($verdict === 'flag') {
+                        Log::info('menu.match.candidate', [
+                            'user_id' => $userId,
+                            'scan_item' => $name,
+                            'stored_item' => (string) $candidate->headline,
+                        ]);
+                    }
+                }
+            }
             $scanCategory = $this->scanTitleCase($this->cleanString($item['category'] ?? null));
             // B5/3b: scan wrappers ('Menu', 'All', 'Home') and rail labels are
             // not taxonomy — treat as uncategorized (falls into More).
