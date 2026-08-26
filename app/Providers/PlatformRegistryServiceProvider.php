@@ -2,8 +2,6 @@
 
 namespace App\Providers;
 
-use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
-use App\Http\Resources\Platforms\GoogleBusinessConnectionResource;
 use App\Http\Resources\Platforms\InstagramConnectionResource;
 use App\Http\Resources\Platforms\LinkConnectionResource;
 use App\Http\Resources\Platforms\MusicEmbedConnectionResource;
@@ -14,7 +12,6 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
-use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
@@ -30,7 +27,6 @@ use App\Services\Platforms\Strategies\Connect\BrandLinkConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Detect\HostMatch;
 use App\Services\Platforms\Strategies\Detect\ServiceMatch;
-use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
 use App\Services\Shop\ShopConnections;
 use App\Site\Pools\PoolResolver;
@@ -91,12 +87,12 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // 2026-08-27) — its full behavioural contract (including the
             // CA-W3 no-deferredConnect ruling) attaches from
             // Registry\Bindings\ApplePodcastBinding.
-            $r->register(PD::make('google-business')->label('Google Business')->category(Cat::Business)->resource(GoogleBusinessConnectionResource::class)->refreshable()->payload(GoogleBusinessPayload::class));
-            // Attach fetch strategy (Plan 3b). GoogleBusinessPayload is verbatim-preserving
-            // (variable key set via array_intersect_key) — read paths migrated in Plan 5.
-            $r->get('google-business')->fetch(fn () => new GoogleBusinessFetch(
-                app(GoogleBusinessService::class),
-            ));
+            // google-business: retired to a catalog-derived descriptor (P5,
+            // 2026-08-27) — its full behavioural contract (GoogleBusinessPayload,
+            // display toggles, SingleSelection routes on the bespoke controller)
+            // attaches from Registry\Bindings\GoogleBusinessBinding, deriving
+            // through the notConnectable relaxation (its connect is never a
+            // pasted URL).
             $r->register(PD::make('instagram')->label('Instagram')->category(Cat::Social)->resource(InstagramConnectionResource::class)->payload(InstagramPayload::class)); // refresh = paid Apify, not in cron
 
             // ── Events (refreshable; organiser accounts + standalone events) ──
@@ -213,13 +209,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // the sitepage. Read by DisplaySettingsController (settings UI +
             // PATCH validation) and PublicIntegrationConnectionResource /
             // PoolResolver's menus pool (payload suppression). Absent key = shown.
-            $r->get('google-business')->displayToggles([
-                ['key' => 'reviews', 'label' => 'Reviews', 'description' => 'Your Google rating and recent reviews.'],
-                ['key' => 'hours', 'label' => 'Opening hours', 'description' => 'Your weekly opening hours.'],
-                ['key' => 'photos', 'label' => 'Photos', 'description' => 'Photos from your Google Business profile.'],
-                ['key' => 'location', 'label' => 'Location & map', 'description' => 'Your address, map and directions.'],
-                ['key' => 'menu', 'label' => 'Menu', 'description' => 'Your food and drink menu.'],
-            ]);
             // Instagram (2026-08-05, platforms-as-sources): the old site-column
             // gallery toggle (content_instagram_auto_enabled) migrated into the
             // connection's own display_settings under the ONE auto-sync key.
@@ -244,14 +233,9 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // organiser" switches ride the eventbrite/humanitix bindings.
 
             // ── Refresh cadences ─────────────────────────────────────────────────
-            // Per-platform re-fetch intervals for the hourly dispatcher; anything
-            // not listed uses the global default (24h). Events move fastest (new
-            // listings + sellouts should reach the sitepage same-morning); watch/
-            // listen content lands twice daily; Google Business every 2 days —
-            // its fetch keeps a 40h internal freshness gate so ratings stay
-            // ≤2 days stale instead of the old 6-day drift, while still
-            // respecting Google's caching guidance.
-            $r->get('google-business')->refreshEvery((int) config('partna.refresh.intervals.google-business', 2 * 86400));
+            // Per-platform re-fetch intervals for the hourly dispatcher ride
+            // each platform's binding now; anything unlisted uses the global
+            // default (24h).
 
             // ── Route archetypes (FOUND-21) ─────────────────────────────────────
             // Drives the single registry loop in routes/api/platforms.php. Bespoke
@@ -260,8 +244,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // Link-only socials: retired to derived descriptors (P2) — their
             // LinkOnly route shape rides LinkOnlyBindings into the factory.
 
-            // Single-selection (connect/selection/forget all on the bespoke controller).
-            $r->get('google-business')->routes(PlatformRouteShape::SingleSelection, GoogleBusinessController::class);
+            // Single-selection (google-business) rides its binding.
 
             // Migrated reads (FOUND-24): every remaining registry-driven route
             // shape rides its platform's binding now — the MultiAccount

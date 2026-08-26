@@ -115,14 +115,19 @@ class DerivedDescriptorFactory
             if (! in_array($surface['lifecycle'] ?? '', ['active', 'sunset'], true)) {
                 continue;
             }
-            if (($surface['is_connectable'] ?? false) !== true) {
+            // A slug with a behavioural binding derives UNCONDITIONALLY (P5:
+            // google_business.listing is notConnectable() — its connect is
+            // never a pasted URL — yet the platform must exist in the
+            // registry). The binding's existence IS the declaration.
+            $bound = isset(self::BEHAVIOUR_BINDINGS[LegacyPlatformMap::legacyFor($key)]);
+            if (($surface['is_connectable'] ?? false) !== true && ! $bound) {
                 continue;
             }
             // URL-detected surfaces derive; so does any slug with a
             // LinkOnlyBindings contract — its connect is an explicitly typed
             // handle/URL, so the detector requirement is inapplicable (P2:
             // skool has "Detect: none" by ground truth yet must derive).
-            if (! isset($detected[$key]) && LinkOnlyBindings::for(LegacyPlatformMap::legacyFor($key)) === null) {
+            if (! isset($detected[$key]) && ! $bound && LinkOnlyBindings::for(LegacyPlatformMap::legacyFor($key)) === null) {
                 continue;
             }
             // Shop brands are NOT derivable. Two independent reasons:
@@ -364,6 +369,7 @@ class DerivedDescriptorFactory
         'bandcamp' => Bindings\BandcampBinding::class,
         'eventbrite' => Bindings\EventbriteBinding::class,
         'fresha' => Bindings\FreshaBinding::class,
+        'google-business' => Bindings\GoogleBusinessBinding::class,
         'humanitix' => Bindings\HumanitixBinding::class,
         'nowbookit' => Bindings\NowbookitBinding::class,
         'opentable' => Bindings\OpentableBinding::class,
