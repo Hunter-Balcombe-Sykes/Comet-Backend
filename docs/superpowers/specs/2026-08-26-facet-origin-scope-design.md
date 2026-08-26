@@ -258,7 +258,7 @@ config block, so every line reference in the plan was stale.
 | Lane | Before | After |
 |---|---|---|
 | Fast suite (`php artisan test --parallel`) | 3 skipped, 9358 passed, **2 failed** | 3 skipped, **9362 passed, 0 failed** |
-| PG lane (`phpunit.pg.xml`) | 2 failed, 3 skipped, **252 passed** | 2 failed, 3 skipped, **259 passed** |
+| PG lane (`phpunit.pg.xml`) | 2 failed, 3 skipped, **252 passed** | 2 failed, 3 skipped, **260 passed** |
 | `tests/Feature/Ingest/` with the flag OFF | 543 passed | 545 passed (543 pre-existing + 2 new), 0 failed |
 
 The 2 PG-lane failures are pre-existing and untouched: `LanderFoldAtomicityTest` dies in
@@ -266,7 +266,7 @@ The 2 PG-lane failures are pre-existing and untouched: `LanderFoldAtomicityTest`
 fixed within it — see "Guards this tripped" below. The baseline of 252 was re-measured on the
 rebased commit; the plan's recorded 244 predated the tranche.
 
-Seven new PG-lane tests (3 scoping + 4 fold) and 2 new fast-lane tests.
+Eight new PG-lane tests (3 scoping + 5 fold) and 2 new fast-lane tests.
 
 ### Spec §6 coverage
 
@@ -311,6 +311,29 @@ Three consumers had to move with `$byItem`'s shape change; the plan named one.
 3. **`createTenant()` is unusable in `tests/Postgres/`.** The plan's test snippets called it; it is
    used in none of the files there, because it inserts `handle`/`auth_user_id`/`status` into
    `core.users` and that lane's stand-in is a one-column table.
+
+### A defect the spec and plan both carried
+
+`foldCollections()` was specified to stamp an un-attributed moved row with the survivor's origin.
+`mergeInto()` repoints the loser's `source_items` onto the survivor BEFORE the fold runs, so by then
+the survivor's live coords span every source either side touched, and "the survivor's origin" is not
+a single thing — the obvious implementation picks an arbitrary one.
+
+The consequence is not cosmetic. §5.1's delete is
+`source_id = ours AND (source_item_id IS NULL OR source_item_id IN ours-origins)`. A row whose origin
+belongs to ANOTHER source satisfies neither branch, so **nothing can ever delete it** — a permanent
+orphan. That is precisely the data-DUPLICATION failure the `IS NULL` half exists to prevent, arrived
+at from the other end.
+
+Fixed by resolving the stamp PER `source_id`. A source with no live coord on the survivor yields
+nothing and the row stays NULL: replaceable exactly as today, which is the safe reading.
+
+The regression test is deterministically red before the fix rather than red-by-luck: the loser
+carries a RETIRED coord on a second source whose `item_media` row outlives it (retirement is soft),
+so the survivor has no live coord on that source at all and the old code could only stamp it wrongly.
+
+**§5.2 should be read as amended by this**: "stamping `source_item_id` on any moved row that has
+none" means an origin on that row's OWN source, or none.
 
 ### Guards this tripped
 
