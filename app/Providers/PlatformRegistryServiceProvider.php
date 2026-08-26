@@ -19,7 +19,6 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
-use App\Services\Platforms\EventbriteScraper;
 use App\Services\Platforms\FreshaAutoSelector;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
@@ -49,7 +48,6 @@ use App\Services\Platforms\Strategies\Connect\ResDiaryConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Detect\HostMatch;
 use App\Services\Platforms\Strategies\Detect\ServiceMatch;
-use App\Services\Platforms\Strategies\Fetch\EventbriteFetch;
 use App\Services\Platforms\Strategies\Fetch\FreshaConnectFetch;
 use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
@@ -123,19 +121,19 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->register(PD::make('instagram')->label('Instagram')->category(Cat::Social)->resource(InstagramConnectionResource::class)->payload(InstagramPayload::class)); // refresh = paid Apify, not in cron
 
             // ── Events (refreshable; organiser accounts + standalone events) ──
-            $r->register(PD::make('eventbrite')->label('Eventbrite')->category(Cat::Events)->refreshable()->payload(EventsAccountPayload::class));
+            // eventbrite: retired to a catalog-derived descriptor (P4,
+            // 2026-08-27) — its full behavioural contract (including the
+            // CA-W5 no-deferredConnect ruling and its smart-detect matcher)
+            // attaches from Registry\Bindings\EventbriteBinding.
             $r->register(PD::make('humanitix')->label('Humanitix')->category(Cat::Events)->refreshable()->payload(EventsAccountPayload::class));
-            // Attach the live event fetch strategies (Plan 6). Consumed by the registry-driven refresher.
-            $r->get('eventbrite')->fetch(fn () => new EventbriteFetch(app(EventbriteScraper::class)));
+            // Attach the live event fetch strategy (Plan 6). Consumed by the registry-driven refresher.
             $r->get('humanitix')->fetch(fn () => new HumanitixFetch(app(HumanitixScraper::class)));
-            // CA-W5 — see apple-music's identical note above: the message
-            // ConnectFetchJob stores when the deferred scrape fails, verbatim
-            // from addAccount()'s own synchronous 422. Deliberately NOT
-            // ->deferredConnect() — neither descriptor has a ConnectStrategy
-            // (their connect is bespoke, via DefersBespokeConnect), so that flag
-            // would falsely claim one exists (RegistryConnectCoverageTest pins
-            // flag<=>instanceof for every descriptor).
-            $r->get('eventbrite')->connectFetchError('Could not load that Eventbrite page.');
+            // CA-W5 — see the binding notes: the message ConnectFetchJob
+            // stores when the deferred scrape fails, verbatim from
+            // addAccount()'s own synchronous 422. Deliberately NOT
+            // ->deferredConnect() — no ConnectStrategy exists (connect is
+            // bespoke, via DefersBespokeConnect), so that flag would falsely
+            // claim one (RegistryConnectCoverageTest pins flag<=>instanceof).
             $r->get('humanitix')->connectFetchError('Could not load that Humanitix page.');
             // 'events-custom' left the registry 2026-08-19 with the
             // pseudo-platform retirement: a standalone event is an events-pool
@@ -210,8 +208,8 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('opentable')->detect(new ServiceMatch(fn (string $u) => $openTable->isOpenTableUrl($u)));
             $r->get('resdiary')->detect(new ServiceMatch(fn (string $u) => $resDiary->isResDiaryUrl($u)));
             $r->get('nowbookit')->detect(new ServiceMatch(fn (string $u) => $nowBookit->isNowBookitUrl($u)));
-            // Events: Eventbrite has regional TLDs; Humanitix is single-domain.
-            $r->get('eventbrite')->detect(new HostMatch('~(^|\.)eventbrite\.(com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|pt|ie|at|ch|dk|fi|se|be|sg|hk|com\.br|com\.mx|com\.ar|com\.pe|cl)$~'));
+            // Events: Humanitix is single-domain (Eventbrite's regional-TLD
+            // matcher rides its binding).
             $r->get('humanitix')->detect(new HostMatch('~(^|\.)humanitix\.com$~'));
 
             // ── 2026-07-26 Platform expansion: Booking detect-only ──
@@ -285,7 +283,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // (multi-field) and keeps ConnectGoogleBusinessRequest.
 
             // url-shaped (17). The max differs per platform — these are NOT uniform.
-            $r->get('eventbrite')->connectInput('url', ['required', 'string', 'max:500']);
             $r->get('fresha')->connectInput('url', ['required', 'string', 'max:500', 'regex:#^https?://(www\.)?fresha\.com/(?:[a-z]{2,3}(-[a-z]{2})?/)?a/[a-z0-9-]+/?$#i'], [], true);
             $r->get('humanitix')->connectInput('url', ['required', 'string', 'max:500']);
             $r->get('nowbookit')->connectInput('url', ['required', 'string', 'max:2048']);
@@ -337,12 +334,11 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // when it's off, freezing the stored upcoming list while standalone
             // event rows keep refreshing (sold-out/price freshness is separate).
             // Declared per platform; the dashboard's single Tickets card PATCHes
-            // both eventbrite and humanitix together.
-            foreach (['eventbrite', 'humanitix'] as $eventsPlatform) {
-                $r->get($eventsPlatform)->displayToggles([
-                    ['key' => 'auto_sync_latest', 'label' => 'Auto sync latest from each organiser', 'description' => 'Automatically refresh each connected organiser\'s upcoming events.'],
-                ]);
-            }
+            // both eventbrite and humanitix together (eventbrite's toggle
+            // rides its binding).
+            $r->get('humanitix')->displayToggles([
+                ['key' => 'auto_sync_latest', 'label' => 'Auto sync latest from each organiser', 'description' => 'Automatically refresh each connected organiser\'s upcoming events.'],
+            ]);
 
             // ── Refresh cadences ─────────────────────────────────────────────────
             // Per-platform re-fetch intervals for the hourly dispatcher; anything
@@ -352,7 +348,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // its fetch keeps a 40h internal freshness gate so ratings stay
             // ≤2 days stale instead of the old 6-day drift, while still
             // respecting Google's caching guidance.
-            $r->get('eventbrite')->refreshEvery((int) config('partna.refresh.intervals.eventbrite', 6 * 3600));
             $r->get('humanitix')->refreshEvery((int) config('partna.refresh.intervals.humanitix', 6 * 3600));
             $r->get('google-business')->refreshEvery((int) config('partna.refresh.intervals.google-business', 2 * 86400));
 
