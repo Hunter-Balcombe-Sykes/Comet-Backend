@@ -95,7 +95,11 @@ final class ConnectionDisplayName
                 }
             }
             $handle = self::handleFromUrl($surfaceKey, $url);
-            if ($handle !== null && ! self::looksOpaque($handle)) {
+            // All-digits is an id wearing a handle, never a name — the same
+            // FI-6 rule the key loop applies (plan-03 batch 4, 2026-08-27:
+            // tidal.player rows displayed the numeric artist id "3648857"
+            // captured from the URL).
+            if ($handle !== null && ! self::looksOpaque($handle) && preg_match('/^\d+$/', $handle) !== 1) {
                 return $isSubreddit ? 'r/'.$handle : self::prefixed($surfaceKey, $handle);
             }
             $store = self::storeNameFromUrl($surfaceKey, $url);

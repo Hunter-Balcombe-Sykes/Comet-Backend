@@ -40,3 +40,10 @@ it('shows a whatsapp chat as its dialable number — the phone IS the identity (
         // A send link with no phone has no identity to show.
         ->and(D::for('whatsapp.chat', ['url' => 'https://www.whatsapp.com/send']))->toBeNull();
 });
+
+it('never shows a numeric id captured from the URL as the account name (plan-03 batch 4 find)', function () {
+    // tidal.player's detector captures /artist/{id} — all digits. The key
+    // loop already refuses digit-only names (FI-6); the URL fallback now
+    // does too, falling through to the brand-label tail instead.
+    expect(D::for('tidal.player', ['url' => 'https://tidal.com/artist/3648857']))->not->toBe('3648857');
+});
