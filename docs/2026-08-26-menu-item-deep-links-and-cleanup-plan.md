@@ -577,3 +577,28 @@ rewritten and green, existing profile renders.
 REMAINING for G8 close-out: C6 (delete ManualMenuItems host heuristic —
 scoped: PoolResolver's url branch stays, other lanes legitimately carry
 offer urls) once the 11-menu forced refresh drains the 581 legacy rows.
+
+---
+**G8 CLOSED — PLAN 1 COMPLETE — 2026-08-27 ~04:15 AEST.** Final state:
+per-item deep links live end-to-end for all three platforms (Uber
+quickView hrefs + uuids; DoorDash ?itemId= recipe in the driver — actor
+ids stable; Square real product pages from its first-party API); Square
+Online is a REAL platform (catalog surface + /s/order detector +
+classifier alias + storefront-marker probe + orderingStore offer +
+surface-key-stamped scrape resolution + first-party HTTP transport with
+retries — zero Apify billing); menus self-heal (revival pass,
+failed-platform retirement deferral, sticky identity, identity
+union/dup-fill); scan quality shipped (casing, category denylist, More
+bucket, wrapper-candidate log, cross-source matcher with all audit
+misses pinned); every legacy item deleted (four PD entries → derived,
+*Source/dd_external_id trio, menus-r-us actor, old deep-link derivation,
+host heuristic — with PoolResolver's generic url branch deliberately
+kept for other lanes), docs swept, naming doctrine recorded. Evidence
+trail: eight gates, each with tests + live-dev proof + fresh-eyes critic
+(2 critics on this plan's span; every real finding fixed same-session).
+11 dev menus refreshed on the new pipeline; ollies sitepage renders 37
+per-item links; click-throughs verified.
+
+Per the chain: execution AUTO-CONTINUES into
+docs/2026-08-26-routing-fixes-plan.md (plan 3), then the PD-retirement
+plan (plan 2).
