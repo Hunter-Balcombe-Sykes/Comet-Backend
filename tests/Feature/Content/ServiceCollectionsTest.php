@@ -60,7 +60,6 @@ function serviceItemFor(string $userId): string
         'kind' => 'service',
         'headline_cache' => 'Test Service',
         'facets_cache' => '[]',
-        'eligible_cache' => '[]',
         'first_seen_at' => $now,
         'last_seen_at' => $now,
         'created_at' => $now,

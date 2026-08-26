@@ -25,7 +25,6 @@ use Illuminate\Support\Carbon;
  *                        on purpose — see KindRegistry's docblock.)
  * @property string|null $headline_cache Dashboard filtering only; serving joins live tables.
  * @property list<string> $facets_cache
- * @property list<string> $eligible_cache
  * @property Carbon|null $removed_at
  * @property string|null $review_flag
  * @property Carbon $first_seen_at
@@ -55,7 +54,6 @@ class Item extends BaseModel
 
     protected $casts = [
         'facets_cache' => 'array',
-        'eligible_cache' => 'array',
         'removed_at' => 'datetime',
         'first_seen_at' => 'datetime',
         'last_seen_at' => 'datetime',

@@ -84,7 +84,6 @@ function bulkSeedServices(string $userId, int $count): void
             'kind' => 'service',
             'headline_cache' => "Service {$i}",
             'facets_cache' => '{}',
-            'eligible_cache' => '{}',
             'first_seen_at' => $now,
             'last_seen_at' => $now,
             'created_at' => $now,

@@ -2619,6 +2619,20 @@ function setupContentPopularityScoresTable(): void
 }
 
 /**
+ * analytics.scoring_watermarks — the popularity sweep's single-row
+ * last-successful-run watermark (20260827070000).
+ */
+function setupScoringWatermarksTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS analytics.scoring_watermarks (
+        id TEXT PRIMARY KEY,
+        last_completed_at TEXT NOT NULL,
+        updated_at TEXT NULL
+    )');
+}
+
+/**
  * notifications.email_subscriptions — minimal columns for broadcast fan-out tests.
  */
 function setupEmailSubscriptionsTable(): void
@@ -2687,7 +2701,6 @@ function setupSectionsTables(): void
         )),
         headline_cache TEXT NULL,
         facets_cache TEXT NOT NULL DEFAULT \'[]\',
-        eligible_cache TEXT NOT NULL DEFAULT \'[]\',
         removed_at TEXT NULL,
         review_flag TEXT NULL,
         first_seen_at TEXT NOT NULL,
@@ -2854,7 +2867,7 @@ function addItem(string $userId, string $kind, string $headline): string
     $id = (string) Str::uuid();
     DB::table('content.items')->insert([
         'id' => $id, 'user_id' => $userId, 'kind' => $kind,
-        'headline_cache' => $headline, 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'headline_cache' => $headline, 'facets_cache' => '[]',
         'first_seen_at' => now(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);
@@ -4085,7 +4098,6 @@ function seedContentItem(string $userId, array $overrides = []): string
         'kind' => 'video',
         'headline_cache' => 'An item',
         'facets_cache' => '[]',
-        'eligible_cache' => '[]',
         'first_seen_at' => $now,
         'last_seen_at' => $now,
         'created_at' => $now,

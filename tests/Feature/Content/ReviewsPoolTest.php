@@ -38,7 +38,7 @@ function reviewPoolFixture(array $review = [], ?array $displaySettings = null): 
         'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'review',
         // Null by contract since slice 6 §2.3 — the reviewer's name lives in
         // f_review alone.
-        'headline_cache' => null, 'facets_cache' => '["f_review"]', 'eligible_cache' => '[]',
+        'headline_cache' => null, 'facets_cache' => '["f_review"]',
         'first_seen_at' => now()->subDay(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);

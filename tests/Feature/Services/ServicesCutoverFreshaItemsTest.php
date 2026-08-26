@@ -24,7 +24,7 @@ function svcCutItemsFresha(string $userId, string $title, string $recordKey): ar
     ]);
     DB::table('content.items')->insert([
         'id' => $itemId, 'user_id' => $userId, 'kind' => 'service',
-        'headline_cache' => $title, 'facets_cache' => '{}', 'eligible_cache' => '{}',
+        'headline_cache' => $title, 'facets_cache' => '{}',
         'first_seen_at' => now(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);

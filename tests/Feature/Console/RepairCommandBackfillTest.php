@@ -120,7 +120,7 @@ it('refreshes every user\'s items, not just the first, and writes nothing under 
             $ids[] = $itemId;
             DB::connection('pgsql')->table('content.items')->insert([
                 'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'article',
-                'headline_cache' => null, 'facets_cache' => '[]', 'eligible_cache' => '[]',
+                'headline_cache' => null, 'facets_cache' => '[]',
                 'removed_at' => null,
                 'first_seen_at' => now()->subDays(10), 'last_seen_at' => now(),
                 'created_at' => now(), 'updated_at' => now(),

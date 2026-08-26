@@ -36,7 +36,7 @@ function seedReviewWithHeadlinePii(string $userId): array
     DB::table('content.items')->insert([
         'id' => $itemId, 'user_id' => $userId, 'kind' => 'review',
         'headline_cache' => 'A Real Person', 'facets_cache' => '["f_text","f_review"]',
-        'eligible_cache' => '[]', 'first_seen_at' => $now, 'last_seen_at' => $now,
+        'first_seen_at' => $now, 'last_seen_at' => $now,
         'created_at' => $now, 'updated_at' => $now,
     ]);
     DB::table('content.f_text')->insert([
@@ -87,7 +87,7 @@ it('does not touch non-review items', function () {
     DB::table('content.items')->insert([
         'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'video',
         'headline_cache' => 'My Video', 'facets_cache' => '["f_text"]',
-        'eligible_cache' => '[]', 'first_seen_at' => $now, 'last_seen_at' => $now,
+        'first_seen_at' => $now, 'last_seen_at' => $now,
         'created_at' => $now, 'updated_at' => $now,
     ]);
     DB::table('content.f_text')->insert([

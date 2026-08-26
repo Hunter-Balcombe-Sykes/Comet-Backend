@@ -261,7 +261,6 @@ final class Fixtures
             $service->kind = 'service';
             $service->headline_cache = 'Authz Service';
             $service->facets_cache = [];
-            $service->eligible_cache = [];
             $service->first_seen_at = now();
             $service->last_seen_at = now();
             $service->save();

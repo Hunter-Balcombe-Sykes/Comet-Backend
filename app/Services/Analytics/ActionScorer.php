@@ -45,6 +45,28 @@ class ActionScorer
 
     private const BLEND_PREV = 0.3;
 
+    /**
+     * Cadence-aware previous-score weight (smart-scoring plan, 2026-08-27).
+     * The 0.7/0.3 blend was tuned for a DAILY run; at the 15-minute cadence
+     * a fixed 0.3 made the blend near-cosmetic (routes/console.php's open
+     * note). prev_weight = 0.3^(Δt/1day) COMPOUNDS to exactly the daily
+     * semantics whatever the cadence (96 15-minute runs multiply out to
+     * 0.3/day), clamped to [0.3, 0.99] so a manual back-to-back run can't
+     * freeze scores and a long gap can't overshoot the daily weight. Null
+     * (first write) returns the daily weight — the blend seeds with itself
+     * there anyway. The same weight drives the fade-out path, which
+     * therefore decays by TIME rather than run count.
+     */
+    public static function cadenceBlendPrev(?string $lastComputedAt, \DateTimeInterface $now): float
+    {
+        if ($lastComputedAt === null || $lastComputedAt === '') {
+            return self::BLEND_PREV;
+        }
+        $minutes = max(0.0, ($now->getTimestamp() - Carbon::parse($lastComputedAt)->getTimestamp()) / 60.0);
+
+        return min(0.99, max(self::BLEND_PREV, self::BLEND_PREV ** ($minutes / 1440.0)));
+    }
+
     private const RANK_SWAP_THRESHOLD = 0.10;
 
     /**
@@ -70,6 +92,7 @@ class ActionScorer
         }
 
         ['exposures' => $exposures, 'taps' => $taps] = $this->aggregate($site);
+        $blendPrev = self::cadenceBlendPrev($this->lastComputedAt($previous), now());
         $k = (float) config('partna.actions.prior_k', 25);
         $weights = (array) config('partna.actions.weights', []);
         $wDemand = (float) ($weights['demand'] ?? 0.45);
@@ -108,7 +131,7 @@ class ActionScorer
             $floor = $boosts[$id] ?? $prior;
             $score = $wDemand * $demand + $wReach * $reach + $wFresh * $fresh + $floor;
             $prev = $previous[$id]['score'] ?? $score;
-            $blended[$id] = self::BLEND_NEW * $score + self::BLEND_PREV * $prev;
+            $blended[$id] = (1 - $blendPrev) * $score + $blendPrev * $prev;
             // The EARNED signal — demand + reach only. Freshness is excluded
             // on purpose: a newly-connected recipe-#2 platform must not ride
             // its own novelty over the #1 intent (a barber's fresh Instagram
@@ -208,19 +231,37 @@ class ActionScorer
         return ['exposures' => $exposures, 'taps' => $taps];
     }
 
-    /** @return array<string, array{score: float, rank: int}> */
+    /** @return array<string, array{score: float, rank: int, computed_at: ?string}> */
     private function previousRows(Site $site): array
     {
         $rows = DB::connection('pgsql')->table('analytics.content_popularity_scores')
             ->where('site_id', $site->id)
             ->where('content_type', self::CONTENT_TYPE)
-            ->get(['content_key', 'score', 'rank']);
+            ->get(['content_key', 'score', 'rank', 'computed_at']);
         $out = [];
         foreach ($rows as $row) {
-            $out[(string) $row->content_key] = ['score' => (float) $row->score, 'rank' => (int) $row->rank];
+            $out[(string) $row->content_key] = ['score' => (float) $row->score, 'rank' => (int) $row->rank, 'computed_at' => $row->computed_at !== null ? (string) $row->computed_at : null];
         }
 
         return $out;
+    }
+
+    /**
+     * The newest computed_at among the previous rows — the cadence anchor.
+     *
+     * @param  array<string, array{score: float, rank: int, computed_at: ?string}>  $previous
+     */
+    private function lastComputedAt(array $previous): ?string
+    {
+        $max = null;
+        foreach ($previous as $row) {
+            $at = $row['computed_at'] ?? null;
+            if ($at !== null && ($max === null || strcmp($at, $max) > 0)) {
+                $max = $at;
+            }
+        }
+
+        return $max;
     }
 
     /**

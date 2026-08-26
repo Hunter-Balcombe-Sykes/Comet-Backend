@@ -223,7 +223,7 @@ it('never publishes a non-http(s) review author url (#SEC-2)', function () {
     $itemId = (string) Str::uuid();
     DB::table('content.items')->insert([
         'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'review',
-        'headline_cache' => null, 'facets_cache' => '["f_review"]', 'eligible_cache' => '[]',
+        'headline_cache' => null, 'facets_cache' => '["f_review"]',
         'first_seen_at' => now()->subDay(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);

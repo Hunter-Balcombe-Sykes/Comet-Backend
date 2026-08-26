@@ -37,7 +37,7 @@ it('reports an event item whose facets are incomplete', function () {
     $itemId = (string) Str::uuid();
     DB::table('content.items')->insert([
         'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'event',
-        'headline_cache' => null, 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'headline_cache' => null, 'facets_cache' => '[]',
         'first_seen_at' => now(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);
@@ -66,7 +66,7 @@ it('does not report a healthy event item', function () {
     DB::table('content.items')->insert([
         'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'event',
         'headline_cache' => 'Beginner sewing workshop', 'facets_cache' => '[]',
-        'eligible_cache' => '[]', 'first_seen_at' => now(), 'last_seen_at' => now(),
+        'first_seen_at' => now(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);
     DB::table('content.source_items')->insert([
@@ -100,7 +100,7 @@ it('retires an event item whose every source item is removed', function () {
     foreach ([$gone => now()->subDay(), $kept => null] as $itemId => $removedAt) {
         DB::table('content.items')->insert([
             'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'event',
-            'headline_cache' => 'Workshop', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+            'headline_cache' => 'Workshop', 'facets_cache' => '[]',
             'first_seen_at' => now(), 'last_seen_at' => now(),
             'created_at' => now(), 'updated_at' => now(),
         ]);
@@ -136,7 +136,7 @@ it('previews rather than performs when --dry-run is paired with --retire', funct
     $itemId = (string) Str::uuid();
     DB::table('content.items')->insert([
         'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'event',
-        'headline_cache' => 'Workshop', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'headline_cache' => 'Workshop', 'facets_cache' => '[]',
         'first_seen_at' => now(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);
@@ -165,7 +165,7 @@ it('leaves an orphaned item alone without --retire', function () {
     $itemId = (string) Str::uuid();
     DB::table('content.items')->insert([
         'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'event',
-        'headline_cache' => 'Workshop', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'headline_cache' => 'Workshop', 'facets_cache' => '[]',
         'first_seen_at' => now(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);
@@ -204,7 +204,7 @@ it('--retire actually performs all three invalidations, not just the retirement'
     $gone = (string) Str::uuid();
     DB::table('content.items')->insert([
         'id' => $gone, 'user_id' => $pro->id, 'kind' => 'event',
-        'headline_cache' => 'Workshop', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'headline_cache' => 'Workshop', 'facets_cache' => '[]',
         'first_seen_at' => now(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);
@@ -251,7 +251,7 @@ function seedOrphanedEvent(string $userId): string
     $itemId = (string) Str::uuid();
     DB::table('content.items')->insert([
         'id' => $itemId, 'user_id' => $userId, 'kind' => 'event',
-        'headline_cache' => 'Workshop', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'headline_cache' => 'Workshop', 'facets_cache' => '[]',
         'first_seen_at' => now(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);

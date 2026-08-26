@@ -1462,7 +1462,6 @@ class ProjectionWriter
             'user_id' => $userId,
             'kind' => $kind,
             'facets_cache' => json_encode([]),
-            'eligible_cache' => json_encode([]),
             'first_seen_at' => now(),
             'last_seen_at' => now(),
             'created_at' => now(),
@@ -3044,7 +3043,7 @@ class ProjectionWriter
                 }
             }
             // item_variants appended LAST on purpose: the comment above states
-            // declaration order is part of the cached eligible_cache value
+            // declaration order is part of the cached facets_cache value
             // (I9). Inserting it among the existing entries would reshape the
             // cached value for every item in the database.
             //

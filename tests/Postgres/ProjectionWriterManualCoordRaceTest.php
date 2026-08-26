@@ -108,7 +108,6 @@ beforeEach(function () {
         kind text NOT NULL,
         headline_cache text,
         facets_cache jsonb NOT NULL DEFAULT \'[]\'::jsonb,
-        eligible_cache jsonb NOT NULL DEFAULT \'[]\'::jsonb,
         removed_at timestamptz,
         review_flag text,
         first_seen_at timestamptz NOT NULL DEFAULT now(),

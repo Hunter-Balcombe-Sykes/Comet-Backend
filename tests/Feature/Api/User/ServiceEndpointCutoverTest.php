@@ -350,7 +350,7 @@ function svcEndpointFreshaItem(string $userId, string $title, string $recordKey)
     ]);
     DB::table('content.items')->insert([
         'id' => $itemId, 'user_id' => $userId, 'kind' => 'service',
-        'headline_cache' => $title, 'facets_cache' => '{}', 'eligible_cache' => '{}',
+        'headline_cache' => $title, 'facets_cache' => '{}',
         'first_seen_at' => now(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);
@@ -472,7 +472,7 @@ it('a connector-shaped merge keeps the curated owner item alive (§8.3 regressio
     DB::table('content.items')->insert([
         'id' => $connectorItemId, 'user_id' => $userId, 'kind' => 'service',
         'headline_cache' => 'CONNECTOR PLACEHOLDER — must not survive the merge',
-        'facets_cache' => '{}', 'eligible_cache' => '{}',
+        'facets_cache' => '{}',
         'first_seen_at' => now()->subDay(), 'last_seen_at' => now()->subDay(),
         'created_at' => now()->subDay(), 'updated_at' => now()->subDay(),
     ]);

@@ -43,7 +43,7 @@ function svcLayoutReorderFreshaItem(User $pro, string $title, string $recordKey)
     ]);
     DB::table('content.items')->insert([
         'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'service',
-        'headline_cache' => $title, 'facets_cache' => '{}', 'eligible_cache' => '{}',
+        'headline_cache' => $title, 'facets_cache' => '{}',
         'first_seen_at' => now(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);

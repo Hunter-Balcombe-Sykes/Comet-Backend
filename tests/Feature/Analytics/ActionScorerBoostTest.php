@@ -27,13 +27,16 @@ function boostCandidate(string $id, string $kind, ?string $connectedAt = null): 
     ];
 }
 
-/** Persist a run's rows the way the command does, so the next run blends against them. */
+/** Persist a run's rows the way the command does — computed_at backdated a
+ *  day so each simulated "run" carries the daily blend weight (the
+ *  cadence-aware blend makes back-to-back timestamps near-frozen, which is
+ *  correct for production but not what a multi-run simulation wants). */
 function persistBoostRows(Site $site, array $result): void
 {
     foreach ($result['rows'] as $row) {
         DB::connection('pgsql')->table('analytics.content_popularity_scores')->updateOrInsert(
             ['site_id' => $site->id, 'content_type' => 'action', 'content_key' => $row['content_key']],
-            ['id' => (string) Str::uuid(), 'score' => $row['score'], 'rank' => $row['rank'], 'computed_at' => now()->toISOString()],
+            ['id' => (string) Str::uuid(), 'score' => $row['score'], 'rank' => $row['rank'], 'computed_at' => now()->subDay()->toISOString()],
         );
     }
     foreach ($result['deletes'] as $key) {

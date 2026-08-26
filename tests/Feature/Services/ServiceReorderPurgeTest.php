@@ -157,7 +157,7 @@ function seedServiceReorderContentFixture(User $pro): array
     ]);
     DB::connection('pgsql')->table('content.items')->insert([
         'id' => $freshaId, 'user_id' => $pro->id, 'kind' => 'service',
-        'headline_cache' => 'Fresha One', 'facets_cache' => '{}', 'eligible_cache' => '{}',
+        'headline_cache' => 'Fresha One', 'facets_cache' => '{}',
         'first_seen_at' => now(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);

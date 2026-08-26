@@ -50,7 +50,7 @@ function eventItem(string $userId, string $sourceId, string $headline, ?string $
     $id = (string) Str::uuid();
     DB::table('content.items')->insert([
         'id' => $id, 'user_id' => $userId, 'kind' => 'event',
-        'headline_cache' => $headline, 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'headline_cache' => $headline, 'facets_cache' => '[]',
         'first_seen_at' => now()->subDays(10), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);
@@ -278,7 +278,7 @@ it('keeps the event keys present and null on a non-event pool item', function ()
     $id = (string) Str::uuid();
     DB::table('content.items')->insert([
         'id' => $id, 'user_id' => $pro->id, 'kind' => 'video',
-        'headline_cache' => 'A clip', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'headline_cache' => 'A clip', 'facets_cache' => '[]',
         'first_seen_at' => now(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);

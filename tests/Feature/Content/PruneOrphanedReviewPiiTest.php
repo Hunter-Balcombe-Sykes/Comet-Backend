@@ -38,7 +38,7 @@ function seedReviewFixture(string $userId, array $overrides = []): array
 
     DB::table('content.items')->insert([
         'id' => $itemId, 'user_id' => $userId, 'kind' => 'review',
-        'headline_cache' => 'A reviewer', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'headline_cache' => 'A reviewer', 'facets_cache' => '[]',
         'first_seen_at' => $now, 'last_seen_at' => $now, 'created_at' => $now, 'updated_at' => $now,
     ]);
 

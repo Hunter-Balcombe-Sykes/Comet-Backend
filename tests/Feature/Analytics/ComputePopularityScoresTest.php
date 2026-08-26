@@ -195,10 +195,12 @@ it('does not let one fresh event resurrect stale history to full weight', functi
         ->and((float) $row->score)->toBeLessThan(11.6);
 });
 
-it('fades stored keys with no remaining signal and deletes them below the floor', function () {
+it('fades stored keys with no remaining signal by TIME and deletes them below the floor', function () {
     $tenant = createTenant('cmd-fade');
     // A stale stored score with NO backing events (e.g. its raw events were
-    // purged): must decay 0.3× per run, not freeze forever.
+    // purged): must decay ~0.3× per DAY — the cadence-aware blend
+    // (smart-scoring plan, 2026-08-27) keys the fade to wall-clock, so a
+    // 15-minute cadence no longer vaporises a stale row in a few ticks.
     DB::connection('pgsql')->table('analytics.content_popularity_scores')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => $tenant->site->id,
@@ -214,11 +216,22 @@ it('fades stored keys with no remaining signal and deletes them below the floor'
 
     $row = popularityScoreRow($tenant->site->id, 'shop_product', 'ghost-product');
     expect($row)->not->toBeNull()
-        ->and((float) $row->score)->toBeGreaterThan(2.9)
-        ->and((float) $row->score)->toBeLessThan(3.1); // 0.3 × 10
+        ->and((float) $row->score)->toBeGreaterThan(2.6)
+        ->and((float) $row->score)->toBeLessThan(3.1); // ≈ 0.3 × 10 after a day
 
-    // Keep running — 0.9 → 0.27 → 0.081 → 0.0243 < floor → deleted.
+    // An immediate re-run barely moves it — the whole point of the
+    // cadence-aware weight (back-to-back runs used to cube the decay).
+    $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])
+        ->assertExitCode(0);
+    expect((float) popularityScoreRow($tenant->site->id, 'shop_product', 'ghost-product')->score)
+        ->toBeGreaterThan(2.5);
+
+    // Simulated days passing: each backdate + run ≈ one daily decay step;
+    // ~0.29 → 0.08 → 0.02 < floor → deleted.
     foreach (range(1, 4) as $_run) {
+        DB::connection('pgsql')->table('analytics.content_popularity_scores')
+            ->where('site_id', $tenant->site->id)->where('content_key', 'ghost-product')
+            ->update(['computed_at' => now()->subDay()->toISOString()]);
         $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])
             ->assertExitCode(0);
     }
@@ -335,10 +348,17 @@ it('scores a service category as the SUM of its served members and ranks categor
     expect($hairRow)->not->toBeNull()->and((float) $hairRow->score)->toEqualWithDelta(6.0, 0.05)->and((int) $hairRow->rank)->toBe(1)
         ->and($nailsRow)->not->toBeNull()->and((float) $nailsRow->score)->toEqualWithDelta(3.0, 0.05)->and((int) $nailsRow->rank)->toBe(2);
 
-    // A category that stops being served fades out like any other stored row.
+    // A category that stops being served fades out like any other stored
+    // row — by TIME since the cadence-aware blend (2026-08-27): an immediate
+    // re-run barely moves it; a simulated day decays it ~0.3×.
     app(ServiceCollections::class)->remove($tenant->id, $nails);
+    // The cadence anchor is the TYPE's newest computed_at (a real run
+    // refreshes every row of a type together), so the whole family backdates.
+    DB::connection('pgsql')->table('analytics.content_popularity_scores')
+        ->where('site_id', $tenant->site->id)->where('content_type', 'service_category')
+        ->update(['computed_at' => now()->subDay()->toISOString()]);
     $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])->assertExitCode(0);
-    expect((float) popularityScoreRow($tenant->site->id, 'service_category', $nails)->score)->toEqualWithDelta(0.9, 0.05);
+    expect((float) popularityScoreRow($tenant->site->id, 'service_category', $nails)->score)->toEqualWithDelta(0.9, 0.1);
 });
 
 it('counts a lander tap on item:<id> as a click in that item\'s family (D7)', function () {
@@ -602,4 +622,29 @@ it('keeps the recent-events lookback at least 2x the scheduled cadence', functio
     // (W >= (K+1) x cadence for K=1); the current 60min value is chosen to
     // survive K=3, comfortably clearing this floor.
     expect($window)->toBeGreaterThanOrEqual($cadenceMinutes * 2);
+});
+
+it('advances the scoring watermark on a periodic sweep, never on --site or --dry-run', function () {
+    setupScoringWatermarksTable();
+    DB::connection('pgsql')->table('analytics.scoring_watermarks')->delete();
+
+    $tenant = createTenant('cmd-watermark');
+
+    // --site: no watermark write.
+    $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])->assertExitCode(0);
+    expect(DB::connection('pgsql')->table('analytics.scoring_watermarks')->count())->toBe(0);
+
+    // --dry-run periodic: still none.
+    $this->artisan('analytics:compute-popularity', ['--dry-run' => true])->assertExitCode(0);
+    expect(DB::connection('pgsql')->table('analytics.scoring_watermarks')->count())->toBe(0);
+
+    // Real periodic sweep: the row appears and re-runs advance it.
+    $this->artisan('analytics:compute-popularity')->assertExitCode(0);
+    $first = DB::connection('pgsql')->table('analytics.scoring_watermarks')->where('id', 'popularity')->value('last_completed_at');
+    expect($first)->not->toBeNull();
+
+    $this->artisan('analytics:compute-popularity')->assertExitCode(0);
+    $second = DB::connection('pgsql')->table('analytics.scoring_watermarks')->where('id', 'popularity')->value('last_completed_at');
+    expect(strcmp((string) $second, (string) $first))->toBeGreaterThanOrEqual(0)
+        ->and(DB::connection('pgsql')->table('analytics.scoring_watermarks')->count())->toBe(1);
 });

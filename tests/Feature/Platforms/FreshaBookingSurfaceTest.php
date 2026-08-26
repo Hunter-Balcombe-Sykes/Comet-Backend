@@ -202,7 +202,7 @@ it('orders services deterministically when several rows share one first_seen_at'
         $itemId = (string) Str::uuid();
         DB::table('content.items')->insert([
             'id' => $itemId, 'user_id' => $user->id, 'kind' => 'service',
-            'headline_cache' => $entry['name'], 'facets_cache' => '[]', 'eligible_cache' => '[]',
+            'headline_cache' => $entry['name'], 'facets_cache' => '[]',
             'first_seen_at' => $now, 'last_seen_at' => $now,
             'created_at' => $now, 'updated_at' => $now,
         ]);

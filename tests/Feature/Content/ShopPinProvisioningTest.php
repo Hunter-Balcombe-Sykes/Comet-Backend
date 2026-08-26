@@ -145,7 +145,7 @@ function productWithExplicitId(string $userId, string $collectionId, int $positi
 
     DB::table('content.items')->insert([
         'id' => $itemId, 'user_id' => $userId, 'kind' => 'product',
-        'headline_cache' => 'Tie item', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'headline_cache' => 'Tie item', 'facets_cache' => '[]',
         'first_seen_at' => now()->subDays(30), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);

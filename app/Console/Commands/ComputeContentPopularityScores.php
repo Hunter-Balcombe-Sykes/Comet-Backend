@@ -186,9 +186,25 @@ class ComputeContentPopularityScores extends Command
         if (is_string($siteOpt) && $siteOpt !== '') {
             $query->where('id', $siteOpt);
         } else {
-            // SCALE-3: scope the periodic full sweep to sites with events since
-            // the last window — see RECENT_EVENTS_WINDOW_MINUTES above.
+            // SCALE-3 + the watermark (smart-scoring plan, 2026-08-27): the
+            // periodic sweep scopes to sites with signal since the LAST
+            // SUCCESSFUL RUN (persisted analytics.scoring_watermarks, 5-min
+            // slack, capped at 7 days) rather than a fixed lookback — the
+            // missed-tick gap routes/console.php documented is closed; the
+            // 60-minute window survives as the floor for the first run and
+            // any watermark fault.
             $since = now()->subMinutes(self::RECENT_EVENTS_WINDOW_MINUTES);
+            $watermark = $this->readWatermark();
+            if ($watermark !== null) {
+                $fromWatermark = $watermark->copy()->subMinutes(5);
+                $floor = now()->subDays(7);
+                if ($fromWatermark->lt($floor)) {
+                    $fromWatermark = $floor;
+                }
+                if ($fromWatermark->lt($since)) {
+                    $since = $fromWatermark;
+                }
+            }
             $query->whereIn('id', $this->siteIdsWithRecentEvents($since));
         }
 
@@ -245,6 +261,13 @@ class ComputeContentPopularityScores extends Command
             $rowsDeleted,
         ));
 
+        // Advance the watermark only for a real periodic sweep — a --site
+        // run covers one site and a --dry-run writes nothing, so neither may
+        // claim the window was processed.
+        if (! $dryRun && ! (is_string($siteOpt) && $siteOpt !== '')) {
+            $this->writeWatermark();
+        }
+
         Log::info('analytics:compute-popularity completed', [
             'dry_run' => $dryRun,
             'sites' => $sitesProcessed,
@@ -254,6 +277,32 @@ class ComputeContentPopularityScores extends Command
         ]);
 
         return self::SUCCESS;
+    }
+
+    /** The persisted last-successful-sweep time, or null (first run / table absent). */
+    private function readWatermark(): ?Carbon
+    {
+        try {
+            $at = DB::connection('pgsql')->table('analytics.scoring_watermarks')
+                ->where('id', 'popularity')->value('last_completed_at');
+
+            return is_string($at) && $at !== '' ? Carbon::parse($at) : null;
+        } catch (QueryException) {
+            return null; // table absent (pre-migration env) — fixed window.
+        }
+    }
+
+    private function writeWatermark(): void
+    {
+        try {
+            DB::connection('pgsql')->table('analytics.scoring_watermarks')->updateOrInsert(
+                ['id' => 'popularity'],
+                ['last_completed_at' => now()->toISOString(), 'updated_at' => now()->toISOString()],
+            );
+        } catch (QueryException $e) {
+            // Never fail the sweep over its bookkeeping row — but say so.
+            Log::warning('analytics.scoring_watermark_write_failed', ['error' => $e->getMessage()]);
+        }
     }
 
     /**
@@ -746,19 +795,30 @@ class ComputeContentPopularityScores extends Command
         $previous = DB::connection('pgsql')->table('analytics.content_popularity_scores')
             ->where('site_id', $site->id)
             ->where('content_type', $contentType)
-            ->get(['content_key', 'score', 'rank']);
+            ->get(['content_key', 'score', 'rank', 'computed_at']);
         $prevScore = [];
         $prevRank = [];
+        $lastAt = null;
         foreach ($previous as $row) {
             $prevScore[(string) $row->content_key] = (float) $row->score;
             $prevRank[(string) $row->content_key] = (int) $row->rank;
+            $at = $row->computed_at !== null ? (string) $row->computed_at : null;
+            if ($at !== null && ($lastAt === null || strcmp($at, $lastAt) > 0)) {
+                $lastAt = $at;
+            }
         }
+        // Cadence-aware previous weight (smart-scoring plan) — see
+        // ActionScorer::cadenceBlendPrev: compounds to the daily 0.7/0.3
+        // semantics whatever the run cadence, and makes the fade-out decay
+        // by TIME rather than run count.
+        $blendPrev = ActionScorer::cadenceBlendPrev($lastAt, $now);
 
         // Fade-out: stored keys with no aggregate signal this run (page lost
-        // presence, raw events purged) decay through the blend (0.3·prev per
-        // run) instead of freezing at their last value. Deliberately NO
-        // freshness here — a gated-off page must die even if its connection is
-        // recent.
+        // presence, raw events purged) decay through the blend — by TIME now
+        // (the cadence-aware weight), so a stale key at the 15-minute cadence
+        // fades over the same wall-clock a daily run would give it, instead
+        // of vanishing in a handful of ticks. Deliberately NO freshness here
+        // — a gated-off page must die even if its connection is recent.
         foreach ($prevScore as $key => $_prev) {
             $computed[$key] ??= 0.0;
         }
@@ -767,7 +827,7 @@ class ComputeContentPopularityScores extends Command
         $blended = [];
         foreach ($computed as $key => $score) {
             $prev = $prevScore[$key] ?? $score;
-            $blended[$key] = self::BLEND_NEW * $score + self::BLEND_PREV * $prev;
+            $blended[$key] = (1 - $blendPrev) * $score + $blendPrev * $prev;
         }
 
         // Partition: signal-less keys that have faded below the floor are
