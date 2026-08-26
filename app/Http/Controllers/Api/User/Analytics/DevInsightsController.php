@@ -82,17 +82,25 @@ class DevInsightsController extends ApiController
         // the dashboard shows one blended number; only this dev endpoint says
         // which actions ride an identity boost and how big it is, so "why is
         // this first" stays debuggable. Recomputed live, same inputs as the
-        // scoring job.
-        $identityCandidates = $this->candidates->forSite($professional, $site);
-        $identity = trim((string) ($professional->sector ?? ''));
-        $identity = $identity !== '' ? $identity : SectorActionRecipes::inferIdentity($identityCandidates);
-
-        return $this->success([
-            'identity' => [
+        // scoring job — and FAIL-OPEN like every other lane of this
+        // diagnostics endpoint (a partial env without the content stack still
+        // serves the score tables, with a null identity block).
+        try {
+            $identityCandidates = $this->candidates->forSite($professional, $site);
+            $identity = trim((string) ($professional->sector ?? ''));
+            $identity = $identity !== '' ? $identity : SectorActionRecipes::inferIdentity($identityCandidates);
+            $identityBlock = [
                 'resolved' => $identity,
                 'source' => trim((string) ($professional->sector ?? '')) !== '' ? 'sector' : ($identity !== null ? 'inferred' : null),
                 'boosts' => SectorActionRecipes::resolve($identity, $identityCandidates, $this->popularity->itemScoresForSite($site->id)),
-            ],
+            ];
+        } catch (\Throwable $e) {
+            report($e);
+            $identityBlock = ['resolved' => null, 'source' => null, 'boosts' => []];
+        }
+
+        return $this->success([
+            'identity' => $identityBlock,
             'pages' => $this->pageScores($site->id),
             'items' => $this->itemScores($site->id, $fresh),
             'daily_series' => [
