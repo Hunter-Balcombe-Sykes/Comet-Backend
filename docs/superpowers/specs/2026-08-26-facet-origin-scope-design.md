@@ -141,11 +141,17 @@ through `DB::listen`.
 
 ### 5.2 The merge fold
 
-After `mergeInto()` repoints `source_items` and **before** it deletes the loser — otherwise the
-cascade has already taken them — repoint the loser's rows in the four tables onto the survivor,
-**stamping `source_item_id` on any moved row that has none.** An unstamped moved row would be
-clobbered by the survivor's next save (§5.1), which is precisely the failure this design exists to
-prevent. Then:
+**The fold runs ONLY on the branch where the loser is actually deleted** — i.e. inside
+`if (! $hasCuration)`, not before it. A loser carrying `section_items` or `manual_overrides` curation
+is spared by `mergeInto()` and survives as a row that is still rendered wherever it is pinned.
+Moving its photos to the survivor would strip a still-visible item bare. Nothing is at risk on that
+branch anyway: the item is not deleted, so nothing cascades. Getting this wrong turns a data-loss
+fix into a data-loss bug on exactly the items the owner cared about most.
+
+Within that branch, and **before** the delete — otherwise the cascade has already taken them —
+repoint the loser's rows in the four tables onto the survivor, **stamping `source_item_id` on any
+moved row that has none.** An unstamped moved row would be clobbered by the survivor's next save
+(§5.1), which is precisely the failure this design exists to prevent. Then:
 
 - **Dedupe.** Drop a moved `item_media` row whose `(asset_id, role)` the survivor already carries —
   image *files* are already deduped by `content.media_assets`' `UNIQUE (user_id, fingerprint)`, so
@@ -154,9 +160,22 @@ prevent. Then:
 - **Renumber `position`** so moved rows sort after the survivor's existing ones, per `(item_id, role)`
   for media. `item_media`'s index is `(item_id, role, position)` and is not unique, so colliding
   positions are legal but produce unstable render order.
-- **Cap at 24 media rows per item**, applied **only to the fold** — a connector legitimately
-  returning 50 images must not be truncated, so normal projection is untouched. When it bites, log
-  `user_id`, `item_id`, `kept`, `dropped`. A silent cap is a defect in this codebase.
+- **Cap at 8 media rows per item** (`PARTNA_CONTENT_MERGE_MEDIA_CAP`), applied **only to the fold**.
+  Normal projection is untouched: a connector legitimately returning 50 images must not be
+  truncated.
+
+  **The cap drops only rows being MOVED IN; the survivor's existing rows are never removed.** Stated
+  as a rule because the obvious implementation — trim the combined set to 8 — would truncate a
+  connector item that already legitimately carries 20 images the moment anything merged into it,
+  destroying live data to enforce a guard that exists to prevent growth. So: move rows while the
+  total is under the cap, stop when it is reached, and if the survivor is already at or over it,
+  move nothing. Log `user_id`, `item_id`, `kept`, `dropped` whenever any row is dropped. A silent cap
+  is a defect in this codebase.
+
+  8, not 24: the profile gallery caps at 6 (`PARTNA_GALLERY_IMAGE_MAX`), and a real product or menu
+  item carries one to three images. 24 would require merging roughly a dozen items before it noticed
+  anything, which is a cap that never fires — worse than none, because it reads as a guard while
+  guarding nothing.
 
 Runs inside `mergeInto()`, which is already under the identity advisory lock and inside
 `resolveItemsLocked()`'s transaction. No new lock, no new transaction. **No try/catch that recovers
@@ -187,6 +206,11 @@ Cases that must exist:
 7. A row left NULL by the backfill is still replaced on the next write, not orphaned — the `IS NULL`
    half of §5.1. Without this test the predicate can be "simplified" into a duplication bug that no
    other case catches.
+8. **Merge where the loser carries curation** (a `section_items` pin or a `manual_overrides` row) →
+   the loser is spared, and **keeps its own photos**. Pins the `! $hasCuration` gate in §5.2. This
+   is the case where a careless fold silently empties a still-rendered item.
+9. **Survivor already at or above the cap** → nothing is moved in, and no existing row is removed.
+   Pins that the cap can only ever drop incoming rows.
 
 Each new test must be shown red before the fix. Shared helpers go in `tests/Helpers/`, required from
 `tests/Pest.php` — a helper declared in one test file and called from another breaks `--parallel`
@@ -213,8 +237,9 @@ Each new test must be shown red before the fix. Shared helpers go in `tests/Help
 - **The backfill is untested against production volume**, because production has no `content` schema
   at all (`CLAUDE.md` §Content pools) and prod reconciliation is separate, deferred work. It will
   only ever have run on dev when it merges.
-- **The 24 cap is a judgement, not a measurement.** No real merged item has been observed near it.
-  It is config-driven so it can be tuned without a deploy.
+- **The cap of 8 is a judgement, not a measurement.** No real merged item has been observed near it.
+  It is config-driven so it can be tuned without a deploy. It was 24 in the first draft and was cut
+  on the reasoning that a cap which never fires is worse than none.
 - **Whether the connector flag ever gets flipped on** is a follow-up decision that needs dev
   observation first. Landing it off is not a half-measure; it is the rollback the identity-scope work
   wished it had kept.
