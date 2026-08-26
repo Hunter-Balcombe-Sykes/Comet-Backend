@@ -3,12 +3,26 @@
 use App\Exceptions\Platforms\PlatformRefreshBacklogException;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // #LIFE-13 follow-on: IntegrationConnection::create() now runs the real
+    // observer -> SourceProvisioner::sync() -> ingest.sources seam, and a
+    // QueryException there is reported + logged loudly instead of the old
+    // silent Log::debug. Without the ingest mirror this file would now trip
+    // Exceptions::assertNothingReported() on the 42P01 from the missing
+    // table, so it must be provisioned like every other test that creates
+    // connections through Eloquent.
+    setupIngestTables();
+    // youtube is Free (ConnectorRegistry) and runsEagerlyOnConnect(), so a
+    // successfully-provisioned source now dispatches RunSourceJob. This file
+    // asserts nothing about ingest dispatch — fake the bus so that dispatch
+    // doesn't try to run a real job inline against a bare test DB.
+    Bus::fake();
     // Small, deterministic thresholds so we don't have to seed 500 rows.
     config()->set('partna.refresh.backlog.grace_multiplier', 1);
     config()->set('partna.refresh.backlog.alert_threshold', 1);

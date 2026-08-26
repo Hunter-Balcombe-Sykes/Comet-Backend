@@ -20,6 +20,7 @@ use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Site\Pools\AutoSyncSetting;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -337,19 +338,33 @@ class IntegrationConnectionObserver
     /**
      * Keep the connection's ingest.sources row in step (create on connect,
      * auto_sync off on disconnect/deactivate, identifier refresh on payload
-     * change). Best-effort — a failure here must never break the save. A
-     * QueryException is logged without report(): the only way this write can
-     * raise one is a test DB that never provisioned the ingest mirror, and
-     * report()-ing that on every connection save across the suite is noise.
+     * change). Best-effort — a failure here must never break the save.
+     * SourceProvisioner::sync() now resolves its own insert race with
+     * insertOrIgnore (#LIFE-14), so no benign QueryException reaches this
+     * method at all today; the UniqueConstraintViolationException arm exists
+     * so a FUTURE write in this seam that races on ingest.sources' unique
+     * constraint stays as quiet as the one that provoked it, without letting
+     * any OTHER DB fault (a real connection loss, a missing-table 42P01 from
+     * an under-provisioned test DB, a statement timeout) share that silence
+     * (#LIFE-13) — those are now reported and logged loudly instead.
      */
     private function syncIngestSource(IntegrationConnection $connection): void
     {
         try {
             $result = app(SourceProvisioner::class)->sync($connection);
             $this->maybeRunEagerly($connection, $result);
+        } catch (UniqueConstraintViolationException) {
+            // The benign, expected outcome of a concurrent duplicate save, and
+            // the ONLY quiet arm here. SourceProvisioner's insert is
+            // insertOrIgnore, so it does not raise this at all — this exists
+            // so a future write in this seam that races on ingest.sources'
+            // unique constraint stays as quiet as the one that provoked it,
+            // without any other DB fault sharing the silence (#LIFE-13).
         } catch (QueryException $e) {
-            Log::debug('IntegrationConnectionObserver ingest-source sync query failure', [
+            report($e);
+            Log::warning('IntegrationConnectionObserver ingest-source sync query failure', [
                 'platform_connection_id' => $connection->id,
+                'user_id' => $connection->user_id,
                 'message' => $e->getMessage(),
             ]);
         } catch (\Throwable $e) {
@@ -378,8 +393,17 @@ class IntegrationConnectionObserver
      * Claimed before dispatch, never after. RunSourceJob does not claim its own
      * source — claimDue() does that for the scheduler's callers — so an
      * unclaimed dispatch could run concurrently with a scheduler tick and
-     * double-charge the vendor. The claim is also what makes this idempotent
-     * under a duplicate save.
+     * double-charge the vendor. The claim stops two OVERLAPPING dispatches; it
+     * is NOT what keeps a duplicate save from spending money — the
+     * created/reselected gate above is, and after #LIFE-14 an insert race's
+     * loser reports 'updated'/'unchanged', never 'created', so it never
+     * reaches this method for that save at all. (Two gaps this does NOT
+     * close, both pre-existing #LIFE-5 design and out of scope here: the
+     * claim is released once the winner's job finishes, so a loser that
+     * reaches claimOne() after that point still claims and runs; and
+     * needs_eager_run is set before the claim and only cleared by a
+     * qualifying outcome in release(), so a loser that sets it after the
+     * winner already cleared it can still buy one deferred paid run.)
      *
      * Best-effort by construction: this sits inside syncIngestSource()'s
      * try/catch, so a failure here can never break the connection save or the

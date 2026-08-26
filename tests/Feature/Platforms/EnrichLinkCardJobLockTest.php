@@ -24,6 +24,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\LinkCardScraper;
 use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
@@ -32,6 +33,13 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // #LIFE-13: a QueryException in the observer's ingest-source seam is now
+    // reported + warned instead of silently Log::debug'd, so a missing ingest
+    // mirror turns every Eloquent-created connection into a spurious report.
+    // Provision it; Bus::fake() because provisioning switches the eager-run
+    // dispatch on, and these tests drive jobs via ->handle() directly.
+    setupIngestTables();
+    Bus::fake();
 });
 
 function elcUser(string $h = 'elc'): User
