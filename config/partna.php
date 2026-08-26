@@ -1171,6 +1171,32 @@ return [
         // chunk-boundary cases cheap to seed.
         'projection_source_chunk' => (int) env('INGEST_PROJECTION_SOURCE_CHUNK', 200),
 
+        // #SCALE-10/#CACHE-6: caps on Resolver step 5, where every EVIDENTIAL
+        // key value pairs its members O(m^2) and each surviving pair becomes a
+        // content.identity_candidates row. One over-shared value (a stock
+        // title, a shared brand name) is therefore quadratic work AND
+        // quadratic writes.
+        //
+        // TWO knobs, because they bound different things and neither is
+        // sufficient alone:
+        //   - max_candidates_per_key bounds the pairs APPENDED for one key
+        //     value. It does NOT bound the work: a value whose pairs are
+        //     nearly all already grouped or cut appends almost nothing while
+        //     still walking the full m^2.
+        //   - max_members_per_key bounds the MEMBERS paired for one key value,
+        //     which is what actually bounds the iteration — 100 members is at
+        //     most 4,950 pairs examined, whatever the append rate.
+        // Both cut DETERMINISTICALLY (the first N in index order), never by
+        // sampling: the resolver is re-runnable and must return the same
+        // answer for the same input. Read ONLY by
+        // ProjectionWriter::resolveItemsLocked(), which passes them to
+        // Resolver::resolve() as ARGUMENTS — the resolver does no I/O of its
+        // own, so a resolve stays reproducible from its arguments alone. That
+        // same call site logs once per run when a cap bites: a silently capped
+        // key means items stop being offered for merge, which is invisible.
+        'max_candidates_per_key' => (int) env('PARTNA_INGEST_MAX_CANDIDATES_PER_KEY', 200),
+        'max_members_per_key' => (int) env('PARTNA_INGEST_MAX_MEMBERS_PER_KEY', 100),
+
         // #PRIV-3: grace window before an ORPHANED reviewer-PII row is deleted.
         // "Orphaned" = no live content.source_items row still carries the
         // (item_id, source_id) pair, i.e. the review is gone from the platform.
