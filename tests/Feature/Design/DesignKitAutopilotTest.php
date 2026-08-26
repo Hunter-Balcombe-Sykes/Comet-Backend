@@ -163,6 +163,16 @@ it('reads generous padding as spacious and tight padding as default', function (
         ->toBe('default');
 });
 
+it('ignores scroll-padding / scroll-margin / vendor-prefixed lookalikes in the density read', function () {
+    // The critic's find: without a declaration-start anchor, scroll-snap
+    // resets crossed the evidence floor on bogus data behind a PERMANENT
+    // fill-if-empty write.
+    $html = '<style>.a{scroll-padding:48px}.b{scroll-padding-top:40px}.c{scroll-margin:44px}'
+        .'.d{-webkit-padding-start:52px}.e{scroll-margin-top:56px}.real{padding:8px}</style>';
+
+    expect(app(DesignKitAutopilot::class)->fromWebsiteEvidence($html)['proposals'])->not->toHaveKey('spacing');
+});
+
 it('proposes no spacing below the evidence floor (fewer than 5 declarations)', function () {
     $html = '<style>.a{padding:48px}.b{padding:40px}</style>';
 
@@ -185,6 +195,40 @@ it('persists corners and spacing fill-if-empty but never clobbers a manual pick'
 });
 
 // ── the gallery palette fallback (plan 02 step 5, decision 3) ────────────────
+
+it('the gallery fallback reads POOL_GALLERY only — synced content imagery is not an accent source', function () {
+    // Owner exclusion: Instagram imagery must never feed the accent;
+    // platform-synced media lives in the content pool.
+    $siteId = autopilotSite();
+    DB::connection('pgsql')->table('site.site_media')->where('site_id', $siteId)->delete();
+    DB::connection('pgsql')->table('site.site_media')->insert([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'site_id' => $siteId, 'pool' => 'content', 'purpose' => null,
+        'processing_state' => 'ready',
+        'palette' => json_encode(['dominant' => '#e0491f', 'colors' => ['#e0491f'], 'warm' => true]),
+        'created_at' => now()->toISOString(), 'updated_at' => now()->toISOString(),
+    ]);
+
+    expect(app(DesignKitAutopilot::class)->fromBrandPalette($siteId)['reason'])
+        ->toBe(DesignKitAutopilot::REASON_NO_PALETTE);
+});
+
+it('a neutral GALLERY palette reports neutral_palette, not the wordmark copy', function () {
+    // The wordmark reason would be a lie for a site with no wordmark at
+    // all (critic find): the reason names the actual source now.
+    $siteId = autopilotSite();
+    DB::connection('pgsql')->table('site.site_media')->where('site_id', $siteId)->delete();
+    DB::connection('pgsql')->table('site.site_media')->insert([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'site_id' => $siteId, 'pool' => 'gallery', 'purpose' => null,
+        'processing_state' => 'ready',
+        'palette' => json_encode(['dominant' => '#111111', 'colors' => ['#111111', '#fafafa'], 'warm' => false]),
+        'created_at' => now()->toISOString(), 'updated_at' => now()->toISOString(),
+    ]);
+
+    expect(app(DesignKitAutopilot::class)->fromBrandPalette($siteId)['reason'])
+        ->toBe(DesignKitAutopilot::REASON_NEUTRAL_PALETTE);
+});
 
 it('falls back to the oldest ready gallery image palette when no logo palette exists', function () {
     $siteId = autopilotSite();

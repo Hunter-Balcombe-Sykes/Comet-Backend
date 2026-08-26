@@ -46,6 +46,40 @@ it('nb-architekt is genuinely REACHABLE: a sector look and a classifier register
     expect(in_array('nb-architekt', $keywords, true))->toBeTrue('no classifier keyword routes to nb-architekt');
 });
 
+it('classify() routes by the LONGEST keyword match — Roboto Mono is technical, Roboto is UI-modern', function () {
+    // The critic's find: first-match-wins let 'roboto' swallow "Roboto
+    // Mono", so the technical register could never fire for it. This is a
+    // REAL routing test (the reachability test above only reflects on the
+    // constant).
+    $c = new FontKeywordClassifier;
+
+    expect($c->classify('<style>body{font-family:"Roboto Mono", monospace}</style>'))
+        ->toBe('nb-architekt')
+        ->and($c->classify('<style>body{font-family:"Roboto", sans-serif}</style>'))
+        ->toBe('helvetica-neue');
+});
+
+it('never authors small text WITH uppercase (taste map §1.4: quiet shouting is incoherent)', function () {
+    $overlays = [];
+    foreach (SectorStylePresets::buckets() as $bucket) {
+        $overlays[$bucket] = SectorStylePresets::forBucket($bucket);
+    }
+    foreach (SectorStylePresets::refinedSlugs() as $slug) {
+        // The rendered look is bucket + refinement merged; the invariant
+        // holds on the RESULT, not each sparse layer.
+        $bucket = \App\Services\Profile\SectorTaxonomy::bucketFor($slug);
+        $overlays['slug:'.$slug] = array_merge(
+            $bucket !== null ? SectorStylePresets::forBucket($bucket) : [],
+            SectorStylePresets::forSlug($slug),
+        );
+    }
+    foreach ($overlays as $name => $look) {
+        $small = ($look['text_size'] ?? null) === 'small';
+        $caps = ($look['typography_uppercase'] ?? true) === true;
+        expect($small && $caps)->toBeFalse("look {$name} authors small text in caps");
+    }
+});
+
 it('an nb-architekt look always authors uppercase true (composition rule: it is an all-caps face)', function () {
     $overlays = array_map(SectorStylePresets::forBucket(...), SectorStylePresets::buckets());
     foreach (SectorStylePresets::refinedSlugs() as $slug) {

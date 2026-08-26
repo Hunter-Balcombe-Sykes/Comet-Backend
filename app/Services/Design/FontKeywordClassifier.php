@@ -33,8 +33,9 @@ final class FontKeywordClassifier
 {
     /**
      * keyword (matched case-insensitively against declared family names)
-     * => roster slug. Order matters only for documentation; scoring counts
-     * every hit.
+     * => roster slug. Order is documentation only — classify() picks each
+     * family's LONGEST matching keyword, so a specific entry ("roboto
+     * mono") beats its own substring ("roboto") wherever it sits.
      *
      * @var array<string, string>
      */
@@ -137,11 +138,21 @@ final class FontKeywordClassifier
 
         $scores = [];
         foreach ($families as $family) {
+            // A family name votes once, for its MOST SPECIFIC (longest)
+            // matching keyword — first-match-wins silently favoured whichever
+            // keyword happened to sit earlier in the table, so 'roboto'
+            // swallowed "Roboto Mono" and the technical register could never
+            // fire for it (plan-02 critic find, 2026-08-27).
+            $bestSlug = null;
+            $bestLen = 0;
             foreach (self::KEYWORDS as $keyword => $slug) {
-                if (str_contains($family, $keyword)) {
-                    $scores[$slug] = ($scores[$slug] ?? 0) + 1;
-                    break; // A family name votes once — its most specific match.
+                if (strlen($keyword) > $bestLen && str_contains($family, $keyword)) {
+                    $bestSlug = $slug;
+                    $bestLen = strlen($keyword);
                 }
+            }
+            if ($bestSlug !== null) {
+                $scores[$bestSlug] = ($scores[$bestSlug] ?? 0) + 1;
             }
         }
 

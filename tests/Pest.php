@@ -3971,7 +3971,7 @@ function createDataExportAudit(array $overrides = []): DataExportAudit
  * (DesignKitValidationRules::designKitRules() is the authority):
  *   text_size         small | medium | large
  *   spacing           default | spacious
- *   corners           default | rounded
+ *   corners           sharp | default | rounded
  * (border_thickness, theme_mode and theme_night_shift_auto dropped
  * 2026-08-27, plan 02 — migration 20260827080000; typography_uppercase
  * re-added the same night — 20260827090000, boolean as INTEGER here.)

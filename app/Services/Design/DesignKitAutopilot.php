@@ -41,6 +41,11 @@ class DesignKitAutopilot
     /** Proposal reason when the logo is a neutral wordmark. */
     public const REASON_NEUTRAL_WORDMARK = 'neutral_wordmark';
 
+    /** Proposal reason when the GALLERY-sourced palette (the logo-less
+     *  fallback tier) held nothing accent-able — the wordmark copy would be
+     *  a lie for a site that has no wordmark at all (plan-02 critic find). */
+    public const REASON_NEUTRAL_PALETTE = 'neutral_palette';
+
     /** Proposal reason when no processed logo palette exists yet. */
     public const REASON_NO_PALETTE = 'no_palette';
 
@@ -77,10 +82,11 @@ class DesignKitAutopilot
      */
     public function fromBrandPalette(string $siteId): array
     {
-        $palette = $this->persistedLogoPalette($siteId);
-        if ($palette === null) {
+        $found = $this->persistedLogoPalette($siteId);
+        if ($found === null) {
             return ['proposals' => [], 'reason' => self::REASON_NO_PALETTE];
         }
+        [$palette, $source] = $found;
 
         // One palette survives the 2026-08-06 simplification, so the accent is
         // contrast-checked against the only background it can ever sit on.
@@ -89,10 +95,14 @@ class DesignKitAutopilot
 
         $accent = $this->accentFrom($palette, $background);
         if ($accent === null) {
-            // Every candidate was near-white/near-black/monochrome: a neutral
-            // wordmark. Falling back to the sector seed happens by ABSENCE —
-            // proposing nothing is the fallback.
-            return ['proposals' => [], 'reason' => self::REASON_NEUTRAL_WORDMARK];
+            // Every candidate was near-white/near-black/monochrome. Falling
+            // back to the sector seed happens by ABSENCE — proposing nothing
+            // is the fallback. The reason names the actual source: a logo
+            // palette is a neutral WORDMARK; a gallery palette (the
+            // logo-less tier) is just a neutral photo.
+            return ['proposals' => [], 'reason' => $source === 'gallery'
+                ? self::REASON_NEUTRAL_PALETTE
+                : self::REASON_NEUTRAL_WORDMARK];
         }
 
         $proposals['color_accent'] = $accent;
@@ -195,7 +205,13 @@ class DesignKitAutopilot
     {
         $out = [];
         if (preg_match_all(
-            '/'.preg_quote($property, '/').'[a-z-]*\s*:\s*([^;"}]+)/i',
+            // (?<![a-z-]) anchors the property to a declaration start:
+            // without it, scroll-padding / scroll-margin / -webkit-padding
+            // (scroll-snap resets are everywhere) polluted the density
+            // evidence behind a PERMANENT fill-if-empty write (plan-02
+            // critic find, 2026-08-27). padding-top etc. still match via
+            // the trailing [a-z-]*.
+            '/(?<![a-z-])'.preg_quote($property, '/').'[a-z-]*\s*:\s*([^;"}]+)/i',
             $html,
             $matches,
         )) {
@@ -282,7 +298,7 @@ class DesignKitAutopilot
      * anywhere in the platform (no column, no purpose, no upload), so the
      * chain goes straight to gallery; logged in the run log.
      *
-     * @return array<string, mixed>|null
+     * @return array{0: array<string, mixed>, 1: string}|null [palette, source: 'logo'|'gallery']
      */
     private function persistedLogoPalette(string $siteId): ?array
     {
@@ -297,19 +313,26 @@ class DesignKitAutopilot
 
             $decoded = self::decodedPalette($palette);
             if ($decoded !== null) {
-                return $decoded;
+                return [$decoded, 'logo'];
             }
         }
 
+        // POOL_GALLERY ONLY — not GALLERY_POOLS: POOL_CONTENT holds
+        // platform-synced imagery, and Instagram imagery is explicitly
+        // EXCLUDED as an accent source (owner decision; plan-02 critic
+        // note upgraded to a fix). The curated gallery is the tier
+        // decision 3 actually named.
         $galleryPalette = SiteMedia::query()
             ->where('site_id', $siteId)
-            ->whereIn('pool', SiteMedia::GALLERY_POOLS)
+            ->where('pool', SiteMedia::POOL_GALLERY)
             ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
             ->whereNotNull('palette')
             ->orderBy('created_at')
             ->value('palette');
 
-        return self::decodedPalette($galleryPalette);
+        $decoded = self::decodedPalette($galleryPalette);
+
+        return $decoded === null ? null : [$decoded, 'gallery'];
     }
 
     /** @return array<string, mixed>|null */
