@@ -362,6 +362,7 @@ class DerivedDescriptorFactory
         'apple-music' => Bindings\AppleMusicBinding::class,
         'apple-podcast' => Bindings\ApplePodcastBinding::class,
         'bandcamp' => Bindings\BandcampBinding::class,
+        'spotify' => Bindings\SpotifyBinding::class,
         'vimeo' => Bindings\VimeoBinding::class,
         'youtube' => Bindings\YoutubeBinding::class,
         'youtube-music' => Bindings\YoutubeMusicBinding::class,
