@@ -124,9 +124,10 @@ class ManualMenuItems
             $link->menu_item_id = (string) $row->id;
             $link->platform = $entry->platform;
             $link->pickup_price = $entry->pickup_price;
-            $link->pickup_url = $entry->pickup_url;
             $link->delivery_price = $entry->delivery_price;
-            $link->delivery_url = $entry->delivery_url;
+            $link->item_url = $entry->item_url;
+            $link->external_ref = $entry->external_ref;
+            $link->sold_out = $entry->sold_out;
 
             return $link;
         })->values());
@@ -190,7 +191,7 @@ class ManualMenuItems
 
         $offers = DB::connection('pgsql')->table('content.offers')
             ->whereIn('item_id', $itemIds)->where('source_id', $sourceId)
-            ->get(['item_id', 'channel', 'amount_minor', 'currency', 'qualifier', 'url'])
+            ->get(['item_id', 'channel', 'amount_minor', 'currency', 'qualifier', 'url', 'platform', 'item_url', 'external_ref', 'availability'])
             ->groupBy('item_id');
 
         // Alphabetical because content.item_tags carries no ordinal column at
@@ -374,28 +375,39 @@ class ManualMenuItems
             return [];
         }
 
-        $linked = $offers->filter(fn (object $offer) => $this->text($offer->url ?? null) !== null);
+        // A per-platform offer carries `platform` (post-2026-08-26 writes) or
+        // a url (pre-migration rows, host-attributed below until the next
+        // wholesale scrape rebuild replaces them).
+        $linked = $offers->filter(fn (object $offer) => $this->text($offer->platform ?? null) !== null
+            || $this->text($offer->url ?? null) !== null);
 
         $out = [];
         foreach ($slugs as $slug) {
             $entry = (object) [
                 'platform' => $slug,
                 'pickup_price' => null,
-                'pickup_url' => null,
                 'delivery_price' => null,
-                'delivery_url' => null,
+                'item_url' => null,
+                'external_ref' => null,
+                'sold_out' => null,
             ];
 
             foreach ($linked as $offer) {
-                $channel = (string) ($offer->channel ?? '');
-                if ($channel !== 'pickup' && $channel !== 'delivery') {
-                    continue;
-                }
                 if (! $this->offerBelongsTo($offer, $slug, $slugs, $hosts)) {
                     continue;
                 }
-                $entry->{$channel.'_price'} = $this->amount($offer);
-                $entry->{$channel.'_url'} = $this->text($offer->url);
+
+                $channel = (string) ($offer->channel ?? '');
+                if ($channel === 'pickup' || $channel === 'delivery') {
+                    $entry->{$channel.'_price'} = $this->amount($offer);
+                }
+                $entry->item_url ??= $this->text($offer->item_url ?? null);
+                $entry->external_ref ??= $this->text($offer->external_ref ?? null);
+                $entry->sold_out ??= match ($offer->availability ?? null) {
+                    'out_of_stock' => true,
+                    'in_stock' => false,
+                    default => null,
+                };
             }
 
             $out[] = $entry;
@@ -413,6 +425,13 @@ class ManualMenuItems
      */
     private function offerBelongsTo(object $offer, string $slug, array $slugs, array $hosts): bool
     {
+        // Stored attribution wins outright — no heuristic when the projection
+        // kept the label (every write after 2026-08-26).
+        $stored = $this->text($offer->platform ?? null);
+        if ($stored !== null) {
+            return $stored === $slug;
+        }
+
         $host = $this->hostOf((string) $offer->url);
         if ($host !== null && isset($hosts[$slug]) && $hosts[$slug] === $host) {
             return true;
@@ -437,10 +456,12 @@ class ManualMenuItems
      */
     private function priceFor(Collection $offers, string $channel): ?float
     {
-        // The aggregate three carry no url; the per-platform ones do. Same
-        // channel string, so the url is what separates them (see the mapper's
-        // offers() — it emits both from one dish).
+        // The aggregate three carry neither a platform label nor a url; the
+        // per-platform ones carry `platform` (post-2026-08-26 writes) or a
+        // url (pre-migration rows). Same channel string, so those two fields
+        // are what separate them (see the mapper's offers()).
         $offer = $offers->first(fn (object $row) => (string) ($row->channel ?? '') === $channel
+            && $this->text($row->platform ?? null) === null
             && $this->text($row->url ?? null) === null);
 
         return $offer === null ? null : $this->amount($offer);

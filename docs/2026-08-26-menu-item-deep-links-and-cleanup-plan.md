@@ -504,3 +504,12 @@ lint passed, `supabase db push` applied, columns verified via
 information_schema on the live dev DB. Critic coverage: plan-level
 fresh-eyes review confirmed the additive-columns premise (finding 1a).
 Next: B-R (reconciliation revival fix, gate G2).
+
+**G2 PASSED — 2026-08-26 ~23:10 AEST.** B-R revival fix live. Evidence:
+4 feature tests green (identity-stable revive, sticky owner-delete,
+owner-edit retained, interim slug collision suffixes); full suite green
+(parallel, exit 0); fresh-eyes critic — no real bugs (its coverage gap
+became test 4; its slug-mint observation documented as pre-existing);
+merged fd1e37126, deployed dev (deployment.succeeded 13:06Z); LIVE PROOF
+on ollies dev: dish 03881a37 "Blueberry & Lemon Cake" markRemoved →
+forced real MenuFetchJob → removed_at null, same row. Next: B2 drivers.

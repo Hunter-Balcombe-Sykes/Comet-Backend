@@ -13,13 +13,20 @@ use App\Catalog\SurfaceBuilder;
 
 /**
  * Square — two surfaces resolve the legacy square/square-ordering dual
- * identity: square.site + squareup.com both detect ONLY square.book (booking
- * wins the ambiguous host). square.order gets no detector at P1 — see its
- * note. Neither surface has a catalog 'connect' capability (no registered
- * ->connect() anywhere — square's real connect is a bespoke controller,
- * connectInput-only in PRSP), but square.book stays connectable (isConnectable
- * default true) since that bespoke flow genuinely works today; square.order
- * is marked notConnectable() as a P1 placeholder.
+ * identity. square.book keeps the bare-host claims (squareup.com +
+ * square.site — booking wins the ambiguous host, unchanged). square.order
+ * became a REAL connectable ordering surface 2026-08-26 (menu deep-links
+ * plan, A1): it detects square.site URLs carrying the /s/order ordering
+ * path — the one URL shape that is unambiguously ordering (live-verified:
+ * ordering stores also serve at the BARE square.site root, which stays
+ * square.book's by host and is disambiguated by the connect flow's
+ * storefront-marker probe instead, same mechanism as custom domains —
+ * order.fat-tuna.com — where NO host rule may exist, see #SEC-3).
+ * Scoring mirrors UberEats.php's: base 40 + path 35 + DeepLinkWithSlug
+ * delta 4 = 79 clears ordering's suggest bar (55, RoutingPolicy) with room
+ * under auto (80). Connect itself is the DERIVED Brand connect
+ * (DerivedDescriptorFactory) — same as uber_eats.order; square.book's
+ * bespoke booking controller is untouched.
  */
 class Square
 {
@@ -52,8 +59,15 @@ class Square
                 ->shelf(Shelf::Food)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
-                ->note('detector intentionally absent: square.site hosting is ambiguous between booking and ordering — P2 evidence rules disambiguate')
-                ->notConnectable()
+                // Single-account by deliberate omission of multiAccount() —
+                // same owner ruling as uber_eats.order (2026-08-16): a second
+                // store becomes a links-pool item.
+                ->note('square.site + /s/order path = ordering, unambiguous; bare square.site stays square.book (host default) and is reclassified by the connect probe\'s storefront markers, the same evidence path custom-domain stores use')
+                ->detect(
+                    Detector::url('square.site')
+                        ->path('#^/s/order(?:/|$|\?)#')
+                        ->strength(EvidenceStrength::DeepLinkWithSlug),
+                )
                 ->build(),
         ];
     }

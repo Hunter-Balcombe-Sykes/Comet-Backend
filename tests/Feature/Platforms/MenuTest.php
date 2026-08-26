@@ -143,7 +143,7 @@ function seedContentMenu(User $user, array $menuAttrs, array $categories): Menu
             unset($item['platforms']);
 
             foreach ($platforms as $p) {
-                $storeUrls[$p['platform']] ??= $p['deliveryUrl'] ?? $p['pickupUrl'] ?? null;
+                $storeUrls[$p['platform']] ??= $p['storeUrl'] ?? null;
             }
             $writer->write(
                 (string) $user->id,
@@ -154,9 +154,10 @@ function seedContentMenu(User $user, array $menuAttrs, array $categories): Menu
                     array_map(fn (array $p) => (object) [
                         'platform' => $p['platform'],
                         'pickup_price' => $p['pickupPrice'] ?? null,
-                        'pickup_url' => $p['pickupUrl'] ?? null,
                         'delivery_price' => $p['deliveryPrice'] ?? null,
-                        'delivery_url' => $p['deliveryUrl'] ?? null,
+                        'item_url' => $p['itemUrl'] ?? null,
+                        'external_ref' => $p['externalId'] ?? null,
+                        'sold_out' => $p['soldOut'] ?? null,
                     ], $platforms),
                     $menu,
                 ),
@@ -434,12 +435,16 @@ it('writes one storefront per menu_platform_links row so a two-platform dish kee
         ->orderBy('sf.provider')->pluck('sf.provider')->all();
     expect($providers)->toBe(['doordash', 'uber-eats']);
 
-    // Host-matched attribution through those storefronts — drop them and both
-    // entries come back link-less.
+    // Stored attribution (offers.platform, 2026-08-26) — both entries carry
+    // their own platform's prices; per-dish store urls are retired (D1), and
+    // this scrape emitted no per-item links, so item_url stays null rather
+    // than falling back to a store link.
     $platforms = collect(menuContentDish($user, 'Burrito')->platforms)->keyBy('platform');
     expect($platforms->keys()->sort()->values()->all())->toBe(['doordash', 'uber-eats']);
-    expect($platforms['uber-eats']->pickup_url)->toContain('ubereats.com');
-    expect($platforms['doordash']->pickup_url)->toContain('doordash.com');
+    expect($platforms['uber-eats']->pickup_price)->toBe(17.0);
+    expect($platforms['doordash']->pickup_price)->toBe(15.5);
+    expect($platforms['uber-eats']->item_url)->toBeNull();
+    expect($platforms['doordash']->item_url)->toBeNull();
 });
 
 it('reuses category and item ids across rebuilds when names match (stable identity)', function () {
@@ -785,8 +790,8 @@ it('returns the full menu with per-mode prices and computed order links', functi
             'pickup_price' => 11.0, 'pickup_source' => 'doordash',
             'rating' => 95, 'badges' => [['text' => '#1 Most liked']],
             'platforms' => [
-                ['platform' => 'uber-eats', 'pickupPrice' => null, 'pickupUrl' => null, 'deliveryPrice' => 12.5, 'deliveryUrl' => 'https://www.ubereats.com/store/d'],
-                ['platform' => 'doordash', 'pickupPrice' => 11.0, 'pickupUrl' => 'https://www.doordash.com/store/x', 'deliveryPrice' => null, 'deliveryUrl' => null],
+                ['platform' => 'uber-eats', 'pickupPrice' => null, 'deliveryPrice' => 12.5, 'itemUrl' => 'https://www.ubereats.com/store/d/sec/sub/u1', 'externalId' => 'u1', 'soldOut' => null],
+                ['platform' => 'doordash', 'pickupPrice' => 11.0, 'deliveryPrice' => null, 'itemUrl' => 'https://www.doordash.com/store/x?itemId=d1', 'externalId' => 'd1', 'soldOut' => false],
             ],
         ]]],
     ]);
@@ -819,15 +824,22 @@ it('returns the full menu with per-mode prices and computed order links', functi
     expect((float) $item['deliveryPrice'])->toBe(12.5);
     expect((float) $item['rating'])->toBe(95.0);
     expect($item['badges'][0]['text'])->toBe('#1 Most liked');
-    // Per-platform availability surfaces with per-mode prices + order urls.
+    // Per-platform availability surfaces per-mode prices + the dish's own
+    // identity there (D1, 2026-08-26 — per-dish store urls retired).
     expect($item['platforms'])->toHaveCount(2);
     expect($item['platforms'][0]['platform'])->toBe('uber-eats');
     expect((float) $item['platforms'][0]['deliveryPrice'])->toBe(12.5);
-    expect($item['platforms'][0]['deliveryUrl'])->toBe('https://www.ubereats.com/store/d');
+    expect($item['platforms'][0]['itemUrl'])->toBe('https://www.ubereats.com/store/d/sec/sub/u1');
+    expect($item['platforms'][0]['externalRef'])->toBe('u1');
     expect($item['platforms'][0]['pickupPrice'])->toBeNull();
     expect($item['platforms'][1]['platform'])->toBe('doordash');
     expect((float) $item['platforms'][1]['pickupPrice'])->toBe(11.0);
     expect($item['platforms'][1]['deliveryPrice'])->toBeNull();
+    expect($item['platforms'][1]['soldOut'])->toBeFalse();
+    // The dish-level links map carries the stored per-item deep links.
+    expect($item['links']['uber_eats'])->toBe('https://www.ubereats.com/store/d/sec/sub/u1');
+    expect($item['links']['doordash'])->toBe('https://www.doordash.com/store/x?itemId=d1');
+    // Menu-level order links (store CTAs) are unchanged by D1.
     expect($res->json('links.pickupUrl'))->toBe('https://www.ubereats.com/store/p');
     expect($res->json('links.deliveryUrl'))->toBe('https://www.ubereats.com/store/d');
 });

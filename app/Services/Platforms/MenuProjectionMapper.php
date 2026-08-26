@@ -183,20 +183,59 @@ class MenuProjectionMapper
         }
 
         foreach ($platformRows as $row) {
-            foreach (['pickup' => ['pickup_price', 'pickup_url'], 'delivery' => ['delivery_price', 'delivery_url']] as $channel => [$priceColumn, $urlColumn]) {
+            $platform = $this->text($row->platform ?? null);
+            $itemUrl = $this->text($row->item_url ?? null);
+            $externalRef = $this->text($row->external_ref ?? null);
+            $soldOut = $row->sold_out ?? null;
+            // Slice 5a's in_stock spelling pair — the same vocabulary the shop
+            // lane writes; NULL when the platform exposes no stock signal.
+            $availability = is_bool($soldOut) ? ($soldOut ? 'out_of_stock' : 'in_stock') : null;
+
+            $wrote = false;
+            foreach (['pickup' => 'pickup_price', 'delivery' => 'delivery_price'] as $channel => $priceColumn) {
                 $amount = $row->$priceColumn ?? null;
                 if ($amount === null) {
                     continue;
                 }
-                $offers[] = $this->offer($channel, (float) $amount, $currency, $this->text($row->$urlColumn ?? null));
+                $offers[] = $this->offer($channel, (float) $amount, $currency, $platform, $itemUrl, $externalRef, $availability);
+                $wrote = true;
+            }
+
+            // A platform row with identity but no priced mode this run (rare —
+            // an unpriced scraped item) still lands ONE per-platform offer so
+            // its item link / external id / stock aren't lost; the aggregate
+            // offers above stay the price surface. Ghosts (no identity, no
+            // price) write nothing, exactly as before.
+            if (! $wrote && ($itemUrl !== null || $externalRef !== null || $availability !== null)) {
+                $offers[] = [
+                    'channel' => null,
+                    'amount_minor' => null,
+                    'currency' => $currency,
+                    'qualifier' => 'exact',
+                    'url' => null,
+                    'platform' => $platform,
+                    'item_url' => $itemUrl,
+                    'external_ref' => $externalRef,
+                    'availability' => $availability,
+                ];
             }
         }
 
         return $offers;
     }
 
-    /** @return array<string, mixed> */
-    private function offer(string $channel, float $amount, ?string $currency, ?string $url): array
+    /**
+     * One offer row. The three AGGREGATE offers (base/pickup/delivery, from
+     * the merged dish) carry no platform attribution; PER-PLATFORM offers
+     * carry `platform` (menu-registry slug), the dish's `item_url` deep link
+     * on that platform, its `external_ref` item id, and `availability`
+     * (in_stock/out_of_stock). `url` — the old mode-typed STORE link copied
+     * onto every dish — is retired per owner ruling D1 (2026-08-26): store
+     * links live at menu level (storefront sidecars), a dish links to ITSELF.
+     *
+     * @return array<string, mixed>
+     */
+    private function offer(string $channel, float $amount, ?string $currency, ?string $platform = null, ?string $itemUrl = null, ?string $externalRef = null, ?string $availability = null): array
     {
         return [
             'channel' => $channel,
@@ -204,10 +243,11 @@ class MenuProjectionMapper
             'currency' => $currency,
             // offers_qualifier_check: exact|from|upto|range|free|variable|on_request.
             'qualifier' => $amount === 0.0 ? 'free' : 'exact',
-            'url' => $url,
-            // Menus carry no stock signal, so availability stays NULL rather
-            // than minting a second spelling beside slice 5a's in_stock pair.
-            'availability' => null,
+            'url' => null,
+            'platform' => $platform,
+            'item_url' => $itemUrl,
+            'external_ref' => $externalRef,
+            'availability' => $availability,
         ];
     }
 

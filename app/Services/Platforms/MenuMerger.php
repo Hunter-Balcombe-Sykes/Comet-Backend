@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Log;
 //   • gap-fills display fields (name / description / image) — Uber Eats wins a
 //     field only where it HAS a value; otherwise the other platform fills it,
 //   • collects BOTH platforms into `platforms[]` — one entry per platform, each
-//     carrying its pickupPrice + pickupUrl and deliveryPrice + deliveryUrl (a
+//     carrying its per-mode prices + its item deep link / external id (a
 //     mode the store doesn't offer is null on both),
 //   • attaches the DoorDash 👍 rating + badges (Uber Eats exposes neither),
 //   • gap-fills the item's `currency` (Uber Eats only — DoorDash items carry
@@ -538,7 +538,9 @@ class MenuMerger
             'deliveryPrice' => $aggregates['deliveryPrice'],
             'deliverySource' => $aggregates['deliverySource'],
             'platforms' => $platforms,
-            'ddExternalId' => $versions['doordash']['externalId'] ?? null,
+            // ddExternalId is gone (2026-08-26): platform item ids ride on
+            // each platforms[] entry as externalId — per-platform, not a
+            // DoorDash-only special case.
         ];
     }
 
@@ -591,30 +593,35 @@ class MenuMerger
 
     /**
      * One platforms[] entry — the dish's availability on a single platform:
-     * pickupPrice + pickupUrl, deliveryPrice + deliveryUrl. A mode the store
-     * doesn't offer (per the store link's modes) is null on both price and url;
-     * an offered mode always gets a url (the mode-typed link, else the bare store
-     * url) even when its price is unknown (ghost / blocked mode scrape), so the
-     * card still routes. $source is the scraped per-mode-priced item, or null for
-     * a ghost platform.
+     * per-mode prices plus the dish's own identity there. Since 2026-08-26
+     * (owner ruling D1) the per-dish entry carries the ITEM deep link only —
+     * the mode-typed STORE urls that used to ride on every dish live at menu
+     * level (menu_platform_links / storefront sidecars), so the entry stops
+     * duplicating them. itemUrl is the driver's verified per-item link (or
+     * null — a ghost / an unlinkable item never gets a store fallback here),
+     * externalId is the platform's own item id, soldOut the platform's stock
+     * signal. $source is the scraped per-mode-priced item, or null for a
+     * ghost platform.
      *
      * @param  array<string,mixed>|null  $source
      * @param  array{pickupUrl:?string, deliveryUrl:?string, storeUrl:?string, modes:list<string>}|null  $link
-     * @return array{platform:string, pickupPrice:?float, pickupUrl:?string, deliveryPrice:?float, deliveryUrl:?string}
+     * @return array{platform:string, pickupPrice:?float, deliveryPrice:?float, itemUrl:?string, externalId:?string, soldOut:?bool}
      */
     private function platformEntry(string $platform, ?array $source, ?array $link): array
     {
         $modes = $link['modes'] ?? ['pickup', 'delivery'];
         $offersPickup = in_array('pickup', $modes, true);
         $offersDelivery = in_array('delivery', $modes, true);
-        $storeUrl = $link['storeUrl'] ?? null;
+
+        $soldOut = $source['soldOut'] ?? null;
 
         return [
             'platform' => $platform,
             'pickupPrice' => $offersPickup && $source !== null ? $this->price($source['pickupPrice'] ?? null) : null,
-            'pickupUrl' => $offersPickup ? ($link['pickupUrl'] ?? $storeUrl) : null,
             'deliveryPrice' => $offersDelivery && $source !== null ? $this->price($source['deliveryPrice'] ?? null) : null,
-            'deliveryUrl' => $offersDelivery ? ($link['deliveryUrl'] ?? $storeUrl) : null,
+            'itemUrl' => $source !== null ? $this->cleanString($source['itemUrl'] ?? null) : null,
+            'externalId' => $source !== null ? $this->cleanString($source['externalId'] ?? null) : null,
+            'soldOut' => is_bool($soldOut) ? $soldOut : null,
         ];
     }
 
@@ -626,7 +633,7 @@ class MenuMerger
      * each *Source = the platform backing that min. Null when no platform prices
      * that mode.
      *
-     * @param  list<array{platform:string, pickupPrice:?float, pickupUrl:?string, deliveryPrice:?float, deliveryUrl:?string}>  $platforms
+     * @param  list<array{platform:string, pickupPrice:?float, deliveryPrice:?float, itemUrl:?string, externalId:?string, soldOut:?bool}>  $platforms
      * @return array{basePrice:?float, pickupPrice:?float, pickupSource:?string, deliveryPrice:?float, deliverySource:?string}
      */
     private function aggregates(array $platforms): array
@@ -650,7 +657,7 @@ class MenuMerger
      * either mode per platform. First platform wins a tie (content priority =
      * Uber Eats over DoorDash).
      *
-     * @param  list<array{platform:string, pickupPrice:?float, pickupUrl:?string, deliveryPrice:?float, deliveryUrl:?string}>  $platforms
+     * @param  list<array{platform:string, pickupPrice:?float, deliveryPrice:?float, itemUrl:?string, externalId:?string, soldOut:?bool}>  $platforms
      * @return array{price:?float, source:?string}
      */
     private function minMode(array $platforms, string $mode): array

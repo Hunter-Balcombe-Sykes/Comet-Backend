@@ -9,18 +9,27 @@ class UberEatsMenuDriver implements MenuPlatformDriver
 {
     use NormalizesMenuData;
 
-    /** Uber Eats (memo23): startUrls[{url}] — no consumer address needed. */
+    /**
+     * Uber Eats (memo23): startUrls[{url}] — no consumer address needed.
+     * `includeItemCustomizations` makes the actor emit per-item identity
+     * (itemUuid/sectionUuid/subsectionUuid), the ready-made `href` deep link,
+     * and isSoldOut — proven 2026-08-26 (run dTQULHB7Vbuhb1WNN); without it
+     * the flattened list carries none of these.
+     */
     public function buildInput(string $storeUrl, ?string $address): array
     {
-        return ['startUrls' => [['url' => $storeUrl]]];
+        return ['startUrls' => [['url' => $storeUrl]], 'includeItemCustomizations' => true];
     }
 
     /**
      * Uber Eats (memo23): one store object with a flattened `menuItems` list,
      * each item carrying its `section` (its category), name, description, dollar
      * `price`, and `imageUrl`. We group the items by section into categories,
-     * preserving first-seen order. The flattened list has no per-item id, so
-     * externalId is null (cross-mode price fusion falls back to name-matching).
+     * preserving first-seen order. With includeItemCustomizations on,
+     * `itemUuid` becomes externalId (exact cross-mode fusion instead of
+     * name-matching) and `href` becomes the per-item deep link. The
+     * customization option trees the flag also returns are deliberately NOT
+     * carried (owner ruling D5 — no consumer).
      * Store: title / image / ratingValue / reviewCount / currencyCode.
      *
      * @param  list<mixed>  $items
@@ -44,8 +53,9 @@ class UberEatsMenuDriver implements MenuPlatformDriver
                 $order[] = $section;
             }
             $price = data_get($item, 'price');
+            $soldOut = data_get($item, 'isSoldOut');
             $bySection[$section][] = [
-                'externalId' => null,
+                'externalId' => $this->cleanString(data_get($item, 'itemUuid')),
                 'name' => $itemName,
                 'description' => $this->sentenceCase($this->cleanString(data_get($item, 'description'))),
                 'price' => is_numeric($price) ? round((float) $price, 2) : null,
@@ -54,6 +64,8 @@ class UberEatsMenuDriver implements MenuPlatformDriver
                 'rating' => null,
                 'ratingCount' => null,
                 'badges' => null,
+                'itemUrl' => $this->itemUrl(data_get($item, 'href')),
+                'soldOut' => is_bool($soldOut) ? $soldOut : null,
             ];
         }
 
@@ -78,6 +90,27 @@ class UberEatsMenuDriver implements MenuPlatformDriver
             ],
             'categories' => $categories,
         ];
+    }
+
+    /**
+     * The actor's `href` → an absolute item deep link. memo23 emits the
+     * quickView form as a root-relative path (`/store/…?mod=quickView&…`);
+     * an absolute ubereats.com URL is tolerated, anything else is dropped —
+     * the contract is a REAL item link or nothing, never a guess.
+     */
+    private function itemUrl(mixed $href): ?string
+    {
+        $href = $this->cleanString($href);
+        if ($href === null) {
+            return null;
+        }
+        if (str_starts_with($href, '/')) {
+            return $this->safeUrl('https://www.ubereats.com'.$href);
+        }
+
+        $host = strtolower((string) parse_url($href, PHP_URL_HOST));
+
+        return preg_match('~(^|\.)ubereats\.com$~', $host) === 1 ? $this->safeUrl($href) : null;
     }
 
     /**

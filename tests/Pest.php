@@ -3068,6 +3068,9 @@ function setupContentTables(): void
         amount_max_minor INTEGER NULL,
         url TEXT NULL,
         availability TEXT NULL,
+        platform TEXT NULL,
+        item_url TEXT NULL,
+        external_ref TEXT NULL,
         updated_at TEXT NOT NULL
     )');
 

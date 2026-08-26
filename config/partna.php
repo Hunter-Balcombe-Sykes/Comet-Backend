@@ -1005,9 +1005,13 @@ return [
     // dropped (20260704170000); app-layer validation via this registry replaces them.
     'menu' => [
         'platforms' => [
-            // Square first — top priority for pricing/images over Uber Eats/DoorDash.
+            // Square first — top priority for pricing/images over Uber Eats/DoorDash
+            // (merchant-canonical). transport=http (2026-08-26): Square Online's
+            // own unauthenticated products API replaces the menus-r-us AI actor —
+            // exact ids/prices/links, zero scrape billing. MenuApifyScraper routes
+            // transport=http platforms through MenuHttpDriver::fetchMenu().
             'square' => [
-                'actor' => 'menus-r-us~restaurant-menu-scraper',
+                'transport' => 'http',
                 // Matched against a bare host (MenuSource::platformOf passes
                 // parse_url PHP_URL_HOST), so anchor on $ -- a trailing slash
                 // both closed the ~ delimiter early, making the rest of the

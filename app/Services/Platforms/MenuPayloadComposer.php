@@ -152,16 +152,11 @@ class MenuPayloadComposer
             return [];
         }
 
-        // slug => normalized store_url — base for each item's per-platform deep
-        // link. Still site.menu_platform_links: the store link is menu-level
-        // bookkeeping, not a dish, and only dishes moved in this task.
-        $storeUrls = $menu->platformLinks->pluck('store_url', 'platform')->all();
-
         // Slice 7 Phase 6: the legacy fallback is gone with the tables it read,
         // so the removed rows are no longer a gate — ask for the live set directly.
         $rows = $this->items->rows((string) $user->id);
 
-        return $this->contentCategories((string) $user->id, $rows, $storeUrls);
+        return $this->contentCategories((string) $user->id, $rows);
     }
 
     /**
@@ -180,18 +175,15 @@ class MenuPayloadComposer
      * `sourcePlatform` — content.collections carries no source column, so the
      * dashboard's sync-detach warning has nothing to key off yet (Task 6).
      *
-     * `links` follows from ManualMenuItems' null dd_external_id: the mapper
-     * never carried the DoorDash item id, so MenuItemDeepLinks has nothing to
-     * build from and every dish's deep link is null here. 31 of dev's 318
-     * dishes hold one — recovering it is a MenuProjectionMapper addition
-     * (f_catalog.sku / variant_ref are already projection-supported) plus a
-     * `content:backfill-menus` re-run, both outside this task.
+     * `links` reads the STORED per-item deep links (content.offers.item_url,
+     * via each platform entry) since 2026-08-26 — un-regressing the DoorDash
+     * link the old dd_external_id derivation lost to slice 7, and lighting
+     * Uber Eats + Square in the same change.
      *
      * @param  Collection<int, \stdClass>  $rows
-     * @param  array<string, string|null>  $storeUrls
      * @return list<array{id:string, name:string, sourcePlatform:?string, items:list<array<string,mixed>>}>
      */
-    private function contentCategories(string $userId, Collection $rows, array $storeUrls): array
+    private function contentCategories(string $userId, Collection $rows): array
     {
         $models = [];
         $itemIdsByCategory = [];
@@ -228,7 +220,6 @@ class MenuPayloadComposer
                     fn (string $itemId) => $this->item(
                         $models[$itemId],
                         $categoryIdsByItem[$itemId] ?? [$categoryId],
-                        $storeUrls,
                     ),
                     $this->sortByPins($itemIdsByCategory[$categoryId] ?? [], $pins),
                 ),
@@ -302,10 +293,9 @@ class MenuPayloadComposer
      * it pinned still holds by construction.
      *
      * @param  list<string>  $categoryIds
-     * @param  array<string, string|null>  $storeUrls
      * @return array<string, mixed>
      */
-    private function item(MenuItem $item, array $categoryIds, array $storeUrls): array
+    private function item(MenuItem $item, array $categoryIds): array
     {
         return [
             // Stable persisted id — mirrors PublicMenuController's `id` field.
@@ -333,28 +323,30 @@ class MenuPayloadComposer
             // category editor + category filter. Includes THIS category.
             'categoryIds' => $categoryIds,
             'platforms' => $this->platforms($item),
-            // Per-item deep links ({doordash?: url}) — mirrors PublicMenuController
-            // exactly; null when nothing item-level is derivable (see MenuItemDeepLinks).
-            'links' => MenuItemDeepLinks::forItem($item->dd_external_id, $storeUrls) ?: null,
+            // Per-item deep links ({uber_eats?, doordash?, square?}) — the
+            // stored item URLs, wire-keyed; null when no platform carries one.
+            'links' => MenuItemDeepLinks::forItem($item->platformLinks) ?: null,
         ];
     }
 
     /**
-     * The item's per-platform availability list — one entry per ordering platform
-     * the dish is on, each with its pickup price + url and delivery price + url (a
-     * mode the store doesn't offer is null on both). Empty when the dish has no
-     * platform rows.
+     * The item's per-platform availability list — one entry per ordering
+     * platform the dish is on: per-mode prices plus the dish's own identity
+     * there (item link / external id / stock). The mode-typed STORE urls that
+     * used to ride here were retired 2026-08-26 (owner ruling D1) — store
+     * CTAs come from the menu-level store links, a dish links to itself.
      *
-     * @return list<array{platform:string, pickupPrice:float|null, pickupUrl:string|null, deliveryPrice:float|null, deliveryUrl:string|null}>
+     * @return list<array{platform:string, pickupPrice:float|null, deliveryPrice:float|null, itemUrl:string|null, externalRef:string|null, soldOut:bool|null}>
      */
     private function platforms(MenuItem $item): array
     {
         return $item->platformLinks->map(fn (MenuItemPlatform $p) => [
             'platform' => $p->platform,
             'pickupPrice' => $this->numberOrNull($p->pickup_price),
-            'pickupUrl' => $this->textOrNull($p->pickup_url),
             'deliveryPrice' => $this->numberOrNull($p->delivery_price),
-            'deliveryUrl' => $this->textOrNull($p->delivery_url),
+            'itemUrl' => $this->textOrNull($p->item_url),
+            'externalRef' => $this->textOrNull($p->external_ref),
+            'soldOut' => is_bool($p->sold_out) ? $p->sold_out : null,
         ])->values()->all();
     }
 
