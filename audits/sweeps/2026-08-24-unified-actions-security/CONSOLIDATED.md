@@ -82,7 +82,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 5 of 15 complete
+- P2 Medium: 6 of 15 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -413,7 +413,7 @@
         private const MAX_REDIRECTS = 5;
         ```
 
-- [ ] **#SEC-16** · P2 — Bot protection ships disabled (`mode=off`, `driver=null`) by default
+- [x] **#SEC-16** · P2 — Bot protection ships disabled (`mode=off`, `driver=null`) by default
     - **Where:** config/partna.php (`bot_protection`)
     - **Affects:** Public mutation endpoints (enquiries, leads, early-access, reports, subscriptions) on any deploy that doesn't explicitly set the bot-protection env vars.
     - **Effort:** S (~0.5–1h)
@@ -563,7 +563,7 @@
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
 - P2 Medium: 8 of 16 complete
-- P3 Low: 0 of 8 complete
+- P3 Low: 0 of 7 complete
 
 ---
 
