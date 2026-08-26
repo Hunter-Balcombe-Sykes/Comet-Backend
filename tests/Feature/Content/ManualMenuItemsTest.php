@@ -169,7 +169,7 @@ it('never lists an order_platform collection as a category', function () {
     $user = createTenant('mmi-'.Str::lower(Str::random(8)));
     mmiWriteDish($user, ['name' => 'Iced Latte', 'base_price' => 5.5],
         [['id' => (string) Str::uuid(), 'name' => 'Drinks', 'position' => 0]],
-        [['platform' => 'uber_eats', 'delivery_price' => 6.5, 'delivery_url' => 'https://ubereats.com/store/x/item']],
+        [['platform' => 'uber_eats', 'delivery_price' => 6.5, 'item_url' => 'https://ubereats.com/store/x/item']],
     );
 
     expect(app(ManualMenuItems::class)->categories((string) $user->id)->pluck('label')->all())
@@ -208,62 +208,72 @@ it('rebuilds the per-platform availability list from the url-bearing offers', fu
     mmiWriteDish($user, ['name' => 'Iced Latte', 'base_price' => 5.5], [], [[
         'platform' => 'uber_eats',
         'pickup_price' => 5.0,
-        'pickup_url' => 'https://ubereats.com/store/x/pickup',
         'delivery_price' => 6.5,
-        'delivery_url' => 'https://ubereats.com/store/x/delivery',
+        'item_url' => 'https://ubereats.com/store/x/item/u1',
+        'external_ref' => 'u1',
     ]]);
 
     $row = app(ManualMenuItems::class)->rows((string) $user->id)[0];
     $platforms = $row->platforms;
 
     // The aggregate three and the per-platform offers share a channel string —
-    // only the url separates them, so a per-platform pickup offer must NOT leak
-    // into the aggregate pickup_price the dish never had.
+    // the platform label (post-2026-08-26) separates them, so a per-platform
+    // pickup offer must NOT leak into the aggregate pickup_price the dish
+    // never had.
     expect($row->pickup_price)->toBeNull()
         ->and($row->delivery_price)->toBeNull()
         ->and($platforms)->toHaveCount(1)
         ->and($platforms[0]->platform)->toBe('uber_eats')
         ->and($platforms[0]->pickup_price)->toBe(5.0)
-        ->and($platforms[0]->pickup_url)->toBe('https://ubereats.com/store/x/pickup')
         ->and($platforms[0]->delivery_price)->toBe(6.5)
-        ->and($platforms[0]->delivery_url)->toBe('https://ubereats.com/store/x/delivery');
+        ->and($platforms[0]->item_url)->toBe('https://ubereats.com/store/x/item/u1');
 });
 
-it('attributes each url to its own platform when a dish sells on two', function () {
-    // The projection keeps the url but drops the platform label, so the two are
-    // re-paired through content.storefronts (the store url per order_platform
-    // collection). Getting this wrong points a DoorDash button at Uber Eats.
+it('attributes prices and item links to their own platform when a dish sells on two', function () {
+    // The projection STORES the platform label since 2026-08-26 — no
+    // storefront host-matching needed. Getting this wrong points a DoorDash
+    // button at Uber Eats.
     $user = createTenant('mmi-'.Str::lower(Str::random(8)));
     mmiWriteDish($user, ['name' => 'Iced Latte', 'base_price' => 5.5], [], [
-        ['platform' => 'uber_eats', 'delivery_price' => 6.5, 'delivery_url' => 'https://ubereats.com/store/x/d'],
-        ['platform' => 'doordash', 'delivery_price' => 7.0, 'delivery_url' => 'https://doordash.com/store/y/d'],
+        ['platform' => 'uber_eats', 'delivery_price' => 6.5, 'item_url' => 'https://ubereats.com/store/x/item/u1', 'external_ref' => 'u1'],
+        ['platform' => 'doordash', 'delivery_price' => 7.0, 'item_url' => 'https://doordash.com/store/y?itemId=d1', 'external_ref' => 'd1'],
     ]);
-    mmiStorefront($user, 'uber_eats', 'https://ubereats.com/store/x');
-    mmiStorefront($user, 'doordash', 'https://doordash.com/store/y');
 
     $platforms = collect(app(ManualMenuItems::class)->rows((string) $user->id)[0]->platforms)
         ->keyBy('platform');
 
     expect($platforms['uber_eats']->delivery_price)->toBe(6.5)
-        ->and($platforms['uber_eats']->delivery_url)->toBe('https://ubereats.com/store/x/d')
+        ->and($platforms['uber_eats']->item_url)->toBe('https://ubereats.com/store/x/item/u1')
         ->and($platforms['doordash']->delivery_price)->toBe(7.0)
-        ->and($platforms['doordash']->delivery_url)->toBe('https://doordash.com/store/y/d');
+        ->and($platforms['doordash']->item_url)->toBe('https://doordash.com/store/y?itemId=d1')
+        ->and($platforms['doordash']->external_ref)->toBe('d1');
 });
 
-it('keeps a two-platform dish\'s platforms but drops the urls when no storefront resolves them', function () {
-    // The documented degradation: with no storefront the url cannot be
+it('keeps a legacy two-platform dish\'s platforms but drops the urls when no storefront resolves them', function () {
+    // The documented degradation for PRE-MIGRATION rows (offers carrying a
+    // url with no platform label): with no storefront the url cannot be
     // attributed, and pointing a DoorDash button at Uber Eats is worse than
     // showing no link. Pinned so a later "fix" that guesses is a red test.
+    // (Post-2026-08-26 writes carry the platform label and never enter this
+    // path — menus rebuild wholesale, so these rows die on the next scrape.)
     $user = createTenant('mmi-'.Str::lower(Str::random(8)));
-    mmiWriteDish($user, ['name' => 'Iced Latte', 'base_price' => 5.5], [], [
-        ['platform' => 'uber_eats', 'delivery_price' => 6.5, 'delivery_url' => 'https://ubereats.com/store/x/d'],
-        ['platform' => 'doordash', 'delivery_price' => 7.0, 'delivery_url' => 'https://doordash.com/store/y/d'],
+    $itemId = mmiWriteDish($user, ['name' => 'Iced Latte', 'base_price' => 5.5], [], [
+        ['platform' => 'uber_eats', 'delivery_price' => 6.5],
+        ['platform' => 'doordash', 'delivery_price' => 7.0],
     ]);
+    // Rewrite the two per-platform offers into their LEGACY shape: url set,
+    // platform label absent — exactly what pre-migration rows hold.
+    foreach ([['https://ubereats.com/store/x/d', 650], ['https://doordash.com/store/y/d', 700]] as [$url, $minor]) {
+        DB::connection('pgsql')->table('content.offers')
+            ->where('item_id', $itemId)->where('channel', 'delivery')->where('amount_minor', $minor)
+            ->whereNotNull('platform')
+            ->update(['platform' => null, 'url' => $url, 'item_url' => null, 'external_ref' => null]);
+    }
 
     $platforms = collect(app(ManualMenuItems::class)->rows((string) $user->id)[0]->platforms);
 
     expect($platforms->pluck('platform')->sort()->values()->all())->toBe(['doordash', 'uber_eats'])
-        ->and($platforms->pluck('delivery_url')->filter()->all())->toBe([]);
+        ->and($platforms->pluck('item_url')->filter()->all())->toBe([]);
 });
 
 /** The order_platform sidecar Task 7 writes per site.menu_platform_links row. */
@@ -330,7 +340,7 @@ it('hydrates an unsaved legacy MenuItem the dashboard can render', function () {
         'delivery_price' => 6.5,
         'image_url' => 'https://cdn.test/hero.jpg',
     ], [['id' => (string) Str::uuid(), 'name' => 'Drinks', 'position' => 0]], [[
-        'platform' => 'uber_eats', 'delivery_price' => 6.5, 'delivery_url' => 'https://ubereats.com/store/x/d',
+        'platform' => 'uber_eats', 'delivery_price' => 6.5, 'item_url' => 'https://ubereats.com/store/x/item/u1', 'external_ref' => 'u1',
     ]]);
 
     $items = app(ManualMenuItems::class);
@@ -349,7 +359,7 @@ it('hydrates an unsaved legacy MenuItem the dashboard can render', function () {
         ->and($model->currency)->toBe('AUD')
         ->and($model->platformLinks)->toHaveCount(1)
         ->and($model->platformLinks[0]->platform)->toBe('uber_eats')
-        ->and($model->platformLinks[0]->delivery_url)->toBe('https://ubereats.com/store/x/d')
+        ->and($model->platformLinks[0]->item_url)->toBe('https://ubereats.com/store/x/item/u1')
         ->and($model->categories->pluck('id')->all())->toBe($row->category_ids);
 });
 

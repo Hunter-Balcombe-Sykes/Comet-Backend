@@ -1103,7 +1103,7 @@ it('persists identical category positions across two scrapes even when the upstr
         'uber-eats' => [
             'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
             'categories' => [
-                ['name' => 'Featured items', 'items' => [['name' => 'Hero Dish', 'pickupPrice' => 10.0, 'deliveryPrice' => 10.0]]],
+                ['name' => 'Chef Specials', 'items' => [['name' => 'Hero Dish', 'pickupPrice' => 10.0, 'deliveryPrice' => 10.0]]],
                 ['name' => 'Mains', 'items' => [['name' => 'Steak', 'pickupPrice' => 30.0, 'deliveryPrice' => 30.0]]],
                 ['name' => 'Sides', 'items' => [['name' => 'Fries', 'pickupPrice' => 6.0, 'deliveryPrice' => 6.0]]],
             ],
@@ -1115,7 +1115,7 @@ it('persists identical category positions across two scrapes even when the upstr
     $categoryPositions = fn () => app(ManualMenuItems::class)->categories((string) $user->id)
         ->pluck('label', 'position')->map(fn ($l) => (string) $l)->all();
     $positions1 = $categoryPositions();
-    expect($positions1)->toBe([0 => 'Featured items', 1 => 'Mains', 2 => 'Sides']);
+    expect($positions1)->toBe([0 => 'Chef Specials', 1 => 'Mains', 2 => 'Sides']);
 
     // Run 2 — SAME 3 categories, upstream scrape reshuffled the array order.
     // A forced refresh always re-scrapes regardless of url/settled state.
@@ -1204,15 +1204,17 @@ it('scan apply carries dietary markers through validation onto the created item 
     expect($labels)->toContain('Gluten free');
 });
 
-it('defaults new scan items with no category to a "Menu" category', function () {
+it('defaults new scan items with no category to the last-sorted "More" bucket', function () {
+    // B5/3b (2026-08-26): 'More', not 'Menu' — a scan wrapper must never
+    // become a display category named after the scan.
     $user = menuUser('scan2');
 
     actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
         'items' => [['name' => 'Mystery Dish', 'description' => null, 'price' => null, 'category' => null]],
     ])->assertOk()->assertExactJson(['updated' => 0, 'added' => 1]);
 
-    $category = menuContentCategories($user)['Menu'];
-    expect((string) $category->external_ref)->toBe(MenuScanApplier::categoryRefFor('scan', 'Menu'));
+    $category = menuContentCategories($user)['More'];
+    expect((string) $category->external_ref)->toBe(MenuScanApplier::categoryRefFor('scan', 'More'));
     $item = menuContentRows($user)['Mystery Dish'];
     expect($item->base_price)->toBeNull();
     expect($item->category_ids)->toBe([(string) $category->id]);

@@ -513,3 +513,25 @@ became test 4; its slug-mint observation documented as pre-existing);
 merged fd1e37126, deployed dev (deployment.succeeded 13:06Z); LIVE PROOF
 on ollies dev: dish 03881a37 "Blueberry & Lemon Cake" markRemoved →
 forced real MenuFetchJob → removed_at null, same row. Next: B2 drivers.
+
+**G3/G4 (in progress) — 2026-08-27 ~00:30 AEST.** Shipped to dev: B2 (Uber
+flag + DoorDash ?itemId recipe + Square first-party HTTP driver with
+transport seam), B3 (merger/platformRows/mapper write platform/item_url/
+external_ref/availability; D1 shape live), B4 (ManualMenuItems stored-
+platform pairing, MenuItemDeepLinks stored-links rewrite, composer wire,
+PoolResolver item_url-first), A1 (square.order connectable + /s/order
+detector + corpus), A3+D7 (paired storefront marker, orderingStore preview
+offer + frontend band, surface-key-first MenuSource), critic fixes (fold
+dedupe tuple, PoolResolver cast), fusion resilience (identity union across
+modes + both-key price maps) and STICKY IDENTITY (partial actor runs stop
+erasing known links; live measurements: actor returned 34/82 ids vs the
+proof run's 82/82 — time-variable on their side).
+
+LIVE EVIDENCE on ollies dev: custom-domain Square store
+(order.fat-tuna.com) connected as square.order → resolved purely by
+surface stamp → HTTP driver scraped 14 dishes, 14/14 with real
+product-page item_urls + external_refs; content_source='square' (Q4);
+uber-eats offers carry quickView item_urls + uuids + availability for
+every dish the actor supplied identity for. Golden master 142→143;
+BrandCoverage green via square-ordering→square classifier alias.
+Remaining for G5: wire click-through verification on the live sitepage.

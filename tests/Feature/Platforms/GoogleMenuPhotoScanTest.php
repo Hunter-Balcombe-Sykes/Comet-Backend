@@ -371,7 +371,7 @@ TXT;
 
     expect($categories)->toHaveCount(4)
         ->and($categories->pluck('label')->sort()->values()->all())
-        ->toBe(['BEERS & CIDER', 'COCKTAILS', 'RED WINES', 'SPARKLING']);
+        ->toBe(['Beers & Cider', 'Cocktails', 'Red Wines', 'Sparkling']); // B5/3a: uniform-case scan labels re-cased at write
 
     $rows = app(ManualMenuItems::class)->rows((string) $user->id);
     foreach ($categories as $category) {

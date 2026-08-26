@@ -263,7 +263,7 @@ it('files an uncategorised scan item under the default category', function () {
         ['name' => 'Mystery Special', 'description' => null, 'price' => 12.0, 'category' => null],
     ]);
 
-    expect(msacCategories($user)->pluck('label')->all())->toBe(['Menu']);
+    expect(msacCategories($user)->pluck('label')->all())->toBe(['More']); // B5/3b: fallback bucket renamed, sorts last
 });
 
 it('keeps the "scan" and "website-scan" namespaces apart for the same category name', function () {

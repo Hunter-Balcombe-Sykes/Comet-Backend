@@ -8,6 +8,7 @@ use App\Services\Cache\SiteCacheInvalidator;
 use App\Services\Content\ManualMenuItems;
 use App\Services\Content\ManualMenuWriter;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 // Applies a batch of AI-extracted menu items (a user-uploaded menu photo/PDF,
 // scanned by the frontend) onto a user's menu. Distinct from
@@ -46,9 +47,12 @@ use Illuminate\Support\Facades\DB;
 // they can never be confused for, or folded into, a scraped one.
 class MenuScanApplier
 {
-    use CleansScrapedStrings;
+    use CasesScannedNames, CleansScrapedStrings;
 
-    private const DEFAULT_CATEGORY_NAME = 'Menu';
+    // B5/3b (2026-08-26): 'More', not 'Menu' — a scan wrapper must never
+    // become a display category named after the scan; the fallback bucket
+    // materializes only for genuinely uncategorized dishes and sorts LAST.
+    private const DEFAULT_CATEGORY_NAME = 'More';
 
     private const SOURCE = 'scan';
 
@@ -169,8 +173,17 @@ class MenuScanApplier
         $updated = 0;
         $added = 0;
 
+        $categoryDenylist = array_flip(array_map(
+            fn ($l) => mb_strtolower(trim((string) $l)),
+            (array) config('partna.menu.category_denylist', []),
+        ));
+        $wrapperStats = [];
+
         foreach ($items as $item) {
-            $name = trim((string) $item['name']);
+            // B5/3a: OCR and website scans emit ALL-CAPS/all-lowercase names;
+            // re-case at WRITE time (uniform-case guard makes it safe) so
+            // slugs, the matcher and the wire all see the clean name.
+            $name = (string) ($this->scanTitleCase(trim((string) $item['name'])) ?? '');
             // A blank name hashes to a coord shared by every other blank one,
             // so it would fold unrelated dishes together. HTTP 422s these and
             // the extractor drops them; this is the belt for the scan_items
@@ -181,7 +194,12 @@ class MenuScanApplier
 
             $coord = $this->writer->coordFor((string) $menu->id, $name);
             $existing = $byCoord[$coord] ?? null;
-            $scanCategory = $this->cleanString($item['category'] ?? null);
+            $scanCategory = $this->scanTitleCase($this->cleanString($item['category'] ?? null));
+            // B5/3b: scan wrappers ('Menu', 'All', 'Home') and rail labels are
+            // not taxonomy — treat as uncategorized (falls into More).
+            if ($scanCategory !== null && isset($categoryDenylist[mb_strtolower($scanCategory)])) {
+                $scanCategory = null;
+            }
 
             if ($existing === null) {
                 $entries = [$this->categoryEntry(
@@ -213,6 +231,14 @@ class MenuScanApplier
                     && $this->shouldAttachOnMatch($entries, $enrichOnly)
                     && ! $this->alreadyListed($entries, $scanCategory)) {
                     $entries[] = $this->categoryEntry($scanCategory, $source, $positionByRef, $nextCategoryPosition);
+                    // B5/3b rule 4: a scan category whose members ALL already
+                    // live in another category is usually a wrapper the
+                    // denylist should learn — counted here, logged after the
+                    // loop. Log-only, never blocking.
+                    $wrapperStats[$scanCategory]['attached'] = ($wrapperStats[$scanCategory]['attached'] ?? 0) + 1;
+                    if (count($entries) > 1) {
+                        $wrapperStats[$scanCategory]['already_categorized'] = ($wrapperStats[$scanCategory]['already_categorized'] ?? 0) + 1;
+                    }
                 }
 
                 $dish = $this->mergedDish($existing, $item, $enrichOnly);
@@ -234,6 +260,19 @@ class MenuScanApplier
             // dedupe this applier exists for.
             $byCoord[$coord] = $this->writtenRow($itemId, $coord, $dish, $platformRows);
             $entriesByCoord[$coord] = $entries;
+        }
+
+        // B5/3b rule 4 (log-only): every dish this scan filed under the
+        // category already lived in another one — usually a wrapper the
+        // denylist should learn.
+        foreach ($wrapperStats as $label => $stat) {
+            if (($stat['attached'] ?? 0) > 0 && ($stat['attached'] ?? 0) === ($stat['already_categorized'] ?? 0)) {
+                Log::info('menu.scan.wrapper_category_candidate', [
+                    'user_id' => $userId,
+                    'category' => $label,
+                    'members' => $stat['attached'],
+                ]);
+            }
         }
 
         // Scan-applied items/prices show on the public menu page — bust the edge
@@ -339,7 +378,9 @@ class MenuScanApplier
     private function categoryEntry(string $label, string $source, array &$positionByRef, int &$nextPosition): array
     {
         $ref = self::categoryRefFor($source, $label);
-        $positionByRef[$ref] ??= $nextPosition++;
+        // The synthesized fallback bucket sorts LAST, never claiming a real
+        // position slot (B5/3b).
+        $positionByRef[$ref] ??= $label === self::DEFAULT_CATEGORY_NAME ? 32000 : $nextPosition++; // int4-safe sorts-last sentinel
 
         return [
             'kind' => 'menu_category',

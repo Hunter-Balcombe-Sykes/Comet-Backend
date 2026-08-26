@@ -56,39 +56,18 @@ function menuPull(Connector $connector, string $storeUrl): Pull
     return new Pull(identifier: $storeUrl, stream: $connector::manifest()->stream('menu'));
 }
 
-it('square: flattens menu.categories into keyed records under the shared menu budget', function () {
-    $dataset = [[
-        'restaurantName' => 'Fat Tuna',
-        'logo' => 'https://order.fat-tuna.com/logo.png',
-        'menu' => ['categories' => [
-            ['name' => 'Sushi Rolls', 'items' => [
-                ['id' => 'sq-101', 'name' => 'Salmon Roll', 'description' => 'Eight pieces.', 'price' => '$14.50', 'image' => 'https://sq-cdn/salmon.jpg'],
-                ['id' => 'sq-102', 'name' => 'Tuna Roll', 'price' => 1650],
-            ]],
-            ['name' => 'Drinks', 'items' => [
-                ['name' => 'Green Tea', 'price' => 4.0],
-            ]],
-        ]],
-    ]];
-
-    $io = menuIo(['status' => 'ok', 'cached' => false, 'data' => $dataset]);
+it('square: fails closed on the dormant actor lane now that transport is http', function () {
+    // 2026-08-26: square moved to transport=http on the live lane; the
+    // dormant ingest actor lane fails closed with a clear reason instead of
+    // renting the deleted menus-r-us actor.
+    $io = menuIo(['status' => 'ok', 'cached' => false, 'data' => []]);
     $connector = new SquareMenuConnector;
     $messages = iterator_to_array($connector->pull(menuPull($connector, 'https://order.fat-tuna.com'), $io));
 
-    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
-    $covered = array_values(array_filter($messages, fn ($m) => $m instanceof Covered))[0];
-
-    expect($io->effects[0]['name'])->toBe('menu')
-        ->and($io->effects[0]['input']['actor'])->toBe('menus-r-us~restaurant-menu-scraper')
-        ->and($records)->toHaveCount(3)
-        ->and($records[0]->key)->toBe('sq-101')
-        // "$14.50" string and 1650 cents both normalise to dollars.
-        ->and($records[0]->doc['price'])->toBe(14.5)
-        ->and($records[1]->doc['price'])->toBe(16.5)
-        ->and($records[0]->doc['category'])->toBe('Sushi Rolls')
-        ->and($records[2]->doc['category'])->toBe('Drinks')
-        ->and($records[0]->doc['store_name'])->toBe('Fat Tuna')
-        ->and($covered->coverage->toArray()['type'])->toBe('exhaustive');
+    expect($io->effects)->toBe([])
+        ->and($messages)->toHaveCount(1)
+        ->and($messages[0])->toBeInstanceOf(Unavailable::class)
+        ->and($messages[0]->reason)->toContain('transport=http');
 });
 
 it('uber eats: regroups the flattened menuItems by section with digest keys (no vendor ids)', function () {
@@ -148,8 +127,10 @@ it('doordash: reads price_cents with the display-string fallback and skips featu
         ->and($records[1]->doc['price'])->toBe(21.9);
 });
 
-it('folds a refused effect into unavailable and an empty menu into a note, for all three', function () {
-    $connectors = [new SquareMenuConnector, new UberEatsMenuConnector, new DoordashMenuConnector];
+it('folds a refused effect into unavailable and an empty menu into a note, for the actor-lane connectors', function () {
+    // Square is transport=http since 2026-08-26 and fails closed before any
+    // effect — covered by its own test above.
+    $connectors = [new UberEatsMenuConnector, new DoordashMenuConnector];
 
     foreach ($connectors as $connector) {
         $refused = iterator_to_array($connector->pull(
@@ -175,47 +156,6 @@ it('folds a refused effect into unavailable and an empty menu into a note, for a
 // gets landed for numeric vendor payloads. See the Unit K plan / commit body
 // for the full persisted-key-churn analysis (Square externalId, UberEats
 // section-as-category-key) — accepted because prod carries zero customer rows.
-
-it('square: a numeric item id now lands as a string external_id and record key (behaviour change, #SLOP-2)', function () {
-    $dataset = [[
-        'restaurantName' => 'Numeric Co',
-        'menu' => ['categories' => [
-            ['name' => 'Mains', 'items' => [
-                ['id' => 4021, 'name' => 'Salmon Roll'],
-            ]],
-        ]],
-    ]];
-
-    $io = menuIo(['status' => 'ok', 'cached' => false, 'data' => $dataset]);
-    $connector = new SquareMenuConnector;
-    $messages = iterator_to_array($connector->pull(menuPull($connector, 'https://order.numeric-co.com'), $io));
-    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
-
-    // Previously: no numeric fallback -> externalId null -> key was a sha1 digest.
-    expect($records)->toHaveCount(1)
-        ->and($records[0]->key)->toBe('4021')
-        ->and($records[0]->doc['external_id'])->toBe('4021');
-});
-
-it('square: a bare-number item name is now landed instead of dropped (behaviour change, #SLOP-2)', function () {
-    $dataset = [[
-        'restaurantName' => 'Numeric Co',
-        'menu' => ['categories' => [
-            ['name' => 'Mains', 'items' => [
-                ['name' => 7],
-            ]],
-        ]],
-    ]];
-
-    $io = menuIo(['status' => 'ok', 'cached' => false, 'data' => $dataset]);
-    $connector = new SquareMenuConnector;
-    $messages = iterator_to_array($connector->pull(menuPull($connector, 'https://order.numeric-co.com'), $io));
-    $records = array_values(array_filter($messages, fn ($m) => $m instanceof Record));
-
-    // Previously: name stayed null -> MenuRecords::flatten's empty-name skip dropped it.
-    expect($records)->toHaveCount(1)
-        ->and($records[0]->doc['name'])->toBe('7');
-});
 
 it('uber eats: a numeric section value becomes the category key instead of falling back to Menu (behaviour change, #SLOP-2)', function () {
     $dataset = [[
