@@ -150,6 +150,9 @@ class WebsiteLinkHarvester
      */
     private const ORDERING_PLATFORM = [
         'Bopple' => 'bopple',
+        // Path-qualified, matched by isSquareOrderingUrl() rather than a
+        // host row in ORDERING_HOSTS (a bare square.site host is booking's).
+        'Square Online' => 'square.order',
         // Catalog-only.
         'Uber Eats' => 'uber_eats.order', 'DoorDash' => 'doordash.order',
         'Menulog' => 'menulog.order', 'Deliveroo' => 'deliveroo.order',
@@ -159,6 +162,13 @@ class WebsiteLinkHarvester
         'ChowNow' => 'chownow.order', 'Toast Takeout' => 'toast.order',
         'Wolt' => 'wolt.order', 'Zomato' => 'zomato.order',
     ];
+
+    /** square.site + the /s/order ordering path (A0.2, live-verified). */
+    private function isSquareOrderingUrl(string $host, string $url): bool
+    {
+        return preg_match('~(^|\.)square\.site$~', $host) === 1
+            && preg_match('~^/s/order(?:/|$|\?)~', (string) (parse_url($url, PHP_URL_PATH) ?? '')) === 1;
+    }
 
     /** Booking provider hosts, keyed by label. Expanded 2026-07-25. */
     private const BOOKING_HOSTS = [
@@ -413,6 +423,16 @@ class WebsiteLinkHarvester
                 continue;
             }
 
+            // Square Online (A4, 2026-08-26): host + /s/order PATH — the one
+            // URL shape that is unambiguously ordering. Bare square.site
+            // stays with booking (host default); custom domains never reach
+            // host matching at all and ride the storefront-marker probe.
+            if ($this->isSquareOrderingUrl($host, $url)) {
+                $orderProviders[] = ['name' => 'Square Online', 'url' => $url];
+
+                continue;
+            }
+
             foreach (self::ORDERING_HOSTS as $name => $pattern) {
                 if (preg_match($pattern, $host)) {
                     $orderProviders[] = ['name' => $name, 'url' => $url];
@@ -509,6 +529,13 @@ class WebsiteLinkHarvester
 
                 return ['platform' => $platform, 'category' => 'social', 'label' => $label];
             }
+        }
+
+        // Square Online: path-qualified and checked BEFORE booking — the
+        // /s/order path is unambiguous ordering evidence, while the bare
+        // square.site host stays booking's default.
+        if ($this->isSquareOrderingUrl($host, $url)) {
+            return ['platform' => 'square.order', 'category' => 'online-ordering', 'label' => 'Square Online'];
         }
 
         foreach (self::BOOKING_HOSTS as $label => $pattern) {

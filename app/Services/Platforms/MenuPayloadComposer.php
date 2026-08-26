@@ -169,11 +169,11 @@ class MenuPayloadComposer
      * same and is why it seeded site.section_items.sort_key from the legacy
      * order in slice 4. See pinOrder() / sortByPins().
      *
-     * Four legacy signals have no projection target and come back honest rather
-     * than guessed. `isManual`, `pickupSource` and `deliverySource` are
-     * ManualMenuItems' own documented nulls; the one this method owns is
-     * `sourcePlatform` — content.collections carries no source column, so the
-     * dashboard's sync-detach warning has nothing to key off yet (Task 6).
+     * One legacy signal has no projection target and comes back honest rather
+     * than guessed: `sourcePlatform` — content.collections carries no source
+     * column, so the dashboard's sync-detach warning has nothing to key off
+     * yet (Task 6). The pickupSource/deliverySource pair left the wire
+     * entirely (C2, 2026-08-26).
      *
      * `links` reads the STORED per-item deep links (content.offers.item_url,
      * via each platform entry) since 2026-08-26 — un-regressing the DoorDash
@@ -311,9 +311,7 @@ class MenuPayloadComposer
             'badges' => $item->badges,
             'basePrice' => $item->base_price,
             'pickupPrice' => $item->pickup_price,
-            'pickupSource' => $item->pickup_source,
             'deliveryPrice' => $item->delivery_price,
-            'deliverySource' => $item->delivery_source,
             'currency' => $item->currency,
             // Owner-authored marker — skips the sync-detach warning (an
             // already-manual item has nothing left to detach from).

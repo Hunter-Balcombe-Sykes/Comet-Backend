@@ -267,3 +267,17 @@ it('keeps square.site classified as booking, never shop (pinned ambiguity)', fun
 it('still returns null for a plain unclassifiable website', function () {
     expect(classifierHarvester()->classify('https://acme-restaurant.example'))->toBeNull();
 });
+
+it('classifies a square.site /s/order URL as Square Online ordering, and a bare square.site root as booking-side', function () {
+    $harvester = app(WebsiteLinkHarvester::class);
+
+    $ordering = $harvester->classify('https://ischia-restaurant.square.site/s/order');
+    expect($ordering)->not->toBeNull()
+        ->and($ordering['platform'])->toBe('square.order')
+        ->and($ordering['category'])->toBe('online-ordering');
+
+    // The bare root must NOT be claimed as ordering — booking owns the host
+    // default; content evidence (the probe) reclassifies, never the URL.
+    $root = $harvester->classify('https://ischia-restaurant.square.site/');
+    expect($root === null || $root['platform'] !== 'square.order')->toBeTrue();
+});

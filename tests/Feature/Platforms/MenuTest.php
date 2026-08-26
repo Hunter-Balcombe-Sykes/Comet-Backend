@@ -802,9 +802,7 @@ it('returns the full menu with per-mode prices and computed order links', functi
     $menu = seedContentMenu($user, ['content_source' => 'uber-eats', 'rating' => 4.7], [
         ['name' => 'Pizzas', 'items' => [[
             'name' => 'Margherita', 'base_price' => 11.0,
-            'delivery_price' => 12.5, 'delivery_source' => 'uber-eats',
-            'pickup_price' => 11.0, 'pickup_source' => 'doordash',
-            'rating' => 95, 'badges' => [['text' => '#1 Most liked']],
+            'delivery_price' => 12.5,             'pickup_price' => 11.0,             'rating' => 95, 'badges' => [['text' => '#1 Most liked']],
             'platforms' => [
                 ['platform' => 'uber-eats', 'pickupPrice' => null, 'deliveryPrice' => 12.5, 'itemUrl' => 'https://www.ubereats.com/store/d/sec/sub/u1', 'externalId' => 'u1', 'soldOut' => null],
                 ['platform' => 'doordash', 'pickupPrice' => 11.0, 'deliveryPrice' => null, 'itemUrl' => 'https://www.doordash.com/store/x?itemId=d1', 'externalId' => 'd1', 'soldOut' => false],
@@ -836,7 +834,6 @@ it('returns the full menu with per-mode prices and computed order links', functi
     expect($item['isManual'])->toBeFalse();
     expect((float) $item['basePrice'])->toBe(11.0);
     expect((float) $item['pickupPrice'])->toBe(11.0);
-    expect($item['pickupSource'])->toBeNull();
     expect((float) $item['deliveryPrice'])->toBe(12.5);
     expect((float) $item['rating'])->toBe(95.0);
     expect($item['badges'][0]['text'])->toBe('#1 Most liked');

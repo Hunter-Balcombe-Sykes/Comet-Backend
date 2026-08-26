@@ -411,10 +411,12 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // ── 2026-07-26 Platform expansion: Logo-only ──
             $r->register(PD::make('ticketmaster')->label('Ticketmaster')->category(Cat::Events)->payload(CardPayload::class));
             $r->get('ticketmaster')->detect(new HostMatch('~(^|\.)ticketmaster\.(com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|be|dk|se|no|fi|at|ch|ie|com\.mx|sg|ae)$~'));
-            $r->register(PD::make('bopple')->label('Bopple')->category(Cat::OnlineOrdering)->payload(CardPayload::class));
-            $r->get('bopple')->detect(new HostMatch('~(^|\.)bopple\.(com|me)$~'));
-            $r->register(PD::make('square-ordering')->label('Square Online')->category(Cat::OnlineOrdering)->payload(CardPayload::class));
-            $r->get('square-ordering')->detect(new HostMatch('~(^|\.)square\.site$~'));
+            // bopple + square-ordering retired to catalog-derived descriptors
+            // (menu deep-links plan Part C, 2026-08-26) — their catalog
+            // definitions are the single source; the derivation loop below
+            // fills the registry slot. The PD detect() halves were already
+            // production-dead (ProviderDetector is queried for 'booking'
+            // only, never 'online-ordering').
             // Logo-only: booking platforms
             foreach (['boulevard' => '~(^|\.)boulevard\.io$~', 'glossgenius' => '~(^|\.)glossgenius\.com$~', 'mangomint' => '~(^|\.)mangomint\.com$~', 'zenoti' => '~(^|\.)zenoti\.com$~', 'mindbody' => '~(^|\.)mindbodyonline\.com$~', 'ovatu' => '~(^|\.)ovatu\.com$~'] as $slug => $pattern) {
                 $r->register(PD::make($slug)->label(ucfirst($slug))->category(Cat::Booking)->payload(CardPayload::class));
@@ -425,11 +427,8 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 $r->register(PD::make($slug)->label(ucfirst($slug))->category(Cat::Reservations)->payload(CardPayload::class));
                 $r->get($slug)->detect(new HostMatch($pattern));
             }
-            // Logo-only: online ordering
-            foreach (['hungrypanda' => '~(^|\.)hungrypanda\.co$~', 'easi' => '~(^|\.)easi(global)?\.com(\.au)?$~'] as $slug => $pattern) {
-                $r->register(PD::make($slug)->label($slug === 'easi' ? 'EASI' : 'HungryPanda')->category(Cat::OnlineOrdering)->payload(CardPayload::class));
-                $r->get($slug)->detect(new HostMatch($pattern));
-            }
+            // hungrypanda + easi: retired to catalog-derived descriptors —
+            // same ruling as bopple/square-ordering above.
 
             // ── Shop (multi-brand) + smart-detect category pseudo-platforms ──
             $r->register(PD::make('shop')->label('Shop')->category(Cat::Shop)->resource(ShopBrandResource::class)->refreshable()->payload(ShopPayload::class));
@@ -663,7 +662,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // hand-written descriptor. Pinned by RegistryCoverageTest's shadow test.
             $factory = app(DerivedDescriptorFactory::class);
 
-            foreach ($factory->build() as $slug => $derived) {
+            foreach ($factory->build($r->keys()) as $slug => $derived) {
                 if (! $r->has($slug)) {
                     $r->register($derived);
                 }
