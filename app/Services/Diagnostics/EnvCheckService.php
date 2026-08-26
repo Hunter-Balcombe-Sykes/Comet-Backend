@@ -147,13 +147,20 @@ class EnvCheckService
      */
     private function botProtection(): array
     {
-        $driver = (string) config('partna.bot_protection.driver', 'null');
+        // The absent-driver sentinel has three shapes — see the boot guard in
+        // AppServiceProvider. Env::get() turns .env.example's literal
+        // `BOT_PROTECTION_DRIVER=null` into PHP null, which `(string)` casts to
+        // '' rather than 'null', so comparing against 'null' alone would report
+        // "enforcing" for an environment with no verifier at all.
+        $rawDriver = config('partna.bot_protection.driver');
+        $driverAbsent = $rawDriver === null || $rawDriver === '' || $rawDriver === 'null';
+        $driver = $driverAbsent ? 'null' : (string) $rawDriver;
         $mode = (string) config('partna.bot_protection.mode', 'off');
         $failOpen = (bool) config('partna.bot_protection.fail_open', false);
 
         $effective = match (true) {
             $mode === 'off' => 'inert: middleware short-circuits before any work',
-            $driver === 'null' => 'inert: no driver configured, nothing can be verified',
+            $driverAbsent => 'inert: no driver configured, nothing can be verified',
             $mode === 'shadow' => 'observing: verifier runs and logs, but every request passes',
             default => 'enforcing',
         };

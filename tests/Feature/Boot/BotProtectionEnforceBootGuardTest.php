@@ -31,7 +31,7 @@ it('AppServiceProvider::boot() carries the enforce-without-a-driver guard', func
     // config() so config:cache is respected, and a message naming the env var.
     expect($source)
         ->toContain("config('partna.bot_protection.mode') === 'enforce'")
-        ->toContain("config('partna.bot_protection.driver') === 'null'")
+        ->toContain('$botDriverAbsent')
         ->toContain('BOT_PROTECTION_MODE=enforce requires a real BOT_PROTECTION_DRIVER');
 
     $count = substr_count($source, 'app()->isProduction()');
@@ -43,12 +43,21 @@ it('the guard cannot fire on either environment as configured today', function (
     // the test env itself is the dev proof. Production is turnstile/shadow — also
     // not enforce+null. If either of these ever becomes enforce+null this fails
     // BEFORE a deploy refuses to boot.
-    $tripped = fn (string $mode, string $driver) => $mode === 'enforce' && $driver === 'null';
+    // ⚠️ $driver is INTENTIONALLY nullable. CI copies .env.example, which sets
+    // BOT_PROTECTION_DRIVER=null, and Env::get() coerces the literal "null" to
+    // PHP null — so this arrives as null there and as the string 'null' on a
+    // machine that leaves the var unset. A `string $driver` hint TypeErrors in
+    // CI while passing locally, which is how the same latent bug in the guard
+    // itself reached a green local run. All three shapes mean "no driver".
+    $tripped = fn (?string $mode, ?string $driver) => $mode === 'enforce'
+        && ($driver === null || $driver === '' || $driver === 'null');
 
     expect($tripped(config('partna.bot_protection.mode'), config('partna.bot_protection.driver')))->toBeFalse()
         ->and($tripped('shadow', 'turnstile'))->toBeFalse()   // production, as configured 2026-08-25
         ->and($tripped('off', 'null'))->toBeFalse()           // development, as configured 2026-08-25
-        ->and($tripped('enforce', 'null'))->toBeTrue();       // the state the guard exists to refuse
+        ->and($tripped('enforce', 'null'))->toBeTrue()        // the state the guard exists to refuse
+        ->and($tripped('enforce', null))->toBeTrue()          // …the same state, as CI's env resolves it
+        ->and($tripped('enforce', ''))->toBeTrue();           // …and as an empty assignment resolves it
 });
 
 it('reports whether anything is actually verified, so shadow cannot read as "on"', function () {
@@ -64,10 +73,14 @@ it('reports whether anything is actually verified, so shadow cannot read as "on"
     expect(app(EnvCheckService::class)->generate()['bot_protection']['effective'])
         ->toBe('observing: verifier runs and logs, but every request passes');
 
-    config()->set('partna.bot_protection.mode', 'enforce');
-    config()->set('partna.bot_protection.driver', 'null');
-    expect(app(EnvCheckService::class)->generate()['bot_protection']['effective'])
-        ->toBe('inert: no driver configured, nothing can be verified');
+    // Both sentinel shapes must read as inert — 'null' (var unset, config default)
+    // and real null (.env.example's BOT_PROTECTION_DRIVER=null via Env::get()).
+    foreach (['null', null, ''] as $absent) {
+        config()->set('partna.bot_protection.mode', 'enforce');
+        config()->set('partna.bot_protection.driver', $absent);
+        expect(app(EnvCheckService::class)->generate()['bot_protection']['effective'])
+            ->toBe('inert: no driver configured, nothing can be verified');
+    }
 
     config()->set('partna.bot_protection.mode', 'enforce');
     config()->set('partna.bot_protection.driver', 'turnstile');

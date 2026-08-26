@@ -319,7 +319,17 @@ class AppServiceProvider extends ServiceProvider
         // It exists to stop a future half-flip (mode raised without a driver).
         // Outside production this warns rather than throws: a local .env mid-edit
         // must not become unbootable.
-        if (config('partna.bot_protection.mode') === 'enforce' && config('partna.bot_protection.driver') === 'null') {
+        // ⚠️ The absent-driver sentinel arrives in THREE shapes and all mean the
+        // same thing. .env.example ships `BOT_PROTECTION_DRIVER=null`, and
+        // Laravel's Env::get() coerces the literal string "null" to PHP null —
+        // so a `=== 'null'` test is false in every environment that sets the
+        // documented default, i.e. the guard would be dead in exactly the
+        // configuration it exists to catch. Unset gives the config default
+        // string 'null'; an empty assignment gives ''. Normalise all three.
+        $botDriver = config('partna.bot_protection.driver');
+        $botDriverAbsent = $botDriver === null || $botDriver === '' || $botDriver === 'null';
+
+        if (config('partna.bot_protection.mode') === 'enforce' && $botDriverAbsent) {
             $botMisconfig = 'BOT_PROTECTION_MODE=enforce requires a real BOT_PROTECTION_DRIVER (got "null") — nothing would be verified.';
 
             if (app()->isProduction()) {
