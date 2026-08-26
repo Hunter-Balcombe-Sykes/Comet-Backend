@@ -2,9 +2,7 @@
 
 namespace App\Providers;
 
-use App\Http\Resources\Platforms\InstagramConnectionResource;
 use App\Http\Resources\Platforms\LinkConnectionResource;
-use App\Http\Resources\Platforms\MusicEmbedConnectionResource;
 use App\Http\Resources\Platforms\ShopBrandResource;
 use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Jobs\Platforms\ThrottledByProvider;
@@ -13,9 +11,6 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
-use App\Services\Platforms\Payloads\CardPayload;
-use App\Services\Platforms\Payloads\GoogleBusinessPayload;
-use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Payloads\ShopPayload;
 use App\Services\Platforms\Registry\DerivedDescriptorFactory;
 use App\Services\Platforms\Registry\PlatformCategory as Cat;
@@ -24,9 +19,6 @@ use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Registry\PlatformRouteShape;
 use App\Services\Platforms\ShopCatalog;
 use App\Services\Platforms\Strategies\Connect\BrandLinkConnect;
-use App\Services\Platforms\Strategies\Connect\UrlConnect;
-use App\Services\Platforms\Strategies\Detect\HostMatch;
-use App\Services\Platforms\Strategies\Detect\ServiceMatch;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
 use App\Services\Shop\ShopConnections;
 use App\Site\Pools\PoolResolver;
@@ -34,10 +26,12 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
-// Binds the PlatformRegistry singleton and registers every platform the app
-// supports today. This is the single place a platform is declared. In this plan
-// the descriptors carry identity + Resource + refreshable flag only; live
-// strategies attach as platforms migrate in later plans.
+// Binds the PlatformRegistry singleton. Since PD-retirement (2026-08-27) a
+// platform is DECLARED in the catalog (app/Catalog/Definitions) and derived by
+// DerivedDescriptorFactory, with bespoke behaviour attached from its
+// Registry\Bindings class — this provider hand-registers only the `shop`
+// FAMILY descriptor (no catalog surface backs it), runs the derivation +
+// upgrade passes, and owns the boot()-time rate limiters.
 class PlatformRegistryServiceProvider extends ServiceProvider
 {
     public function register(): void
@@ -45,113 +39,27 @@ class PlatformRegistryServiceProvider extends ServiceProvider
         $this->app->singleton(PlatformRegistry::class, function () {
             $r = new PlatformRegistry;
 
-            // ── PD-retirement P2 (2026-08-27): the 25 link-only platforms
-            // (the 14 normalizer socials, skool/strava/twitch with their kept
-            // dashboard categories, and the 11 strategy-less link cards) are
-            // retired to catalog-derived descriptors. Their FULL original
-            // contract — LinkOnly shape, username/url field, UrlConnect + the
-            // exact 422 copy, LinkPayload, LinkConnectionResource — derives
-            // through LinkOnlyBindings, which carries the retired
-            // registration data verbatim. The upgrades() pass still retro-fits
-            // Brand connect onto the strategy-less ones exactly as it did
-            // when they were hand-written.
-            // ── oEmbed music (MusicEmbedConnectionResource, refreshable) ──
-            // spotify: retired to a catalog-derived descriptor (P4,
-            // 2026-08-27) — its full behavioural contract attaches from
-            // Registry\Bindings\SpotifyBinding.
-            // soundcloud: retired to a catalog-derived descriptor (P4,
-            // 2026-08-27) — its full behavioural contract attaches from
-            // Registry\Bindings\SoundcloudBinding.
-            // mixcloud + tidal: retired to catalog-derived descriptors (P3,
-            // 2026-08-27) — the factory's embed overrides keep their
-            // EmbedPayload + MusicEmbedConnectionResource contract.
-
-            // ── Scraped / API feed (per-platform resources, refreshable) ──
-            // youtube: retired to a catalog-derived descriptor (P4,
-            // 2026-08-27) — its full behavioural contract attaches from
-            // Registry\Bindings\YoutubeBinding.
-            // youtube-music: retired to a catalog-derived descriptor (P4,
-            // 2026-08-27) — its full behavioural contract attaches from
-            // Registry\Bindings\YoutubeMusicBinding.
-            // vimeo: retired to a catalog-derived descriptor (P4 canary,
-            // 2026-08-27) — its full behavioural contract attaches from
-            // Registry\Bindings\VimeoBinding.
-            // bandcamp: retired to a catalog-derived descriptor (P4,
-            // 2026-08-27) — its full behavioural contract attaches from
-            // Registry\Bindings\BandcampBinding.
-            // apple-music: retired to a catalog-derived descriptor (P4,
-            // 2026-08-27) — its full behavioural contract (including the
-            // CA-W3 no-deferredConnect ruling) attaches from
-            // Registry\Bindings\AppleMusicBinding.
-            // apple-podcast: retired to a catalog-derived descriptor (P4,
-            // 2026-08-27) — its full behavioural contract (including the
-            // CA-W3 no-deferredConnect ruling) attaches from
-            // Registry\Bindings\ApplePodcastBinding.
-            // google-business: retired to a catalog-derived descriptor (P5,
-            // 2026-08-27) — its full behavioural contract (GoogleBusinessPayload,
-            // display toggles, SingleSelection routes on the bespoke controller)
-            // attaches from Registry\Bindings\GoogleBusinessBinding, deriving
-            // through the notConnectable relaxation (its connect is never a
-            // pasted URL).
-            // instagram: retired to a catalog-derived descriptor (P5,
-            // 2026-08-27) — the LAST hand-written brand entry. Its contract
-            // (Social, InstagramConnectionResource, InstagramPayload, the
-            // auto_sync_latest toggle, Bespoke routes, not refreshable —
-            // refresh is paid Apify, never in the cron) attaches from
-            // Registry\Bindings\InstagramBinding; NEVER_UPGRADE still guards
-            // its connectField-less Bespoke shape from the upgrades() pass.
-
-            // ── Events (refreshable; organiser accounts + standalone events) ──
-            // eventbrite: retired to a catalog-derived descriptor (P4,
-            // 2026-08-27) — its full behavioural contract (including the
-            // CA-W5 no-deferredConnect ruling and its smart-detect matcher)
-            // attaches from Registry\Bindings\EventbriteBinding.
-            // humanitix: retired to a catalog-derived descriptor (P4,
-            // 2026-08-27) — same shape, via Registry\Bindings\HumanitixBinding.
-            // 'events-custom' left the registry 2026-08-19 with the
-            // pseudo-platform retirement: a standalone event is an events-pool
-            // item (ManualEventWriter), never a connection row.
-
-            // ── Picker / booking / reservations (no cron refresh) ──
-            // fresha: retired to a catalog-derived descriptor (P5, 2026-08-27)
-            // — its full behavioural contract (CA-W6/CA-W7 connectFetch
-            // override, completeness predicate, smart-detect matcher) attaches
-            // from Registry\Bindings\FreshaBinding.
-            // square: retired to a catalog-derived descriptor (P5, 2026-08-27)
-            // — its full behavioural contract attaches from
-            // Registry\Bindings\SquareBinding (bespoke SquareController connect,
-            // like fresha).
-            // opentable / resdiary / nowbookit: retired to catalog-derived
-            // descriptors (P5, 2026-08-27) — each trio member's full contract
-            // (FOUND-24 ConnectStrategy + frozen 422 copy, the sector-derived
-            // can_use_reservations gate, the ServiceMatch smart-detect
-            // delegating to its service's isXUrl matcher — now resolved
-            // lazily at match time instead of eagerly at boot) attaches from
-            // Registry\Bindings\{Opentable,Resdiary,Nowbookit}Binding.
-            // OpenTable keeps its bespoke suggestion() endpoint in
-            // routes/api/platforms.php.
-
-            // ── Smart-detect matchers (Plan 6). Registration order = detection priority. ──
-            // Booking + reservations + events matchers all ride their bindings now.
-
-            // ── 2026-07-26 Platform expansion: Booking detect-only ──
-            // ── PD-retirement P1 (2026-08-27): the 23 detect-only card
-            // entries (booking: booksy, vagaro, timely, kitomba, phorest,
-            // shortcuts, bella-booking, boulevard, glossgenius, mangomint,
-            // zenoti, mindbody, ovatu; reservations: resy, quandoo,
-            // sevenrooms, tock, tablecheck; events: ticketek, oztix,
-            // trybooking, resident-advisor, ticketmaster) are retired to
-            // catalog-derived descriptors — each brand's catalog definition
-            // is the single source, and the derivation loop below fills the
-            // registry slot with CardPayload parity plus the routing-class
-            // category. Their PD HostMatch detectors were load-bearing only
-            // for ProviderDetector's fresha/square special-cases, which stay
-            // hand-written; every other brand already classifies through the
-            // catalog (WebsiteLinkHarvester + LegacyPlatformMap).
-            // bopple + square-ordering + hungrypanda + easi went first
-            // (menu deep-links plan Part C, 2026-08-26).
-            // hungrypanda + easi: retired to catalog-derived descriptors —
-            // same ruling as bopple/square-ordering above.
+            // ── PD-retirement COMPLETE (P1–P5, 2026-08-27) ────────────────────
+            // Every brand platform is CATALOG-DERIVED. The catalog definition
+            // (app/Catalog/Definitions) is the single declaration of a
+            // platform's existence; DerivedDescriptorFactory turns every
+            // connectable/bound surface into a descriptor at boot, and a
+            // platform's bespoke behavioural contract — strategies, resources,
+            // payloads, toggles, cadences, detectors, route shape — attaches
+            // from its class in Registry\Bindings (BEHAVIOUR_BINDINGS), or for
+            // the link-only socials from LinkOnlyBindings. Frozen strings (422
+            // copy, fetch-error copy, toggle copy) live in those bindings and
+            // are pinned by tests; the registry:dump harness proved every
+            // retirement byte-identical. Decision history: docs/
+            // 2026-08-26-pd-registry-retirement-plan.md.
+            //
+            // What is deliberately NOT here any more: per-platform register()
+            // calls, connect strategies, connectInput rules, display toggles,
+            // refresh cadences, detect matchers and route-archetype mutations
+            // — each rides its platform's binding. OpenTable keeps its bespoke
+            // suggestion() endpoint in routes/api/platforms.php; instagram and
+            // the apple pair keep their bespoke controllers + hand-written
+            // route groups (their descriptors still derive).
 
             // ── Shop (multi-brand) + smart-detect category pseudo-platforms ──
             $r->register(PD::make('shop')->label('Shop')->category(Cat::Shop)->resource(ShopBrandResource::class)->refreshable()->payload(ShopPayload::class));
@@ -197,66 +105,19 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // retirement): zero rows carry those platform keys and every
             // routed link lives on its real brand surface.
 
-            // ── Connect-request validation contract (FOUND-19) ──────────────────
-            // The single source of truth for each reducible platform's connect input
-            // shape. Read by the shared PlatformConnectRequest via the route's
-            // 'platform' default. Field names / maxes / regex / 422 messages are the
-            // frozen API contract — reproduce verbatim. GoogleBusiness is irreducible
-            // (multi-field) and keeps ConnectGoogleBusinessRequest.
-
-            // single-named-field (3 distinct + 11 socials share 'username').
-            // P2: the retired link-only platforms' connect inputs (username
-            // for the 11 socials; url for skool/strava/twitch with their
-            // historical maxes) ride LinkOnlyBindings into the derived
-            // descriptors — see linkOnlyDescriptor().
-
-            // ── Public display toggles ───────────────────────────────────────────
-            // What parts of a platform's synced content the owner can hide from
-            // the sitepage. Read by DisplaySettingsController (settings UI +
-            // PATCH validation) and PublicIntegrationConnectionResource /
-            // PoolResolver's menus pool (payload suppression). Absent key = shown.
-            // Every retired platform's toggles ride its binding now.
-
-            // The pools' auto half (2026-08-05): every source with a
-            // time-ordered item stream carries the SAME auto_sync toggle. Read
-            // at pool resolve time (latest_per_auto_source), NOT as a fetch
-            // gate — syncing keeps filling the library either way; the switch
-            // only decides whether the newest item auto-joins the site.
-            // Shop: the old site-wide shop_auto_latest column, same key, same
-            // site-wide effect (AutoSyncSetting writes every store connection).
+            // Shop's display toggle (the old site-wide shop_auto_latest
+            // column, same key, same site-wide effect — AutoSyncSetting writes
+            // every store connection). Every other platform's toggles ride its
+            // binding.
             $r->get('shop')->displayToggles([
                 ['key' => 'auto_sync_latest', 'label' => 'Latest products', 'description' => 'Each store keeps showing its newest products automatically.'],
             ]);
-            // Tickets & Events: the per-user "auto sync latest from each
-            // organiser" switches ride the eventbrite/humanitix bindings.
-
-            // ── Refresh cadences ─────────────────────────────────────────────────
-            // Per-platform re-fetch intervals for the hourly dispatcher ride
-            // each platform's binding now; anything unlisted uses the global
-            // default (24h).
-
-            // ── Route archetypes (FOUND-21) ─────────────────────────────────────
-            // Drives the single registry loop in routes/api/platforms.php. Bespoke
-            // platforms (the default) keep their standalone groups and are skipped.
-
-            // Link-only socials: retired to derived descriptors (P2) — their
-            // LinkOnly route shape rides LinkOnlyBindings into the factory.
-
-            // Single-selection (google-business) rides its binding.
-
-            // Migrated reads (FOUND-24): every remaining registry-driven route
-            // shape rides its platform's binding now — the MultiAccount
-            // mutations that used to sit here went with the P4/P5 retirements.
-            // OpenTable keeps its bespoke suggestion() endpoint
-            // (routes/api/platforms.php) — it reads across platforms (Google
-            // Business), which the generic shape has no seam for.
-
-            // Derived LAST, and only into free slugs. Everything above is
-            // hand-written and authoritative: it carries connect strategies,
-            // resources and refresh wiring that a derived link-only stub does not.
-            // register() throws on a duplicate, so the has() check is what keeps
-            // this a no-op rather than a boot failure when a brand graduates to a
-            // hand-written descriptor. Pinned by RegistryCoverageTest's shadow test.
+            // Derived last, and only into free slugs. The one hand-written
+            // registration left is shop above — a FAMILY descriptor with no
+            // catalog surface, so the derivation loop can never collide with
+            // it in practice; the has() check stays as the safety net that a
+            // future hand-written re-addition is skipped rather than a boot
+            // failure. Pinned by RegistryCoverageTest's shadow test.
             $factory = app(DerivedDescriptorFactory::class);
 
             foreach ($factory->build($r->keys()) as $slug => $derived) {
@@ -265,13 +126,14 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                 }
             }
 
-            // Then UPGRADE the hand-written descriptors that were declared but
-            // routeless. ~50 slugs are shaped Bespoke, which the route loop reads
-            // as "keeps its own standalone group" — for most of them no group was
-            // ever written, so booksy, resy, vagaro, ticketek and their kind have
-            // no connect or per-brand disconnect at all. That is the defect this
-            // shape exists to fix, and skipping them as "already registered" would
-            // have left it exactly where it was.
+            // Then UPGRADE the descriptors that are declared but routeless
+            // (Bespoke shape + no connect field). Post-retirement this is the
+            // strategy-less LinkOnly slugs — linkOnlyDescriptor() attaches
+            // connect/routes only when a normalizer exists, so the 11 plain
+            // link cards still take their Brand connect from THIS pass, exactly
+            // as they did when they were hand-written. NEVER_UPGRADE carves out
+            // instagram, whose derived descriptor has the same routeless shape
+            // but a real bespoke connect flow.
             //
             // Mutated in place, not re-registered: the existing descriptor keeps
             // its label, category and resource, and register() would throw anyway.

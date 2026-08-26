@@ -2203,7 +2203,6 @@ return [
             'fresha' => (int) env('PARTNA_REFRESH_INTERVAL_FRESHA', 2 * 86400),
             'youtube' => (int) env('PARTNA_REFRESH_INTERVAL_YOUTUBE', 12 * 3600),
             'vimeo' => (int) env('PARTNA_REFRESH_INTERVAL_VIMEO', 12 * 3600),
-            'twitch' => (int) env('PARTNA_REFRESH_INTERVAL_TWITCH', 12 * 3600),
             'youtube-music' => (int) env('PARTNA_REFRESH_INTERVAL_YOUTUBE_MUSIC', 12 * 3600),
             'spotify' => (int) env('PARTNA_REFRESH_INTERVAL_SPOTIFY', 12 * 3600),
             'soundcloud' => (int) env('PARTNA_REFRESH_INTERVAL_SOUNDCLOUD', 12 * 3600),
