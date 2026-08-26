@@ -108,10 +108,14 @@ abstract class ManualPoolWriter
     }
 
     /**
-     * Clears items.removed_at. Spec §3.5: legitimate ONLY from the explicit
-     * restore endpoint — the one-way rule that stops a re-appearing scrape
-     * from resurrecting a user-deleted row lives in ProjectionWriter and is
-     * untouched by this method.
+     * Clears items.removed_at. Spec §3.5 named the explicit restore endpoint
+     * as the ONLY legitimate caller; since 2026-08-26 there is a second:
+     * `MenuFetchJob::reviveScrapedDishes()`, the reconnect half of menu
+     * reconciliation — it revives ONLY scraper-owned dishes the scrape
+     * re-emitted, with owner-deleted (suppressed_items) and owner-edited
+     * (manual_overrides) dishes filtered out upstream, so the one-way rule
+     * for USER-deleted rows still holds. That rule's enforcement for scrape
+     * writes lives in ProjectionWriter and is untouched by this method.
      */
     public function clearRemoved(string $itemId): void
     {

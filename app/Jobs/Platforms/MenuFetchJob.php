@@ -437,6 +437,12 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             $namesById[$itemId] = $dish['name'];
         }
 
+        // Revive BEFORE retire/re-assert: clearRemoved() re-mints the slug,
+        // and the re-assert pass below must see the dish's final live state
+        // (a revived dish whose base slug was taken in the interim keeps the
+        // writer's suffixing — the old slug is not assumed back).
+        $this->reviveScrapedDishes($writer, $userId, $itemIds);
+
         // FREE THEN RE-ASSERT, and the order is load-bearing for exactly the
         // reason the pre-slice-7 reconcileItemSlugs() spelled out: a dropped
         // "Café Latte" and a new "Cafe Latte" are distinct dishes to
@@ -467,6 +473,59 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             // having been fixed. Do not stamp this anywhere else.
             'last_successful_fetch_at' => $now,
         ])->save();
+    }
+
+    /**
+     * Un-retire dishes this scrape re-emitted after reconciliation removed
+     * them — the reconnect half of the retire pass. A disconnect empties the
+     * ordering links, the next fetch retires every scraper-owned dish, and
+     * before this pass a reconnect re-scrape wrote fresh facets onto rows
+     * whose `items.removed_at` stayed set: dishes existed but never came
+     * back to the pool (live failure, ollies 2026-08-26).
+     *
+     * Guardrails, all upstream of this call:
+     *  - owner-deleted dishes (`menus.suppressed_items`) are skipped from
+     *    $dishes entirely (skip_write), so their ids never reach $itemIds;
+     *  - owner-edited dishes (ownerLockedCoords) are skipped in the write
+     *    loop above, same effect;
+     *  - the scraperOwnedItemIds() filter is belt-and-braces here: every id
+     *    in $itemIds was just written by this scrape, and write() creates the
+     *    order_platform membership the filter tests, so in-persist it can
+     *    only exclude a dish whose write landed no membership. It stays
+     *    because it is the SAME test the retire pass trusts, in reverse — if
+     *    retirement semantics ever narrow ownership, revival narrows with
+     *    them instead of silently diverging.
+     *
+     * @param  list<string>  $itemIds  every item id this scrape just wrote
+     */
+    private function reviveScrapedDishes(ManualMenuWriter $writer, string $userId, array $itemIds): void
+    {
+        if ($itemIds === []) {
+            return;
+        }
+
+        $removed = DB::connection('pgsql')->table('content.items')
+            ->whereIn('id', $itemIds)
+            ->whereNotNull('removed_at')
+            ->pluck('id')
+            ->map(fn ($id) => (string) $id)
+            ->all();
+
+        if ($removed === []) {
+            return;
+        }
+
+        $revivable = $this->scraperOwnedItemIds($userId, $removed);
+        foreach ($revivable as $itemId) {
+            $writer->clearRemoved($itemId);
+        }
+
+        if ($revivable !== []) {
+            Log::info('menu_fetch.revived_dishes', [
+                'user_id' => $userId,
+                'count' => count($revivable),
+            ]);
+        }
     }
 
     /**
