@@ -263,21 +263,24 @@ return [
         // over a literal map declared immediately above it — a closed set of string
         // literals, no request input. item_ids and source_id travel as bindings via
         // whereIn()/where(); the rows go through insert()/insertOrIgnore().
-        //   ProjectionWriter:1206-1217  $tables = ['item_media' => …, 'offers' => …,
+        //   ProjectionWriter:2138-2149  $tables = ['item_media' => …, 'offers' => …,
         //                               'item_tags' => …, 'item_variants' => …,
         //                               'collection_items' => …]
-        //                               then `foreach ($tables as $table => $rows)` at :1227
+        //                               then `foreach ($tables as $table => $rows)` at :2161
         //   IngestProjectRebuildChunkingTest:162  foreach (['f_action','offers','item_tags', …] as $table)
         // These hashes are content-addressed per LINE, so a new call site on the same
         // vetted pattern reopens the check and must be added here — which is what
         // 95cca56b3 did (see 50df5e06ee4a). Line numbers above are provenance for the
         // next reader, not part of the match.
-        '66f9a31cbb50', // ProjectionWriter:1228 — $table from the literal $tables map (:1206)
-        'e835690783ba', // ProjectionWriter:1248 — same $table, insert() inside the same loop
+        // Re-hashed 2026-08-26 (facet origin scope): the DELETE is now bound to $delete
+        // before ->delete(), so it can take the origin predicate. Same $table, same
+        // closed literal set — re-vetted, not just re-stamped. Was 66f9a31cbb50.
+        '19f4c8354118', // ProjectionWriter:2162 — $table from the literal $tables map (:2138)
+        'e835690783ba', // ProjectionWriter:2203 — same $table, insert() inside the same loop
         // 95cca56b3 (R18) split collection_items onto its own branch: a membership another
         // source already listed is the SAME fact, so the chunk keeps it instead of dying on
         // the (collection_id, item_id) PK. Same $table, same closed literal set.
-        '50df5e06ee4a', // ProjectionWriter:1243 — same $table, insertOrIgnore() on the collection_items branch
+        '50df5e06ee4a', // ProjectionWriter:2199 — same $table, insertOrIgnore() on the collection_items branch
         '0f027c086763', // IngestProjectRebuildChunkingTest:163 — $table from the literal foreach array (:162)
 
         // ── Hardcoded secrets: false positives, vetted 2026-07-19 ──────────

@@ -1758,7 +1758,11 @@ class ProjectionWriter
         foreach ($projections as $coord => $projection) {
             $itemId = $itemByCoord[$coord] ?? null;
             if ($itemId !== null) {
-                $byItem[$itemId][] = $projection;
+                // The COORD travels with its projection now: replaceCollections()
+                // stamps each collection row with the source item that
+                // contributed it, and a projection stripped of its coord cannot
+                // be attributed. Both consumers below read the tuple.
+                $byItem[$itemId][] = ['coord' => (string) $coord, 'projection' => $projection];
             }
         }
 
@@ -1784,7 +1788,12 @@ class ProjectionWriter
         // LanderBatchLandingTest already pins for ingest.record_state.
         $pending = [];
         foreach ($byItem as $itemId => $group) {
-            foreach ($group as $projection) {
+            foreach ($group as $entry) {
+                // Singleton facets have no origin column — their PK is
+                // (item_id, source_id), so only one row can exist per source
+                // and there is no per-coord set to keep apart. Unwrap and
+                // carry on exactly as before.
+                $projection = $entry['projection'];
                 $facets = (array) ($projection['facets'] ?? []);
 
                 // The projection's top-level headline IS this source's f_text
@@ -1898,7 +1907,14 @@ class ProjectionWriter
      * The DELETE widens from `item_id = ?` to `item_id IN (batch)` on the same
      * `source_id` predicate — exactly the same row set, issued once.
      *
-     * @param  array<string, list<array<string, mixed>>>  $byItem  item id => that item's projections
+     * ORIGIN SCOPING (spec 2026-08-26 §5.1). Every collection row is stamped
+     * with the source item that contributed it, and the DELETE is narrowed to
+     * the origins this write actually covers. Without it the delete could only
+     * scope to (item_id, source_id) — and there is exactly ONE manual
+     * content.sources row per user, so two hand-added items bound to one item
+     * are indistinguishable and each save wiped the other's rows.
+     *
+     * @param  array<string, list<array{coord: string, projection: array<string, mixed>}>>  $byItem  item id => that item's (coord, projection) pairs
      */
     private function replaceCollections(string $contentSourceId, string $userId, array $byItem): void
     {
@@ -1907,6 +1923,32 @@ class ProjectionWriter
         }
 
         $chunk = $this->writeChunk();
+
+        // The manual source carries the live data-loss bug and no comparable
+        // traffic, so it is scoped unconditionally. The connector lane waits
+        // for the flag: there, a cascade is only a cache invalidation, because
+        // the next reprojection re-derives its facets from
+        // ingest.record_versions.
+        $isManualSource = DB::table('content.sources')->where('id', $contentSourceId)->value('kind') === 'manual';
+        $originScoped = $isManualSource || (bool) config('partna.content.facet_origin_scope');
+
+        // One indexed read for the whole batch: content.source_items is UNIQUE
+        // on (source_id, coord), so this is exact.
+        $coords = [];
+        foreach ($byItem as $entries) {
+            foreach ($entries as $entry) {
+                $coords[$entry['coord']] = true;
+            }
+        }
+        $originByCoord = $coords === [] ? collect() : DB::table('content.source_items')
+            ->where('source_id', $contentSourceId)
+            ->whereIn('coord', array_keys($coords))
+            ->pluck('id', 'coord');
+
+        // The origins this write covers. A coord with no source_items row
+        // (unreachable — the caller upserts it first) contributes nothing here
+        // and its rows are stamped null, which the IS NULL half still replaces.
+        $originIds = array_values(array_filter($originByCoord->all()));
 
         // Per-item flatten, preserving the old array_merge order. Positions
         // are assigned from these list indices below, so they stay 0..n-1
@@ -1917,17 +1959,25 @@ class ProjectionWriter
         $tagsByItem = [];
         $variantsByItem = [];
         $collectionsByItem = [];
-        foreach ($byItem as $itemId => $projections) {
+        foreach ($byItem as $itemId => $entries) {
             $media = [];
             $offers = [];
             $tags = [];
             $variants = [];
             $collections = [];
-            foreach ($projections as $projection) {
-                $media = array_merge($media, array_values((array) ($projection['media'] ?? [])));
-                $offers = array_merge($offers, array_values((array) ($projection['offers'] ?? [])));
-                $tags = array_merge($tags, array_values((array) ($projection['tags'] ?? [])));
-                $variants = array_merge($variants, array_values((array) ($projection['variants'] ?? [])));
+            foreach ($entries as $entry) {
+                $origin = $originByCoord[$entry['coord']] ?? null;
+                $projection = $entry['projection'];
+                $tag = fn (array $rows): array => array_map(
+                    fn ($row) => ['row' => $row, 'origin' => $origin],
+                    array_values($rows),
+                );
+                $media = array_merge($media, $tag((array) ($projection['media'] ?? [])));
+                $offers = array_merge($offers, $tag((array) ($projection['offers'] ?? [])));
+                $tags = array_merge($tags, $tag((array) ($projection['tags'] ?? [])));
+                $variants = array_merge($variants, $tag((array) ($projection['variants'] ?? [])));
+                // collection_items has no origin column — membership is
+                // per-item by design (PK is (collection_id, item_id)).
                 $collections = array_merge($collections, array_values((array) ($projection['collections'] ?? [])));
             }
             $mediaByItem[(string) $itemId] = $media;
@@ -1937,17 +1987,26 @@ class ProjectionWriter
             $collectionsByItem[(string) $itemId] = $collections;
         }
 
-        $assetIdByFingerprint = $this->resolveMediaAssets($userId, $mediaByItem, $chunk);
+        // Unwrapped: resolveMediaAssets() fingerprints the media ENTRY, and the
+        // origin tuple above is a wrapper this side of the call only. Handing
+        // it the wrapper would fingerprint an array with no 'url' — no asset
+        // minted, no mirror dispatched, and every item_media row left with a
+        // null asset_id. Silent, so it is unwrapped here rather than there.
+        $assetIdByFingerprint = $this->resolveMediaAssets($userId, array_map(
+            fn (array $entries): array => array_column($entries, 'row'),
+            $mediaByItem,
+        ), $chunk);
 
         $mediaRows = [];
         foreach ($mediaByItem as $itemId => $entries) {
-            foreach ($entries as $position => $entry) {
-                $entry = (array) $entry;
+            foreach ($entries as $position => $wrapped) {
+                $entry = (array) $wrapped['row'];
                 [$fingerprint] = $this->mediaFingerprint($entry);
                 $mediaRows[$itemId][] = [
                     'id' => (string) Str::uuid(),
                     'item_id' => $itemId,
                     'source_id' => $contentSourceId,
+                    'source_item_id' => $wrapped['origin'],
                     // A fingerprint-less entry still gets its item_media row,
                     // just with no asset behind it — unchanged behaviour.
                     'asset_id' => $fingerprint === null ? null : ($assetIdByFingerprint[$fingerprint] ?? null),
@@ -1961,12 +2020,13 @@ class ProjectionWriter
 
         $offerRows = [];
         foreach ($offersByItem as $itemId => $entries) {
-            foreach ($entries as $offer) {
-                $offer = (array) $offer;
+            foreach ($entries as $wrapped) {
+                $offer = (array) $wrapped['row'];
                 $offerRows[$itemId][] = [
                     'id' => (string) Str::uuid(),
                     'item_id' => $itemId,
                     'source_id' => $contentSourceId,
+                    'source_item_id' => $wrapped['origin'],
                     'channel' => $offer['channel'] ?? null,
                     'variant_label' => $offer['variant_label'] ?? null,
                     'amount_minor' => $offer['amount_minor'] ?? null,
@@ -1989,8 +2049,8 @@ class ProjectionWriter
 
         $tagRows = [];
         foreach ($tagsByItem as $itemId => $entries) {
-            foreach ($entries as $tag) {
-                $tag = (array) $tag;
+            foreach ($entries as $wrapped) {
+                $tag = (array) $wrapped['row'];
                 if (! isset($tag['tag']) || $tag['tag'] === '') {
                     continue;
                 }
@@ -1998,6 +2058,7 @@ class ProjectionWriter
                     'id' => (string) Str::uuid(),
                     'item_id' => $itemId,
                     'source_id' => $contentSourceId,
+                    'source_item_id' => $wrapped['origin'],
                     'tag' => (string) $tag['tag'],
                     'tag_type' => $tag['tag_type'] ?? null,
                 ];
@@ -2009,8 +2070,8 @@ class ProjectionWriter
         // to name a choice.
         $variantRows = [];
         foreach ($variantsByItem as $itemId => $entries) {
-            foreach ($entries as $position => $entry) {
-                $entry = (array) $entry;
+            foreach ($entries as $position => $wrapped) {
+                $entry = (array) $wrapped['row'];
                 $label = trim((string) ($entry['label'] ?? ''));
                 if ($label === '') {
                     continue;
@@ -2019,6 +2080,7 @@ class ProjectionWriter
                     'id' => (string) Str::uuid(),
                     'item_id' => $itemId,
                     'source_id' => $contentSourceId,
+                    'source_item_id' => $wrapped['origin'],
                     'label' => $label,
                     'sku' => $entry['sku'] ?? null,
                     // Additive, exactly like sku: a projection that omits the
@@ -2095,12 +2157,34 @@ class ProjectionWriter
             // so this is the outermost one.
             $itemIdSet = array_fill_keys($itemIds, true);
             $chunkReseeds = array_values(array_filter($reseeds, fn ($r) => isset($itemIdSet[$r['item_id']])));
-            DB::transaction(function () use ($tables, $itemIds, $contentSourceId, $chunk, $chunkReseeds) {
+            DB::transaction(function () use ($tables, $itemIds, $contentSourceId, $chunk, $chunkReseeds, $originScoped, $originIds) {
                 foreach ($tables as $table => $rows) {
-                    DB::table("content.{$table}")
+                    $delete = DB::table("content.{$table}")
                         ->whereIn('item_id', $itemIds)
-                        ->where('source_id', $contentSourceId)
-                        ->delete();
+                        ->where('source_id', $contentSourceId);
+
+                    // collection_items has no origin column, and the manual
+                    // source is scoped unconditionally; the connector lane
+                    // waits for the flag. Flag off MUST produce the original
+                    // statement unchanged — the identity-scope work learned
+                    // that the hard way when a rewritten query shape broke
+                    // PG-lane tests that hook statement text through DB::listen.
+                    if ($table !== 'collection_items' && $originScoped) {
+                        $delete->where(function ($q) use ($originIds) {
+                            // The IS NULL half is LOAD-BEARING, not redundant.
+                            // Without it, un-attributed rows are never deleted
+                            // by anything and survive forever as orphans
+                            // nothing replaces — turning a data-loss bug into a
+                            // data-duplication one. NULL must keep meaning
+                            // "unscoped, replaced exactly as today".
+                            $q->whereNull('source_item_id');
+                            if ($originIds !== []) {
+                                $q->orWhereIn('source_item_id', $originIds);
+                            }
+                        });
+                    }
+
+                    $delete->delete();
 
                     foreach (array_chunk($rows, $chunk) as $rowChunk) {
                         if ($table === 'collection_items') {
