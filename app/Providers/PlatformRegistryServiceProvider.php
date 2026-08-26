@@ -27,7 +27,6 @@ use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\HumanitixScraper;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\NowBookitService;
-use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\OpenTableService;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Payloads\EventsAccountPayload;
@@ -47,7 +46,6 @@ use App\Services\Platforms\Strategies\Connect\BrandLinkConnect;
 use App\Services\Platforms\Strategies\Connect\NowBookitConnect;
 use App\Services\Platforms\Strategies\Connect\OpenTableConnect;
 use App\Services\Platforms\Strategies\Connect\ResDiaryConnect;
-use App\Services\Platforms\Strategies\Connect\SoundcloudConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Detect\HostMatch;
 use App\Services\Platforms\Strategies\Detect\ServiceMatch;
@@ -56,7 +54,6 @@ use App\Services\Platforms\Strategies\Fetch\FreshaConnectFetch;
 use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
-use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
 use App\Services\Shop\ShopConnections;
 use App\Site\Pools\PoolResolver;
@@ -89,22 +86,12 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // spotify: retired to a catalog-derived descriptor (P4,
             // 2026-08-27) — its full behavioural contract attaches from
             // Registry\Bindings\SpotifyBinding.
-            $r->register(PD::oEmbed('soundcloud', 'SoundCloud', MusicEmbedConnectionResource::class));
+            // soundcloud: retired to a catalog-derived descriptor (P4,
+            // 2026-08-27) — its full behavioural contract attaches from
+            // Registry\Bindings\SoundcloudBinding.
             // mixcloud + tidal: retired to catalog-derived descriptors (P3,
             // 2026-08-27) — the factory's embed overrides keep their
             // EmbedPayload + MusicEmbedConnectionResource contract.
-
-            // Attach the live fetch strategy (Plan 3a). Consumed by Plan 6's
-            // registry-driven refresher. A lazy factory: the scraper/API
-            // client resolves at fetch-time, not when the registry is built (the
-            // registry is built at boot to emit routes — see PlatformDescriptor::fetch).
-            $r->get('soundcloud')->fetch(fn () => new OEmbedFetch(
-                app(OEmbedService::class), fn (string $link) => 'https://soundcloud.com/oembed?format=json&url='.rawurlencode($link), 'soundcloud',
-            ));
-
-            // Connect strategies (FOUND-24) — parse-fail messages are the frozen
-            // 422 contract, copied verbatim from the deleted controllers.
-            $r->get('soundcloud')->connect(fn () => new SoundcloudConnect(app(OEmbedService::class)), 'Enter your SoundCloud link (soundcloud.com/yourname).');
 
             // ── Scraped / API feed (per-platform resources, refreshable) ──
             // youtube: retired to a catalog-derived descriptor (P4,
@@ -304,7 +291,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('nowbookit')->connectInput('url', ['required', 'string', 'max:2048']);
             $r->get('opentable')->connectInput('url', ['required', 'string', 'max:2048']);
             $r->get('resdiary')->connectInput('url', ['required', 'string', 'max:2048']);
-            $r->get('soundcloud')->connectInput('url', ['required', 'string', 'max:500']);
             $r->get('square')->connectInput('url', ['required', 'string', 'max:1000', 'regex:#^https?://([a-z0-9-]+\.)*(squareup\.com|square\.site)(/[^\s]*)?$#i'], ['url.regex' => 'Enter a valid Square booking link (a squareup.com or square.site URL).'], true);
 
             // single-named-field (3 distinct + 11 socials share 'username').
@@ -357,15 +343,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
                     ['key' => 'auto_sync_latest', 'label' => 'Auto sync latest from each organiser', 'description' => 'Automatically refresh each connected organiser\'s upcoming events.'],
                 ]);
             }
-            // Spotify + SoundCloud source `track` items into the listen pool
-            // since convergence Phase 4, so their connections take the same
-            // sparse auto_sync_latest toggle every other sourcing platform
-            // has — without it PlatformSheet showed no Rules and the pool's
-            // latest_per_auto_source could never be switched off per source
-            // (overnight 2026-08-18, W2).
-            $r->get('soundcloud')->displayToggles([
-                ['key' => 'auto_sync_latest_track', 'label' => 'Newest track', 'description' => 'Your newest track joins your site automatically.'],
-            ]);
 
             // ── Refresh cadences ─────────────────────────────────────────────────
             // Per-platform re-fetch intervals for the hourly dispatcher; anything
@@ -377,7 +354,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // respecting Google's caching guidance.
             $r->get('eventbrite')->refreshEvery((int) config('partna.refresh.intervals.eventbrite', 6 * 3600));
             $r->get('humanitix')->refreshEvery((int) config('partna.refresh.intervals.humanitix', 6 * 3600));
-            $r->get('soundcloud')->refreshEvery((int) config('partna.refresh.intervals.soundcloud', 12 * 3600));
             $r->get('google-business')->refreshEvery((int) config('partna.refresh.intervals.google-business', 2 * 86400));
 
             // ── Route archetypes (FOUND-21) ─────────────────────────────────────
@@ -399,7 +375,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // deleted StravaController. OpenTable keeps its bespoke suggestion() endpoint
             // (routes/api/platforms.php) — it reads across platforms (Google Business),
             // which this generic shape has no seam for.
-            $r->get('soundcloud')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('resdiary')->routes(PlatformRouteShape::MultiAccount, null, false);
             $r->get('opentable')->routes(PlatformRouteShape::MultiAccount, null, false);
