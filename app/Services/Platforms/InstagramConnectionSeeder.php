@@ -7,6 +7,7 @@ use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Http\SafeUrlException;
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Media\InstagramMediaUrl;
 use App\Services\Media\MediaDiskResolver;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Profile\SectorTaxonomy;
@@ -87,9 +88,15 @@ class InstagramConnectionSeeder
         // back to the photo.
         $media = $this->scraper->latestMedia($profile, $userId);
 
+        // R3 (2026-08-27): oe= pre-flight + refresh-by-shortcode before every
+        // hero-media fetch — the actor's cached crawls can hand DEAD urls
+        // (the 02:42:31 hero-reel success next to five dead post urls was
+        // luck, not design). Also closes the old handoff's wrinkle: the oe
+        // is logged at seed time.
         $images = [];
         if ($media['photo'] && $media['photo']['thumbnailUrl']) {
-            $photo = $this->mirrorOne($media['photo']['thumbnailUrl'], "{$folder}/photo.jpg");
+            $photoSrc = $this->freshOrOriginal($media['photo']['thumbnailUrl'], $media['photo']['shortCode'] ?? null, 'image');
+            $photo = $photoSrc === null ? null : $this->mirrorOne($photoSrc, "{$folder}/photo.jpg");
             if ($photo) {
                 $images = [$photo];
             }
@@ -98,11 +105,13 @@ class InstagramConnectionSeeder
         $videoUrl = null;
         $videoPoster = null;
         if ($media['video'] && $media['video']['videoUrl']) {
-            $videoUrl = $this->mirrorVideo($media['video']['videoUrl'], "{$folder}/reel.mp4");
+            $videoSrc = $this->freshOrOriginal($media['video']['videoUrl'], $media['video']['shortCode'] ?? null, 'video');
+            $videoUrl = $videoSrc === null ? null : $this->mirrorVideo($videoSrc, "{$folder}/reel.mp4");
             // Mirror the reel's poster only once its mp4 mirrored — it's the <video>'s
             // poster frame, useless without the video.
             if ($videoUrl && $media['video']['thumbnailUrl']) {
-                $videoPoster = $this->mirrorOne($media['video']['thumbnailUrl'], "{$folder}/reel-cover.jpg");
+                $posterSrc = $this->freshOrOriginal($media['video']['thumbnailUrl'], $media['video']['shortCode'] ?? null, 'image');
+                $videoPoster = $posterSrc === null ? null : $this->mirrorOne($posterSrc, "{$folder}/reel-cover.jpg");
             }
         }
 
@@ -374,6 +383,40 @@ class InstagramConnectionSeeder
     //      file, with a check on the sunk temp file's actual on-disk size as a
     //      backstop for absent/inaccurate headers (replaces the old strlen check
     //      — same guarantee, now against a file instead of an in-memory string).
+    /**
+     * The URL itself when its signature is still live (oe logged either way),
+     * a freshly-signed replacement when it is expired and the post's
+     * shortcode allows a refresh, or null when the media is provably dead
+     * with no way back — the caller's null-tolerant flow degrades exactly as
+     * a failed mirror always has. The profile pic has no shortcode and rides
+     * pre-flight only.
+     *
+     * Transport stays this class's hardened pattern-C fetch on purpose: it
+     * is STRICTER than SafeUrlFetcher (two-host allowlist + no redirects),
+     * so "unify the transport" would loosen it. The shared piece is the
+     * expiry/refresh brain (InstagramMediaUrl), not the socket.
+     */
+    private function freshOrOriginal(?string $url, ?string $shortCode, string $kind): ?string
+    {
+        if ($url === null || $url === '') {
+            return null;
+        }
+        $urls = app(InstagramMediaUrl::class);
+        Log::info('instagram.seed_media_oe', [
+            'kind' => $kind,
+            'expires_at' => $urls->expiresAt($url),
+            'expired' => $urls->isExpired($url),
+        ]);
+        if (! $urls->isExpired($url)) {
+            return $url;
+        }
+        if (! is_string($shortCode) || $shortCode === '') {
+            return null;
+        }
+
+        return $urls->freshUrl($shortCode, $kind === 'video' ? 'video' : 'image');
+    }
+
     private function mirrorOne(string $url, string $path): ?string
     {
         if (! $this->isAllowedHost($url)) {

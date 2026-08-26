@@ -62,6 +62,7 @@ final class MediaMirror
     public function __construct(
         private readonly SafeUrlFetcher $fetcher,
         private readonly WebpEncoder $encoder,
+        private readonly InstagramMediaUrl $instagramUrls,
     ) {}
 
     /**
@@ -84,6 +85,23 @@ final class MediaMirror
         // occasional orphaned temp file reclaimed with the container. It is
         // the better half of that trade, and it is strictly less likely now
         // that the 80 MB is no longer on the heap causing the restart.
+        // R3 pre-flight (2026-08-27): Instagram signs media URLs with an
+        // oe= expiry, and the profile actor's cached crawls can hand us URLs
+        // that are ALREADY dead — every such fetch 403s by construction.
+        // Refresh by shortcode (embed page, actor fallback) instead of
+        // burning mirror_attempts on a known corpse; no refreshable identity
+        // → fail with the honest reason and the poster keeps rendering.
+        if ($this->instagramUrls->isExpired($sourceUrl)) {
+            $fresh = $this->refreshedInstagramUrl($userId, $assetId, $sourceUrl);
+            if ($fresh === null) {
+                return $this->fail($assetId, 'source_expired', $sourceUrl, userId: $userId);
+            }
+            DB::connection('pgsql')->table('content.media_assets')
+                ->where('id', $assetId)
+                ->update(['source_url' => $fresh]);
+            $sourceUrl = $fresh;
+        }
+
         $temp = tempnam($this->tempDir(), 'media-mirror-');
         if ($temp === false) {
             return $this->fail($assetId, 'store_failed', $sourceUrl, 'could not open a temp file', $userId);
@@ -94,6 +112,29 @@ final class MediaMirror
         } finally {
             @unlink($temp);
         }
+    }
+
+    /**
+     * shortcode + carousel position for the asset, from the coord its item's
+     * instagram source row carries (`instagram:acct-{hash}:{shortCode}`) and
+     * the asset's item_media position — then a freshly-signed URL for it.
+     */
+    private function refreshedInstagramUrl(string $userId, string $assetId, string $sourceUrl): ?string
+    {
+        $row = DB::connection('pgsql')->table('content.item_media as im')
+            ->join('content.source_items as si', 'si.item_id', '=', 'im.item_id')
+            ->where('im.asset_id', $assetId)
+            ->where('si.coord', 'like', 'instagram:%')
+            ->orderBy('im.position')
+            ->first(['si.coord', 'im.position']);
+        if ($row === null) {
+            return null;
+        }
+
+        $shortCode = (string) last(explode(':', (string) $row->coord));
+        $kind = str_contains($sourceUrl, '/o1/v/') ? 'video' : 'image';
+
+        return $this->instagramUrls->freshUrl($shortCode, $kind, (int) $row->position);
     }
 
     /**

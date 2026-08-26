@@ -94,6 +94,7 @@ const OUTBOUND_HTTP_ALLOWLIST = [
     'app/Services/Platforms/InstagramScraper.php' => ['A', 'Apify actor endpoint'],
     'app/Services/Platforms/MenuAiExtractor.php' => ['A', 'Mistral + DeepSeek endpoints from config'],
     'app/Services/Platforms/MenuApifyScraper.php' => ['A', 'actorUrl($platform); the scraped URL is POST body, not target'],
+    'app/Services/Media/InstagramMediaUrl.php' => ['A', 'api.apify.com single-post scrape; the post URL is POST body, not target (the embed-page leg is pattern B via SafeUrlFetcher)'],
     'app/Services/Streaming/KickApiClient.php' => ['A', 'Kick API base'],
     'app/Services/Streaming/StreamingTokenManager.php' => ['A', 'OAuth token endpoints from config'],
     'app/Services/Streaming/TwitchApiClient.php' => ['A', 'Twitch Helix API base'],
