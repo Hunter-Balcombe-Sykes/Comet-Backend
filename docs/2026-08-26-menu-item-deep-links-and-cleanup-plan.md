@@ -560,3 +560,20 @@ real product-page URLs (order.fat-tuna.com/product/...), stored-platform
 labelled. Remaining before G8: gate critic verdict on the span, sitepage
 click-through, C6 (host heuristic deletion after a scrape cycle), C7/C8
 residue, G6 probe-flow UI check.
+
+**GATES G5/G6/G7 CLOSED — 2026-08-27 ~03:30 AEST.** Gate critic (fresh
+Sonnet, full span): 1 real bug + 2 risks, ALL FIXED same session
+(variantKey distinctive-token guard w/ regression tests; failed-platform
+retirement deferral w/ feature test; Square driver bounded retries; stale
+SEC-3 comment). Critic's own regression run: 2728 passed / 0 failed
+across Platforms+Content+Ingest pre-fix; full suite green post-fix.
+LIVE: sitepage (local pages app on dev data) renders 37 per-item links on
+ollies' menu — every Uber dish a quickView deep link, ALL 14 Square
+dishes real product pages; click-through 200. G6: dev-env probe
+identifies order.fat-tuna.com as square-online → orderingStore offer
+path live (frontend band shipped, dashboard auto-deployed). G7: derived
+descriptors byte-identical routes (golden master 143), coverage tests
+rewritten and green, existing profile renders.
+REMAINING for G8 close-out: C6 (delete ManualMenuItems host heuristic —
+scoped: PoolResolver's url branch stays, other lanes legitimately carry
+offer urls) once the 11-menu forced refresh drains the 581 legacy rows.
