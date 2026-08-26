@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Api\Platforms;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Platforms\ApplyMenuScanRequest;
+use App\Http\Requests\Platforms\ScanMenuUploadRequest;
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\Menu;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Platforms\MenuAiExtractor;
 use App\Services\Platforms\MenuDashboardPayload;
 use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
@@ -19,8 +21,9 @@ use Illuminate\Http\Request;
 // read time from the live online-ordering entries. Most menu CONTENT is owned
 // by MenuFetchJob (auto-scraped on online-ordering connect) — this controller
 // never scrapes inline. POST /refresh re-dispatches the job (forced).
-// POST /scan/apply applies AI-extracted items from a user-uploaded menu
-// photo/PDF via MenuScanApplier, independent of any scrape. Owner-authored
+// POST /scan OCRs a user-uploaded menu photo/PDF into items (MenuAiExtractor);
+// POST /scan/apply commits a reviewed batch via MenuScanApplier, independent
+// of any scrape. Owner-authored
 // (manual) content — add/edit/delete a dish by hand — lives in
 // MenuContentController. The menu itself IS also served publicly — through
 // `pools.menus` on GET /api/public/profiles/{handle} since slice 7 Phase 3
@@ -111,6 +114,61 @@ class MenuController extends ApiController
         MenuFetchJob::dispatch((string) $user->id, true);
 
         return $this->success(['fetchStatus' => 'pending']);
+    }
+
+    // POST /api/platforms/menu/scan — OCR + structure one uploaded menu
+    // photo/PDF into the {items:[...]} batch /scan/apply accepts. This is the
+    // backend replacement for the dashboard's deleted /api/menu-scan Vercel
+    // route (2026-08-26): one pipeline (MenuAiExtractor), one set of AI keys,
+    // and the AiSpendBudget daily caps now cover user uploads too. Mistral
+    // accepts base64 data URIs in the same image_url/document_url fields as
+    // hosted URLs, so no storage step is needed — the file's bytes go straight
+    // to OCR and are never persisted. Extraction only: the client reviews the
+    // items and commits them through applyScan().
+    public function scan(ScanMenuUploadRequest $request, MenuAiExtractor $extractor): JsonResponse
+    {
+        $user = $this->currentUser($request);
+
+        // Sector-derived gate (2026-07-15) — same rule as refresh() above,
+        // and it must run before any billed AI call.
+        if (! AccountCapabilities::for($user)->can_use_menu) {
+            return $this->error('Menu is not available for your account.', 403);
+        }
+
+        // Ownership gate — see refresh()'s comment (SEC-106).
+        $menu = Menu::query()->where('user_id', $user->id)->first();
+        $this->authorizeForUser($user, 'update', $menu ?? new Menu(['user_id' => $user->id]));
+
+        if (! $extractor->configured()) {
+            return $this->error("Menu scanning isn't configured yet.", 503);
+        }
+
+        $file = $request->file('file');
+        // Content-sniffed by Symfony (magic bytes), already validated against
+        // the four allowed types by the form request's mimetypes rule.
+        $mime = (string) $file->getMimeType();
+        $dataUri = 'data:'.$mime.';base64,'.base64_encode((string) file_get_contents($file->getPathname()));
+
+        $text = $mime === 'application/pdf'
+            ? $extractor->ocrDocumentUrl($dataUri, (string) $user->id)
+            : $extractor->ocrImageUrl($dataUri, (string) $user->id);
+
+        if ($text === null) {
+            return $this->error('The menu scanner is having trouble right now. Try again in a moment.', 502);
+        }
+        if (trim($text) === '') {
+            return $this->error("We couldn't read any menu items from that file. Try a clearer photo or a different page.", 422);
+        }
+
+        $items = $extractor->structure($text, (string) $user->id);
+        if ($items === null) {
+            return $this->error('The menu scanner is having trouble right now. Try again in a moment.', 502);
+        }
+        if ($items === []) {
+            return $this->error("We couldn't read any menu items from that file. Try a clearer photo or a different page.", 422);
+        }
+
+        return $this->success(['items' => $items]);
     }
 
     // POST /api/platforms/menu/scan/apply — apply AI-extracted items from a

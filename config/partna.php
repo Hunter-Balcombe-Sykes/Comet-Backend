@@ -1790,6 +1790,11 @@ return [
 
     'image_max_upload_size' => (int) env('PARTNA_IMAGE_MAX_UPLOAD_KB', env('SIDEST_IMAGE_MAX_UPLOAD_KB', 10240)), // 10 MB
 
+    // Menu scan upload ceiling (KB). Backend replacement for the FE route's
+    // 4MB Vercel cap — a multi-page print-shop PDF fits now. Mistral's own
+    // document limit is 50MB, so 20MB base64s (~27MB) with headroom.
+    'menu_scan_max_upload_size' => (int) env('PARTNA_MENU_SCAN_MAX_UPLOAD_KB', 20480),
+
     /*
     |----------------------------------------------------------------------
     | Image decode ceiling — pixel count, not file size

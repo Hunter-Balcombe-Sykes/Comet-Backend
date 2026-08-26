@@ -175,6 +175,7 @@ $registerIntegrationRoutes = function (string $base): void {
             Route::get('/status', [MenuController::class, 'status']);
             Route::get('/', [MenuController::class, 'show']);
             Route::post('/refresh', [MenuController::class, 'refresh']);
+            Route::post('/scan', [MenuController::class, 'scan']);
             Route::post('/scan/apply', [MenuController::class, 'applyScan']);
 
             // Owner-authored (manual) menu content. {category}/{item} are UUIDs,
