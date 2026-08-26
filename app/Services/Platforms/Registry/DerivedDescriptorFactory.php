@@ -354,6 +354,7 @@ class DerivedDescriptorFactory
         'bandcamp' => Bindings\BandcampBinding::class,
         'vimeo' => Bindings\VimeoBinding::class,
         'youtube' => Bindings\YoutubeBinding::class,
+        'youtube-music' => Bindings\YoutubeMusicBinding::class,
     ];
 
     /**
