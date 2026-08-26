@@ -360,6 +360,7 @@ class DerivedDescriptorFactory
     /** slug => binding class attaching the platform's full behavioural contract (P4). */
     private const BEHAVIOUR_BINDINGS = [
         'apple-music' => Bindings\AppleMusicBinding::class,
+        'apple-podcast' => Bindings\ApplePodcastBinding::class,
         'bandcamp' => Bindings\BandcampBinding::class,
         'vimeo' => Bindings\VimeoBinding::class,
         'youtube' => Bindings\YoutubeBinding::class,
