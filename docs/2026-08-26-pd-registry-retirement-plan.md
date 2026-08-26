@@ -251,3 +251,14 @@ to real; zero non-trivial field diffs; zero slugs lost. Retired total:
 52 of ~65. Registry/golden/connect suites + full suite green (exit 0).
 Remaining hand-written: oEmbed pair+mixcloud/tidal (P3), the 11
 refreshables (P4), the bespoke-controller platforms + shop (P5).
+
+**P3 SHIPPED — 2026-08-27 ~11:45 AEST.** mixcloud + tidal retired — the
+factory's embed overrides keep EmbedPayload + MusicEmbedConnectionResource
+through derivation; everything else was already the Brand default their
+upgraded descriptors carried. (Mixcloud's "notConnectable stays" was
+docblock prose only — the surface was already connectable.) Harness diff:
+exactly 2 changes, derived:true only. Retired: 54 of ~65. Remaining
+hand-written: the 11 refreshables (P4: spotify, soundcloud, youtube,
+youtube-music, vimeo, bandcamp, apple-music, apple-podcast, eventbrite,
+humanitix, google-business) + the bespoke-controller set (P5: fresha,
+square, opentable, resdiary, nowbookit, instagram, shop, acuity?).

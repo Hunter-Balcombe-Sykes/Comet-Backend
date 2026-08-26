@@ -110,9 +110,9 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             foreach (['spotify' => 'Spotify', 'soundcloud' => 'SoundCloud'] as $key => $label) {
                 $r->register(PD::oEmbed($key, $label, MusicEmbedConnectionResource::class));
             }
-            // mixcloud + tidal are keyless embeds sharing the music-embed resource.
-            $r->register(PD::oEmbed('mixcloud', 'Mixcloud', MusicEmbedConnectionResource::class)->refreshable(false));
-            $r->register(PD::oEmbed('tidal', 'Tidal', MusicEmbedConnectionResource::class)->refreshable(false));
+            // mixcloud + tidal: retired to catalog-derived descriptors (P3,
+            // 2026-08-27) — the factory's embed overrides keep their
+            // EmbedPayload + MusicEmbedConnectionResource contract.
 
             // Attach the live fetch strategies (Plan 3a). Consumed by Plan 6's
             // registry-driven refresher. Each is a lazy factory: the scraper/API

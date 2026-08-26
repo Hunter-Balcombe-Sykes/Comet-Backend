@@ -6,9 +6,11 @@ use App\Catalog\CatalogNotCompiled;
 use App\Catalog\CompiledCatalog;
 use App\Catalog\LegacyPlatformMap;
 use App\Http\Resources\Platforms\LinkConnectionResource;
+use App\Http\Resources\Platforms\MusicEmbedConnectionResource;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\Payloads\CardPayload;
+use App\Services\Platforms\Payloads\EmbedPayload;
 use App\Services\Platforms\Strategies\Connect\BrandLinkConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Shop\ShopConnections;
@@ -288,12 +290,17 @@ class DerivedDescriptorFactory
 
         $label = $this->labelFor($slug, $surface, $brand);
 
+        // P3 (2026-08-27): the two keyless music embeds keep their payload/
+        // resource contract through derivation — everything else about them
+        // is the Brand default their upgrades()-era descriptors already had.
+        $embed = in_array($slug, ['mixcloud', 'tidal'], true);
+
         $descriptor = PlatformDescriptor::make($slug)
             ->label($label)
             ->derived()
             ->surfaceKey($surfaceKey)
-            ->resource(LinkConnectionResource::class)
-            ->payload(CardPayload::class)
+            ->resource($embed ? MusicEmbedConnectionResource::class : LinkConnectionResource::class)
+            ->payload($embed ? EmbedPayload::class : CardPayload::class)
             // A CLOSURE, never an instance: this runs at boot on every request,
             // and the loop's own comments explain at length why resolving a
             // strategy eagerly here is a trap. BrandLinkConnect is cheap, but the
