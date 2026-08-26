@@ -219,9 +219,8 @@ class ManualMenuItems
             ->get(['im.item_id', 'im.role', 'ma.source_url'])->groupBy('item_id');
 
         $memberships = $this->memberships($userId, $itemIds);
-        $platformUrls = $this->storefrontHosts($userId);
 
-        return $items->map(function (object $item) use ($descriptions, $rated, $offers, $badges, $media, $memberships, $platformUrls, $ownerEdited): \stdClass {
+        return $items->map(function (object $item) use ($descriptions, $rated, $offers, $badges, $media, $memberships, $ownerEdited): \stdClass {
             $id = (string) $item->id;
             $itemOffers = $offers->get($id, collect());
             $categories = $memberships['menu_category'][$id] ?? [];
@@ -251,7 +250,7 @@ class ManualMenuItems
                 'category_ids' => array_map(fn (object $c) => (string) $c->collection_id, $categories),
                 'category_labels' => $this->labelsBy($categories),
                 'category_positions' => $this->positionsBy($categories),
-                'platforms' => $this->platforms($itemOffers, $memberships['order_platform'][$id] ?? [], $platformUrls),
+                'platforms' => $this->platforms($itemOffers, $memberships['order_platform'][$id] ?? []),
                 'removed_at' => $item->removed_at,
                 'created_at' => $item->created_at,
                 'updated_at' => $item->updated_at,
@@ -301,38 +300,6 @@ class ManualMenuItems
     }
 
     /**
-     * Ordering-platform slug => the store URL's host, from the `order_platform`
-     * collections' storefront sidecars.
-     *
-     * This is what re-pairs a url-bearing offer with its platform: the
-     * projection keeps the deep link but drops the platform label (see
-     * platforms() below), and the item's deep link is derived from the store
-     * link, so they share a host.
-     *
-     * @return array<string, string> platform slug => host
-     */
-    private function storefrontHosts(string $userId): array
-    {
-        $rows = DB::connection('pgsql')->table('content.collections as c')
-            ->join('content.storefronts as sf', 'sf.collection_id', '=', 'c.id')
-            ->where('c.user_id', $userId)
-            ->where('c.kind', 'order_platform')
-            ->whereNotNull('sf.url')
-            ->get(['c.external_ref', 'sf.url']);
-
-        $out = [];
-        foreach ($rows as $row) {
-            $host = $this->hostOf((string) $row->url);
-            $ref = (string) $row->external_ref;
-            if ($host !== null && str_starts_with($ref, 'order:')) {
-                $out[substr($ref, 6)] = $host;
-            }
-        }
-
-        return $out;
-    }
-
-    /**
      * Rebuild the legacy `site.menu_item_platforms` list: one entry per
      * ordering platform the dish is sold on, with that platform's pickup and
      * delivery price + url.
@@ -352,10 +319,9 @@ class ManualMenuItems
      *
      * @param  Collection<int, \stdClass>  $offers
      * @param  list<\stdClass>  $platformMemberships
-     * @param  array<string, string>  $hosts
      * @return list<\stdClass>
      */
-    private function platforms(Collection $offers, array $platformMemberships, array $hosts): array
+    private function platforms(Collection $offers, array $platformMemberships): array
     {
         $slugs = [];
         foreach ($platformMemberships as $membership) {
@@ -368,11 +334,11 @@ class ManualMenuItems
             return [];
         }
 
-        // A per-platform offer carries `platform` (post-2026-08-26 writes) or
-        // a url (pre-migration rows, host-attributed below until the next
-        // wholesale scrape rebuild replaces them).
-        $linked = $offers->filter(fn (object $offer) => $this->text($offer->platform ?? null) !== null
-            || $this->text($offer->url ?? null) !== null);
+        // Per-platform offers carry their platform label (every write since
+        // 2026-08-26; C6 deleted the host-matching fallback once the last
+        // pre-migration rows drained — the only survivors sit on RETIRED
+        // items no reader folds).
+        $linked = $offers->filter(fn (object $offer) => $this->text($offer->platform ?? null) !== null);
 
         $out = [];
         foreach ($slugs as $slug) {
@@ -386,7 +352,7 @@ class ManualMenuItems
             ];
 
             foreach ($linked as $offer) {
-                if (! $this->offerBelongsTo($offer, $slug, $slugs, $hosts)) {
+                if ($this->text($offer->platform) !== $slug) {
                     continue;
                 }
 
@@ -407,36 +373,6 @@ class ManualMenuItems
         }
 
         return $out;
-    }
-
-    /**
-     * Host match first; a lone platform takes every url as a fallback, since
-     * there is nothing to confuse it with.
-     *
-     * @param  list<string>  $slugs
-     * @param  array<string, string>  $hosts
-     */
-    private function offerBelongsTo(object $offer, string $slug, array $slugs, array $hosts): bool
-    {
-        // Stored attribution wins outright — no heuristic when the projection
-        // kept the label (every write after 2026-08-26).
-        $stored = $this->text($offer->platform ?? null);
-        if ($stored !== null) {
-            return $stored === $slug;
-        }
-
-        $host = $this->hostOf((string) $offer->url);
-        if ($host !== null && isset($hosts[$slug]) && $hosts[$slug] === $host) {
-            return true;
-        }
-
-        // Some other platform's storefront claims this host — never fall
-        // through to the single-platform arm, which cannot fire here anyway.
-        if ($host !== null && in_array($host, array_intersect_key($hosts, array_flip($slugs)), true)) {
-            return false;
-        }
-
-        return count($slugs) === 1;
     }
 
     /**
@@ -543,13 +479,6 @@ class ManualMenuItems
         }
 
         return $out;
-    }
-
-    private function hostOf(string $url): ?string
-    {
-        $host = parse_url($url, PHP_URL_HOST);
-
-        return is_string($host) && $host !== '' ? strtolower($host) : null;
     }
 
     private function text(mixed $value): ?string
