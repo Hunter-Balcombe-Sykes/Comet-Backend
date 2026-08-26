@@ -1004,6 +1004,13 @@ return [
     // menu platforms — the DB CHECK constraints that used to hardcode this list were
     // dropped (20260704170000); app-layer validation via this registry replaces them.
     'menu' => [
+        // NAMING (C10, 2026-08-26, deliberate): these registry keys are the
+        // menu lane's vocabulary and stay HYPHENATED ('uber-eats'), matching
+        // offers.platform and the pools wire. Catalog brands underscore
+        // ('uber_eats'); the boundary translators are MenuSource::surfaceSlug
+        // (surface → registry slug), MenuItemDeepLinks::WIRE_KEYS (registry
+        // slug → dashboard wire key) and PoolResolver::wirePlatform. Do not
+        // "unify" the spellings — each vocabulary has live storage behind it.
         'platforms' => [
             // Square first — top priority for pricing/images over Uber Eats/DoorDash
             // (merchant-canonical). transport=http (2026-08-26): Square Online's
@@ -1022,13 +1029,13 @@ return [
                 // one of five named competitors matched, and `order.attacker.example`
                 // was scraped and rendered on a public sitepage under Square's brand.
                 // It cannot be repaired by anchoring, because a Square Online custom
-                // domain is indistinguishable from an attacker's by hostname alone --
-                // which is exactly why app/Catalog/Definitions/Square.php gives
-                // square.order NO detector ("detector intentionally absent"). Dropping
-                // the arm aligns this registry with the catalog and with every other
-                // entry here, all of which are exact-domain. Cost: a hypothetical
-                // `order.<merchant>.com` Square Online store stops being auto-detected
-                // and must be connected explicitly.
+                // domain is indistinguishable from an attacker's by hostname alone.
+                // (2026-08-27: Square.php now gives square.order a PATH-qualified
+                // /s/order detector on square.site — Square's OWN domain, so it
+                // does not reopen this hole. Custom domains stay host-undetectable
+                // by design and connect via the storefront-marker probe +
+                // surface-key stamp instead; MenuSource trusts the stamp, so this
+                // host_pattern is only the fallback for square.site hosts.)
                 'host_pattern' => '~(^|\.)square\.site$|(^|\.)square\.com$~',
                 'driver' => SquareMenuDriver::class,
             ],

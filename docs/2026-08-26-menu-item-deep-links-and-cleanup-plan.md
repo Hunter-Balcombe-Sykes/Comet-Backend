@@ -535,3 +535,28 @@ uber-eats offers carry quickView item_urls + uuids + availability for
 every dish the actor supplied identity for. Golden master 142→143;
 BrandCoverage green via square-ordering→square classifier alias.
 Remaining for G5: wire click-through verification on the live sitepage.
+
+**G4/G5 EVIDENCE + C-phase progress — 2026-08-27 ~02:00 AEST.** Shipped
+since last checkpoint: B5 (casing via CasesScannedNames in scan+Fresha
+lanes; category denylist + last-sorted More in both menu lanes; wrapper
+log), B3 matcher (MenuNameMatcher pass 2/3, all audit misses pinned,
+wired into merger + scan applier with same-source guardrail), fusion
+resilience (identity union + both-key price maps; sticky identity
+carry-forward — actor identity measured time-variable 34/82 vs 82/82),
+dup-occurrence identity fill, A4 harvester (/s/order path-qualified,
+before booking), C1 (four ordering PD entries retired to catalog-derived
+via the P0.0 freeze fix; RegistryCoverageTest pins the resolution
+invariant; golden master unchanged at 143), C2/C3 (*Source +
+dd_external_id stripped model→merger→wire), C9 (menus-r-us actor deleted
+with transport=http), C10 (naming doctrine documented in config), doc
+sweeps + handoff docs annotated. D3 resolved: badges verified flowing
+live (9 rows, real DoorDash dietary badges). OutboundHttpGuard: Square
+driver page fetch through SafeUrlFetcher (pattern B), products API
+pattern D with API_ID_PATTERN.
+
+LIVE G5 WIRE EVIDENCE (ollies dev): pools wire selection carries
+per-dish links[] — 34 of 105 dishes linked; ALL 14 Square dishes carry
+real product-page URLs (order.fat-tuna.com/product/...), stored-platform
+labelled. Remaining before G8: gate critic verdict on the span, sitepage
+click-through, C6 (host heuristic deletion after a scrape cycle), C7/C8
+residue, G6 probe-flow UI check.

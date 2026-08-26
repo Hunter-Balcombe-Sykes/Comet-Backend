@@ -283,3 +283,59 @@ it('drops rail categories but keeps their dishes, filing category-less dishes un
     $mystery = app(ManualMenuItems::class)->rows((string) $user->id)->firstWhere('headline', 'Mystery Special');
     expect(array_values($mystery->category_labels))->toBe(['Specials']);
 });
+
+it('defers retirement of a failed platform\'s exclusive dishes instead of treating a transient miss as a delisting', function () {
+    // Gate-critic guard (2026-08-27): Square's single-fetch http lane widens
+    // the transient-failure window; a dish that exists ONLY on the failed
+    // platform must ghost, not retire. A dish also on the SUCCEEDED platform
+    // still retires when that platform stopped listing it.
+    $user = mfjrUser('mfjr7');
+    mfjrOrdering($user);
+    // Second platform: square, connected via its surface.
+    $url = 'https://ischia-restaurant.square.site/';
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'square.order',
+        'resource_id' => 'order-'.substr(sha1($url), 0, 16),
+        'payload' => ['id' => 'x', 'provider' => 'custom', 'url' => $url, 'name' => 'Order', 'source' => 'manual'],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+
+    // Run 1: both platforms scrape — Cola on both, Zeppole ONLY on square.
+    test()->mock(MenuApifyScraper::class, function ($m) {
+        $m->shouldReceive('fetchStores')->once()->andReturn([
+            'uber-eats' => [
+                'store' => ['name' => 'Two Lane', 'currency' => 'AUD'],
+                'categories' => [['name' => 'Drinks', 'items' => [['name' => 'Cola', 'pickupPrice' => 3.0, 'deliveryPrice' => 3.0]]]],
+            ],
+            'square' => [
+                'store' => ['name' => 'Two Lane', 'currency' => 'AUD'],
+                'categories' => [['name' => 'Dolci', 'items' => [
+                    ['name' => 'Zeppole', 'pickupPrice' => 9.0, 'deliveryPrice' => 9.0],
+                    ['name' => 'Cola', 'pickupPrice' => 3.0, 'deliveryPrice' => 3.0],
+                ]]],
+            ],
+        ]);
+    });
+    (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+    expect(app(ManualMenuItems::class)->rows((string) $user->id)->pluck('headline')->sort()->values()->all())
+        ->toBe(['Cola', 'Zeppole']);
+
+    // Run 2: square FAILS (null); uber succeeds and has dropped Cola.
+    test()->mock(MenuApifyScraper::class, function ($m) {
+        $m->shouldReceive('fetchStores')->once()->andReturn([
+            'uber-eats' => [
+                'store' => ['name' => 'Two Lane', 'currency' => 'AUD'],
+                'categories' => [['name' => 'Drinks', 'items' => [['name' => 'Fanta', 'pickupPrice' => 3.5, 'deliveryPrice' => 3.5]]]],
+            ],
+            'square' => null,
+        ]);
+    });
+    (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
+
+    $headlines = app(ManualMenuItems::class)->rows((string) $user->id)->pluck('headline')->sort()->values()->all();
+    // Zeppole (square-exclusive) is SPARED; Cola (on the succeeded uber, now
+    // absent there — and square can't vouch this round) retires... unless its
+    // square membership spares it too: Cola is NOT exclusive to the failed
+    // platform, so the normal retire verdict stands.
+    expect($headlines)->toContain('Zeppole')->toContain('Fanta')->not->toContain('Cola');
+});

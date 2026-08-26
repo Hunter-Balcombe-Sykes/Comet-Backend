@@ -57,3 +57,14 @@ it('refuses to match disjoint brands entirely', function () use ($matcher) {
 it('treats a shorter brand prefix as the same line (italo ⊂ italo disco)', function () use ($matcher) {
     expect($matcher->brandLineMatch('Italo Disco Espresso Concentrate 1.2L', 'Cold Brew Bags. (italo Concentrate 1.2l)'))->toBe('merge');
 });
+
+it('yields NO key for names whose identity would be only a size or generic words (collision guard)', function () use ($matcher) {
+    // Gate-critic regression (2026-08-27): these pairs collided on "12 pack" /
+    // "500ml" and would have fused unrelated dishes.
+    expect($matcher->variantKey('Hot Coffee (12 Pack)'))->toBe('')
+        ->and($matcher->variantKey('Iced Coffee (12 Pack)'))->toBe('')
+        ->and($matcher->variantKey('Cold Brew (500ml)'))->toBe('')
+        ->and($matcher->variantKey('Filter Coffee (500ml)'))->toBe('')
+        // A distinctive parenthetical still unwraps.
+        ->and($matcher->variantKey('Cold Brew Bags. (wide Awake)'))->toBe('wide awake');
+});

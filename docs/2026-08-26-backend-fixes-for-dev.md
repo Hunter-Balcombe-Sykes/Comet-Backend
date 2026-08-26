@@ -1,3 +1,9 @@
+> **STATUS (2026-08-27):** items 1-3 SHIPPED by the menu deep-links run
+> (revival fix, MenuNameMatcher, casing/category quality — see that plan's
+> checkpoints). Items 4-5 are owned by
+> `docs/2026-08-26-routing-fixes-plan.md` (plan 3, queued next). Do not
+> start work from this doc.
+
 # Backend fixes — 2026-08-26 (handoff)
 
 Running list for the backend dev. Item 1 is fully diagnosed with evidence;

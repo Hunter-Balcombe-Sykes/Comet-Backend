@@ -1,3 +1,8 @@
+> **SUPERSEDED (2026-08-27):** built and shipped by
+> `docs/2026-08-26-menu-item-deep-links-and-cleanup-plan.md` — see its RUN
+> CHECKPOINTS. Kept only as the original research record; delete with the
+> plan when the run completes.
+
 # Handoff: per-item Uber Eats deep links (research complete, nothing built)
 
 Context: sitepage menu items now show an "ORDER ON" overlay with platform
