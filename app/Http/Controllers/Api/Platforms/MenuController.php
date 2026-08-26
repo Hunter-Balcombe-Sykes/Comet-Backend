@@ -191,7 +191,36 @@ class MenuController extends ApiController
         $menu = Menu::query()->where('user_id', $user->id)->first();
         $this->authorizeForUser($user, 'update', $menu ?? new Menu(['user_id' => $user->id]));
 
-        $result = $this->scanApplier->apply($user, $request->validated()['items']);
+        $items = $request->validated()['items'];
+        $result = $this->scanApplier->apply($user, $items);
+
+        // Persist for MenuFetchJob's post-rebuild re-apply — the same contract
+        // GoogleMenuPhotoScanJob writes. Without this, a manual scan's
+        // enrichment of SCRAPED dishes was silently lost on the next /refresh
+        // rebuild (the automatic scan survived, the user's own upload didn't).
+        // Merged by normalized name (new batch wins) so a manual upload and the
+        // Google-photos scan can coexist in the one slot; re-fetch because
+        // apply() creates the row when the user had none.
+        $menu = Menu::query()->where('user_id', $user->id)->first();
+        if ($menu !== null) {
+            $existing = is_array($menu->scan_items['items'] ?? null) ? $menu->scan_items['items'] : [];
+            $newNames = [];
+            foreach ($items as $item) {
+                $newNames[mb_strtolower(trim((string) $item['name']))] = true;
+            }
+            $kept = array_values(array_filter(
+                $existing,
+                static fn ($item) => is_array($item)
+                    && ! isset($newNames[mb_strtolower(trim((string) ($item['name'] ?? '')))]),
+            ));
+            $menu->forceFill([
+                'scan_items' => [
+                    'items' => array_slice([...$kept, ...$items], 0, 400),
+                    'source' => 'upload',
+                    'scannedAt' => now()->toIso8601String(),
+                ],
+            ])->save();
+        }
 
         return $this->success($result);
     }
