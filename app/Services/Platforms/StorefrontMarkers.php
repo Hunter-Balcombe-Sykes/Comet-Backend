@@ -20,20 +20,40 @@ final class StorefrontMarkers
         'woocommerce' => 'WooCommerce',
         'squarespace' => 'Squarespace',
         'bigcartel' => 'Big Cartel',
+        'square-online' => 'Square Online',
     ];
 
+    /**
+     * A provider whose value is a LIST requires EVERY pattern to match —
+     * square-online needs the pairing because plain Weebly sites share the
+     * editmysite CDN marker; only the commerce runtime
+     * (__BOOTSTRAP_STATE__/store_mode/store api) separates an ordering
+     * storefront from a brochure site on the same platform (A0.3,
+     * live-verified 2026-08-26 on square.site AND custom domains).
+     */
     private const SIGNATURES = [
         'shopify' => '~cdn\.shopify\.com|/cdn/shop/|window\.Shopify|Shopify\.theme~i',
         'woocommerce' => '~plugins/woocommerce|class=["\'][^"\']*\bwoocommerce~i',
         'squarespace' => '~Static\.SQUARESPACE_CONTEXT|assets\.squarespace\.com~i',
         'bigcartel' => '~bigcartel\.com~i',
+        'square-online' => [
+            '~cdn\d*\.editmysite\.com~i',
+            '~__BOOTSTRAP_STATE__|"store_mode"|/app/store/api/~',
+        ],
     ];
 
     /** The provider whose runtime signature this HTML carries, or null. */
     public static function detect(string $html): ?string
     {
-        foreach (self::SIGNATURES as $provider => $pattern) {
-            if (preg_match($pattern, $html) === 1) {
+        foreach (self::SIGNATURES as $provider => $patterns) {
+            $matched = true;
+            foreach ((array) $patterns as $pattern) {
+                if (preg_match($pattern, $html) !== 1) {
+                    $matched = false;
+                    break;
+                }
+            }
+            if ($matched) {
                 return $provider;
             }
         }

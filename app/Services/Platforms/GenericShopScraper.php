@@ -171,7 +171,12 @@ class GenericShopScraper extends PlatformScraper
      */
     private function looksLikeStorefront(string $html): bool
     {
-        return StorefrontMarkers::detect($html) !== null;
+        $provider = StorefrontMarkers::detect($html);
+
+        // square-online is an ORDERING storefront, not a shop — treating it
+        // as a generic shop would card menu dishes as products. Its connect
+        // offer rides the ordering lane (LinkPreviewController orderingStore).
+        return $provider !== null && $provider !== 'square-online';
     }
 
     /**

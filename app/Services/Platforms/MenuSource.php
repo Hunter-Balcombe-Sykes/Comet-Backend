@@ -53,7 +53,7 @@ class MenuSource
     {
         $entries = $this->entries($user);
         foreach (array_keys(config('partna.menu.platforms')) as $platform) {
-            $match = $entries->first(fn (array $e) => $this->platformOf($e['url'] ?? null) === $platform);
+            $match = $entries->first(fn (array $e) => ($e['menuPlatform'] ?? null) === $platform);
             if (is_array($match)) {
                 return ['platform' => $platform, 'storeUrl' => $this->normalize((string) $match['url'])];
             }
@@ -84,7 +84,7 @@ class MenuSource
         // Newest matching entry per registry platform, in priority order.
         $firsts = [];
         foreach (array_keys(config('partna.menu.platforms')) as $slug) {
-            $firsts[$slug] = $entries->first(fn (array $e) => $this->platformOf($e['url'] ?? null) === $slug);
+            $firsts[$slug] = $entries->first(fn (array $e) => ($e['menuPlatform'] ?? null) === $slug);
         }
         $present = array_filter($firsts, 'is_array');
         if ($present === []) {
@@ -165,7 +165,7 @@ class MenuSource
         // recency everywhere else. Key by platform → its consolidated store.
         $byPlatform = [];
         foreach ($entries as $entry) {
-            $platform = $this->platformOf($entry['url'] ?? null);
+            $platform = $entry['menuPlatform'] ?? null;
             if ($platform === null) {
                 continue;
             }
@@ -248,7 +248,21 @@ class MenuSource
                 ->orderByDesc('created_at')
                 ->orderByDesc('id')
                 ->get()
-                ->map(fn (IntegrationConnection $r) => CardPayload::fromArray($r->payload)->toArray())
+                ->map(function (IntegrationConnection $r) {
+                    $entry = CardPayload::fromArray($r->payload)->toArray();
+                    // D7 (2026-08-26): the connection's surface IS the
+                    // platform — stamped at connect time with real routing
+                    // evidence — so it wins over re-deriving from the URL
+                    // host. The host pattern stays as the fallback for rows
+                    // with no mappable surface (legacy connects, harvest
+                    // rows), and is the ONLY path that can never work for
+                    // custom-domain Square stores (#SEC-3 removed their
+                    // host rule on purpose).
+                    $entry['menuPlatform'] = $this->surfaceSlug($r->surface_key)
+                        ?? $this->platformOf($entry['url'] ?? null);
+
+                    return $entry;
+                })
                 // FOUND-36 (documented-defer): `url` is filtered here only, over ≤MAX_ENTRIES (10)
                 // online-ordering rows per user — no DB filter/index/uniqueness need exists today.
                 // Revisit only if a second reader needs to query by url.
@@ -266,9 +280,9 @@ class MenuSource
     private function modePlatform(Collection $entries, string $type): ?string
     {
         $match = $entries->first(fn (array $e) => data_get($e, 'data.type') === $type
-            && $this->platformOf($e['url'] ?? null) !== null);
+            && ($e['menuPlatform'] ?? null) !== null);
 
-        return is_array($match) ? $this->platformOf($match['url']) : null;
+        return is_array($match) ? $match['menuPlatform'] : null;
     }
 
     /**
@@ -299,6 +313,25 @@ class MenuSource
         );
 
         return $parts === [] ? null : implode(', ', $parts).', Australia';
+    }
+
+    /**
+     * surface_key → menu-registry slug ('square.order' → 'square',
+     * 'uber_eats.order' → 'uber-eats'), null when the brand isn't a menu
+     * platform. The registry keys are hyphenated; surface brands underscore.
+     */
+    private function surfaceSlug(?string $surfaceKey): ?string
+    {
+        if (! is_string($surfaceKey) || $surfaceKey === '') {
+            return null;
+        }
+        $brand = strstr($surfaceKey, '.', true);
+        if ($brand === false || $brand === '') {
+            return null;
+        }
+        $slug = str_replace('_', '-', $brand);
+
+        return array_key_exists($slug, $this->hostPatterns()) ? $slug : null;
     }
 
     private function platformOf(mixed $url): ?string

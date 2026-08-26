@@ -124,9 +124,19 @@ class LinkPreviewController extends ApiController
             // The pure-grammar classification, so the Links sheet can offer
             // "this looks like a track — add it on Listen" in step 1.
             'classification' => $this->classifier->classify($url),
-            'store' => $storefront === null || ! is_string($scheme) || ! is_string($host) ? null : [
+            'store' => $storefront === null || $storefront === 'square-online' || ! is_string($scheme) || ! is_string($host) ? null : [
                 'provider' => $storefront,
                 'label' => StorefrontMarkers::LABELS[$storefront] ?? $storefront,
+                'url' => strtolower($scheme).'://'.strtolower($host).'/',
+            ],
+            // A Square Online storefront is ORDERING, not shop (A3,
+            // 2026-08-26): the sheet offers "connect it as Square Online"
+            // against the square-ordering platform — the only ingress for
+            // custom-domain Square stores, whose host rule was deliberately
+            // removed (#SEC-3).
+            'orderingStore' => $storefront !== 'square-online' || ! is_string($scheme) || ! is_string($host) ? null : [
+                'platform' => 'square-ordering',
+                'label' => StorefrontMarkers::LABELS['square-online'],
                 'url' => strtolower($scheme).'://'.strtolower($host).'/',
             ],
             // T8: a DEEP page carrying product markup reads as a product —

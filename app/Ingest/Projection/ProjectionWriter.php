@@ -1617,7 +1617,12 @@ class ProjectionWriter
         // price alone silently drops a live link.
         $dedupe = [
             'item_media' => ['asset_id', 'role'],
-            'offers' => ['channel', 'variant_label', 'amount_minor', 'currency', 'qualifier', 'url'],
+            // platform/item_url/external_ref joined 2026-08-26: menu offers
+            // now write url as NULL uniformly (D1), so without them two
+            // platforms' offers at one price — or two identity-only ghost
+            // rows — would fold to one key and silently drop a platform's
+            // deep link.
+            'offers' => ['channel', 'variant_label', 'amount_minor', 'currency', 'qualifier', 'url', 'platform', 'item_url', 'external_ref'],
             'item_tags' => ['tag', 'tag_type'],
             'item_variants' => ['label', 'sku'],
         ];
