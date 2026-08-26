@@ -549,3 +549,45 @@ it('folds case when deciding a suggestion is already connected (M-7 surfaces)', 
     expect(actingAsUser($pro)->getJson('/api/routing/suggestions')->assertOk()->json('suggestions'))
         ->toBe([]);
 });
+
+it('names a suggested store on the card, rather than showing only its numeric id', function () {
+    // The user-visible symptom: a card reading "Shopify store 23504463".
+    // displayName is the catalog SURFACE label ("Shopify store") and the
+    // identifier slot held the shop id, so the storefront's own name — which
+    // the probe already fetched from /meta.json and hands to the seeder —
+    // reached the brand row but never the suggestion.
+    setupContentTables();
+    Cache::flush();
+    $pro = createTenant('inbox-store-name');
+    Http::fake([
+        '*/meta.json' => Http::response(['id' => 23504463, 'name' => 'ST. ALi', 'currency' => 'AUD'], 200),
+        'https://stali.com.au/' => Http::response('<html><head><title>ST. ALi</title></head><body>Coffee</body></html>', 200, ['Content-Type' => 'text/html']),
+        '*' => Http::response('', 404),
+    ]);
+    app()->call([new CommerceProbeJob((string) $pro->id, 'https://stali.com.au/', suggestOnly: true), 'handle']);
+
+    $card = collect(actingAsUser($pro)->getJson('/api/routing/suggestions')->assertOk()->json('suggestions'))
+        ->firstWhere('surfaceKey', 'shopify.store');
+
+    // Additive: identifier keeps meaning "the id", so no client breaks.
+    expect($card['identifier'])->toBe('23504463')
+        ->and($card['accountName'])->toBe('ST. ALi');
+});
+
+it('leaves accountName null when the probe lane carries no name', function () {
+    // The myshopify.com host-detector lane is regex-only and never fetches
+    // /meta.json, so there is no name to carry. Null is the honest answer —
+    // the frontend falls back to the URL host. Pinned so a later change
+    // cannot start blocking nameless suggestions.
+    $pro = createTenant('inbox-store-noname');
+    seedIntent($pro->id, [
+        'surface_key' => 'shopify.store', 'routing_class' => 'shop',
+        'identifier' => 'acme', 'canonical_url' => 'https://acme.myshopify.com',
+        'block_reason' => 'below_threshold',
+    ]);
+
+    $card = collect(actingAsUser($pro)->getJson('/api/routing/suggestions')->assertOk()->json('suggestions'))
+        ->firstWhere('surfaceKey', 'shopify.store');
+
+    expect($card['accountName'])->toBeNull();
+});

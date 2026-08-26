@@ -347,6 +347,14 @@ class SourceReconciler
             'updated_at' => $now,
         ];
 
+        // Only when this pass carried one. A later pass through a lane that
+        // has no name (the myshopify.com detector never fetches) must not
+        // blank a name an earlier probe already earned — the same
+        // coalesce-don't-clobber rule the brand row's favicon follows.
+        if ($placement->identifierLabel !== null) {
+            $fields['identifier_label'] = $placement->identifierLabel;
+        }
+
         // 1. A live intent already exists -> advance it.
         if ($id = $this->advanceLiveIntent($user, $placement->surfaceKey, $identifier, $fields)) {
             return $id;
@@ -366,6 +374,7 @@ class SourceReconciler
             'surface_key' => $placement->surfaceKey,
             'routing_class' => $routingClass,
             'identifier' => $identifier,
+            'identifier_label' => $placement->identifierLabel,
             'canonical_url' => $iri->canonical,
             'state' => $verdict->intentState(),
             'block_reason' => $blockReason,

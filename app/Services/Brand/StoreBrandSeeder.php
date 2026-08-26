@@ -81,6 +81,13 @@ class StoreBrandSeeder
         $projection = $probe->toProjection();
         $placement = $this->policy->decide($projection, $context);
 
+        // The storefront's own name, straight off the probe that already
+        // fetched it (evidence['shop_name'], used for the brand row below).
+        // Attached HERE because this is the one place holding both the probe
+        // and the placement — PlacementPolicy is a decision function and has
+        // no business knowing what a network call returned.
+        $placement = $placement->withLabel($probe->evidence['shop_name'] ?? null);
+
         // A pasted link's probe (owner ask, 2026-08-18) OFFERS the store rather
         // than installing it: the user typed a URL into the link box, and a
         // connected store (products, a shop page) is a bigger thing than they
@@ -88,7 +95,12 @@ class StoreBrandSeeder
         // suggestion — "Is this your Shopify?" in the inbox — and the accept
         // path builds the store through this same seeder.
         if ($suggestOnly && $placement->verdict === Verdict::Place) {
-            $placement = new Placement(Verdict::Choose, $placement->surfaceKey, $placement->identifier, 'below_threshold', 'offered from a pasted link');
+            $placement = (new Placement(Verdict::Choose, $placement->surfaceKey, $placement->identifier, 'below_threshold', 'offered from a pasted link'))
+                // Carry the name across the downgrade. This rebuild is
+                // positional, so a new Placement field is silently dropped
+                // here unless it is named — which is exactly how the store's
+                // name failed to reach the suggestion it is FOR.
+                ->withLabel($placement->identifierLabel);
         }
 
         // The probe leaves the same trace a paste does. "Why is this store on

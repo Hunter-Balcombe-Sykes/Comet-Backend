@@ -68,6 +68,7 @@ beforeEach(function () {
         surface_key text NOT NULL,
         routing_class text NOT NULL,
         identifier text NOT NULL,
+        identifier_label text,
         canonical_url text,
         state text NOT NULL DEFAULT \'proposed\'
             CHECK (state IN (\'proposed\', \'applied\', \'blocked\', \'dismissed\', \'superseded\')),

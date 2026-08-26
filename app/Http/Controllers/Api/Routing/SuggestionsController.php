@@ -110,6 +110,12 @@ class SuggestionsController extends ApiController
                 'brandKey' => $surface['brand_key'] ?? null,
                 'routingClass' => $intent->routing_class,
                 'identifier' => $intent->identifier,
+                // The account's own name, when the lane that found it carried
+                // one. Its own field rather than overloading 'identifier':
+                // a client cannot otherwise tell a name from an id, and
+                // displayName is the catalog's SURFACE label ("Shopify
+                // store"), not this storefront's. NULL is normal.
+                'accountName' => $intent->identifier_label ?? null,
                 'url' => $intent->canonical_url,
                 'origin' => $intent->origin,
                 'firstSeenAt' => $intent->first_seen_at,
