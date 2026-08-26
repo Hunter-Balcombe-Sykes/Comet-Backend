@@ -157,13 +157,21 @@ class DerivedDescriptorFactory
      *
      * @return array<string, PlatformDescriptor> slug => descriptor
      */
-    public function build(): array
+    public function build(array $handWrittenSlugs = []): array
     {
+        // P0.0 (PD-retirement plan, 2026-08-26): the freeze binds only slugs
+        // the registry STILL hand-writes. A frozen slug whose hand-written
+        // entry has been deleted derives like any catalog brand — that is
+        // what makes deleting a PD entry retire it to the catalog instead of
+        // vaporizing the platform (routes, availability, everything).
+        // Passing no set preserves the old unconditional skip for callers
+        // that predate the parameter.
         $frozen = array_flip(PlatformRegistry::handWrittenFreeze());
+        $handWritten = array_flip($handWrittenSlugs);
         $derived = [];
 
         foreach ($this->candidates() as $slug => [$key, $surface, $brand]) {
-            if (isset($frozen[$slug])) {
+            if (isset($frozen[$slug]) && ($handWrittenSlugs === [] || isset($handWritten[$slug]))) {
                 continue;
             }
 

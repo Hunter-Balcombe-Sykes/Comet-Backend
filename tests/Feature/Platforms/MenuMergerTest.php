@@ -70,9 +70,7 @@ it('prices pickup from DoorDash and delivery from Uber Eats for a matched item',
 
     expect($item['basePrice'])->toBe(15.5);              // min across platforms
     expect($item['pickupPrice'])->toBe(15.5);            // DoorDash offers pickup
-    expect($item['pickupSource'])->toBe('doordash');
     expect($item['deliveryPrice'])->toBe(17.0);          // Uber Eats offers delivery
-    expect($item['deliverySource'])->toBe('uber-eats');
     expect($item['imageUrl'])->toBe('https://ue/img.jpg'); // UE image preferred
     expect($item['rating'])->toBe(95.0);                 // DoorDash-only
     expect($item['badges'][0]['text'])->toBe('#1 Most liked');
@@ -189,9 +187,7 @@ it('aggregates pickupPrice and deliveryPrice as the min among capable platforms'
 
     expect($item['basePrice'])->toBe(19.5);     // min across
     expect($item['pickupPrice'])->toBe(19.5);   // DoorDash cheaper, offers pickup
-    expect($item['pickupSource'])->toBe('doordash');
     expect($item['deliveryPrice'])->toBe(19.5); // DoorDash cheaper, offers delivery
-    expect($item['deliverySource'])->toBe('doordash');
 });
 
 it('leaves a mode price null when no platform offers that mode', function () {
@@ -202,9 +198,7 @@ it('leaves a mode price null when no platform offers that mode', function () {
     $item = (new MenuMerger)->merge(['uber-eats' => $ue], 'uber-eats', $links)['categories'][0]['items'][0];
 
     expect($item['deliveryPrice'])->toBe(17.0);
-    expect($item['deliverySource'])->toBe('uber-eats');
     expect($item['pickupPrice'])->toBeNull();
-    expect($item['pickupSource'])->toBeNull();
     expect($item['platforms'])->toHaveCount(1);
     expect($item['platforms'][0]['pickupPrice'])->toBeNull();
     expect($item['platforms'][0]['deliveryPrice'])->toBe(17.0);
@@ -246,7 +240,6 @@ it('uses DoorDash as the canonical source when no Uber Eats menu exists', functi
 
     expect($merged['store']['rating'])->toBe(3.7);
     expect($item['pickupPrice'])->toBe(4.0);
-    expect($item['pickupSource'])->toBe('doordash');
     expect($item['deliveryPrice'])->toBeNull();          // no delivery platform
     expect($item['rating'])->toBe(90.0);
     expect($item['imageUrl'])->toBe('https://dd/rice.jpg');
@@ -294,7 +287,6 @@ it('attaches a connected-but-unscraped platform to every dish as a priceless gho
     // Aggregates come only from the platform that actually priced (DoorDash).
     $margherita = $items->firstWhere('name', 'Margherita');
     expect($margherita['pickupPrice'])->toBe(18.0);
-    expect($margherita['pickupSource'])->toBe('doordash');
     expect($margherita['basePrice'])->toBe(18.0);
 });
 

@@ -536,9 +536,7 @@ class MenuMerger
             'currency' => $this->pick($versions, 'currency'),        // Uber Eats only (DoorDash items carry none)
             'basePrice' => $aggregates['basePrice'],
             'pickupPrice' => $aggregates['pickupPrice'],
-            'pickupSource' => $aggregates['pickupSource'],
             'deliveryPrice' => $aggregates['deliveryPrice'],
-            'deliverySource' => $aggregates['deliverySource'],
             'platforms' => $platforms,
             // ddExternalId is gone (2026-08-26): platform item ids ride on
             // each platforms[] entry as externalId — per-platform, not a
@@ -636,20 +634,18 @@ class MenuMerger
      * that mode.
      *
      * @param  list<array{platform:string, pickupPrice:?float, deliveryPrice:?float, itemUrl:?string, externalId:?string, soldOut:?bool}>  $platforms
-     * @return array{basePrice:?float, pickupPrice:?float, pickupSource:?string, deliveryPrice:?float, deliverySource:?string}
+     * @return array{basePrice:?float, pickupPrice:?float, deliveryPrice:?float}
      */
     private function aggregates(array $platforms): array
     {
-        $base = $this->minMode($platforms, 'base');
-        $pickup = $this->minMode($platforms, 'pickup');
-        $delivery = $this->minMode($platforms, 'delivery');
-
+        // The *Source tags ("which platform backs this min") died with the
+        // slice-7 projection — nothing persisted or rendered them since, and
+        // per-platform prices ride each platforms[] entry anyway (C2,
+        // 2026-08-26).
         return [
-            'basePrice' => $base['price'],
-            'pickupPrice' => $pickup['price'],
-            'pickupSource' => $pickup['source'],
-            'deliveryPrice' => $delivery['price'],
-            'deliverySource' => $delivery['source'],
+            'basePrice' => $this->minMode($platforms, 'base')['price'],
+            'pickupPrice' => $this->minMode($platforms, 'pickup')['price'],
+            'deliveryPrice' => $this->minMode($platforms, 'delivery')['price'],
         ];
     }
 

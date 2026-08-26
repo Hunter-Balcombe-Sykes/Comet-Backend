@@ -688,12 +688,10 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 
     /**
      * The merged dish in the legacy `site.menu_items` column shape
-     * MenuProjectionMapper::project() reads. Two merged keys have no
-     * projection target and are dropped here rather than carried nowhere:
-     * pickupSource / deliverySource (which platform backed the aggregate
-     * min). Per-platform identity (external ids, item links, stock) rides on
-     * platformRows() → content.offers since 2026-08-26, so nothing else is
-     * lossy any more.
+     * MenuProjectionMapper::project() reads. Nothing is lossy any more:
+     * per-platform identity (external ids, item links, stock) rides on
+     * platformRows() → content.offers, and the old *Source aggregate tags
+     * are gone from the merged shape entirely (C2, 2026-08-26).
      *
      * @param  array<string, mixed>  $item
      */

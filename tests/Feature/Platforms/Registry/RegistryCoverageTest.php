@@ -26,13 +26,23 @@ it('keeps the hand-written registry frozen to the legacy map', function () {
     // rather than introducing it. The freeze still binds the HAND-WRITTEN half —
     // that half is what the 20260727110001 backfill CASE mirrors, and
     // CatalogLegacyMapTest pins it independently.
-    $frozen = PlatformRegistry::handWrittenFreeze();
-    sort($frozen);
+    // P0.0 (2026-08-26): the freeze binds RESOLUTION, not authorship. Every
+    // legacy-map slug must resolve to SOME descriptor — hand-written while it
+    // exists, catalog-derived once its PD entry is deleted (the four ordering
+    // slugs were the first to retire). A slug that resolves to NOTHING is the
+    // vaporized-platform failure this test exists to catch.
+    foreach (PlatformRegistry::handWrittenFreeze() as $slug) {
+        expect($registry->has($slug))->toBeTrue(
+            "Frozen slug '{$slug}' resolves to no descriptor at all — deleting its hand-written entry without a derivable catalog surface vaporizes the platform."
+        );
+    }
 
-    $handWritten = array_values(array_intersect($registry->keys(), $frozen));
-    sort($handWritten);
-
-    expect($handWritten)->toBe($frozen);
+    // The first four retirees stay retired: derived, never re-hand-written.
+    foreach (['square-ordering', 'bopple', 'hungrypanda', 'easi'] as $slug) {
+        expect($registry->get($slug)?->isDerived())->toBeTrue(
+            "'{$slug}' was retired to a catalog-derived descriptor (2026-08-26); a hand-written entry has crept back."
+        );
+    }
 });
 
 it('never lets a derived descriptor shadow a hand-written one', function () {
@@ -40,7 +50,9 @@ it('never lets a derived descriptor shadow a hand-written one', function () {
 
     // register() throws on a duplicate key, so a shadow can only appear if the
     // derived registration site stopped skipping on has(). Belt to that brace.
-    foreach (PlatformRegistry::handWrittenFreeze() as $slug) {
+    // The retired ordering slugs are excluded: derived IS their end state.
+    $retired = ['square-ordering', 'bopple', 'hungrypanda', 'easi'];
+    foreach (array_diff(PlatformRegistry::handWrittenFreeze(), $retired) as $slug) {
         expect($registry->get($slug)?->isDerived())->toBeFalse(
             "Derived descriptor shadowed the hand-written '{$slug}'."
         );
