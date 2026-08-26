@@ -55,6 +55,8 @@ class MenuMerger
     // IS the priority order) instead of a hardcoded list — memoized per instance.
     private ?array $platforms = null;
 
+    private ?MenuNameMatcher $matcher = null;
+
     /** @return list<string> */
     private function platforms(): array
     {
@@ -767,21 +769,37 @@ class MenuMerger
      */
     private function index(array $categories): array
     {
+        $matcher = $this->nameMatcher();
         $exact = [];
+        $variant = [];
         $all = [];
         foreach ($categories as $ci => $category) {
             foreach ((array) ($category['items'] ?? []) as $ii => $item) {
-                $norm = $this->normalizeName((string) ($item['name'] ?? ''));
+                $name = (string) ($item['name'] ?? '');
+                $norm = $this->normalizeName($name);
                 if ($norm === '') {
                     continue;
                 }
                 $key = $ci.':'.$ii;
                 $exact[$norm] ??= ['key' => $key, 'item' => $item];
+                // Pass 2 (backend-fixes item 2): parentheticals stripped,
+                // generic wrappers unwrapped, units normalized — so
+                // "Orthodox Drip Coffee Bags (7 Sachets)" pairs with its
+                // parenthetical-less twin on the other platform.
+                $variantKey = $matcher->variantKey($name);
+                if ($variantKey !== '' && $variantKey !== $norm) {
+                    $variant[$variantKey] ??= ['key' => $key, 'item' => $item];
+                }
                 $all[] = ['norm' => $norm, 'key' => $key, 'item' => $item];
             }
         }
 
-        return ['exact' => $exact, 'all' => $all];
+        return ['exact' => $exact, 'variant' => $variant, 'all' => $all];
+    }
+
+    private function nameMatcher(): MenuNameMatcher
+    {
+        return $this->matcher ??= new MenuNameMatcher;
     }
 
     /**
@@ -803,6 +821,19 @@ class MenuMerger
         }
         if (isset($index['exact'][$norm])) {
             return $index['exact'][$norm];
+        }
+
+        // Pass 2, both directions: this name's variant key against the other
+        // platform's exact names AND its exact form against their variant keys.
+        $variantKey = $this->nameMatcher()->variantKey($name);
+        if ($variantKey !== '' && isset($index['exact'][$variantKey])) {
+            return $index['exact'][$variantKey];
+        }
+        if (isset($index['variant'][$norm])) {
+            return $index['variant'][$norm];
+        }
+        if ($variantKey !== '' && $variantKey !== $norm && isset($index['variant'][$variantKey])) {
+            return $index['variant'][$variantKey];
         }
 
         foreach ($index['all'] as $candidate) {

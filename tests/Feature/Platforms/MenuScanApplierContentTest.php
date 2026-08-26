@@ -444,3 +444,39 @@ it('does not resurrect an owner-deleted dish, and does not clobber it either', f
     expect(msacRows($user))->toHaveCount(0)
         ->and(app(ManualMenuItems::class)->rows((string) $user->id, includeRemoved: true))->toHaveCount(1);
 });
+
+it('merges a scan item onto its parenthetical twin instead of minting a duplicate (item-2 pass 2)', function () {
+    // The certain-confidence audit miss: website "Orthodox Drip Coffee Bags"
+    // vs stored Uber "Orthodox Drip Coffee Bags (7 Sachets)". The stored
+    // headline wins; the scan enriches rather than duplicating.
+    $user = msacUser();
+    $menu = msacMenu($user);
+    msacSeedScraped($user, $menu, ['name' => 'Orthodox Drip Coffee Bags (7 Sachets)', 'base_price' => 21.0], ['Coffee'], [[
+        'platform' => 'uber_eats', 'delivery_price' => 21.0,
+    ]]);
+
+    app(MenuScanApplier::class)->apply($user, [
+        ['name' => 'Orthodox Drip Coffee Bags', 'description' => 'Single origin drip sachets for home brewing.', 'price' => 21.0, 'category' => null],
+    ]);
+
+    $rows = msacRows($user);
+    expect($rows)->toHaveCount(1)
+        ->and($rows[0]->headline)->toBe('Orthodox Drip Coffee Bags (7 Sachets)')
+        ->and($rows[0]->description)->toContain('home brewing');
+});
+
+it('lands a same-brand different-size scan item as its own dish, flagged not merged (item-2 pass 3 guardrail)', function () {
+    // The medium-confidence audit row: sizes disagree, so pass 3 must FLAG
+    // (menu.match.candidate) and keep two dishes.
+    $user = msacUser();
+    $menu = msacMenu($user);
+    msacSeedScraped($user, $menu, ['name' => 'Cold Brew Bags. (wide Awake)', 'base_price' => 42.0], ['Coffee'], [[
+        'platform' => 'uber_eats', 'delivery_price' => 42.0,
+    ]]);
+
+    app(MenuScanApplier::class)->apply($user, [
+        ['name' => 'Wide Awake Cold Brew Concentrate 2L', 'description' => null, 'price' => 60.0, 'category' => null],
+    ]);
+
+    expect(msacRows($user))->toHaveCount(2);
+});
