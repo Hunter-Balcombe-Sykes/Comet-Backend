@@ -136,15 +136,16 @@ return [
         ],
     ],
 
-    // Mistral — hosted OCR (menu photo → markdown text). Same account/key as
-    // the frontend's /api/menu-scan route; the backend uses it for the
-    // automatic Google-photos menu scan.
+    // Mistral — hosted OCR (menu photo/PDF → markdown text) for all menu
+    // scans: the automatic Google-photos/website jobs and the manual upload
+    // endpoint (POST /platforms/menu/scan). The ONLY place this key lives
+    // since the dashboard's duplicate route was deleted (2026-08-26).
     'mistral' => [
         'key' => env('MISTRAL_API_KEY'),
     ],
 
-    // DeepSeek — text structuring (OCR text → menu items). Same key the
-    // frontend chat/menu-scan routes bill against.
+    // DeepSeek — text structuring (OCR text → menu items) for the same menu
+    // scan pipeline. Menu scans bill only through this backend now.
     'deepseek' => [
         'key' => env('DEEPSEEK_API_KEY'),
     ],

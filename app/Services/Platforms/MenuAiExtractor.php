@@ -7,22 +7,23 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-// The two-stage AI menu pipeline, server-side — the same anatomy as the
-// frontend's /api/menu-scan route (Task FE11), ported for the automatic
-// Google-photos scan (GoogleMenuPhotoScanJob):
+// The two-stage AI menu pipeline — THE single implementation since 2026-08-26,
+// when the dashboard's duplicate /api/menu-scan Vercel route was deleted.
+// Serves the automatic scans (GoogleMenuPhotoScanJob, WebsiteMenuPdfScanJob,
+// WebsiteMenuHtmlScanJob) and the manual upload endpoint
+// (MenuController::scan(), which passes base64 data URIs — Mistral accepts
+// them in the same image_url/document_url fields as hosted URLs):
 //   1. Mistral hosted OCR (POST /v1/ocr) turns a PUBLIC image URL into
 //      markdown text. Real OCR — a dish photo yields ~nothing, a menu-board
 //      photo yields hundreds of characters, which is exactly the signal the
 //      job's density filter keys on.
-//   2. DeepSeek (beta endpoint for the 8K max_tokens ceiling — same
-//      rationale as the frontend route) structures the combined text into
-//      menu items. This port ALSO extracts dietary markers (GF / V / VG …)
-//      so the applier can badge matched items — the frontend route doesn't,
-//      yet; keep the shapes compatible if it grows them.
+//   2. DeepSeek (beta endpoint for the 8K max_tokens ceiling a dense menu
+//      can exceed) structures the combined text into menu items, including
+//      dietary markers (GF / V / VG …) so the applier can badge matched items.
 //
 // Keys: config('services.mistral.key') + config('services.deepseek.key').
 // Both absent → configured() false and the job exits quietly (same
-// "not configured" contract as the frontend route's 503).
+// "not configured" contract as MenuController::scan()'s 503).
 //
 // Privacy/logging: image URLs are public Google media links; API keys and
 // response payloads are never logged — status codes only.

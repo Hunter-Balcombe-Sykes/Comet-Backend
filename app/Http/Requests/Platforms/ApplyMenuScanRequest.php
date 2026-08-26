@@ -4,8 +4,10 @@ namespace App\Http\Requests\Platforms;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-// POST /api/platforms/menu/scan/apply — the FE10 contract: a batch of
-// AI-extracted items from a user-uploaded menu photo/PDF. price/description/
+// POST /api/platforms/menu/scan/apply — a reviewed batch of AI-extracted
+// items from a user-uploaded menu photo/PDF (extracted by the sibling
+// POST /menu/scan endpoint, reviewed client-side, committed here).
+// price/description/
 // category are all optional per item (a scan doesn't always find every
 // field); only name is required. Bounded to 200 items per request — this is
 // a manual per-upload action, not a bulk import tool.

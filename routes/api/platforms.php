@@ -162,6 +162,7 @@ $registerIntegrationRoutes = function (string $base): void {
 
     // Menu — the fetched Uber Eats / DoorDash menu (the single site.menus row),
     // auto-populated from the online-ordering links, plus direct write paths:
+    // /scan OCRs an uploaded photo/PDF into that batch (MenuAiExtractor);
     // /scan/apply merges AI-extracted items from a user-uploaded menu photo/PDF
     // (independent of any scrape — see MenuScanApplier); /categories + /items
     // are owner-authored (manual) content management (MenuContentController).
