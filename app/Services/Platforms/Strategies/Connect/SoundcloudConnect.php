@@ -7,9 +7,12 @@ use App\Services\Platforms\PlatformInput;
 use App\Services\Platforms\Strategies\Contracts\ConnectResult;
 use App\Services\Platforms\Strategies\Contracts\ConnectStrategy;
 
-// SoundCloud connect: profile / track / set link → public oEmbed resolves the
-// display name + artwork; widget URL parsed from the oEmbed html with a
-// deterministic w.soundcloud.com fallback. Moved verbatim from SoundcloudController.
+// SoundCloud connect: PROFILE link (or bare name) → public oEmbed resolves
+// the display name + artwork; widget URL parsed from the oEmbed html with a
+// deterministic w.soundcloud.com fallback. Moved verbatim from
+// SoundcloudController. (Header corrected 2026-08-27: it claimed
+// track/set links connect too — canonicalUrl() has rejected multi-segment
+// paths since T6b, deliberately: a /user/track path is an ITEM.)
 class SoundcloudConnect implements ConnectStrategy
 {
     public function __construct(private readonly OEmbedService $oembed) {}
