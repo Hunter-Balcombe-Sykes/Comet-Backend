@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\DB;
  * the sector seed stays in charge and the UI gets honest empty-state copy,
  * never a fabricated accent.
  *
- * It used to propose a neutral room (theme_mode) from the palette's warmth
+ * It used to propose a neutral room (theme_mode, column removed 2026-08-27) from the palette's warmth
  * too. That went with the 2026-08-06 simplification: one palette survives, so
  * there is no room to choose. (The proposal was also quietly broken — it
  * emitted 'warm', a mode the sitepage renderer has never known, so those

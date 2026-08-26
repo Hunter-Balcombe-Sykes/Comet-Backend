@@ -11,10 +11,9 @@
 // 4 and 5 assert an ABSENCE, which is unusual enough to say why out loud: the
 // theme system was removed, not disabled. CLAUDE.md's hard rule is "never
 // reintroduce site.themes, settings.design.*, or theme-picker machinery" —
-// "theme" now means only theme_mode (bleach — the only legal value since the
-// 2026-08-06 design-kit simplification), a design_kits column. Design lives
-// in site.design_kits, one nullable column per
-// var, and a resurrected themes table would give it a second, competing home.
+// there is no theme column left at all (theme_mode died 2026-08-27, plan
+// 02). Design lives in site.design_kits, one nullable column per var, and a
+// resurrected themes table would give it a second, competing home.
 // A well-meaning re-add is exactly the regression these two guard, so do not
 // delete them because "nothing references site.themes" — that IS the invariant.
 //
@@ -119,8 +118,8 @@ it('site.themes does not exist', function () {
 
     expect($row)->toBeNull(
         'site.themes exists again (as '.($row->table_type ?? 'unknown').'). It was dropped deliberately: '
-        .'design state lives in site.design_kits, one nullable column per var, and "theme" now means only '
-        .'theme_mode. See CLAUDE.md → "Never reintroduce site.themes".'
+        .'design state lives in site.design_kits, one nullable column per var. '
+        .'See CLAUDE.md → "Never reintroduce site.themes".'
     );
 });
 

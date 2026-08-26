@@ -1674,15 +1674,14 @@ return [
     |   silently dropped from the API response — add the entry here at the
     |   same time you add the Supabase migration column.
     |
-    | LIVE COLUMNS after 20260809090001 (preset-only, 8 columns):
+    | LIVE COLUMNS after 20260827080000 (plan 02 removals — was 8 after
+    | 20260809090001; border_thickness, theme_mode and theme_night_shift_auto
+    | dropped 2026-08-27):
     |   color_accent            → colors.accent          (single-token)
     |   typography_font_family  → typography.fontFamily  (single-token)
-    |   theme_mode              → theme.mode             (single-token)
-    |   theme_night_shift_auto  → theme.nightShiftAuto   (single-token)
     |   text_size               → selections.textSize        (exact)
     |   spacing                 → selections.spacing         (exact)
     |   corners                 → selections.corners         (exact)
-    |   border_thickness        → selections.borderThickness (exact)
     | Every other prefix below is dead — no live column matches it. They are
     | kept rather than pruned (the same call made for `sizing`/`button` when
     | their columns went) because the mapping is a pure function with its own
@@ -1691,26 +1690,14 @@ return [
     */
     'design_kit' => [
         'column_groups' => [
-            // The four SELECTIONS, grouped together as `selections` to mirror
+            // The SELECTIONS, grouped together as `selections` to mirror
             // the design system's own KitSelections interface
-            // ({textSize, spacing, corners, borderThickness}) key-for-key.
-            //
-            // NAMING CALL, FLAGGED (brief §13): grouping these four — and in
-            // particular MOVING border_thickness out of `borders.thickness`,
-            // where it has lived since the kit began — is the implementing
-            // lane's decision, not the owner's. The reasoning: `spacing` and
-            // `corners` need an exact-column mechanism no matter where they
-            // land, and border_thickness's wire contract is breaking anyway
-            // (a length became a selection token, so the pages dispatcher must
-            // run it through THICKNESS_PRESETS instead of emitting it raw).
-            // Scattering four selections across three groups to avoid one
-            // forced move was the worse end state. Cheap to reverse — it is
-            // four lines here and the corresponding read in the pages app.
+            // ({textSize, spacing, corners}) key-for-key. (borderThickness
+            // rode here 2026-08-09 → 2026-08-27, then died with its column.)
             'exact_columns' => [
                 'text_size' => ['selections', 'textSize'],
                 'spacing' => ['selections', 'spacing'],
                 'corners' => ['selections', 'corners'],
-                'border_thickness' => ['selections', 'borderThickness'],
             ],
             'two_token_prefixes' => [
                 'space_desktop' => 'spaceDesktop',
@@ -1729,7 +1716,7 @@ return [
                 'icon' => 'icons',     // singular prefix: icon_size, icon_color (reserved)
                 'icons' => 'icons',     // plural prefix:   icons_xl_size, icons_stroke_width, etc.
                 'effect' => 'effects',
-                'theme' => 'theme',     // theme_mode
+                'theme' => 'theme',     // legacy (theme_mode dropped 2026-08-27 — kept for safety)
                 'sizing' => 'sizing',    // legacy (columns dropped — kept for safety)
                 'button' => 'buttons',   // legacy (columns dropped — kept for safety)
             ],

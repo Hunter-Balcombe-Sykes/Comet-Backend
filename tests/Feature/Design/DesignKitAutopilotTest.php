@@ -147,7 +147,7 @@ it('never writes a column outside the autopilot allowlist', function () {
     $siteId = autopilotSite();
 
     $wrote = app(DesignKitAutopilot::class)->persistFillIfEmpty($siteId, [
-        'theme_night_shift_auto' => '1',
+        'text_size' => 'large',
         'site_id' => 'evil',
     ]);
 

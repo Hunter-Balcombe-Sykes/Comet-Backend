@@ -183,31 +183,31 @@ it('persists only columns that exist on site.design_kits', function () {
 it('filters incoming keys against information_schema, not the physical table', function () {
     $siteId = seedSiteWithEmptyKit();
 
-    // Drop theme_mode from the information_schema mirror so it becomes a REAL
+    // Drop corners from the information_schema mirror so it becomes a REAL
     // SQLite column that is absent from the catalog. This proves the filter
     // keys off information_schema specifically — and gives the guard an
     // assertion-based tooth that does not rely on SQLite rejecting unknown
-    // columns. With the intersection: theme_mode is dropped despite the
-    // physical column existing. Without it: theme_mode (a valid column) would
+    // columns. With the intersection: corners is dropped despite the
+    // physical column existing. Without it: corners (a valid column) would
     // be written and SQLite would accept it, failing the toBeNull() below.
-    // (Was color_bg pre-2026-07-10, then color_text until the 2026-08-09
-    // preset-only migration dropped that one too.)
+    // (Was color_bg pre-2026-07-10, then color_text, then theme_mode until
+    // the 2026-08-27 plan-02 removals dropped that one too.)
     DB::connection('pgsql')->table('information_schema.columns')
         ->where('table_schema', 'site')
         ->where('table_name', 'design_kits')
-        ->where('column_name', 'theme_mode')
+        ->where('column_name', 'corners')
         ->delete();
 
     invokeWriteDesignKit($siteId, [
         'color_accent' => '#abcabc',  // in catalog → written
-        'theme_mode' => 'bleach',     // real column, absent from catalog → dropped
+        'corners' => 'rounded',       // real column, absent from catalog → dropped
     ]);
 
     $row = DB::connection('pgsql')->table('site.design_kits')
         ->where('site_id', $siteId)->first();
 
     expect($row->color_accent)->toBe('#abcabc');
-    expect($row->theme_mode)->toBeNull();
+    expect($row->corners)->toBeNull();
 });
 
 it('silently ignores an empty design_kit array', function () {
@@ -297,12 +297,12 @@ it('dispatches the edge purge only after the design kit is on disk', function ()
 
     Queue::fake();
 
-    // theme_mode alongside a plain sites-row field, so execute() genuinely
+    // A kit column alongside a plain sites-row field, so execute() genuinely
     // dirties the model and wasChanged() returns true.
     actingAsUser($pro)
         ->patchJson('/api/site', [
             'is_published' => false,
-            'design_kit' => ['theme_mode' => 'bleach'],
+            'design_kit' => ['corners' => 'rounded'],
         ])
         ->assertOk();
 
@@ -310,36 +310,14 @@ it('dispatches the edge purge only after the design kit is on disk', function ()
     // consumer would re-render is already the new one.
     $kit = DB::connection('pgsql')->table('site.design_kits')
         ->where('site_id', $pro->site->id)->first();
-    expect($kit->theme_mode)->toBe('bleach');
+    expect($kit->corners)->toBe('rounded');
 
     Queue::assertPushed(CloudflareCachePurgeJob::class, fn ($job) => $job->followUp === false);
 });
 
-// 2026-07-10 theme/surface rework (migration 20260710160000) — write-surface
-// coverage for the new columns and retirement of the old values/columns.
-
-it('persists theme_mode + theme_night_shift_auto and drops the retired effect_surface key', function () {
-    $siteId = seedSiteWithEmptyKit();
-
-    // effect_surface was dropped 2026-07-15 (migration 20260714210000): a
-    // stale client still sending it must not break the write — the
-    // information_schema allowlist silently drops the dead key.
-    invokeWriteDesignKit($siteId, [
-        'theme_mode' => 'dusk',
-        'theme_night_shift_auto' => false,
-        'effect_surface' => 'outline',
-    ]);
-
-    $row = DB::connection('pgsql')->table('site.design_kits')
-        ->where('site_id', $siteId)->first();
-
-    expect($row->theme_mode)->toBe('dusk')
-        ->and(property_exists($row, 'effect_surface'))->toBeFalse()
-        // SQLite stores the boolean as 0 — assert the falsy value is a stored
-        // false, not an untouched NULL.
-        ->and($row->theme_night_shift_auto)->not->toBeNull()
-        ->and((bool) $row->theme_night_shift_auto)->toBeFalse();
-});
+// (The theme_mode + theme_night_shift_auto persistence test retired
+// 2026-08-27 with its columns — plan 02. The stale-dead-key drop it also
+// proved rides the selections test below via effect_surface.)
 
 // 2026-08-09 preset-only (migration 20260809090001) — write-surface coverage
 // for the three new selection columns. Replaces the semantic text-scale test:
@@ -349,11 +327,14 @@ it('persists theme_mode + theme_night_shift_auto and drops the retired effect_su
 it('persists the selection columns', function () {
     $siteId = seedSiteWithEmptyKit();
 
+    // effect_surface was dropped 2026-07-15: a stale client still sending a
+    // dead key must not break the write — the information_schema allowlist
+    // silently drops it.
     invokeWriteDesignKit($siteId, [
         'text_size' => 'large',
         'spacing' => 'spacious',
         'corners' => 'rounded',
-        'border_thickness' => 'none',
+        'effect_surface' => 'outline',
     ]);
 
     $row = DB::connection('pgsql')->table('site.design_kits')
@@ -362,16 +343,14 @@ it('persists the selection columns', function () {
     expect($row->text_size)->toBe('large')
         ->and($row->spacing)->toBe('spacious')
         ->and($row->corners)->toBe('rounded')
-        // border_thickness kept its column and changed vocabulary: a selection
-        // token now, not the CSS length it held before.
-        ->and($row->border_thickness)->toBe('none');
+        ->and(property_exists($row, 'effect_surface'))->toBeFalse();
 });
 
 it('accepts every legal selection value over HTTP and stores it', function () {
     // The accept side of UpdateSiteValidationTest's rejection test. That one
     // proves junk 422s; a rule weakened to bare 'string' would pass it and
     // fail nothing. This pins the exact vocabularies the design system's
-    // presets.ts ships (TEXT_SIZE / SPACING / CORNER / THICKNESS presets), so
+    // presets.ts ships (TEXT_SIZE / SPACING / CORNER presets), so
     // narrowing a rule below them fails here instead of silently 422ing a
     // legal pick in production. It lives in this file rather than beside its
     // partner because a request that PASSES validation goes on to run
@@ -385,7 +364,6 @@ it('accepts every legal selection value over HTTP and stores it', function () {
         'text_size' => ['small', 'medium', 'large'],
         'spacing' => ['default', 'spacious'],
         'corners' => ['default', 'rounded'],
-        'border_thickness' => ['default', 'none'],
     ] as $column => $values) {
         foreach ($values as $value) {
             actingAsUser($pro)
@@ -400,22 +378,26 @@ it('accepts every legal selection value over HTTP and stores it', function () {
     }
 });
 
-it('rejects the retired 2-value theme_mode over HTTP with a 422', function () {
+it('silently drops the retired theme_mode key over HTTP', function () {
     config(['partna.throttle.enabled' => false]);
 
     $pro = createTenant('old-theme-mode');
     DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => $pro->site->id]);
 
-    // 'dark' was valid pre-rework; the migration remapped stored rows to
-    // 'midnight'. The trait accepted 5 palette modes after that, then
-    // narrowed to 'bleach' alone with the 2026-08-06 design-kit
-    // simplification — 'dark' still fails, now for the stricter reason.
+    // theme_mode had a validation rule ('in:bleach') until 2026-08-27, when
+    // the column died (plan 02). A stale client still sending it now takes
+    // the same path as every other dead key: no rule, so validation passes,
+    // and the information_schema allowlist drops it before the write.
     actingAsUser($pro)
         ->patchJson('/api/site', [
-            'design_kit' => ['theme_mode' => 'dark'],
+            'design_kit' => ['theme_mode' => 'dark', 'corners' => 'rounded'],
         ])
-        ->assertUnprocessable()
-        ->assertJsonValidationErrors(['design_kit.theme_mode']);
+        ->assertOk();
+
+    $row = DB::connection('pgsql')->table('site.design_kits')
+        ->where('site_id', $pro->site->id)->first();
+    expect($row->corners)->toBe('rounded')
+        ->and(property_exists($row, 'theme_mode'))->toBeFalse();
 });
 
 it('silently drops the retired effect_style key over HTTP', function () {

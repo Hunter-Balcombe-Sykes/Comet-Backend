@@ -26,7 +26,7 @@ class DesignRationaleService
      *
      * Rewritten 2026-08-09 for the preset-only schema (20260809090001) — one
      * entry per ProfileDesignPresets::TARGETABLE column, which is now the
-     * whole editable kit minus theme_mode and the night-shift toggle. Every
+     * whole editable kit. Every
      * other entry (the text_*, weight_*, space_*, border_radius,
      * typography_line_height / _logo_height, layout_density and effect_*
      * columns) named a column that no longer exists.
@@ -39,7 +39,6 @@ class DesignRationaleService
         'text_size' => 'Typography',
         'spacing' => 'Layout',
         'corners' => 'Layout',
-        'border_thickness' => 'Layout',
     ];
 
     /**

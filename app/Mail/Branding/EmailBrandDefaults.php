@@ -14,9 +14,8 @@ use App\Services\Design\ThemeModePalettes;
  *
  * Three token kinds:
  *  - 4 STATIC tokens have literal defaults below.
- *  - bg/text come from the theme-mode palette (2026-07-10 rework): the kit's
- *    theme_mode selects its ThemeModePalettes default-variant anchors — the
- *    old bg column is gone, and emails don't night-shift.
+ *  - bg/text come from ThemeModePalettes' one bleach anchor pair (the
+ *    theme_mode column died 2026-08-27, plan 02).
  *  - 2 DERIVED tokens (button_primary_bg / button_primary_text) are NULLABLE
  *    columns with no DB default and no defaults.ts entry; the design system
  *    derives them from accent / accent-contrast at render time, so we do the same.
@@ -72,10 +71,10 @@ final class EmailBrandDefaults
         // supply one; today it always falls through.
         $accentContrast = self::pick($kit, 'color_accent_contrast', self::ACCENT_CONTRAST);
 
-        // bg/text are theme-mode-owned: an unknown/missing mode falls back to
-        // bleach inside anchorsFor (never breaks an email over a bad kit row).
-        $mode = $kit['theme_mode'] ?? null;
-        $anchors = ThemeModePalettes::anchorsFor(is_string($mode) ? $mode : null);
+        // bg/text come from the one bleach anchor pair (the theme_mode
+        // column died 2026-08-27, plan 02 — anchorsFor(null) is the bleach
+        // default and the only path left).
+        $anchors = ThemeModePalettes::anchorsFor(null);
 
         return new EmailPalette(
             accent: $accent,

@@ -51,14 +51,12 @@ it('rejects an out-of-vocabulary selection on every selection column', function 
             'text_size' => 'gigantic',
             'spacing' => 'cosy',
             'corners' => 'pill',
-            'border_thickness' => '2px',   // the OLD length grammar, now invalid
         ]])
         ->assertStatus(422)
         ->assertJsonValidationErrors([
             'design_kit.text_size',
             'design_kit.spacing',
             'design_kit.corners',
-            'design_kit.border_thickness',
         ]);
 });
 

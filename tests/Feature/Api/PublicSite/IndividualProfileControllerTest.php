@@ -55,12 +55,9 @@ beforeEach(function () {
         site_id TEXT PRIMARY KEY,
         color_accent TEXT NULL,
         typography_font_family TEXT NULL,
-        theme_mode TEXT NULL,
-        theme_night_shift_auto INTEGER NULL,
         text_size TEXT NULL,
         spacing TEXT NULL,
         corners TEXT NULL,
-        border_thickness TEXT NULL,
         space_regular TEXT NULL,
         space_desktop_regular TEXT NULL,
         sizing_desktop_base TEXT NULL,
@@ -245,43 +242,17 @@ it('groups stored design_kit columns into nested camelCase wire shape', function
     ]);
 });
 
-it('maps theme_night_shift_auto to theme.nightShiftAuto in the wire shape', function () {
-    // The single-token prefix path, with a multi-token remainder that has to
-    // camelCase correctly (night_shift_auto → nightShiftAuto).
-    //
-    // Was `icons_xl_size → icons.xlSize` — the KIT-1 regression where icons_*
-    // columns were silently dropped because the prefix map had 'icon'
-    // (singular) but not 'icons' (plural). Every icon_* and icons_* column
-    // left the schema with the 2026-08-09 preset-only migration, so that
-    // lesson has no live specimen to pin any more; this rewrite keeps the
-    // BRANCH covered against a column that still exists. (The `icon`/`icons`
-    // entries stay in the config map — see its header on why dead prefixes are
-    // kept rather than pruned.)
-    $pro = seedIndividualProfile('solo-dk-theme');
-    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+// (The theme.nightShiftAuto wire-shape test retired 2026-08-27 with its
+// columns — plan 02. Its branch — single-token prefix with a multi-token
+// camelCased remainder — stays covered by typography_font_family →
+// typography.fontFamily above.)
 
-    DB::connection('pgsql')->table('site.design_kits')->insert([
-        'site_id' => $siteId,
-        'theme_mode' => 'bleach',
-        'theme_night_shift_auto' => 1,
-    ]);
-
-    $data = $this->getJson('/api/public/profiles/solo-dk-theme')->assertOk()->json('data');
-
-    expect($data['designKit'])->toHaveKey('theme');
-    expect($data['designKit']['theme']['mode'])->toBe('bleach');
-    expect($data['designKit']['theme'])->toHaveKey('nightShiftAuto');
-});
-
-it('maps the four selection columns into the selections group', function () {
-    // The exact_columns path (2026-08-09). Two of these four —`spacing` and
+it('maps the selection columns into the selections group', function () {
+    // The exact_columns path (2026-08-09). Two of these —`spacing` and
     // `corners` — carry NO underscore, so the prefix split cannot produce a
     // group/rest pair for them at all: before exact_columns existed they were
     // dropped from the payload silently, with no error anywhere. This test is
     // the only thing standing between that and a shipped regression.
-    //
-    // border_thickness is here rather than under `borders` deliberately — see
-    // the naming call flagged in config/partna.php.
     $pro = seedIndividualProfile('solo-dk-selections');
     $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
 
@@ -290,7 +261,6 @@ it('maps the four selection columns into the selections group', function () {
         'text_size' => 'large',
         'spacing' => 'spacious',
         'corners' => 'rounded',
-        'border_thickness' => 'none',
     ]);
 
     $data = $this->getJson('/api/public/profiles/solo-dk-selections')->assertOk()->json('data');
@@ -299,13 +269,10 @@ it('maps the four selection columns into the selections group', function () {
         'textSize' => 'large',
         'spacing' => 'spacious',
         'corners' => 'rounded',
-        'borderThickness' => 'none',
     ]);
     // An exact match must win over the prefix maps: `text_size` would
-    // otherwise have landed in text.size, and `border_thickness` in
-    // borders.thickness.
+    // otherwise have landed in text.size.
     expect($data['designKit'])->not->toHaveKey('text');
-    expect($data['designKit'])->not->toHaveKey('borders');
 });
 
 it('groups two-token responsive prefix columns into the correct nested group', function () {

@@ -64,17 +64,10 @@ it('prefers stored values over defaults and over derivation', function () {
         ->and($p->borderRadius)->toBe('2px');
 });
 
-it('takes bg and text from the theme-mode palette anchors', function () {
-    // One mode survives the 2026-08-06 simplification, so this asserts the
-    // lookup still runs rather than that it can pick between palettes.
-    $p = EmailBrandDefaults::palette(['theme_mode' => 'bleach']);
-
-    expect($p->bg)->toBe('#ffffff')
-        ->and($p->text)->toBe('#141414');
-});
-
-it('falls back to bleach anchors for an unknown theme_mode', function () {
-    $p = EmailBrandDefaults::palette(['theme_mode' => 'neon']);
+it('takes bg and text from the one bleach anchor pair', function () {
+    // The theme_mode column died 2026-08-27 (plan 02) — the bleach anchors
+    // are the only pair, whatever the kit row holds.
+    $p = EmailBrandDefaults::palette([]);
 
     expect($p->bg)->toBe('#ffffff')
         ->and($p->text)->toBe('#141414');

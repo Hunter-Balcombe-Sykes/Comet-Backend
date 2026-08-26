@@ -99,8 +99,9 @@ it('collapsed the sector presets to accent and font, and nothing else', function
     // sectors collapse rather than invent new differentiation. Of the columns
     // these presets used to set, weight/text/space/radius/line-height went with
     // the preset-only migration and the three effect_* axes were deleted
-    // outright; border_thickness survives but as a two-value selection that
-    // cannot express the chunky 2px rules three presets wanted.
+    // outright; border_thickness survived as a two-value selection until
+    // 2026-08-27 (plan 02), when it died with theme_mode and the night-shift
+    // toggle.
     //
     // This pins the RESULT of that decision, so a well-meant re-enrichment is
     // a conversation rather than a silent revert.

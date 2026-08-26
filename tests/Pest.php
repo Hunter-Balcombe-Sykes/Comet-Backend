@@ -3967,14 +3967,13 @@ function createDataExportAudit(array $overrides = []): DataExportAudit
  * border_style, typography_uppercase, typography_tracking, motion_pace and
  * theme_contrast, all dropped from Postgres by 20260806090001.
  *
- * Six of the eight are SELECTIONS with a fixed vocabulary
+ * Three of the five are SELECTIONS with a fixed vocabulary
  * (DesignKitValidationRules::designKitRules() is the authority):
  *   text_size         small | medium | large
  *   spacing           default | spacious
  *   corners           default | rounded
- *   border_thickness  default | none          ← was a CSS length before 08-09
- *   theme_mode        bleach
- *   theme_night_shift_auto  boolean (INTEGER here)
+ * (border_thickness, theme_mode and theme_night_shift_auto dropped
+ * 2026-08-27, plan 02 — migration 20260827080000.)
  * No CHECK constraint backs them in Postgres, so none is mirrored here.
  *
  * Every column stays NULLABLE — null means "use the package default", and the
@@ -3991,9 +3990,6 @@ function setupDesignKitsTable(): void
         text_size TEXT NULL,
         spacing TEXT NULL,
         corners TEXT NULL,
-        border_thickness TEXT NULL,
-        theme_mode TEXT NULL,
-        theme_night_shift_auto INTEGER NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )');

@@ -178,10 +178,11 @@ it('sites_shop_link_mode_check matches Site::SHOP_LINK_MODES and the hardcoded e
 // to keep in step. theme_mode's single legal value lives in the request rule
 // alone — it never had a CHECK constraint to pair with.
 //
-// 2026-08-09 (preset-only, 20260809090001) added FOUR new vocabularies —
-// text_size, spacing, corners and border_thickness — and gave none of them a
-// CHECK either. That was a decision, not an oversight: it follows theme_mode's
-// precedent, and the request layer is the only write path that carries a
+// 2026-08-09 (preset-only, 20260809090001) added four new vocabularies —
+// text_size, spacing, corners and border_thickness (the last dropped
+// 2026-08-27 with theme_mode, plan 02) — and gave none of them a CHECK
+// either. That was a decision, not an oversight:
+// the request layer is the only write path that carries a
 // vocabulary at all (DesignKitAutopilot and DesignKitAccentApplier write
 // color_accent only; DesignKitRestyleService replays autopilot's proposals).
 // UpdateSiteValidationTest and WriteDesignKitTest cover both sides of each

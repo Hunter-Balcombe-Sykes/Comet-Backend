@@ -151,7 +151,6 @@ class StaffUserController extends ApiController
                 // Lookup keys are raw `site.design_kits` column names —
                 // designKitVars() returns the row verbatim, so a stale alias
                 // reads as null forever rather than failing loudly.
-                'theme_mode' => $designKitVars['theme_mode'] ?? null,
                 'accent_color' => $designKitVars['color_accent'] ?? null,
                 'font_family' => $designKitVars['typography_font_family'] ?? null,
                 'design_kit' => $designKitVars,
