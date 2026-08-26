@@ -251,7 +251,11 @@ All four error bodies put the machine-readable code at the **top level**: `{ "me
 **Response (200):** identical shape to `POST /api/bootstrap`'s success response — `{ "professional": {...}, "site": {...} }` — so the frontend can land straight in the dashboard. A retry with the same JWT after a successful claim replays the same 200 (idempotent), not a 409.
 
 **Errors** (all put `code` at the top level, same convention as the build endpoint):
-- `404 CLAIM_NOT_FOUND` — no site exists for that subdomain
+- `404 CLAIM_NOT_FOUND` — no site exists for that subdomain. **Also returned, byte-for-byte, when an
+  outreach build exists but has no invited address and no valid `claim_token`** (the service still
+  throws `CLAIM_NOT_INVITED` internally). Collapsed 2026-08-26 (#SEM-3): a distinct 409 let anyone
+  sweep public handles and separate "nothing here" from "a staff-built site awaiting invite", which
+  is a target list of the sites worth squatting. Do not reintroduce a distinct code or message here.
 - `409 ALREADY_CLAIMED` — this site was claimed by someone else already
 - `409 BUILD_FAILED` — no build row exists, or it's in `failed` state (`pending`/`building` claim fine — claim no longer waits for `ready`)
 - `409 CLAIM_EMAIL_MISMATCH` — the build has a `contact_email` and the JWT's verified email doesn't match it
