@@ -362,21 +362,41 @@ it('counts a lander tap on item:<id> as a click in that item\'s family (D7)', fu
     expect((float) popularityScoreRow($tenant->site->id, 'watch_item', $video)->score)->toEqualWithDelta(4.0, 0.05);
 });
 
-it('never writes a row for an event item, even a brand-new one', function () {
-    $tenant = createTenant('cmd-no-events');
+it('scores an event item: clicks aggregate and time-relevance peaks toward the event date (smart-scoring plan)', function () {
+    // INVERTED 2026-08-27: events scored nothing before the smart-scoring
+    // plan; now the event_item family aggregates ticket link-outs and takes
+    // an EventTimeRelevance additive term (peaking at the event date) in
+    // place of publishedAt freshness. Pools stay chronological — this row
+    // feeds actions + latest-event only.
+    $tenant = createTenant('cmd-events-score');
     $source = popularityTenantSource($tenant);
-    $event = poolItem($tenant->id, $source, 'event', 'Gig', now()->addDays(3)->toISOString());
+    $soon = poolItem($tenant->id, $source, 'event', 'Gig soon', now()->addDays(1)->toISOString());
+    $far = poolItem($tenant->id, $source, 'event', 'Gig far', now()->addDays(21)->toISOString());
+    foreach ([[$soon, now()->addDays(1)], [$far, now()->addDays(21)]] as [$id, $at]) {
+        DB::connection('pgsql')->table('content.f_occurrence')->insert([
+            'item_id' => $id,
+            'source_id' => $source,
+            'starts_at_local' => $at->toDateTimeString(),
+            'starts_at_utc' => $at->toISOString(),
+            'updated_at' => now(),
+        ]);
+    }
     DB::connection('pgsql')->table('analytics.link_clicks')->insert([
         'id' => (string) Str::uuid(), 'user_id' => $tenant->id, 'site_id' => $tenant->site->id,
-        'section_key' => 'events', 'product_id' => $event, 'url' => 'https://example.com/gig',
+        'section_key' => 'events', 'product_id' => $far, 'url' => 'https://example.com/gig',
         'occurred_at' => now()->toISOString(), 'created_at' => now()->toISOString(),
     ]);
 
     $this->artisan('analytics:compute-popularity', ['--site' => $tenant->site->id])->assertExitCode(0);
 
-    expect(DB::connection('pgsql')->table('analytics.content_popularity_scores')
-        ->where('site_id', $tenant->site->id)->where('content_key', $event)
-        ->where('content_type', '!=', 'action')->count())->toBe(0);
+    $soonRow = popularityScoreRow($tenant->site->id, 'event_item', $soon);
+    $farRow = popularityScoreRow($tenant->site->id, 'event_item', $far);
+
+    // Tomorrow's zero-click event: pure relevance ≈ 3.0·2^(−1/7) ≈ 2.72.
+    expect((float) $soonRow->score)->toEqualWithDelta(3.0 * 2 ** (-1 / 7), 0.1)
+        // Three weeks out: relevance ≈ 3.0·2^(−21/7) = 0.375, plus one
+        // decayed click at weight 3 ≈ 3.0 → ≈ 3.37.
+        ->and((float) $farRow->score)->toEqualWithDelta(3.0 * 2 ** (-21 / 7) + 3.0, 0.15);
 });
 
 // ── OBS-3: the ranked-actions catch block reports() before logging ──

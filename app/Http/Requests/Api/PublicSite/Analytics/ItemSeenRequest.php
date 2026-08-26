@@ -42,6 +42,7 @@ class ItemSeenRequest extends BaseFormRequest
         'listen_item',
         'watch_item',
         'link_item',
+        'event_item',
     ];
 
     protected function prepareForValidation(): void

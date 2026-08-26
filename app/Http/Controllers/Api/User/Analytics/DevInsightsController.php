@@ -49,7 +49,7 @@ class DevInsightsController extends ApiController
     private const CLICK_SECTION_TO_ITEM_TYPE = [
         'shop' => 'shop_product', 'shop-products' => 'shop_product', 'shop-tracks' => 'shop_product', 'bandcamp' => 'shop_product',
         'book' => 'service', 'services' => 'service',
-        'events' => 'engine_item', 'attend' => 'engine_item',
+        'events' => 'event_item', 'attend' => 'event_item',
         'listen' => 'listen_item', 'music' => 'listen_item', 'spotify' => 'listen_item', 'apple-music' => 'listen_item', 'soundcloud' => 'listen_item', 'podcast' => 'listen_item',
         'watch' => 'watch_item', 'youtube' => 'watch_item', 'twitch' => 'watch_item', 'vimeo' => 'watch_item',
         'custom' => 'link_item', 'other' => 'link_item',

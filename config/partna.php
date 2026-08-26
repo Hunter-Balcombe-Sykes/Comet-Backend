@@ -965,6 +965,12 @@ return [
             'menu_item' => ['click' => 1.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 0.5, 'half_life_days' => 60.0],
             'gallery_item' => ['click' => 0.5, 'view' => 1.0, 'dwell' => 0.05, 'fresh' => 5.0, 'half_life_days' => 7.0],
             'link_item' => ['click' => 3.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 3.0, 'half_life_days' => 14.0],
+            // Events (smart-scoring plan, 2026-08-27): fresh = 0 on purpose —
+            // publishedAt-age freshness is the WRONG shape for an event; the
+            // additive term is EventTimeRelevance (relevance/relevance
+            // half-life below), peaking at the event date and collapsing
+            // after (×0.25 once past).
+            'event_item' => ['click' => 3.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 0.0, 'half_life_days' => 14.0, 'relevance' => 3.0, 'relevance_half_life_days' => 7.0],
         ],
     ],
 

@@ -6,6 +6,7 @@ use App\Models\Core\Site\Site;
 use App\Services\Analytics\ActionScorer;
 use App\Services\Analytics\ContentFreshness;
 use App\Services\Analytics\ContentPopularityReader;
+use App\Services\Analytics\EventTimeRelevance;
 use App\Services\Analytics\ItemFamily;
 use App\Services\Analytics\ScoringWindow;
 use App\Services\Profile\SectorActionRecipes;
@@ -138,8 +139,10 @@ class ComputeContentPopularityScores extends Command
         'bandcamp' => 'shop_product',
         'book' => 'service',
         'services' => 'service',
-        // events / attend: event items never score (occurrence order is the
-        // only honest order — ItemFamily), so their clicks are not aggregated.
+        // Events score since the smart-scoring plan (2026-08-27): ticket
+        // link-outs on the events page count toward the event's own row.
+        'events' => 'event_item',
+        'attend' => 'event_item',
         // ONE item scoring by link-out (2026-07-10): listen tracks, watch videos,
         // and custom links score from clicks in their own page's section. The ONE
         // theme tags each item click with its page's canonical section_key
@@ -162,6 +165,7 @@ class ComputeContentPopularityScores extends Command
 
     public function __construct(
         private readonly ContentFreshness $freshness,
+        private readonly EventTimeRelevance $eventRelevance,
         private readonly ActionCandidates $candidates,
         private readonly ActionScorer $scorer,
         private readonly ContentPopularityReader $popularity,
@@ -356,6 +360,14 @@ class ComputeContentPopularityScores extends Command
         }
 
         $fresh = $this->freshness->boostsForSite($site);
+        // Events take a time-relevance term instead of publishedAt freshness
+        // (their config fresh weight is 0, so the generic term yields
+        // nothing) — merged into the same additive-boost map so seeding and
+        // scoreAndRank treat it identically.
+        $relevance = $this->eventRelevance->boostsForSite($site);
+        if ($relevance !== []) {
+            $fresh['event_item'] = $relevance;
+        }
         $itemAgg = $this->aggregateItems($site, $mediaIds);
         foreach ($fresh as $family => $boosts) {
             foreach ($boosts as $key => $_boost) {
