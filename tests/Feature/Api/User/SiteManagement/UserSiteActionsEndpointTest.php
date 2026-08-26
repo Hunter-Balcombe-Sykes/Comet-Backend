@@ -1,8 +1,16 @@
 <?php
 
 use App\Catalog\LegacyPlatformMap;
+use App\Models\Core\Site\Site;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
+use App\Services\PublicSite\SitepageDataResolverService;
+use App\Site\Actions\ActionCandidates;
+use App\Site\Pools\PoolWire;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 
 // GET /api/site/actions — the dashboard /actions page data source (spec §7).
@@ -82,4 +90,59 @@ it('entries are identical to the public payload resolution for the same state (n
 
 it('requires authentication', function () {
     $this->getJson('/api/site/actions')->assertStatus(401);
+});
+
+// #TEST-10: GET /api/site/actions calls ActionCandidates::forSite() with no
+// $pools argument (the only caller that does — the public payload path always
+// pre-builds pools and passes them in), so this endpoint is the one real path
+// that reaches ActionCandidates' own `if ($pools === null)` pool-wire read.
+// That branch used to swallow a QueryException into `$pools = []` with no log
+// and no report — a content-lane fault would silently drop every pool-derived
+// action here with nobody told. This proves the CCH-11-style fix: still
+// fail-open (200, page/platform candidates intact), but now a breadcrumb every
+// time and a Nightwatch report once the fault is SUSTAINED (5 in the window).
+it('a QueryException from the pool wire read fails open on GET /api/site/actions, logs a breadcrumb, and escalates once sustained', function () {
+    RateLimiter::clear('analytics:fault:action_candidates_pools');
+    Exceptions::fake();
+    Log::spy();
+
+    $pro = createTenant('sa-poolfault');
+    endpointConnection($pro, 'instagram', ['username' => 'maha']);
+
+    app()->instance(PoolWire::class, new class extends PoolWire
+    {
+        public function __construct() {}
+
+        public function forSite(?Site $site, SitepageDataResolverService $resolver): array
+        {
+            throw new QueryException('pgsql', 'select * from content.items', [], new RuntimeException('server closed the connection unexpectedly'));
+        }
+    });
+
+    $threshold = ActionCandidates::FAULT_THRESHOLD;
+    $user = $pro->fresh(['site']);
+
+    for ($i = 1; $i < $threshold; $i++) {
+        $data = actingAsUser($user)->getJson('/api/site/actions')->assertOk()->json();
+        // Fail-open, not fail-blank: the page/platform candidates that don't
+        // depend on the pool read are still present.
+        expect(collect($data['candidates'])->pluck('id')->all())->toContain('platform:instagram');
+        Exceptions::assertNothingReported();
+    }
+
+    actingAsUser($user)->getJson('/api/site/actions')->assertOk();
+    Exceptions::assertReportedCount(1);
+    Exceptions::assertReported(QueryException::class);
+
+    // Past the threshold inside the same window: still exactly one report.
+    actingAsUser($user)->getJson('/api/site/actions')->assertOk();
+    Exceptions::assertReportedCount(1);
+
+    // Multi-argument matcher — see CLAUDE.md: a single-argument
+    // Log::shouldReceive('warning')/shouldHaveReceived assertion here would be
+    // vacuous, since it can't tell this breadcrumb apart from any other
+    // warning-level log line the request happens to emit.
+    Log::shouldHaveReceived('warning')
+        ->with('sitepage.action_candidates_pools_failed', Mockery::type('array'))
+        ->times($threshold + 1);
 });

@@ -27,7 +27,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 2 complete
-- P2 Medium: 0 of 5 complete
+- P2 Medium: 1 of 5 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -95,7 +95,7 @@
 
 ## P2 — Should fix
 
-- [ ] **#SEC-3** · P2 — Square's `host_pattern` matches any `order.*` host, not just the five explicitly excluded brand hosts
+- [x] **#SEC-3** · P2 — Square's `host_pattern` matches any `order.*` host, not just the five explicitly excluded brand hosts
     - **Where:** config/partna.php:931
     - **Affects:** Platform classification for menu/link detection (`WebsiteLinkHarvester` / catalog host-pattern matching) — a submitted URL whose host merely starts with `order.` (e.g. `order.attacker-controlled.example`) is classified as Square.
     - **Effort:** S (~0.5–1h)

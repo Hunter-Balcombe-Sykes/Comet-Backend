@@ -54,10 +54,10 @@ function markTeamCacheUserPendingDeletion(User $user): User
 }
 
 /** Minimal __NEXT_DATA__ page the scraper can parse. */
-function freshaPageHtml(string $employeeName = 'Simon'): string
+function freshaPageHtml(string $employeeName = 'Simon', string $storeName = 'Anseo Studio'): string
 {
     $data = json_encode(['props' => ['pageProps' => ['data' => ['location' => [
-        'name' => 'Anseo Studio',
+        'name' => $storeName,
         'employeeProfiles' => ['edges' => [
             ['node' => ['employeeId' => 'e1', 'displayName' => $employeeName, 'jobTitle' => 'Barber']],
         ]],
@@ -106,6 +106,7 @@ it('re-scrapes when the cache is older than the TTL', function () {
         'url' => 'https://www.fresha.com/a/anseo-studio',
         'selection' => null,
         'teamMenuCache' => ['storeName' => 'Old', 'team' => [], 'services' => []],
+        'teamMenuCacheFor' => 'anseo-studio',
         'teamMenuCachedAt' => now()->subDays(3)->toIso8601String(),
     ]);
 
@@ -121,6 +122,7 @@ it('re-scrapes on ?refresh=1 even with a warm cache', function () {
         'url' => 'https://www.fresha.com/a/anseo-studio',
         'selection' => null,
         'teamMenuCache' => ['storeName' => 'Old', 'team' => [], 'services' => []],
+        'teamMenuCacheFor' => 'anseo-studio',
         'teamMenuCachedAt' => now()->toIso8601String(),
     ]);
 
@@ -136,6 +138,7 @@ it('serves a stale cache when the scrape fails rather than 502ing', function () 
         'url' => 'https://www.fresha.com/a/anseo-studio',
         'selection' => null,
         'teamMenuCache' => ['storeName' => 'Cached Studio', 'team' => [], 'services' => []],
+        'teamMenuCacheFor' => 'anseo-studio',
         'teamMenuCachedAt' => now()->subDays(3)->toIso8601String(),
     ]);
 
@@ -248,4 +251,125 @@ it('resolveCurrentSlug answers only positively: a dead network yields null, neve
     Http::fake(['*' => fn () => throw new ConnectionException('nope')]);
 
     expect(app(FreshaScraper::class)->resolveCurrentSlug('https://www.fresha.com/a/anseo-studio-v0v92jna'))->toBeNull();
+});
+
+// ── #CCH-2: a reconnect must not serve the PREVIOUS salon's cached roster ───
+
+it('same salon, warm fresh cache: still a HIT — no refetch (regression guard)', function () {
+    // Proves the fingerprint check does not turn every read into a re-scrape:
+    // a normal second call for the SAME salon must still be served from cache.
+    Http::fake(['*' => Http::response(freshaPageHtml('Simon', 'Anseo Studio'), 200)]);
+    $user = teamCacheUser('samesalon');
+    seedTeamCacheFresha($user, ['url' => 'https://www.fresha.com/a/anseo-studio', 'selection' => null]);
+
+    actingAsUser($user)->getJson('/api/platforms/fresha/team')->assertOk();
+    $afterFirst = Http::recorded()->count();
+
+    $response = actingAsUser($user)->getJson('/api/platforms/fresha/team')->assertOk();
+
+    expect($response->json('storeName'))->toBe('Anseo Studio');
+    expect($response->json('team.0.displayName'))->toBe('Simon');
+    expect(Http::recorded()->count())->toBe($afterFirst);
+});
+
+it('a reconnect to a DIFFERENT salon must not serve the old salon cached roster', function () {
+    // Reproduces #CCH-2: connectDeferred()'s pending write MERGES the payload
+    // (ManagesIntegrationConnection::upsertConnection, mergePayload: true), so
+    // teamMenuCache/teamMenuCacheFor for salon A survive a reconnect to salon
+    // B untouched. The salon fingerprint added to team() is what must catch
+    // this — freshness alone cannot, since the merged-forward cache is still
+    // well within TTL.
+    config(['partna.connect.deferred' => ['fresha']]);
+    Http::fake([
+        'www.fresha.com/a/salon-a' => Http::response(freshaPageHtml('Alice', 'Salon A'), 200),
+        'www.fresha.com/a/salon-b' => Http::response(freshaPageHtml('Bob', 'Salon B'), 200),
+    ]);
+    $user = teamCacheUser('reconnectx');
+    $row = seedTeamCacheFresha($user, ['url' => 'https://www.fresha.com/a/salon-a', 'selection' => null]);
+
+    // Populate the cache for salon A.
+    actingAsUser($user)->getJson('/api/platforms/fresha/team')
+        ->assertOk()
+        ->assertJsonPath('storeName', 'Salon A')
+        ->assertJsonPath('team.0.displayName', 'Alice');
+
+    // Reconnect to a different salon via the real deferred-connect endpoint.
+    Queue::fake();
+    actingAsUser($user)->postJson('/api/platforms/fresha/connect', ['url' => 'https://www.fresha.com/a/salon-b'])
+        ->assertStatus(202);
+
+    // Premise check: the merge really did carry salon A's cache forward.
+    expect($row->fresh()->payload['teamMenuCache']['storeName'])->toBe('Salon A');
+    expect($row->fresh()->payload['url'])->toBe('https://www.fresha.com/a/salon-b');
+
+    $response = actingAsUser($user)->getJson('/api/platforms/fresha/team')->assertOk();
+
+    // Assert on the actual roster contents — must be salon B's, not A's.
+    expect($response->json('storeName'))->toBe('Salon B');
+    expect($response->json('team.0.displayName'))->toBe('Bob');
+    expect($response->json('storeName'))->not->toBe('Salon A');
+    expect($response->json('team.0.displayName'))->not->toBe('Alice');
+
+    // The cache is now correctly re-keyed to salon B.
+    expect($row->fresh()->payload['teamMenuCacheFor'])->toBe('salon-b');
+});
+
+it('scrape-failure fallback: same salon still serves the stale cache (intent preserved)', function () {
+    Http::fake(['*' => Http::response('nope', 500)]);
+    $user = teamCacheUser('fallbacksame');
+    seedTeamCacheFresha($user, [
+        'url' => 'https://www.fresha.com/a/salon-a',
+        'selection' => null,
+        'teamMenuCache' => ['storeName' => 'Salon A', 'team' => [['employeeId' => 'e1', 'displayName' => 'Alice']], 'services' => []],
+        'teamMenuCacheFor' => 'salon-a',
+        'teamMenuCachedAt' => now()->subDays(3)->toIso8601String(),
+    ]);
+
+    $response = actingAsUser($user)->getJson('/api/platforms/fresha/team')->assertOk();
+
+    expect($response->json('storeName'))->toBe('Salon A');
+    expect($response->json('team.0.displayName'))->toBe('Alice');
+});
+
+it('scrape-failure fallback: a DIFFERENT salon 502s instead of serving the old roster', function () {
+    // The worse-than-path-1 case from #CCH-2: a network blip right after a
+    // reconnect must not fall back to salon A's roster with no freshness
+    // check at all. It must 502, matching what a cold cache with no fallback
+    // would do.
+    Http::fake(['*' => Http::response('nope', 500)]);
+    $user = teamCacheUser('fallbackdiff');
+    seedTeamCacheFresha($user, [
+        // payload.url already points at salon B (post-reconnect), but the
+        // cache is still salon A's, carried forward by the merge.
+        'url' => 'https://www.fresha.com/a/salon-b',
+        'selection' => null,
+        'teamMenuCache' => ['storeName' => 'Salon A', 'team' => [['employeeId' => 'e1', 'displayName' => 'Alice']], 'services' => []],
+        'teamMenuCacheFor' => 'salon-a',
+        'teamMenuCachedAt' => now()->toIso8601String(),
+    ]);
+
+    $response = actingAsUser($user)->getJson('/api/platforms/fresha/team');
+
+    $response->assertStatus(502);
+    expect($response->json('message') ?? '')->not->toContain('Salon A');
+});
+
+it('a cache row with no teamMenuCacheFor is a MISS, even when fresh', function () {
+    // Pre-existing data written before this fix shipped carries no
+    // fingerprint at all — it cannot be proven to belong to the current
+    // salon, so it must not be served, however fresh teamMenuCachedAt is.
+    Http::fake(['*' => Http::response(freshaPageHtml('Fresh', 'Anseo Studio'), 200)]);
+    $user = teamCacheUser('nofingerprint');
+    seedTeamCacheFresha($user, [
+        'url' => 'https://www.fresha.com/a/anseo-studio',
+        'selection' => null,
+        'teamMenuCache' => ['storeName' => 'Ghost Cache', 'team' => [['employeeId' => 'e0', 'displayName' => 'Ghost']], 'services' => []],
+        'teamMenuCachedAt' => now()->toIso8601String(),
+    ]);
+
+    $response = actingAsUser($user)->getJson('/api/platforms/fresha/team')->assertOk();
+
+    expect($response->json('storeName'))->toBe('Anseo Studio');
+    expect($response->json('team.0.displayName'))->toBe('Fresh');
+    expect(Http::recorded()->count())->toBeGreaterThan(0);
 });

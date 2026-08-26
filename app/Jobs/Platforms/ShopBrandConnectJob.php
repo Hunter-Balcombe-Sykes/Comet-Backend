@@ -37,8 +37,8 @@ use Throwable;
 //
 // Deliberately its OWN job rather than a generic-registry lookup like
 // ConnectFetchJob: Shop is the only platform where one user fans out to up to
-// MAX_BRANDS=10 stores, so uniqueness/failure state has to key on the STORE, not
-// the connection — see uniqueId() below.
+// partna.shop_brands_max stores, so uniqueness/failure state has to key on the
+// STORE, not the connection — see uniqueId() below.
 class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable;

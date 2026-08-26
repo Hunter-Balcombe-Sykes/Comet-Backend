@@ -1,5 +1,6 @@
 <?php
 
+use App\Ingest\Connectors\FreshaConnector;
 use App\Ingest\Projection\FreshaServiceProjector;
 use App\Ingest\Projection\ProjectionWriter;
 use App\Ingest\Projection\RecordView;
@@ -76,6 +77,16 @@ it('maps the real price shapes', function (string $price, string $qualifier, ?in
     // Cents must survive: a whole-dollar parse would bill $49.50 as $49.
     ['from $49.50', 'from', 4950],
 ]);
+
+// #SEC-4 belt-and-braces: proves the projector's OWN cap, independent of the
+// connector's — a RecordView built directly (as a future non-connector
+// producer could) still can't push an unbounded body into content.f_text.
+it('caps f_text.body even when the RecordView carries an oversized description', function () {
+    $huge = str_repeat('d', FreshaConnector::MAX_TEXT_LENGTH + 500);
+    $projection = (new FreshaServiceProjector)->project(new RecordView(['name' => 'X', 'description' => $huge]));
+
+    expect(mb_strlen($projection['facets']['f_text']['body']))->toBe(FreshaConnector::MAX_TEXT_LENGTH);
+});
 
 // ---------------------------------------------------------------------------
 // End to end: the real chain, no hand-inserted collection rows.

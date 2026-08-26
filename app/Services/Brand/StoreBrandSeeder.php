@@ -46,17 +46,16 @@ use Illuminate\Support\Facades\Log;
 class StoreBrandSeeder
 {
     /**
-     * Mirrors ShopController::MAX_BRANDS / ConnectStoreFromProductJob's own
-     * copy — keep in lockstep. The reserved individual-products bucket
-     * (is_individual = true) never counts against this.
-     *
-     * Was 5 until 2026-08-26. T9 (08ab05389) raised every cap 2-3x with owner
-     * permission and moved the other two copies to 10; this one was missed, so
-     * the docblock above claimed a parity that had not held for six days. The
-     * visible symptom was a 6th store that the picker accepted and the
-     * suggestion inbox's Add silently degraded to a plain link card.
+     * The store cap, from `partna.shop_brands_max` — the ONE definition
+     * (#CFG-3). This used to be a private const 5 while ShopController and
+     * ConnectStoreFromProductJob both said 10, so a 6th store was connected
+     * but its brand row capped: the store half-existed and never rendered.
+     * The reserved individual-products bucket never counts against it.
      */
-    private const MAX_BRANDS = 10;
+    private static function maxBrands(): int
+    {
+        return (int) config('partna.shop_brands_max');
+    }
 
     public function __construct(
         private readonly IriCanonicalizer $canonicalizer,
@@ -167,7 +166,7 @@ class StoreBrandSeeder
         if ($isNewBrand) {
             // Strict comparison, not Collection::where() — that compares loosely.
             $storeCount = $stores->filter(fn (StoreRecord $s): bool => $s->isIndividual === false)->count();
-            if ($storeCount >= self::MAX_BRANDS) {
+            if ($storeCount >= self::maxBrands()) {
                 Log::info('store_brand_seeder.cap', ['user_id' => (string) $user->id]);
 
                 return [

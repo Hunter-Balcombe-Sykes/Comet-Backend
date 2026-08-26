@@ -175,7 +175,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 0 of 8 complete
+- P3 Low: 1 of 8 complete
 
 ---
 
@@ -431,7 +431,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 1 of 3 complete
 - P3 Low: 0 of 9 complete
 
 ---
@@ -480,7 +480,33 @@ None.
         && (bool) config('partna.connect.auto_booking.enabled', true)
         ```
 
-- [ ] **#CFG-3** · P2 — Shop-brand connect limit has drifted: `StoreBrandSeeder` caps at 5, `ShopController`/`ConnectStoreFromProductJob` cap at 10
+- [x] **#CFG-3** · P2 — Shop-brand connect limit has drifted: `StoreBrandSeeder` caps at 5, `ShopController`/`ConnectStoreFromProductJob` cap at 10
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 5). Canonical value is **10**, per
+      `docs/plans/2026-08-20-overnight-item-routing-run.md:316` (T9, explicit owner permission,
+      2026-08-20) which raised `ShopController` + `ConnectStoreFromProductJob` 5 -> 10 "in lockstep"
+      and simply missed `StoreBrandSeeder` — a third copy that sweep never listed. A missed lockstep
+      update, not a competing decision, so the other two were NOT lowered.
+    - The number now lives in ONE place: `config('partna.shop_brands_max')`
+      (`config/partna.php`, env-overridable via `PARTNA_SHOP_BRANDS_MAX`). All three former
+      `private const MAX_BRANDS` are gone, replaced by a `maxBrands()` accessor reading that key, so
+      the three enforcement points can no longer drift apart.
+    - ⚠️ **Out of scope, deliberately:** `ManagesIntegrationConnection::maxAccounts()` (~:638) also
+      returns 10 with a "mirrors shop's MAX_BRANDS" comment, but it caps connected accounts PER
+      PLATFORM — a different quantity that merely shares the value. Folding it in would couple two
+      unrelated limits. Left alone; the new config docblock says so explicitly.
+    - Also corrected a stale `MAX_BRANDS=5` comment in `ShopBrandConnectJob.php:40` (opportunistic;
+      not part of this finding, no behaviour).
+    - Tests in `tests/Feature/Brand/StoreBrandSeederTest.php`: (a) 5 stores must NOT cap — the exact
+      half-connected-store bug; (b) the cap bites at the configured value AND all three classes'
+      `maxBrands()` equal `config('partna.shop_brands_max')`, asserted by reflection. The pre-existing
+      cap test was pinning the bug (seeded 5, expected `capped`) and now drives off the key.
+      Mutation-proved: hardcoding 5 back into the seeder reproduces the original failure verbatim
+      (`Expecting 'capped' not to be 'capped'`) and trips the drift guard by name.
+    - Note on the `standalone` marker at the bottom of this file: it asked for a plan confirming the
+      canonical value plus a regression test. `EXECUTE-PART-1.md` §4 unit 5 supplied that decision in
+      advance with the T9 evidence, which is why this ran unattended. The regression test asserts the
+      auto-probe and manual-connect paths agree BY CONSTRUCTION (same key, checked by reflection)
+      rather than via two behavioural tests that could themselves drift.
     - **Where:** app/Services/Brand/StoreBrandSeeder.php:53; app/Http/Controllers/Api/Platforms/ShopController.php:105; app/Jobs/Platforms/ConnectStoreFromProductJob.php:56
     - **Affects:** Any user connecting more than 5 shop brands via the link-paste / auto-probe path (`CommerceProbeJob` → `StoreBrandSeeder`), where they hit an undocumented lower ceiling than the dashboard's own advertised limit.
     - **Effort:** M (~2–4h)
@@ -748,7 +774,7 @@ None.
 ## Progress
 
 - P1 High: 1 of 1 complete
-- P2 Medium: 3 of 19 complete
+- P2 Medium: 4 of 19 complete
 - P3 Low: 0 of 5 complete
 
 ---
@@ -931,7 +957,7 @@ None.
         );
         ```
 
-- [ ] **#TEST-10** · P2 — `ActionCandidates::forSite()` silently swallows a content-lane `QueryException` into `$pools = []` with no failure-path test
+- [x] **#TEST-10** · P2 — `ActionCandidates::forSite()` silently swallows a content-lane `QueryException` into `$pools = []` with no failure-path test
     - **Where:** app/Site/Actions/ActionCandidates.php:158-161
     - **Affects:** Public sitepage action candidates — a real content-lane outage silently drops item/category candidates while page/platform candidates keep rendering, with no log or Nightwatch signal.
     - **Effort:** S (~0.5–1h)

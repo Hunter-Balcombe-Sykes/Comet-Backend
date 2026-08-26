@@ -127,10 +127,16 @@ final class ConnectionIdentity
         //    surface; two of one user's own channels colliding
         //    case-insensitively is not a real shape.)
         $foldable = in_array($surfaceKey, self::CASE_INSENSITIVE_HANDLE_SURFACES, true);
-        $needle1 = $foldable ? self::fold($identifier) : $identifier;
+        // SEM-14: ONE normaliser for all three schemes below. Step 1 gated on
+        // $foldable from the start; steps 2 and 3 folded unconditionally, so a
+        // non-allowlisted surface (discord.server's case-SENSITIVE invite codes
+        // are the named case) still collapsed two distinct identifiers as soon
+        // as the row carried a canonical_key. Same allowlist, every scheme.
+        $normalize = fn (string $v): string => $foldable ? self::fold($v) : $v;
+
+        $needle1 = $normalize($identifier);
         foreach ($rows as $row) {
-            $candidate = $foldable ? self::fold((string) $row->resource_id) : (string) $row->resource_id;
-            if ($candidate === $needle1) {
+            if ($normalize((string) $row->resource_id) === $needle1) {
                 return (string) $row->id;
             }
         }
@@ -141,9 +147,9 @@ final class ConnectionIdentity
         //    where the routing lane stores a channel ID), so writing one
         //    lane's answer into a column the other treats as authoritative,
         //    under a UNIQUE index, would trade this bug for a worse one.
-        $needle = self::fold($identifier);
+        $needle = $normalize($identifier);
         foreach ($rows as $row) {
-            if ($row->canonical_key !== null && self::fold((string) $row->canonical_key) === $needle) {
+            if ($row->canonical_key !== null && $normalize((string) $row->canonical_key) === $needle) {
                 return (string) $row->id;
             }
         }
@@ -156,7 +162,7 @@ final class ConnectionIdentity
             }
 
             $derived = $this->identityOf($row, $surfaceKey);
-            if ($derived !== null && self::fold($derived) === $needle) {
+            if ($derived !== null && $normalize($derived) === $needle) {
                 return (string) $row->id;
             }
         }

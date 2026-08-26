@@ -23,11 +23,21 @@ namespace App\Content\Identity;
 class Resolver
 {
     /**
+     * $maxMembersPerKey / $maxCandidatesPerKey are step 5's caps, taken as
+     * ARGUMENTS so a resolve stays a function of what it was handed — the
+     * caller owns the config read (ProjectionWriter::resolveItemsLocked()).
+     * The defaults mirror config/partna.php's, which is what keeps the
+     * one-argument callers in the test suite honest rather than unbounded.
+     *
      * @param  list<SourceItem>  $items
      * @param  list<Decision>  $decisions
      */
-    public function resolve(array $items, array $decisions = []): Resolution
-    {
+    public function resolve(
+        array $items,
+        array $decisions = [],
+        int $maxMembersPerKey = 100,
+        int $maxCandidatesPerKey = 200,
+    ): Resolution {
         $groups = new DisjointSet(array_map(fn (SourceItem $i) => $i->coord, $items));
         $byCoord = [];
         foreach ($items as $item) {
@@ -73,20 +83,54 @@ class Resolver
         }
 
         // 5. Evidential keys never merge; they surface as candidates.
+        //
+        // #SCALE-10/#CACHE-6: this pairing is O(m^2) in the members sharing one
+        // key value, and each surviving pair becomes a row. Both caps are
+        // deterministic — the FIRST N in index order, never a sample — because
+        // the same input must give the same answer. $maxMembersPerKey is the
+        // one that bounds the WORK: the candidate cap alone cannot, because a
+        // key value whose pairs are nearly all already grouped or cut appends
+        // almost nothing while still walking the full m^2. What each cap cut
+        // is REPORTED on the Resolution, for a caller with the context to log
+        // it — this class does no I/O, so it cannot say so itself.
         $candidates = [];
+        $cappedKeys = [];
         foreach ($this->keyIndex($items, KeyTier::Evidential, $poisoned) as $keyValue => $members) {
-            for ($i = 0; $i < count($members); $i++) {
-                for ($j = $i + 1; $j < count($members); $j++) {
+            $seen = count($members);
+            // The loop bound IS the first-N slice — same members, same order,
+            // without allocating a copy of a list that can be thousands long.
+            $paired = min($seen, $maxMembersPerKey);
+            $appended = 0;
+            $candidateCapHit = false;
+
+            for ($i = 0; $i < $paired && ! $candidateCapHit; $i++) {
+                for ($j = $i + 1; $j < $paired; $j++) {
                     $a = $members[$i];
                     $b = $members[$j];
                     if ($groups->find($a) !== $groups->find($b) && ! $this->isCut($cuts, $a, $b)) {
                         $candidates[] = new Candidate($a, $b, $keyValue);
+                        if (++$appended >= $maxCandidatesPerKey) {
+                            // Stop this key value outright rather than keep
+                            // walking pairs we would only discard.
+                            $candidateCapHit = true;
+                            break;
+                        }
                     }
                 }
             }
+
+            if ($paired < $seen || $candidateCapHit) {
+                $cappedKeys[$keyValue] = [
+                    'members_seen' => $seen,
+                    'members_paired' => $paired,
+                    'candidates_appended' => $appended,
+                    'member_cap_hit' => $paired < $seen,
+                    'candidate_cap_hit' => $candidateCapHit,
+                ];
+            }
         }
 
-        return new Resolution($groups->groups(), $candidates);
+        return new Resolution($groups->groups(), $candidates, $cappedKeys);
     }
 
     /**

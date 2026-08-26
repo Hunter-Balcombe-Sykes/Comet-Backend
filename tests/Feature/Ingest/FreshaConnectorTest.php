@@ -10,6 +10,7 @@ use App\Ingest\Message\Unavailable;
 use App\Ingest\Runtime\EffectRefused;
 use App\Ingest\Runtime\Io;
 use App\Ingest\Runtime\Pull;
+use Illuminate\Support\Facades\Log;
 
 // Tier C: the connector's real pull() against recorded responses. No network,
 // no DB — a connector is a pure function from (Pull, Io) to Messages.
@@ -204,6 +205,44 @@ it('treats a GraphQL errors key on a 200 as the pinned query being rejected, not
         ->and($messages[0]->reason)->toContain('re-pin');
 });
 
+it('logs the vendor GraphQL error message instead of discarding it (#LIFE-10)', function () {
+    Log::spy();
+
+    $io = freshaIo([
+        'status' => 200,
+        'body' => json_encode(['errors' => [['message' => 'PersistedQueryNotFound'], ['message' => 'second error']]]),
+        'headers' => [],
+    ]);
+
+    $pull = freshaPull('services', 'invented-salon', config: ['selection_ref' => 'storewide']);
+    iterator_to_array((new FreshaConnector)->pull($pull, $io));
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($message, $context) => $message === 'ingest.fresha.booking_flow_graphql_rejected'
+            && $context['slug'] === 'invented-salon'
+            && $context['messages'] === ['PersistedQueryNotFound', 'second error'])
+        ->once();
+});
+
+it('caps a huge GraphQL errors array to a bounded number of logged messages', function () {
+    Log::spy();
+
+    $manyErrors = array_fill(0, 50, ['message' => 'x']);
+    $io = freshaIo([
+        'status' => 200,
+        'body' => json_encode(['errors' => $manyErrors]),
+        'headers' => [],
+    ]);
+
+    $pull = freshaPull('services', config: ['selection_ref' => 'storewide']);
+    iterator_to_array((new FreshaConnector)->pull($pull, $io));
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($message, $context) => $message === 'ingest.fresha.booking_flow_graphql_rejected'
+            && count($context['messages']) === 3)
+        ->once();
+});
+
 it('treats missing categories as the pinned-hash rotation symptom, not an empty menu', function () {
     // FreshaScraper's own comment: missing categories on an otherwise-200
     // response is the classic hash/version-rotation symptom, so this must
@@ -370,6 +409,22 @@ it('carries the vendor category id alongside its name', function () {
 
     expect($records[0]->doc['categoryId'])->toBe('3282965')
         ->and($records[0]->doc['category'])->toBe('Haircuts');
+});
+
+it('caps an oversized vendor name/description before it ever reaches a Record (#SEC-4)', function () {
+    $hugeName = str_repeat('n', FreshaConnector::MAX_TEXT_LENGTH + 500);
+    $hugeDescription = str_repeat('d', FreshaConnector::MAX_TEXT_LENGTH + 500);
+    $item = array_merge(normalItem('s:1'), ['name' => $hugeName, 'description' => $hugeDescription]);
+    $io = freshaIo(freshaResponseWith([['id' => '1', 'name' => 'Cuts', 'items' => [$item]]]));
+    $pull = freshaPull('services', 'edward', config: ['selection_ref' => 'storewide']);
+
+    $records = array_values(array_filter(
+        iterator_to_array((new FreshaConnector)->pull($pull, $io)),
+        fn ($m) => $m instanceof Record,
+    ));
+
+    expect(mb_strlen($records[0]->doc['name']))->toBe(FreshaConnector::MAX_TEXT_LENGTH)
+        ->and(mb_strlen($records[0]->doc['description']))->toBe(FreshaConnector::MAX_TEXT_LENGTH);
 });
 
 it('counts rows it could not map instead of dropping them silently', function () {

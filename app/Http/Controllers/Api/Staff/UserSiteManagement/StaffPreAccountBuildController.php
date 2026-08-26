@@ -186,6 +186,12 @@ class StaffPreAccountBuildController extends ApiController
 
     // POST /api/staff/builds/batch — CSV loop over requestBuild. Per-row failures
     // are collected (row index + code), never fatal. Row cap logged if hit.
+    //
+    // CACHE-2/SCALE-7: the loop is wall-clock budgeted. 500 synchronous builds
+    // will outrun the request timeout, and a timed-out request returns staff
+    // NOTHING — they cannot tell which rows landed. Stopping early and reporting
+    // `processed`/`remaining` is safe because requestBuild() dedupes: re-uploading
+    // the remainder re-serves anything already built as `reused`.
     public function batch(StaffBatchPreAccountBuildRequest $request): JsonResponse
     {
         $staff = $request->attributes->get('partna_staff');
@@ -201,11 +207,32 @@ class StaffPreAccountBuildController extends ApiController
             Log::warning('staff builds batch truncated to cap', ['cap' => $cap]);
         }
 
+        $total = count($rows);
+        $budget = (float) config('partna.pre_account.batch_time_budget_seconds');
+        $startedAt = microtime(true);
+
         $built = 0;
         $reused = 0;
+        $processed = 0;
+        $budgetExceeded = false;
         $failed = [];
 
         foreach ($rows as $i => $row) {
+            // Checked BEFORE the row, and never on the first one: a batch always
+            // makes forward progress, so a re-upload can never loop forever.
+            if ($processed > 0 && (microtime(true) - $startedAt) >= $budget) {
+                $budgetExceeded = true;
+                Log::warning('staff builds batch stopped on time budget', [
+                    'budget_seconds' => $budget,
+                    'processed' => $processed,
+                    'remaining' => $total - $processed,
+                ]);
+
+                break;
+            }
+
+            $processed++;
+
             $email = $row['contact_email'] ?? null;
             if ($email !== null && $email !== '' && ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 $failed[] = ['row' => $i + 1, 'code' => 'INVALID_EMAIL', 'message' => "Invalid email: {$email}"];
@@ -228,6 +255,12 @@ class StaffPreAccountBuildController extends ApiController
                 $result['reused'] ? $reused++ : $built++;
             } catch (PreAccountBuildException $e) {
                 $failed[] = ['row' => $i + 1, 'code' => $e->errorCode, 'message' => $e->getMessage()];
+            } catch (\Throwable $e) {
+                // One malformed row (DB constraint, subdomain exhaustion, a bug)
+                // must not discard the whole upload. report() so Nightwatch still
+                // sees it — the generic wire code deliberately leaks nothing.
+                report($e);
+                $failed[] = ['row' => $i + 1, 'code' => 'ROW_FAILED', 'message' => 'Row failed unexpectedly.'];
             }
         }
 
@@ -236,6 +269,10 @@ class StaffPreAccountBuildController extends ApiController
             'reused' => $reused,
             'failed' => $failed,
             'truncated' => $truncated,
+            'total' => $total,
+            'processed' => $processed,
+            'remaining' => $total - $processed,
+            'time_budget_exceeded' => $budgetExceeded,
         ]);
     }
 

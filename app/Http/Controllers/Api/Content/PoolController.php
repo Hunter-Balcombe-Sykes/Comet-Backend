@@ -211,6 +211,52 @@ class PoolController extends ApiController
                 ];
             }
             SectionItem::query()->insert($rows);
+
+            // SEM-7: a pin already in this section that the client's list left
+            // out is NOT touched by the delete/insert above, so it keeps its
+            // OLD sort_key and would interleave with the fresh 1..N sequence —
+            // the FE sent a list it believes is the whole pool, so an omission
+            // is a client bug, but a 422 here would be a wire-behaviour change
+            // (forbidden tonight). Renumber the survivors to sit AFTER every
+            // listed item instead, in their own prior relative order.
+            //
+            // A scoped UPDATE per row, not an upsert on `id` (fix wave 2):
+            // Postgres READ COMMITTED takes a fresh snapshot per statement, so
+            // this cursor's read and its later write are NOT atomic even
+            // inside this transaction — SectionItemController::destroy() (the
+            // sibling pin path) can delete a survivor in that gap. An
+            // ON CONFLICT(id) upsert would then take the INSERT branch —
+            // either resurrecting the pin the user just removed, or hitting
+            // `section_items_unique` (UNIQUE on (section_id, item_id), which
+            // ON CONFLICT(id) doesn't arbitrate) and 500ing the whole reorder.
+            // A scoped UPDATE has neither failure mode: a vanished row is just
+            // 0 rows affected. cursor() still streams the read — the survivor
+            // set is uncapped, unlike $ids (max:200). `orderByRaw` keeps NULL
+            // sort_key ordering identical on SQLite (NULL first) and Postgres
+            // (NULL last) even though the column allows NULL; the `id`
+            // tiebreak keeps two rows sharing a sort_key renumbering the same
+            // way on every run.
+            $next = count($ids) + 1;
+
+            DB::connection('pgsql')->table('site.section_items')
+                ->where('section_id', $section->id)
+                ->where('state', SectionItem::STATE_PINNED)
+                ->whereNotIn('item_id', $ids)
+                ->orderByRaw('sort_key is null, sort_key')
+                ->orderBy('id')
+                ->select(['id'])
+                ->cursor()
+                ->each(function ($row) use ($section, &$next) {
+                    // NOT an arrow fn: `fn() => $next++` re-captures $next BY
+                    // VALUE fresh on every invocation (PHP resets a
+                    // value-captured `use` binding per call), so every row
+                    // would silently get the SAME sort_key instead of a
+                    // strictly increasing one.
+                    DB::connection('pgsql')->table('site.section_items')
+                        ->where('id', $row->id)
+                        ->where('section_id', $section->id) // belt-and-braces
+                        ->update(['sort_key' => (float) $next++]);
+                });
         });
 
         $this->poolChanged($site);

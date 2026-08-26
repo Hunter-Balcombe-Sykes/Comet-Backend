@@ -63,23 +63,27 @@ class ClaimController extends ApiController
             // body — matching this branch's discriminator contract (see
             // ApiController::error() docblock + PreAccountBuildController).
             return match ($e->getMessage()) {
-                'CLAIM_NOT_FOUND' => $this->error('No site found for that address.', 404, [], ['code' => 'CLAIM_NOT_FOUND']),
+                // #SEM-3: CLAIM_NOT_INVITED shares this arm, byte-for-byte. It used
+                // to answer 409 with its own code and message, which made the
+                // endpoint an oracle: sweep public handles and you could separate
+                // "nothing here" from "a staff-groomed outreach site awaiting
+                // invite" — i.e. a target list of exactly the sites worth
+                // squatting. This branch's own comment already said it must not
+                // become that; it was one. Same status, same code, same message,
+                // same body keys, so nothing new is learnable. Deliberately reuses
+                // the existing 404 rather than inventing a third shared code.
+                // NOTE: CLAIM_EMAIL_MISMATCH below leaks site existence the same
+                // way and is deliberately NOT collapsed — CLAUDE.md pins it as
+                // load-bearing for the ManyChat claim-link design (the narrow
+                // token "does NOT override CLAIM_EMAIL_MISMATCH"), and collapsing
+                // it would also strand an invited user who signed up under the
+                // wrong address with a bare 404. Surfaced for Josh, not changed.
+                'CLAIM_NOT_FOUND', 'CLAIM_NOT_INVITED' => $this->error('No site found for that address.', 404, [], ['code' => 'CLAIM_NOT_FOUND']),
                 'ALREADY_CLAIMED' => $this->error('This site has already been claimed.', 409, [], ['code' => 'ALREADY_CLAIMED']),
                 'BUILD_FAILED' => $this->error("We couldn't finish building this site. Please try again.", 409, [], ['code' => 'BUILD_FAILED']),
                 'ACCOUNT_EXISTS' => $this->error('Your account already has a site.', 409, [], ['code' => 'ACCOUNT_EXISTS']),
                 'EMAIL_ALREADY_REGISTERED' => $this->error('This email is already registered.', 409, [], ['code' => 'EMAIL_ALREADY_REGISTERED']),
                 'CLAIM_EMAIL_MISMATCH' => $this->error('This site is reserved for a different email address.', 409, [], ['code' => 'CLAIM_EMAIL_MISMATCH']),
-                // Outreach build with no invited address: staff must attach one
-                // before anyone can claim it. Deliberately does NOT confirm the
-                // site exists in any way a bare 404 wouldn't — it is reachable
-                // only by handle, which is public anyway, and it must not become
-                // an oracle for "this handle is a staff-built site worth taking".
-                'CLAIM_NOT_INVITED' => $this->error(
-                    "This site isn't open for claiming yet. If it's yours, reply to the email we sent you or contact support.",
-                    409,
-                    [],
-                    ['code' => 'CLAIM_NOT_INVITED']
-                ),
                 default => throw $e,
             };
         }

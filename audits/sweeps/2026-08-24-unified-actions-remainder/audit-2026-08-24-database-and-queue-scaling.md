@@ -79,7 +79,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 4 complete
-- P2 Medium: 0 of 8 complete
+- P2 Medium: 6 of 8 complete
 - P3 Low: 0 of 5 complete
 
 ---
@@ -204,7 +204,8 @@
 
 ## P2 — Should fix
 
-- [ ] **SCALE-5** · P2 — Link-in-bio importer fetches up to 50 pages of one host sequentially with no per-request delay
+- [x] **SCALE-5** · P2 — Link-in-bio importer fetches up to 50 pages of one host sequentially with no per-request delay
+    - **Resolved 2026-08-26** — pacing, not volume: `MAX_PAGES` stays at 50. `import()` now calls `paceNextFetch()` once per iteration on BOTH loop paths (the unavailable branch pauses too — a 403 burst is what escalates a soft throttle into a hard block), reading `config('partna.routing.link_in_bio.page_delay_ms')`, default 250ms via `PARTNA_LINK_IN_BIO_PAGE_DELAY_MS`. Never before the first page, never after the last, no-op at <= 0. Uses `Illuminate\Support\Sleep`, not `usleep()`, so the spacing is assertable without a slow suite. **Never sleeps on a request path**: gated on `app()->runningInConsole()`, so a queue worker paces and an inline `sync` dispatch inside an HTTP request does not — the only production caller is `LinkInBioScanJob::handle()`, and Octane (the one case that would misreport that gate) is not installed. Measured against recorded fixtures: 50 pages -> 49 sleeps x 250ms = 12,250ms simulated; 1 page -> 0 sleeps; unfaked 3 pages at 50ms -> 135.5ms real wall-clock, so it genuinely sleeps rather than recording an intent. Five tests added, mutation-proved twice (no-op the pacer -> red; drop the last-page guard -> red, including on the single-page case). **NOT done, surfaced instead:** the second bullet's shared delay budget with the scheduled `integrations:refresh` path. That is a per-host token bucket in Redis keyed on the registrable host, consulted by both this loop and the batch refresh's fetches — cross-cutting shared state, its own plan. See RESULT-PART-3.md.
     - **Where:** app/Routing/Importers/LinkInBioImporter.php:53, 121-134
     - **Affects:** The bio-link host being imported from (Linktree, Beacons, etc.); a single import run can burst up to 50 rapid requests at one host, risking a throttle/WAF block for that user's import (and any concurrent import against the same host).
     - **Effort:** S-M (~1–2h)
@@ -225,7 +226,8 @@
                 $unavailable++;
         ```
 
-- [ ] **SCALE-6** · P2 — Pool section curation is read with no row limit on both the public payload path and the presence probe
+- [x] **SCALE-6** · P2 — Pool section curation is read with no row limit on both the public payload path and the presence probe
+    - **Resolved 2026-08-26** — the primary remedy (column projection) landed in `baa54b91e` as `#SCALE-13`: all THREE `site.section_items` reads — `hasSelection()`, `plan()` and `preloadCuration()` — now select `['section_id','item_id','state','sort_key']`; `id` and `created_at` are read nowhere. Measured on a 2000-row section: 432,000 -> 274,000 bytes returned, same 2000 rows. The secondary suggestion (an early-exit query shape for `hasSelection()`) is deliberately NOT done: the comment above its `in_array('review', ...)` branch records that answering from `site.section_items` alone is what lets the presence probe succeed where `content.*` is absent, and it is pinned by `PresenceProbeEscalationTest`/`PresenceProbeLoggingTest`. A `LIMIT 1` does not drop in there.
     - **Where:** app/Site/Pools/PoolResolver.php:116-118 (`hasSelection`), 230-232 (`plan`)
     - **Affects:** Public sitepage payload build and page-presence probing for heavily-curated users; both queries load a section's entire curation history in full before filtering in PHP.
     - **Effort:** S (~0.5–1h)
@@ -270,7 +272,8 @@
                     accountType: (string) ($row['account_type'] ?? ''),
         ```
 
-- [ ] **SCALE-8** · P2 — The suggestions inbox performs a per-intent connection lookup and occasional write for up to 100 rows on every GET
+- [x] **SCALE-8** · P2 — The suggestions inbox performs a per-intent connection lookup and occasional write for up to 100 rows on every GET
+    - **Resolved 2026-08-26** — **the hidden write was the real finding and it is gone.** `resolveSwapIncumbent()` split into a pure `decideSwapIncumbent()` (mutates `$intent` in place — which is what the JSON renders — and REPORTS the columns to persist) and the persisting wrapper, which only `accept()` now calls. The GET issues zero writes. Safe because the persistence was a pre-warm, never a correctness requirement: `accept()` re-resolves before acting, `SuggestionApplier` reads `conflicting_connection_id` off the in-memory object rather than re-reading the row, `findIntent()` matches `('proposed','blocked')` so a not-yet-flipped intent is still findable, and `CheckStuckSourceIntentsCommand` counts both states together so the backlog alarm does not move. The N+1 collapsed alongside it: one `whereIn('surface_key', ...)` read grouped in memory, skipped entirely when no intent on the page needs resolving. **Measured, N=100 intents (40 `cap_reached` across 40 single-account surfaces): 83 queries (43 reads + 40 WRITES) -> 4 queries (4 reads + 0 writes).** JSON body byte-identical, verified by comparing full responses across all six branch cases. Mutation-proved: reintroducing a persist on the GET path turns BOTH inbox tests red — the second one only after this fix added an explicit null-check BEFORE `accept()`, because `accept()`'s own write had been absorbing the premature one and hiding it.
     - **Where:** app/Http/Controllers/Api/Routing/SuggestionsController.php:75-77, 416-461
     - **Affects:** Suggestions inbox load latency; Postgres statement volume when many users open their inbox around the same time; `routing.source_intents` write volume on a read endpoint.
     - **Effort:** M (~2–4h)
@@ -294,7 +297,8 @@
             ->pluck('id');
         ```
 
-- [ ] **SCALE-9** · P2 — Public payload build unconditionally runs a dashboard-only duplicate-detection join and then strips the result
+- [x] **SCALE-9** · P2 — Public payload build unconditionally runs a dashboard-only duplicate-detection join and then strips the result
+    - **Resolved 2026-08-26** — same fix as the delta sweep's `#API-7`; see its entry. `itemPayloads()`/`hydrateItems()` take `bool $withDuplicateCandidates = true` (the `$withLibrary` idiom already in this class), `PoolWire::forSite()` passes false, and the `content.identity_candidates` join is skipped outright on the public path. Public wire byte-identical: `duplicateCandidates` was already in `DASHBOARD_ONLY_ITEM_KEYS` and already stripped by `PoolWire`, and the key is still emitted as `[]` so the array shape does not vary. Measured: public 82 -> 81 queries (`identity_candidates` 1 -> 0), dashboard 25 -> 25. Mutation-proved both directions; full suite 9319 passed / 3 skipped / 0 failed.
     - **Where:** app/Site/Pools/PoolResolver.php:72, 880-892
     - **Affects:** Public sitepage response time and DB read volume on every payload build, including cache-miss rebuilds.
     - **Technical:** `itemPayloads()` unconditionally joins `content.identity_candidates` for every item id passed in and attaches `duplicateCandidates` to each resulting payload. `PoolResolver::DASHBOARD_ONLY_ITEM_KEYS` (line 72) already lists `duplicateCandidates`, and `PoolWire::forSite` strips that key before building the public wire. So every public sitepage build — the hottest read path on this platform — performs this join and builds the in-memory duplicate map for data no visitor will ever see.
@@ -331,7 +335,8 @@
         );
         ```
 
-- [ ] **SCALE-11** · P2 — ContentFreshness loads every non-removed item across a site's catalogue on every scoring run, no chunking
+- [x] **SCALE-11** · P2 — ContentFreshness loads every non-removed item across a site's catalogue on every scoring run, no chunking
+    - **Resolved 2026-08-26** — de-duplication moved into SQL. `content.f_published`'s PK is `(item_id, source_id)`, so the LEFT JOIN multiplied rows per source and PHP re-derived a minimum the database can compute: now `MIN(fp.published_from)` with `GROUP BY i.id, i.kind, i.first_seen_at`, one row per item, and the two accumulation loops collapse to one. Fail-open `catch (QueryException)` untouched. Measured on 300 items x 3 sources: 900 -> 300 rows returned, 1 query either way; at 3300 items the heap delta for the read fell 6,384,040 -> 375,472 bytes. Coverage was VACUOUS before this (nothing in the suite made two `f_published` rows for one item, so MIN vs MAX was invisible) — `ContentFreshnessTest` gained a two-source case that fails under a MIN->MAX mutation, plus an all-NULL fallback case.
     - **Where:** app/Services/Analytics/ContentFreshness.php:47-58
     - **Affects:** Popularity/freshness scoring for prolific users with many shop/menu/service/gallery/link items; memory during the scheduled scoring job.
     - **Effort:** S (~0.5–1h)
@@ -350,7 +355,8 @@
             ->get(['i.id', 'i.kind', 'i.first_seen_at', 'fp.published_from']);
         ```
 
-- [ ] **SCALE-12** · P2 — ContentPopularityReader loads a site's full popularity-score set with no cursor across three read methods
+- [x] **SCALE-12** · P2 — ContentPopularityReader loads a site's full popularity-score set with no cursor across three read methods
+    - **WONTFIX 2026-08-26 — the suggested remedy is a regression, measured not argued.** `lazy()` pages with plain LIMIT/OFFSET (`BuildsQueries::lazy()` re-issues `forPage(...)->get()`), not a keyset cursor. Measured at N=20,000 rows for one site: `->get()` = 1 query / ~10 MB peak delta; `->lazy(1000)` = **21 queries** / ~0-2 MB. The 8 MB is bought with 21x the round-trips on a path that sits behind the 60s public-profile cache. Worse, the table's only uniqueness is `UNIQUE(site_id, content_type, content_key)` — there is NO unique key on `(site_id, content_type, rank)`, which is what these queries order by — so OFFSET paging silently skips rows when the table mutates mid-scan. Demonstrated empirically: 5000 uniquely-ranked rows, `lazy(1000)`, delete 7 already-visited rows after page 1, and the 7 rows at ranks 1001-1007 were **never visited** — no error, no log. `ComputeContentPopularityScores` upserts this exact table on a schedule while `PoolResolver::popularityRanks()` reads it, so that race is live. Row counts here are also per-site and bounded per family, not unbounded. If memory ever bites at higher N the answer is `chunkById()` on the `id` PK (which IS unique), not `lazy()`. Measurement script + raw output: `.audit-work/part3/measure-13c.php`.
     - **Where:** app/Services/Analytics/ContentPopularityReader.php:33-59 (`forSite`), 68-90 (`actionScoresForSite`), 125-148 (`itemScoresForSite`)
     - **Affects:** Public sitepage payload builds on a cache miss (this reader sits behind the 60s public-profile cache, per its own docblock) and the popularity scoring job, for sites with a large content catalogue.
     - **Effort:** M (~2–4h)

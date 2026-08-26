@@ -148,3 +148,30 @@ it('accepts pool_locks per pool, replaces the map atomically, and rejects bad sh
     patchSettings($pro, ['pool_locks' => ['watch' => [['position' => 0, 'id' => 'a'], ['position' => 1, 'id' => 'a']]]])->assertStatus(422)->assertJsonValidationErrors(['settings.pool_locks.watch.0.id']);
     patchSettings($pro, ['pool_locks' => ['watch' => [['position' => -1, 'id' => 'a']]]])->assertStatus(422);
 });
+
+// SEM-8: the contiguity closure gated on is_int($slot['position']), but the
+// sibling rule validates position with Laravel's NON-strict 'integer', which
+// accepts the string "1". String positions therefore passed the sibling rule,
+// contributed nothing to the closure's $positions, and the `$positions !== []`
+// guard then skipped the contiguity check entirely.
+it('enforces manual-slot contiguity for STRING positions too (SEM-8)', function () {
+    $pro = createTenant('as-sem8-reject');
+
+    // Non-contiguous (0, 2) sent as STRINGS — used to slip through untouched.
+    patchSettings($pro, ['actions' => ['mode' => 'manual', 'slots' => [
+        ['position' => '0', 'id' => 'page:menu'],
+        ['position' => '2', 'id' => 'page:shop'],
+    ]]])->assertStatus(422)->assertJsonValidationErrors(['settings.actions.slots']);
+});
+
+it('still ACCEPTS contiguous string positions — the fix must cast, not just admit (SEM-8)', function () {
+    // The other direction, and the one a naive is_numeric() fix breaks: the
+    // closure compares against range(), which yields ints, so collecting "0","1"
+    // uncast makes ["0","1"] !== [0,1] and rejects VALID input.
+    $pro = createTenant('as-sem8-accept');
+
+    patchSettings($pro, ['actions' => ['mode' => 'manual', 'slots' => [
+        ['position' => '0', 'id' => 'page:menu'],
+        ['position' => '1', 'id' => 'page:shop'],
+    ]]])->assertOk();
+});

@@ -12,11 +12,16 @@
 // and the refusal is still honoured, because the decision travels through
 // PlacementPolicy exactly as a pasted link does.
 
+use App\Http\Controllers\Api\Platforms\ShopController;
 use App\Jobs\Brand\IngestBrandAssetJob;
+use App\Jobs\Platforms\ConnectStoreFromProductJob;
 use App\Jobs\Platforms\ShopInitialFillJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Brand\StoreBrandSeeder;
+use App\Services\Platforms\IntegrationConnectionCacheRefresher;
+use App\Services\Platforms\ShopBrandIdentity;
+use App\Services\Platforms\ShopBrandProfiler;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
 use App\Services\Shop\StoreRecord;
@@ -280,15 +285,37 @@ function seedExistingStores(User $user, int $count): void
     }
 }
 
-it('caps an 11th store the same way the legacy seeder did (MAX_BRANDS parity, WAVE-2C)', function () {
-    // Mirrors ShopController::MAX_BRANDS / ConnectStoreFromProductJob's own
-    // copy. StoreBrandSeeder never decides placement itself — but a store cap
-    // is genuinely its own concern (the store row is "the only thing left that
-    // is genuinely its own"), so this one thing IS reimplemented here rather
-    // than sourced from PlacementPolicy.
+// #CFG-3: this seeder said 5 while ShopController and ConnectStoreFromProductJob
+// said 10, so a user with 5 stores who pasted a 6th got the CONNECTION placed
+// and only the brand row capped — the store half-existed and never rendered.
+// All three now read `partna.shop_brands_max`. These two tests drive the cap
+// off that key rather than a literal, so a future change to it cannot leave the
+// three enforcement points disagreeing again.
+it('does NOT cap below the configured store cap — the #CFG-3 half-connected store', function () {
+    $pro = createTenant('store-under-cap');
+    seedExistingStores($pro, 5); // the count that used to cap here, and must not
+    storeResponds(['id' => 9999, 'name' => 'The 6th Store', 'currency' => 'AUD']);
+
+    $result = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
+
+    expect($result['outcome'])->not->toBe('capped');
+    expect($result['reason'])->not->toBe('max_brands');
+});
+
+it('caps the store after the cap the config declares, and all three enforcement points read it', function () {
+    // Assert the three former MAX_BRANDS constants now agree BY CONSTRUCTION —
+    // each reads the same key — rather than by three hand-copied literals.
+    $cap = (int) config('partna.shop_brands_max');
+    expect($cap)->toBe(10);
+    foreach ([StoreBrandSeeder::class, ShopController::class, ConnectStoreFromProductJob::class] as $class) {
+        $m = new ReflectionMethod($class, 'maxBrands');
+        $m->setAccessible(true);
+        expect($m->invoke(null))->toBe($cap, "{$class} disagrees with partna.shop_brands_max");
+    }
+
     $pro = createTenant('store-capped');
-    seedExistingStores($pro, 10);
-    storeResponds(['id' => 9999, 'name' => 'The 11th Store', 'currency' => 'AUD']);
+    seedExistingStores($pro, $cap);
+    storeResponds(['id' => 9999, 'name' => 'The 6th Store', 'currency' => 'AUD']);
 
     $result = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
 
@@ -302,38 +329,24 @@ it('caps an 11th store the same way the legacy seeder did (MAX_BRANDS parity, WA
     // the legacy seeder's own ordering (its connection upsert always ran;
     // only the store write was skipped past the cap).
     expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->exists())->toBeTrue()
-        ->and(seededStoreCount($pro))->toBe(10)
+        ->and(seededStoreCount($pro))->toBe($cap)
         ->and(seededStore($pro, '9999'))->toBeNull();
-});
-
-it('places a 6th store — the aggregate cap is ten, in lockstep with ShopController (T9)', function () {
-    // T9 (08ab05389, 2026-08-20) raised every cap 2-3x with owner permission:
-    // ShopController::MAX_BRANDS and ConnectStoreFromProductJob's copy both
-    // went 5 -> 10, and this seeder's copy was missed. Its own docblock claims
-    // to mirror ShopController, so the two disagreeing is the bug, not the
-    // number: a 6th store connected through the picker but was refused here.
-    $pro = createTenant('store-sixth');
-    seedExistingStores($pro, 5);
-    storeResponds(['id' => 9999, 'name' => 'The 6th Store', 'currency' => 'AUD']);
-
-    $result = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
-
-    expect($result['outcome'])->toBe('placed')
-        ->and($result['reason'])->toBeNull()
-        ->and(seededStoreCount($pro))->toBe(6);
 });
 
 it('never counts a re-scan of an already-connected store against the cap', function () {
     $pro = createTenant('store-recheck-capped');
-    // Nine existing stores plus this one lands exactly ON the cap (10), never
-    // over it — the interesting case for "a re-scan doesn't count against
-    // the cap" is being AT the boundary, not comfortably under it.
-    seedExistingStores($pro, 9);
+    // One under the cap, so this seed lands exactly ON it and never over —
+    // the interesting case for "a re-scan doesn't count against the cap" is
+    // being AT the boundary, not comfortably under it. Driven off the config
+    // key for the same reason the two tests above are (#CFG-3): a literal
+    // here would silently stop testing the boundary the day the cap moves.
+    $cap = (int) config('partna.shop_brands_max');
+    seedExistingStores($pro, $cap - 1);
     storeResponds();
 
     $first = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
     expect($first['outcome'])->toBe('placed');
-    expect(seededStoreCount($pro))->toBe(10);
+    expect(seededStoreCount($pro))->toBe($cap);
 
     // Re-scanning the SAME store while the account sits exactly at MAX_BRANDS
     // must still succeed — it's a re-scan of an existing store, not a new one.
@@ -342,7 +355,7 @@ it('never counts a re-scan of an already-connected store against the cap', funct
     $result = app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
 
     expect($result['outcome'])->toBe('placed')
-        ->and(seededStoreCount($pro))->toBe(10);
+        ->and(seededStoreCount($pro))->toBe($cap);
 });
 
 it('dispatches the initial fill and disarms auto-latest on a first connect only (L-4/L-5)', function () {
@@ -370,4 +383,41 @@ it('dispatches the initial fill and disarms auto-latest on a first connect only 
     // A re-scan of the SAME store is not a new connect — no second fill.
     app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
     Bus::assertDispatchedTimes(ShopInitialFillJob::class, 1);
+});
+
+// The AUTO-PROBE path's own behavioural cap test. The sweep's standalone note
+// asked for proof that both the auto-probe and the manual-connect path refuse at
+// the same count; ShopController's half is covered by ShopAsyncConnectTest (T10),
+// but ConnectStoreFromProductJob had no cap coverage at all before or after
+// #CFG-3. The reflection guard above proves the three accessors cannot DISAGREE;
+// this proves the auto-probe path actually ENFORCES what it reads.
+// Lives in this file so it can reuse seedExistingStores() — a cross-file test
+// helper fatals under --parallel.
+it('the auto-probe path refuses a store past the same configured cap (#CFG-3)', function () {
+    Log::spy();
+    $cap = (int) config('partna.shop_brands_max');
+    $pro = createTenant('probe-capped');
+    seedExistingStores($pro, $cap);
+
+    (new ConnectStoreFromProductJob((string) $pro->id, [
+        'provider' => 'bigcartel',
+        'origin' => 'https://overcap.example.com',
+        'sourceUrl' => 'https://overcap.example.com/product/x',
+        'page' => null,
+        'store' => null,
+        'clientBrand' => ['id' => 'overcap-store'],
+    ]))->handle(
+        app(ShopBrandIdentity::class),
+        app(ShopBrandProfiler::class),
+        app(ShopConnections::class),
+        app(ShopContentWriter::class),
+        app(IntegrationConnectionCacheRefresher::class),
+    );
+
+    // Refused cleanly: no new store, and never a half-connected one.
+    expect(seededStoreCount($pro))->toBe($cap);
+    expect(seededStore($pro, 'overcap-store'))->toBeNull();
+    Log::shouldHaveReceived('info')
+        ->with('shop.connect_from_product.cap_reached', Mockery::type('array'))
+        ->once();
 });

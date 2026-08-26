@@ -10,7 +10,9 @@ class StaffReorderServiceCategoryRequest extends BaseFormRequest
     public function rules(): array
     {
         return [
-            'ids' => ['required', 'array', 'min:1'],
+            // #SEC-13: same bound as PoolController::reorder's itemIds; kept
+            // identical to the owner twin.
+            'ids' => ['required', 'array', 'min:1', 'max:200'],
             'ids.*' => ['required', 'uuid', 'distinct'],
         ];
     }

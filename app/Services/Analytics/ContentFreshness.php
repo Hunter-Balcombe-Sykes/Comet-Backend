@@ -50,33 +50,29 @@ class ContentFreshness
         $out = [];
 
         try {
+            // f_published is per (item, source), so the LEFT JOIN multiplies
+            // rows per item; MIN(published_from) is the earliest any source
+            // knows, and SQL can compute it directly instead of PHP
+            // re-deriving the minimum across every joined row (SCALE-11).
             $rows = DB::connection('pgsql')->table('content.items as i')
                 ->leftJoin('content.f_published as fp', 'fp.item_id', '=', 'i.id')
                 ->where('i.user_id', $site->user_id)
                 ->whereIn('i.kind', array_keys(ItemFamily::KIND_TO_FAMILY))
                 ->whereNull('i.removed_at')
-                ->get(['i.id', 'i.kind', 'i.first_seen_at', 'fp.published_from']);
+                ->groupBy('i.id', 'i.kind', 'i.first_seen_at')
+                ->get([
+                    'i.id',
+                    'i.kind',
+                    'i.first_seen_at',
+                    DB::raw('MIN(fp.published_from) as published_from'),
+                ]);
         } catch (QueryException) {
             // content.* lane absent (partial test envs) — no boosts.
             return [];
         }
 
-        // f_published is per (item, source): take the earliest published_from
-        // any source knows, and fall back to first_seen_at.
-        $dated = [];
         foreach ($rows as $row) {
-            $id = (string) $row->id;
-            $dated[$id] ??= ['kind' => (string) $row->kind, 'published' => null, 'seen' => $row->first_seen_at];
-            if ($row->published_from !== null && $row->published_from !== '') {
-                $at = (string) $row->published_from;
-                if ($dated[$id]['published'] === null || strcmp($at, $dated[$id]['published']) < 0) {
-                    $dated[$id]['published'] = $at;
-                }
-            }
-        }
-
-        foreach ($dated as $id => $row) {
-            $family = ItemFamily::forKind($row['kind']);
+            $family = ItemFamily::forKind((string) $row->kind);
             if ($family === null) {
                 continue;
             }
@@ -84,13 +80,15 @@ class ContentFreshness
             if ($weights['fresh'] <= 0.0) {
                 continue;
             }
-            $at = $row['published'] ?? $row['seen'];
+            $at = ($row->published_from !== null && $row->published_from !== '')
+                ? (string) $row->published_from
+                : $row->first_seen_at;
             if ($at === null || $at === '') {
                 continue;
             }
             $boost = $this->boost($weights['fresh'], $weights['half_life_days'], Carbon::parse($at), $now);
             if ($boost !== null) {
-                $out[$family][$id] = $boost;
+                $out[$family][(string) $row->id] = $boost;
             }
         }
 

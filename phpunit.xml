@@ -52,5 +52,9 @@
         <env name="NIGHTWATCH_ENABLED" value="false"/>
         <env name="MEDIA_DISK_URL" value="https://test-media.partna.local"/>
         <env name="AWS_URL" value="https://test-s3.partna.local"/>
+        <!-- SCALE-5: tests run via CLI, so LinkInBioImporter's runningInConsole()
+             pacing gate is open here — without this, an unfaked multi-page test
+             would really sleep. Pacing tests override this value explicitly. -->
+        <env name="PARTNA_LINK_IN_BIO_PAGE_DELAY_MS" value="0"/>
     </php>
 </phpunit>

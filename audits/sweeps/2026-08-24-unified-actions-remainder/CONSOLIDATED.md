@@ -63,7 +63,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 5 complete
 
 ---
@@ -91,7 +91,20 @@
             ->each(function ($r) use (&$exposures, &$taps, $now): void {
         ```
 
-- [ ] **CACHE-2** · P2 — Staff CSV batch endpoint runs up to 500 sequential multi-table build writes synchronously inside the HTTP request
+- [x] **CACHE-2** · P2 — Staff CSV batch endpoint runs up to 500 sequential multi-table build writes synchronously inside the HTTP request
+    - **FIXED 2026-08-26 (PART 2 unit 6) — `CACHE-2` and `SCALE-7` are ONE defect, both ticked.**
+      Time-budgeted the synchronous loop rather than queueing it: queueing would change the staff contract
+      to a job id + polling, which needs frontend work. Three changes, all additive:
+      (1) per-row `\Throwable` catch + `report()` so one bad row cannot kill the batch (`ROW_FAILED`);
+      (2) a wall-clock budget from `partna.pre_account.batch_time_budget_seconds` (default 20s) that stops
+      STARTING rows and returns what completed — guarded by `$processed > 0` so a batch always makes
+      forward progress; (3) additive response keys `total` / `processed` / `remaining` /
+      `time_budget_exceeded`. Nothing removed, nothing renamed. Safe because `requestBuild()` dedupes
+      before the pairing map (spec §4.1), so re-uploading the remainder re-serves built rows as `reused`.
+      Wire note: `docs/wire-changes/2026-08-26-staff-batch-build-time-budget.md`; the endpoint was also
+      undocumented in `docs/api.md` and is now written up there.
+      Mutation-proved twice by the independent reviewer: deleting the `\Throwable` arm and deleting the
+      budget `break` each turn a distinct test RED. Independent review: **PASS**.
     - **Where:** app/Http/Controllers/Api/Staff/UserSiteManagement/StaffPreAccountBuildController.php:151-189
     - **Affects:** Staff CSV batch imports (`POST /api/staff/builds/batch`); the web worker handling the request; `PreAccountBuild`/site/user writes; auto-invite email fan-out (up to 500 emails per request).
     - **Effort:** M (~2–4h)
@@ -337,7 +350,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 4 of 4 complete
-- P2 Medium: 1 of 8 complete
+- P2 Medium: 8 of 8 complete
 - P3 Low: 0 of 5 complete
 
 ---
@@ -476,7 +489,8 @@
 
 ## P2 — Should fix
 
-- [ ] **SCALE-5** · P2 — Link-in-bio importer fetches up to 50 pages of one host sequentially with no per-request delay
+- [x] **SCALE-5** · P2 — Link-in-bio importer fetches up to 50 pages of one host sequentially with no per-request delay
+    - **Resolved 2026-08-26** — pacing, not volume: `MAX_PAGES` stays at 50. `import()` now calls `paceNextFetch()` once per iteration on BOTH loop paths (the unavailable branch pauses too — a 403 burst is what escalates a soft throttle into a hard block), reading `config('partna.routing.link_in_bio.page_delay_ms')`, default 250ms via `PARTNA_LINK_IN_BIO_PAGE_DELAY_MS`. Never before the first page, never after the last, no-op at <= 0. Uses `Illuminate\Support\Sleep`, not `usleep()`, so the spacing is assertable without a slow suite. **Never sleeps on a request path**: gated on `app()->runningInConsole()`, so a queue worker paces and an inline `sync` dispatch inside an HTTP request does not — the only production caller is `LinkInBioScanJob::handle()`, and Octane (the one case that would misreport that gate) is not installed. Measured against recorded fixtures: 50 pages -> 49 sleeps x 250ms = 12,250ms simulated; 1 page -> 0 sleeps; unfaked 3 pages at 50ms -> 135.5ms real wall-clock, so it genuinely sleeps rather than recording an intent. Five tests added, mutation-proved twice (no-op the pacer -> red; drop the last-page guard -> red, including on the single-page case). **NOT done, surfaced instead:** the second bullet's shared delay budget with the scheduled `integrations:refresh` path. That is a per-host token bucket in Redis keyed on the registrable host, consulted by both this loop and the batch refresh's fetches — cross-cutting shared state, its own plan. See RESULT-PART-3.md.
     - **Where:** app/Routing/Importers/LinkInBioImporter.php:53, 121-134
     - **Affects:** The bio-link host being imported from (Linktree, Beacons, etc.); a single import run can burst up to 50 rapid requests at one host, risking a throttle/WAF block for that user's import (and any concurrent import against the same host).
     - **Effort:** S-M (~1–2h)
@@ -497,7 +511,8 @@
                 $unavailable++;
         ```
 
-- [ ] **SCALE-6** · P2 — Pool section curation is read with no row limit on both the public payload path and the presence probe
+- [x] **SCALE-6** · P2 — Pool section curation is read with no row limit on both the public payload path and the presence probe
+    - **Resolved 2026-08-26** — the primary remedy (column projection) landed in `baa54b91e` as `#SCALE-13`: all THREE `site.section_items` reads — `hasSelection()`, `plan()` and `preloadCuration()` — now select `['section_id','item_id','state','sort_key']`; `id` and `created_at` are read nowhere. Measured on a 2000-row section: 432,000 -> 274,000 bytes returned, same 2000 rows. The secondary suggestion (an early-exit query shape for `hasSelection()`) is deliberately NOT done: the comment above its `in_array('review', ...)` branch records that answering from `site.section_items` alone is what lets the presence probe succeed where `content.*` is absent, and it is pinned by `PresenceProbeEscalationTest`/`PresenceProbeLoggingTest`. A `LIMIT 1` does not drop in there.
     - **Where:** app/Site/Pools/PoolResolver.php:116-118 (`hasSelection`), 230-232 (`plan`)
     - **Affects:** Public sitepage payload build and page-presence probing for heavily-curated users; both queries load a section's entire curation history in full before filtering in PHP.
     - **Effort:** S (~0.5–1h)
@@ -518,7 +533,20 @@
             ->get();
         ```
 
-- [ ] **SCALE-7** · P2 — Staff batch pre-account build endpoint runs up to 500 synchronous build calls inside one HTTP request
+- [x] **SCALE-7** · P2 — Staff batch pre-account build endpoint runs up to 500 synchronous build calls inside one HTTP request
+    - **FIXED 2026-08-26 (PART 2 unit 6) — `CACHE-2` and `SCALE-7` are ONE defect, both ticked.**
+      Time-budgeted the synchronous loop rather than queueing it: queueing would change the staff contract
+      to a job id + polling, which needs frontend work. Three changes, all additive:
+      (1) per-row `\Throwable` catch + `report()` so one bad row cannot kill the batch (`ROW_FAILED`);
+      (2) a wall-clock budget from `partna.pre_account.batch_time_budget_seconds` (default 20s) that stops
+      STARTING rows and returns what completed — guarded by `$processed > 0` so a batch always makes
+      forward progress; (3) additive response keys `total` / `processed` / `remaining` /
+      `time_budget_exceeded`. Nothing removed, nothing renamed. Safe because `requestBuild()` dedupes
+      before the pairing map (spec §4.1), so re-uploading the remainder re-serves built rows as `reused`.
+      Wire note: `docs/wire-changes/2026-08-26-staff-batch-build-time-budget.md`; the endpoint was also
+      undocumented in `docs/api.md` and is now written up there.
+      Mutation-proved twice by the independent reviewer: deleting the `\Throwable` arm and deleting the
+      budget `break` each turn a distinct test RED. Independent review: **PASS**.
     - **Where:** app/Http/Controllers/Api/Staff/UserSiteManagement/StaffPreAccountBuildController.php:165-189
     - **Affects:** Staff importing builds via CSV; the staff API worker pool during a batch import, and the requesting staff member's own request timeout.
     - **Effort:** M (~2–4h)
@@ -542,7 +570,8 @@
                     accountType: (string) ($row['account_type'] ?? ''),
         ```
 
-- [ ] **SCALE-8** · P2 — The suggestions inbox performs a per-intent connection lookup and occasional write for up to 100 rows on every GET
+- [x] **SCALE-8** · P2 — The suggestions inbox performs a per-intent connection lookup and occasional write for up to 100 rows on every GET
+    - **Resolved 2026-08-26** — **the hidden write was the real finding and it is gone.** `resolveSwapIncumbent()` split into a pure `decideSwapIncumbent()` (mutates `$intent` in place — which is what the JSON renders — and REPORTS the columns to persist) and the persisting wrapper, which only `accept()` now calls. The GET issues zero writes. Safe because the persistence was a pre-warm, never a correctness requirement: `accept()` re-resolves before acting, `SuggestionApplier` reads `conflicting_connection_id` off the in-memory object rather than re-reading the row, `findIntent()` matches `('proposed','blocked')` so a not-yet-flipped intent is still findable, and `CheckStuckSourceIntentsCommand` counts both states together so the backlog alarm does not move. The N+1 collapsed alongside it: one `whereIn('surface_key', ...)` read grouped in memory, skipped entirely when no intent on the page needs resolving. **Measured, N=100 intents (40 `cap_reached` across 40 single-account surfaces): 83 queries (43 reads + 40 WRITES) -> 4 queries (4 reads + 0 writes).** JSON body byte-identical, verified by comparing full responses across all six branch cases. Mutation-proved: reintroducing a persist on the GET path turns BOTH inbox tests red — the second one only after this fix added an explicit null-check BEFORE `accept()`, because `accept()`'s own write had been absorbing the premature one and hiding it.
     - **Where:** app/Http/Controllers/Api/Routing/SuggestionsController.php:75-77, 416-461
     - **Affects:** Suggestions inbox load latency; Postgres statement volume when many users open their inbox around the same time; `routing.source_intents` write volume on a read endpoint.
     - **Effort:** M (~2–4h)
@@ -619,7 +648,8 @@
         );
         ```
 
-- [ ] **SCALE-11** · P2 — ContentFreshness loads every non-removed item across a site's catalogue on every scoring run, no chunking
+- [x] **SCALE-11** · P2 — ContentFreshness loads every non-removed item across a site's catalogue on every scoring run, no chunking
+    - **Resolved 2026-08-26** — de-duplication moved into SQL. `content.f_published`'s PK is `(item_id, source_id)`, so the LEFT JOIN multiplied rows per source and PHP re-derived a minimum the database can compute: now `MIN(fp.published_from)` with `GROUP BY i.id, i.kind, i.first_seen_at`, one row per item, and the two accumulation loops collapse to one. Fail-open `catch (QueryException)` untouched. Measured on 300 items x 3 sources: 900 -> 300 rows returned, 1 query either way; at 3300 items the heap delta for the read fell 6,384,040 -> 375,472 bytes. Coverage was VACUOUS before this (nothing in the suite made two `f_published` rows for one item, so MIN vs MAX was invisible) — `ContentFreshnessTest` gained a two-source case that fails under a MIN->MAX mutation, plus an all-NULL fallback case.
     - **Where:** app/Services/Analytics/ContentFreshness.php:47-58
     - **Affects:** Popularity/freshness scoring for prolific users with many shop/menu/service/gallery/link items; memory during the scheduled scoring job.
     - **Effort:** S (~0.5–1h)
@@ -638,7 +668,8 @@
             ->get(['i.id', 'i.kind', 'i.first_seen_at', 'fp.published_from']);
         ```
 
-- [ ] **SCALE-12** · P2 — ContentPopularityReader loads a site's full popularity-score set with no cursor across three read methods
+- [x] **SCALE-12** · P2 — ContentPopularityReader loads a site's full popularity-score set with no cursor across three read methods
+    - **WONTFIX 2026-08-26 — the suggested remedy is a regression, measured not argued.** `lazy()` pages with plain LIMIT/OFFSET (`BuildsQueries::lazy()` re-issues `forPage(...)->get()`), not a keyset cursor. Measured at N=20,000 rows for one site: `->get()` = 1 query / ~10 MB peak delta; `->lazy(1000)` = **21 queries** / ~0-2 MB. The 8 MB is bought with 21x the round-trips on a path that sits behind the 60s public-profile cache. Worse, the table's only uniqueness is `UNIQUE(site_id, content_type, content_key)` — there is NO unique key on `(site_id, content_type, rank)`, which is what these queries order by — so OFFSET paging silently skips rows when the table mutates mid-scan. Demonstrated empirically: 5000 uniquely-ranked rows, `lazy(1000)`, delete 7 already-visited rows after page 1, and the 7 rows at ranks 1001-1007 were **never visited** — no error, no log. `ComputeContentPopularityScores` upserts this exact table on a schedule while `PoolResolver::popularityRanks()` reads it, so that race is live. Row counts here are also per-site and bounded per family, not unbounded. If memory ever bites at higher N the answer is `chunkById()` on the `id` PK (which IS unique), not `lazy()`. Measurement script + raw output: `.audit-work/part3/measure-13c.php`.
     - **Where:** app/Services/Analytics/ContentPopularityReader.php:33-59 (`forSite`), 68-90 (`actionScoresForSite`), 125-148 (`itemScoresForSite`)
     - **Affects:** Public sitepage payload builds on a cache miss (this reader sits behind the 60s public-profile cache, per its own docblock) and the popularity scoring job, for sites with a large content catalogue.
     - **Effort:** M (~2–4h)
@@ -824,7 +855,7 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 5 of 11 complete
+- P2 Medium: 9 of 11 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -905,7 +936,24 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 
 ## P2 — Should fix
 
-- [ ] **CCH-3** · P2 — `ShortLinkExpander` writes hardcoded TTLs with no jitter
+- [x] **CCH-3** · P2 — `ShortLinkExpander` writes hardcoded TTLs with no jitter
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 2). The stated premise is stale: the CCH-2
+      rewrite landed, so `ShortLinkExpander` no longer calls `Cache::put` at all — it routes through
+      `CacheLockService::rememberLockedNullable` (`:84-90`), and the TTL constants are the deliberate
+      negative-cache pair, not a defect. The REAL residual was one level down:
+      `rememberLockedNullable` wrote both its branches with the raw TTL while its sibling
+      `rememberLocked` jittered via `writeWithJitter()`, so every entry it wrote still expired in
+      fleet-wide lockstep. Fixed at that single seam (`jitterUnlessDeadline()`), which closes every
+      caller at once. A `DateTimeInterface` TTL is a caller-chosen deadline and passes through
+      untouched, matching `writeWithJitter()`'s contract.
+    - ⚠️ **Both write branches need their own differential test.** Review round 2 caught that a
+      +/-20% band ALWAYS contains the un-jittered value, so the band assertions pin *which* TTL was
+      used, not *that* it was jittered — stripping jitter from the sentinel branch alone left all
+      23 tests green. Three mutations now proved RED: value-branch jitter removed, sentinel-branch
+      jitter removed (`Expecting 30 not to be 30`), and the DateTimeInterface guard dropped
+      (TypeError). Collateral: four exact-TTL assertions in `CacheLockServiceTest` plus three at
+      caller sites (`ShortLinkExpanderTest` x2, `RefreshHostLimitsTest` x1) were pinning the
+      un-jittered TTL and became bands.
     - **Where:** app/Routing/ShortLinkExpander.php:52-54, 101
     - **Affects:** Short-link cache entries expire in synchronised lockstep across the fleet, risking a coordinated refetch burst at the expiry boundary.
     - **Effort:** S (~0.5–1h)
@@ -939,7 +987,20 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
         }
         ```
 
-- [ ] **CCH-5** · P2 — `ShortLinkExpander` swallows every exception and caches an invisible negative sentinel
+- [x] **CCH-5** · P2 — `ShortLinkExpander` swallows every exception and caches an invisible negative sentinel
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 3). `resolveFinal()`'s catch had an
+      empty body — comment only. Now `catch (\Throwable $e)` +
+      `Log::warning('routing.shortlink_expand_failed', ['url' => …, 'error' => …])` +
+      `self::escalateIfSustained($e, 'shortlink_expand')`, same `EscalatesRepeatedFaults`
+      precedent as `#LIFE-15`.
+    - ⚠️ **The negative TTL was deliberately NOT changed.** The finding's "invisible negative
+      sentinel" half is about the 1h `FAILURE_TTL_SECONDS`, and the code carries an explicit
+      "Do NOT change these TTLs" instruction — a long negative TTL on a transient failure is a
+      real concern, but shortening it is a separate judgement call, not this fix. What changed is
+      that the failure is no longer INVISIBLE while it is cached.
+    - Test: `tests/Feature/Routing/ShortLinkExpanderTest.php` — a throwing fetcher still returns the
+      original URL (fail-open preserved) AND emits the breadcrumb. Mutation-proved: removing the
+      log line turns it RED.
     - **Where:** app/Routing/ShortLinkExpander.php:96-101
     - **Affects:** Error observability. A defect or budget exhaustion is cached as "not expandable" for up to an hour with nothing reaching Nightwatch.
     - **Effort:** S (~0.5–1h)
@@ -957,7 +1018,13 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
         Cache::put($key, $final ?? '', $final === null ? self::FAILURE_TTL_SECONDS : self::SUCCESS_TTL_SECONDS);
         ```
 
-- [ ] **CCH-6** · P2 — `AppleSearch::itunes()` writes a literal int TTL with no jitter
+- [x] **CCH-6** · P2 — `AppleSearch::itunes()` writes a literal int TTL with no jitter
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 2). Two halves, both closed. The
+      "literal int TTL" half was already stale — `itunes()` reads
+      `config('partna.refresh.host_limits.itunes.cache_ttl_seconds')` (`AppleSearch.php:131`). The
+      jitter half was real and survived the CCH-1 rewrite: `itunes()` now goes through
+      `rememberLockedNullable` (`:129`), which was the one `CacheLockService` path that did NOT
+      jitter. The same one-line fix as CCH-3 closes it — no change in `AppleSearch.php` itself.
     - **Where:** app/Services/Platforms/AppleSearch.php:130
     - **Affects:** All cached iTunes responses; synchronised TTL expiry across the fleet.
     - **Effort:** S (~0.5–1h) — folds into the CCH-1 fix
@@ -1021,7 +1088,25 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
             ->block(5, fn () => $this->bridge->settlePayloadFinding($located['connection'], $located['index'], 'seeded'));
         ```
 
-- [ ] **CCH-10** · P2 — `ShopController::brandProducts` product-picker cache has no single-flight lock
+- [x] **CCH-10** · P2 — `ShopController::brandProducts` product-picker cache has no single-flight lock
+    - **FIXED 2026-08-26 (PART 2 unit 14d).** Routed the picker-catalog read through `CacheLockService::rememberLocked()`
+      instead of a bare `Cache::remember()`, using the existing seam rather than a bespoke `Cache::lock`.
+      Severity is low and stays low: owner-scoped, one store, a picker-cache stampede — not a data bug.
+    - **`rememberLocked`, NOT `rememberLockedNullable` — and this is enforced by the language, not just by
+      inspection:** `ShopCatalog::providerProducts()` is declared `: array`, and the one nullable-returning
+      scraper (`GenericShopScraper::fetchPage(): ?array`) is guarded by `?? []` before its value can leave. A null
+      would be a fatal `TypeError`, not a silent poisoning of the stale twin.
+    - TTL passed raw — `rememberLocked` applies its own ±20% jitter via `writeWithJitter()`, so the old call
+      site's manual `applyJitter()` was dropped rather than duplicated (double-jitter checked for, not present).
+    - `lockSeconds`/`blockSeconds` derived from `connect_budget_seconds` (45) rather than the 10s/5s defaults,
+      which are far too short for a scrape that may legitimately use the whole budget. **Watch-note, not a
+      defect:** a 45s block can hold a PHP-FPM worker — acceptable here because the path is owner-scoped and
+      low-fan-in, unlike `ShortLinkExpander`, which chose `blockSeconds: 2` precisely because it is public.
+    - **The test is WIRING-only and now says so in its own docblock** — it asserts which seam is called with which
+      key/TTL/lock/block; it does NOT run two concurrent requests and cannot demonstrate serialisation. The
+      mutation (revert to `Cache::remember`) does go RED, but indirectly: the mock goes uninvoked, the real
+      scraper runs against an unroutable fixture domain and 422s. A real discriminator, but a fragile one —
+      recorded rather than dressed up. Review: **PASS**.
     - **Where:** app/Http/Controllers/Api/Platforms/ShopController.php:839-843
     - **Affects:** The authenticated owner of a connected shop brand, when the picker's 10-minute cache is cold — repeated opens/reloads within the same window each independently re-scrape the upstream store.
     - **Effort:** S (~0.5–1h)
@@ -1197,7 +1282,7 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 0 of 1 complete
+- P2 Medium: 1 of 1 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -1273,7 +1358,37 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 
 ## P2 — Should fix
 
-- [ ] **#JOB-3** · P2 — ApproveEarlyAccessBuildJob reports build/scrape failures but never calls `$this->fail()`, so Horizon's failed-jobs dashboard never reflects the failure
+- [x] **#JOB-3** · P2 — ApproveEarlyAccessBuildJob reports build/scrape failures but never calls `$this->fail()`, so Horizon's failed-jobs dashboard never reflects the failure
+    - **FIXED 2026-08-26** (pre-launch-hardening PART 1, unit 7). `$this->fail($e)` added to THREE of
+      the four paths, per the per-path disposition in `EXECUTE-PART-1.md` §4 unit 7:
+      `early_access.approve.build_failed` (the build did not happen), `.scrape_failed` (the invitee
+      gets an empty site), and the unclassified `\Throwable` arm in the same block.
+    - **`early_access.approve.build_collision` deliberately stays a quiet `return`** — a collision
+      means a live build for this source already exists, which is a legitimate no-op, not a failure.
+      Recorded in an inline comment so it is not "fixed" by a later sweep.
+    - The audit located the generic arm at ~:198; that line is `failed()`. Matched by SYMBOL per the
+      stale-line-number rule — the real arm is the `catch (Throwable $e)` inside the `$needsScrape`
+      block. Two further quiet returns exist that this finding does not name
+      (`.no_link`, `.no_source`); both are legitimate no-ops and were left alone.
+    - **`public int $tries = 0`** — this job retries indefinitely by design (the Apify-stampede
+      limiter RELEASES when over budget, and a release counts as an attempt, so a finite `$tries`
+      would hard-fail on the first throttle). ⚠️ **Correction after review round 1:** an earlier draft
+      of this note claimed `fail()` now forecloses a retry that a transient `scrape_failed` would
+      otherwise have got. It does not. Before this fix these paths `return`ed, so `handle()` completed
+      NORMALLY and no retry ever happened on them either — success is not a retry. `fail()` changes
+      only what Horizon reports (processed -> failed). There is no new regression risk here, and no
+      retry-policy change was made.
+    - `report($e)` was KEPT alongside each `fail()`, not replaced by it. `Job::fail()` returns early
+      without invoking `failed()` when the job is already deleted, so `failed()`'s own `report()` is
+      not a guaranteed path. The cost is a duplicate Nightwatch report on the normal path.
+    - Tests in `tests/Feature/PreAccount/ApproveEarlyAccessBuildJobTest.php` attach a mock
+      `Illuminate\Contracts\Queue\Job` (same shape as `CloudflareCachePurgeJobTest`) because
+      `InteractsWithQueue::fail()` is a NO-OP without one — a test that skipped this would have been
+      vacuous. **All four paths are covered** (round 1 found `build_failed` and `build_collision`
+      untested; the happy-path negative test does NOT cover the collision, because it uses a
+      pre-linked signup and so never enters the `user_id === null` block where that branch lives).
+      Five mutations proved RED: removing any of the three `fail()` calls, and adding one to either
+      the happy path or the collision branch.
     - **Where:** app/Jobs/PreAccount/ApproveEarlyAccessBuildJob.php:107-127, 163-182
     - **Affects:** Staff early-access approvals; a transient DB/build error or a real scrape failure (Apify outage, `SourceGenerationException`) leaves the signup uninvited with a correctly-updated `build_state`/log entry and a Nightwatch report, but Horizon shows the job as processed — staff have no dashboard signal that the approval silently didn't complete.
     - **Effort:** S (~0.5–1h)

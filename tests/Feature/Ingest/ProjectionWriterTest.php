@@ -8,6 +8,7 @@ use App\Services\Content\ContentItemSlugAllocator;
 use App\Site\Documents\BuildState;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -204,6 +205,65 @@ it('merges an already-split pair when the joining evidence arrives later, keepin
     expect(DB::table('content.items')->where('user_id', $userId)->count())->toBe(1)
         ->and(DB::table('content.item_merges')->where('user_id', $userId)->count())->toBe(1)
         ->and(DB::table('content.source_items')->whereNull('removed_at')->whereNotNull('item_id')->distinct()->count('item_id'))->toBe(1);
+});
+
+it('emits exactly ONE cap warning when a single run caps many evidential keys', function () {
+    // #SCALE-10/#CACHE-6: the resolver caps PER KEY VALUE, so one run can cap
+    // several key values at once. This pins that ProjectionWriter aggregates
+    // them into a single warning, keyed off resolveItemsLocked() (not the
+    // resolver, which is pure and does no I/O) — one log line per run, never
+    // one per key, because a log flood is the same failure the cap exists to
+    // prevent, moved to a different subsystem.
+    config(['partna.ingest.max_members_per_key' => 1]);
+    $userId = createTenant('cap-'.Str::lower(Str::random(6)))->id;
+    $writer = app(ProjectionWriter::class);
+
+    // Three "(Radio Edit)" releases, each its own connection/source so none
+    // poison their own TitleLoose signature (Resolver::poisonedKeys()) and
+    // none satisfy TitleRelease's cross-source corroborating union (its
+    // value carries the bracketed suffix verbatim, so "Radio Edit" never
+    // equals "Extended Mix" there) — only TitleLoose strips bracketed
+    // content, so this is the one tier where the "Edit"/"Mix" pair matches.
+    foreach ([
+        ['echo/one', 'Echo Chamber (Radio Edit)', 'echo-one'],
+        ['bloom/one', 'Silent Bloom (Radio Edit)', 'bloom-one'],
+        ['drift/one', 'Neon Drift (Radio Edit)', 'drift-one'],
+    ] as [$key, $title, $slug]) {
+        [, , $source, $streamId] = projectableBandcamp([
+            $key => bandcampDoc($title, "https://artist.bandcamp.com/album/{$slug}"),
+        ], $userId);
+        $writer->projectStream($source, $streamId, 'releases');
+    }
+
+    // The three "Extended Mix" counterparts land together on ONE new source
+    // and project in a SINGLE call, so all three caps are discovered inside
+    // ONE resolveItemsLocked() run — the scenario the aggregation exists for.
+    [, , $sourceTwo, $streamTwo] = projectableBandcamp([
+        'echo/two' => bandcampDoc('Echo Chamber (Extended Mix)', 'https://artist.bandcamp.com/album/echo-two'),
+        'bloom/two' => bandcampDoc('Silent Bloom (Extended Mix)', 'https://artist.bandcamp.com/album/bloom-two'),
+        'drift/two' => bandcampDoc('Neon Drift (Extended Mix)', 'https://artist.bandcamp.com/album/drift-two'),
+    ], $userId);
+
+    Log::spy();
+    $writer->projectStream($sourceTwo, $streamTwo, 'releases');
+
+    // Six distinct items, none merged — confirms the caps did their job (no
+    // evidential candidate survives to pair them) without a corroborating
+    // union sneaking in and making the cap count trivially right for the
+    // wrong reason.
+    expect(DB::table('content.items')->where('user_id', $userId)->count())->toBe(6)
+        ->and(DB::table('content.identity_candidates')->count())->toBe(0);
+
+    // A real captured record, not a Mockery shouldNotReceive() — a negated
+    // Mockery log assertion in this repo is known to pass vacuously.
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->withArgs(function (string $message, array $context) use ($userId) {
+            return $message === 'identity candidate cap hit — some duplicate suggestions were not recorded'
+                && ($context['user_id'] ?? null) === $userId
+                && ($context['kind'] ?? null) === 'release'
+                && ($context['capped_key_count'] ?? null) === 3;
+        });
 });
 
 it('retires source items for tombstoned records without touching the user-delete column', function () {

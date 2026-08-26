@@ -241,11 +241,25 @@ it('offers a swap for a cap-blocked link on a single-account surface, and swappi
         ->and($listed['question'])->toContain('swap')
         ->and($listed['conflictingConnectionId'])->toBe($incumbent->id);
 
+    // SCALE-8: the GET reported the incumbent WITHOUT persisting it. Asserted
+    // here and not after accept(), because accept()'s own write lands the same
+    // value — a GET that started writing again would be invisible from there.
+    expect(DB::table('routing.source_intents')->where('id', $intentId)->value('conflicting_connection_id'))
+        ->toBeNull();
+
     actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
 
     expect(IntegrationConnection::withTrashed()->whereKey($incumbent->id)->value('deleted_at'))->not->toBeNull()
         ->and(IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'behance.profile')->pluck('resource_id')->all())
         ->toBe(['new-handle']);
+
+    // Proves resolveSwapIncumbent()'s single-account-at-cap write branch
+    // still persists from accept() (unchanged by SCALE-8) — apply()'s own
+    // final update touches state/block_reason/connection_id/resolved_at but
+    // never conflicting_connection_id, so this column is exactly what that
+    // branch wrote.
+    expect(DB::table('routing.source_intents')->where('id', $intentId)->value('conflicting_connection_id'))
+        ->toBe($incumbent->id);
 });
 
 it('keeps a cap-blocked link on a multi-account surface dismiss-only', function () {
@@ -290,7 +304,12 @@ it('un-blocks a cap-blocked link once the cap is no longer reached', function ()
     $listed = actingAsUser($pro)->getJson('/api/routing/suggestions')->json('suggestions.0');
     expect($listed['state'])->toBe('proposed')
         ->and($listed['actions'])->toBe(['accept', 'dismiss']);
-    expect(DB::table('routing.source_intents')->where('id', $intentId)->value('state'))->toBe('proposed');
+
+    // SCALE-8: the inbox GET used to persist this resolution — a write on a
+    // read endpoint, and never load-bearing since accept() re-resolves
+    // before it acts. The ledger row stays exactly as seeded; only the
+    // rendered view reflects the lifted cap.
+    expect(DB::table('routing.source_intents')->where('id', $intentId)->value('state'))->toBe('blocked');
 });
 
 it('never re-asks a question the user already dismissed', function () {
