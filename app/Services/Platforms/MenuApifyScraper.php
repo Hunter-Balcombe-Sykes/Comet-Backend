@@ -128,9 +128,15 @@ class MenuApifyScraper
      */
     public function fetchStores(array $links, ?string $userId = null, ?string $address = null): array
     {
+        // transport=http platforms first (Square Online): one first-party
+        // fetch per store — no token, no budget claim, no mode split (the
+        // single result prices both modes). Failures negative-cache exactly
+        // like a failed actor target so the retry cadence matches.
+        $httpMenus = $this->fetchHttpStores($links);
+
         $token = config('services.apify.token');
         if (! $token) {
-            return [];
+            return $httpMenus;
         }
 
         // One scrape target per (platform, mode) URL — key "platform|mode".
@@ -157,7 +163,7 @@ class MenuApifyScraper
             }
         }
         if ($targets === []) {
-            return [];
+            return $httpMenus;
         }
 
         // R4-RES-1: drop targets we scraped and failed on within the last TTL. Checked
@@ -167,7 +173,7 @@ class MenuApifyScraper
             fn (array $t) => ! Cache::has(CacheKeyGenerator::menuScrapeBlocked($t['platform'], $t['url'])),
         );
         if ($targets === []) {
-            return [];
+            return $httpMenus;
         }
 
         // SCALE-2: claim one budget slot per target before firing the pool; drop
@@ -177,7 +183,7 @@ class MenuApifyScraper
             return $budget->tryClaim('menu');
         });
         if ($targets === []) {
-            return [];
+            return $httpMenus;
         }
 
         // Fire every target concurrently (one attempt each).
@@ -232,7 +238,7 @@ class MenuApifyScraper
         }
 
         // Fuse each platform's mode menus into the per-mode-priced shape.
-        $out = [];
+        $out = $httpMenus;
         foreach ($links as $platform => $link) {
             if ($this->actorFor($platform) === null) {
                 continue;
@@ -251,6 +257,52 @@ class MenuApifyScraper
                 $out[$platform] = $this->priced($delivery, false, true);
             } else {
                 $out[$platform] = null;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * The transport=http platforms' menus, keyed by platform slug — Square
+     * Online today. Shares the actor lane's negative-cache (same key, same
+     * TTL) so a broken store isn't re-fetched every dispatch; a recovered
+     * fetch clears the block, and a null result becomes the ghost-platform
+     * path exactly like a failed actor scrape. Priced for BOTH modes: these
+     * stores are location/mode-independent (one catalog, one price).
+     *
+     * @param  array<string, array{pickupUrl:?string, deliveryUrl:?string, storeUrl:?string, modes:list<string>}>  $links
+     * @return array<string, array{store:array<string,mixed>, categories:list<array<string,mixed>>}|null>
+     */
+    private function fetchHttpStores(array $links): array
+    {
+        $out = [];
+        $ttl = (int) config('partna.menu.blocked_ttl_seconds');
+
+        foreach ($links as $platform => $link) {
+            if (config('partna.menu.platforms.'.$platform.'.transport') !== 'http') {
+                continue;
+            }
+            $driver = $this->driverFor($platform);
+            $url = $link['storeUrl'] ?? $link['pickupUrl'] ?? $link['deliveryUrl'] ?? null;
+            if (! $driver instanceof MenuHttpDriver || $url === null) {
+                continue;
+            }
+
+            $blockedKey = CacheKeyGenerator::menuScrapeBlocked($platform, $url);
+            if (Cache::has($blockedKey)) {
+                $out[$platform] = null;
+
+                continue;
+            }
+
+            $menu = $driver->fetchMenu($url);
+            if ($menu !== null) {
+                $out[$platform] = $this->priced($menu, true, true);
+                Cache::forget($blockedKey);
+            } else {
+                $out[$platform] = null;
+                Cache::put($blockedKey, ['at' => now()->toIso8601String(), 'reason' => 'http_fetch_failed'], $ttl);
             }
         }
 
