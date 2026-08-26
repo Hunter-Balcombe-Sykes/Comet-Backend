@@ -346,6 +346,34 @@ it('persists the selection columns', function () {
         ->and(property_exists($row, 'effect_surface'))->toBeFalse();
 });
 
+it('persists the typography_uppercase boolean and clears it back to null (plan 02 step 3)', function () {
+    config(['partna.throttle.enabled' => false]);
+
+    $pro = createTenant('uppercase-write');
+    DB::connection('pgsql')->table('site.design_kits')->insert(['site_id' => $pro->site->id]);
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['design_kit' => ['typography_uppercase' => false]])
+        ->assertOk();
+    $row = DB::connection('pgsql')->table('site.design_kits')->where('site_id', $pro->site->id)->first();
+    expect($row->typography_uppercase)->not->toBeNull()
+        ->and((bool) $row->typography_uppercase)->toBeFalse();
+
+    // Null = back to the package default (all-caps), same contract as
+    // every other kit column.
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['design_kit' => ['typography_uppercase' => null]])
+        ->assertOk();
+    $row = DB::connection('pgsql')->table('site.design_kits')->where('site_id', $pro->site->id)->first();
+    expect($row->typography_uppercase)->toBeNull();
+
+    // Junk 422s — the boolean rule has teeth.
+    actingAsUser($pro)
+        ->patchJson('/api/site', ['design_kit' => ['typography_uppercase' => 'SHOUT']])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['design_kit.typography_uppercase']);
+});
+
 it('accepts every legal selection value over HTTP and stores it', function () {
     // The accept side of UpdateSiteValidationTest's rejection test. That one
     // proves junk 422s; a rule weakened to bare 'string' would pass it and

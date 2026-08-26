@@ -544,6 +544,15 @@ class IndividualProfilePayloadBuilder
 
         $out = [];
         foreach ($cols as $column => $value) {
+            // Boolean columns must cross the wire as JSON booleans — the
+            // pages-side zod schema types typography.uppercase as
+            // z.boolean() and strips anything else, silently rendering the
+            // package default. pgsql PDO returns native bools, but SQLite
+            // (tests) and any driver quirk return 0/1 — cast at the one
+            // choke point instead of trusting the driver.
+            if ($column === 'typography_uppercase' && $value !== null) {
+                $value = (bool) $value;
+            }
             $group = null;
             $rest = null;
 

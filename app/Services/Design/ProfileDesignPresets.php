@@ -56,6 +56,7 @@ final class ProfileDesignPresets
     private const TARGETABLE = [
         'color_accent',
         'typography_font_family',
+        'typography_uppercase',
         'text_size',
         'spacing',
         'corners',

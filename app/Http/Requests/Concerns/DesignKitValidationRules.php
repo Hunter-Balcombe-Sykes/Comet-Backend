@@ -25,13 +25,14 @@ namespace App\Http\Requests\Concerns;
 // every new site, and because the pages app fills nulls from the design
 // system's own defaults (mergeDesignKit). Null is "unset", never "inherit".
 //
-// The five survivors (eight until 2026-08-27, when border_thickness,
-// theme_mode and theme_night_shift_auto were dropped — plan 02: the border
-// is a constant 1px, sites are always the day bleach palette), and what
-// each drives:
+// The six live columns (2026-08-27, plan 02: border_thickness, theme_mode
+// and theme_night_shift_auto dropped; typography_uppercase re-added as a
+// real authored axis), and what each drives:
 //
 //   color_accent            free-form hex, scraped from brand
 //   typography_font_family  slug from the four-font roster
+//   typography_uppercase    boolean — text-transform across the site
+//                           (NULL renders the package default: all-caps)
 //   text_size               small | medium | large      (5 font + 5 icon roles)
 //   spacing                 default | spacious          (4 gaps, 3 paddings,
 //                                                        3 card heights)
@@ -97,6 +98,10 @@ trait DesignKitValidationRules
             // FontKeywordClassifier already owns the retired-slug migration
             // map; a hard list here would be a fourth place to keep in step.
             'design_kit.typography_font_family' => ['sometimes', 'nullable', 'string', 'max:64'],
+
+            // Uppercase (plan 02 step 3): boolean value, null = package
+            // default (all-caps today).
+            'design_kit.typography_uppercase' => ['sometimes', 'nullable', 'boolean'],
 
             // The three selections (presets.ts mirror — see the header).
             'design_kit.text_size' => $selection('small,medium,large'),

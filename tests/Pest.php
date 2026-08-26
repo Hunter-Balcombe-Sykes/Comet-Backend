@@ -3973,7 +3973,8 @@ function createDataExportAudit(array $overrides = []): DataExportAudit
  *   spacing           default | spacious
  *   corners           default | rounded
  * (border_thickness, theme_mode and theme_night_shift_auto dropped
- * 2026-08-27, plan 02 — migration 20260827080000.)
+ * 2026-08-27, plan 02 — migration 20260827080000; typography_uppercase
+ * re-added the same night — 20260827090000, boolean as INTEGER here.)
  * No CHECK constraint backs them in Postgres, so none is mirrored here.
  *
  * Every column stays NULLABLE — null means "use the package default", and the
@@ -3987,6 +3988,7 @@ function setupDesignKitsTable(): void
         site_id TEXT PRIMARY KEY NOT NULL,
         color_accent TEXT NULL,
         typography_font_family TEXT NULL,
+        typography_uppercase INTEGER NULL,
         text_size TEXT NULL,
         spacing TEXT NULL,
         corners TEXT NULL,

@@ -36,6 +36,7 @@ class DesignRationaleService
     private const COLUMN_AREAS = [
         'color_accent' => 'Colours',
         'typography_font_family' => 'Typography',
+        'typography_uppercase' => 'Typography',
         'text_size' => 'Typography',
         'spacing' => 'Layout',
         'corners' => 'Layout',

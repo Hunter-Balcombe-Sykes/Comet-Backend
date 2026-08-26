@@ -55,6 +55,7 @@ beforeEach(function () {
         site_id TEXT PRIMARY KEY,
         color_accent TEXT NULL,
         typography_font_family TEXT NULL,
+        typography_uppercase INTEGER NULL,
         text_size TEXT NULL,
         spacing TEXT NULL,
         corners TEXT NULL,
@@ -246,6 +247,24 @@ it('groups stored design_kit columns into nested camelCase wire shape', function
 // columns — plan 02. Its branch — single-token prefix with a multi-token
 // camelCased remainder — stays covered by typography_font_family →
 // typography.fontFamily above.)
+
+it('maps typography_uppercase as a BOOLEAN into typography.uppercase (plan 02 step 3)', function () {
+    // Booleans must survive the wire as booleans — the pages-side zod
+    // schema types typography.uppercase as z.boolean(), so a "1"/"0"
+    // string here would be stripped client-side and silently render the
+    // package default.
+    $pro = seedIndividualProfile('solo-dk-upper');
+    $siteId = DB::connection('pgsql')->table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    DB::connection('pgsql')->table('site.design_kits')->insert([
+        'site_id' => $siteId,
+        'typography_uppercase' => 0,
+    ]);
+
+    $data = $this->getJson('/api/public/profiles/solo-dk-upper')->assertOk()->json('data');
+
+    expect($data['designKit']['typography']['uppercase'])->toBeFalse();
+});
 
 it('maps the selection columns into the selections group', function () {
     // The exact_columns path (2026-08-09). Two of these —`spacing` and
