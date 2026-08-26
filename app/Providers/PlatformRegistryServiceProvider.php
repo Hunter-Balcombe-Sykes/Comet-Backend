@@ -11,7 +11,6 @@ use App\Http\Resources\Platforms\NowBookitConnectionResource;
 use App\Http\Resources\Platforms\OpenTableConnectionResource;
 use App\Http\Resources\Platforms\ResDiaryConnectionResource;
 use App\Http\Resources\Platforms\ShopBrandResource;
-use App\Http\Resources\Platforms\TileConnectionResource;
 use App\Jobs\Platforms\RefreshConnectionJob;
 use App\Jobs\Platforms\ThrottledByProvider;
 use App\Models\Core\Site\IntegrationConnection;
@@ -127,7 +126,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // — its full behavioural contract (CA-W6/CA-W7 connectFetch
             // override, completeness predicate, smart-detect matcher) attaches
             // from Registry\Bindings\FreshaBinding.
-            $r->register(PD::make('square')->label('Square')->category(Cat::Booking)->resource(TileConnectionResource::class)->payload(SelectionPayload::class));
+            // square: retired to a catalog-derived descriptor (P5, 2026-08-27)
+            // — its full behavioural contract attaches from
+            // Registry\Bindings\SquareBinding (bespoke SquareController connect,
+            // like fresha).
             $r->register(PD::make('opentable')->label('OpenTable')->category(Cat::Reservations)->resource(OpenTableConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('resdiary')->label('ResDiary')->category(Cat::Reservations)->resource(ResDiaryConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('nowbookit')->label('NowBookit')->category(Cat::Reservations)->resource(NowBookitConnectionResource::class)->payload(SelectionPayload::class));
@@ -148,8 +150,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             }
 
             // ── Smart-detect matchers (Plan 6). Registration order = detection priority. ──
-            // Booking: fresha's host matcher rides its binding; Square (squareup.com / *.square.site).
-            $r->get('square')->detect(new HostMatch('~(^|\.)(squareup\.com|square\.site)$~'));
+            // Booking: fresha's and square's host matchers ride their bindings.
             // Reservations: keyless widgets delegate to their service's isXUrl matcher.
             $openTable = $this->app->make(OpenTableService::class);
             $resDiary = $this->app->make(ResDiaryService::class);
@@ -233,7 +234,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('nowbookit')->connectInput('url', ['required', 'string', 'max:2048']);
             $r->get('opentable')->connectInput('url', ['required', 'string', 'max:2048']);
             $r->get('resdiary')->connectInput('url', ['required', 'string', 'max:2048']);
-            $r->get('square')->connectInput('url', ['required', 'string', 'max:1000', 'regex:#^https?://([a-z0-9-]+\.)*(squareup\.com|square\.site)(/[^\s]*)?$#i'], ['url.regex' => 'Enter a valid Square booking link (a squareup.com or square.site URL).'], true);
 
             // single-named-field (3 distinct + 11 socials share 'username').
             // P2: the retired link-only platforms' connect inputs (username

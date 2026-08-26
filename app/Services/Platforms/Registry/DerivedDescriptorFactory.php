@@ -367,6 +367,7 @@ class DerivedDescriptorFactory
         'humanitix' => Bindings\HumanitixBinding::class,
         'soundcloud' => Bindings\SoundcloudBinding::class,
         'spotify' => Bindings\SpotifyBinding::class,
+        'square' => Bindings\SquareBinding::class,
         'vimeo' => Bindings\VimeoBinding::class,
         'youtube' => Bindings\YoutubeBinding::class,
         'youtube-music' => Bindings\YoutubeMusicBinding::class,
