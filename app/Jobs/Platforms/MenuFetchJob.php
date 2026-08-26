@@ -223,7 +223,16 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         }
         $merged = $merger->merge($menus, $contentSource, $storeLinks, $this->previousCategoryOrder($existing));
 
-        $this->persist($menu, $contentSource, $merged, $now);
+        // Connected platforms whose scrape returned NOTHING this round: their
+        // store card ghosts (MenuMerger), and their EXCLUSIVE dishes must not
+        // be retired for a transient failure (gate critic, 2026-08-27 — the
+        // single-fetch http lane made this window wider for Square).
+        $failedPlatforms = array_values(array_filter(
+            array_keys($storeLinks),
+            fn (string $p) => ($menus[$p] ?? null) === null,
+        ));
+
+        $this->persist($menu, $contentSource, $merged, $now, $failedPlatforms);
 
         // TXN-101: per-platform sync status is written ONLY after persist() has
         // committed successfully. It used to be written right after the scrape
@@ -377,7 +386,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
      *
      * @param  array{store:array<string,mixed>, categories:list<array<string,mixed>>}  $merged
      */
-    protected function persist(Menu $menu, string $contentSource, array $merged, Carbon $now): void
+    protected function persist(Menu $menu, string $contentSource, array $merged, Carbon $now, array $failedPlatforms = []): void
     {
         $writer = app(ManualMenuWriter::class);
         $userId = (string) $menu->user_id;
@@ -405,6 +414,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         }
 
         $absent = $this->absentDishIds($menu, $coords, $ownerNames['protected'], $ownerNames['locked_coords']);
+        $absent = $this->excludeFailedPlatformExclusives($menu, $absent, $failedPlatforms);
 
         $knownIdentity = $this->knownItemIdentity($menu);
 
@@ -475,6 +485,58 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             // having been fixed. Do not stamp this anywhere else.
             'last_successful_fetch_at' => $now,
         ])->save();
+    }
+
+    /**
+     * Dishes whose ONLY order_platform memberships sit on platforms that
+     * FAILED this round keep their live state — a transient scrape failure
+     * (timeout, 5xx, bot-block) is not evidence the vendor delisted them.
+     * A dish also on a SUCCEEDED platform still retires normally when that
+     * platform stopped listing it, and everything revives via
+     * reviveScrapedDishes() the moment a later scrape re-emits it.
+     *
+     * @param  list<string>  $absent
+     * @param  list<string>  $failedPlatforms  registry slugs
+     * @return list<string>
+     */
+    private function excludeFailedPlatformExclusives(Menu $menu, array $absent, array $failedPlatforms): array
+    {
+        if ($absent === [] || $failedPlatforms === []) {
+            return $absent;
+        }
+
+        $failedRefs = array_map(fn (string $p) => MenuProjectionMapper::orderPlatformRef($p), $failedPlatforms);
+
+        $memberships = DB::connection('pgsql')->table('content.collection_items as ci')
+            ->join('content.collections as c', 'c.id', '=', 'ci.collection_id')
+            ->whereIn('ci.item_id', $absent)
+            ->where('c.user_id', (string) $menu->user_id)
+            ->where('c.kind', 'order_platform')
+            ->get(['ci.item_id', 'c.external_ref'])
+            ->groupBy('item_id');
+
+        $kept = [];
+        $spared = 0;
+        foreach ($absent as $itemId) {
+            $refs = ($memberships[$itemId] ?? collect())->pluck('external_ref')->all();
+            $exclusiveToFailed = $refs !== [] && array_diff($refs, $failedRefs) === [];
+            if ($exclusiveToFailed) {
+                $spared++;
+
+                continue;
+            }
+            $kept[] = $itemId;
+        }
+
+        if ($spared > 0) {
+            Log::info('menu_fetch.retirement_deferred_failed_platform', [
+                'user_id' => (string) $menu->user_id,
+                'spared' => $spared,
+                'failed_platforms' => $failedPlatforms,
+            ]);
+        }
+
+        return $kept;
     }
 
     /**

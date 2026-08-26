@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Services\Http\SafeUrlFetcher;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -43,6 +44,11 @@ class SquareMenuDriver implements MenuHttpDriver, MenuPlatformDriver
 
     /** Hard page cap — 100×20 = 2000 products, far beyond any real menu. */
     private const MAX_PAGES = 20;
+
+    /** Bounded retries per fetch — the actor lane's resilience, sized for http. */
+    private const FETCH_ATTEMPTS = 2;
+
+    private const RETRY_DELAY_MS = 400;
 
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
 
@@ -175,14 +181,18 @@ class SquareMenuDriver implements MenuHttpDriver, MenuPlatformDriver
      */
     private function fetchHtml(string $storeUrl): ?string
     {
-        $result = $this->fetcher->tryFetch($storeUrl, ['User-Agent' => self::USER_AGENT]);
-        if ($result === null || ($result['status'] ?? 0) >= 400 || ! is_string($result['body'] ?? null)) {
-            Log::info('menu.square.page_fetch_failed', ['url' => $storeUrl, 'status' => $result['status'] ?? null]);
-
-            return null;
+        for ($attempt = 1; $attempt <= self::FETCH_ATTEMPTS; $attempt++) {
+            $result = $this->fetcher->tryFetch($storeUrl, ['User-Agent' => self::USER_AGENT]);
+            if ($result !== null && ($result['status'] ?? 0) < 400 && is_string($result['body'] ?? null)) {
+                return $result['body'];
+            }
+            if ($attempt < self::FETCH_ATTEMPTS) {
+                usleep(self::RETRY_DELAY_MS * 1000);
+            }
         }
+        Log::info('menu.square.page_fetch_failed', ['url' => $storeUrl, 'status' => $result['status'] ?? null]);
 
-        return $result['body'];
+        return null;
     }
 
     /**
@@ -217,24 +227,12 @@ class SquareMenuDriver implements MenuHttpDriver, MenuPlatformDriver
         $products = [];
 
         for ($page = 1; $page <= self::MAX_PAGES; $page++) {
-            try {
-                $resp = Http::withHeaders(['User-Agent' => self::USER_AGENT])
-                    ->timeout(self::TIMEOUT_SECONDS)
-                    ->get(self::API_BASE."/users/{$userId}/sites/{$siteId}/products", [
-                        'page' => $page,
-                        'per_page' => self::PER_PAGE,
-                        'visibilities[]' => 'visible',
-                        'include' => 'images,category',
-                    ]);
-            } catch (\Throwable $e) {
-                Log::info('menu.square.products_fetch_failed', ['error' => $e->getMessage(), 'page' => $page]);
-
-                return $products === [] ? null : $products;
-            }
-
-            if (! $resp->successful()) {
-                Log::info('menu.square.products_http_error', ['status' => $resp->status(), 'page' => $page]);
-
+            $resp = $this->productsPage($userId, $siteId, $page);
+            if ($resp === null) {
+                // A transient miss on page 1 fails the whole fetch (the caller
+                // ghosts the platform and retirement is deferred); a miss
+                // mid-pagination keeps what arrived rather than losing the
+                // store over one page.
                 return $products === [] ? null : $products;
             }
 
@@ -248,6 +246,34 @@ class SquareMenuDriver implements MenuHttpDriver, MenuPlatformDriver
         }
 
         return $products === [] ? null : $products;
+    }
+
+    /** One products page, with bounded retries (gate critic, 2026-08-27). */
+    private function productsPage(string $userId, string $siteId, int $page): ?Response
+    {
+        for ($attempt = 1; $attempt <= self::FETCH_ATTEMPTS; $attempt++) {
+            try {
+                $resp = Http::withHeaders(['User-Agent' => self::USER_AGENT])
+                    ->timeout(self::TIMEOUT_SECONDS)
+                    ->get(self::API_BASE."/users/{$userId}/sites/{$siteId}/products", [
+                        'page' => $page,
+                        'per_page' => self::PER_PAGE,
+                        'visibilities[]' => 'visible',
+                        'include' => 'images,category',
+                    ]);
+                if ($resp->successful()) {
+                    return $resp;
+                }
+                Log::info('menu.square.products_http_error', ['status' => $resp->status(), 'page' => $page, 'attempt' => $attempt]);
+            } catch (\Throwable $e) {
+                Log::info('menu.square.products_fetch_failed', ['error' => $e->getMessage(), 'page' => $page, 'attempt' => $attempt]);
+            }
+            if ($attempt < self::FETCH_ATTEMPTS) {
+                usleep(self::RETRY_DELAY_MS * 1000);
+            }
+        }
+
+        return null;
     }
 
     private function storeName(string $html): ?string

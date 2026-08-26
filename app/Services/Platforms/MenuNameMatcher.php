@@ -72,7 +72,25 @@ class MenuNameMatcher
             $base = $inner;
         }
 
-        return $this->unitNormalize($this->normalizeName($base));
+        $key = $this->unitNormalize($this->normalizeName($base));
+
+        // A key with no DISTINCTIVE token cannot identify anything: "Hot
+        // Coffee (12 Pack)" and "Iced Coffee (12 Pack)" would both key
+        // "12 pack" and fuse unrelated dishes (gate critic, 2026-08-27).
+        // Generic-only / unit-only keys are no key at all.
+        return $this->hasDistinctiveToken($key) ? $key : '';
+    }
+
+    /** At least one token that is neither product-form vocabulary nor a unit/number. */
+    private function hasDistinctiveToken(string $key): bool
+    {
+        foreach (explode(' ', $key) as $token) {
+            if ($token !== '' && ! $this->isGenericWord($token) && ! $this->isUnit($token)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
