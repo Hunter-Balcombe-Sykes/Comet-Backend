@@ -102,7 +102,7 @@ class CustomLinkSeeder
             return null;
         }
 
-        return $this->writeCard($user, $normalized)['row'];
+        return $this->writeCard($user, $normalized, origin: 'scrape')['row'];
     }
 
     /**
@@ -126,7 +126,7 @@ class CustomLinkSeeder
             return ['status' => 'invalid', 'row' => null];
         }
 
-        return $this->writeCard($user, $normalized);
+        return $this->writeCard($user, $normalized, origin: 'manual');
     }
 
     /**
@@ -156,7 +156,7 @@ class CustomLinkSeeder
      *
      * @return array{status: string, row: null}
      */
-    private function writeCard(User $user, string $normalized): array
+    private function writeCard(User $user, string $normalized, ?string $origin = null): array
     {
         if ($user->site === null) {
             return ['status' => 'cap_full', 'row' => null];
@@ -175,7 +175,7 @@ class CustomLinkSeeder
                     return 'cap_full';
                 }
 
-                $this->linkWriter->add($user, $normalized);
+                $this->linkWriter->add($user, $normalized, origin: $origin);
 
                 return $already ? 'exists' : 'created';
             });

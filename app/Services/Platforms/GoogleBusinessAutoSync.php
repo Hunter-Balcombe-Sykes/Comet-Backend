@@ -427,6 +427,18 @@ class GoogleBusinessAutoSync
     // site.workplaces (FOUND-4 — promoted from settings JSONB).
     //
     // @param array<string,mixed> $gbPayload
+    /**
+     * R2 fix-1 (2026-08-27): the enrich job persists the workplace FIRST —
+     * before seed() dispatches any harvest/unroll job — so
+     * `workplace.previous_website` exists before the lanes that consult it
+     * can run. seedWorkplace() is fill-if-empty, so seed()'s own later call
+     * is a harmless no-op.
+     */
+    public function seedWorkplaceEarly(string $userId, array $gbPayload): void
+    {
+        $this->seedWorkplace($userId, $gbPayload);
+    }
+
     private function seedWorkplace(string $userId, array $gbPayload): void
     {
         try {

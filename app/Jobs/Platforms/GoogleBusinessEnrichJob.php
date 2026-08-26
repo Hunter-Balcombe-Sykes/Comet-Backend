@@ -240,6 +240,11 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         // only into slots the user hasn't filled, tagged source:'google-business'.
         // Booking syncs for every account type; the reservation/ordering/workplace/
         // social seeds are Business-Partna only (see GoogleBusinessAutoSync::seed).
+        // R2 fix-1: previous_website (and the rest of the workplace card)
+        // lands BEFORE any harvest/unroll dispatch inside seed() — narrowing
+        // the window the sweep exists to close.
+        $autoSync->seedWorkplaceEarly($this->userId, $gbp->toArray());
+
         $findings = $autoSync->seed(
             $this->userId,
             $enrichment,
