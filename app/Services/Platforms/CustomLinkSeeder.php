@@ -164,7 +164,7 @@ class CustomLinkSeeder
 
         $key = CacheKeyGenerator::platformConnectionLock('custom', (string) $user->id);
         try {
-            $status = Cache::lock($key, 10)->block(5, function () use ($user, $normalized) {
+            $status = Cache::lock($key, 10)->block(5, function () use ($user, $normalized, $origin) {
                 $cards = $this->linkReader->cards($user);
                 $already = collect($cards)->contains(
                     fn (array $card) => is_string($card['url'])

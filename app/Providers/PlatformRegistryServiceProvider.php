@@ -16,7 +16,6 @@ use App\Http\Resources\Platforms\OpenTableConnectionResource;
 use App\Http\Resources\Platforms\ResDiaryConnectionResource;
 use App\Http\Resources\Platforms\ShopBrandResource;
 use App\Http\Resources\Platforms\TileConnectionResource;
-use App\Http\Resources\Platforms\VimeoConnectionResource;
 use App\Http\Resources\Platforms\YoutubeConnectionResource;
 use App\Http\Resources\Platforms\YoutubeMusicConnectionResource;
 use App\Jobs\Platforms\RefreshConnectionJob;
@@ -59,7 +58,6 @@ use App\Services\Platforms\Strategies\Connect\ResDiaryConnect;
 use App\Services\Platforms\Strategies\Connect\SoundcloudConnect;
 use App\Services\Platforms\Strategies\Connect\SpotifyConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
-use App\Services\Platforms\Strategies\Connect\VimeoConnect;
 use App\Services\Platforms\Strategies\Connect\YoutubeConnect;
 use App\Services\Platforms\Strategies\Connect\YoutubeMusicConnect;
 use App\Services\Platforms\Strategies\Detect\HostMatch;
@@ -74,10 +72,8 @@ use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
-use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
-use App\Services\Platforms\VimeoApi;
 use App\Services\Platforms\YoutubeScraper;
 use App\Services\Shop\ShopConnections;
 use App\Site\Pools\PoolResolver;
@@ -163,19 +159,9 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // implements DeferredConnect. Message copied verbatim from
             // resolve()'s fetch-stage failure.
             $r->get('youtube-music')->deferredConnect()->connectFetchError('Could not load releases for that channel.');
-            $r->register(PD::make('vimeo')->label('Vimeo')->category(Cat::Content)->resource(VimeoConnectionResource::class)->refreshable()
-                ->payload(FeedPayload::class));
-            // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
-            $r->get('vimeo')->fetch(fn () => new VimeoFetch(
-                app(VimeoApi::class),
-            ));
-            // Connect strategy (FOUND-24, Task 8) — moved verbatim from
-            // the deleted VimeoController; parse-fail message is the frozen 422 contract.
-            $r->get('vimeo')->connect(fn () => new VimeoConnect(app(VimeoApi::class)), 'Enter your Vimeo profile or channel URL (vimeo.com/yourname).');
-            // Deferred-connect seam (Phase 2, W4) — VimeoConnect implements
-            // DeferredConnect. Message copied verbatim from resolve()'s
-            // fetch-stage failure.
-            $r->get('vimeo')->deferredConnect()->connectFetchError('Could not find that Vimeo profile.');
+            // vimeo: retired to a catalog-derived descriptor (P4 canary,
+            // 2026-08-27) — its full behavioural contract attaches from
+            // Registry\Bindings\VimeoBinding.
             $r->register(PD::make('bandcamp')->label('Bandcamp')->category(Cat::Music)->resource(BandcampConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b). Consumed by Plan 6's registry-driven refresher.
@@ -397,7 +383,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('soundcloud')->connectInput('url', ['required', 'string', 'max:500']);
             $r->get('spotify')->connectInput('url', ['required', 'string', 'max:500']);
             $r->get('square')->connectInput('url', ['required', 'string', 'max:1000', 'regex:#^https?://([a-z0-9-]+\.)*(squareup\.com|square\.site)(/[^\s]*)?$#i'], ['url.regex' => 'Enter a valid Square booking link (a squareup.com or square.site URL).'], true);
-            $r->get('vimeo')->connectInput('url', ['required', 'string', 'max:300']);
             $r->get('youtube-music')->connectInput('url', ['required', 'string', 'max:300']);
 
             // single-named-field (3 distinct + 11 socials share 'username').
@@ -438,9 +423,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // decides whether the newest item auto-joins the site.
             $r->get('youtube')->displayToggles([
                 ['key' => 'auto_sync_latest', 'label' => 'Latest video', 'description' => 'Your newest upload joins your site automatically.'],
-            ]);
-            $r->get('vimeo')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Latest video', 'description' => 'Your newest video joins your site automatically.'],
             ]);
             // Listen restructure (owner, 2026-08-18): each switch names the
             // FORMAT it publishes. YouTube Music's Topic-channel uploads are
@@ -510,7 +492,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('eventbrite')->refreshEvery((int) config('partna.refresh.intervals.eventbrite', 6 * 3600));
             $r->get('humanitix')->refreshEvery((int) config('partna.refresh.intervals.humanitix', 6 * 3600));
             $r->get('youtube')->refreshEvery((int) config('partna.refresh.intervals.youtube', 12 * 3600));
-            $r->get('vimeo')->refreshEvery((int) config('partna.refresh.intervals.vimeo', 12 * 3600));
             $r->get('youtube-music')->refreshEvery((int) config('partna.refresh.intervals.youtube-music', 12 * 3600));
             $r->get('spotify')->refreshEvery((int) config('partna.refresh.intervals.spotify', 12 * 3600));
             $r->get('soundcloud')->refreshEvery((int) config('partna.refresh.intervals.soundcloud', 12 * 3600));
@@ -541,7 +522,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('spotify')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('soundcloud')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('youtube')->routes(PlatformRouteShape::MultiAccount, null, true);
-            $r->get('vimeo')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('youtube-music')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('bandcamp')->routes(PlatformRouteShape::MultiAccount, null, true);
             $r->get('nowbookit')->routes(PlatformRouteShape::MultiAccount, null, false);
