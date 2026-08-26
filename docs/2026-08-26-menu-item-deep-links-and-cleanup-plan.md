@@ -481,3 +481,14 @@ teardown (registry purge + removals; full regression: connect each of the
 three platforms fresh on dev, plus one existing legacy-connected profile
 still renders) · G8 final: end-to-end on ollies (all three platforms
 connected, per-item links verified clicking through from the live sitepage).
+
+---
+# RUN CHECKPOINTS
+
+**G1 PASSED — 2026-08-26 ~22:20 AEST.** B1 schema live on dev ref:
+`content.offers` + platform/item_url/external_ref (all text NULL),
+migration `20260826200000_offers_per_item_platform_links.sql`, safety
+lint passed, `supabase db push` applied, columns verified via
+information_schema on the live dev DB. Critic coverage: plan-level
+fresh-eyes review confirmed the additive-columns premise (finding 1a).
+Next: B-R (reconciliation revival fix, gate G2).
