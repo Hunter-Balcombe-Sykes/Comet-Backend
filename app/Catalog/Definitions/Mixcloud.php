@@ -14,7 +14,10 @@ use App\Catalog\SurfaceBuilder;
 
 /**
  * Mixcloud — keyless embed with zero wiring to reach it: "Connect: none
- * registered" (inventory). notConnectable() stays: there is still no path,
+ * registered" (inventory). P3 (2026-08-27): CONNECTABLE — the derived
+ * Brand descriptor (BrandLinkConnect via upgrades()' successor, the
+ * factory) IS the path; the old "no path" claim predates it. Payload and
+ * resource ride the factory's embed overrides,
  * manual or automatic, that populates a mixcloud connection.
  *
  * The detector is NOT a step toward connecting it. Detection and connection
