@@ -138,18 +138,31 @@ it('covers the manual half of a mixed pair without dropping the connector half',
     Queue::assertPushed(ApplyIdentityDecisionJob::class, fn (ApplyIdentityDecisionJob $job) => $job->coords === [$manualCoord]);
 });
 
-it('dispatches a resolve for a different ruling too, so the lanes stay symmetrical', function () {
+it('does not dispatch a resolve for a different ruling, which is a provable no-op', function () {
+    // A cut can only PREVENT a future union, never undo one, and both entry
+    // points to a ruling require two DISTINCT items — so there is no merge for
+    // it to reverse. The next resolve reads the cut from
+    // content.identity_decisions regardless, and the open candidate is
+    // dismissed synchronously. Dispatching here would buy an owner triaging
+    // twenty pairs as "different" twenty pointless resolves and forty CDN
+    // purges for a guaranteed zero-diff outcome.
     $pro = createTenant('idr-different');
     $manual = poolSource($pro->id, null);
 
     $left = poolItem($pro->id, $manual, 'video', 'Not the same one', now()->toDateTimeString());
     $right = poolItem($pro->id, $manual, 'video', 'Not the same two', now()->toDateTimeString());
 
-    actingAsUser($pro)->postJson("/api/content/items/{$left}/identity", [
+    $response = actingAsUser($pro)->postJson("/api/content/items/{$left}/identity", [
         'other' => $right, 'verdict' => 'different',
-    ])->assertStatus(202);
+    ]);
 
-    Queue::assertPushed(ApplyIdentityDecisionJob::class);
+    $response->assertStatus(202)->assertJsonPath('resolving', 0);
+
+    // The cut itself is still recorded — that half must not regress.
+    expect(DB::table('content.identity_decisions')
+        ->where('user_id', $pro->id)->where('verdict', 'different')->count())->toBe(1);
+
+    Queue::assertNotPushed(ApplyIdentityDecisionJob::class);
 });
 
 /** A minimal owner-authored projection, distinct per call so nothing auto-merges. */

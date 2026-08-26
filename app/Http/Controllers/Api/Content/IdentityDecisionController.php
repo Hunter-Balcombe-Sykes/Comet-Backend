@@ -108,21 +108,35 @@ class IdentityDecisionController extends ApiController
             ReprojectSourcesJob::dispatch((string) $user->id, $sourceIds);
         }
 
-        // Lane 2: coords no reprojection reaches. There are no landed records
-        // to replay for a manual coord and its facets are already written, so
-        // this resolves the identity spine directly instead. Scoped to the
-        // UNMATCHED coords only — a coord covered by lane 1 would otherwise be
-        // resolved twice for one ruling, and both callers take the same
-        // per-(user, kind) advisory lock.
+        // Lane 2: coords no reprojection reaches. There are no landed records to
+        // replay for a manual coord, so this resolves the identity spine
+        // directly instead.
+        //
+        // Restricted to the UNMATCHED coords, but NOT because that shrinks the
+        // resolve — it does not. IdentityScope::component() seeds from every
+        // coord a live `same` ruling names, so for a mixed pair this job walks
+        // the identical component whichever coords are handed to it. What the
+        // restriction actually avoids is dispatching a SECOND job to redo work
+        // `ingest:project` already does under the same per-(user, kind)
+        // advisory lock. Stated precisely because the obvious reading — "this
+        // narrows the component" — is wrong and would mislead the next reader.
         $unreprojected = $coordSources->whereNull('ingest_source_id')->pluck('coord')
             ->map(fn ($coord) => (string) $coord)->unique()->values()->all();
-        if ($unreprojected !== []) {
-            // Both verdicts, matching what lane 1 has always done for a
-            // connector pair. A `different` ruling cannot un-merge anything
-            // (bindGroup() resolves every group through its anchors), so this
-            // is a no-op for that verdict today — but the asymmetry would be a
-            // trap for the next reader, and the resolve is idempotent.
+
+        // `same` ONLY. A `different` verdict is provably a no-op through this
+        // path: it can only PREVENT a future union, never undo one, and both
+        // entry points to this ruling require two DISTINCT items — so there is
+        // no merge for a cut to reverse, and the cut is read from
+        // content.identity_decisions by whatever resolve comes next anyway.
+        // The open candidate is dismissed directly above, so nothing about the
+        // payload changes either. Dispatching for symmetry looked tidier but
+        // bought an owner triaging twenty pairs as "different" twenty pointless
+        // resolves and forty CDN purges, for a guaranteed zero-diff outcome.
+        if ($unreprojected !== [] && $data['verdict'] === 'same') {
             ApplyIdentityDecisionJob::dispatch((string) $user->id, $left->kind, $unreprojected);
+            $resolving = count($unreprojected);
+        } else {
+            $resolving = 0;
         }
 
         SiteCacheLanes::bust([(string) $site->id]);
@@ -131,7 +145,7 @@ class IdentityDecisionController extends ApiController
             'verdict' => $data['verdict'],
             'decisions' => count($rows),
             'reprojecting' => count($sourceIds),
-            'resolving' => count($unreprojected),
+            'resolving' => $resolving,
         ], 202);
     }
 }

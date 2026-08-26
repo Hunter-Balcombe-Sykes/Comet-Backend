@@ -2795,6 +2795,50 @@ Pinned by `tests/Feature/Content/IdentityDecisionReprojectionTest.php` — five 
 including an end-to-end one that drives two real `writeManualItem()` items through the ruling and
 asserts the job actually merges them. Verified red before the fix.
 
+**Amended after review (2026-08-26).** Four findings, all acted on:
+
+- **`same` ONLY now dispatches.** The first cut dispatched on both verdicts "for symmetry". Review
+  supplied the cost: an owner triaging twenty pairs as `different` bought twenty pointless resolves
+  and forty CDN purges for a provably zero-diff outcome. The proof that `different` is a no-op here
+  is the same one in H.3 — a cut can only prevent a future union, and both entry points require two
+  DISTINCT items, so there is no merge to reverse. Symmetry lost the argument to a concrete cost.
+- **`refreshCachesFor()` is narrowed to the items the RULED coords resolved to.** It was being
+  handed every item in `$itemByCoord` — which, with `PARTNA_CONTENT_IDENTITY_SCOPE=false` (the
+  documented rollback), is the WHOLE `(user, kind)`: 3,000 item-cache refreshes to apply one ruling,
+  inside a 300s timeout on a single-process supervisor. `projectStream()` narrows the identical call
+  the same way under `#CACHE-4`.
+- **The lane-2 comment's stated rationale was wrong** and is rewritten. Restricting lane 2 to
+  unmatched coords does NOT shrink the resolve: `IdentityScope::component()` seeds from every coord
+  a live `same` ruling names, so the job walks the identical component either way. What it avoids is
+  dispatching a second job to redo what `ingest:project` already does.
+- **A pre-existing lossy-merge defect was surfaced — see H.4.** Not fixed here.
+
+### H.4 OPEN, found by review 2026-08-26 — a manual merge loses the loser's facets
+
+`mergeInto()` hard-deletes the discarded item unless it carries `section_items`/`manual_overrides`
+curation, and every facet table FKs `content.items(id) **ON DELETE CASCADE**` (verified in
+`supabase/migrations/20260727140000_content_schema.sql`: `f_text`:189, `f_link`:199,
+`item_media`:372). `mergeInto()` moves `item_links` and `item_slugs` explicitly — `moveLinks()`'s
+docblock says why: *"no projection ever rewrites them, so the cascade on items.id would lose them
+for good."* **The facets have exactly that property on the manual lane and are not moved.**
+
+On the connector lane this is harmless: `ReprojectSourcesJob` replays `writeFacets()` under the kept
+id. A manual coord has nothing to replay, so the loser's cover image, offers and tags are gone
+permanently. Owner hand-adds two releases each with a cover, rules them `same` → survivor keeps one
+cover, the other is unrecoverable.
+
+**Not introduced by H.1, and not fixed by it.** The merge runs in `resolveItemsLocked()`, the
+identical path `writeManualItem()` already drives; before H.1 the same ruling produced the same
+merge and the same loss at the owner's next hand-add to that kind, because `IdentityScope` seeds
+from live `same` rulings. H.1 changes WHEN, not WHETHER. It does, however, make the ruling reliably
+apply, so the latent loss becomes reliably reachable — which is the honest reason to raise it now
+rather than file it quietly.
+
+**Deliberately not bundled.** The fix is to move the loser's collection facets in `mergeInto()`,
+which changes the merge path for the connector lane too. That is a hard-delete path on the identity
+spine, and `CLAUDE.md`'s opportunistic-fix bounds put it in its own unit with its own review.
+Recorded in `ApplyIdentityDecisionJob`'s class docblock so it cannot be silently inherited.
+
 ### H.2 Shrinking-graph seed miss — WONTFIX, and the proposed close is only half a fix
 
 §A.4 offered "seed from coords whose keys this run REMOVED" as a possible close. **That covers only
