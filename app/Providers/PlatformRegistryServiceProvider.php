@@ -3,7 +3,6 @@
 namespace App\Providers;
 
 use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
-use App\Http\Resources\Platforms\FreshaSelectionResource;
 use App\Http\Resources\Platforms\GoogleBusinessConnectionResource;
 use App\Http\Resources\Platforms\InstagramConnectionResource;
 use App\Http\Resources\Platforms\LinkConnectionResource;
@@ -19,9 +18,6 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
-use App\Services\Platforms\FreshaAutoSelector;
-use App\Services\Platforms\FreshaScraper;
-use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\NowBookitService;
@@ -46,8 +42,6 @@ use App\Services\Platforms\Strategies\Connect\ResDiaryConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Detect\HostMatch;
 use App\Services\Platforms\Strategies\Detect\ServiceMatch;
-use App\Services\Platforms\Strategies\Fetch\FreshaConnectFetch;
-use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\ShopFetch;
 use App\Services\Shop\ShopConnections;
@@ -129,43 +123,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // item (ManualEventWriter), never a connection row.
 
             // ── Picker / booking / reservations (no cron refresh) ──
-            $r->register(PD::make('fresha')->label('Fresha')->category(Cat::Booking)->resource(FreshaSelectionResource::class)->refreshable()->payload(SelectionPayload::class));
-            // Scheduled service-menu refresh (prices/durations/new services) —
-            // re-scrapes the saved selection; 304s when unchanged or unselected.
-            $r->get('fresha')->fetch(fn () => new FreshaFetch(
-                app(FreshaScraper::class),
-                app(FreshaServiceProjector::class),
-                app(FreshaAutoSelector::class),
-            ));
-            $r->get('fresha')->refreshEvery((int) config('partna.refresh.intervals.fresha', 2 * 86400));
-            // CA-W6/CA-W7: the CONNECT path needs a different fetch — FreshaFetch
-            // (above) is refresh-only (throws on a pending row with no
-            // selection). connectFetchStrategy() defaults to fetchStrategy()
-            // for every other platform; fresha is the one override. The
-            // projector dependency is CA-W7's: the storewide branch runs
-            // FreshaServiceProjector::sync() itself (team mode never touches it).
-            // app() rather than `new` so a constructor gaining a dependency (as
-            // it did on 2026-07-25 with FreshaStaffMatcher) can't leave this
-            // call site silently short an argument.
-            $r->get('fresha')->connectFetch(fn () => app(FreshaConnectFetch::class));
-            // The message ConnectFetchJob stores when the deferred team-mode
-            // menu fetch fails — verbatim from connect()'s own synchronous 502
-            // ('Could not reach Fresha — please try again.' was the old abort()
-            // message; this is the poll-shaped equivalent). Deliberately NOT
-            // ->deferredConnect(): fresha's connect is bespoke
-            // (FreshaController::connect(), via DefersBespokeConnect), never
-            // routed through ConnectResolver/GenericPlatformController, so that
-            // flag would falsely claim a ConnectStrategy exists
-            // (RegistryConnectCoverageTest pins flag<=>instanceof for every
-            // descriptor). Mirrors skool/apple-music/eventbrite's identical notes.
-            $r->get('fresha')->connectFetchError("We couldn't read that Fresha page just then — please try again.");
-            // An auto-harvested fresha row (Instagram bio / Google Business) is
-            // {url, selection: null} — connected, but with no service menu to
-            // render. FreshaFetch 304s it forever (:36-39), so it can never
-            // self-heal; only the owner picking a team member completes it.
-            // is_array (not !== null) mirrors FreshaFetch's own guard exactly so
-            // the two predicates cannot drift.
-            $r->get('fresha')->complete(fn (IntegrationConnection $c): bool => is_array($c->payload['selection'] ?? null));
+            // fresha: retired to a catalog-derived descriptor (P5, 2026-08-27)
+            // — its full behavioural contract (CA-W6/CA-W7 connectFetch
+            // override, completeness predicate, smart-detect matcher) attaches
+            // from Registry\Bindings\FreshaBinding.
             $r->register(PD::make('square')->label('Square')->category(Cat::Booking)->resource(TileConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('opentable')->label('OpenTable')->category(Cat::Reservations)->resource(OpenTableConnectionResource::class)->payload(SelectionPayload::class));
             $r->register(PD::make('resdiary')->label('ResDiary')->category(Cat::Reservations)->resource(ResDiaryConnectionResource::class)->payload(SelectionPayload::class));
@@ -187,8 +148,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             }
 
             // ── Smart-detect matchers (Plan 6). Registration order = detection priority. ──
-            // Booking: fresha host (mirrors the fresha connect regex), then Square (squareup.com / *.square.site).
-            $r->get('fresha')->detect(new HostMatch('~(^|\.)fresha\.com$~'));
+            // Booking: fresha's host matcher rides its binding; Square (squareup.com / *.square.site).
             $r->get('square')->detect(new HostMatch('~(^|\.)(squareup\.com|square\.site)$~'));
             // Reservations: keyless widgets delegate to their service's isXUrl matcher.
             $openTable = $this->app->make(OpenTableService::class);
@@ -269,8 +229,7 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // frozen API contract — reproduce verbatim. GoogleBusiness is irreducible
             // (multi-field) and keeps ConnectGoogleBusinessRequest.
 
-            // url-shaped (17). The max differs per platform — these are NOT uniform.
-            $r->get('fresha')->connectInput('url', ['required', 'string', 'max:500', 'regex:#^https?://(www\.)?fresha\.com/(?:[a-z]{2,3}(-[a-z]{2})?/)?a/[a-z0-9-]+/?$#i'], [], true);
+            // url-shaped. The max differs per platform — these are NOT uniform.
             $r->get('nowbookit')->connectInput('url', ['required', 'string', 'max:2048']);
             $r->get('opentable')->connectInput('url', ['required', 'string', 'max:2048']);
             $r->get('resdiary')->connectInput('url', ['required', 'string', 'max:2048']);
