@@ -232,3 +232,22 @@ brand classifies via WebsiteLinkHarvester + LegacyPlatformMap.
 RegistryCoverageTest's retired list now spans all 27. Golden master
 unchanged; registry + golden suites green; full suite green (exit 0).
 Hand-written entries remaining: ~40 (P2 socials next, then P3, P4, P5).
+
+**P2 SHIPPED — 2026-08-27 ~11:00 AEST.** All 25 link-only platforms
+retired (the 14 normalizer socials, skool/strava/twitch with their kept
+categories, the 11 strategy-less link cards). Mechanism: LinkOnlyBindings
+carries the retired registration data VERBATIM (labels, normalizers,
+exact 422 copy, username/url fields with their historical maxes,
+category overrides), and the factory derives LINK-ONLY-shaped
+descriptors from it — the provider's connectInput and route-archetype
+mutation blocks for these slugs are gone with the registrations. Two
+enablers surfaced: skool's surface carried a stale P1-era
+notConnectable() (its own premise — a bespoke controller — died with the
+2026-08-16 demotion; now connectable, docblock corrected), and
+candidates() required a URL detector, inapplicable to typed-handle
+link-only connects (relaxed only for binding slugs). Harness diff:
+EXACTLY 25 changes — derived:true plus surface keys improving from null
+to real; zero non-trivial field diffs; zero slugs lost. Retired total:
+52 of ~65. Registry/golden/connect suites + full suite green (exit 0).
+Remaining hand-written: oEmbed pair+mixcloud/tidal (P3), the 11
+refreshables (P4), the bespoke-controller platforms + shop (P5).

@@ -34,20 +34,6 @@ use App\Services\Platforms\FreshaServiceProjector;
 use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\HumanitixScraper;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
-use App\Services\Platforms\Normalizers\DiscordNormalizer;
-use App\Services\Platforms\Normalizers\FacebookNormalizer;
-use App\Services\Platforms\Normalizers\KickNormalizer;
-use App\Services\Platforms\Normalizers\LinkedinNormalizer;
-use App\Services\Platforms\Normalizers\MediumNormalizer;
-use App\Services\Platforms\Normalizers\RedditNormalizer;
-use App\Services\Platforms\Normalizers\SkoolNormalizer;
-use App\Services\Platforms\Normalizers\SnapchatNormalizer;
-use App\Services\Platforms\Normalizers\StravaNormalizer;
-use App\Services\Platforms\Normalizers\TelegramNormalizer;
-use App\Services\Platforms\Normalizers\ThreadsNormalizer;
-use App\Services\Platforms\Normalizers\TiktokNormalizer;
-use App\Services\Platforms\Normalizers\TwitchNormalizer;
-use App\Services\Platforms\Normalizers\XNormalizer;
 use App\Services\Platforms\NowBookitService;
 use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\OpenTableService;
@@ -110,62 +96,16 @@ class PlatformRegistryServiceProvider extends ServiceProvider
         $this->app->singleton(PlatformRegistry::class, function () {
             $r = new PlatformRegistry;
 
-            // ── Link-only socials (LinkConnectionResource, no refresh) ──
-            foreach ([
-                'tiktok' => 'TikTok', 'facebook' => 'Facebook', 'x' => 'X',
-                'linkedin' => 'LinkedIn', 'threads' => 'Threads', 'reddit' => 'Reddit',
-                'snapchat' => 'Snapchat', 'discord' => 'Discord', 'telegram' => 'Telegram',
-                'kick' => 'Kick', 'medium' => 'Medium',
-                // Added 2026-07-25 — link classification consolidation (Phase 2)
-                'whatsapp' => 'WhatsApp', 'substack' => 'Substack', 'patreon' => 'Patreon',
-                'ko-fi' => 'Ko-fi', 'buymeacoffee' => 'Buy Me a Coffee', 'github' => 'GitHub',
-                'gitlab' => 'GitLab', 'codepen' => 'CodePen', 'dribbble' => 'Dribbble',
-                'behance' => 'Behance', 'gumroad' => 'Gumroad',
-            ] as $key => $label) {
-                $r->register(PD::linkOnly($key, $label, LinkConnectionResource::class));
-            }
-
-            // ── Link-only connect strategies (migrated to GenericPlatformController) ──
-            // Each platform's existing URL/handle normalizer, wrapped in UrlConnect,
-            // plus its exact 422 message. get() returns the live descriptor; ->connect()
-            // mutates it in place. A line is added here as each platform migrates.
-            $r->get('x')->connect(new UrlConnect(new XNormalizer), 'Enter your X handle or profile URL (x.com/yourname).');
-            $r->get('linkedin')->connect(new UrlConnect(new LinkedinNormalizer), 'Enter your LinkedIn profile URL (linkedin.com/in/yourname).');
-            $r->get('threads')->connect(new UrlConnect(new ThreadsNormalizer), 'Enter your Threads handle or profile URL (threads.net/@yourname).');
-            $r->get('reddit')->connect(new UrlConnect(new RedditNormalizer), 'Enter your Reddit username or community (u/yourname or r/yourcommunity).');
-            $r->get('tiktok')->connect(new UrlConnect(new TiktokNormalizer), 'Enter your TikTok username or profile URL.');
-            $r->get('facebook')->connect(new UrlConnect(new FacebookNormalizer), 'Enter your Facebook username or profile URL.');
-            $r->get('snapchat')->connect(new UrlConnect(new SnapchatNormalizer), 'Enter your Snapchat username or profile URL (snapchat.com/add/yourname).');
-            $r->get('discord')->connect(new UrlConnect(new DiscordNormalizer), 'Enter your Discord invite link or code (discord.gg/yourcode).');
-            $r->get('telegram')->connect(new UrlConnect(new TelegramNormalizer), 'Enter your Telegram username or profile URL (t.me/yourname).');
-            $r->get('kick')->connect(new UrlConnect(new KickNormalizer), 'Enter your Kick username or channel URL (kick.com/yourname).');
-            $r->get('medium')->connect(new UrlConnect(new MediumNormalizer), 'Enter your Medium username or profile URL (medium.com/@yourname).');
-
-            // Skool, Strava and Twitch: link-only, but NOT Social — each keeps
-            // its own category so the dashboard grouping does not move. This is
-            // the second half of Phase 1.2's demotion (convergence-phases §1.2:
-            // "leaving a PD::linkOnly() registration plus its detector so the
-            // platform still connects as a link"). Phase 1 removed the ingest
-            // half — connector, projectors, provisioner branch — and stopped
-            // there because these three, unlike gumroad and substack, still had
-            // fetch strategies, scrapers, bespoke resources and route shapes
-            // behind live connections. Those are gone now: no scrape, no
-            // refresh, no card decoration, just the link and its handle.
-            //
-            // Twitch's live indicator is unaffected. CheckStreamingLiveStatusJob
-            // reads `Block` rows (block_group='links', live_check_enabled) and
-            // never consults this registry or platform_connections.
-            foreach ([
-                'skool' => ['Skool', Cat::Education],
-                'strava' => ['Strava', Cat::Content],
-                'twitch' => ['Twitch', Cat::Streaming],
-            ] as $key => [$label, $category]) {
-                $r->register(PD::linkOnly($key, $label, LinkConnectionResource::class)->category($category));
-            }
-            $r->get('skool')->connect(new UrlConnect(new SkoolNormalizer), 'Enter your Skool community URL (skool.com/yourcommunity).');
-            $r->get('strava')->connect(new UrlConnect(new StravaNormalizer), 'Enter your Strava club URL (strava.com/clubs/yourclub).');
-            $r->get('twitch')->connect(new UrlConnect(new TwitchNormalizer), 'Enter your Twitch channel (twitch.tv/yourname).');
-
+            // ── PD-retirement P2 (2026-08-27): the 25 link-only platforms
+            // (the 14 normalizer socials, skool/strava/twitch with their kept
+            // dashboard categories, and the 11 strategy-less link cards) are
+            // retired to catalog-derived descriptors. Their FULL original
+            // contract — LinkOnly shape, username/url field, UrlConnect + the
+            // exact 422 copy, LinkPayload, LinkConnectionResource — derives
+            // through LinkOnlyBindings, which carries the retired
+            // registration data verbatim. The upgrades() pass still retro-fits
+            // Brand connect onto the strategy-less ones exactly as it did
+            // when they were hand-written.
             // ── oEmbed music (MusicEmbedConnectionResource, refreshable) ──
             foreach (['spotify' => 'Spotify', 'soundcloud' => 'SoundCloud'] as $key => $label) {
                 $r->register(PD::oEmbed($key, $label, MusicEmbedConnectionResource::class));
@@ -464,19 +404,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('apple-music')->connectInput('artist', ['required', 'string', 'max:200']);
             $r->get('apple-podcast')->connectInput('show', ['required', 'string', 'max:200']);
             $r->get('youtube')->connectInput('channel', ['required', 'string', 'max:200']);
-            foreach (['x', 'linkedin', 'threads', 'reddit', 'tiktok', 'facebook', 'snapchat', 'discord', 'telegram', 'kick', 'medium'] as $social) {
-                $r->get($social)->connectInput('username', ['required', 'string', 'max:200']);
-            }
-            // skool/strava/twitch are link-only as of 2026-08-16 but keep the
-            // `url` input field they have always taken: their connect prompts
-            // ask for a community/club/channel URL, their normalizers accept
-            // one, and renaming the field to `username` would break the
-            // dashboard's connect body to no end. The field name and the stored
-            // {username, url} shape are independent — UrlConnect normalises
-            // whatever string it is handed.
-            $r->get('skool')->connectInput('url', ['required', 'string', 'max:500']);
-            $r->get('strava')->connectInput('url', ['required', 'string', 'max:300']);
-            $r->get('twitch')->connectInput('url', ['required', 'string', 'max:120']);
+            // P2: the retired link-only platforms' connect inputs (username
+            // for the 11 socials; url for skool/strava/twitch with their
+            // historical maxes) ride LinkOnlyBindings into the derived
+            // descriptors — see linkOnlyDescriptor().
 
             // ── Public display toggles ───────────────────────────────────────────
             // What parts of a platform's synced content the owner can hide from
@@ -592,10 +523,8 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // Drives the single registry loop in routes/api/platforms.php. Bespoke
             // platforms (the default) keep their standalone groups and are skipped.
 
-            // Link-only socials: connect/selection/forget all via GenericPlatformController.
-            foreach (['x', 'linkedin', 'threads', 'reddit', 'tiktok', 'facebook', 'snapchat', 'discord', 'telegram', 'kick', 'medium', 'skool', 'strava', 'twitch'] as $social) {
-                $r->get($social)->routes(PlatformRouteShape::LinkOnly);
-            }
+            // Link-only socials: retired to derived descriptors (P2) — their
+            // LinkOnly route shape rides LinkOnlyBindings into the factory.
 
             // Single-selection (connect/selection/forget all on the bespoke controller).
             $r->get('google-business')->routes(PlatformRouteShape::SingleSelection, GoogleBusinessController::class);
