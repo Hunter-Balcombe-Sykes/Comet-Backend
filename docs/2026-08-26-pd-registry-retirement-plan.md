@@ -404,6 +404,32 @@ slug). Orphan sweep: config partna.refresh.intervals lost its dead
 docs/registry-dump-2026-08-27-pd-retirement-final.json — **102 slugs,
 101 derived, hand-written = ['shop'].**
 
+**P5+P6 GATE CLOSED (2026-08-27 ~06:10 AEST):** full suite **9441
+passed, EXIT 0** (the first fully-green complete run — every earlier
+"green" claim since c13c4bd14 was voided by the MenuTest fatal);
+`composer analyse` green; merged to development as a3f0a8d32, deploy
+succeeded. Live dev evidence: all 7 P5 platforms derived
+(fresha/square/opentable/resdiary/nowbookit/google-business/instagram),
+detections carried where the contract had them (GB + instagram correctly
+none), `ProviderDetector::detectFor('booking', …)` answers
+'fresha'/'square' through the binding-carried HostMatches, registry =
+102 slugs, **fresha refresh: ok** (derived FreshaFetch + connectFetch
+override live), **google-business refresh: ok**, opentable's bespoke
+suggestion route present, nowbookit correctly has NO /accounts route
+(multiAccount=false, unchanged), dev logs error-free. Fresh-eyes Sonnet
+critic on 9607c8277..a3f0a8d32: **CLEAN — zero blockers, zero
+should-fixes** (byte-compared all six bindings vs deleted provider lines;
+proved the static-fn/bool-hint closure change inert, the lazy ServiceMatch
+resolution cheap and out of hot paths, the notConnectable relaxation a
+no-op for every slug but google-business, NEVER_UPGRADE still the sole
+guard instagram needs, the P6 commit comment-only, and the archived dump
+field-accurate on 5 spot-checked slugs).
+
+**THE PLAN'S END-STATE HOLDS ON DEV: zero hand-written brand
+descriptors; one deliberate hand-written registration (shop, the family
+descriptor); every behavioural contract in a binding; the catalog is the
+single declaration of a platform's existence.**
+
 **P5 scouting notes (superseded — kept for the record):** google_business surface is
 `notConnectable()` → its retirement needs the candidates() relaxation
 extended to BEHAVIOUR_BINDINGS slugs (GB has detectors; the connectable
