@@ -238,3 +238,20 @@ LIVE HEALS on dev: ALL 16 stuck video assets mirrored (16 ok / 0 fail)
 through the refresh path — the handoff incident closed for real; the 7
 stali.com.au cards removed (untagged legacy → manual cleanup per plan).
 Gate critic running on the R2+R3 span; its verdict closes plan 3.
+
+---
+**GATE R4 CLOSED — PLAN 3 COMPLETE — 2026-08-27 ~08:15 AEST.** Gate
+critic on the R2/R3 span found 1 real bug + 3 risks — all fixed and
+shipped same-session: the origin tag now survives the writer's own
+auto-enrichment (re-supplied from storage on every null-origin write;
+regression test pins the exact wipe sequence); the single-post refresh
+claims from the shared instagram ApifyBudget and negative-caches
+dead-post failures for 6h; embed URL unescaping is layered json_decode;
+asset correlation prefers source_item_id. Critic's suite run: 83 passed
+pre-fix; full suite green post-fix. All three plan-3 items carry live
+proof (79/79 projection + rescued connection; sweep tests +
+lane-independence; 16/16 stuck videos healed + 7 legacy cards cleaned).
+Bookkeeping: both handoff docs annotated as absorbed/superseded.
+
+Per the chain: execution AUTO-CONTINUES into
+docs/2026-08-26-pd-registry-retirement-plan.md (plan 2).
