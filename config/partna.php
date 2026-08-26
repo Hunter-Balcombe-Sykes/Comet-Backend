@@ -1004,6 +1004,13 @@ return [
     // menu platforms — the DB CHECK constraints that used to hardcode this list were
     // dropped (20260704170000); app-layer validation via this registry replaces them.
     'menu' => [
+        // NAMING (C10, 2026-08-26, deliberate): these registry keys are the
+        // menu lane's vocabulary and stay HYPHENATED ('uber-eats'), matching
+        // offers.platform and the pools wire. Catalog brands underscore
+        // ('uber_eats'); the boundary translators are MenuSource::surfaceSlug
+        // (surface → registry slug), MenuItemDeepLinks::WIRE_KEYS (registry
+        // slug → dashboard wire key) and PoolResolver::wirePlatform. Do not
+        // "unify" the spellings — each vocabulary has live storage behind it.
         'platforms' => [
             // Square first — top priority for pricing/images over Uber Eats/DoorDash
             // (merchant-canonical). transport=http (2026-08-26): Square Online's

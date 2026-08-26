@@ -32,25 +32,20 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, MenuItemPlatform> $platformLinks Per-platform availability (one row per ordering platform).
  */
 
-// One dish, belonging to ONE OR MORE site.menu_categories rows via the
-// site.menu_item_categories pivot (a dish listed under "Lunch" and "Dinner" is
-// a single row with two memberships; display position is per-membership on the
-// pivot). Content (name / description /
-// image) is UNIONED across every connected ordering platform: a dish
-// on both Uber Eats and DoorDash becomes one row whose display fields gap-fill
-// across platforms (UE wins a field only where present). `images` is the full
-// hero-first image set (images[0] = image_url) — cross-platform union, since no
-// single platform exposes more than one image per item today. Each platform the dish
-// is available on is a site.menu_item_platforms row — per-mode pickup/delivery
-// price + url for that platform's store link. `base_price` is the representative
-// headline (min across platforms);
-// `pickup_price` / `delivery_price` are aggregates (min among pickup-capable /
-// delivery-capable platforms), each tagged with the platform backing the min
-// (`*_source`) for back-compat. `rating` (👍 percent) + `rating_count` +
-// `badges` are DoorDash-only — Uber Eats exposes none per item. `currency`
-// (ISO 4217, e.g. 'AUD') is Uber-Eats-only per item — DoorDash's actor carries
-// no per-item currency field, so it stays null there. Items are
-// rebuilt wholesale on every scrape.
+// WIRE SHAPE ONLY — the tables this described are dropped (slice 7); real
+// storage is content.* and ManualMenuItems::toMenuItemModel() pre-sets these
+// unsaved models from it. One dish, one or more category memberships.
+// Content (name / description / image) is UNIONED across every connected
+// ordering platform: display fields gap-fill in registry priority order
+// (Square > Uber Eats > DoorDash). `images` is the hero-first cross-platform
+// union (images[0] = image_url). Each platform the dish is available on is a
+// platformLinks entry — per-mode prices plus the dish's own identity there
+// (item_url deep link / external_ref / sold_out; the per-dish mode STORE
+// urls retired 2026-08-26, D1). `base_price` is the representative headline
+// (min across platforms); `pickup_price` / `delivery_price` are aggregate
+// minimums. `rating` + `rating_count` + `badges` are DoorDash-only.
+// `currency` is per-item where a platform supplies it. Items are rebuilt
+// wholesale on every scrape.
 // `badges` stays JSONB by design (reviewed 2026-07-04, audit #FOUND-13) — DoorDash
 // display copy with no query/filter usage anywhere in the codebase; revisit only
 // if a real filtering need emerges.
