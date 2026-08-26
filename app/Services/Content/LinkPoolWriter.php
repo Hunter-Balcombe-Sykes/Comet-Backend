@@ -79,6 +79,7 @@ class LinkPoolWriter
         ?string $favicon = null,
         ?string $logo = null,
         bool $enrich = true,
+        ?string $origin = null,
     ): string {
         $url = trim($url);
         $coord = self::coordFor($url);
@@ -98,6 +99,17 @@ class LinkPoolWriter
                 'f_link' => ['url' => $url],
             ],
         ];
+
+        // Card origin (R2, 2026-08-27): 'scrape' (harvest/unroll lanes) vs
+        // 'manual' (an explicit paste). Recorded as an item_tag so the
+        // previous-website sweep can retire scrape-seeded cards without ever
+        // touching one a person typed. Null = caller doesn't know (e.g. the
+        // enrichment write-back) — the tag group is omitted and the stored
+        // tag survives, same preserve-by-omission contract as media above.
+        // Untagged legacy cards are deliberately NEVER swept.
+        if ($origin !== null) {
+            $projection['tags'] = [['tag' => $origin, 'tag_type' => 'link_origin']];
+        }
 
         // Omitted rather than written null when there is nothing to say — a new
         // item has no stale body to clear (the retired backfiller did the same).

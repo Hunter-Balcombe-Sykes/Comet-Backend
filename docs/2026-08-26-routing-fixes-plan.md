@@ -206,3 +206,19 @@ scope from the verification pass:**
   every item ships, then delete. Same for the Instagram handoff doc (R3).
 - GATE R4 (final): all fixes live on development + deployed; checkpoint
   written; auto-continue into plan 2.
+
+---
+# RUN CHECKPOINTS
+
+**GATE R1 PASSED — 2026-08-27 ~05:00 AEST.** Cherry-pick of 312bda304
+applied clean onto current development (the branch's other commit dropped
+as already-shipped); LinkProjectorSurfaceMarginTest + RoutingCorpusTest +
+SuggestionsInboxTest + full suite green; deployed. LIVE: the incident URL
+projects opentable.reserve at confidence 79 / margin 79 (was 59/0 →
+note). Reproject audit on dev: 0 reclassified / 1 newly matched
+(tidal.player — a side benefit) / 20 "lost" all probe-evidence
+storefront domains the URL-only replay can never see (pre-existing
+methodology noise, not a regression — the fix only ADDS score). Rescue:
+the stranded ollies OpenTable link re-routed through the REAL
+LinkRoutingService paste path → verdict 'place', reservation connection
+01a03bf3 with identifier 291533; the stale custom-link card retired.

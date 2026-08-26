@@ -3,6 +3,7 @@
 namespace App\Observers\Core;
 
 use App\Jobs\Platforms\ScanPreviousWebsiteContentJob;
+use App\Jobs\Platforms\SweepPreviousWebsiteCardsJob;
 use App\Models\Core\Site\Workplace;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\SiteCacheInvalidator;
@@ -55,6 +56,13 @@ class WorkplaceObserver
         $changedToUrl = ! $workplace->wasRecentlyCreated && $workplace->wasChanged('previous_website') && $hasUrl;
         if ($isNewWithUrl || $changedToUrl) {
             $this->dispatchContentScan($workplace);
+            // R2 (2026-08-27): the race-proof half of the previous-website
+            // guard — scrape-seeded cards of the owner's own old site that
+            // landed BEFORE this field did are retired now that it exists.
+            $userId = (string) $workplace->site?->user_id;
+            if ($userId !== '') {
+                SweepPreviousWebsiteCardsJob::dispatch($userId, (string) $workplace->previous_website);
+            }
         }
 
         // wasRecentlyCreated covers first insert (whole card is new content);
