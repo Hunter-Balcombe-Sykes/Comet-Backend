@@ -9,8 +9,11 @@ use App\Services\PublicSite\SitepageDataResolverService;
 
 /**
  * Soft-deletes a Business account's "lifestyle" platform connections — the
- * Listen / Community platforms whose sitepage page is STANDARD_ONLY
- * (Listen / Strava / Skool), which Business Partna accounts don't offer.
+ * Listen platforms whose sitepage page is STANDARD_ONLY, which Business
+ * Partna accounts don't offer. (Strava/Skool left this set 2026-08-27 with
+ * their pages: as plain link platforms they are valid on every account
+ * type, so a business account's Strava/Skool connections are no longer
+ * orphans and are kept.)
  *
  * Those integration groups are hidden from the business dashboard (Partna-
  * Frontend HIDDEN_GROUPS), so such a connection is un-removable there — an

@@ -13,6 +13,7 @@ use App\Services\Accounts\AccountCapabilitySet;
 use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Content\ManualServiceItems;
 use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\Profile\SectorActionRecipes;
 use App\Site\Pools\PoolResolver;
 use App\Support\UrlSafety;
 use Illuminate\Database\QueryException;
@@ -90,13 +91,11 @@ class SitepageDataResolverService
         // silently restore the empty-page behaviour.
         // Services — booking links.
         'fresha' => 'services', 'square' => 'services', 'booking' => 'services',
-        // Reservations — keyless reservation widgets (Business-only page).
-        'opentable' => 'reservations', 'resdiary' => 'reservations',
-        'nowbookit' => 'reservations', 'reservations' => 'reservations',
+        // Reservations/Strava/Skool grant no page since 2026-08-27 (the
+        // pages left the taxonomy) — those connections are lander/link
+        // destinations now, not page grantors.
         // Google Business feeds the Contact page.
         'google-business' => 'contact',
-        // Standalone social pages.
-        'strava' => 'strava', 'skool' => 'skool',
         // Custom links → the Links page. Link items are sourced from custom
         // connections, so a live custom connection means the Links page exists
         // (previously Links presence relied only on link Blocks, which missed
@@ -398,11 +397,27 @@ class SitepageDataResolverService
         asort($ranked);
         $rankedPages = array_keys($ranked);
 
-        // Remaining present pages keep canonical order after the ranked block.
+        // Remaining present pages follow in the IDENTITY's expected order
+        // (smart-scoring plan, 2026-08-27): a restaurant's menu leads, a
+        // musician's listen — day one already reads right, and stored ranks
+        // refine within that frame. Falls back to canonical enum order for
+        // sector-less users. The sector is read by value query (the public
+        // build never eager-loads site.user, and lazy loads throw outside
+        // prod); relationLoaded short-circuits it for callers that did.
+        $sector = $site === null ? null
+            : ($site->relationLoaded('user')
+                ? $site->user?->sector
+                : User::query()->whereKey($site->user_id)->value('sector'));
+        $sectorOrder = SectorActionRecipes::pageOrderFor(
+            trim((string) ($sector ?? '')) ?: null,
+            SitepageId::canonicalOrder(),
+        );
+        $position = array_flip($sectorOrder);
         $rest = array_values(array_filter(
             $present,
             static fn (string $page): bool => ! isset($ranked[$page]),
         ));
+        usort($rest, static fn (string $a, string $b): int => ($position[$a] ?? PHP_INT_MAX) <=> ($position[$b] ?? PHP_INT_MAX));
 
         return array_values(array_merge($rankedPages, $rest));
     }

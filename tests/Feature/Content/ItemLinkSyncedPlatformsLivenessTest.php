@@ -46,7 +46,7 @@ function linkLivenessFixture(bool $connectionLive = true, bool $paused = false):
     $itemId = (string) Str::uuid();
     DB::table('content.items')->insert([
         'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'video',
-        'headline_cache' => 'A video', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'headline_cache' => 'A video', 'facets_cache' => '[]',
         'first_seen_at' => now(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);

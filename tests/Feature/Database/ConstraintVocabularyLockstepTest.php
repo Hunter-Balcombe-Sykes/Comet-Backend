@@ -120,14 +120,16 @@ function lockstepAssertSameSet(array $a, array $b, string $label): void
 
 it('item_views_item_type_check matches ItemSeenRequest::ITEM_TYPES and the hardcoded expected set', function () {
     // Hand-written anchor, independent of both the migration and the app class.
-    // 2026-08-23: service_category joined (smart ordering v2, D2). The CHECK
-    // was recreated by the service_category_family migration, which this reads.
+    // 2026-08-23: service_category joined (smart ordering v2, D2).
+    // 2026-08-27: event_item joined (smart-scoring plan — events score). The
+    // CHECK was last recreated by the event_item_family migration, which this
+    // reads.
     $expected = [
         'shop_product', 'menu_item', 'menu_category', 'service', 'service_category', 'block',
-        'gallery_item', 'engine_item', 'listen_item', 'watch_item', 'link_item',
+        'gallery_item', 'engine_item', 'listen_item', 'watch_item', 'link_item', 'event_item',
     ];
 
-    $sql = lockstepMigrationSql('20260823130000_service_category_family.sql');
+    $sql = lockstepMigrationSql('20260827072000_event_item_family.sql');
     $migrationList = lockstepExtractInList($sql, 'item_type');
 
     lockstepAssertSameSet($migrationList, $expected, 'item_views_item_type_check (migration vs hardcoded)');
@@ -139,15 +141,16 @@ it('item_views_item_type_check matches ItemSeenRequest::ITEM_TYPES and the hardc
 it('content_popularity_scores_content_type_check matches the item taxonomy + action', function () {
     // 2026-08-23: 'page' left the vocabulary — pages are actions (page:<id>
     // rows in the 'action' family) — and service_category joined it (D2).
-    // The CHECK was last recreated by the service_category_family migration,
-    // which is the file this reads.
+    // 2026-08-27: event_item joined (smart-scoring plan). The CHECK was last
+    // recreated by the event_item_family migration, which is the file this
+    // reads.
     $expected = [
         'action', 'shop_product', 'menu_item', 'menu_category',
         'service', 'service_category', 'block', 'gallery_item', 'engine_item', 'listen_item',
-        'watch_item', 'link_item',
+        'watch_item', 'link_item', 'event_item',
     ];
 
-    $sql = lockstepMigrationSql('20260823130000_service_category_family.sql');
+    $sql = lockstepMigrationSql('20260827072000_event_item_family.sql');
     $migrationList = lockstepExtractInList($sql, 'content_type');
     lockstepAssertSameSet($migrationList, $expected, 'content_popularity_scores_content_type_check (migration vs hardcoded)');
 

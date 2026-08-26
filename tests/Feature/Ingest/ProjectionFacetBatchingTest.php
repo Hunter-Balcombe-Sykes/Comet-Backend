@@ -46,7 +46,7 @@ function facetBatchItem(string $userId, string $kind = 'video'): string
     $id = (string) Str::uuid();
     DB::table('content.items')->insert([
         'id' => $id, 'user_id' => $userId, 'kind' => $kind,
-        'headline_cache' => null, 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'headline_cache' => null, 'facets_cache' => '[]',
         'first_seen_at' => now(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);

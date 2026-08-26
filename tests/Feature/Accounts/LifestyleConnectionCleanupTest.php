@@ -56,11 +56,12 @@ function lccActiveCount(string $userId): int
 
 it('derives the lifestyle platform set from the presence gate', function () {
     $platforms = LifestyleConnectionCleanup::lifestylePlatforms();
-    // Listen + community + other platforms, NOT shop/bandcamp/google-business/booking.
-    expect($platforms)->toContain('apple-music', 'spotify', 'soundcloud', 'strava', 'skool');
+    // Listen platforms only. Strava/skool left with their pages (2026-08-27):
+    // as plain link platforms they are valid on business accounts too.
+    expect($platforms)->toContain('apple-music', 'spotify', 'soundcloud');
     // One needle per call: toContain is variadic and `not` means "not ALL of
     // them", so a multi-needle negation passes the moment any one is absent.
-    foreach (['shop', 'bandcamp', 'fresha', 'google-business', 'instagram'] as $platform) {
+    foreach (['strava', 'skool', 'shop', 'bandcamp', 'fresha', 'google-business', 'instagram'] as $platform) {
         expect($platforms)->not->toContain($platform);
     }
 });
@@ -68,14 +69,15 @@ it('derives the lifestyle platform set from the presence gate', function () {
 it('soft-deletes a business account lifestyle connections but leaves shop/other', function () {
     $pro = lccTenant('lcc-biz', 'business');
     lccConnection($pro->id, 'apple-music');
-    lccConnection($pro->id, 'strava');
+    lccConnection($pro->id, 'spotify');
+    lccConnection($pro->id, 'strava');          // a link platform since 2026-08-27 — kept
     lccConnection($pro->id, 'shop');            // business keeps shop
     lccConnection($pro->id, 'google-business'); // not lifestyle
 
     $removed = app(LifestyleConnectionCleanup::class)->forUser($pro);
 
     expect($removed)->toBe(2)
-        ->and(lccActiveCount($pro->id))->toBe(2); // shop + google-business remain
+        ->and(lccActiveCount($pro->id))->toBe(3); // strava + shop + google-business remain
 });
 
 it('is a no-op for standard (partna) accounts', function () {
@@ -92,7 +94,7 @@ it('is a no-op for standard (partna) accounts', function () {
 it('dry-run counts without deleting', function () {
     $pro = lccTenant('lcc-dry', 'business');
     lccConnection($pro->id, 'apple-music');
-    lccConnection($pro->id, 'strava');
+    lccConnection($pro->id, 'soundcloud');
 
     $would = app(LifestyleConnectionCleanup::class)->forUser($pro, dryRun: true);
 
@@ -111,7 +113,9 @@ it('cleans up lifestyle connections when a user switches to business (observer)'
     $pro->update(['account_type' => AccountType::Business->value]);
     AccountCapabilities::flushCache();
 
-    expect(lccActiveCount($pro->id))->toBe(1); // only shop survives
+    // skool is a plain link platform since 2026-08-27 — it survives the
+    // switch alongside shop; only the Listen connection is an orphan.
+    expect(lccActiveCount($pro->id))->toBe(2);
 });
 
 it('leaves lifestyle connections untouched when an unrelated field changes on a business account (TEST-107)', function () {
@@ -143,6 +147,7 @@ it('the artisan command removes orphans across business accounts (and dry-run do
 
     // Real run clears the business orphans, leaves the partna account alone.
     $this->artisan('connections:cleanup-lifestyle-orphans')->assertOk();
-    expect(lccActiveCount($biz->id))->toBe(0)
+    // spotify was the orphan; strava (a link platform since 2026-08-27) stays.
+    expect(lccActiveCount($biz->id))->toBe(1)
         ->and(lccActiveCount($partna->id))->toBe(1);
 });

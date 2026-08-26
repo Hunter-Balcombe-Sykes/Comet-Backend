@@ -45,7 +45,7 @@ function hiddenEventItem(string $userId, string $sourceId, string $headline, str
     $id = (string) Str::uuid();
     DB::table('content.items')->insert([
         'id' => $id, 'user_id' => $userId, 'kind' => 'event',
-        'headline_cache' => $headline, 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'headline_cache' => $headline, 'facets_cache' => '[]',
         'first_seen_at' => now(), 'last_seen_at' => now(),
         'created_at' => now(), 'updated_at' => now(),
     ]);

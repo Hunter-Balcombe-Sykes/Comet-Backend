@@ -6,8 +6,10 @@ use App\Models\Core\Site\Site;
 use App\Services\Analytics\ActionScorer;
 use App\Services\Analytics\ContentFreshness;
 use App\Services\Analytics\ContentPopularityReader;
+use App\Services\Analytics\EventTimeRelevance;
 use App\Services\Analytics\ItemFamily;
 use App\Services\Analytics\ScoringWindow;
+use App\Services\Profile\SectorActionRecipes;
 use App\Services\PublicSite\SitepageDataResolverService;
 use App\Site\Actions\ActionCandidates;
 use App\Site\Pools\PoolWire;
@@ -137,8 +139,10 @@ class ComputeContentPopularityScores extends Command
         'bandcamp' => 'shop_product',
         'book' => 'service',
         'services' => 'service',
-        // events / attend: event items never score (occurrence order is the
-        // only honest order — ItemFamily), so their clicks are not aggregated.
+        // Events score since the smart-scoring plan (2026-08-27): ticket
+        // link-outs on the events page count toward the event's own row.
+        'events' => 'event_item',
+        'attend' => 'event_item',
         // ONE item scoring by link-out (2026-07-10): listen tracks, watch videos,
         // and custom links score from clicks in their own page's section. The ONE
         // theme tags each item click with its page's canonical section_key
@@ -161,6 +165,7 @@ class ComputeContentPopularityScores extends Command
 
     public function __construct(
         private readonly ContentFreshness $freshness,
+        private readonly EventTimeRelevance $eventRelevance,
         private readonly ActionCandidates $candidates,
         private readonly ActionScorer $scorer,
         private readonly ContentPopularityReader $popularity,
@@ -181,9 +186,25 @@ class ComputeContentPopularityScores extends Command
         if (is_string($siteOpt) && $siteOpt !== '') {
             $query->where('id', $siteOpt);
         } else {
-            // SCALE-3: scope the periodic full sweep to sites with events since
-            // the last window — see RECENT_EVENTS_WINDOW_MINUTES above.
+            // SCALE-3 + the watermark (smart-scoring plan, 2026-08-27): the
+            // periodic sweep scopes to sites with signal since the LAST
+            // SUCCESSFUL RUN (persisted analytics.scoring_watermarks, 5-min
+            // slack, capped at 7 days) rather than a fixed lookback — the
+            // missed-tick gap routes/console.php documented is closed; the
+            // 60-minute window survives as the floor for the first run and
+            // any watermark fault.
             $since = now()->subMinutes(self::RECENT_EVENTS_WINDOW_MINUTES);
+            $watermark = $this->readWatermark();
+            if ($watermark !== null) {
+                $fromWatermark = $watermark->copy()->subMinutes(5);
+                $floor = now()->subDays(7);
+                if ($fromWatermark->lt($floor)) {
+                    $fromWatermark = $floor;
+                }
+                if ($fromWatermark->lt($since)) {
+                    $since = $fromWatermark;
+                }
+            }
             $query->whereIn('id', $this->siteIdsWithRecentEvents($since));
         }
 
@@ -240,6 +261,13 @@ class ComputeContentPopularityScores extends Command
             $rowsDeleted,
         ));
 
+        // Advance the watermark only for a real periodic sweep — a --site
+        // run covers one site and a --dry-run writes nothing, so neither may
+        // claim the window was processed.
+        if (! $dryRun && ! (is_string($siteOpt) && $siteOpt !== '')) {
+            $this->writeWatermark();
+        }
+
         Log::info('analytics:compute-popularity completed', [
             'dry_run' => $dryRun,
             'sites' => $sitesProcessed,
@@ -249,6 +277,32 @@ class ComputeContentPopularityScores extends Command
         ]);
 
         return self::SUCCESS;
+    }
+
+    /** The persisted last-successful-sweep time, or null (first run / table absent). */
+    private function readWatermark(): ?Carbon
+    {
+        try {
+            $at = DB::connection('pgsql')->table('analytics.scoring_watermarks')
+                ->where('id', 'popularity')->value('last_completed_at');
+
+            return is_string($at) && $at !== '' ? Carbon::parse($at) : null;
+        } catch (QueryException) {
+            return null; // table absent (pre-migration env) — fixed window.
+        }
+    }
+
+    private function writeWatermark(): void
+    {
+        try {
+            DB::connection('pgsql')->table('analytics.scoring_watermarks')->updateOrInsert(
+                ['id' => 'popularity'],
+                ['last_completed_at' => now()->toISOString(), 'updated_at' => now()->toISOString()],
+            );
+        } catch (QueryException $e) {
+            // Never fail the sweep over its bookkeeping row — but say so.
+            Log::warning('analytics.scoring_watermark_write_failed', ['error' => $e->getMessage()]);
+        }
     }
 
     /**
@@ -301,6 +355,24 @@ class ComputeContentPopularityScores extends Command
             ) {
                 $userIds[(string) $userId] = true;
             }
+            // Identity boosts read users.sector (smart-scoring plan): a
+            // sector edit must re-rank without waiting for traffic, so a
+            // SECTOR-CARRYING user's row update in the window scopes their
+            // site in. The trigger is coarse (any edit on such a user
+            // qualifies) — that only costs a recompute — but deliberately
+            // requires a sector so a brand-new idle account doesn't ride its
+            // own signup write into every sweep (SCALE-3's skip contract).
+            // A cleared sector re-ranks on the next event/content change via
+            // the shape-inference fallback — accepted narrow staleness.
+            foreach (
+                DB::connection('pgsql')->table('core.users')
+                    ->where('updated_at', '>=', $sinceSql)
+                    ->whereNotNull('sector')
+                    ->distinct()
+                    ->pluck('id') as $userId
+            ) {
+                $userIds[(string) $userId] = true;
+            }
             if ($userIds !== []) {
                 foreach (
                     DB::connection('pgsql')->table('site.sites')
@@ -337,6 +409,14 @@ class ComputeContentPopularityScores extends Command
         }
 
         $fresh = $this->freshness->boostsForSite($site);
+        // Events take a time-relevance term instead of publishedAt freshness
+        // (their config fresh weight is 0, so the generic term yields
+        // nothing) — merged into the same additive-boost map so seeding and
+        // scoreAndRank treat it identically.
+        $relevance = $this->eventRelevance->boostsForSite($site);
+        if ($relevance !== []) {
+            $fresh['event_item'] = $relevance;
+        }
         $itemAgg = $this->aggregateItems($site, $mediaIds);
         foreach ($fresh as $family => $boosts) {
             foreach ($boosts as $key => $_boost) {
@@ -413,6 +493,13 @@ class ComputeContentPopularityScores extends Command
      * Item reach reads the item-family scores computed THIS run (so a first
      * run already folds pool engagement in), falling back to stored rows.
      *
+     * Identity boosts (smart-scoring plan, 2026-08-27): the sector's action
+     * recipe resolves against the candidate set and rides the stored score.
+     * The inference ladder when users.sector is unset — the explicit sector
+     * (any source: manual or google-business sync) → integration-shape
+     * identity (SectorActionRecipes::inferIdentity, EPHEMERAL by design) →
+     * none (global priors only).
+     *
      * @param  list<array<string, mixed>>  $itemRows  this run's item-family rows
      * @return array{rows: list<array<string, mixed>>, deletes: list<string>}
      */
@@ -429,7 +516,17 @@ class ComputeContentPopularityScores extends Command
         }
         $candidates = $this->candidates->forSite($pro, $site, null, $pools);
 
-        return $this->scorer->computeForSite($site, $candidates, $itemScores);
+        $identity = trim((string) ($pro->sector ?? ''));
+        $identity = $identity !== '' ? $identity : SectorActionRecipes::inferIdentity($candidates);
+        $boosts = SectorActionRecipes::resolve($identity, $candidates, $itemScores);
+
+        return $this->scorer->computeForSite(
+            $site,
+            $candidates,
+            $itemScores,
+            $boosts,
+            SectorActionRecipes::pagePriorsFor($identity),
+        );
     }
 
     /**
@@ -698,19 +795,30 @@ class ComputeContentPopularityScores extends Command
         $previous = DB::connection('pgsql')->table('analytics.content_popularity_scores')
             ->where('site_id', $site->id)
             ->where('content_type', $contentType)
-            ->get(['content_key', 'score', 'rank']);
+            ->get(['content_key', 'score', 'rank', 'computed_at']);
         $prevScore = [];
         $prevRank = [];
+        $lastAt = null;
         foreach ($previous as $row) {
             $prevScore[(string) $row->content_key] = (float) $row->score;
             $prevRank[(string) $row->content_key] = (int) $row->rank;
+            $at = $row->computed_at !== null ? (string) $row->computed_at : null;
+            if ($at !== null && ($lastAt === null || strcmp($at, $lastAt) > 0)) {
+                $lastAt = $at;
+            }
         }
+        // Cadence-aware previous weight (smart-scoring plan) — see
+        // ActionScorer::cadenceBlendPrev: compounds to the daily 0.7/0.3
+        // semantics whatever the run cadence, and makes the fade-out decay
+        // by TIME rather than run count.
+        $blendPrev = ActionScorer::cadenceBlendPrev($lastAt, $now);
 
         // Fade-out: stored keys with no aggregate signal this run (page lost
-        // presence, raw events purged) decay through the blend (0.3·prev per
-        // run) instead of freezing at their last value. Deliberately NO
-        // freshness here — a gated-off page must die even if its connection is
-        // recent.
+        // presence, raw events purged) decay through the blend — by TIME now
+        // (the cadence-aware weight), so a stale key at the 15-minute cadence
+        // fades over the same wall-clock a daily run would give it, instead
+        // of vanishing in a handful of ticks. Deliberately NO freshness here
+        // — a gated-off page must die even if its connection is recent.
         foreach ($prevScore as $key => $_prev) {
             $computed[$key] ??= 0.0;
         }
@@ -719,7 +827,7 @@ class ComputeContentPopularityScores extends Command
         $blended = [];
         foreach ($computed as $key => $score) {
             $prev = $prevScore[$key] ?? $score;
-            $blended[$key] = self::BLEND_NEW * $score + self::BLEND_PREV * $prev;
+            $blended[$key] = (1 - $blendPrev) * $score + $blendPrev * $prev;
         }
 
         // Partition: signal-less keys that have faded below the floor are

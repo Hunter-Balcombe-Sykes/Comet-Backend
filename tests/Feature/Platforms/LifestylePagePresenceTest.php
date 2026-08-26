@@ -67,24 +67,16 @@ it('keeps Listen present for a standard account with the same music connection',
     expect(lppPresentPages($pro))->toContain('listen');
 });
 
-it('drops Strava and Skool from presence for a business account', function () {
-    $pro = lppTenant('lpp-biz-lifestyle', 'business');
-    lppConnection($pro->id, 'strava', ['name' => 'A Club']);
-    lppConnection($pro->id, 'skool', ['name' => 'A Community']);
+it('never emits the retired strava/skool pages, for any account type (pages left the taxonomy 2026-08-27)', function () {
+    foreach (['business' => 'lpp-biz-lifestyle', 'partna' => 'lpp-partna-lifestyle'] as $type => $handle) {
+        $pro = lppTenant($handle, $type);
+        lppConnection($pro->id, 'strava', ['name' => 'A Club']);
+        lppConnection($pro->id, 'skool', ['name' => 'A Community']);
 
-    $pages = lppPresentPages($pro);
-    expect($pages)->not->toContain('strava')
-        ->and($pages)->not->toContain('skool');
-});
-
-it('keeps Strava and Skool present for a standard account', function () {
-    $pro = lppTenant('lpp-partna-lifestyle', 'partna');
-    lppConnection($pro->id, 'strava', ['name' => 'A Club']);
-    lppConnection($pro->id, 'skool', ['name' => 'A Community']);
-
-    $pages = lppPresentPages($pro);
-    expect($pages)->toContain('strava')
-        ->and($pages)->toContain('skool');
+        $pages = lppPresentPages($pro);
+        expect($pages)->not->toContain('strava')
+            ->and($pages)->not->toContain('skool');
+    }
 });
 
 it('still keeps Watch present for a business account (not a lifestyle-gated page)', function () {

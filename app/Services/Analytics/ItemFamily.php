@@ -10,9 +10,12 @@ namespace App\Services\Analytics;
  *   score(item) = Σ_days (w_click·clicks_d + w_view·views_d + w_dwell·dwell_s_d) · 2^(−age_d/90)
  *               + w_fresh · 2^(−ageSince(publishedAt ?? firstSeenAt) / half_life_days)
  *
- * Events never score (occurrence order is the only honest order) and
- * reviews never rank, so neither kind has a family here. Every family is
- * keyed by content.items.id.
+ * Events score since the smart-scoring plan (2026-08-27) — the event_item
+ * family, whose additive term is EventTimeRelevance (peaks at the event
+ * date), not publishedAt freshness. Event POOLS stay chronological
+ * (PoolResolver pins 'manual'); the scores feed actions and latest-event
+ * resolution only. Reviews never rank, so that kind has no family here.
+ * Every family is keyed by content.items.id.
  */
 final class ItemFamily
 {
@@ -25,6 +28,7 @@ final class ItemFamily
         'release' => 'listen_item',
         'episode' => 'listen_item',
         'menu_item' => 'menu_item',
+        'event' => 'event_item',
         'service' => 'service',
         'media' => 'gallery_item',
     ];

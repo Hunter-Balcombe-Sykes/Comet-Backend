@@ -482,15 +482,16 @@ class DataExportPayloadBuilder
     }
 
     /**
-     * DINT-2: the resolved item spine. headline_cache/facets_cache/eligible_cache
-     * are dashboard-filtering caches only, not third-party content.
+     * DINT-2: the resolved item spine. headline_cache/facets_cache are
+     * dashboard-filtering caches only, not third-party content.
+     * (eligible_cache dropped 2026-08-27 — written '[]', never read.)
      */
     private function streamContentItems(string $userId): Generator
     {
         return $this->lazyRows(
             DB::connection('pgsql')
                 ->table('content.items')
-                ->select(['id', 'user_id', 'kind', 'headline_cache', 'facets_cache', 'eligible_cache', 'removed_at', 'review_flag', 'first_seen_at', 'last_seen_at', 'created_at', 'updated_at'])
+                ->select(['id', 'user_id', 'kind', 'headline_cache', 'facets_cache', 'removed_at', 'review_flag', 'first_seen_at', 'last_seen_at', 'created_at', 'updated_at'])
                 ->where('user_id', $userId)
         );
     }

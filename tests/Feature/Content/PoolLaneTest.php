@@ -533,7 +533,7 @@ it('breaks a full timestamp tie to exactly one auto item per source', function (
         $id = (string) Str::uuid();
         DB::connection('pgsql')->table('content.items')->insert([
             'id' => $id, 'user_id' => $pro->id, 'kind' => 'video',
-            'headline_cache' => $headline, 'facets_cache' => '[]', 'eligible_cache' => '[]',
+            'headline_cache' => $headline, 'facets_cache' => '[]',
             'first_seen_at' => $stamp, 'last_seen_at' => $stamp,
             'created_at' => now(), 'updated_at' => now(),
         ]);

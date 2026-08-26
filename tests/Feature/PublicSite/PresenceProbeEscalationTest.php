@@ -350,7 +350,6 @@ it('LIFE-1 end-to-end: a services-probe fault degrades /api/public/profiles/{han
         )),
         headline_cache TEXT NULL,
         facets_cache TEXT NOT NULL DEFAULT \'[]\',
-        eligible_cache TEXT NOT NULL DEFAULT \'[]\',
         removed_at TEXT NULL,
         review_flag TEXT NULL,
         first_seen_at TEXT NOT NULL,

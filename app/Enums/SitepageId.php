@@ -5,15 +5,21 @@ namespace App\Enums;
 /**
  * Canonical sitepage page-ids for the ONE architecture taxonomy.
  *
- * The 15 cases below, IN THIS ORDER, are the canonical default page order — the
+ * The 12 cases below, IN THIS ORDER, are the canonical default page order — the
  * order pages appear before any popularity re-ranking is applied. Every page is
- * presence-gated per site (shown only when the site has content for it); three
+ * presence-gated per site (shown only when the site has content for it); two
  * are additionally Business-only (see BUSINESS_ONLY).
+ *
+ * 2026-08-27 (smart-scoring plan): `reservations`, `strava` and `skool` left
+ * the taxonomy. The PLATFORMS stay — a reservation widget, a Strava club or a
+ * Skool community is a link/action now, never a page of its own (the frontend
+ * had already stopped rendering all three).
  *
  * LOCKSTEP — this enum is mirrored, id-for-id and in the same order, in
  * partna-monorepo/packages/design-system/src/engines/page-taxonomy.ts
- * (SITEPAGE_IDS + BUSINESS_ONLY_PAGES + SECTION_KEY_TO_PAGE). There is no shared
- * source; change BOTH files together or the frontend/backend taxonomies drift.
+ * (SITEPAGE_IDS + PAGE_TO_SECTION_KEY + PAGE_LABELS, plus that file's
+ * frontend-only extensions). There is no shared source; change BOTH files
+ * together or the frontend/backend taxonomies drift.
  */
 enum SitepageId: string
 {
@@ -23,14 +29,11 @@ enum SitepageId: string
     case Shop = 'shop';
     case Menu = 'menu';
     case Services = 'services';
-    case Reservations = 'reservations';
     case Events = 'events';
     case Gallery = 'gallery';
     case Reviews = 'reviews';
     case Documents = 'documents';
     case Contact = 'contact';
-    case Strava = 'strava';
-    case Skool = 'skool';
     case Links = 'links';
 
     /**
@@ -39,16 +42,16 @@ enum SitepageId: string
      *
      * @var list<string>
      */
-    public const BUSINESS_ONLY = ['menu', 'reviews', 'reservations'];
+    public const BUSINESS_ONLY = ['menu', 'reviews'];
 
     /**
      * Pages available only to standard (partna) accounts — the lifestyle/creator
-     * content Business Partna accounts don't offer: Listen (music) and the
-     * Community pages (Strava/Skool). Mirrors the dashboard's
-     * account-type hiding (Partna-Frontend lib/integrations/platform-registry.ts
-     * → HIDDEN_GROUPS = listen/community/shop/other for business). Gate on the
-     * derived capability (AccountCapabilities::can_use_lifestyle_pages), never on
-     * account_type directly.
+     * content Business Partna accounts don't offer: Listen (music). Strava and
+     * Skool left this list with their pages (2026-08-27) — as plain link
+     * platforms they are available to every account type, like any social
+     * link. Gate on the derived capability
+     * (AccountCapabilities::can_use_lifestyle_pages), never on account_type
+     * directly.
      *
      * NOT the frontend-mirrored counterpart of BUSINESS_ONLY: this is a
      * backend-presence-only constant. Presence is computed backend-side
@@ -60,7 +63,7 @@ enum SitepageId: string
      *
      * @var list<string>
      */
-    public const STANDARD_ONLY = ['listen', 'strava', 'skool'];
+    public const STANDARD_ONLY = ['listen'];
 
     /**
      * Legacy analytics section_key -> page-id bucketing. The scoring job
@@ -78,13 +81,16 @@ enum SitepageId: string
         'shop' => 'shop',
         'menu' => 'menu',
         'services' => 'services',
-        'reservations' => 'reservations',
         'events' => 'events',
         'gallery' => 'gallery',
         'reviews' => 'reviews',
         'contact' => 'contact',
-        'strava' => 'strava',
-        'skool' => 'skool',
+
+        // Retired pages (2026-08-27): their platforms live on as links, so
+        // historical section rows fold into Links.
+        'reservations' => 'links',
+        'strava' => 'links',
+        'skool' => 'links',
 
         // Home — bio + the social icon row live on Home (socials are not a page)
         'bio' => 'home',
@@ -135,8 +141,9 @@ enum SitepageId: string
         'custom' => 'links',
         'other' => 'links',             // PROVISIONAL — legacy misc grouping
 
-        // Community — legacy strava+skool grouping; best-effort to Skool
-        'community' => 'skool',         // PROVISIONAL — legacy grouped section
+        // Community — legacy strava+skool grouping; the pages are gone, so
+        // it folds where their links live now.
+        'community' => 'links',
 
         // Omitted intentionally: 'player-test' (test-fixture noise)
     ];

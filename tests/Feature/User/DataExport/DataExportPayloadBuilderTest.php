@@ -1977,7 +1977,7 @@ it('exports Fresha-projected services from content.*, with site.services empty',
 
     DB::connection('pgsql')->table('content.items')->insert([
         'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'service',
-        'headline_cache' => 'Fresha Cut', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'headline_cache' => 'Fresha Cut', 'facets_cache' => '[]',
         'first_seen_at' => '2026-01-01T00:00:00Z', 'last_seen_at' => '2026-01-02T00:00:00Z',
         'created_at' => '2026-01-01T00:00:00Z', 'updated_at' => '2026-01-02T00:00:00Z',
     ]);
@@ -2047,7 +2047,7 @@ it('exports a removed Fresha service with deleted_at set, not silently dropped',
 
     DB::connection('pgsql')->table('content.items')->insert([
         'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'service',
-        'headline_cache' => 'Retired Treatment', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'headline_cache' => 'Retired Treatment', 'facets_cache' => '[]',
         'removed_at' => '2026-02-01T00:00:00Z',
         'first_seen_at' => '2026-01-01T00:00:00Z', 'last_seen_at' => '2026-01-02T00:00:00Z',
         'created_at' => '2026-01-01T00:00:00Z', 'updated_at' => '2026-02-01T00:00:00Z',
@@ -2195,7 +2195,7 @@ it('an item carrying two manual coords (a merge shape) exports exactly once', fu
 
     DB::connection('pgsql')->table('content.items')->insert([
         'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'service',
-        'headline_cache' => 'Merged Service', 'facets_cache' => '[]', 'eligible_cache' => '[]',
+        'headline_cache' => 'Merged Service', 'facets_cache' => '[]',
         'first_seen_at' => $now->toDateTimeString(), 'last_seen_at' => $now->toDateTimeString(),
         'created_at' => $now->toDateTimeString(), 'updated_at' => $now->toDateTimeString(),
     ]);

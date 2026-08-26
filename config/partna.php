@@ -965,6 +965,12 @@ return [
             'menu_item' => ['click' => 1.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 0.5, 'half_life_days' => 60.0],
             'gallery_item' => ['click' => 0.5, 'view' => 1.0, 'dwell' => 0.05, 'fresh' => 5.0, 'half_life_days' => 7.0],
             'link_item' => ['click' => 3.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 3.0, 'half_life_days' => 14.0],
+            // Events (smart-scoring plan, 2026-08-27): fresh = 0 on purpose —
+            // publishedAt-age freshness is the WRONG shape for an event; the
+            // additive term is EventTimeRelevance (relevance/relevance
+            // half-life below), peaking at the event date and collapsing
+            // after (×0.25 once past).
+            'event_item' => ['click' => 3.0, 'view' => 1.0, 'dwell' => 0.0, 'fresh' => 0.0, 'half_life_days' => 14.0, 'relevance' => 3.0, 'relevance_half_life_days' => 7.0],
         ],
     ],
 
@@ -1103,7 +1109,12 @@ return [
         // Shop > Events > Contact > platforms > categories > items, and the
         // freshness term lifts anything new above its floor for ~2 weeks.
         'priors' => [
-            'page:reservations' => 0.30,
+            // The reservations PAGE left the taxonomy 2026-08-27; the Reserve
+            // intent's floor now rides the reservation platforms themselves
+            // (destination candidates since the same change).
+            'platform:opentable' => 0.30,
+            'platform:resdiary' => 0.30,
+            'platform:nowbookit' => 0.30,
             'page:services' => 0.28,
             'page:menu' => 0.28,
             'page:shop' => 0.15,
@@ -2991,10 +3002,9 @@ return [
         // AnalyticsQueryService::pageTitle().
         'page_titles' => [
             'home' => 'Home', 'listen' => 'Listen', 'watch' => 'Watch', 'shop' => 'Shop',
-            'menu' => 'Menu', 'book' => 'Book', 'reservations' => 'Reservations',
+            'menu' => 'Menu', 'book' => 'Book',
             'events' => 'Events', 'gallery' => 'Gallery', 'reviews' => 'Reviews',
-            'documents' => 'Documents', 'contact' => 'Contact',
-            'strava' => 'Strava', 'skool' => 'Skool', 'links' => 'Links',
+            'documents' => 'Documents', 'contact' => 'Contact', 'links' => 'Links',
         ],
     ],
 ];
