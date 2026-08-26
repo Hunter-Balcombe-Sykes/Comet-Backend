@@ -83,6 +83,17 @@ final class ConnectionDisplayName
 
         $url = self::text($payload['url'] ?? null);
         if ($url !== null) {
+            // whatsapp.chat: the identity is a PHONE NUMBER, which every
+            // generic path here refuses on purpose (the FI-6 all-digits
+            // guard in the key loop, looksOpaque below) — so the account
+            // label rendered as '' (plan-03 batch 2 find, 2026-08-27).
+            // Parse it from the click-to-chat URL and show it dialable.
+            if ($surfaceKey === 'whatsapp.chat') {
+                if (preg_match('~wa\.me/(\d{6,15})~i', $url, $m)
+                    || preg_match('~[?&]phone=(\d{6,15})~i', $url, $m)) {
+                    return '+'.$m[1];
+                }
+            }
             $handle = self::handleFromUrl($surfaceKey, $url);
             if ($handle !== null && ! self::looksOpaque($handle)) {
                 return $isSubreddit ? 'r/'.$handle : self::prefixed($surfaceKey, $handle);

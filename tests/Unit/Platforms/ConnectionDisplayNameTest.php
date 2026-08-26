@@ -31,3 +31,12 @@ it('reads a feed platform\'s handle, not its latest item title, and humanises an
         ->and(D::for('uber_eats.order', ['url' => 'https://www.ubereats.com/au/store/souva-king/RV0ChXJAXiaEjATmAdjQeg', 'name' => 'def.uber.com']))->toBe('Souva King')
         ->and(D::for('doordash.order', ['url' => 'https://www.doordash.com/store/souva-king-wollongong-23852127/', 'name' => 'doordash.com']))->toBe('Souva King Wollongong');
 });
+
+it('shows a whatsapp chat as its dialable number — the phone IS the identity (plan-03 batch 2 find)', function () {
+    // The FI-6 all-digits guard and looksOpaque both refuse raw digits on
+    // purpose, which left the account label EMPTY for every wa.me row.
+    expect(D::for('whatsapp.chat', ['username' => '', 'url' => 'https://wa.me/5591991335229']))->toBe('+5591991335229')
+        ->and(D::for('whatsapp.chat', ['url' => 'https://api.whatsapp.com/send?phone=919227007060']))->toBe('+919227007060')
+        // A send link with no phone has no identity to show.
+        ->and(D::for('whatsapp.chat', ['url' => 'https://www.whatsapp.com/send']))->toBeNull();
+});
