@@ -353,6 +353,16 @@ pre-dating tonight at 79faa511d):**
    presence; stale array-shape docblocks, provably-redundant guards, and
    one stale UberEats baseline entry cleaned. Analyse green.
 
+**P4 GATE CLOSED (2026-08-27 ~05:35 AEST):** first COMPLETE suite run
+since 01:23 — 9440 passed, 1 failed (the never-run JobHygienePolicyTest
+catching SweepPreviousWebsiteCardsJob's missing backoff/failed(); fixed,
+its test green). `composer analyse` green. Merged to development as
+9607c8277; deploy succeeded. Live dev evidence: apple-music, eventbrite
+and youtube refreshes all `ok` THROUGH the derived descriptors; skool
+PRESENT derived=true (un-vaporized by the artefact fix); dev logs
+error-free. Fresh-eyes Sonnet critic on the whole 97bdd51cf..9607c8277
+batch: dispatched (result logged below when in).
+
 **P5 scouting notes (for the next session):** google_business surface is
 `notConnectable()` → its retirement needs the candidates() relaxation
 extended to BEHAVIOUR_BINDINGS slugs (GB has detectors; the connectable
