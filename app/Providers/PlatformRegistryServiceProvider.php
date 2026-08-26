@@ -3,7 +3,6 @@
 namespace App\Providers;
 
 use App\Http\Controllers\Api\Platforms\GoogleBusinessController;
-use App\Http\Resources\Platforms\AppleMusicConnectionResource;
 use App\Http\Resources\Platforms\ApplePodcastConnectionResource;
 use App\Http\Resources\Platforms\FreshaSelectionResource;
 use App\Http\Resources\Platforms\GoogleBusinessConnectionResource;
@@ -55,7 +54,6 @@ use App\Services\Platforms\Strategies\Connect\SpotifyConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Detect\HostMatch;
 use App\Services\Platforms\Strategies\Detect\ServiceMatch;
-use App\Services\Platforms\Strategies\Fetch\AppleMusicFetch;
 use App\Services\Platforms\Strategies\Fetch\ApplePodcastFetch;
 use App\Services\Platforms\Strategies\Fetch\EventbriteFetch;
 use App\Services\Platforms\Strategies\Fetch\FreshaConnectFetch;
@@ -132,25 +130,10 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // bandcamp: retired to a catalog-derived descriptor (P4,
             // 2026-08-27) — its full behavioural contract attaches from
             // Registry\Bindings\BandcampBinding.
-            $r->register(PD::make('apple-music')->label('Apple Music')->category(Cat::Music)->resource(AppleMusicConnectionResource::class)->refreshable()
-                ->payload(FeedPayload::class));
-            // Attach feed fetch strategy (Plan 3b / Task 8). Consumed by Plan 6's registry-driven refresher.
-            $r->get('apple-music')->fetch(fn () => new AppleMusicFetch(
-                app(AppleSearch::class),
-            ));
-            // CA-W3: the message ConnectFetchJob stores on the row when the
-            // deferred fetch fails — verbatim from connectFor()'s own synchronous
-            // 404 message. Deliberately NOT ->deferredConnect(): that flag means
-            // "this descriptor's ConnectStrategy implements DeferredConnect"
-            // (RegistryConnectCoverageTest pins flag<=>instanceof for every
-            // descriptor), but Apple has no ConnectStrategy at all — its connect
-            // is bespoke (AppleController::connectFor(), via DefersBespokeConnect),
-            // never routed through ConnectResolver/GenericPlatformController. The
-            // rollout flag check (config('partna.connect.deferred')) is read
-            // directly by DefersBespokeConnect::shouldDeferConnect(), not via
-            // supportsDeferredConnect() — so setting that flag here would just be
-            // a false claim that breaks the pinned invariant for no functional gain.
-            $r->get('apple-music')->connectFetchError('Could not find that Apple Music artist or an album.');
+            // apple-music: retired to a catalog-derived descriptor (P4,
+            // 2026-08-27) — its full behavioural contract (including the
+            // CA-W3 no-deferredConnect ruling) attaches from
+            // Registry\Bindings\AppleMusicBinding.
             $r->register(PD::make('apple-podcast')->label('Apple Podcasts')->category(Cat::Content)->resource(ApplePodcastConnectionResource::class)->refreshable()
                 ->payload(FeedPayload::class));
             // Attach feed fetch strategy (Plan 3b / Task 8). Consumed by Plan 6's registry-driven refresher.
@@ -341,7 +324,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('square')->connectInput('url', ['required', 'string', 'max:1000', 'regex:#^https?://([a-z0-9-]+\.)*(squareup\.com|square\.site)(/[^\s]*)?$#i'], ['url.regex' => 'Enter a valid Square booking link (a squareup.com or square.site URL).'], true);
 
             // single-named-field (3 distinct + 11 socials share 'username').
-            $r->get('apple-music')->connectInput('artist', ['required', 'string', 'max:200']);
             $r->get('apple-podcast')->connectInput('show', ['required', 'string', 'max:200']);
             // P2: the retired link-only platforms' connect inputs (username
             // for the 11 socials; url for skool/strava/twitch with their
@@ -375,12 +357,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             // at pool resolve time (latest_per_auto_source), NOT as a fetch
             // gate — syncing keeps filling the library either way; the switch
             // only decides whether the newest item auto-joins the site.
-            // Listen restructure (owner, 2026-08-18): each switch names the
-            // FORMAT it publishes; Apple Music emits both.
-            $r->get('apple-music')->displayToggles([
-                ['key' => 'auto_sync_latest', 'label' => 'Newest release', 'description' => 'Your newest album, EP or single joins your site automatically.'],
-                ['key' => 'auto_sync_latest_track', 'label' => 'Newest song', 'description' => 'Your newest song joins your site automatically.'],
-            ]);
             $r->get('apple-podcast')->displayToggles([
                 ['key' => 'auto_sync_latest', 'label' => 'Newest episode', 'description' => 'Your newest episode joins your site automatically.'],
             ]);
@@ -432,7 +408,6 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('humanitix')->refreshEvery((int) config('partna.refresh.intervals.humanitix', 6 * 3600));
             $r->get('spotify')->refreshEvery((int) config('partna.refresh.intervals.spotify', 12 * 3600));
             $r->get('soundcloud')->refreshEvery((int) config('partna.refresh.intervals.soundcloud', 12 * 3600));
-            $r->get('apple-music')->refreshEvery((int) config('partna.refresh.intervals.apple-music', 12 * 3600));
             $r->get('apple-podcast')->refreshEvery((int) config('partna.refresh.intervals.apple-podcast', 12 * 3600));
             $r->get('google-business')->refreshEvery((int) config('partna.refresh.intervals.google-business', 2 * 86400));
 
