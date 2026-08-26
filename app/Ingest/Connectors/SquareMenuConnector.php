@@ -65,8 +65,22 @@ class SquareMenuConnector implements Connector
     {
         $storeUrl = trim($pull->identifier);
 
+        // 2026-08-26: Square moved to transport=http on the live MenuFetchJob
+        // lane (first-party products API — SquareMenuDriver), so the registry
+        // carries no actor any more. This DORMANT connector lane (auto_sync
+        // false, covers 0 real menus — owner ruling R8) has no 'http' effect
+        // yet; fail closed with a clear reason instead of renting a deleted
+        // actor. Build an http effect here if/when the ingest lane activates
+        // for menus.
+        $actor = (string) config('partna.menu.platforms.square.actor');
+        if ($actor === '') {
+            yield new Unavailable('square menus are transport=http (SquareMenuDriver); the ingest actor lane has no http effect yet');
+
+            return;
+        }
+
         $effect = $io->effect('actor', 'menu', [
-            'actor' => (string) config('partna.menu.platforms.square.actor'),
+            'actor' => $actor,
             'input' => ['mode' => 'url', 'url' => $storeUrl, 'freshness' => 'med_cache'],
             // Both places categories() looks, in the same order — see
             // UberEatsMenuConnector for why the driver needs telling.

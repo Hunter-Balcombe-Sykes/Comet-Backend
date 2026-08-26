@@ -224,3 +224,62 @@ it('keeps a dish\'s per-platform identity when a later scrape fails to re-supply
     ]]);
     expect($offer()->item_url)->toBe('https://ue/store/x/sec/sub/uuid-cola-v2');
 });
+
+it('drops rail categories but keeps their dishes, filing category-less dishes under a last-sorted More', function () {
+    // B5/3b: "Featured items" is Uber merchandising, not taxonomy. A dish on
+    // the rail AND a real category keeps the real one; a rail-only dish
+    // auto-files into the synthesized More, which sorts last.
+    $user = mfjrUser('mfjr6');
+    mfjrOrdering($user);
+
+    test()->mock(MenuApifyScraper::class, function ($m) {
+        $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => [
+            'store' => ['name' => 'Rail Cafe', 'currency' => 'AUD'],
+            'categories' => [
+                ['name' => 'Featured items', 'items' => [
+                    ['name' => 'Croissant', 'pickupPrice' => 6.0, 'deliveryPrice' => 6.0, 'itemUrl' => 'https://ue/i/rail-croissant', 'externalId' => 'rail-croissant'],
+                    ['name' => 'Mystery Special', 'pickupPrice' => 12.0, 'deliveryPrice' => 12.0],
+                ]],
+                ['name' => 'Pastry', 'items' => [
+                    ['name' => 'Croissant', 'pickupPrice' => 6.0, 'deliveryPrice' => 6.0],
+                ]],
+            ],
+        ]]);
+    });
+    (new MenuFetchJob((string) $user->id, true))->handle(
+        app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class)
+    );
+
+    $items = app(ManualMenuItems::class);
+    $labels = $items->categories((string) $user->id)->pluck('label')->all();
+    expect($labels)->toContain('Pastry')->toContain('More')->not->toContain('Featured items');
+    // More sorts last.
+    expect($items->categories((string) $user->id)->last()->label)->toBe('More');
+
+    $rows = $items->rows((string) $user->id);
+    $croissant = $rows->firstWhere('headline', 'Croissant');
+    // Rail membership dropped, real category kept — and the rail copy's
+    // identity was NOT lost with it.
+    expect($croissant->category_labels)->toBe(array_filter($croissant->category_labels, fn ($l) => $l !== 'Featured items'))
+        ->and(collect($croissant->platforms)->firstWhere('platform', 'uber-eats')->item_url)->toBe('https://ue/i/rail-croissant');
+    // Rail-only dish survives, in More.
+    $mystery = $rows->firstWhere('headline', 'Mystery Special');
+    expect($mystery)->not->toBeNull()
+        ->and(array_values($mystery->category_labels))->toBe(['More']);
+
+    // Next scrape gives Mystery Special a real category — it leaves More.
+    test()->mock(MenuApifyScraper::class, function ($m) {
+        $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => [
+            'store' => ['name' => 'Rail Cafe', 'currency' => 'AUD'],
+            'categories' => [['name' => 'Specials', 'items' => [
+                ['name' => 'Mystery Special', 'pickupPrice' => 12.0, 'deliveryPrice' => 12.0],
+            ]]],
+        ]]);
+    });
+    (new MenuFetchJob((string) $user->id, true))->handle(
+        app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class)
+    );
+
+    $mystery = app(ManualMenuItems::class)->rows((string) $user->id)->firstWhere('headline', 'Mystery Special');
+    expect(array_values($mystery->category_labels))->toBe(['Specials']);
+});

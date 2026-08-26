@@ -55,7 +55,7 @@ it('fetches and normalizes a Square Online menu — ids from the page, catalog f
         ]),
     ]);
 
-    $menu = (new SquareMenuDriver)->fetchMenu('https://order.fat-tuna.com/');
+    $menu = app(SquareMenuDriver::class)->fetchMenu('https://order.fat-tuna.com/');
 
     expect($menu)->not->toBeNull();
     expect($menu['store']['name'])->toBe('FAT TUNA');
@@ -80,7 +80,7 @@ it('fetches and normalizes a Square Online menu — ids from the page, catalog f
 it('composes the item URL from the store origin when absolute_site_link is absent', function () {
     sqdFake([sqdProduct(['absolute_site_link' => null])]);
 
-    $menu = (new SquareMenuDriver)->fetchMenu('https://order.fat-tuna.com/');
+    $menu = app(SquareMenuDriver::class)->fetchMenu('https://order.fat-tuna.com/');
 
     expect($menu['categories'][0]['items'][0]['itemUrl'])
         ->toBe('https://order.fat-tuna.com/product/bowls/river-dancer/1');
@@ -89,7 +89,7 @@ it('composes the item URL from the store origin when absolute_site_link is absen
 it('returns null when the page carries no bootstrap ids (not a Square Online store)', function () {
     Http::fake(['example.com/*' => Http::response('<html><body>hello</body></html>')]);
 
-    expect((new SquareMenuDriver)->fetchMenu('https://example.com/'))->toBeNull();
+    expect(app(SquareMenuDriver::class)->fetchMenu('https://example.com/'))->toBeNull();
 });
 
 it('routes transport=http platforms through fetchMenu in fetchStores, pricing both modes, no token needed', function () {
@@ -109,6 +109,6 @@ it('routes transport=http platforms through fetchMenu in fetchStores, pricing bo
 });
 
 it('never calls the actor transport methods on an http driver', function () {
-    expect(fn () => (new SquareMenuDriver)->buildInput('https://x', null))->toThrow(LogicException::class);
-    expect(fn () => (new SquareMenuDriver)->mapItems([]))->toThrow(LogicException::class);
+    expect(fn () => app(SquareMenuDriver::class)->buildInput('https://x', null))->toThrow(LogicException::class);
+    expect(fn () => app(SquareMenuDriver::class)->mapItems([]))->toThrow(LogicException::class);
 });

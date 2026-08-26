@@ -1049,6 +1049,21 @@ return [
         // scheduled self-heal always sees a clear key on its next tick.
         'blocked_ttl_seconds' => (int) env('PARTNA_MENU_BLOCKED_TTL_SECONDS', 600),
 
+        // B5 / backend-fixes item 3b (2026-08-26): category labels that are
+        // marketplace merchandising rails or scan wrappers, not menu taxonomy —
+        // dropped at projection (normalized-name compare). Safe because rail
+        // membership is additive: every rail item also holds a REAL category,
+        // and an item left with none auto-files into the synthesized "More".
+        // DATA, not code — extend here when a new rail label appears.
+        'category_denylist' => [
+            'featured items',
+            'save on select items',
+            'picked for you',
+            'menu',
+            'all',
+            'home',
+        ],
+
         // Convergence Phase 5 — MenuActorDriver's retry budget on the LEDGERED
         // ('actor','menu') lane. Separate from the legacy scraper's own constants
         // because the two lanes have different enclosing jobs.

@@ -16,6 +16,8 @@ use Throwable;
 // partner API. Spec: ~/Developer/platform link capabilites/fresha.md
 class FreshaScraper
 {
+    use CasesScannedNames;
+
     private const SCRAPE_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
     // Fresha's internal booking GraphQL — same call the booking page fires to
@@ -294,7 +296,9 @@ class FreshaScraper
 
                 $out[] = [
                     'serviceId' => $id,
-                    'name' => (string) ($item['name'] ?? ''),
+                    // B5/3a: vendors type service names ALL-CAPS; re-case at
+                    // scrape time (uniform-case guard — mixed case untouched).
+                    'name' => (string) ($this->scanTitleCase((string) ($item['name'] ?? '')) ?? ''),
                     'duration' => $item['caption'] ?? null,
                     'description' => $item['description'] ?? null,
                     'price' => $item['formattedRetailPrice'] ?? null,
@@ -454,7 +458,7 @@ class FreshaScraper
 
                 $out[] = [
                     'serviceId' => $m[1],
-                    'name' => trim((string) ($item['name'] ?? '')),
+                    'name' => (string) ($this->scanTitleCase(trim((string) ($item['name'] ?? ''))) ?? ''),
                     'duration' => $item['caption'] ?? null,
                     'description' => $item['description'] ?? null,
                     'price' => data_get($item, 'price.formatted'),

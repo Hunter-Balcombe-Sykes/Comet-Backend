@@ -72,21 +72,29 @@ it('prices a zero-cost dish as free, staying inside offers_qualifier_check', fun
     expect($offers->firstWhere('channel', 'base')['qualifier'])->toBe('free');
 });
 
-it('emits one offer per platform per priced mode, carrying the order url', function () {
+it('emits one offer per platform per priced mode, carrying the platform label and item identity', function () {
+    // D1 (2026-08-26): per-platform offers carry platform/item_url/
+    // external_ref/availability; the mode-typed store url is retired
+    // (url stays null on every menu offer).
     $platforms = [
-        (object) ['platform' => 'uber_eats', 'pickup_price' => 5.00, 'pickup_url' => 'https://ue/x', 'delivery_price' => 6.00, 'delivery_url' => 'https://ue/y'],
-        (object) ['platform' => 'doordash', 'pickup_price' => null, 'pickup_url' => null, 'delivery_price' => 6.50, 'delivery_url' => 'https://dd/z'],
+        (object) ['platform' => 'uber_eats', 'pickup_price' => 5.00, 'delivery_price' => 6.00, 'item_url' => 'https://ue/item/u1', 'external_ref' => 'u1', 'sold_out' => false],
+        (object) ['platform' => 'doordash', 'pickup_price' => null, 'delivery_price' => 6.50, 'item_url' => 'https://dd/store?itemId=d1', 'external_ref' => 'd1', 'sold_out' => null],
     ];
 
     $perPlatform = collect((new MenuProjectionMapper)->project(menuDish(), [], $platforms, menuRow())['offers'])
-        ->filter(fn (array $o) => $o['url'] !== null);
+        ->filter(fn (array $o) => $o['platform'] !== null);
 
     // content.offers is a SET and is never resolved to a winner: two platforms
     // selling the same dish at different prices are both true, and hiding one
     // would be a lie about where the visitor can buy.
     expect($perPlatform)->toHaveCount(3)
+        ->and($perPlatform->pluck('url')->unique()->all())->toBe([null])
         ->and($perPlatform->where('channel', 'delivery')->pluck('amount_minor')->sort()->values()->all())
-        ->toBe([600, 650]);
+        ->toBe([600, 650])
+        ->and($perPlatform->firstWhere('platform', 'uber_eats')['item_url'])->toBe('https://ue/item/u1')
+        ->and($perPlatform->firstWhere('platform', 'uber_eats')['availability'])->toBe('in_stock')
+        ->and($perPlatform->firstWhere('platform', 'doordash')['external_ref'])->toBe('d1')
+        ->and($perPlatform->firstWhere('platform', 'doordash')['availability'])->toBeNull();
 });
 
 it('emits collections from the categories, because the identity key reads them', function () {

@@ -617,8 +617,17 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         $dishes = [];
         $indexByName = [];
 
+        $denylist = array_flip(array_map(
+            fn ($l) => $this->normalizeName((string) $l),
+            (array) config('partna.menu.category_denylist', []),
+        ));
+
         foreach ($merged['categories'] as $position => $category) {
             $label = trim((string) $category['name']);
+            // B5/3b: marketplace rails and scan wrappers are merchandising,
+            // not taxonomy — the dish still lands (rail membership is
+            // additive), it just doesn't get a category row for the rail.
+            $railOnly = isset($denylist[$this->normalizeName($label)]);
 
             foreach ($category['items'] as $item) {
                 $key = $this->normalizeName((string) ($item['name'] ?? ''));
@@ -632,6 +641,20 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                 }
 
                 $index = $indexByName[$key];
+                if ($railOnly) {
+                    // Identity from the rail copy still counts (below); only
+                    // the category membership is dropped.
+                    $this->fillDishIdentity($dishes[$index]['item'], $item);
+
+                    continue;
+                }
+                // First occurrence wins display fields, but IDENTITY gap-fills
+                // from later same-name occurrences (2026-08-26): a dish listed
+                // in a rail AND its real category is two independently-fused
+                // copies, and the actor's flaky identity output can put the
+                // itemUuid/href on either one — keeping only the first copy's
+                // nulls silently discards the other's link.
+                $this->fillDishIdentity($dishes[$index]['item'], $item);
                 $ref = MenuProjectionMapper::categoryRef($label);
                 foreach ($dishes[$index]['categories'] as $seen) {
                     if ($seen['id'] === $ref) {
@@ -642,6 +665,21 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
                 // reads only name + position, and this is the value it derives
                 // the ref from anyway, so it doubles as the dedupe key above.
                 $dishes[$index]['categories'][] = ['id' => $ref, 'name' => $label, 'position' => (int) $position];
+            }
+        }
+
+        // B5/3b: a dish left with ZERO categories (rail-only, or scraped
+        // uncategorized) auto-files into one synthesized "More" — it
+        // materializes only when needed, sorts LAST (int4-safe sentinel), and
+        // the dish leaves it the moment a real category claims the name
+        // (memberships REPLACE per write).
+        foreach ($dishes as $i => $dish) {
+            if ($dish['categories'] === []) {
+                $dishes[$i]['categories'][] = [
+                    'id' => MenuProjectionMapper::categoryRef('More'),
+                    'name' => 'More',
+                    'position' => 32000,
+                ];
             }
         }
 
@@ -674,6 +712,42 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             'delivery_price' => $item['deliveryPrice'] ?? null,
             'currency' => $item['currency'] ?? null,
         ];
+    }
+
+    /**
+     * Gap-fill null per-platform identity on the kept dish from a later
+     * same-name occurrence. Only nulls fill — the first copy's real values
+     * are never overwritten.
+     *
+     * @param  array<string, mixed>  $kept  (by reference via array write-back)
+     * @param  array<string, mixed>  $dupe
+     */
+    private function fillDishIdentity(array &$kept, array $dupe): void
+    {
+        $dupeByPlatform = [];
+        foreach (($dupe['platforms'] ?? []) as $entry) {
+            if (is_array($entry) && isset($entry['platform'])) {
+                $dupeByPlatform[(string) $entry['platform']] = $entry;
+            }
+        }
+        if ($dupeByPlatform === []) {
+            return;
+        }
+
+        foreach (($kept['platforms'] ?? []) as $i => $entry) {
+            if (! is_array($entry) || ! isset($entry['platform'])) {
+                continue;
+            }
+            $donor = $dupeByPlatform[(string) $entry['platform']] ?? null;
+            if ($donor === null) {
+                continue;
+            }
+            foreach (['itemUrl', 'externalId', 'soldOut'] as $field) {
+                if (($entry[$field] ?? null) === null && ($donor[$field] ?? null) !== null) {
+                    $kept['platforms'][$i][$field] = $donor[$field];
+                }
+            }
+        }
     }
 
     /**

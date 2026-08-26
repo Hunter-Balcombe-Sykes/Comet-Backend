@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms;
 
+use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -30,6 +31,10 @@ class SquareMenuDriver implements MenuHttpDriver, MenuPlatformDriver
 
     private const API_BASE = 'https://cdn5.editmysite.com/app/store/api/v28/editor';
 
+    /** Rule 3 (OutboundHttpGuard, pattern D): the only variable URL segments
+     *  are the two numeric ids interpolated into API_BASE paths. */
+    private const API_ID_PATTERN = '/^\d{4,20}$/';
+
     private const USER_AGENT = 'Mozilla/5.0 (compatible; PartnaBot/1.0; +https://partna.au)';
 
     private const TIMEOUT_SECONDS = 20;
@@ -38,6 +43,8 @@ class SquareMenuDriver implements MenuHttpDriver, MenuPlatformDriver
 
     /** Hard page cap — 100×20 = 2000 products, far beyond any real menu. */
     private const MAX_PAGES = 20;
+
+    public function __construct(private readonly SafeUrlFetcher $fetcher) {}
 
     public function fetchMenu(string $storeUrl): ?array
     {
@@ -161,19 +168,21 @@ class SquareMenuDriver implements MenuHttpDriver, MenuPlatformDriver
         return ($inventory['enabled'] ?? false) === true ? false : null;
     }
 
+    /**
+     * The store page is a USER-SUPPLIED URL (the connected store link) —
+     * fetched through SafeUrlFetcher (OutboundHttpGuard pattern B: SSRF
+     * checks, redirect discipline, byte caps come with the door).
+     */
     private function fetchHtml(string $storeUrl): ?string
     {
-        try {
-            $resp = Http::withHeaders(['User-Agent' => self::USER_AGENT])
-                ->timeout(self::TIMEOUT_SECONDS)
-                ->get($storeUrl);
-        } catch (\Throwable $e) {
-            Log::info('menu.square.page_fetch_failed', ['url' => $storeUrl, 'error' => $e->getMessage()]);
+        $result = $this->fetcher->tryFetch($storeUrl, ['User-Agent' => self::USER_AGENT]);
+        if ($result === null || ($result['status'] ?? 0) >= 400 || ! is_string($result['body'] ?? null)) {
+            Log::info('menu.square.page_fetch_failed', ['url' => $storeUrl, 'status' => $result['status'] ?? null]);
 
             return null;
         }
 
-        return $resp->successful() ? $resp->body() : null;
+        return $result['body'];
     }
 
     /**
@@ -199,6 +208,12 @@ class SquareMenuDriver implements MenuHttpDriver, MenuPlatformDriver
     /** @return list<array<string,mixed>>|null */
     private function fetchProducts(string $userId, string $siteId): ?array
     {
+        // Rule 3: both interpolated segments validated before any URL is
+        // built (belt over the extraction regexes' own digit anchors).
+        if (preg_match(self::API_ID_PATTERN, $userId) !== 1 || preg_match(self::API_ID_PATTERN, $siteId) !== 1) {
+            return null;
+        }
+
         $products = [];
 
         for ($page = 1; $page <= self::MAX_PAGES; $page++) {
