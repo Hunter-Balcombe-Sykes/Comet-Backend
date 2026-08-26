@@ -1432,6 +1432,10 @@ return [
         // (shared across enquiry + subscription confirmations). Public forms send
         // to attacker-controllable addresses, so this caps email-bombing.
         'visitor_confirmation_per_hour' => (int) env('PARTNA_VISITOR_CONFIRMATION_PER_HOUR', 5),
+        // Manual menu scans bill Mistral OCR + DeepSeek per request — this
+        // per-user daily cap stops one account draining the shared
+        // ai_spend budget (which remains the global backstop).
+        'menu_scan_per_day' => (int) env('PARTNA_MENU_SCAN_PER_DAY', 15),
         // Dedicated per-minute limit for the signup/availability endpoint (P2-44).
         // 6× tighter than the shared public-site bucket (60/min); generous for a
         // real signup flow (email + phone + handle checks in sequence).

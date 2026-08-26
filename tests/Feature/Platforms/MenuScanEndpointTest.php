@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Core\User\User;
+use App\Providers\AppServiceProvider;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -21,16 +22,21 @@ beforeEach(function () {
 
 function scanEndpointUser(string $h, string $sector = 'restaurant'): User
 {
-    return User::create([
+    $user = User::create([
         'handle' => $h,
         'handle_lc' => strtolower($h),
         'display_name' => ucfirst($h),
         'first_name' => ucfirst($h),
         'account_type' => 'business',
         'sector' => $sector,
-        'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);
+
+    // auth_user_id is not mass-assignable — without it actingAsUser() mints a
+    // fresh uid per call, splitting the per-user rate-limit bucket per request.
+    $user->forceFill(['auth_user_id' => (string) Str::uuid()])->save();
+
+    return $user;
 }
 
 function fakeMenuJpg(): UploadedFile
@@ -190,6 +196,23 @@ it('422s when structuring finds no items', function () {
 
     actingAsUser($user)->post('/api/platforms/menu/scan', ['file' => fakeMenuJpg()])
         ->assertStatus(422);
+});
+
+it('429s after the per-user daily scan cap', function () {
+    // Limiter closures captured $throttleEnabled at original boot — re-run the
+    // provider's registration with the override live (the codebase's standing
+    // pattern, see PublicRateLimiterCfConnectingIpTest).
+    config()->set('partna.throttle.enabled', true);
+    config()->set('partna.throttle.menu_scan_per_day', 1);
+    $configureRateLimiting = new ReflectionMethod(AppServiceProvider::class, 'configureRateLimiting');
+    $configureRateLimiting->invoke(new AppServiceProvider(app()));
+    $user = scanEndpointUser('scanep12');
+    fakeOcrAndStructure("MAINS\nParma \$24");
+
+    actingAsUser($user)->post('/api/platforms/menu/scan', ['file' => fakeMenuJpg()])->assertOk();
+    actingAsUser($user)->post('/api/platforms/menu/scan', ['file' => fakeMenuJpg()])
+        ->assertStatus(429)
+        ->assertJsonPath('message', "You've reached today's scan limit. Try again tomorrow.");
 });
 
 it('502s when the daily AI spend budget is exhausted', function () {
