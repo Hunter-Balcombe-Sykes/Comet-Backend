@@ -1220,6 +1220,7 @@ Staff routes are for internal staff tooling. They require a staff JWT (user must
 
 - GET /api/staff/me
 - POST /api/staff/builds — marketing-pipeline build trigger; see "Pre-account builds (marketing pipeline)" below
+- POST /api/staff/builds/batch — CSV batch build upload; see "Pre-account builds (marketing pipeline)" below
 - GET /api/staff/sites/{subdomain}
 - GET /api/staff/professionals?q=...&status=...&per_page=...&page=... — `status=unclaimed` filters to provisional (never-claimed) pre-account users
 - GET /api/staff/professionals/{professional} — for an unclaimed user, the response includes a `pre_account_build` block (absent entirely for normal users) — see below
@@ -1349,6 +1350,45 @@ source/pairing and the controller always returns a flat `422` (not the public en
 429-for-cap/422-for-pairing split).
 
 **Common status codes:** 202, 200, 401, 403 (not staff / AAL2 required), 422
+
+`POST /api/staff/builds/batch` — CSV batch upload for the marketing pipeline, one `requestBuild()` per
+row. Same staff stack and policy (`PreAccountBuildPolicy::staffCreate`) as the single-row endpoint above.
+
+**Request:** `multipart/form-data`, field `file` (max 2048 KB). CSV header row, then one data row per
+build:
+
+```
+account_type,source_type,source_ref,source_name,contact_email,auto_invite
+partna,instagram,alice_ig,,alice@example.com,true
+```
+
+- `account_type`, `source_type`, `source_ref` — required per row, same vocabulary as the single-build
+  endpoint.
+- `source_name`, `contact_email` — optional; blank is `null`.
+- `auto_invite` — optional, parsed with `FILTER_VALIDATE_BOOLEAN`; defaults to `true` when absent.
+- Every row publishes immediately (`publish: true`, not configurable per-row).
+- Rows beyond the **first 500** in the file are silently dropped and reported via `truncated`.
+
+**Response** (no envelope — keys sit at the JSON root):
+
+| Key | Type | Meaning |
+|---|---|---|
+| `built` | int | New builds created |
+| `reused` | int | Rows that deduped onto an existing live build |
+| `failed` | array | `{row, code, message}` per row that didn't build — `code` is a `PreAccountBuildException` code, `INVALID_EMAIL`, or `ROW_FAILED` (an unexpected error, reported to Nightwatch, generic message) |
+| `truncated` | bool | `true` if the file had more than 500 data rows |
+| `total` | int | Rows in the attempt set, after the 500-row cap |
+| `processed` | int | Rows actually attempted (successes + every `failed` entry) |
+| `remaining` | int | `total - processed`; `0` means the whole file was processed |
+| `time_budget_exceeded` | bool | `true` if the loop stopped early on `partna.pre_account.batch_time_budget_seconds` (default 20s) rather than running out of rows |
+
+The loop is wall-clock budgeted (`CACHE-2`/`SCALE-7`) so a large file can't outrun the request timeout and
+return nothing. When `remaining > 0`, re-upload the same file (or just the un-processed tail) — `requestBuild()`
+dedupes on the source ref, so already-built rows re-serve as `reused` rather than duplicating. See
+`docs/wire-changes/2026-08-26-staff-batch-build-time-budget.md`.
+
+**Common status codes:** 200 (the batch endpoint itself never fails per-row — errors land in `failed`), 401,
+403 (not staff / AAL2 required), 422 (missing/oversized file)
 
 ### Segments (OV-A)
 

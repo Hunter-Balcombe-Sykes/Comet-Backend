@@ -2,9 +2,11 @@
 
 namespace App\Routing;
 
+use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\Http\SafeUrlFetcher;
+use Illuminate\Support\Facades\Log;
 
 /**
  * The shortener-expansion layer IriCanonicalizer's docblock always promised
@@ -32,6 +34,8 @@ use App\Services\Http\SafeUrlFetcher;
  */
 class ShortLinkExpander
 {
+    use EscalatesRepeatedFaults;
+
     /**
      * Platform-owned short hosts. IriCanonicalizer rejects these as
      * 'shortener' too (via platformShortHosts()) — belt and braces: expansion
@@ -132,9 +136,20 @@ class ShortLinkExpander
             ) {
                 $final = $candidate;
             }
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
             // tryFetch already swallows the expected failure shapes; anything
-            // else (budget exhaustion mid-run) is equally a "keep the URL".
+            // else (budget exhaustion mid-run) is equally a "keep the URL", so
+            // this stays fail-open. CCH-5: it was also entirely SILENT, and the
+            // null it returns is negative-cached for FAILURE_TTL_SECONDS — so a
+            // real defect looked exactly like "not expandable" for an hour with
+            // nothing reaching Nightwatch. Breadcrumb every time; only a
+            // SUSTAINED run escalates (EscalatesRepeatedFaults, same as
+            // ContentPopularityReader). The TTLs are deliberate — do not touch.
+            Log::warning('routing.shortlink_expand_failed', [
+                'url' => $url,
+                'error' => $e->getMessage(),
+            ]);
+            self::escalateIfSustained($e, 'shortlink_expand');
         }
 
         return $final;

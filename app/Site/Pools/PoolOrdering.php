@@ -55,30 +55,37 @@ final class PoolOrdering
      * Owner locks laid over a mode-ordered selection (newest/smart only —
      * PoolResolver never calls this in manual): a locked item holds its
      * position and the rest fill around it in their mode order, exactly like
-     * ActionSlots. A lock whose item is not in the selection is skipped.
+     * ActionSlots. A lock whose item is not in the selection, OR whose
+     * position collides with an earlier lock in the same call, is skipped
+     * and reported in `unavailable` (#RANK-2) — mirrors
+     * ActionSlots::resolve()'s contract instead of dropping it silently.
      * Positions are renumbered contiguously, so a lock past the end lands last.
      *
      * @param  list<array<string, mixed>>  $items  mode-ordered selection
      * @param  list<array{position: int, id: string}>  $locks
-     * @return list<array<string, mixed>>
+     * @return array{items: list<array<string, mixed>>, unavailable: list<string>}
      */
     public static function applyLocks(array $items, array $locks): array
     {
         if ($locks === [] || $items === []) {
-            return $items;
+            return ['items' => $items, 'unavailable' => []];
         }
         $byId = [];
         foreach ($items as $item) {
             $byId[(string) ($item['id'] ?? '')] = $item;
         }
         $placed = [];
+        $unavailable = [];
         foreach ($locks as $lock) {
-            if (isset($byId[$lock['id']]) && ! isset($placed[$lock['position']])) {
-                $placed[$lock['position']] = $lock['id'];
+            if (! isset($byId[$lock['id']]) || isset($placed[$lock['position']])) {
+                $unavailable[] = $lock['id'];
+
+                continue;
             }
+            $placed[$lock['position']] = $lock['id'];
         }
         if ($placed === []) {
-            return $items;
+            return ['items' => $items, 'unavailable' => $unavailable];
         }
         $lockedIds = array_flip($placed);
         $fill = array_values(array_filter($items, static fn (array $i): bool => ! isset($lockedIds[(string) ($i['id'] ?? '')])));
@@ -98,7 +105,7 @@ final class PoolOrdering
             }
         }
 
-        return $out;
+        return ['items' => $out, 'unavailable' => $unavailable];
     }
 
     /**
@@ -113,12 +120,12 @@ final class PoolOrdering
      * @param  list<array<string, mixed>>  $items  mode-ordered selection
      * @param  list<array{position: int, id: string}>  $locks
      * @param  array<string, array<string, mixed>>  $collections  mode-ordered (position rewritten)
-     * @return list<array<string, mixed>>
+     * @return array{items: list<array<string, mixed>>, unavailable: list<string>}
      */
     public static function applyLocksPerCollection(array $items, array $locks, array $collections): array
     {
         if ($items === []) {
-            return $items;
+            return ['items' => $items, 'unavailable' => []];
         }
         $buckets = [];
         $loose = [];
@@ -131,6 +138,10 @@ final class PoolOrdering
             }
         }
         $locksByBucket = [];
+        // #RANK-2: a lock whose item isn't homed in ANY bucket (not in this
+        // pool's selection at all) never reaches applyLocks() below, so it
+        // has to be reported here or it vanishes with no trace.
+        $unavailable = [];
         foreach ($locks as $lock) {
             foreach ($buckets as $cid => $members) {
                 foreach ($members as $member) {
@@ -148,23 +159,30 @@ final class PoolOrdering
                     continue 2;
                 }
             }
+            $unavailable[] = $lock['id'];
         }
         $order = array_keys($collections);
         usort($order, static fn (string $a, string $b): int => ((int) ($collections[$a]['position'] ?? 0)) <=> ((int) ($collections[$b]['position'] ?? 0)));
         $out = [];
         foreach ($order as $cid) {
             if (isset($buckets[$cid])) {
-                array_push($out, ...self::applyLocks($buckets[$cid], $locksByBucket[$cid] ?? []));
+                $bucketResult = self::applyLocks($buckets[$cid], $locksByBucket[$cid] ?? []);
+                array_push($out, ...$bucketResult['items']);
+                array_push($unavailable, ...$bucketResult['unavailable']);
                 unset($buckets[$cid]);
             }
         }
         // A bucket whose collection is not in the map (defensive) keeps its order.
         foreach ($buckets as $cid => $members) {
-            array_push($out, ...self::applyLocks($members, $locksByBucket[$cid] ?? []));
+            $bucketResult = self::applyLocks($members, $locksByBucket[$cid] ?? []);
+            array_push($out, ...$bucketResult['items']);
+            array_push($unavailable, ...$bucketResult['unavailable']);
         }
-        array_push($out, ...self::applyLocks($loose, $locksByBucket[''] ?? []));
+        $looseResult = self::applyLocks($loose, $locksByBucket[''] ?? []);
+        array_push($out, ...$looseResult['items']);
+        array_push($unavailable, ...$looseResult['unavailable']);
 
-        return $out;
+        return ['items' => $out, 'unavailable' => $unavailable];
     }
 
     /**

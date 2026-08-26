@@ -34,8 +34,10 @@
 // this unit's) — a single flat table is sufficient to exercise ordering and
 // the rs.key tiebreak under real Postgres.
 
+use App\Content\Identity\KeyClass;
 use App\Ingest\Projection\ProjectionWriter;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Tests\PostgresTestCase;
 
@@ -885,3 +887,220 @@ it('does not hold the whole stream in memory', function () {
     .'allocation anywhere in this worker process makes $growth read near-zero and the test pass without '
     .'measuring anything real. The structural proof above (peakProjectionEntryBytes(), via forAccumulator()) '
     .'is what actually pins the #SCALE-8 fix.');
+
+// ── #CACHE-1 / #SCALE-11: identity_candidates writes ──────────────────────────
+
+/**
+ * Pre-existing, UNBOUND (item_id NULL) release coords, ONE PER content.sources row —
+ * two of these on one source would POISON the shared signature rather than pair it.
+ * Unbound is what sweeps them into the resolve (IdentityScope seed source 3), so a
+ * single projectStream() call resolves all of them and pairs their evidential keys.
+ *
+ * @param  list<list<string>>  $titlesPerCoord  one entry per coord; each is that coord's TitleLoose values
+ * @return list<string> the coords, oldest first — which is also resolver member order
+ */
+function pwbtSeedEvidentialCoords(string $userId, string $prefix, array $titlesPerCoord): array
+{
+    $pg = DB::connection('pgsql');
+    $total = count($titlesPerCoord);
+    $coords = [];
+
+    foreach (array_values($titlesPerCoord) as $i => $titles) {
+        $connId = (string) Str::uuid();
+        $pg->table('site.platform_connections')->insert([
+            'id' => $connId, 'user_id' => $userId, 'resource_id' => $prefix.'-conn-'.$i,
+        ]);
+
+        $sourceId = (string) Str::uuid();
+        $pg->table('content.sources')->insert([
+            'id' => $sourceId, 'user_id' => $userId, 'kind' => 'connection',
+            'connection_id' => $connId, 'label' => $prefix.$i, 'priority' => 100,
+        ]);
+
+        $coord = $prefix.':'.$i;
+        $sourceItemId = (string) Str::uuid();
+        $pg->table('content.source_items')->insert([
+            'id' => $sourceItemId, 'source_id' => $sourceId, 'coord' => $coord,
+            'item_id' => null, 'kind' => 'release', 'projector_version' => 1,
+            // Descending offset so seeding order IS first_seen_at order, which is
+            // the order resolveItemsLocked() reads them in.
+            'first_seen_at' => now()->copy()->subHours($total - $i)->toDateTimeString(),
+            'last_seen_at' => now(),
+        ]);
+
+        foreach ($titles as $title) {
+            $pg->table('content.identity_keys')->insert([
+                'source_item_id' => $sourceItemId,
+                'key_class' => KeyClass::TitleLoose->value,
+                'key_value' => KeyClass::TitleLoose->canonicalise($title),
+                'tier' => KeyClass::TitleLoose->tier()->value,
+            ]);
+        }
+
+        $coords[] = $coord;
+    }
+
+    return $coords;
+}
+
+it('writes 45 identity candidates in ONE chunked insert, not one statement per pair', function () {
+    [$userId, , $source, $streamId] = pwbtFixture('7');
+    $coords = pwbtSeedEvidentialCoords($userId, 'pwbtcand', array_fill(0, 10, ['Shared Loose Title Across Sources']));
+    pwbtLand($streamId, 'own', pwbtDoc('An Unrelated Bandcamp Release', 'https://bc.example.test/own'));
+
+    $inserts = 0;
+    DB::listen(function ($query) use (&$inserts) {
+        if (str_starts_with($query->sql, 'insert') && str_contains($query->sql, 'identity_candidates')) {
+            $inserts++;
+        }
+    });
+
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'releases');
+
+    $pg = DB::connection('pgsql');
+    $rows = $pg->table('content.identity_candidates')->get();
+
+    // 10 coords sharing one evidential key = 10*9/2 pairs. Before #CACHE-1 that
+    // was 45 round trips; writeChunk() is 500, so it is now exactly one.
+    expect($rows)->toHaveCount(45)
+        ->and($inserts)->toBe(1);
+
+    // Directional, NOT normalised: every row keeps the resolver's member order
+    // (left = the earlier coord). A (left, right) sort would flip roughly half
+    // of 45 pairs, since the item ids are random UUIDs.
+    $itemByCoord = $pg->table('content.source_items')->whereIn('coord', $coords)->pluck('item_id', 'coord')->all();
+    $coordByItem = array_flip(array_map('strval', $itemByCoord));
+    $position = array_flip($coords);
+    $outOfOrder = collect($rows)->filter(
+        fn ($row) => $position[$coordByItem[(string) $row->left_item_id]] > $position[$coordByItem[(string) $row->right_item_id]]
+    );
+
+    expect($outOfOrder)->toHaveCount(0)
+        ->and($rows->first()->score)->toBe(50)
+        ->and(json_decode((string) $rows->first()->evidence, true))->toHaveKey('key');
+});
+
+it('records a pair ONCE however many evidential key values produced it, keeping the first evidence', function () {
+    // Two shared evidential values over one pair is real (an article carries a
+    // loose title AND an author/date/body digest). The per-row loop let the
+    // unique index swallow the second insert, so the FIRST evidence persisted;
+    // a batch that kept the last would silently rewrite it.
+    [$userId, , $source, $streamId] = pwbtFixture('8');
+    $titles = ['Alpha Shared Title Value', 'Beta Shared Title Value'];
+    pwbtSeedEvidentialCoords($userId, 'pwbtdup', [$titles, $titles]);
+    pwbtLand($streamId, 'own', pwbtDoc('Another Unrelated Release', 'https://bc.example.test/own2'));
+
+    $pg = DB::connection('pgsql');
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'releases');
+
+    $rows = $pg->table('content.identity_candidates')->get();
+    expect($rows)->toHaveCount(1);
+    $evidence = (string) $rows->first()->evidence;
+
+    // A re-run re-offers both key values and must not rewrite the stored one.
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'releases');
+
+    $after = $pg->table('content.identity_candidates')->get();
+    expect($after)->toHaveCount(1)
+        ->and((string) $after->first()->evidence)->toBe($evidence)
+        ->and((string) $after->first()->id)->toBe((string) $rows->first()->id);
+});
+
+it('leaves a REVERSED (b,a) row alone — idx_identity_candidates_pair is directional', function () {
+    [$userId, , $source, $streamId] = pwbtFixture('9');
+    pwbtSeedEvidentialCoords($userId, 'pwbtdir', array_fill(0, 2, ['Directional Shared Title Value']));
+    pwbtLand($streamId, 'own', pwbtDoc('Yet Another Release', 'https://bc.example.test/own3'));
+
+    $pg = DB::connection('pgsql');
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'releases');
+
+    $row = $pg->table('content.identity_candidates')->first();
+    $pg->table('content.identity_candidates')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $userId,
+        'left_item_id' => $row->right_item_id, 'right_item_id' => $row->left_item_id,
+        'score' => 50, 'evidence' => json_encode(['key' => 'hand-seeded reverse']), 'created_at' => now(),
+    ]);
+
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'releases');
+
+    // Both orderings coexist today; collapsing them would change which rows exist.
+    expect($pg->table('content.identity_candidates')->count())->toBe(2)
+        ->and($pg->table('content.identity_candidates')
+            ->where('left_item_id', $row->right_item_id)->where('right_item_id', $row->left_item_id)->count())->toBe(1);
+});
+
+it('writes every row correctly when the candidate set spans multiple chunks', function () {
+    // A row dropped at a chunk boundary is a merge suggestion that silently
+    // never surfaces — no error, no failed assertion, indistinguishable from
+    // "nothing to suggest". writeChunk() defaults to 500 and the per-key
+    // candidate cap is 200, but ONE run can carry many capped keys, so a
+    // candidate set well past 500 rows is ordinary, not exotic.
+    config(['partna.ingest.projection_write_chunk' => 5]);
+    [$userId, , $source, $streamId] = pwbtFixture('11');
+    $coords = pwbtSeedEvidentialCoords($userId, 'pwbtchunk', array_fill(0, 10, ['Chunk Boundary Shared Title']));
+    pwbtLand($streamId, 'own', pwbtDoc('Chunk Boundary Unrelated Release', 'https://bc.example.test/chunkown'));
+
+    $inserts = 0;
+    DB::listen(function ($query) use (&$inserts) {
+        if (str_starts_with($query->sql, 'insert') && str_contains($query->sql, 'identity_candidates')) {
+            $inserts++;
+        }
+    });
+
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'releases');
+
+    $pg = DB::connection('pgsql');
+    $rows = $pg->table('content.identity_candidates')->get();
+
+    // 10 coords sharing one key = 10*9/2 = 45 pairs; chunk=5 forces 9 statements.
+    // A regression to one-big-insert would show inserts=1; a regression back to
+    // one-per-row would show inserts=45 — this pins the batch AND its chunking.
+    expect($inserts)->toBe(9)
+        ->and($rows)->toHaveCount(45);
+
+    // $coords is oldest-first, which is also resolver member order (see
+    // pwbtSeedEvidentialCoords's docblock) — the expected pair list MUST walk
+    // it in that order, not DB row order, or this assertion proves nothing.
+    $itemByCoordMap = $pg->table('content.source_items')->whereIn('coord', $coords)->pluck('item_id', 'coord')->all();
+    $itemIds = array_map(fn ($coord) => $itemByCoordMap[$coord], $coords);
+    $expectedPairs = [];
+    foreach ($itemIds as $i => $left) {
+        foreach (array_slice($itemIds, $i + 1) as $right) {
+            $expectedPairs[] = $left.'|'.$right;
+        }
+    }
+    $actualPairs = $rows->map(fn ($row) => $row->left_item_id.'|'.$row->right_item_id)->all();
+
+    // Every expected pair present exactly once — nothing lost, nothing
+    // duplicated, at the 5th/10th/... row where one chunk ends and the next begins.
+    sort($expectedPairs);
+    sort($actualPairs);
+    expect($actualPairs)->toBe($expectedPairs);
+});
+
+it('logs the identity candidate cap exactly once per run, even with multiple capped keys', function () {
+    // A cap that trims candidates with no log is invisible on a green run —
+    // items quietly stop being offered for merge and nothing distinguishes
+    // that from "there was nothing to suggest". This pins the ONLY signal.
+    config([
+        'partna.ingest.max_members_per_key' => 3,
+        'partna.ingest.max_candidates_per_key' => 200,
+    ]);
+    [$userId, , $source, $streamId] = pwbtFixture('12');
+    // Two distinct evidential values, each shared by 4 coords — one more than
+    // max_members_per_key=3 — so BOTH keys trip the member cap independently.
+    pwbtSeedEvidentialCoords($userId, 'pwbtcapa', array_fill(0, 4, ['Cap Warning Shared Title Alpha']));
+    pwbtSeedEvidentialCoords($userId, 'pwbtcapb', array_fill(0, 4, ['Cap Warning Shared Title Beta']));
+    pwbtLand($streamId, 'own', pwbtDoc('Cap Warning Unrelated Release', 'https://bc.example.test/capwarnown'));
+
+    Log::spy();
+
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'releases');
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($message, $context) => $message === 'identity candidate cap hit — some duplicate suggestions were not recorded'
+            && $context['user_id'] === $userId
+            && $context['kind'] === 'release'
+            && $context['capped_key_count'] === 2)
+        ->once();
+});

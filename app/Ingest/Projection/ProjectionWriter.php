@@ -1010,7 +1010,35 @@ class ProjectionWriter
             ]);
         }
 
-        $resolution = $this->resolver->resolve($sourceItems, $decisions);
+        // #SCALE-10/#CACHE-6: the caps are read HERE and passed IN. The resolver
+        // is f(items, decisions, caps) -> Resolution with no I/O, and that
+        // purity is what makes a resolve reproducible from its arguments alone
+        // — the same rule LinkProjector follows for detector suspensions.
+        $resolution = $this->resolver->resolve(
+            $sourceItems,
+            $decisions,
+            $this->identityCap('max_members_per_key', 100),
+            $this->identityCap('max_candidates_per_key', 200),
+        );
+
+        if ($resolution->cappedKeys !== []) {
+            // #SCALE-10/#CACHE-6: a SILENT cap on candidate pairing means items
+            // quietly stop being offered for merge — no error, no failed
+            // assertion, indistinguishable on a green run from "there was
+            // nothing to suggest". So it is surfaced, here rather than in the
+            // resolver, because user + kind live at this seam and the resolver
+            // is pure.
+            //
+            // ONE line per RUN with a bounded sample, never one per key and
+            // never one per pair: a log flood is the same failure the cap
+            // exists to prevent, moved to a different subsystem.
+            Log::warning('identity candidate cap hit — some duplicate suggestions were not recorded', [
+                'user_id' => $userId,
+                'kind' => $kind,
+                'capped_key_count' => count($resolution->cappedKeys),
+                'sample' => array_slice($resolution->cappedKeys, 0, 5, preserve_keys: true),
+            ]);
+        }
 
         // #SCALE-4: bindGroup() used to read content.item_anchors once PER GROUP, and in steady
         // state every group is a singleton — one round trip per item, on every run. The read is
@@ -1579,11 +1607,37 @@ class ProjectionWriter
     }
 
     /**
+     * #CACHE-1/#SCALE-11: this was one insertOrIgnore PER CANDIDATE — a write
+     * N+1 sitting directly downstream of the resolver's O(m^2) pairing, so a
+     * single over-shared key value turned into thousands of round trips.
+     * Collected and written in chunks of writeChunk() (7 columns, so 500 rows
+     * is 3,500 binds — an order of magnitude under both engines' limits).
+     *
+     * Three of today's semantics are preserved DELIBERATELY, and each is easy
+     * to lose in a batch rewrite:
+     *   - the same per-candidate guards, unchanged;
+     *   - dedupe within the batch on (left_item_id, right_item_id), FIRST
+     *     WINS. The same pair can arise from two different key values; the old
+     *     loop's second insertOrIgnore was silently swallowed by
+     *     idx_identity_candidates_pair, so the FIRST candidate's `evidence` is
+     *     what persisted. Keeping the last would change stored evidence, and
+     *     two conflicting rows in ONE statement is not an ignore.
+     *   - NO (left, right) normalisation. That unique index is DIRECTIONAL, so
+     *     (a,b) and (b,a) are two legitimate rows that coexist today and both
+     *     readers match either ordering. Ordering the pair would change which
+     *     rows exist.
+     *
+     * content.identity_candidates has no `updated_at` column (DDL:
+     * supabase/migrations/20260727140000_content_schema.sql:151-166), so the
+     * conflict path bumps no timestamp — and no reader keys off one.
+     *
      * @param  list<Candidate>  $candidates
      * @param  array<string, string>  $itemByCoord
      */
     private function recordCandidates(string $userId, array $candidates, array $itemByCoord): void
     {
+        $rows = [];
+
         foreach ($candidates as $candidate) {
             $left = $itemByCoord[$candidate->left] ?? null;
             $right = $itemByCoord[$candidate->right] ?? null;
@@ -1591,7 +1645,12 @@ class ProjectionWriter
                 continue;
             }
 
-            DB::table('content.identity_candidates')->insertOrIgnore([
+            $pair = $left.'|'.$right;
+            if (isset($rows[$pair])) {
+                continue;
+            }
+
+            $rows[$pair] = [
                 'id' => (string) Str::uuid(),
                 'user_id' => $userId,
                 'left_item_id' => $left,
@@ -1599,7 +1658,11 @@ class ProjectionWriter
                 'score' => 50,
                 'evidence' => json_encode(['key' => $candidate->evidence]),
                 'created_at' => now(),
-            ]);
+            ];
+        }
+
+        foreach (array_chunk(array_values($rows), $this->writeChunk()) as $chunk) {
+            DB::table('content.identity_candidates')->insertOrIgnore($chunk);
         }
     }
 
@@ -2547,6 +2610,19 @@ class ProjectionWriter
         $chunk = (int) config('partna.ingest.projection_write_chunk', self::BATCH_SIZE);
 
         return $chunk > 0 ? $chunk : self::BATCH_SIZE;
+    }
+
+    /**
+     * One of Resolver step 5's two caps (#SCALE-10/#CACHE-6). Same fallback
+     * idiom as writeChunk(): a missing or nonsensical value degrades to the
+     * documented default rather than being passed through, because a 0 here
+     * would silently stop offering duplicate candidates altogether.
+     */
+    private function identityCap(string $key, int $default): int
+    {
+        $cap = (int) config('partna.ingest.'.$key, $default);
+
+        return $cap > 0 ? $cap : $default;
     }
 
     /**

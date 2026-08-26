@@ -22,6 +22,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\CacheLockService;
 use App\Services\Cache\Concerns\JitteredTtl;
 use App\Services\Http\FetchBudget;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
@@ -102,7 +103,11 @@ class ShopController extends ApiController
     use ResolveCurrentSite;
     use ResolveCurrentUser;
 
-    private const MAX_BRANDS = 10;
+    /** The store cap, from `partna.shop_brands_max` — the ONE definition (#CFG-3). */
+    private static function maxBrands(): int
+    {
+        return (int) config('partna.shop_brands_max');
+    }
 
     // How long the picker-warmed product catalog stays cached, so a PUT
     // /selection right after the picker opened reuses it instead of re-scraping.
@@ -142,6 +147,7 @@ class ShopController extends ApiController
         private readonly ShopContentWriter $content,
         private readonly ShopConnections $shop,
         private readonly ProductPageAdder $products,
+        private readonly CacheLockService $cacheLock,
     ) {}
 
     // The FAMILY key: the per-user lock and FeatureAvailability only. Rows carry
@@ -348,8 +354,8 @@ class ShopController extends ApiController
             // where() compares loosely, so a falsey-but-not-false value would
             // count as a store.
             $storeCount = $stores->filter(fn (StoreRecord $s): bool => $s->isIndividual === false)->count();
-            if (! $existing && $storeCount >= self::MAX_BRANDS) {
-                return $this->error('You can connect up to '.self::MAX_BRANDS.' stores.', 422);
+            if (! $existing && $storeCount >= self::maxBrands()) {
+                return $this->error('You can connect up to '.self::maxBrands().' stores.', 422);
             }
 
             // One connection per STORE, on its real brand surface, keyed by the
@@ -600,6 +606,13 @@ class ShopController extends ApiController
                 return $this->error('Brand not found.', 404);
             }
 
+            // #SEC-10 defence-in-depth: store() is already user-scoped, but a
+            // second lock on the real anchor connection catches a future
+            // scoping regression. No-op when unminted (mirrors removeBrand()).
+            if (($anchor = $this->shop->anchorFor($user, $id)) !== null) {
+                $this->authorizeForUser($user, 'update', $anchor);
+            }
+
             // Re-home Task 7: the edit folds onto the record content.* holds and
             // goes back through upsertStore(), which is now the only writer.
             //
@@ -803,9 +816,17 @@ class ShopController extends ApiController
     // warm the same picker cache the live scrape would have.
     public function catalog(SubmitShopCatalogRequest $request, string $id): JsonResponse
     {
-        $map = $this->brandMap($this->currentUser($request));
+        $user = $this->currentUser($request);
+        $map = $this->brandMap($user);
         if (! isset($map[$id])) {
             return $this->error('Brand not found.', 404);
+        }
+
+        // #SEC-10 defence-in-depth: brandMap() is already user-scoped, but a
+        // second lock on the real anchor connection catches a future scoping
+        // regression. No-op when unminted (mirrors removeBrand()).
+        if (($anchor = $this->shop->anchorFor($user, $id)) !== null) {
+            $this->authorizeForUser($user, 'update', $anchor);
         }
 
         $products = $this->woocommerce->productsFromClient($map[$id]['url'], $request->validated()['products']);
@@ -836,10 +857,31 @@ class ShopController extends ApiController
 
         $seconds = (float) config('partna.http_fetch.connect_budget_seconds', 20);
         try {
-            $products = Cache::remember(
+            // CCH-10: Cache::remember took no lock, so a cold picker opened in
+            // two tabs (same owner — bounded blast radius, see the finding)
+            // independently re-scraped the upstream store twice. rememberLocked,
+            // not rememberLockedNullable: providerProducts() always returns an
+            // array — [] for a genuinely empty store, never null — so there is
+            // no null case for the nullable variant's sentinel to protect.
+            // Jitter now comes from rememberLocked itself (same JitteredTtl
+            // trait CATALOG_TTL_MINUTES used directly here before); a manual
+            // applyJitter() call on the TTL passed in would double-jitter it.
+            //
+            // lockSeconds/blockSeconds are derived from $seconds — the SAME
+            // FetchBudget the closure runs under (connect_budget_seconds,
+            // default 45s) — rather than the method defaults (10s/5s), which
+            // are far too short for a scrape that can legitimately run the
+            // whole budget: lockSeconds exceeds the closure's worst case (the
+            // method's own contract) so a slow scrape can't outlive its lock,
+            // and blockSeconds matches $seconds so a second tab waits for the
+            // FIRST fetch's own budget to resolve rather than giving up early
+            // and re-scraping itself — the exact stampede this fix closes.
+            $products = $this->cacheLock->rememberLocked(
                 $this->catalogKey($id),
-                self::applyJitter(self::CATALOG_TTL_MINUTES * 60),
+                self::CATALOG_TTL_MINUTES * 60,
                 fn () => $this->budget->open($seconds, fn () => $this->providerProducts($map[$id])),
+                lockSeconds: (int) $seconds + 5,
+                blockSeconds: (int) $seconds,
             );
         } catch (HttpException $e) {
             // Scrapers abort(502) when the store's catalog endpoint is blocked
@@ -908,6 +950,13 @@ class ShopController extends ApiController
             $store = $this->shop->store($user, $id);
             if (! $store) {
                 return $this->error('Brand not found.', 404);
+            }
+
+            // #SEC-10 defence-in-depth: store() is already user-scoped, but a
+            // second lock on the real anchor connection catches a future
+            // scoping regression. No-op when unminted (mirrors removeBrand()).
+            if (($anchor = $this->shop->anchorFor($user, $id)) !== null) {
+                $this->authorizeForUser($user, 'update', $anchor);
             }
 
             // A fresher catalog may have landed in the cache while the pre-lock
@@ -1034,6 +1083,12 @@ class ShopController extends ApiController
         // staff takedown of the shop integration still accept a product add.
         $this->assertPlatformAvailable($user);
 
+        // #SEC-10 defence-in-depth: there is no route-supplied id to mis-scope
+        // (the write always lands in $user's own reserved bucket via
+        // individualAnchor($user)) — pre-create idiom, mirrors the
+        // `new SiteMedia([...])` shape CLAUDE.md documents elsewhere.
+        $this->authorizeForUser($user, 'create', new IntegrationConnection(['user_id' => $user->id]));
+
         // ONE way in (2026-08-17): ProductPageAdder is the page read + the
         // reserved-bucket write this method used to carry inline, shared with
         // the pool lane's POST /content/pools/shop/items — which also pins.
@@ -1075,6 +1130,13 @@ class ShopController extends ApiController
             $individual = $this->shop->store($user, StoreRecord::INDIVIDUAL_REF);
             if (! $individual) {
                 return $this->error('Product not found.', 404);
+            }
+
+            // #SEC-10 defence-in-depth: store() is already user-scoped, but a
+            // second lock on the real anchor connection catches a future
+            // scoping regression. No-op when unminted (mirrors removeBrand()).
+            if (($anchor = $this->shop->anchorFor($user, StoreRecord::INDIVIDUAL_REF)) !== null) {
+                $this->authorizeForUser($user, 'update', $anchor);
             }
 
             // Reconstruct what remains (mirrors addProduct()'s currentCatalogue()

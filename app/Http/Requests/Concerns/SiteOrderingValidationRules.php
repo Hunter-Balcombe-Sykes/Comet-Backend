@@ -97,8 +97,17 @@ trait SiteOrderingValidationRules
             }
             $positions = [];
             foreach ($value as $slot) {
-                if (is_array($slot) && is_int($slot['position'] ?? null)) {
-                    $positions[] = $slot['position'];
+                // SEM-8: this gate was is_int(), but the sibling rule above
+                // validates position with Laravel's NON-strict 'integer', which
+                // accepts the string "1". A payload of string positions passed
+                // that rule, contributed nothing here, and the `$positions !==
+                // []` guard below then skipped the contiguity check entirely.
+                // Cast, don't just admit: the comparison below is against
+                // range(), which yields ints, so ["0","1"] !== [0,1] would
+                // reject VALID input.
+                $position = is_array($slot) ? ($slot['position'] ?? null) : null;
+                if (is_int($position) || (is_string($position) && preg_match('/^-?\d+$/', $position) === 1)) {
+                    $positions[] = (int) $position;
                 }
             }
             sort($positions);

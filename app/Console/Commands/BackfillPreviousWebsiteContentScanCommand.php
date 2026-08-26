@@ -17,9 +17,24 @@ use Illuminate\Console\Command;
  * duplicate rows. It is NOT a harmless no-op, though: a re-run re-dispatches
  * WebsiteMenuPdfScanJob for every site with a menu-relevant PDF and re-bills
  * Mistral OCR (and MenuAiExtractor for any HTML-menu fallback), same as a
- * fresh scan would. This is the operator's fleet-wide re-scan escape hatch —
- * budget accordingly. ScanPreviousWebsiteContentJob is also ShouldBeUnique
- * per user (300s), so a duplicate dispatch within that window is blocked.
+ * fresh scan would — UNLESS #LIFE-9's claim guard has already seen that exact
+ * (user, kind, content) pair. ScanPreviousWebsiteContentJob::claimSubJobDispatch()
+ * refuses (and now logs, `website_scan.subjob_dispatch_already_claimed`) any
+ * sub-job dispatch identical to one already claimed within `horizon.trim.failed`
+ * minutes (default 7 days) of the earlier run. So: a re-run OUTSIDE that window,
+ * or one that finds genuinely new content (a changed page, a new PDF), still
+ * re-bills as described above and remains the operator's fleet-wide re-scan
+ * escape hatch — budget accordingly. A re-run INSIDE the window against
+ * unchanged content instead SKIPS those already-claimed sub-job dispatches
+ * silently as far as this command's own "Dispatched N …" count is concerned
+ * (that count reflects ScanPreviousWebsiteContentJob dispatches, not sub-job
+ * dispatches) — check the log line above to see what was actually refused.
+ * Re-billing a fleet-wide re-scan of unchanged content INSIDE that window is
+ * therefore an owner decision with no mechanism today: there is deliberately
+ * no bypass flag here, because the claim guard exists to only ever REFUSE
+ * spend, never to be re-enabled on demand. ScanPreviousWebsiteContentJob is
+ * also ShouldBeUnique per user (300s), so a duplicate dispatch of the PARENT
+ * job within that window is blocked independently of the above.
  *
  * Rate-limited via a delay spread across the affected population so this
  * doesn't spike the 'scraping' queue on a large install base. The stagger is

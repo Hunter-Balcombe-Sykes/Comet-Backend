@@ -3,6 +3,7 @@
 namespace App\Site\Pools;
 
 use App\Models\Core\Site\Site;
+use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Analytics\ItemFamily;
 use App\Services\Cache\CacheKeyGenerator;
@@ -18,6 +19,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * The ONE pool read — live, no document cache (owner chose Option B:
@@ -42,6 +44,8 @@ use Illuminate\Support\Facades\DB;
  */
 class PoolResolver
 {
+    use EscalatesRepeatedFaults;
+
     /**
      * THE public wire contract for a pool item — the #API-1 enforcement point
      * for this lane (spec §3.7).
@@ -114,9 +118,12 @@ class PoolResolver
     {
         $section = $this->provisioner->ensure($site, $pool);
 
+        // SCALE-13: `id`/`created_at` are read nowhere downstream, and excluded
+        // rows have no pruning path, so a full-row select grows unbounded with
+        // a site's lifetime for no benefit.
         $curation = DB::connection('pgsql')->table('site.section_items')
             ->where('section_id', $section->id)
-            ->get();
+            ->get(['section_id', 'item_id', 'state', 'sort_key']);
 
         $excluded = $curation->where('state', 'excluded')
             ->pluck('item_id')->flip()->all();
@@ -187,6 +194,7 @@ class PoolResolver
      *   collections: array<string, array<string, mixed>>,
      *   stats: array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string}|null,
      *   diningModes: list<string>|null,
+     *   unavailablePoolLocks: list<string>,
      * }
      */
     public function resolve(Site $site, string $pool): array
@@ -234,7 +242,7 @@ class PoolResolver
 
         $curation ??= DB::connection('pgsql')->table('site.section_items')
             ->where('section_id', $section->id)
-            ->get();
+            ->get(['section_id', 'item_id', 'state', 'sort_key']);
 
         $pinned = $curation->where('state', 'pinned')
             ->sortBy('sort_key')->pluck('item_id')->values()->all();
@@ -317,7 +325,7 @@ class PoolResolver
 
         return DB::connection('pgsql')->table('site.section_items')
             ->whereIn('section_id', $ids)
-            ->get()
+            ->get(['section_id', 'item_id', 'state', 'sort_key'])
             ->groupBy('section_id')
             ->all();
     }
@@ -369,6 +377,7 @@ class PoolResolver
      *   collections: array<string, array<string, mixed>>,
      *   stats: array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string}|null,
      *   diningModes: list<string>|null,
+     *   unavailablePoolLocks: list<string>,
      * }
      */
     public function assemble(Site $site, string $pool, array $plan, array $payloads, Collection $stores, bool $withLibrary = true): array
@@ -401,15 +410,23 @@ class PoolResolver
         $mode = in_array($pool, ['events', 'reviews'], true) ? 'manual' : $settings->poolMode($pool);
         $selection = PoolOrdering::order($mode, $selection);
         $collections = PoolOrdering::orderCollections($mode, $this->collectionsFor($pool, $site, $selection, $stores), $selection);
+        // #RANK-2: a lock that couldn't be placed (item not in the
+        // selection, or its position collided with another lock in the same
+        // category) is reported here instead of silently dropped — mirrors
+        // ActionSlots' `unavailable` contract. Dashboard-only: PoolWire's
+        // public wire allowlists its keys explicitly and never forwards this.
+        $unavailablePoolLocks = [];
         if ($mode !== 'manual') {
             // Owner locks (settings.pool_locks) hold items in place while the
             // mode fills the rest — the dashboard's "Lock in position". A
             // category pool (menus / services) displays grouped by category
             // (D4), so its locks hold a position WITHIN the item's category
             // and the wire is flattened in category order.
-            $selection = isset(ItemFamily::CATEGORY_FAMILIES[$pool])
+            $lockResult = isset(ItemFamily::CATEGORY_FAMILIES[$pool])
                 ? PoolOrdering::applyLocksPerCollection($selection, $settings->poolLocksFor($pool), $collections)
                 : PoolOrdering::applyLocks($selection, $settings->poolLocksFor($pool));
+            $selection = $lockResult['items'];
+            $unavailablePoolLocks = $lockResult['unavailable'];
         }
 
         $library = [];
@@ -440,6 +457,7 @@ class PoolResolver
             // W8: the platforms a manual link may be added for on this pool —
             // ItemLinkRules::ROSTER, so the dashboard stops hand-copying it.
             'linkRoster' => ItemLinkRules::rosterFor($pool),
+            'unavailablePoolLocks' => $unavailablePoolLocks,
         ];
     }
 
@@ -807,7 +825,6 @@ class PoolResolver
                 'site.platform_connections.id as connection_id',
                 'site.platform_connections.platform as platform',
                 'site.platform_connections.surface_key as surface_key',
-                'site.platform_connections.payload as payload',
                 'site.platform_connections.is_active as is_active',
             ])
             ->groupBy('item_id');
@@ -816,6 +833,15 @@ class PoolResolver
         // content-only fixtures do not create it) and the join would have
         // fanned the row set out per stream anyway.
         $connectionIds = $sourceRows->flatten(1)->pluck('connection_id')->filter()->unique()->values()->all();
+        // SCALE-14: $sourceRows fans out to one row per (item, source), so a
+        // payload column selected there gets re-materialised once per item —
+        // up to LIBRARY_LIMIT copies of the same connection's (possibly
+        // multi-MB) JSONB blob. Keyed by distinct connection instead, it is
+        // fetched once — same shape as the $ingestByConnection read below.
+        $payloadByConnection = $connectionIds === [] ? [] : DB::connection('pgsql')->table('site.platform_connections')
+            ->whereIn('id', $connectionIds)
+            ->pluck('payload', 'id')
+            ->all();
         $ingestByConnection = [];
         if ($connectionIds !== []) {
             try {
@@ -826,8 +852,16 @@ class PoolResolver
                     ->unique('connection_id')
                     ->keyBy('connection_id')
                     ->all();
-            } catch (QueryException) {
-                // No ingest schema in this environment: badges read "never".
+            } catch (QueryException $e) {
+                // Fail-open: the sheet still renders, badges just read "never".
+                // But #LIFE-15: this was indistinguishable from a real DB fault
+                // on a query the PUBLIC payload also runs, with no log line at
+                // all. A missing ingest schema is a legitimate shape here, so
+                // it stays a warning breadcrumb; only a SUSTAINED run reaches
+                // Nightwatch (EscalatesRepeatedFaults, same as
+                // ContentPopularityReader). Never fail-closed.
+                Log::warning('pools.ingest_badges_read_failed', ['error' => $e->getMessage()]);
+                self::escalateIfSustained($e, 'pool_ingest_badges');
                 $ingestByConnection = [];
             }
         }
@@ -844,7 +878,7 @@ class PoolResolver
             ->map(fn ($rows) => (string) $rows->first()->tag)
             ->all();
 
-        $sourcesByItem = $sourceRows->map(function ($rows, $itemId) use ($ingestByConnection, $originByItem): array {
+        $sourcesByItem = $sourceRows->map(function ($rows, $itemId) use ($ingestByConnection, $originByItem, $payloadByConnection): array {
             $seen = [];
             $out = [];
             foreach ($rows as $row) {
@@ -856,13 +890,16 @@ class PoolResolver
                 // Timestamps go out as ISO-8601 with zone: the query builder
                 // hands back naive "Y-m-d H:i:s" strings which a browser's
                 // Date() would read as LOCAL time (a +10h badge — review).
-                $iso = fn ($v) => $v === null ? null : Carbon::parse((string) $v)->toIso8601String();
+                // ->utc() is what makes the line above TRUE (SEM-17) — without it
+                // the stamp carried no zone conversion at all. Same call, same
+                // reason, as latestFor()'s helper.
+                $iso = fn ($v) => $v === null ? null : Carbon::parse((string) $v)->utc()->toIso8601String();
                 if ($row->source_kind === 'manual') {
                     $out[] = ['kind' => 'manual', 'platform' => null, 'accountName' => null, 'origin' => $originByItem[(string) $itemId] ?? null, 'lastSeenAt' => $iso($row->last_seen_at), 'lastSyncedAt' => null, 'autoSync' => false, 'active' => true];
 
                     continue;
                 }
-                $payload = is_string($row->payload) ? (json_decode($row->payload, true) ?: []) : (array) ($row->payload ?? []);
+                $payload = self::decodedPayload($payloadByConnection[(string) $row->connection_id] ?? null);
                 $out[] = [
                     'kind' => 'connection',
                     'platform' => (string) self::wirePlatform($row->platform),
@@ -887,13 +924,13 @@ class PoolResolver
         // not colder — dropping a paused source's f_link is precisely what
         // leaves $primary null and falls through to here.
         $sourcePlatforms = $sourceRows
-            ->map(function ($rows): ?object {
+            ->map(function ($rows) use ($payloadByConnection): ?object {
                 $rows = $rows->filter(fn ($r) => $r->source_kind !== 'manual' && $r->connection_id !== null && (bool) $r->is_active);
                 $row = $rows->first();
                 if ($row === null || ! is_string($row->platform) || $row->platform === '') {
                     return null;
                 }
-                $payload = is_string($row->payload) ? (json_decode($row->payload, true) ?: []) : (array) ($row->payload ?? []);
+                $payload = self::decodedPayload($payloadByConnection[(string) $row->connection_id] ?? null);
                 $url = $payload['url'] ?? ($payload['selection']['url'] ?? null);
 
                 // #SEC-2: both gates. safeHref is the shared emit-path allowlist; the
@@ -1667,6 +1704,17 @@ class PoolResolver
     private static function wirePlatform(?string $platform): ?string
     {
         return $platform === null || $platform === '' ? $platform : str_replace('_', '-', $platform);
+    }
+
+    /**
+     * A connection's `payload` JSONB column, decoded — SQLite hands the
+     * column back as a string, Postgres may too depending on the read path,
+     * so both branches stay. Missing/null reads as empty, same as the two
+     * inline expressions this replaces.
+     */
+    private static function decodedPayload(mixed $raw): array
+    {
+        return is_string($raw) ? (json_decode($raw, true) ?: []) : (array) ($raw ?? []);
     }
 
     /**

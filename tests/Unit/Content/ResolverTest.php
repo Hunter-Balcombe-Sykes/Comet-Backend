@@ -357,3 +357,93 @@ it('does not let a same-source value shared across KINDS poison the within-kind 
     expect($find('sp:rel'))->toEqualCanonicalizing(['sp:rel', 'ap:rel'])
         ->and($find('sp:trk'))->toEqualCanonicalizing(['sp:trk', 'ap:trk']);
 });
+
+// ── Evidential caps (#SCALE-10 / #CACHE-6) ──────────────────────────────────
+
+/** N menu_item coords, each from its OWN source — a same-source duplicate poisons the key instead of pairing it. */
+function idSharedBandMembers(int $count, string $band = 'burger|10-15'): array
+{
+    $items = [];
+    for ($i = 0; $i < $count; $i++) {
+        $items[] = idItem("s{$i}:1", "src-{$i}", 'menu_item', [idKey(KeyClass::NamePriceBand, $band)]);
+    }
+
+    return $items;
+}
+
+it('stops pairing one key value once the candidate cap is reached, and says so', function () {
+    // Caps are ARGUMENTS, so this test states its own bounds instead of
+    // depending on ambient config. 20 members would be 190 pairs; the member
+    // cap alone leaves 10, the candidate cap cuts that to 4.
+    $result = (new Resolver)->resolve(idSharedBandMembers(20), [], maxMembersPerKey: 5, maxCandidatesPerKey: 4);
+
+    expect($result->candidates)->toHaveCount(4)
+        ->and($result->cappedKeys)->toHaveCount(1);
+
+    $capped = array_values($result->cappedKeys)[0];
+    expect($capped['members_seen'])->toBe(20)
+        ->and($capped['members_paired'])->toBe(5)
+        ->and($capped['candidates_appended'])->toBe(4)
+        ->and($capped['member_cap_hit'])->toBeTrue()
+        ->and($capped['candidate_cap_hit'])->toBeTrue();
+});
+
+it('bounds the ITERATION by members, not just the pairs it appends', function () {
+    // The candidate cap is deliberately out of reach here: 6 members is 15
+    // pairs and the cap is 200, so anything the resolver reports as cut came
+    // from the member cap — the one that actually stops the O(m^2) walk.
+    $result = (new Resolver)->resolve(idSharedBandMembers(6), [], maxMembersPerKey: 3, maxCandidatesPerKey: 200);
+
+    $capped = array_values($result->cappedKeys)[0];
+    expect($result->candidates)->toHaveCount(3)
+        ->and($capped['members_paired'])->toBe(3)
+        ->and($capped['member_cap_hit'])->toBeTrue()
+        ->and($capped['candidate_cap_hit'])->toBeFalse();
+});
+
+it('cuts the first N members deterministically, never a sample', function () {
+    $first = (new Resolver)->resolve(idSharedBandMembers(8), [], maxMembersPerKey: 3, maxCandidatesPerKey: 200);
+    $second = (new Resolver)->resolve(idSharedBandMembers(8), [], maxMembersPerKey: 3, maxCandidatesPerKey: 200);
+    $pairs = fn ($r) => array_map(fn ($c) => [$c->left, $c->right], $r->candidates);
+
+    // Re-runnability is the resolver's whole contract: same input, same answer.
+    expect($pairs($first))->toBe([['s0:1', 's1:1'], ['s0:1', 's2:1'], ['s1:1', 's2:1']])
+        ->and($pairs($second))->toBe($pairs($first));
+});
+
+it('changes nothing below the caps — same candidates, same order, same evidence', function () {
+    // The identity assertion for #SCALE-10: at the shipped defaults — which
+    // this calls WITHOUT passing, so the signature's own defaults are what is
+    // under test — an ordinary catalogue resolves exactly as it did before.
+    $result = (new Resolver)->resolve(idSharedBandMembers(4));
+
+    $pairs = array_map(fn ($c) => [$c->left, $c->right, $c->evidence], $result->candidates);
+
+    expect($pairs)->toBe([
+        ['s0:1', 's1:1', 'name_price_band|burger 10 15'],
+        ['s0:1', 's2:1', 'name_price_band|burger 10 15'],
+        ['s0:1', 's3:1', 'name_price_band|burger 10 15'],
+        ['s1:1', 's2:1', 'name_price_band|burger 10 15'],
+        ['s1:1', 's3:1', 'name_price_band|burger 10 15'],
+        ['s2:1', 's3:1', 'name_price_band|burger 10 15'],
+    ])->and($result->cappedKeys)->toBe([]);
+});
+
+it('offers the SAME pair once per evidential key value it shares — the duplicate the writer must dedupe', function () {
+    // Two shared evidential values over one pair is not hypothetical: an
+    // article carries a loose title AND an author/date/body digest. This is
+    // the input ProjectionWriter::recordCandidates() collapses first-wins.
+    $keys = [
+        idKey(KeyClass::TitleLoose, 'Alpha Shared Title Value'),
+        idKey(KeyClass::AuthorDateBody, 'someone|2025-01-01|a body digest'),
+    ];
+    $result = (new Resolver)->resolve([
+        idItem('a:1', 'src-a', 'article', $keys),
+        idItem('b:1', 'src-b', 'article', $keys),
+    ]);
+
+    expect($result->candidates)->toHaveCount(2)
+        ->and($result->candidates[0]->left)->toBe('a:1')
+        ->and($result->candidates[1]->left)->toBe('a:1')
+        ->and($result->candidates[0]->evidence)->not->toBe($result->candidates[1]->evidence);
+});

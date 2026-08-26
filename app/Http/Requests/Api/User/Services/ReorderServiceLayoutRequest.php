@@ -10,7 +10,10 @@ class ReorderServiceLayoutRequest extends BaseFormRequest
     public function rules(): array
     {
         return [
-            'categories' => ['required', 'array'],
+            // #SEC-13: same bound as PoolController::reorder's itemIds — caps
+            // the unbounded array an owner-authenticated caller could otherwise
+            // submit.
+            'categories' => ['required', 'array', 'max:200'],
 
             'categories.*.id' => ['nullable', 'uuid'], // null = Uncategorized bucket
             // `present`, not `required`: an EMPTY block is legitimate and, for
@@ -24,7 +27,7 @@ class ReorderServiceLayoutRequest extends BaseFormRequest
             // service here"), and an all-categorised layout has an empty
             // uncategorised bucket. The key must still be sent — an ABSENT
             // service_ids is a malformed block, and `present` still catches it.
-            'categories.*.service_ids' => ['present', 'array'],
+            'categories.*.service_ids' => ['present', 'array', 'max:200'],
             // No `distinct` here (2026-08-24): Laravel applies it across EVERY
             // block the wildcard matches, so a service the owner filed under
             // two categories (multi-category, owner ruling 2026-08-18) made the

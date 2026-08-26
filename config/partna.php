@@ -275,6 +275,28 @@ return [
     'platform_links_max' => 15,
     'platform_links_categories' => ['social', 'content', 'events', 'streaming'],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Shop-brand cap
+    |--------------------------------------------------------------------------
+    |
+    | Hard limit on how many distinct STORES a professional can connect. The
+    | reserved individual-products bucket (is_individual = true) never counts
+    | against it.
+    |
+    | Single source of truth on purpose (#CFG-3). This lived as a private
+    | MAX_BRANDS const in three classes; T9 (2026-08-20) raised two of them
+    | 5 -> 10 and missed StoreBrandSeeder, so a user with 5 brands who pasted a
+    | 6th store link got the connection placed but the brand row capped — the
+    | store half-existed and never rendered. A cap enforced in three places
+    | must be DEFINED in one.
+    |
+    | NOT the same quantity as ManagesIntegrationConnection::maxAccounts(),
+    | which caps connected accounts PER PLATFORM and merely happens to share
+    | the value 10. Do not fold them together.
+    */
+    'shop_brands_max' => (int) env('PARTNA_SHOP_BRANDS_MAX', 10),
+
     // Platforms that support automatic live status detection via the polling job.
     // Must match keys in social_platforms above.
     'streaming_platforms' => ['twitch', 'kick'],
@@ -1162,6 +1184,32 @@ return [
         // chunk-boundary cases cheap to seed.
         'projection_source_chunk' => (int) env('INGEST_PROJECTION_SOURCE_CHUNK', 200),
 
+        // #SCALE-10/#CACHE-6: caps on Resolver step 5, where every EVIDENTIAL
+        // key value pairs its members O(m^2) and each surviving pair becomes a
+        // content.identity_candidates row. One over-shared value (a stock
+        // title, a shared brand name) is therefore quadratic work AND
+        // quadratic writes.
+        //
+        // TWO knobs, because they bound different things and neither is
+        // sufficient alone:
+        //   - max_candidates_per_key bounds the pairs APPENDED for one key
+        //     value. It does NOT bound the work: a value whose pairs are
+        //     nearly all already grouped or cut appends almost nothing while
+        //     still walking the full m^2.
+        //   - max_members_per_key bounds the MEMBERS paired for one key value,
+        //     which is what actually bounds the iteration — 100 members is at
+        //     most 4,950 pairs examined, whatever the append rate.
+        // Both cut DETERMINISTICALLY (the first N in index order), never by
+        // sampling: the resolver is re-runnable and must return the same
+        // answer for the same input. Read ONLY by
+        // ProjectionWriter::resolveItemsLocked(), which passes them to
+        // Resolver::resolve() as ARGUMENTS — the resolver does no I/O of its
+        // own, so a resolve stays reproducible from its arguments alone. That
+        // same call site logs once per run when a cap bites: a silently capped
+        // key means items stop being offered for merge, which is invisible.
+        'max_candidates_per_key' => (int) env('PARTNA_INGEST_MAX_CANDIDATES_PER_KEY', 200),
+        'max_members_per_key' => (int) env('PARTNA_INGEST_MAX_MEMBERS_PER_KEY', 100),
+
         // #PRIV-3: grace window before an ORPHANED reviewer-PII row is deleted.
         // "Orphaned" = no live content.source_items row still carries the
         // (item_id, source_id) pair, i.e. the review is gone from the platform.
@@ -1289,6 +1337,21 @@ return [
         // ShouldBeUnique window so a fresh dispatch is never dropped by the unique
         // lock nor races a still-legitimately-running job.
         'stuck_build_sla_minutes' => (int) env('PARTNA_PRE_ACCOUNT_STUCK_BUILD_SLA_MINUTES', 30),
+
+        // CACHE-2/SCALE-7: wall-clock budget for the synchronous CSV batch loop
+        // (StaffPreAccountBuildController::batch). Up to 500 rows x one
+        // transaction + job dispatch each will outrun the HTTP request timeout,
+        // and a timeout returns staff NOTHING — not even the rows that landed.
+        // The loop stops STARTING rows past this budget and returns what
+        // completed, so re-uploading the remainder is a normal deduped run.
+        // The platform's real request ceiling was NOT confirmed when this was
+        // set — `cloud command:run` reports the CLI SAPI, which says nothing
+        // about php-fpm — so 20s is a conservative guess, not a derived bound.
+        // The check runs BEFORE a row, so worst case is budget + one row.
+        // Raise it once someone verifies the actual ceiling.
+        // 0 = process exactly one row then stop (forward progress is always
+        // guaranteed); that is also the test seam.
+        'batch_time_budget_seconds' => (int) env('PARTNA_PRE_ACCOUNT_BATCH_TIME_BUDGET_SECONDS', 20),
 
         // PRIV-3: the pepper for core.pre_account_builds.created_ip_hash
         // (PreAccountBuild::hashIp()). An unsalted sha256 of an IP is a
@@ -2228,6 +2291,16 @@ return [
         // rather than one report per request. `catalog:compile` is the real
         // gate; this covers what bypasses it.
         'malformed_pattern_report_ttl_seconds' => (int) env('PARTNA_ROUTING_MALFORMED_PATTERN_REPORT_TTL_SECONDS', 3600),
+
+        'link_in_bio' => [
+            // SCALE-5. Paces successive fetches at ONE host inside a single
+            // import — 50 rapid sequential requests with no delay is exactly
+            // the shape a bio-link host's bot-detection is built to catch, and
+            // a block degrades every future import from that host, not just
+            // this one. The T9 grant already raised MAX_PAGES 20 -> 50; this
+            // is about spacing those requests out, not about how many there are.
+            'page_delay_ms' => (int) env('PARTNA_LINK_IN_BIO_PAGE_DELAY_MS', 250),
+        ],
     ],
 
     'video_variants' => [

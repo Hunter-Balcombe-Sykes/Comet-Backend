@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\Platforms\ScanPreviousWebsiteContentJob;
+use App\Jobs\Platforms\WebsiteMenuHtmlScanJob;
 use App\Jobs\Platforms\WebsiteMenuPdfScanJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
@@ -13,6 +14,7 @@ use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
@@ -176,6 +178,105 @@ it('does not re-dispatch the billed OCR sub-job on retry — real queue-drain pr
     // These rows are delayed 30s+ and deliberately never popped by the drain
     // above (see drainDatabaseQueue's docblock) — only their COUNT matters.
     expect(DB::table('jobs')->where('payload', 'like', '%'.addcslashes(WebsiteMenuPdfScanJob::class, '\\').'%')->count())->toBe(1);
+});
+
+// #LIFE-9: the test above proves ONE dispatch of the parent job never fans
+// out its billed sub-job twice — trivially true at $tries=1, since there is
+// only ever one execution to fan out from. This test proves the OPEN gap
+// #LIFE-9 actually targets: a MANUAL Horizon "Retry" click, which is a
+// SECOND, wholly separate dispatch of the same job well after the first
+// already completed. $tries=1 and uniqueFor=300 (both #JOB-1) do nothing to
+// stop that second dispatch from re-running handle() from scratch — only the
+// per-sub-job Cache::add() claim in claimSubJobDispatch() does.
+//
+// Two care points this test has to work around, both proven by running it
+// against the pre-fix code (see PR notes) rather than assumed:
+//
+// 1. Deliberately NOT the drainDatabaseQueue() harness the test above uses:
+//    a real second RUN attempt soon enough after the first would leave the
+//    delayed PDF sub-job (never popped — drainDatabaseQueue's own docblock)
+//    un-executed, so nothing about it changes between the two attempts and
+//    the comparison proves nothing either way.
+// 2. Bus::fake() does NOT bypass WebsiteMenuPdfScanJob's OWN ShouldBeUnique
+//    lock the way Bus::dispatch() would — ::dispatch() (Dispatchable trait)
+//    resolves to PendingDispatch, whose __destruct() calls
+//    UniqueLock::acquire() BEFORE ever reaching the (faked) Dispatcher.
+//    Confirmed empirically: with only Bus::fake() and no time travel, this
+//    test stays green even with claimSubJobDispatch() deleted, because
+//    WebsiteMenuPdfScanJob's own uniqueFor=3600 lock (acquired by attempt 1,
+//    same userId:sha1(url) key) is still held and silently no-ops attempt
+//    2's dispatch regardless of the #LIFE-9 guard — a false pass. Travelling
+//    past 3600s lets that lock expire naturally, so the ONLY thing that can
+//    still keep the second assertDispatchedTimes() at 1 is
+//    claimSubJobDispatch()'s own (much longer, 7-day) claim.
+//
+// app()->call([$job, 'handle']) is this repo's established direct-job-call
+// idiom (ShopInitialFillJobTest, CommerceProbeObservationTest) — distinct
+// from the controller-call antipattern, which hides routing/middleware/
+// FormRequest validation that a job's handle() has none of.
+it('does not re-dispatch the billed OCR sub-job when the parent job is manually retried after completing', function () {
+    [$user, $site] = retryTestUser('spwcjretry2', 'business', 'restaurant');
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
+
+    Http::fake(['example.com' => Http::response('<a href="/menu.pdf">Menu (PDF)</a>', 200)]);
+    Bus::fake([WebsiteMenuPdfScanJob::class]);
+
+    $job = fn () => new ScanPreviousWebsiteContentJob((string) $user->id, (string) $site->id, 'https://example.com');
+
+    // Attempt 1 — an ordinary run of the parent job all the way through.
+    app()->call([$job(), 'handle']);
+    Bus::assertDispatchedTimes(WebsiteMenuPdfScanJob::class, 1);
+
+    // Past WebsiteMenuPdfScanJob's OWN uniqueFor (3600s) — see point 2 above —
+    // but nowhere near claimSubJobDispatch()'s 7-day claim.
+    $this->travel(3601)->seconds();
+
+    // Attempt 2 — the "manual retry": a wholly separate run of the SAME job
+    // with the SAME args, exactly like clicking Horizon's Retry on the
+    // stored failed payload.
+    app()->call([$job(), 'handle']);
+
+    // Still exactly 1 — the retry must not add a second dispatch for the
+    // same PDF (which is what would re-bill Mistral OCR for it).
+    Bus::assertDispatchedTimes(WebsiteMenuPdfScanJob::class, 1);
+});
+
+// Review round 2 (defect 2): the HTML-fallback claim (claimSubJobDispatch('html', …))
+// had zero coverage of its own — deleting it left the test above (which only
+// exercises the PDF-loop claim) fully green. Same shape, same false-pass traps
+// as the PDF retry test above (see its docblock): app()->call([$job, 'handle'])
+// directly, not a queue drain, and travel() past WebsiteMenuHtmlScanJob's OWN
+// uniqueFor (also 3600s) so that lock can't be the thing keeping attempt 2 at
+// zero — only claimSubJobDispatch()'s 7-day claim may do that here.
+it('does not re-dispatch the billed HTML-menu AI sub-job when the parent job is manually retried after completing', function () {
+    [$user, $site] = retryTestUser('spwcjretry3', 'business', 'restaurant');
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
+
+    // Menu-dense HTML with no JSON-LD/Squarespace markup and no PDF link —
+    // isolates the HTML-fallback claim from the PDF-loop claim above (same
+    // fixture shape as ScanPreviousWebsiteContentJobTest's spwcj16 case).
+    $html = '<div>Negroni</div><div>14</div><div>Old Fashioned</div><div>15</div><div>Martini</div><div>16</div>'
+        .'<p>'.str_repeat('padding text to clear the density length floor. ', 5).'</p>';
+    Http::fake(['example.com' => Http::response($html, 200)]);
+    Bus::fake([WebsiteMenuHtmlScanJob::class]);
+
+    $job = fn () => new ScanPreviousWebsiteContentJob((string) $user->id, (string) $site->id, 'https://example.com');
+
+    // Attempt 1 — an ordinary run of the parent job all the way through.
+    app()->call([$job(), 'handle']);
+    Bus::assertDispatchedTimes(WebsiteMenuHtmlScanJob::class, 1);
+
+    // Past WebsiteMenuHtmlScanJob's OWN uniqueFor (3600s, same value as the
+    // PDF sub-job) but nowhere near claimSubJobDispatch()'s 7-day claim.
+    $this->travel(3601)->seconds();
+
+    // Attempt 2 — the "manual retry": a wholly separate run of the SAME job
+    // with the SAME args, exactly like clicking Horizon's Retry.
+    app()->call([$job(), 'handle']);
+
+    // Still exactly 1 — the retry must not add a second dispatch for the
+    // same extracted text (which is what would re-bill MenuAiExtractor for it).
+    Bus::assertDispatchedTimes(WebsiteMenuHtmlScanJob::class, 1);
 });
 
 // Harness-sensitivity arm. Without this, the `=== 1` assertions above could

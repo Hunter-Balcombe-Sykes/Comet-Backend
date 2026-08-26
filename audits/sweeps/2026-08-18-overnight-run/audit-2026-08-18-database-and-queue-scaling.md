@@ -34,7 +34,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 6 complete
-- P2 Medium: 1 of 16 complete
+- P2 Medium: 7 of 16 complete
 - P3 Low: 0 of 7 complete
 
 ---
@@ -245,7 +245,8 @@
         }
         ```
 
-- [ ] **#SCALE-10** · P2 — Evidential-key candidate generation is O(n²) per shared key with no cap
+- [x] **#SCALE-10** · P2 — Evidential-key candidate generation is O(n²) per shared key with no cap
+    - **Resolved 2026-08-26** — capped, and the cap is SURFACED. `Resolver::resolve()` step 5 now takes `maxMembersPerKey` / `maxCandidatesPerKey` as ARGUMENTS (defaults 100 / 200, mirroring `config('partna.ingest.*')`): the member cap bounds the ITERATION, the candidate cap bounds what is appended and breaks out of that key's loops immediately. Two knobs deliberately — the candidate cap alone does not bound the work, because if nearly every pair is already grouped or cut the loops can run the full O(m^2) without ever appending enough to trip it. **The caps arrive as DATA, never as a config read inside the resolver** — the same rule `LinkProjector` follows for detector suspensions, and what keeps a resolve reproducible from its arguments alone; `ProjectionWriter::resolveItemsLocked()` owns the config read and the logging, because user + kind live at that seam. ONE `Log::warning` per RUN with a bounded 5-key sample, never one per key or per pair: a silent cap means items quietly stop being offered for merge, which is invisible on a green run. Growth curve for one shared key, before -> after: 50 members 1,225 -> 200 pairs; 200 members 19,900 -> 200; 1000 members 499,500 -> 200 (122.5ms -> 2.3ms). Deterministic first-N, not a sample, pinned by a two-run identity test; below the caps the candidates, their order and their evidence are unchanged.
     - **Where:** app/Content/Identity/Resolver.php:75-87
     - **Affects:** Any user whose catalogue has many items sharing one weak (evidential-tier) identity key — e.g. a generic track/episode title repeated across a large music or podcast catalogue.
     - **Effort:** M (~2–4h)
@@ -268,7 +269,8 @@
         }
         ```
 
-- [ ] **#SCALE-11** · P2 — Identity candidates are inserted one row at a time
+- [x] **#SCALE-11** · P2 — Identity candidates are inserted one row at a time
+    - **Resolved 2026-08-26** — `recordCandidates()` collects rows and writes them with chunked multi-row `insertOrIgnore()` on the file's existing `writeChunk()` bound. Same guards, and semantics preserved exactly: rows are deduped WITHIN the batch on `(left_item_id, right_item_id)` **first-wins**, because the same pair can arise from two different key values and the per-row loop's second `insertOrIgnore` was silently swallowed by `idx_identity_candidates_pair` — a naive batch would have changed which `evidence` persists. `(left, right)` is NOT normalised; that index is directional and both orderings legitimately coexist. `content.identity_candidates` has no `updated_at`, and no consumer keys off a row timestamp (checked all four readers). Write statements for one shared key, before -> after: 50 members 1,225 -> 1; 200 members 19,900 -> 1; 1000 members 499,500 -> 1. Pinned in the **Postgres** lane (`composer test:pg`, mandatory here — a green SQLite run says nothing about this writer): batch count, first-wins evidence, the reversed `(b,a)` row, and a chunk-SPANNING case asserting 9 statements for 45 rows at chunk=5 with every pair present exactly once. Full lane 249 passed / 3 skipped, with 2 failures pre-existing (`LanderFoldAtomicityTest`, `ingest.record_state` first-creator-wins ordering) — verified pre-existing by restoring the test files from HEAD and re-running. `IdentityScope.php`, the kill switch, the closure bound, the advisory lock, the transaction boundary and the resolve scope are ALL untouched; `ProjectionWriterScopedResolveTest`'s scoped-vs-whole-kind differential still passes.
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:928-947 (`recordCandidates`)
     - **Affects:** Any projection run whose identity resolution surfaces evidential-tier candidates — directly amplified by #SCALE-10's uncapped candidate generation.
     - **Effort:** S (~0.5–1h)
@@ -308,7 +310,8 @@
         }
         ```
 
-- [ ] **#SCALE-13** · P2 — Pool resolution reads every `site.section_items` row for a section with no cap on accumulated excluded items
+- [x] **#SCALE-13** · P2 — Pool resolution reads every `site.section_items` row for a section with no cap on accumulated excluded items
+    - **Resolved 2026-08-26** — narrowed all three `site.section_items` reads (`hasSelection`, `plan`, `preloadCuration`) to `['section_id','item_id','state','sort_key']`; `id` and `created_at` are read nowhere. Measured on a 2000-row section: 432,000 -> 274,000 bytes returned, same 2000 rows. NOT fixed and deliberately not attempted: nothing prunes accumulated `state='excluded'` rows — a retention rule is a write path and a separate decision, carried forward in RESULT-PART-3.md.
     - **Where:** app/Site/Pools/PoolResolver.php:114-116 (`hasSelection`), 193-195 (`resolve`)
     - **Affects:** Public pool payload and dashboard pool page for any section whose owner has excluded many items over time.
     - **Effort:** M (~2–4h)
@@ -324,7 +327,8 @@
             ->get();
         ```
 
-- [ ] **#SCALE-14** · P2 — Pool item-payload build selects the full JSONB `platform_connections.payload` for every source row on the public hot path
+- [x] **#SCALE-14** · P2 — Pool item-payload build selects the full JSONB `platform_connections.payload` for every source row on the public hot path
+    - **Resolved 2026-08-26** — the JSONB left the fan-out. `$sourceRows` returns one row per (item, source), so `payload` was re-materialised once per item; it is now fetched once per DISTINCT connection into `$payloadByConnection` (same idiom as the `$ingestByConnection` read beside it) and looked up by connection id. Same rows, same keys, same wire. Measured with 200 items on one connection carrying a ~230 KB payload: 46,065,400 -> 230,327 bytes of payload material, 1 -> 2 queries (queue driver `sync`). Mutation-checked: forcing `$payloadByConnection = []` turns PoolLaneTest's `accountName` and PoolSourceLivenessTest's fallback-url assertions red, so the coverage is not vacuous.
     - **Where:** app/Site/Pools/PoolResolver.php:528-550 (`itemPayloads`)
     - **Affects:** Public pool payload and dashboard item sheet for users with large connector payloads (Google Business place details, Instagram media metadata).
     - **Effort:** M (~2–4h)
@@ -367,7 +371,8 @@
         }
         ```
 
-- [ ] **#SCALE-16** · P2 — Pending-card enrichment safety net loads its whole backlog with `->get()` and dispatches synchronously in a loop
+- [x] **#SCALE-16** · P2 — Pending-card enrichment safety net loads its whole backlog with `->get()` and dispatches synchronously in a loop
+    - **Resolved 2026-08-26** — `->get()` + `foreach` becomes `chunkById(100)`, dispatching inside the callback. `chunkById` keysets on the PK rather than paging by OFFSET, which matters here specifically: the dispatched job flips `last_refresh_status` out of this query's own WHERE, inline under the `sync` driver, and an OFFSET page window would shift under it. Proven, not assumed — a real inline run over 240 rows spanning three pages left 0 rows `pending` and reported `dispatched 240 of 240`. Measured at N=2000: heap delta 12,081,056 -> 4,163,168 bytes, 1 -> 21 queries, identical 1800 jobs dispatched.
     - **Where:** app/Console/Commands/EnrichPendingCardsCommand.php:26-45
     - **Affects:** `platforms:enrich-pending-cards` (scheduled daily, safety net for stuck enrichments) — normally near-empty, but grows to a real backlog after a queue outage.
     - **Effort:** S (~0.5–1h)
@@ -392,7 +397,8 @@
         }
         ```
 
-- [ ] **#SCALE-17** · P2 — Item-cache repair safety net loads every stale item into memory and groups by user in PHP
+- [x] **#SCALE-17** · P2 — Item-cache repair safety net loads every stale item into memory and groups by user in PHP
+    - **Resolved 2026-08-26** — restructured into two phases: phase 1 collects the DISTINCT `user_id`s matching the filter (a deduped uuid column, and write-free so OFFSET paging cannot skip); phase 2 runs `chunkById(500, ..., 'i.id', 'id')` SCOPED TO ONE USER at a time. The per-user scoping is load-bearing and was learned the hard way: keyset-paging the whole backlog by `i.id` (the obvious reading of the finding) scatters one user's items across pages because ids are random UUIDs, fragmenting the batches `refreshItemCaches()` charges ~18 queries apiece for — that first cut measured **+54% queries for no memory win**. Scoped per user: N=2000 2441 -> 2461 queries (+0.8%), heap 4,378,848 -> 3,354,216; N=20,000 20,881 -> 20,941 (+0.3%), heap 40,491,432 -> 30,541,928. Identical item-id set refreshed at both sizes. Safe to split a user's ids across calls because `refreshCachesFor()` -> `refreshItemCaches()` already `array_chunk`s internally and is purely per-item with no whole-user semantics (verified at `ProjectionWriter.php:2581-2719`); `ProjectionWriter` itself is untouched. Both commands had NO test invoking `handle()` — `tests/Feature/Console/RepairCommandBackfillTest.php` is new and pins the paging, the multi-user clone guard and `--dry-run` writing nothing; it fails if `chunkById` is downgraded to `chunk`.
     - **Where:** app/Console/Commands/RefreshItemCachesCommand.php:47-57
     - **Affects:** `content:refresh-item-caches` (scheduled daily 03:25, added by commit `e8e0c2d0f` for X4) — a healthy database is a cheap no-op read, but a systemic projection bug or a wide backfill can leave many items stale at once.
     - **Effort:** M (~2–4h)

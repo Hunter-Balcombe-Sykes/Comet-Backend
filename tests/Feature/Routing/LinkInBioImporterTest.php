@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Sleep;
 use Tests\Support\Fixtures\Recorded;
 
 // Uses https://example.com as the bio page: SafeUrlFetcher::assertSafe() does
@@ -912,4 +913,116 @@ it('keeps the card of a page that is still down when a sibling page unrolls', fu
     // beacons.ai never unrolled, so its card is still the only thing standing
     // for that link.
     expect(DB::table('content.items')->where('kind', 'link')->whereNull('removed_at')->count())->toBe(1);
+});
+
+// ── SCALE-5: pacing between successive page fetches ─────────────────────────
+// 50 rapid sequential requests at one bio-link host is exactly the shape a
+// WAF is built to catch, and a block degrades every future import from that
+// host, not just this one. Sleep::fake() records durations without a real
+// wait, and phpunit.xml pins PARTNA_LINK_IN_BIO_PAGE_DELAY_MS=0 so every test
+// that does NOT override it stays instant.
+
+// Fixture bodies are irrelevant to pacing itself; using the four real
+// recorded pages (rather than hand-typed HTML) keeps the fetch loop exercised
+// against genuine markup while four distinct page URLs give the loop
+// something to actually iterate over.
+function bioPacingPages(): array
+{
+    return [
+        'https://example.com/pace1' => Recorded::html('linkinbio/linktree.mixed.html'),
+        'https://example.com/pace2' => Recorded::html('linkinbio/linktree.hair.html'),
+        'https://example.com/pace3' => Recorded::html('linkinbio/linkinbio.spa.html'),
+        'https://example.com/pace4' => Recorded::html('linkinbio/lnkbio.clkbio.html'),
+    ];
+}
+
+it('paces between pages on a multi-page import, never before the first or after the last', function () {
+    Queue::fake(); // no CommerceProbeJob dispatch (QUEUE_CONNECTION=sync would run it inline)
+    Sleep::fake();
+    config(['partna.routing.link_in_bio.page_delay_ms' => 300]);
+
+    $pages = bioPacingPages();
+    Http::fake(fn (Request $request) => Http::response($pages[$request->url()] ?? '', 200, ['Content-Type' => 'text/html']));
+
+    $pro = createTenant('bio-pace-multi');
+    app(LinkInBioImporter::class)->import($pro, array_keys($pages), 'bio_harvest');
+
+    // 4 pages, 3 gaps — a sleep after every fetch but the last one, at the
+    // configured duration. If this ever reads 4 the gate before the first
+    // fetch has gone missing; if it reads 0 the loop stopped pacing at all.
+    Sleep::assertSequence(array_fill(0, 3, Sleep::for(300)->milliseconds()));
+});
+
+it('sleeps zero times on a single-page import, the overwhelmingly common case', function () {
+    Queue::fake();
+    Sleep::fake();
+    config(['partna.routing.link_in_bio.page_delay_ms' => 300]);
+    bioPage(Recorded::html('linkinbio/linktree.mixed.html'));
+
+    $pro = createTenant('bio-pace-single');
+    app(LinkInBioImporter::class)->import($pro, 'https://example.com/theartist');
+
+    // A single fetch has no "next page" to pace before — if this ever slept
+    // once, every ordinary one-URL import would pay the delay for nothing.
+    Sleep::assertNeverSlept();
+});
+
+it('never sleeps when the configured delay is zero', function () {
+    Queue::fake();
+    Sleep::fake();
+    config(['partna.routing.link_in_bio.page_delay_ms' => 0]);
+
+    $pages = bioPacingPages();
+    Http::fake(fn (Request $request) => Http::response($pages[$request->url()] ?? '', 200, ['Content-Type' => 'text/html']));
+
+    $pro = createTenant('bio-pace-zero');
+    app(LinkInBioImporter::class)->import($pro, array_keys($pages), 'bio_harvest');
+
+    // Operators must be able to switch pacing off entirely, not just turn it down.
+    Sleep::assertNeverSlept();
+});
+
+it('paces after a failed fetch too, not only after a successful one', function () {
+    Queue::fake();
+    Sleep::fake();
+    config(['partna.routing.link_in_bio.page_delay_ms' => 50]);
+
+    Http::fake([
+        'example.com/pace-fail' => Http::response('', 403),
+        'example.com/pace-ok' => Http::response(
+            Recorded::html('linkinbio/linktree.mixed.html'), 200, ['Content-Type' => 'text/html']
+        ),
+        'example.com/pace-gone' => Http::response('', 404),
+    ]);
+
+    $pro = createTenant('bio-pace-failure');
+    app(LinkInBioImporter::class)->import($pro, [
+        'https://example.com/pace-fail',
+        'https://example.com/pace-ok',
+        'https://example.com/pace-gone',
+    ], 'bio_harvest');
+
+    // 3 pages, 2 gaps, regardless of which pages actually 200'd — a refused
+    // request still hit the host, and skipping the pace after a failure
+    // would let exactly the retry burst that trips a WAF go unpaced.
+    Sleep::assertSequence(array_fill(0, 2, Sleep::for(50)->milliseconds()));
+});
+
+it('returns the same outcome and counts whether or not pacing runs', function () {
+    Queue::fake();
+    $pages = bioPacingPages();
+    Http::fake(fn (Request $request) => Http::response($pages[$request->url()] ?? '', 200, ['Content-Type' => 'text/html']));
+
+    $unpaced = app(LinkInBioImporter::class)->import(createTenant('bio-pace-identity-off'), array_keys($pages), 'bio_harvest');
+
+    Sleep::fake();
+    config(['partna.routing.link_in_bio.page_delay_ms' => 300]);
+    Http::fake(fn (Request $request) => Http::response($pages[$request->url()] ?? '', 200, ['Content-Type' => 'text/html']));
+
+    $paced = app(LinkInBioImporter::class)->import(createTenant('bio-pace-identity-on'), array_keys($pages), 'bio_harvest');
+
+    // Pacing must be invisible to the result contract — a caller (the queued
+    // job's log line, the run detail row) should never be able to tell pacing
+    // ran just by reading what import() returned.
+    expect($paced)->toBe($unpaced);
 });

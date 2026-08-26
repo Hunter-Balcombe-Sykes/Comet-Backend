@@ -1,0 +1,96 @@
+diff --git a/app/Routing/ShortLinkExpander.php b/app/Routing/ShortLinkExpander.php
+index 9629b384f..64a91d0f7 100644
+--- a/app/Routing/ShortLinkExpander.php
++++ b/app/Routing/ShortLinkExpander.php
+@@ -134,7 +134,29 @@ private function resolveFinal(string $url): ?string
+                 && ! $this->isShort($candidate)
+                 && preg_match('~^https?://~i', $candidate) === 1
+             ) {
+-                $final = $candidate;
++                // #SEC-6: the destination a short link resolves to can carry
++                // a secret-bearing param (?token=...) that would otherwise
++                // persist in this cache, verbatim, for SUCCESS_TTL_SECONDS.
++                // redactUrl() keeps the keys and the URL shape (its own
++                // docblock), so callers that route/canonicalize/card this
++                // value still get something well-formed — never a second
++                // hand-copied redactor, see SecretParams::redactWith().
++                // Identity is unaffected: SourceReconciler's identifier
++                // column comes from Iri::canonical, which IriCanonicalizer
++                // strips independently via its own filterQuery(), not from
++                // this string.
++                $redacted = SecretParams::redactUrl($candidate);
++
++                // redactUrl() fail-closes to '' on its 8KB guard or a PCRE
++                // engine error — treat that as "could not safely resolve"
++                // rather than caching a literal empty destination for the
++                // full SUCCESS_TTL_SECONDS (the '' guard below exists for a
++                // different case — a legacy pre-redaction cache sentinel —
++                // and would otherwise mask this one for a day instead of the
++                // 1h FAILURE_TTL_SECONDS a real negative result gets).
++                if (is_string($redacted) && $redacted !== '') {
++                    $final = $redacted;
++                }
+             }
+         } catch (\Throwable $e) {
+             // tryFetch already swallows the expected failure shapes; anything
+diff --git a/tests/Feature/Routing/ShortLinkExpanderTest.php b/tests/Feature/Routing/ShortLinkExpanderTest.php
+index 6d86b3741..9f43afb3b 100644
+--- a/tests/Feature/Routing/ShortLinkExpanderTest.php
++++ b/tests/Feature/Routing/ShortLinkExpanderTest.php
+@@ -244,6 +244,56 @@
+     Queue::assertNotPushed(CommerceProbeJob::class, fn ($job) => str_contains($job->url, 'bit.ly'));
+ });
+ 
++// #SEC-6: a short link's destination can carry a secret-bearing param
++// (?token=...) that expandIfShort() cached verbatim for a full day. Mocks
++// SafeUrlFetcher directly (same pattern as the CCH-2 tests above) so the
++// value handed to Cache::put and returned to the caller can be asserted in
++// one place.
++it('redacts a secret-bearing param in the expanded destination before caching or returning it', function () {
++    $url = 'https://on.soundcloud.com/secret-code';
++    $key = 'shortlink:'.sha1($url);
++
++    $lock = Mockery::mock(Lock::class);
++    $lock->shouldReceive('block')->with(2)->once();
++    $lock->shouldReceive('release')->once()->andReturn(true);
++
++    // Initial miss, then the post-lock double-check (also a miss) — same
++    // shape as the CCH-2 tests above.
++    Cache::shouldReceive('get')->with($key)->twice()->andReturn(null, null);
++    Cache::shouldReceive('lock')->with('lock:'.$key, 20)->once()->andReturn($lock);
++    // The key survives, the value does not — SecretParams::redactUrl()
++    // replaces in place rather than dropping the pair (a dropped pair needs
++    // separator repair; see its docblock).
++    Cache::shouldReceive('put')
++        ->with($key, 'https://soundcloud.com/sam-akhurst?token=[redacted]&ref=clipboard', Mockery::type('int'))
++        ->once();
++
++    $this->mock(SafeUrlFetcher::class, function ($m) {
++        $m->shouldReceive('tryFetch')->once()->andReturn([
++            'finalUrl' => 'https://soundcloud.com/sam-akhurst?token=eyJhbGciOiJIUzI1NiJ9.abcdefgh.signature&ref=clipboard',
++        ]);
++    });
++
++    $expanded = app(ShortLinkExpander::class)->expandIfShort($url);
++
++    expect($expanded)->toBe('https://soundcloud.com/sam-akhurst?token=[redacted]&ref=clipboard')
++        ->and($expanded)->toContain('sam-akhurst')
++        ->and($expanded)->not->toContain('eyJhbGciOiJIUzI1NiJ9');
++});
++
++it('leaves an expansion with no secret-shaped params unmangled', function () {
++    $pro = createTenant('shortlink-nosecret');
++
++    Http::fake([
++        'on.soundcloud.com/*' => Http::response('', 302, ['Location' => 'https://soundcloud.com/sam-akhurst?ref=clipboard&utm_source=ig']),
++        'soundcloud.com/*' => Http::response('ok', 200, ['Content-Type' => 'text/html']),
++    ]);
++
++    $expanded = app(ShortLinkExpander::class)->expandIfShort('https://on.soundcloud.com/no-secret-code');
++
++    expect($expanded)->toBe('https://soundcloud.com/sam-akhurst?ref=clipboard&utm_source=ig');
++});
++
+ // CCH-5: resolveFinal()'s catch had an empty body — comment only. The null it
+ // returns is negative-cached for FAILURE_TTL_SECONDS, so a real defect or a
+ // budget exhaustion looked exactly like "not expandable" for an hour, with
