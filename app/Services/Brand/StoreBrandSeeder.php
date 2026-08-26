@@ -14,6 +14,7 @@ use App\Routing\Probes\ProbeOutcome;
 use App\Routing\RoutingContext;
 use App\Routing\SourceReconciler;
 use App\Routing\Verdict;
+use App\Services\Platforms\StorefrontFaviconScraper;
 use App\Services\Platforms\UrlParamExtractor;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\ShopContentWriter;
@@ -66,6 +67,7 @@ class StoreBrandSeeder
         private readonly BrandAssetPipeline $assets,
         private readonly ShopConnections $shop,
         private readonly ShopContentWriter $content,
+        private readonly StorefrontFaviconScraper $favicons,
     ) {}
 
     /**
@@ -260,6 +262,16 @@ class StoreBrandSeeder
         // that by OMITTING the keys; upsertStore() writes every column, so the
         // same rule is expressed as a coalesce onto what content.* already has.
         $favicon = $probe->evidence['favicon'] ?? $existing?->faviconUrl;
+
+        // The Shopify and Big Cartel probes read a platform endpoint, never the
+        // storefront HTML, so they carry no favicon and this column stayed NULL
+        // for every store they placed — blanking the Platforms table icon as
+        // well as the card. Fetched here, once, only when nothing already has
+        // one: a probe's budget is the scarce thing and most probed URLs never
+        // become stores, but a store being WRITTEN is rare and worth a request.
+        if ($favicon === null) {
+            $favicon = $this->favicons->fetch(is_string($probe->evidence['origin'] ?? null) ? $probe->evidence['origin'] : $sourceUrl);
+        }
         $logo = $probe->evidence['logo'] ?? $existing?->logoUrl;
 
         // From the family the caller already fetched — re-reading it here was

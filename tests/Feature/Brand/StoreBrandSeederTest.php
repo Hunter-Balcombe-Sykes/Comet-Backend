@@ -421,3 +421,46 @@ it('the auto-probe path refuses a store past the same configured cap (#CFG-3)', 
         ->with('shop.connect_from_product.cap_reached', Mockery::type('array'))
         ->once();
 });
+
+it('fetches a favicon for a probe lane that carries none (Shopify, Big Cartel)', function () {
+    // Shopify's probe reads only /meta.json and never the storefront HTML, by
+    // design — so evidence['favicon'] is always absent and
+    // content.storefronts.favicon_url stayed permanently NULL for every store
+    // connected this way. Not just a blank suggestion card: ShopBrandResource
+    // serves that column, so the Platforms table had no icon either.
+    //
+    // Fetched HERE rather than in the probe: a probe runs against many
+    // candidate URLs that never become stores, and its budget is the scarce
+    // thing. Once a store is actually being written, one request is cheap.
+    $pro = createTenant('store-favicon');
+    Http::fake([
+        '*/meta.json' => Http::response(['id' => 4242, 'name' => 'The Store', 'currency' => 'AUD'], 200, ['Content-Type' => 'application/json']),
+        'https://example.com/' => Http::response(
+            '<html><head><link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png"></head><body>x</body></html>',
+            200,
+            ['Content-Type' => 'text/html'],
+        ),
+        '*' => Http::response('', 404),
+    ]);
+
+    app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
+
+    expect(seededStore($pro, '4242')?->faviconUrl)->toBe('https://example.com/icon-32.png');
+});
+
+it('does not re-fetch a favicon the probe already carried', function () {
+    // Woo/Squarespace/Generic read the homepage anyway, so their evidence
+    // already has one. Going back for it would be a second request for
+    // something we hold.
+    $pro = createTenant('store-favicon-present');
+    Http::fake([
+        '*/meta.json' => Http::response(['id' => 4242, 'name' => 'The Store', 'currency' => 'AUD'], 200, ['Content-Type' => 'application/json']),
+        '*' => Http::response('', 404),
+    ]);
+
+    app(StoreBrandSeeder::class)->seed($pro, 'https://example.com');
+
+    // The homepage 404s here, so a null favicon proves the lookup was
+    // ATTEMPTED and honestly came back empty rather than throwing.
+    expect(seededStore($pro, '4242')?->faviconUrl)->toBeNull();
+});

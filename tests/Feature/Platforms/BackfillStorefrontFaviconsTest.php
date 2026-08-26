@@ -1,0 +1,104 @@
+<?php
+
+// shop:backfill-favicons — retro-fit the favicon onto stores connected before
+// StoreBrandSeeder started fetching one.
+//
+// Nothing re-runs for an already-connected store, so every Shopify/Big Cartel
+// storefront placed before 2026-08-26 keeps a NULL favicon_url forever — which
+// blanks the Platforms table icon, not just the suggestion card.
+//
+// The store is written DIRECTLY rather than seeded through a probe. Two
+// reasons: it isolates the command from the probe cascade, and Http::fake()
+// MERGES stubs rather than replacing them, so a seed-then-refake test would
+// keep the seed catch-all 404 and silently 404 the very homepage the backfill
+// is supposed to read.
+
+use App\Services\Shop\ShopConnections;
+use App\Services\Shop\ShopContentWriter;
+use App\Services\Shop\StoreRecord;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
+
+beforeEach(function () {
+    setupUsersTable();
+    setupSitesTable();
+    setupContentTables();
+    Cache::flush();
+});
+
+/** A connected store carrying neither a favicon nor a logo. */
+function storeMissingIcon(string $handle): object
+{
+    $pro = createTenant($handle);
+    app(ShopContentWriter::class)->upsertStore(new StoreRecord(
+        externalRef: '4242',
+        provider: 'shopify',
+        name: 'The Store',
+        position: 0,
+        url: 'https://example.com',
+        sourceUrl: 'https://example.com/',
+        currency: 'AUD',
+        isIndividual: false,
+    ), (string) $pro->id);
+
+    expect(app(ShopConnections::class)->store($pro, '4242')?->faviconUrl)->toBeNull();
+
+    return $pro;
+}
+
+function faviconPageResponds(string $head): void
+{
+    Http::fake([
+        'https://example.com/' => Http::response("<html><head>{$head}</head><body>x</body></html>", 200, ['Content-Type' => 'text/html']),
+        '*' => Http::response('', 404),
+    ]);
+}
+
+it('backfills a favicon onto a store that has none', function () {
+    $pro = storeMissingIcon('backfill-basic');
+    faviconPageResponds('<link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">');
+
+    $this->artisan('shop:backfill-favicons')->assertSuccessful();
+
+    expect(app(ShopConnections::class)->store($pro, '4242')?->faviconUrl)->toBe('https://example.com/icon-32.png');
+});
+
+it('writes nothing under --dry-run', function () {
+    $pro = storeMissingIcon('backfill-dry');
+    faviconPageResponds('<link rel="icon" href="/icon.png">');
+
+    $this->artisan('shop:backfill-favicons', ['--dry-run' => true])->assertSuccessful();
+
+    expect(app(ShopConnections::class)->store($pro, '4242')?->faviconUrl)->toBeNull();
+});
+
+it('leaves a store alone when its homepage still offers no icon', function () {
+    // An honest miss must not be written back as an empty string, which would
+    // then read as "already has one" and permanently block a later run that
+    // would have succeeded.
+    $pro = storeMissingIcon('backfill-miss');
+    faviconPageResponds('');
+
+    $this->artisan('shop:backfill-favicons')->assertSuccessful();
+
+    expect(app(ShopConnections::class)->store($pro, '4242')?->faviconUrl)->toBeNull();
+});
+
+it('skips a store that already has a logo, since that is what renders', function () {
+    $pro = createTenant('backfill-haslogo');
+    app(ShopContentWriter::class)->upsertStore(new StoreRecord(
+        externalRef: '5353',
+        provider: 'shopify',
+        name: 'Logo Store',
+        position: 0,
+        url: 'https://example.com',
+        sourceUrl: 'https://example.com/',
+        isIndividual: false,
+        logoUrl: 'https://example.com/logo.png',
+    ), (string) $pro->id);
+    faviconPageResponds('<link rel="icon" href="/icon.png">');
+
+    $this->artisan('shop:backfill-favicons')->assertSuccessful();
+
+    expect(app(ShopConnections::class)->store($pro, '5353')?->faviconUrl)->toBeNull();
+});
