@@ -94,10 +94,28 @@ class SuggestionsController extends ApiController
         // re-checks a 'proposed' row after the fact, so the inbox went on
         // asking "is this yours?" about something already on the page.
         //
-        // Dropped from the render, not settled in the ledger: settling is a
-        // write, and SCALE-8 has just finished taking every write off this
-        // handler. Rejected BEFORE the loop below so the swap resolution only
-        // ever runs for cards that survive.
+        // Dropped from the RENDER only. Settling would be a write, and
+        // SCALE-8 has just finished taking every write off this handler.
+        //
+        // ⚠️ Nothing else settles it either — no connect path, observer or
+        // command currently closes an intent when its account arrives by
+        // another route (grep routing.source_intents writers: SourceReconciler,
+        // SuggestionApplier, SyncFindingsBridge, LinkInBioImporter,
+        // CommerceProbeJob, this controller). So the row stays 'proposed'
+        // indefinitely, invisible here but still counted by
+        // CheckStuckSourceIntentsCommand. That is a known gap with a home
+        // still to pick (connection-create observer, or a scheduled
+        // routing:settle-connected), NOT something handled elsewhere.
+        //
+        // Rejected BEFORE the loop below so the swap resolution only ever
+        // runs for cards that survive.
+        // Captured BEFORE the filter. $claimed below decides which legacy
+        // payload findings fold in, and an intent must win its surface slot
+        // whether or not its card renders — otherwise dropping it here frees
+        // the slot and SyncFindingsBridge asks the same question in the old
+        // vocabulary, one row lower. Same dedup bug, other door.
+        $claimedSurfaces = $intents->pluck('surface_key')->all();
+
         $intents = $intents->reject(fn (object $intent): bool => $this->identity->matchWithin(
             $connectionsBySurface->get($intent->surface_key, collect()),
             (string) $intent->surface_key,
@@ -163,7 +181,7 @@ class SuggestionsController extends ApiController
         // thing in the old vocabulary. The INTENT wins — it is the ledger with
         // a resolution path — and the payload row is dropped rather than shown
         // beside it as a second, identical question.
-        $claimed = array_flip(array_column($suggestions, 'surfaceKey'));
+        $claimed = array_flip($claimedSurfaces);
         foreach ($this->bridge->payloadSuggestions($user) as $folded) {
             if (! isset($claimed[$folded['surfaceKey']])) {
                 $claimed[$folded['surfaceKey']] = true;

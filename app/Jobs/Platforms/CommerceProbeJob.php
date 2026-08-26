@@ -147,10 +147,8 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
 
         // An accept that resolved is settled by the reconciler on its way
         // through PlacementPolicy, exactly as any placement is. An accept
-        // that did NOT resolve reaches no reconciler at all — seed() returns
-        // early on a probe miss, before it — so without this the user's
-        // answer left no trace: a plain link card appeared and the identical
-        // question stayed in the inbox.
+        // that did NOT resolve is two different things, and only one of them
+        // is ours to answer — see settleAcceptedIntent().
         if (! $resolved && $this->acceptedIntentId !== null) {
             $this->settleAcceptedIntent();
         }
@@ -309,6 +307,18 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
      *
      * Scoped to the user and to a LIVE state so a dismissal, or a placement
      * that landed by another route while this ran, is never overwritten.
+     *
+     * And scoped to a block_reason nothing better has been said about. An
+     * unresolved accept is one of two things:
+     *
+     *  · a probe MISS — seed() returns before ever reaching the reconciler,
+     *    so nothing settles the intent at all. That is what this is for.
+     *  · a HOLD — seed() reconciles and THEN returns 'not_placed'. The
+     *    reconciler has already written the real reason (cap_reached,
+     *    conflict, gate), which is both more informative and differently
+     *    actionable: cap_reached renders a Swap with a Replace button, where
+     *    unservable renders a Try again that can only fail the same way
+     *    forever. Left alone.
      */
     private function settleAcceptedIntent(): void
     {
@@ -316,6 +326,11 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
             ->where('id', $this->acceptedIntentId)
             ->where('user_id', $this->userId)
             ->whereIn('state', ['proposed', 'blocked'])
+            // 'below_threshold' and NULL both mean "recognised, nothing
+            // decided"; re-settling an existing 'unservable' keeps a retry
+            // idempotent.
+            ->where(fn ($q) => $q->whereNull('block_reason')
+                ->orWhereIn('block_reason', ['below_threshold', 'unservable']))
             ->update([
                 'state' => 'blocked',
                 'block_reason' => 'unservable',

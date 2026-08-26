@@ -2,6 +2,8 @@
 
 namespace App\Routing;
 
+use Illuminate\Support\Str;
+
 /**
  * PlacementPolicy's decision about one projection, for one caller context.
  * Carries the reason in every non-Place case so the suggestions inbox, the
@@ -37,6 +39,11 @@ final readonly class Placement
         if ($label === null || $label === '') {
             return $this;
         }
+
+        // Bounded: this arrives from a scraped upstream document (a probe's
+        // shop_name), is persisted, and is served on every inbox GET. The
+        // column is unbounded text and nothing downstream truncates.
+        $label = Str::limit($label, 200, '');
 
         return new self(
             $this->verdict,

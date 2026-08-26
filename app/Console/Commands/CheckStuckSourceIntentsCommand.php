@@ -14,11 +14,22 @@ use Illuminate\Support\Facades\DB;
 // Deliberately an AGGREGATE alarm, not per-row: Verdict::intentState() only
 // ever produces 'proposed' (block_reason='below_threshold') or 'blocked'
 // (block_reason='conflict'|'cap_reached') — see PlacementPolicy/
-// SourceReconciler — and SuggestionsController::index() serves exactly that
-// state pair as the user's OWN suggestions inbox. One stuck intent is a user
-// who hasn't answered a question yet, not an incident. A mass of them, aged
-// past the gate, is a detector regression or a misconfiguration — an
-// engineering fault.
+// SourceReconciler. One stuck intent is a user who hasn't answered a question
+// yet, not an incident. A mass of them, aged past the gate, is a detector
+// regression or a misconfiguration — an engineering fault.
+//
+// Two corrections to the above as of 2026-08-26, both deliberate:
+//
+//  · 'unservable' is now a fourth reachable block_reason. CommerceProbeJob
+//    writes it when the user accepted a suggestion and the seed could not
+//    build it.
+//  · this count is NO LONGER the same set the inbox renders. index() now
+//    hides an intent whose account the user connected by another route, and
+//    nothing settles that row, so this alarm over-counts by however many of
+//    those exist. It drifts upward and never down. Fixing that means giving
+//    the settle a home (a connection-create observer, or a scheduled
+//    routing:settle-connected) — until then, read a slow rise here as
+//    possibly-stale rather than as a detector regression.
 class CheckStuckSourceIntentsCommand extends Command
 {
     protected $signature = 'routing:stuck-intents';

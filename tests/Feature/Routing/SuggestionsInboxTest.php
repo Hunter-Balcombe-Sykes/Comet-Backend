@@ -610,3 +610,82 @@ it('leaves accountName null when the probe lane carries no name', function () {
 
     expect($card['accountName'])->toBeNull();
 });
+
+it('keeps the reconciler\'s own block reason when an accepted store is refused by the cap', function () {
+    // settleAcceptedIntent() fires whenever an accept did not resolve. But
+    // seed() only returns early BEFORE the reconciler on a probe MISS; on a
+    // Hold it reconciles first and returns 'not_placed', which is also
+    // unresolved. Overwriting there replaced a real 'cap_reached' — which
+    // renders as "swap it for this one?" with a Replace button — with
+    // "we couldn't reach this", whose Try again can only ever fail again.
+    setupContentTables();
+    Cache::flush();
+    $pro = createTenant('inbox-store-capped-accept');
+    Http::fake([
+        '*/meta.json' => Http::response(['id' => 999111, 'name' => 'Eleventh', 'currency' => 'AUD'], 200),
+        'https://eleventh.com/' => Http::response('<html><head><title>Eleventh</title></head><body>x</body></html>', 200, ['Content-Type' => 'text/html']),
+        '*' => Http::response('', 404),
+    ]);
+
+    // Fill the shopify.store surface to its catalog cap (max_accounts 10).
+    for ($i = 0; $i < 10; $i++) {
+        IntegrationConnection::query()->create([
+            'user_id' => $pro->id, 'platform' => 'shopify', 'surface_key' => 'shopify.store',
+            'routing_class' => 'shop', 'resource_id' => "existing-{$i}", 'payload' => [],
+        ]);
+    }
+
+    $intentId = seedIntent($pro->id, [
+        'surface_key' => 'shopify.store', 'routing_class' => 'shop',
+        'identifier' => '999111', 'canonical_url' => 'https://eleventh.com/',
+        'block_reason' => 'below_threshold',
+    ]);
+
+    Queue::fake();
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertStatus(202);
+    $pushed = null;
+    Queue::assertPushed(CommerceProbeJob::class, function ($job) use (&$pushed) {
+        $pushed = $job;
+
+        return true;
+    });
+    app()->call([$pushed, 'handle']);
+
+    expect(DB::table('routing.source_intents')->where('id', $intentId)->value('block_reason'))->toBe('cap_reached');
+});
+
+it('does not let a dropped already-connected intent unmask the legacy card for its surface', function () {
+    // $claimed is built from the RENDERED rows, so filtering an intent out
+    // frees its surface slot and SyncFindingsBridge folds the legacy finding
+    // for the same platform in behind it — the dedup bug returning through
+    // the other door. The INTENT wins the slot whether or not it renders.
+    $pro = createTenant('inbox-unmask');
+
+    $ig = new IntegrationConnection([
+        'surface_key' => 'instagram.profile', 'routing_class' => 'social', 'resource_id' => 'me',
+        'payload' => [
+            'username' => 'me',
+            'syncFindings' => [[
+                'platform' => 'opentable', 'category' => 'reservations', 'label' => 'OpenTable',
+                'outcome' => 'conflict', 'foundUrl' => 'https://www.opentable.com/r/legacy-venue',
+            ]],
+        ],
+        'is_active' => true,
+    ]);
+    $ig->user_id = $pro->id;
+    $ig->save();
+
+    // The intent's account is already connected, so the filter drops its card.
+    IntegrationConnection::query()->create([
+        'user_id' => $pro->id, 'platform' => 'opentable', 'surface_key' => 'opentable.reserve',
+        'routing_class' => 'reservations', 'resource_id' => '12345', 'payload' => [],
+    ]);
+    seedIntent($pro->id, [
+        'surface_key' => 'opentable.reserve', 'routing_class' => 'reservations',
+        'identifier' => '12345', 'canonical_url' => 'https://www.opentable.com/r/some-venue',
+    ]);
+
+    $rows = collect(actingAsUser($pro)->getJson('/api/routing/suggestions')->assertOk()->json('suggestions'));
+
+    expect($rows->pluck('surfaceKey'))->not->toContain('opentable.reserve');
+});
