@@ -250,12 +250,12 @@ it('attributes prices and item links to their own platform when a dish sells on 
 });
 
 it('keeps a legacy two-platform dish\'s platforms but drops the urls when no storefront resolves them', function () {
-    // The documented degradation for PRE-MIGRATION rows (offers carrying a
-    // url with no platform label): with no storefront the url cannot be
-    // attributed, and pointing a DoorDash button at Uber Eats is worse than
-    // showing no link. Pinned so a later "fix" that guesses is a red test.
-    // (Post-2026-08-26 writes carry the platform label and never enter this
-    // path — menus rebuild wholesale, so these rows die on the next scrape.)
+    // C6 (2026-08-27): the host-matching fallback is DELETED — a legacy row
+    // (url, no platform label) contributes NOTHING to the fold: platform
+    // memberships still name the platforms, but prices and links stay null
+    // rather than being guessed. Pinned so a later "fix" that reintroduces
+    // host-guessing is a red test. (Live legacy rows exist only on RETIRED
+    // items after the 2026-08-27 full-menu refresh.)
     $user = createTenant('mmi-'.Str::lower(Str::random(8)));
     $itemId = mmiWriteDish($user, ['name' => 'Iced Latte', 'base_price' => 5.5], [], [
         ['platform' => 'uber_eats', 'delivery_price' => 6.5],
