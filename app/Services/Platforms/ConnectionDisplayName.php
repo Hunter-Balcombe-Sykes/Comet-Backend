@@ -173,6 +173,16 @@ final class ConnectionDisplayName
                 return $value;
             }
         }
+        // A Google Business listing's own photo set (resolved URLs, refreshed
+        // weekly) — the listing's first photo is its face (plan 04 step A).
+        $photos = $payload['photos'] ?? null;
+        if (is_array($photos)) {
+            $value = self::text($photos[0] ?? null);
+            if ($value !== null && preg_match('~^https?://~i', $value)) {
+                return $value;
+            }
+        }
+
         $latest = $payload['latest'] ?? null;
         if (is_array($latest)) {
             $value = self::text($latest['thumbnail'] ?? null);

@@ -15,6 +15,10 @@ class YoutubeConnectionResource extends TileConnectionResource
     {
         return [
             'handle' => $this->resource['handle'] ?? null,
+            // The CHANNEL's own avatar (stored by YoutubeConnect since day
+            // one, dropped here until plan 04 step A, 2026-08-27) — the
+            // connect summary shows the account's face, not the brand glyph.
+            'avatarUrl' => $this->resource['avatarUrl'] ?? null,
             'name' => $this->resource['name'] ?? null,
             'description' => $this->resource['description'] ?? null,
             'link' => $this->resource['link'] ?? null,
