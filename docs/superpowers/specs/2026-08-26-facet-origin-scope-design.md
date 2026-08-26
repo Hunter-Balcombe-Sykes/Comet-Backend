@@ -1,6 +1,6 @@
 # Facet origin scope — design
 
-**Status:** approved 2026-08-26, not yet implemented.
+**Status:** approved 2026-08-26, IMPLEMENTED 2026-08-26 — see §10 Results.
 **Branch:** `fix/manual-merge-facet-loss-2026-08-26`, off `development` @ `ce9fd4021`.
 **Origin:** `docs/superpowers/plans/2026-08-25-projectionwriter-identity-scope.md` §H.4, raised by
 review during the identity-scope follow-up work and deliberately not bundled there.
@@ -243,3 +243,102 @@ Each new test must be shown red before the fix. Shared helpers go in `tests/Help
 - **Whether the connector flag ever gets flipped on** is a follow-up decision that needs dev
   observation first. Landing it off is not a half-measure; it is the rollback the identity-scope work
   wished it had kept.
+
+---
+
+## 10. Results (implemented 2026-08-26)
+
+Shipped on `fix/manual-merge-facet-loss-2026-08-26`, rebased onto `development` @ `1151b0b6e`
+(PR #311, the audit tranche) **before** Task 1 rather than at merge time — that tranche had
+rewritten `recordCandidates()`, grown `resolveItemsLocked()` and moved the `'content' => [`
+config block, so every line reference in the plan was stale.
+
+### Measured
+
+| Lane | Before | After |
+|---|---|---|
+| Fast suite (`php artisan test --parallel`) | 3 skipped, 9358 passed, **2 failed** | 3 skipped, **9362 passed, 0 failed** |
+| PG lane (`phpunit.pg.xml`) | 2 failed, 3 skipped, **252 passed** | 2 failed, 3 skipped, **259 passed** |
+| `tests/Feature/Ingest/` with the flag OFF | 543 passed | 545 passed (543 pre-existing + 2 new), 0 failed |
+
+The 2 PG-lane failures are pre-existing and untouched: `LanderFoldAtomicityTest` dies in
+`beforeEach` on `ingest.record_state`. The 2 fast-suite failures were CAUSED by this work and are
+fixed within it — see "Guards this tripped" below. The baseline of 252 was re-measured on the
+rebased commit; the plan's recorded 244 predated the tranche.
+
+Seven new PG-lane tests (3 scoping + 4 fold) and 2 new fast-lane tests.
+
+### Spec §6 coverage
+
+| Case | Where | Note |
+|---|---|---|
+| 1 merge keeps both photos | `MergeFacetFoldTest` | red first: 1 row, not 2 |
+| 2 then save one — both survive | `FacetOriginScopeTest` | red first: 1 row, not 2 |
+| 3 shared photo deduped | `MergeFacetFoldTest` | |
+| 4 fold exceeds cap, log fires | `MergeFacetFoldTest` | red first: 5 rows, not 3 |
+| 5 connector, flag off, unchanged | `FacetOriginConnectorScopeTest` + whole `Feature/Ingest/` | |
+| 6 connector, flag on, partial run | `FacetOriginConnectorScopeTest` | see below |
+| 7 NULL row still replaced | `FacetOriginScopeTest` | green before AND after, by design |
+| 8 curated loser keeps its media | `MergeFacetFoldTest` | green before AND after, by design |
+| 9 survivor already at cap | `MergeFacetFoldTest` | folded into case 4's fixture |
+
+**Case 6 was not in the plan's task list.** The plan's self-review claimed Tasks 2–4 covered it, but
+every test there exercises the MANUAL lane, where scoping is unconditional and the flag is therefore
+unobservable. It is now `tests/Feature/Ingest/FacetOriginConnectorScopeTest.php`, which runs one
+fixture twice and asserts the flag actually gates: **2 rows on, 1 row off.** The flag-off half is a
+pin, not an aspiration — the connector lane ships on today's behaviour.
+
+That test is in the FAST lane deliberately. It is a delete-PREDICATE test: nothing is deleted from
+`content.items`, no FK fires, and SQLite evaluates the same `WHERE` clause Postgres would. The
+cascade half genuinely cannot live there, and did not.
+
+Producing a partial connector run is the whole difficulty, and the first fixture got it wrong:
+clearing `is_current` on the record VERSION changes nothing, because `projectStream()` joins
+`ingest.record_state` to its `current_version_id` and filters `rs.tombstoned_at IS NULL`. The run
+stayed whole, and the pair passed for the wrong reason in one direction while failing in the other.
+Tombstoning the `record_state` row is the real mechanism.
+
+### What the plan did not anticipate
+
+Three consumers had to move with `$byItem`'s shape change; the plan named one.
+
+1. **`writeFacets()` reads `$byItem` twice.** The singleton-facet fold loop below the
+   `replaceCollections()` call iterates the same array. Left alone it would have fatalled on
+   `$projection['facets']`.
+2. **`resolveMediaAssets()` fingerprints the media ENTRY.** Handed the origin wrapper it finds no
+   `'url'`, mints no asset, and leaves every `item_media.asset_id` null — silently. It now gets an
+   unwrapped view at the call site.
+3. **`createTenant()` is unusable in `tests/Postgres/`.** The plan's test snippets called it; it is
+   used in none of the files there, because it inserts `handle`/`auth_user_id`/`status` into
+   `core.users` and that lane's stand-in is a one-column table.
+
+### Guards this tripped
+
+- **`CheckpointSuppressionStalenessTest`.** Binding the DELETE to `$delete` before `->delete()`
+  changed the source line of a suppressed SQL-injection finding, so its content-addressed hash went
+  dead and the finding silently REOPENED. Re-vetted (`$table` still comes from the same closed
+  literal `$tables` map) and re-hashed `66f9a31cbb50` → `19f4c8354118`.
+- **`NoLocalCanonicalTableDdlTest`.** The shared PG stand-in DDL was first written to
+  `tests/Helpers/`, which the guard scans. It excludes `tests/Postgres/` by path precisely because
+  PG-lane files legitimately hand-roll PG-flavoured DDL, and that exclusion is earned by
+  `uses(PostgresTestCase::class)->in(__FILE__)` — something a helper file can never do. Resolved by
+  following the convention the sibling PG files already use (DDL inline, `fos_`/`mff_` prefixed)
+  rather than widening the guard's baseline.
+
+### On §9's uncertainties
+
+- **The cap of 8 is still a judgement, not a measurement.** Nothing here observed a real merged item
+  near it. It remains config-driven so it can be tuned without a deploy.
+- **The backfill is still untested against production volume**, and now certainly always will be:
+  production has no `content` schema at all, so it has only ever run on dev.
+- **`position` renumbering (§5.2) is deliberately NOT implemented.** `item_media`'s
+  `(item_id, role, position)` index is not unique, colliding positions are legal, and no case in §6
+  can observe the difference — it would be untested code. If render order turns out to matter it is a
+  follow-up with its own failing test, not a line added here on faith.
+
+### The connector flag: do NOT flip it yet
+
+`PARTNA_CONTENT_FACET_ORIGIN_SCOPE` stays `false`. The evidence for scoping is real, but it is all
+from the manual lane plus one synthetic connector fixture; no dev connector traffic has run against
+it. Flipping it needs dev observation first — and note the `config:cache` caveat the identity-scope
+flag documents: a redeploy is required before a change to this value is observed at all.
