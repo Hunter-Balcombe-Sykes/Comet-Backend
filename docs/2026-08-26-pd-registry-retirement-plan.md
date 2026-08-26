@@ -353,7 +353,58 @@ pre-dating tonight at 79faa511d):**
    presence; stale array-shape docblocks, provably-redundant guards, and
    one stale UberEats baseline entry cleaned. Analyse green.
 
-**P5 scouting notes (for the next session):** google_business surface is
+**P4 GATE CLOSED (2026-08-27 ~05:35 AEST):** first COMPLETE suite run
+since 01:23 — 9440 passed, 1 failed (the never-run JobHygienePolicyTest
+catching SweepPreviousWebsiteCardsJob's missing backoff/failed(); fixed,
+its test green). `composer analyse` green. Merged to development as
+9607c8277; deploy succeeded. Live dev evidence: apple-music, eventbrite
+and youtube refreshes all `ok` THROUGH the derived descriptors; skool
+PRESENT derived=true (un-vaporized by the artefact fix); dev logs
+error-free. Fresh-eyes Sonnet critic on the whole 97bdd51cf..9607c8277
+batch: dispatched (result logged below when in).
+
+## RUN CHECKPOINT — 2026-08-27 overnight (P5 + P6 COMPLETE — THE PLAN'S END-STATE IS REACHED)
+
+**P5 SHIPPED (per-unit commits, harness diff + registry suites at each):**
+- fresha → FreshaBinding (CA-W6/W7 connectFetch override, completeness
+  predicate, HostMatch, regex'd connectInput, Bespoke). Diff: derived +
+  surface_key 'fresha.book' only (plus the one-time has_fetch re-baseline
+  from the harness fix — fetch-carrying slugs all stayed true).
+- square → SquareBinding (TileConnectionResource, HostMatch, regex'd
+  connectInput + custom message, Bespoke). Diff: square only.
+- opentable/resdiary/nowbookit → three bindings, one unit (ConnectStrategy
+  + frozen 422s, can_use_reservations gate, ServiceMatch now resolving its
+  service LAZILY at match time instead of eagerly at boot, MultiAccount).
+  Diff: exactly the trio.
+- google-business → GoogleBusinessBinding via the NEW notConnectable
+  relaxation (a BEHAVIOUR_BINDINGS slug derives unconditionally — the
+  binding's existence is the declaration). Diff: google-business only.
+- instagram → InstagramBinding — THE LAST hand-written brand entry.
+  NEVER_UPGRADE retained: its derived descriptor is Bespoke +
+  connectField-less, exactly the shape upgrades() exists to "fix".
+- Decisions: apple pair keep bespoke /apple/* hand-written route groups
+  (descriptors derive; nothing left to retire). ProviderDetector is KEPT —
+  registry-driven, works identically off binding-carried detects, and
+  GoogleBusinessAutoSync:374 is a real consumer (P0.5's deletion idea dies
+  here for good). shop stays THE ONE hand-written registration — a FAMILY
+  descriptor with no catalog surface; deriving it would mean inventing a
+  fake surface for zero gain.
+
+**P6 SHIPPED:** provider reduced to 217 lines — singleton + shop + the
+derivation/upgrade passes + boot limiters; the per-platform retirement
+museum collapsed to one narrative header. Comment-only consolidation
+PROVEN byte-identical (harness diff: zero slugs changed). upgrades() is
+KEPT and re-documented: it is load-bearing for the 11 strategy-less
+LinkOnly slugs (linkOnlyDescriptor attaches connect/routes only when a
+normalizer exists). handWrittenFreeze() mechanism kept as the safety net
+(its frozen∩hand-written set is now empty — 'shop' is not a legacy-map
+slug). Orphan sweep: config partna.refresh.intervals lost its dead
+'twitch' key; feature_availability has exactly one integration.* row
+(integration.fresha — live key, kept). Final roster archived:
+docs/registry-dump-2026-08-27-pd-retirement-final.json — **102 slugs,
+101 derived, hand-written = ['shop'].**
+
+**P5 scouting notes (superseded — kept for the record):** google_business surface is
 `notConnectable()` → its retirement needs the candidates() relaxation
 extended to BEHAVIOUR_BINDINGS slugs (GB has detectors; the connectable
 gate is the blocker). `shop` has NO catalog surface (family descriptor,
