@@ -305,6 +305,35 @@ class DerivedDescriptorFactory
             );
         }
 
+        // P0.1 (PD-retirement plan, 2026-08-27): category from the surface's
+        // routing class, refined by its shelf — previously null on every
+        // derived descriptor, so ActionCandidates fell back to routing class
+        // and the retired detect-only entries lost their dashboard grouping.
+        $category = $this->categoryFor($surface);
+        if ($category !== null) {
+            $descriptor->category($category);
+        }
+
         return $descriptor;
+    }
+
+    /** routing_class (+ shelf refinement) → dashboard category. */
+    private function categoryFor(array $surface): ?PlatformCategory
+    {
+        $shelf = (string) ($surface['shelf'] ?? '');
+        if ($shelf === 'music') {
+            return PlatformCategory::Music;
+        }
+
+        return match ((string) ($surface['routing_class'] ?? '')) {
+            'ordering' => PlatformCategory::OnlineOrdering,
+            'booking' => PlatformCategory::Booking,
+            'reservations' => PlatformCategory::Reservations,
+            'shop' => PlatformCategory::Shop,
+            'social' => PlatformCategory::Social,
+            'events' => PlatformCategory::Events,
+            'content' => PlatformCategory::Content,
+            default => null,
+        };
     }
 }

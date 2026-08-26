@@ -377,56 +377,21 @@ class PlatformRegistryServiceProvider extends ServiceProvider
             $r->get('humanitix')->detect(new HostMatch('~(^|\.)humanitix\.com$~'));
 
             // ── 2026-07-26 Platform expansion: Booking detect-only ──
-            $r->register(PD::make('booksy')->label('Booksy')->category(Cat::Booking)->payload(CardPayload::class));
-            $r->get('booksy')->detect(new HostMatch('~(^|\.)booksy\.com$~'));
-            $r->register(PD::make('vagaro')->label('Vagaro')->category(Cat::Booking)->payload(CardPayload::class));
-            $r->get('vagaro')->detect(new HostMatch('~(^|\.)vagaro\.com$~'));
-            $r->register(PD::make('timely')->label('Timely')->category(Cat::Booking)->payload(CardPayload::class));
-            $r->get('timely')->detect(new HostMatch('~(^|\.)gettimely\.com$~'));
-            $r->register(PD::make('kitomba')->label('Kitomba')->category(Cat::Booking)->payload(CardPayload::class));
-            $r->get('kitomba')->detect(new HostMatch('~(^|\.)kitomba\.com$~'));
-            $r->register(PD::make('phorest')->label('Phorest')->category(Cat::Booking)->payload(CardPayload::class));
-            $r->get('phorest')->detect(new HostMatch('~(^|\.)phorest\.com$~'));
-            $r->register(PD::make('shortcuts')->label('Shortcuts')->category(Cat::Booking)->payload(CardPayload::class));
-            $r->get('shortcuts')->detect(new HostMatch('~(^|\.)shortcuts\.(com\.au|net)$~'));
-            $r->register(PD::make('bella-booking')->label('Bella Booking')->category(Cat::Booking)->payload(CardPayload::class));
-            $r->get('bella-booking')->detect(new HostMatch('~(^|\.)bellabooking\.com$~'));
-
-            // ── 2026-07-26 Platform expansion: Reservations detect-only ──
-            $r->register(PD::make('resy')->label('Resy')->category(Cat::Reservations)->payload(CardPayload::class));
-            $r->get('resy')->detect(new HostMatch('~(^|\.)resy\.com$~'));
-            $r->register(PD::make('quandoo')->label('Quandoo')->category(Cat::Reservations)->payload(CardPayload::class));
-            $r->get('quandoo')->detect(new HostMatch('~(^|\.)quandoo\.(com|com\.au|de|at|ch|it|co\.uk|sg|hk|nl|fi)$~'));
-
-            // ── 2026-07-26 Platform expansion: Events detect-only ──
-            $r->register(PD::make('ticketek')->label('Ticketek')->category(Cat::Events)->payload(CardPayload::class));
-            $r->get('ticketek')->detect(new HostMatch('~(^|\.)ticketek\.(com|com\.au|co\.nz|com\.ar)$~'));
-            $r->register(PD::make('oztix')->label('Oztix')->category(Cat::Events)->payload(CardPayload::class));
-            $r->get('oztix')->detect(new HostMatch('~(^|\.)oztix\.com\.au$~'));
-            $r->register(PD::make('trybooking')->label('TryBooking')->category(Cat::Events)->payload(CardPayload::class));
-            $r->get('trybooking')->detect(new HostMatch('~(^|\.)trybooking\.com$~'));
-            $r->register(PD::make('resident-advisor')->label('Resident Advisor')->category(Cat::Events)->payload(CardPayload::class));
-            $r->get('resident-advisor')->detect(new HostMatch('~(^|\.)ra\.co$~'));
-
-            // ── 2026-07-26 Platform expansion: Logo-only ──
-            $r->register(PD::make('ticketmaster')->label('Ticketmaster')->category(Cat::Events)->payload(CardPayload::class));
-            $r->get('ticketmaster')->detect(new HostMatch('~(^|\.)ticketmaster\.(com|com\.au|co\.uk|co\.nz|ca|de|fr|es|it|nl|be|dk|se|no|fi|at|ch|ie|com\.mx|sg|ae)$~'));
-            // bopple + square-ordering retired to catalog-derived descriptors
-            // (menu deep-links plan Part C, 2026-08-26) — their catalog
-            // definitions are the single source; the derivation loop below
-            // fills the registry slot. The PD detect() halves were already
-            // production-dead (ProviderDetector is queried for 'booking'
-            // only, never 'online-ordering').
-            // Logo-only: booking platforms
-            foreach (['boulevard' => '~(^|\.)boulevard\.io$~', 'glossgenius' => '~(^|\.)glossgenius\.com$~', 'mangomint' => '~(^|\.)mangomint\.com$~', 'zenoti' => '~(^|\.)zenoti\.com$~', 'mindbody' => '~(^|\.)mindbodyonline\.com$~', 'ovatu' => '~(^|\.)ovatu\.com$~'] as $slug => $pattern) {
-                $r->register(PD::make($slug)->label(ucfirst($slug))->category(Cat::Booking)->payload(CardPayload::class));
-                $r->get($slug)->detect(new HostMatch($pattern));
-            }
-            // Logo-only: reservation platforms
-            foreach (['sevenrooms' => '~(^|\.)sevenrooms\.com$~', 'tock' => '~(^|\.)(exploretock\.com|tock\.com)$~', 'tablecheck' => '~(^|\.)tablecheck\.com$~'] as $slug => $pattern) {
-                $r->register(PD::make($slug)->label(ucfirst($slug))->category(Cat::Reservations)->payload(CardPayload::class));
-                $r->get($slug)->detect(new HostMatch($pattern));
-            }
+            // ── PD-retirement P1 (2026-08-27): the 23 detect-only card
+            // entries (booking: booksy, vagaro, timely, kitomba, phorest,
+            // shortcuts, bella-booking, boulevard, glossgenius, mangomint,
+            // zenoti, mindbody, ovatu; reservations: resy, quandoo,
+            // sevenrooms, tock, tablecheck; events: ticketek, oztix,
+            // trybooking, resident-advisor, ticketmaster) are retired to
+            // catalog-derived descriptors — each brand's catalog definition
+            // is the single source, and the derivation loop below fills the
+            // registry slot with CardPayload parity plus the routing-class
+            // category. Their PD HostMatch detectors were load-bearing only
+            // for ProviderDetector's fresha/square special-cases, which stay
+            // hand-written; every other brand already classifies through the
+            // catalog (WebsiteLinkHarvester + LegacyPlatformMap).
+            // bopple + square-ordering + hungrypanda + easi went first
+            // (menu deep-links plan Part C, 2026-08-26).
             // hungrypanda + easi: retired to catalog-derived descriptors —
             // same ruling as bopple/square-ordering above.
 

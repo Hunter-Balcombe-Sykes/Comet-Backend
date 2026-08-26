@@ -209,3 +209,26 @@ generic connect `GenericPlatformController` (:73-244), request rules
 `RefreshIntegrationConnectionsCommand` (:31-93); allowlists
 `PublicIntegrationConnectionResource::ALLOWLIST`,
 `DsarPayloadFilter::DSAR_ALLOWLIST`; enum `Registry/Platform.php` (:13-21).
+
+---
+# RUN CHECKPOINTS
+
+**P0 + P1 SHIPPED — 2026-08-27 ~09:30 AEST.** P0.0 (freeze fix) and the
+four ordering retirements were banked by plan 1. This session: P0.1
+category derivation (routing class + shelf → Cat; verified live — the
+four retirees regained 'online-ordering'); the registry-diff harness
+(`php artisan registry:dump`, stable JSON of every observable descriptor
+field); P0.5 CORRECTED — ProviderDetector is NOT production-dead
+(GoogleBusinessAutoSync:374 uses detectFor('booking') for the
+fresha/square special-cases; deletion deferred to P5's google-business
+unit; the critic's zero-references claim was wrong). P1: all 23
+remaining detect-only card entries deleted; harness diff shows EXACTLY
+23 changes — derived:true + has_detect:false, three labels IMPROVED to
+catalog casing (GlossGenius/SevenRooms/TableCheck vs the old ucfirst
+hack), zero missing/added slugs, every other field byte-identical.
+Safety trace: their PD detectors fed only ProviderDetector, whose only
+load-bearing answers are fresha/square (still hand-written); every other
+brand classifies via WebsiteLinkHarvester + LegacyPlatformMap.
+RegistryCoverageTest's retired list now spans all 27. Golden master
+unchanged; registry + golden suites green; full suite green (exit 0).
+Hand-written entries remaining: ~40 (P2 socials next, then P3, P4, P5).
