@@ -41,8 +41,6 @@ class ActionScorer
 
     private const HALF_LIFE_DAYS = 90.0;
 
-    private const BLEND_NEW = 0.7;
-
     private const BLEND_PREV = 0.3;
 
     /**

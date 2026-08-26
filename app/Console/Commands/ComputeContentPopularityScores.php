@@ -90,11 +90,9 @@ class ComputeContentPopularityScores extends Command
     // its blended score decays below this. Matches ContentFreshness::MIN_BOOST.
     private const SCORE_FLOOR = 0.05;
 
-    // Hysteresis: blend new vs previous stored score, and the rank-swap gate.
-    private const BLEND_NEW = 0.7;
-
-    private const BLEND_PREV = 0.3;
-
+    // Hysteresis: the blend weight is cadence-aware since 2026-08-27
+    // (ActionScorer::cadenceBlendPrev — 0.3^(dt/1day) clamped); the rank-swap
+    // gate below is this class's own.
     private const RANK_SWAP_THRESHOLD = 0.10; // must beat the incumbent above by >10%
 
     private const SITE_CHUNK = 200;
