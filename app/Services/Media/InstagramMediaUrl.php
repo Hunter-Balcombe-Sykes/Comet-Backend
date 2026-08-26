@@ -2,7 +2,9 @@
 
 namespace App\Services\Media;
 
+use App\Services\Cache\ApifyBudget;
 use App\Services\Http\SafeUrlFetcher;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -37,6 +39,11 @@ class InstagramMediaUrl
     /** Skew: a URL expiring within this window is as good as dead. */
     private const EXPIRY_SKEW_SECONDS = 300;
 
+    /** A refresh that failed on BOTH legs is not retried for this long —
+     *  deleted posts and private accounts must not burn an actor run per
+     *  mirror sweep (gate critic, 2026-08-27). */
+    private const FAILED_REFRESH_TTL_SECONDS = 21600;
+
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
 
     /** Unix epoch the URL's signature lapses, or null when it carries no oe=. */
@@ -68,6 +75,10 @@ class InstagramMediaUrl
         if (preg_match(self::SHORTCODE_PATTERN, $shortCode) !== 1) {
             return null;
         }
+        $failKey = "instagram-refresh-failed:{$shortCode}:{$kind}:{$position}";
+        if (Cache::has($failKey)) {
+            return null;
+        }
 
         // Embed leg — free, prod-egress-verified. Only authoritative for the
         // video and the FIRST image; deeper carousel children need the actor.
@@ -83,6 +94,8 @@ class InstagramMediaUrl
         $fresh = $this->fromSinglePostScrape($shortCode, $kind, $position);
         if ($fresh !== null) {
             Log::info('media_mirror.refreshed', ['short_code' => $shortCode, 'kind' => $kind, 'leg' => 'actor']);
+        } else {
+            Cache::put($failKey, true, self::FAILED_REFRESH_TTL_SECONDS);
         }
 
         return $fresh;
@@ -104,7 +117,29 @@ class InstagramMediaUrl
         if (preg_match('/'.$field.'\\\\?":\\\\?"((?:[^"\\\\]|\\\\.)+?)\\\\?"/', $html, $m) !== 1) {
             return null;
         }
-        $url = str_replace(['\\/', '\\u0026'], ['/', '&'], stripslashes($m[1]));
+
+        return $this->decodeEmbeddedUrl($m[1]);
+    }
+
+    /**
+     * A captured embed-page URL is a JSON string escaped once or twice
+     * (double on the live-verified shape). json_decode handles each layer
+     * honestly — no hand-rolled stripslashes ordering bug can corrupt an
+     * `\u0026` ampersand (gate critic, 2026-08-27).
+     */
+    private function decodeEmbeddedUrl(string $captured): ?string
+    {
+        $url = $captured;
+        for ($i = 0; $i < 2; $i++) {
+            if (! str_contains($url, '\\')) {
+                break;
+            }
+            $decoded = json_decode('"'.$url.'"');
+            if (! is_string($decoded)) {
+                break;
+            }
+            $url = $decoded;
+        }
 
         return $this->validFbcdnUrl($url) ? $url : null;
     }
@@ -113,6 +148,15 @@ class InstagramMediaUrl
     {
         $token = config('services.apify.token');
         if (! $token) {
+            return null;
+        }
+
+        // Every paid Apify call in this codebase claims from the shared
+        // budget before spending; the refresh joins the instagram actor's
+        // daily cap (gate critic, 2026-08-27).
+        if (! app(ApifyBudget::class)->tryClaim('instagram')) {
+            Log::info('media_mirror.refresh_budget_denied', ['short_code' => $shortCode]);
+
             return null;
         }
 

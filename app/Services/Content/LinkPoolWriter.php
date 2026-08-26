@@ -100,13 +100,16 @@ class LinkPoolWriter
             ],
         ];
 
-        // Card origin (R2, 2026-08-27): 'scrape' (harvest/unroll lanes) vs
-        // 'manual' (an explicit paste). Recorded as an item_tag so the
-        // previous-website sweep can retire scrape-seeded cards without ever
-        // touching one a person typed. Null = caller doesn't know (e.g. the
-        // enrichment write-back) — the tag group is omitted and the stored
-        // tag survives, same preserve-by-omission contract as media above.
+        // Card origin (R2, 2026-08-27; corrected by the gate critic): 'scrape'
+        // (harvest/unroll lanes) vs 'manual' (an explicit paste), recorded as
+        // an item_tag so the previous-website sweep can retire scrape-seeded
+        // cards without ever touching one a person typed. ProjectionWriter
+        // REPLACES an item's tag set on every write — omission does NOT
+        // preserve — so a null-origin write (the enrichment write-back, which
+        // add() itself auto-dispatches) must RE-SUPPLY the stored origin or
+        // the tag this feature depends on is wiped by its own follow-up job.
         // Untagged legacy cards are deliberately NEVER swept.
+        $origin ??= $this->storedOrigin($userId, $coord);
         if ($origin !== null) {
             $projection['tags'] = [['tag' => $origin, 'tag_type' => 'link_origin']];
         }
@@ -199,6 +202,21 @@ class LinkPoolWriter
             $pin->created_at = now();
         }
         $pin->save();
+    }
+
+    /** The origin tag this coord's item already carries, so a null-origin re-write re-supplies it. */
+    private function storedOrigin(string $userId, string $coord): ?string
+    {
+        $origin = DB::connection('pgsql')->table('content.source_items as si')
+            ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+            ->join('content.item_tags as t', 't.item_id', '=', 'si.item_id')
+            ->where('cs.user_id', $userId)
+            ->where('cs.kind', 'manual')
+            ->where('si.coord', $coord)
+            ->where('t.tag_type', 'link_origin')
+            ->value('t.tag');
+
+        return is_string($origin) && $origin !== '' ? $origin : null;
     }
 
     /** The headline this coord already resolved to, so a title-less re-add does not clobber it. */

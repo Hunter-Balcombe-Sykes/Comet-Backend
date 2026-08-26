@@ -121,7 +121,18 @@ final class MediaMirror
      */
     private function refreshedInstagramUrl(string $userId, string $assetId, string $sourceUrl): ?string
     {
+        // Correlate by the media row's OWN source_item_id where the writer
+        // recorded it (gate critic, 2026-08-27 — a fingerprint-deduped asset
+        // shared across items would otherwise pick an arbitrary row); the
+        // item_id join stays as the fallback for legacy rows that predate
+        // the origin column.
         $row = DB::connection('pgsql')->table('content.item_media as im')
+            ->join('content.source_items as si', 'si.id', '=', 'im.source_item_id')
+            ->where('im.asset_id', $assetId)
+            ->where('si.coord', 'like', 'instagram:%')
+            ->orderBy('im.position')
+            ->first(['si.coord', 'im.position']);
+        $row ??= DB::connection('pgsql')->table('content.item_media as im')
             ->join('content.source_items as si', 'si.item_id', '=', 'im.item_id')
             ->where('im.asset_id', $assetId)
             ->where('si.coord', 'like', 'instagram:%')

@@ -83,3 +83,19 @@ it('does nothing for an unparseable previous website', function () {
     expect(DB::connection('pgsql')->table('content.items')
         ->where('user_id', $user->id)->where('kind', 'link')->whereNull('removed_at')->count())->toBe(1);
 });
+
+it('keeps the origin tag through a null-origin re-write (the enrichment write-back shape)', function () {
+    // Gate-critic regression: ProjectionWriter REPLACES tags per write, and
+    // add() auto-dispatches the enrichment whose write-back passes no origin.
+    // The writer must re-supply the stored origin or the sweep goes blind.
+    $user = pwsUser('pws4');
+    $writer = app(LinkPoolWriter::class);
+    $writer->add($user, 'https://oldsite.example/menu', enrich: false, origin: 'scrape');
+    // The write-back: same coord, richer card, NO origin argument.
+    $writer->add($user, 'https://oldsite.example/menu', 'Old Site Menu', 'A description.', enrich: false);
+
+    (new SweepPreviousWebsiteCardsJob((string) $user->id, 'https://oldsite.example'))->handle();
+
+    expect(DB::connection('pgsql')->table('content.items')
+        ->where('user_id', $user->id)->where('kind', 'link')->whereNull('removed_at')->count())->toBe(0);
+});
