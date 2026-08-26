@@ -69,11 +69,11 @@ class UberEatsMenuDriver implements MenuPlatformDriver
             ];
         }
 
+        // Every $bySection bucket is created by its first item, so none is
+        // ever empty — emit them all in first-seen order.
         $categories = [];
         foreach ($order as $section) {
-            if ($bySection[$section] !== []) {
-                $categories[] = ['name' => $section, 'items' => $bySection[$section]];
-            }
+            $categories[] = ['name' => $section, 'items' => $bySection[$section]];
         }
 
         $rating = data_get($store, 'ratingValue');

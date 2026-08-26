@@ -315,7 +315,7 @@ class MenuScanApplier
         // category already lived in another one — usually a wrapper the
         // denylist should learn.
         foreach ($wrapperStats as $label => $stat) {
-            if (($stat['attached'] ?? 0) > 0 && ($stat['attached'] ?? 0) === ($stat['already_categorized'] ?? 0)) {
+            if ($stat['attached'] === ($stat['already_categorized'] ?? 0)) {
                 Log::info('menu.scan.wrapper_category_candidate', [
                     'user_id' => $userId,
                     'category' => $label,

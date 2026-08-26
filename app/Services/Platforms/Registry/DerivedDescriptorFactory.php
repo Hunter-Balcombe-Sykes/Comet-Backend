@@ -373,7 +373,7 @@ class DerivedDescriptorFactory
 
     /**
      * @param  array<string, mixed>  $surface
-     * @param  array{label: string, normalizer: ?class-string, error: ?string, category: ?PlatformCategory}  $binding
+     * @param  array{label: string, normalizer: ?class-string, error: ?string, category: ?PlatformCategory, field: ?string, max: ?int}  $binding
      */
     private function linkOnlyDescriptor(string $slug, string $surfaceKey, array $surface, array $binding): PlatformDescriptor
     {

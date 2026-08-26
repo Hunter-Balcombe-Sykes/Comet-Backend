@@ -107,7 +107,7 @@ class InstagramMediaUrl
             "https://www.instagram.com/p/{$shortCode}/embed/",
             ['User-Agent' => self::EMBED_UA],
         );
-        $html = is_array($result) && ($result['status'] ?? 0) < 400 ? (string) ($result['body'] ?? '') : '';
+        $html = is_array($result) && $result['status'] < 400 ? $result['body'] : '';
         if ($html === '') {
             return null;
         }

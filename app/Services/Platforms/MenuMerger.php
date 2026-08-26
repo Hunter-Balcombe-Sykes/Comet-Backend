@@ -761,7 +761,7 @@ class MenuMerger
      * consumed (and excluded from the leftover append).
      *
      * @param  list<array<string,mixed>>  $categories
-     * @return array{exact:array<string,array{key:string, item:array<string,mixed>}>, all:list<array{norm:string, key:string, item:array<string,mixed>}>}
+     * @return array{exact:array<string,array{key:string, item:array<string,mixed>}>, variant:array<string,array{key:string, item:array<string,mixed>}>, all:list<array{norm:string, key:string, item:array<string,mixed>}>}
      */
     private function index(array $categories): array
     {
@@ -806,7 +806,7 @@ class MenuMerger
      * similar-but-distinct dishes ("Beef Burrito" vs "Bean Burrito" share no
      * containment), which a fuzzy ratio would wrongly merge.
      *
-     * @param  array{exact:array<string,array{key:string, item:array<string,mixed>}>, all:list<array{norm:string, key:string, item:array<string,mixed>}>}  $index
+     * @param  array{exact:array<string,array{key:string, item:array<string,mixed>}>, variant:array<string,array{key:string, item:array<string,mixed>}>, all:list<array{norm:string, key:string, item:array<string,mixed>}>}  $index
      * @return array{key:string, item:array<string,mixed>}|null
      */
     private function match(string $name, array $index): ?array

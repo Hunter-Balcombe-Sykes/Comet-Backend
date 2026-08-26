@@ -1771,12 +1771,6 @@ parameters:
 			path: app/Services/Platforms/UberEatsMenuDriver.php
 
 		-
-			message: '#^Strict comparison using \!\=\= between non\-empty\-list\<array\{externalId\: null, name\: string, description\: string\|null, price\: float\|null, currency\: string\|null, image\: string\|null, rating\: null, ratingCount\: null, \.\.\.\}\> and array\{\} will always evaluate to true\.$#'
-			identifier: notIdentical.alwaysTrue
-			count: 1
-			path: app/Services/Platforms/UberEatsMenuDriver.php
-
-		-
 			message: '#^Offset ''body'' on array\{status\: 200, body\: string, finalUrl\: string, contentType\: string, etag\: string\|null, lastModified\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
 			identifier: nullCoalesce.offset
 			count: 1
