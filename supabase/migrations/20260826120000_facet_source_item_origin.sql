@@ -15,17 +15,15 @@
 -- per-coord set to preserve. f_action is not included either: it has no writer
 -- anywhere in app/.
 --
--- Plain CREATE INDEX, not CONCURRENTLY: the Supabase CLI sends a
--- multi-statement file as ONE libpq pipeline and CONCURRENTLY fails there with
--- SQLSTATE 25001 (CONVENTIONS.md §1). These tables are small on dev and
--- production carries no `content` schema at all, so a brief lock is the right
--- trade against splitting this into five files.
+-- The four (item_id, source_item_id) indexes that serve the scoped delete are
+-- NOT here: each gets its own +1..+4 file so it can be CONCURRENTLY. A
+-- CONCURRENTLY statement cannot share a file with anything else — the CLI sends
+-- a multi-statement file as ONE libpq pipeline and CONCURRENTLY fails there with
+-- SQLSTATE 25001 (CONVENTIONS.md §1, guard-no-unsafe-migrations check 6). They
+-- lead with item_id, which is populated, so the guard rightly refuses the plain
+-- form: a composite index still scans the whole table.
 --
--- ROLLBACK:
---   DROP INDEX IF EXISTS "content"."idx_item_media_origin";
---   DROP INDEX IF EXISTS "content"."idx_offers_origin";
---   DROP INDEX IF EXISTS "content"."idx_item_tags_origin";
---   DROP INDEX IF EXISTS "content"."idx_item_variants_origin";
+-- ROLLBACK (indexes go with their own files):
 --   ALTER TABLE "content"."item_media"    DROP COLUMN IF EXISTS "source_item_id";
 --   ALTER TABLE "content"."offers"        DROP COLUMN IF EXISTS "source_item_id";
 --   ALTER TABLE "content"."item_tags"     DROP COLUMN IF EXISTS "source_item_id";
@@ -47,15 +45,6 @@ ALTER TABLE "content"."item_tags"
 ALTER TABLE "content"."item_variants"
     ADD COLUMN IF NOT EXISTS "source_item_id" uuid NULL
     REFERENCES "content"."source_items" ("id") ON DELETE CASCADE;
-
-CREATE INDEX IF NOT EXISTS "idx_item_media_origin"
-    ON "content"."item_media" ("item_id", "source_item_id");
-CREATE INDEX IF NOT EXISTS "idx_offers_origin"
-    ON "content"."offers" ("item_id", "source_item_id");
-CREATE INDEX IF NOT EXISTS "idx_item_tags_origin"
-    ON "content"."item_tags" ("item_id", "source_item_id");
-CREATE INDEX IF NOT EXISTS "idx_item_variants_origin"
-    ON "content"."item_variants" ("item_id", "source_item_id");
 
 -- Backfill ONLY where it is unambiguous: the item has exactly one LIVE source
 -- item on that source. Anything ambiguous stays NULL and behaves as it does
