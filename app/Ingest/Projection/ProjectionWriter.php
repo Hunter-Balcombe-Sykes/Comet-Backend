@@ -1617,12 +1617,26 @@ class ProjectionWriter
             'item_variants' => ['label', 'sku'],
         ];
 
-        // The survivor's own live coord, used to stamp a moved row that has no
-        // origin of its own. Resolved once: it is the same for every table.
-        $keptOrigin = DB::table('content.source_items')
+        // A live origin of the survivor PER SOURCE, to stamp a moved row that
+        // has no origin of its own.
+        //
+        // Per source, not "any live origin", and that is load-bearing.
+        // mergeInto() repoints the loser's source_items onto the survivor
+        // BEFORE this runs, so by now the survivor's live coords span every
+        // source either side touched. replaceCollections() deletes
+        // `source_id = ours AND (source_item_id IS NULL OR IN ours-origins)`,
+        // so an origin belonging to ANOTHER source satisfies neither branch and
+        // the row becomes undeletable — the data-DUPLICATION failure the IS NULL
+        // half exists to prevent, reintroduced from the other end.
+        //
+        // A source with no live coord on the survivor yields nothing, and the
+        // row stays NULL: replaceable exactly as today, which is the safe
+        // reading. orderBy() only so a multi-coord source picks deterministically.
+        $keptOriginBySource = DB::table('content.source_items')
             ->where('item_id', $keptItemId)
             ->whereNull('removed_at')
-            ->value('id');
+            ->orderBy('id')
+            ->pluck('id', 'source_id');
 
         foreach ($dedupe as $table => $keys) {
             $seen = [];
@@ -1661,7 +1675,7 @@ class ProjectionWriter
                     // Stamp origin if it has none: an un-attributed moved row
                     // would be clobbered by the survivor's next save, which is
                     // exactly the failure this whole change exists to prevent.
-                    'source_item_id' => $row->source_item_id ?? $keptOrigin,
+                    'source_item_id' => $row->source_item_id ?? ($keptOriginBySource[$row->source_id] ?? null),
                 ]);
             }
         }

@@ -524,3 +524,51 @@ it('caps what a fold adds without ever removing what the survivor already had', 
             && $context['dropped'] === 2)
         ->once();
 });
+
+it('never stamps a moved row with an origin from another source', function () {
+    [$userId, $coordA, , $itemA, $itemB] = mffRuledPair(
+        [mffPhoto('https://cdn.test/a.jpg')],
+        [mffPhoto('https://cdn.test/b.jpg')],
+    );
+
+    // A SECOND source on the loser, whose coord is already retired. Retirement
+    // is soft, so its item_media row outlives it — and a pre-backfill row like
+    // this one carries no origin.
+    $connectorSourceId = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $connectorSourceId, 'user_id' => $userId, 'kind' => 'connection',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $connectorSourceId,
+        'coord' => 'gone:'.Str::uuid(), 'item_id' => $itemB, 'kind' => 'release',
+        'first_seen_at' => now(), 'last_seen_at' => now(), 'removed_at' => now(),
+    ]);
+    DB::table('content.item_media')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $itemB,
+        'source_id' => $connectorSourceId, 'source_item_id' => null,
+        'role' => 'poster', 'position' => 0, 'created_at' => now(),
+    ]);
+
+    app(ProjectionWriter::class)->resolveIdentityFor($userId, 'release', [$coordA]);
+
+    // mergeInto() repoints the loser's source_items onto the survivor BEFORE the
+    // fold, so by fold time the survivor's live source items span both sources'
+    // worth of coords and "any live origin of the survivor" is the wrong answer.
+    //
+    // Stamping this row with a MANUAL-source origin would make it undeletable
+    // forever: replaceCollections() deletes `source_id = ours AND
+    // (source_item_id IS NULL OR IN ours-origins)`, and an origin belonging to
+    // another source satisfies neither branch. That is the data-DUPLICATION
+    // failure the IS NULL half exists to prevent, reintroduced from the other
+    // end. The survivor has no LIVE source item on the connector source, so the
+    // only safe stamp is none — NULL keeps meaning "replaced as today".
+    $orphans = DB::table('content.item_media as im')
+        ->join('content.source_items as si', 'si.id', '=', 'im.source_item_id')
+        ->whereColumn('si.source_id', '!=', 'im.source_id')
+        ->count();
+
+    expect($orphans)->toBe(0)
+        ->and(DB::table('content.item_media')->where('item_id', $itemA)->where('role', 'poster')->value('source_item_id'))
+        ->toBeNull();
+});
