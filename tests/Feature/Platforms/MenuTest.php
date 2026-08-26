@@ -689,7 +689,7 @@ it('does not mark the platform sync status ok when persist() fails after a succe
     // the fix orders around persist().
     $job = new class((string) $user->id) extends MenuFetchJob
     {
-        protected function persist(Menu $menu, string $contentSource, array $merged, Carbon $now): void
+        protected function persist(Menu $menu, string $contentSource, array $merged, Carbon $now, array $failedPlatforms = []): void
         {
             throw new RuntimeException('simulated persist failure');
         }
