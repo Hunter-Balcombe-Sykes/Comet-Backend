@@ -259,14 +259,14 @@ config block, so every line reference in the plan was stale.
 |---|---|---|
 | Fast suite (`php artisan test --parallel`) | 3 skipped, 9358 passed, **2 failed** | 3 skipped, **9362 passed, 0 failed** |
 | PG lane (`phpunit.pg.xml`) | 2 failed, 3 skipped, **252 passed** | 2 failed, 3 skipped, **260 passed** |
-| `tests/Feature/Ingest/` with the flag OFF | 543 passed | 545 passed (543 pre-existing + 2 new), 0 failed |
+| `tests/Feature/Ingest/` with the flag OFF | 543 passed | 546 passed (543 pre-existing + 3 new), 0 failed |
 
 The 2 PG-lane failures are pre-existing and untouched: `LanderFoldAtomicityTest` dies in
 `beforeEach` on `ingest.record_state`. The 2 fast-suite failures were CAUSED by this work and are
 fixed within it — see "Guards this tripped" below. The baseline of 252 was re-measured on the
 rebased commit; the plan's recorded 244 predated the tranche.
 
-Eight new PG-lane tests (3 scoping + 5 fold) and 2 new fast-lane tests.
+Eight new PG-lane tests (3 scoping + 5 fold) and 3 new fast-lane tests.
 
 ### Spec §6 coverage
 
@@ -358,6 +358,46 @@ none" means an origin on that row's OWN source, or none.
   `(item_id, role, position)` index is not unique, colliding positions are legal, and no case in §6
   can observe the difference — it would be untested code. If render order turns out to matter it is a
   follow-up with its own failing test, not a line added here on faith.
+
+### Review (`/code-review high`, 2026-08-26)
+
+Five findings. Four accepted and fixed in `39e73814d`; one deferred, deliberately.
+
+**Accepted — the one that mattered.** The origin-scoped DELETE stranded rows whose origin coord had
+been RETIRED. `retireAbsentSourceItems()` soft-retires a coord whose upstream record was tombstoned
+and its facet rows outlive it, matching neither the `IS NULL` half nor the covered set — so nothing
+could ever delete them, while `PoolResolver` reads these tables by `item_id` with no source-item
+liveness filter. The unscoped delete used to sweep them.
+
+The predicate is now **protect-these rather than delete-these**: preserve only rows contributed by a
+coord of this source that is still live on one of these items and that this write does not cover.
+Retired origins — and legacy foreign-source origins — are both reclaimed, so it is self-healing.
+
+Severity qualifier the review did not draw out: this is **connector-lane only**.
+`retireAbsentSourceItems()` filters on `stream_id` and `writeManualItem()` passes `streamId: null`,
+so a manual coord is never retired by that path. It was never a day-one bug; it was a trap that would
+have sprung the moment the flag was flipped, which is the entire point of shipping the flag.
+
+It also invalidated the first connector fixture, which tombstoned a record — thereby RETIRING that
+coord and asserting the opposite of the intended behaviour. Two streams on one source leave the
+second coord LIVE and uncovered, which is the real partial run.
+
+**Accepted — the rest.** `offers`' dedupe tuple gained `url` (`PoolResolver` turns it into one of the
+item's links, so identically-priced offers with different booking URLs are not the same fact);
+`foldKey()` no longer dedupes `item_media` when `asset_id` is null (two unresolved photos of the same
+role hashed equal); and the fold now groups moved rows by the origin they take and writes them with
+chunked `whereIn()` updates instead of one UPDATE per row inside the advisory lock and transaction.
+
+**Deferred — `position` renumbering.** The review is right that the collision is observable:
+`PoolResolver::itemPayloads()` orders `content.item_media` by `position` alone
+(`PoolResolver.php:1108`) and `cover()` breaks ties by arrival order, so merging two items that each
+carry a `role='cover'` photo at `position = 0` leaves which photo renders planner-dependent.
+
+It is **not** implemented here, on the standing instruction that §5.2's renumbering is out of scope
+for this branch. That is now a follow-up with a concrete reproduction rather than a maybe: merge two
+hand-added items each holding one `cover` at position 0, then assert a stable render order across
+repeated `PoolResolver` reads. `content.item_variants.position` collides the same way and
+`ShopContentWriter` reads it with `orderBy('position')`.
 
 ### The connector flag: do NOT flip it yet
 
