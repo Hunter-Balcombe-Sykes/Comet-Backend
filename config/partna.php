@@ -1270,6 +1270,21 @@ return [
         // content.items walk.
         'slug_backfill_chunk' => (int) env('PARTNA_CONTENT_SLUG_BACKFILL_CHUNK', 500),
 
+        // Facet origin scoping (spec 2026-08-26). When ON, replaceCollections()
+        // deletes only rows whose source_item_id is one of the coords the write
+        // covers (plus NULL rows, which are un-attributed and must keep being
+        // replaced as before). When OFF, the delete is byte-for-byte what it
+        // always was: item_id IN (batch) AND source_id = ours.
+        //
+        // This gates the CONNECTOR lane only. The manual source is scoped
+        // unconditionally, because that is the lane with the live data-loss bug
+        // and it has no comparable traffic to risk.
+        'facet_origin_scope' => (bool) env('PARTNA_CONTENT_FACET_ORIGIN_SCOPE', false),
+
+        // Media rows a single merge fold may ADD to an item. Never removes rows
+        // the survivor already has — see ProjectionWriter::foldCollections().
+        'merge_media_cap' => (int) env('PARTNA_CONTENT_MERGE_MEDIA_CAP', 8),
+
         // Identity-scope narrowing (#CACHE-2, #CACHE-4). When on,
         // resolveItemsLocked() resolves only the CONNECTED COMPONENT of the
         // coords a run touched instead of the user's whole catalogue for the

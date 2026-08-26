@@ -3047,6 +3047,7 @@ function setupContentTables(): void
         id TEXT PRIMARY KEY NOT NULL,
         item_id TEXT NOT NULL,
         source_id TEXT NOT NULL,
+        source_item_id TEXT NULL,
         asset_id TEXT NULL,
         role TEXT NOT NULL CHECK (role IN (\'cover\',\'gallery\',\'poster\',\'avatar\',\'logo\',\'video\')),
         position INTEGER NOT NULL DEFAULT 0,
@@ -3058,6 +3059,7 @@ function setupContentTables(): void
         id TEXT PRIMARY KEY NOT NULL,
         item_id TEXT NOT NULL,
         source_id TEXT NOT NULL,
+        source_item_id TEXT NULL,
         channel TEXT NULL,
         variant_label TEXT NULL,
         amount_minor INTEGER NULL,
@@ -3073,6 +3075,7 @@ function setupContentTables(): void
         id TEXT PRIMARY KEY NOT NULL,
         item_id TEXT NOT NULL,
         source_id TEXT NOT NULL,
+        source_item_id TEXT NULL,
         tag TEXT NOT NULL,
         tag_type TEXT NULL
     )');
@@ -3085,6 +3088,7 @@ function setupContentTables(): void
         id TEXT PRIMARY KEY NOT NULL,
         item_id TEXT NOT NULL,
         source_id TEXT NOT NULL,
+        source_item_id TEXT NULL,
         label TEXT NOT NULL,
         sku TEXT NULL,
         image_url TEXT NULL,

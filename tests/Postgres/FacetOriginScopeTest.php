@@ -1,34 +1,26 @@
 <?php
 
-// Guards mergeInto()'s anchor-repair step (plan 2026-08-25 §A.4, added alongside the
-// identity-scope narrowing this task ships).
+// Origin scoping (spec 2026-08-26 §5.1): replaceCollections() must delete only
+// the rows the coords it is writing actually contributed.
 //
-// THE MECHANISM. content.item_anchors.item_id REFERENCES content.items(id) ON DELETE CASCADE.
-// mergeInto() sets superseded_by on the loser's anchors but never touches their item_id column,
-// repoints content.source_items with an UNSCOPED update (WHERE item_id = $discardedItemId, every
-// live coord on that item, not just the current group's), then hard-deletes the discarded item —
-// which cascades away every anchor whose item_id (the FK column, untouched by the superseded_by
-// update) still names it. That includes anchors for coords the unscoped source_items repoint
-// just moved onto the kept item but which are NOT part of the group bindGroup() is currently
-// processing.
+// WHY THIS LANE. This is FK, cascade and delete-predicate behaviour. SQLite
+// enforces none of it — the review that found the underlying defect could only
+// infer the cascade — so tests/Postgres/ is the only honest place for it.
 //
-// Before 2026-08-25 this was invisible: resolveItemsLocked() re-derived every live source item
-// of the (user, kind) on every pass, so any coord whose anchor was cascade-deleted got a fresh
-// one re-minted by bindGroup()'s own insertOrIgnore before the same transaction committed. With
-// the resolve narrowed to IdentityScope's connected component, a coord OUTSIDE the merging
-// group's component keeps a valid, correctly-repointed item_id but loses its anchor permanently
-// — until mergeInto() repairs it directly. Without that repair, the coord's next independent
-// touch reads an empty anchor set for itself, bindGroup() mints a BRAND NEW item, and the
-// closing per-target UPDATE moves the coord off its correctly-merged item onto that fresh
-// duplicate — the exact defect this test proves closed.
+// DDL: same local-DDL convention as ProjectionWriterMergeAnchorTest.php, copied
+// from its beforeEach because it is the one sibling already proven against
+// writeManualItem() reaching mergeInto() -> moveLinks()/moveSlugs()/the curation
+// check. Two deliberate additions on top of it:
 //
-// DDL: same local-DDL convention as ProjectionWriterIdentityRaceTest.php and
-// ProjectionWriterBatchingTest.php (see either file's header) — content.item_links,
-// content.item_slugs and site.section_items are required because writeManualItem()'s resolve
-// reaches mergeInto(), which reaches moveLinks()/moveSlugs()/the curation check; without them
-// the lane fails 42P01. Identifiers here are pma_-prefixed so this file's constraint names never
-// collide with a sibling PG-lane file's, even though sequential beforeEach() drops make that
-// moot in practice.
+//   1. source_item_id on item_media/offers/item_tags/item_variants, mirroring
+//      supabase/migrations/20260826120000_facet_source_item_origin.sql. Without
+//      it the writer's INSERT 42703s.
+//   2. content.media_assets gains the four mirror_* columns. MergeAnchorTest
+//      never projects MEDIA, so it never reached healMirrorEligible()'s
+//      UPDATE ... SET mirror_eligible; these tests are entirely about media.
+//
+// Identifiers are fos_-prefixed and helpers fos-prefixed so neither collides
+// with a sibling PG-lane file's (CrossFileTestHelperGuardTest).
 
 use App\Ingest\Projection\ProjectionWriter;
 use Illuminate\Support\Facades\DB;
@@ -135,9 +127,9 @@ beforeEach(function () {
         first_seen_at timestamptz NOT NULL DEFAULT now(),
         last_seen_at timestamptz NOT NULL DEFAULT now(),
         removed_at timestamptz,
-        CONSTRAINT pma_source_items_coord_unique UNIQUE (source_id, coord)
+        CONSTRAINT fos_source_items_coord_unique UNIQUE (source_id, coord)
     )');
-    $pg->statement('CREATE INDEX idx_pma_source_items_item ON content.source_items (item_id)');
+    $pg->statement('CREATE INDEX idx_fos_source_items_item ON content.source_items (item_id)');
 
     $pg->statement('CREATE TABLE content.identity_keys (
         id bigserial PRIMARY KEY,
@@ -147,7 +139,7 @@ beforeEach(function () {
         tier text NOT NULL CHECK (tier IN (\'joining\',\'corroborating\',\'evidential\')),
         created_at timestamptz NOT NULL DEFAULT now()
     )');
-    $pg->statement('CREATE INDEX idx_pma_identity_keys_source_item ON content.identity_keys (source_item_id)');
+    $pg->statement('CREATE INDEX idx_fos_identity_keys_source_item ON content.identity_keys (source_item_id)');
 
     $pg->statement('CREATE TABLE content.identity_decisions (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -186,7 +178,7 @@ beforeEach(function () {
         url text NOT NULL,
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now(),
-        CONSTRAINT pma_item_links_unique UNIQUE (item_id, platform)
+        CONSTRAINT fos_item_links_unique UNIQUE (item_id, platform)
     )');
 
     // mergeInto() -> moveSlugs().
@@ -199,7 +191,7 @@ beforeEach(function () {
         retired_at timestamptz,
         created_at timestamptz NOT NULL DEFAULT now()
     )');
-    $pg->statement('CREATE UNIQUE INDEX idx_pma_item_slugs_unique ON content.item_slugs (user_id, slug)');
+    $pg->statement('CREATE UNIQUE INDEX idx_fos_item_slugs_unique ON content.item_slugs (user_id, slug)');
 
     $pg->statement('CREATE TABLE content.identity_candidates (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -210,7 +202,7 @@ beforeEach(function () {
         evidence jsonb NOT NULL DEFAULT \'{}\'::jsonb,
         dismissed_at timestamptz,
         created_at timestamptz NOT NULL DEFAULT now(),
-        CONSTRAINT pma_identity_candidates_pair UNIQUE (user_id, left_item_id, right_item_id)
+        CONSTRAINT fos_identity_candidates_pair UNIQUE (user_id, left_item_id, right_item_id)
     )');
 
     $pg->statement('CREATE TABLE content.manual_overrides (
@@ -221,7 +213,7 @@ beforeEach(function () {
         value jsonb,
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now(),
-        CONSTRAINT pma_manual_overrides_unique UNIQUE (item_id, facet, column_name)
+        CONSTRAINT fos_manual_overrides_unique UNIQUE (item_id, facet, column_name)
     )');
 
     $singletons = [
@@ -265,8 +257,12 @@ beforeEach(function () {
         variant_family text CHECK (variant_family IS NULL OR variant_family IN (\'google\', \'shopify\', \'ytimg\', \'native\', \'proxy\')),
         blurhash text,
         attribution jsonb,
+        mirror_eligible boolean,
+        mirror_attempts integer NOT NULL DEFAULT 0,
+        mirror_last_attempt_at timestamptz,
+        mirror_last_reason text,
         created_at timestamptz NOT NULL DEFAULT now(),
-        CONSTRAINT pma_media_assets_fingerprint_unique UNIQUE (user_id, fingerprint)
+        CONSTRAINT fos_media_assets_fingerprint_unique UNIQUE (user_id, fingerprint)
     )');
 
     $pg->statement('CREATE TABLE content.item_media (
@@ -340,7 +336,7 @@ beforeEach(function () {
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now()
     )');
-    $pg->statement('CREATE UNIQUE INDEX idx_pma_collections_natural_key
+    $pg->statement('CREATE UNIQUE INDEX idx_fos_collections_natural_key
         ON content.collections (user_id, kind, external_ref)');
 
     $pg->statement('CREATE TABLE content.collection_items (
@@ -370,193 +366,100 @@ afterAll(function () {
     }
 });
 
-/** The shape Projector::project() returns for a plain link add — a URL derived from the coord so distinct coords never collide on identity by accident. */
-function pmaLinkProjection(string $coord): array
+/**
+ * A user + its site.
+ *
+ * NOT createTenant(): that helper inserts handle/auth_user_id/status into
+ * core.users, and this lane's stand-in is the one-column table every
+ * tests/Postgres/ file builds. It is used nowhere in tests/Postgres/ for
+ * exactly that reason.
+ */
+function fosTenant(): string
+{
+    $pg = DB::connection('pgsql');
+
+    $userId = (string) Str::uuid();
+    $pg->table('core.users')->insert(['id' => $userId]);
+    $pg->table('site.sites')->insert(['id' => (string) Str::uuid(), 'user_id' => $userId]);
+
+    return $userId;
+}
+
+/** The shape Projector::project() returns for a hand-added link with photos. */
+function fosRelease(string $headline, string $url, array $media = []): array
 {
     return [
-        'kind' => 'link',
-        'headline' => 'Merge Anchor Test Link',
-        'facets' => ['f_link' => ['url' => 'https://example.test/pma-'.sha1($coord)]],
+        'kind' => 'release',
+        'headline' => $headline,
+        'facets' => ['f_link' => ['url' => $url]],
+        'media' => $media,
     ];
 }
 
-it('re-anchors a coord an out-of-component merge repoints, so a later touch does not mint a duplicate item', function () {
-    config(['partna.content.identity_scope' => true]);
+/** One photo entry. */
+function fosPhoto(string $url, string $role = 'cover'): array
+{
+    return ['role' => $role, 'url' => $url];
+}
 
-    $pg = DB::connection('pgsql');
+it('does not wipe another coord rows when one coord is written', function () {
+    $userId = fosTenant();
+    $writer = app(ProjectionWriter::class);
 
-    $userId = (string) Str::uuid();
-    $pg->table('core.users')->insert(['id' => $userId]);
-    $pg->table('site.sites')->insert(['id' => (string) Str::uuid(), 'user_id' => $userId]);
+    $coordA = 'manual:'.Str::uuid();
+    $coordB = 'manual:'.Str::uuid();
 
-    $manualSourceId = app(ProjectionWriter::class)->ensureManualSource($userId);
+    $itemA = $writer->writeManualItem($userId, $coordA, fosRelease('A', 'https://e.test/a', [fosPhoto('https://cdn.test/a.jpg')]));
+    $itemB = $writer->writeManualItem($userId, $coordB, fosRelease('B', 'https://e.test/b', [fosPhoto('https://cdn.test/b.jpg')]));
 
-    // Two items. Q shares R's fate below (both bound to $doomedItemId) — the ordinary residue
-    // of an earlier merge, same shape as ProjectionWriterIdentityRaceTest's collation fixture.
-    $keptItemId = (string) Str::uuid();
-    $doomedItemId = (string) Str::uuid();
-    foreach ([[$keptItemId, 3], [$doomedItemId, 2]] as [$itemId, $hoursAgo]) {
-        $pg->table('content.items')->insert([
-            'id' => $itemId, 'user_id' => $userId, 'kind' => 'link',
-            'first_seen_at' => now()->subHours($hoursAgo), 'last_seen_at' => now()->subHours($hoursAgo),
-            'created_at' => now()->subHours($hoursAgo), 'updated_at' => now()->subHours($hoursAgo),
-        ]);
-    }
+    expect($itemA)->not->toBe($itemB);
 
-    // P and Q carry no identity keys at all — the 'same' decision below is their only link, and
-    // it is what IdentityScope seeds from. R ALSO carries no identity keys and NO decision names
-    // it: nothing connects R to P or Q, so it sits OUTSIDE the component the merge below
-    // resolves — the coord this test is about. first_seen_at fixes DisjointSet::groups()'
-    // emission order so {P,Q} is bound before {R} would be, matching the real defect's ordering.
-    $coords = [
-        ['pma:p', $keptItemId, 3],
-        ['pma:q', $doomedItemId, 2],
-        ['pma:r', $doomedItemId, 1],
-    ];
-    foreach ($coords as [$coord, $itemId, $hoursAgo]) {
-        $pg->table('content.source_items')->insert([
-            'id' => (string) Str::uuid(), 'source_id' => $manualSourceId, 'coord' => $coord,
-            'item_id' => $itemId, 'kind' => 'link', 'projector_version' => 0,
-            'first_seen_at' => now()->subHours($hoursAgo), 'last_seen_at' => now()->subHours($hoursAgo),
-        ]);
-        $pg->table('content.item_anchors')->insert([
-            'coord' => $coord, 'user_id' => $userId, 'item_id' => $itemId,
-            'bound_at' => now()->subHours($hoursAgo),
-        ]);
-    }
+    // Bind both coords to ONE item, exactly as a merge does: repoint the source
+    // item, and carry its media across. Done by item_id rather than by origin so
+    // the fixture builds identically before and after the fix — otherwise the
+    // RED run would fail on its own setup instead of on the behaviour.
+    DB::table('content.source_items')->where('coord', $coordB)->update(['item_id' => $itemA]);
+    DB::table('content.item_media')->where('item_id', $itemB)->update(['item_id' => $itemA]);
 
-    // The owner unites P and Q. That merge discards $doomedItemId and hard-deletes it — which
-    // cascades content.item_anchors for EVERY anchor still naming it, including R's, even though
-    // R is not part of {P,Q}'s resolved component.
-    $pg->table('content.identity_decisions')->insert([
-        'id' => (string) Str::uuid(), 'user_id' => $userId, 'verdict' => 'same',
-        'left_coord' => 'pma:p', 'right_coord' => 'pma:q', 'decided_at' => now(),
-    ]);
+    expect(DB::table('content.item_media')->where('item_id', $itemA)->count())->toBe(2);
 
-    // Any manual write drives a resolveItemsLocked() pass. With narrowing ON, the pass's
-    // component is {trigger} ∪ {p, q} (seeded by the live 'same' ruling) — NOT r.
-    $trigger = 'manual:'.sha1('pma-trigger-'.Str::random(8));
-    app(ProjectionWriter::class)->writeManualItem($userId, $trigger, pmaLinkProjection($trigger));
+    // Re-save coord A only. There is ONE manual content.sources row per user, so
+    // before origin scoping the (item_id, source_id) delete took BOTH rows and
+    // reinserted only A's.
+    $writer->writeManualItem($userId, $coordA, fosRelease('A', 'https://e.test/a', [fosPhoto('https://cdn.test/a.jpg')]));
 
-    expect($pg->table('content.items')->where('id', $doomedItemId)->exists())->toBeFalse(
-        'the merge did not happen, so this test proves nothing.',
-    );
-
-    // The defect's first symptom: R's source_items row must have been repointed onto the kept
-    // item by mergeInto()'s unscoped update...
-    $rItemId = $pg->table('content.source_items')->where('coord', 'pma:r')->value('item_id');
-    expect((string) $rItemId)->toBe($keptItemId, 'R was not repointed onto the kept item at all — a different failure than the one under test.');
-
-    // ...and every coord OUTSIDE the {P,Q} group that now points at the kept item — here, just
-    // R — must have a matching content.item_anchors row. P and Q are deliberately excluded from
-    // this check: Q is the {P,Q} group's own merge loser, and bindGroup() itself leaves a
-    // resolved group's own losing coord anchor-less by design (it was already read into that
-    // call's $anchors, so it never enters $missing) — ProjectionWriterIdentityRaceTest's
-    // collation test asserts on exactly that ("picks the same merge survivor..."), and
-    // mergeInto()'s repair deliberately excludes the current group's own coords so it cannot
-    // silently give both sides of a merged pair an anchor and defeat that assertion. R is not in
-    // ANY group this pass considered at all — nothing else will ever re-mint its anchor, which is
-    // the actual defect this test guards.
-    $keptCoords = $pg->table('content.source_items')->where('item_id', $keptItemId)
-        ->whereNotIn('coord', ['pma:p', 'pma:q'])->pluck('coord');
-    $anchoredCoords = $pg->table('content.item_anchors')->where('user_id', $userId)
-        ->where('item_id', $keptItemId)->pluck('coord');
-    // in_array()/toBeTrue() rather than toContain(): Pest's toContain() is variadic, so a second
-    // argument is another expected value, not a failure message.
-    expect(in_array('pma:r', $keptCoords->all(), true))->toBeTrue(
-        'R was not repointed onto the kept item — fixture is broken, not the defect under test.',
-    );
-    foreach ($keptCoords as $coord) {
-        expect($anchoredCoords->contains($coord))->toBeTrue(
-            "coord {$coord} points at the kept item but has no matching item_anchors row — it will mint a duplicate on its next independent touch.",
-        );
-    }
-
-    // The follow-on consequence, which is the actual defect: touch R again, independently of P
-    // and Q (its own re-save, no shared identity, no decision). Without the repair, R's anchor
-    // set reads empty, bindGroup() mints a BRAND NEW item, and the closing per-target UPDATE
-    // moves R off the correctly-merged kept item onto that fresh duplicate.
-    $secondItemId = app(ProjectionWriter::class)->writeManualItem($userId, 'pma:r', pmaLinkProjection('pma:r'));
-
-    expect($secondItemId)->toBe($keptItemId, 'touching R again minted a NEW item instead of re-confirming the kept one — the anchor-orphan defect.');
-
-    expect($pg->table('content.items')->where('user_id', $userId)->whereNotIn('id', [$keptItemId])->count())
-        ->toBe(1, 'exactly one OTHER item should exist — the trigger coord\'s own item — not a second duplicate for R.');
+    expect(DB::table('content.item_media')->where('item_id', $itemA)->count())->toBe(2);
 });
 
-it('does not run the anchor repair when narrowing is off — the flag is a byte-for-byte rollback', function () {
-    // Explicit, not relying on config/partna.php's default: this test is ABOUT the off state.
-    config(['partna.content.identity_scope' => false]);
+it('still replaces un-attributed rows, so the backfill gap cannot orphan them', function () {
+    $userId = fosTenant();
+    $writer = app(ProjectionWriter::class);
 
-    $pg = DB::connection('pgsql');
+    $coord = 'manual:'.Str::uuid();
+    $itemId = $writer->writeManualItem($userId, $coord, fosRelease('A', 'https://e.test/a', [fosPhoto('https://cdn.test/a.jpg')]));
 
-    $userId = (string) Str::uuid();
-    $pg->table('core.users')->insert(['id' => $userId]);
-    $pg->table('site.sites')->insert(['id' => (string) Str::uuid(), 'user_id' => $userId]);
+    // A pre-backfill row: attributed to nothing. The backfill leaves every
+    // ambiguous row like this on purpose (spec §5.3).
+    DB::table('content.item_media')->where('item_id', $itemId)->update(['source_item_id' => null]);
 
-    $manualSourceId = app(ProjectionWriter::class)->ensureManualSource($userId);
+    $writer->writeManualItem($userId, $coord, fosRelease('A', 'https://e.test/a', [fosPhoto('https://cdn.test/a2.jpg')]));
 
-    // Identical fixture shape to the ON-narrowing test above: P/Q merge via a 'same' decision,
-    // R shares nothing with either and sits on the doomed item too.
-    $keptItemId = (string) Str::uuid();
-    $doomedItemId = (string) Str::uuid();
-    foreach ([[$keptItemId, 3], [$doomedItemId, 2]] as [$itemId, $hoursAgo]) {
-        $pg->table('content.items')->insert([
-            'id' => $itemId, 'user_id' => $userId, 'kind' => 'link',
-            'first_seen_at' => now()->subHours($hoursAgo), 'last_seen_at' => now()->subHours($hoursAgo),
-            'created_at' => now()->subHours($hoursAgo), 'updated_at' => now()->subHours($hoursAgo),
-        ]);
-    }
+    // ONE row, not two: NULL must still mean "replaced exactly as today". If the
+    // predicate is ever "simplified" to source_item_id IN (...) alone this
+    // becomes 2 — a data-DUPLICATION bug — and nothing else in the suite
+    // notices. That is why the IS NULL half is load-bearing, not redundant.
+    expect(DB::table('content.item_media')->where('item_id', $itemId)->count())->toBe(1);
+});
 
-    $coords = [
-        ['pma:off-p', $keptItemId, 3],
-        ['pma:off-q', $doomedItemId, 2],
-        ['pma:off-r', $doomedItemId, 1],
-    ];
-    foreach ($coords as [$coord, $itemId, $hoursAgo]) {
-        $pg->table('content.source_items')->insert([
-            'id' => (string) Str::uuid(), 'source_id' => $manualSourceId, 'coord' => $coord,
-            'item_id' => $itemId, 'kind' => 'link', 'projector_version' => 0,
-            'first_seen_at' => now()->subHours($hoursAgo), 'last_seen_at' => now()->subHours($hoursAgo),
-        ]);
-        $pg->table('content.item_anchors')->insert([
-            'coord' => $coord, 'user_id' => $userId, 'item_id' => $itemId,
-            'bound_at' => now()->subHours($hoursAgo),
-        ]);
-    }
+it('stamps each row with the source item that contributed it', function () {
+    $userId = fosTenant();
+    $writer = app(ProjectionWriter::class);
 
-    $pg->table('content.identity_decisions')->insert([
-        'id' => (string) Str::uuid(), 'user_id' => $userId, 'verdict' => 'same',
-        'left_coord' => 'pma:off-p', 'right_coord' => 'pma:off-q', 'decided_at' => now(),
-    ]);
+    $coord = 'manual:'.Str::uuid();
+    $itemId = $writer->writeManualItem($userId, $coord, fosRelease('A', 'https://e.test/a', [fosPhoto('https://cdn.test/a.jpg')]));
 
-    $trigger = 'manual:'.sha1('pma-off-trigger-'.Str::random(8));
-    app(ProjectionWriter::class)->writeManualItem($userId, $trigger, pmaLinkProjection($trigger));
+    $sourceItemId = DB::table('content.source_items')->where('coord', $coord)->value('id');
 
-    expect($pg->table('content.items')->where('id', $doomedItemId)->exists())->toBeFalse(
-        'the merge did not happen, so this test proves nothing.',
-    );
-
-    // With narrowing OFF, resolveItemsLocked() resolves the WHOLE (user, kind) set on every call,
-    // exactly as it did before 2026-08-25 — so R is NOT left outside this pass at all: it is its
-    // own singleton group (no shared key, no decision), read and rebound in the SAME transaction
-    // as {P,Q}'s merge, by bindGroup()'s OWN pre-existing insertOrIgnore logic, not by the new
-    // mergeInto() repair (which is gated off and never runs). That is precisely what "the repair
-    // did not run" looks like from the outside: R does NOT silently inherit the kept item the way
-    // it does with narrowing on — it gets rebound onto a BRAND NEW item, the same churn the
-    // pre-branch code always produced for an identity-isolated coord caught up in someone else's
-    // merge. This is the behaviour PARTNA_CONTENT_IDENTITY_SCOPE=false exists to restore
-    // byte-for-byte; asserting "R equals kept" here would mean the repair leaked into the
-    // supposedly-off path.
-    $rItemId = (string) $pg->table('content.source_items')->where('coord', 'pma:off-r')->value('item_id');
-    expect($rItemId)->not->toBe($keptItemId,
-        'R ended up on the kept item with narrowing OFF — the mergeInto() repair ran when it should have been gated off.');
-    expect($rItemId)->not->toBe($doomedItemId,
-        'R is still pointing at the hard-deleted item — the whole-kind resolve did not rebind it, so this fixture is not exercising what it claims to.');
-
-    // R DOES get an anchor — via bindGroup()'s own pre-existing per-group insertOrIgnore for its
-    // freshly-minted item, the mechanism that has always run, not the new repair. Confirms this
-    // is the OLD self-healing path, not a silent no-op.
-    expect($pg->table('content.item_anchors')->where('user_id', $userId)->where('coord', 'pma:off-r')->exists())
-        ->toBeTrue('R has no anchor at all — neither the old whole-kind self-heal nor the new repair ran.');
+    expect(DB::table('content.item_media')->where('item_id', $itemId)->value('source_item_id'))
+        ->toBe($sourceItemId);
 });
