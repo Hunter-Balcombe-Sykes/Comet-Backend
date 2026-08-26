@@ -195,6 +195,41 @@ it('fuses the concurrent pickup and delivery scrapes into per-mode prices', func
     Http::assertSentCount(2);
 });
 
+it('unions per-item identity across mode scrapes when the actor returns it for only one', function () {
+    // Live failure the day the flag shipped (2026-08-26): memo23's
+    // includeItemCustomizations output is flaky per run — one mode scrape
+    // carried itemUuid/href for 0/82 items while the other carried 34/82.
+    // Identity must gap-fill across modes by name so a partial run on the
+    // spine mode doesn't lose links the other mode returned.
+    Http::fake(function ($request) {
+        $url = (string) data_get($request->data(), 'startUrls.0.url', '');
+        $pickup = str_contains($url, 'PICKUP');
+
+        return Http::response([['currencyCode' => 'AUD', 'menuItems' => [array_filter([
+            'name' => 'Burrito', 'section' => 'Cat', 'price' => $pickup ? 15.0 : 17.0,
+            // Only the PICKUP scrape returned identity this run.
+            'itemUuid' => $pickup ? 'uuid-1' : null,
+            'href' => $pickup ? '/store/x/sec/sub/uuid-1' : null,
+            'isSoldOut' => $pickup ? false : null,
+        ], fn ($v) => $v !== null)]]], 201);
+    });
+
+    $links = ['uber-eats' => [
+        'pickupUrl' => 'https://www.ubereats.com/au/store/x?diningMode=PICKUP',
+        'deliveryUrl' => 'https://www.ubereats.com/au/store/x?diningMode=DELIVERY',
+        'storeUrl' => 'https://www.ubereats.com/au/store/x',
+        'modes' => ['pickup', 'delivery'],
+    ]];
+    $item = app(MenuApifyScraper::class)->fetchStores($links, 'u1')['uber-eats']['categories'][0]['items'][0];
+
+    // Delivery (17.0, id-less this run) wins the spine tie — identity still lands.
+    expect($item['pickupPrice'])->toBe(15.0);
+    expect($item['deliveryPrice'])->toBe(17.0);
+    expect($item['externalId'])->toBe('uuid-1');
+    expect($item['itemUrl'])->toBe('https://www.ubereats.com/store/x/sec/sub/uuid-1');
+    expect($item['soldOut'])->toBeFalse();
+});
+
 it('applies a single scraped price to both modes for an untyped store', function () {
     Http::fake(['api.apify.com/*' => Http::response([['currencyCode' => 'AUD', 'menuItems' => [
         ['name' => 'Combo', 'section' => 'Cat', 'price' => 12.0],

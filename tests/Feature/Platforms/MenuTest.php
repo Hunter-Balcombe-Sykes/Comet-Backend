@@ -58,6 +58,22 @@ function menuUser(string $h): User
  * data.type (pickup/delivery) the way the Google Business harvest does; a null
  * type is a manual link (no data).
  */
+function menuSurfaceFor(string $url): string
+{
+    // Mirror what routing stamps at connect time: the brand surface matching
+    // the URL host. Pre-D7 these helpers hardcoded uber_eats.order for every
+    // URL and leaned on host re-derivation; MenuSource now trusts the surface
+    // first (D7, 2026-08-26), so the fixture must carry the truthful one.
+    $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+
+    return match (true) {
+        str_contains($host, 'doordash') => 'doordash.order',
+        str_contains($host, 'menulog') => 'menulog.order',
+        str_contains($host, 'square') => 'square.order',
+        default => 'uber_eats.order',
+    };
+}
+
 function ordering(User $user, string $url, ?string $type, string $at): IntegrationConnection
 {
     // Since 2026-08-18 the observer dispatches MenuFetchJob for any ordering
@@ -68,7 +84,7 @@ function ordering(User $user, string $url, ?string $type, string $at): Integrati
     $rid = 'order-'.substr(sha1(strtolower($url)), 0, 16);
     $row = IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'uber_eats.order',
+        'platform' => menuSurfaceFor($url),
         'resource_id' => $rid,
         'payload' => array_filter([
             'id' => $rid,

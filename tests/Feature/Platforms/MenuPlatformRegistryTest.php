@@ -68,13 +68,29 @@ function registryUser(string $h): User
     ]);
 }
 
+function registrySurfaceFor(string $url): string
+{
+    // Mirror what routing stamps at connect time: the brand surface matching
+    // the URL host. Pre-D7 these helpers hardcoded uber_eats.order for every
+    // URL and leaned on host re-derivation; MenuSource now trusts the surface
+    // first (D7, 2026-08-26), so the fixture must carry the truthful one.
+    $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+
+    return match (true) {
+        str_contains($host, 'doordash') => 'doordash.order',
+        str_contains($host, 'menulog') => 'menulog.order',
+        str_contains($host, 'square') => 'square.order',
+        default => 'uber_eats.order',
+    };
+}
+
 function registryOrdering(User $user, string $url): IntegrationConnection
 {
     $rid = 'order-'.substr(sha1(strtolower($url)), 0, 16);
 
     return IntegrationConnection::create([
         'user_id' => $user->id,
-        'platform' => 'uber_eats.order',
+        'platform' => registrySurfaceFor($url),
         'resource_id' => $rid,
         'payload' => ['id' => $rid, 'provider' => 'custom', 'url' => $url, 'name' => 'Order'],
         'is_active' => true,
