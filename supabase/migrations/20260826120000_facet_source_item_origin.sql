@@ -23,7 +23,8 @@
 -- lead with item_id, which is populated, so the guard rightly refuses the plain
 -- form: a composite index still scans the whole table.
 --
--- ROLLBACK (indexes go with their own files):
+-- The four indexes are reversed by their own +1..+4 files.
+-- ROLLBACK:
 --   ALTER TABLE "content"."item_media"    DROP COLUMN IF EXISTS "source_item_id";
 --   ALTER TABLE "content"."offers"        DROP COLUMN IF EXISTS "source_item_id";
 --   ALTER TABLE "content"."item_tags"     DROP COLUMN IF EXISTS "source_item_id";

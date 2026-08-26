@@ -572,3 +572,79 @@ it('never stamps a moved row with an origin from another source', function () {
         ->and(DB::table('content.item_media')->where('item_id', $itemA)->where('role', 'poster')->value('source_item_id'))
         ->toBeNull();
 });
+
+it('renumbers moved media so it sorts after the survivor own, per role', function () {
+    [$userId, $coordA, , $itemA] = mffRuledPair(
+        [mffPhoto('https://cdn.test/a.jpg')],
+        [mffPhoto('https://cdn.test/b.jpg')],
+    );
+
+    $kept = app(ProjectionWriter::class)->resolveIdentityFor($userId, 'release', [$coordA])[$coordA];
+    expect($kept)->toBe($itemA);
+
+    // Both sides wrote their only photo at position 0 (replaceCollections()
+    // assigns positions from the projection's list index). Moving one across
+    // without renumbering leaves the survivor holding two role='cover' rows both
+    // at 0 — legal, because idx (item_id, role, position) is NOT unique, and
+    // therefore silent.
+    $rows = DB::table('content.item_media as im')
+        ->join('content.media_assets as ma', 'ma.id', '=', 'im.asset_id')
+        ->where('im.item_id', $kept)
+        ->orderBy('im.position')
+        ->get(['im.role', 'im.position', 'ma.source_url']);
+
+    expect($rows)->toHaveCount(2)
+        ->and($rows->pluck('position')->all())->toBe([0, 1])
+        // The survivor's own keeps its place; the incomer lands after it.
+        ->and((string) $rows->firstWhere('position', 0)->source_url)->toBe('https://cdn.test/a.jpg')
+        ->and((string) $rows->firstWhere('position', 1)->source_url)->toBe('https://cdn.test/b.jpg');
+});
+
+it('renumbers per role and keeps the moved rows in their original order', function () {
+    // Positions come from the projection's FLAT list index, not per role, so each
+    // side writes cover@0, gallery@1, gallery@2.
+    [$userId, $coordA, , $itemA] = mffRuledPair(
+        [
+            mffPhoto('https://cdn.test/a-cover.jpg'),
+            mffPhoto('https://cdn.test/a-g1.jpg', 'gallery'),
+            mffPhoto('https://cdn.test/a-g2.jpg', 'gallery'),
+        ],
+        [
+            mffPhoto('https://cdn.test/b-cover.jpg'),
+            mffPhoto('https://cdn.test/b-g1.jpg', 'gallery'),
+            mffPhoto('https://cdn.test/b-g2.jpg', 'gallery'),
+        ],
+    );
+
+    $kept = app(ProjectionWriter::class)->resolveIdentityFor($userId, 'release', [$coordA])[$coordA];
+    expect($kept)->toBe($itemA);
+
+    $rows = DB::table('content.item_media as im')
+        ->join('content.media_assets as ma', 'ma.id', '=', 'im.asset_id')
+        ->where('im.item_id', $kept)
+        ->orderBy('im.position')
+        ->get(['im.role', 'im.position', 'ma.source_url']);
+
+    expect($rows)->toHaveCount(6);
+
+    // THE INVARIANT: no two rows of the same role share a position. That is what
+    // PoolResolver::itemPayloads() needs — it orders content.item_media by
+    // position alone, and cover() breaks ties by arrival order, so a collision
+    // makes which photo renders planner-dependent.
+    $perRole = $rows->groupBy('role')->map(fn ($g) => $g->pluck('position')->all());
+    foreach ($perRole as $role => $positions) {
+        expect($positions)->toBe(array_values(array_unique($positions)), "role {$role} has a duplicate position");
+    }
+
+    // Renumbering is an OFFSET, so the incomer's own order survives intact.
+    $moved = $rows->filter(fn ($r) => str_contains((string) $r->source_url, '/b-'))->sortBy('position')->values();
+    expect($moved->pluck('source_url')->map(fn ($u) => (string) $u)->all())
+        ->toBe(['https://cdn.test/b-cover.jpg', 'https://cdn.test/b-g1.jpg', 'https://cdn.test/b-g2.jpg']);
+
+    // And every moved row sits after the survivor's last row of its own role.
+    foreach (['cover', 'gallery'] as $role) {
+        $own = $rows->filter(fn ($r) => $r->role === $role && ! str_contains((string) $r->source_url, '/b-'))->max('position');
+        $inc = $rows->filter(fn ($r) => $r->role === $role && str_contains((string) $r->source_url, '/b-'))->min('position');
+        expect($inc)->toBeGreaterThan($own, "moved {$role} did not land after the survivor's own");
+    }
+});

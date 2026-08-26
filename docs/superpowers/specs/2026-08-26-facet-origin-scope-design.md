@@ -258,7 +258,7 @@ config block, so every line reference in the plan was stale.
 | Lane | Before | After |
 |---|---|---|
 | Fast suite (`php artisan test --parallel`) | 3 skipped, 9358 passed, **2 failed** | 3 skipped, **9362 passed, 0 failed** |
-| PG lane (`phpunit.pg.xml`) | 2 failed, 3 skipped, **252 passed** | 2 failed, 3 skipped, **260 passed** |
+| PG lane (`phpunit.pg.xml`) | 2 failed, 3 skipped, **252 passed** | 2 failed, 3 skipped, **262 passed** |
 | `tests/Feature/Ingest/` with the flag OFF | 543 passed | 546 passed (543 pre-existing + 3 new), 0 failed |
 
 The 2 PG-lane failures are pre-existing and untouched: `LanderFoldAtomicityTest` dies in
@@ -266,7 +266,7 @@ The 2 PG-lane failures are pre-existing and untouched: `LanderFoldAtomicityTest`
 fixed within it — see "Guards this tripped" below. The baseline of 252 was re-measured on the
 rebased commit; the plan's recorded 244 predated the tranche.
 
-Eight new PG-lane tests (3 scoping + 5 fold) and 3 new fast-lane tests.
+Ten new PG-lane tests (3 scoping + 7 fold) and 3 new fast-lane tests.
 
 ### Spec §6 coverage
 
@@ -354,10 +354,9 @@ none" means an origin on that row's OWN source, or none.
   near it. It remains config-driven so it can be tuned without a deploy.
 - **The backfill is still untested against production volume**, and now certainly always will be:
   production has no `content` schema at all, so it has only ever run on dev.
-- **`position` renumbering (§5.2) is deliberately NOT implemented.** `item_media`'s
-  `(item_id, role, position)` index is not unique, colliding positions are legal, and no case in §6
-  can observe the difference — it would be untested code. If render order turns out to matter it is a
-  follow-up with its own failing test, not a line added here on faith.
+- **`position` renumbering (§5.2) IS implemented**, contrary to the first draft of these results.
+  It was deferred as unobservable; the review showed it is observable through PoolResolver, so it was
+  built with the failing test the deferral asked for. See the review section above.
 
 ### Review (`/code-review high`, 2026-08-26)
 
@@ -388,16 +387,27 @@ item's links, so identically-priced offers with different booking URLs are not t
 role hashed equal); and the fold now groups moved rows by the origin they take and writes them with
 chunked `whereIn()` updates instead of one UPDATE per row inside the advisory lock and transaction.
 
-**Deferred — `position` renumbering.** The review is right that the collision is observable:
-`PoolResolver::itemPayloads()` orders `content.item_media` by `position` alone
-(`PoolResolver.php:1108`) and `cover()` breaks ties by arrival order, so merging two items that each
-carry a `role='cover'` photo at `position = 0` leaves which photo renders planner-dependent.
+**Implemented after the review — `position` renumbering.** Initially deferred, then requested and
+built. The review's premise checked out: `PoolResolver::itemPayloads()` orders `content.item_media`
+by `position` alone (`PoolResolver.php:1108`) and `cover()` breaks ties by arrival order, so merging
+two items that each carry a `role='cover'` photo at `position = 0` left which photo renders
+planner-dependent. The index `(item_id, role, position)` is not unique, so the collision was legal
+and silent.
 
-It is **not** implemented here, on the standing instruction that §5.2's renumbering is out of scope
-for this branch. That is now a follow-up with a concrete reproduction rather than a maybe: merge two
-hand-added items each holding one `cover` at position 0, then assert a stable render order across
-repeated `PoolResolver` reads. `content.item_variants.position` collides the same way and
-`ShopContentWriter` reads it with `orderBy('position')`.
+Renumbering is applied as an **offset**, not a fresh 0..n: rows at 0..k land at
+`high-water+1 .. high-water+1+k`, clear of the survivor's own. That preserves the incomer's relative
+order and lets each group still go out as ONE batched `UPDATE` — the per-row writes the review
+objected to do not come back. `item_media` renumbers per ROLE (its index is
+`(item_id, role, position)`); `item_variants` renumbers per item, since `ShopContentWriter` reads it
+with `orderBy('position')`. `offers` and `item_tags` have no position column.
+
+Two PG-lane tests, both red first: one pins that two colliding covers become 0 and 1 with the
+survivor's own keeping its place, and one pins the per-role invariant (no two rows of a role share a
+position) plus order preservation across a six-photo merge.
+
+Residual, stated rather than hidden: if the LOSER itself already carried duplicate positions within a
+role, the offset preserves that duplication. It is pre-existing on the loser and the merge neither
+creates nor worsens it.
 
 ### The connector flag: do NOT flip it yet
 

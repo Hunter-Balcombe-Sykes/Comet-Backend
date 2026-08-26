@@ -1631,6 +1631,19 @@ class ProjectionWriter
         // no single one, so they are absent here and dedupe as before.
         $identity = ['item_media' => 'asset_id'];
 
+        // Tables whose `position` must be renumbered on the way in, and the
+        // column that groups the numbering. item_media's index is
+        // (item_id, role, position), so it renumbers PER ROLE; item_variants is
+        // ordered per item (ShopContentWriter reads it with orderBy('position')).
+        //
+        // Both sides number from their own projection's list index, so a merge
+        // otherwise leaves the survivor holding two role='cover' rows at
+        // position 0. That index is NOT unique, so the collision is legal and
+        // silent — and PoolResolver::itemPayloads() orders item_media by
+        // position alone while cover() breaks ties by arrival order, which makes
+        // WHICH photo renders planner-dependent.
+        $positioned = ['item_media' => 'role', 'item_variants' => null];
+
         // A live origin of the survivor PER SOURCE, to stamp a moved row that
         // has no origin of its own.
         //
@@ -1658,7 +1671,12 @@ class ProjectionWriter
             $identityColumn = $identity[$table] ?? null;
 
             $seen = [];
+            $highWater = [];
             foreach (DB::table("content.{$table}")->where('item_id', $keptItemId)->get() as $row) {
+                if (array_key_exists($table, $positioned)) {
+                    $group = $positioned[$table] === null ? '' : (string) $row->{$positioned[$table]};
+                    $highWater[$group] = max($highWater[$group] ?? -1, (int) $row->position);
+                }
                 if ($identityColumn !== null && $row->{$identityColumn} === null) {
                     continue;
                 }
@@ -1707,15 +1725,32 @@ class ProjectionWriter
                 // failure this whole change exists to prevent. '' is the
                 // no-origin bucket — array keys cannot be null.
                 $origin = $row->source_item_id ?? ($keptOriginBySource[$row->source_id] ?? null);
-                $moves[(string) $origin][] = $row->id;
+
+                // Renumbering is an OFFSET, not a fresh 0..n. That is what lets
+                // the whole group go out in one statement below AND preserves
+                // the incomer's own order: rows at 0..k land at off..off+k,
+                // clear of the survivor's 0..high-water.
+                $offset = 0;
+                if (array_key_exists($table, $positioned)) {
+                    $group = $positioned[$table] === null ? '' : (string) $row->{$positioned[$table]};
+                    $offset = ($highWater[$group] ?? -1) + 1;
+                }
+
+                $moves[((string) $origin)."\0".$offset][] = $row->id;
             }
 
-            foreach ($moves as $origin => $ids) {
+            foreach ($moves as $bucket => $ids) {
+                [$origin, $offset] = explode("\0", $bucket, 2);
+                $update = [
+                    'item_id' => $keptItemId,
+                    'source_item_id' => $origin === '' ? null : $origin,
+                ];
+                if (array_key_exists($table, $positioned) && (int) $offset > 0) {
+                    $update['position'] = DB::raw('position + '.(int) $offset);
+                }
+
                 foreach (array_chunk($ids, $chunk) as $slice) {
-                    DB::table("content.{$table}")->whereIn('id', $slice)->update([
-                        'item_id' => $keptItemId,
-                        'source_item_id' => $origin === '' ? null : $origin,
-                    ]);
+                    DB::table("content.{$table}")->whereIn('id', $slice)->update($update);
                 }
             }
         }
