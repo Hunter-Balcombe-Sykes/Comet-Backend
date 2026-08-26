@@ -244,6 +244,7 @@ beforeEach(function () {
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         item_id uuid NOT NULL REFERENCES content.items(id) ON DELETE CASCADE,
         source_id uuid NOT NULL REFERENCES content.sources(id) ON DELETE CASCADE,
+        source_item_id uuid REFERENCES content.source_items(id) ON DELETE CASCADE,
         asset_id uuid REFERENCES content.media_assets(id) ON DELETE SET NULL,
         role text NOT NULL CHECK (role IN (\'cover\',\'gallery\',\'poster\',\'avatar\',\'logo\')),
         position integer NOT NULL DEFAULT 0,
@@ -256,6 +257,7 @@ beforeEach(function () {
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         item_id uuid NOT NULL REFERENCES content.items(id) ON DELETE CASCADE,
         source_id uuid NOT NULL REFERENCES content.sources(id) ON DELETE CASCADE,
+        source_item_id uuid REFERENCES content.source_items(id) ON DELETE CASCADE,
         channel text,
         variant_label text,
         amount_minor bigint,
@@ -272,6 +274,7 @@ beforeEach(function () {
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         item_id uuid NOT NULL REFERENCES content.items(id) ON DELETE CASCADE,
         source_id uuid NOT NULL REFERENCES content.sources(id) ON DELETE CASCADE,
+        source_item_id uuid REFERENCES content.source_items(id) ON DELETE CASCADE,
         label text NOT NULL,
         sku text,
         image_url text,
@@ -283,6 +286,7 @@ beforeEach(function () {
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         item_id uuid NOT NULL REFERENCES content.items(id) ON DELETE CASCADE,
         source_id uuid NOT NULL REFERENCES content.sources(id) ON DELETE CASCADE,
+        source_item_id uuid REFERENCES content.source_items(id) ON DELETE CASCADE,
         tag text NOT NULL,
         tag_type text
     )');
