@@ -558,6 +558,22 @@ Schedule::command('ingest:anomalies')
     ->withoutOverlapping(10)
     ->onFailure($reportScheduledFailure('ingest:anomalies'));
 
+// Close the ledger row for an account the user connected some OTHER way (the
+// connect sheet, an OAuth return). SuggestionsController::index() hides those
+// cards but cannot close them — SCALE-8 took every write off that GET — and
+// nobody can answer a card they cannot see, so without this the rows accrue
+// forever and the alarm below counts them for good.
+// 06:10, TEN MINUTES AHEAD of routing:stuck-intents deliberately: the alarm
+// should count a ledger this has already tidied, or it pages about rows that
+// were about to be closed. Daily is enough — the inbox already hides them, so
+// the only thing latency affects is that alarm's threshold.
+Schedule::command('routing:settle-connected')
+    ->dailyAt('06:10')
+    ->onOneServer()
+    ->withoutOverlapping(30)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('routing:settle-connected'));
+
 // LIFE-19: daily backlog alarm for routing.source_intents stuck proposed/blocked
 // past the age gate (drives idx_source_intents_stuck, whose own comment names it
 // the "staff stuck-intents view feed"). DAILY, not hourly: this alarm carries no

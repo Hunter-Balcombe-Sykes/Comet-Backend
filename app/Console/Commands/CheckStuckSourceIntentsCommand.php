@@ -23,13 +23,12 @@ use Illuminate\Support\Facades\DB;
 //  · 'unservable' is now a fourth reachable block_reason. CommerceProbeJob
 //    writes it when the user accepted a suggestion and the seed could not
 //    build it.
-//  · this count is NO LONGER the same set the inbox renders. index() now
-//    hides an intent whose account the user connected by another route, and
-//    nothing settles that row, so this alarm over-counts by however many of
-//    those exist. It drifts upward and never down. Fixing that means giving
-//    the settle a home (a connection-create observer, or a scheduled
-//    routing:settle-connected) — until then, read a slow rise here as
-//    possibly-stale rather than as a detector regression.
+//  · index() now HIDES an intent whose account the user connected by another
+//    route, so this count and the rendered inbox are no longer the same set.
+//    routing:settle-connected closes those rows at 06:10, ten minutes before
+//    this runs, which is what keeps the two from diverging. If that command
+//    is ever disabled, this alarm starts over-counting and drifts upward with
+//    no path back down — nobody can answer a card they cannot see.
 class CheckStuckSourceIntentsCommand extends Command
 {
     protected $signature = 'routing:stuck-intents';
