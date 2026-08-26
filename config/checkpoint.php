@@ -283,6 +283,16 @@ return [
         '50df5e06ee4a', // ProjectionWriter:2199 — same $table, insertOrIgnore() on the collection_items branch
         '0f027c086763', // IngestProjectRebuildChunkingTest:163 — $table from the literal foreach array (:162)
 
+        // foldCollections() (facet origin scope, 2026-08-26) reads and writes the
+        // same four tables to carry a merged loser's facets onto the survivor.
+        // $table is the KEY of the literal $dedupe map declared in that method —
+        // ['item_media', 'offers', 'item_tags', 'item_variants'] — so it is the
+        // same closed-set pattern vetted above, never user input. Values go
+        // through where()/whereIn()/update() bindings.
+        'c211a8e451f8', // ProjectionWriter:1675 — survivor's rows, $table from the literal $dedupe map
+        'b866b0a71d66', // ProjectionWriter:1693 — loser's rows, same $table
+        '1de24aecbd40', // ProjectionWriter:1753 — the batched move, same $table
+
         // ── Hardcoded secrets: false positives, vetted 2026-07-19 ──────────
         // All are `Authorization: Bearer ` headers concatenating a VARIABLE
         // (JWT/service key/OAuth token resolved at runtime) — nothing literal.
