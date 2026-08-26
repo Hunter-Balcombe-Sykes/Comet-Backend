@@ -52,7 +52,10 @@ class SettleConnectedSourceIntentsCommand extends Command
 
         DB::table('routing.source_intents')
             ->whereIn('state', ['proposed', 'blocked'])
-            ->orderBy('id')
+            // chunkById supplies its own ordering on the id column and pages
+            // forward on it, which is what makes updating rows mid-iteration
+            // safe here: a row this run settles drops out of the WHERE but can
+            // never cause a later page to skip an unseen one.
             ->chunkById(self::CHUNK, function ($intents) use ($identity, $dryRun, &$settled, &$scanned): void {
                 $scanned += $intents->count();
 
