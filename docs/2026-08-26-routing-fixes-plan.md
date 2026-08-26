@@ -222,3 +222,19 @@ methodology noise, not a regression — the fix only ADDS score). Rescue:
 the stranded ollies OpenTable link re-routed through the REAL
 LinkRoutingService paste path → verdict 'place', reservation connection
 01a03bf3 with identifier 291533; the stale custom-link card retired.
+
+**GATES R2/R3 EVIDENCE — 2026-08-27 ~07:00 AEST.** R2 shipped: origin
+tagging (item_tag link_origin scrape|manual, null-preserves for the
+enrichment write-back; untagged legacy NEVER swept), the
+SweepPreviousWebsiteCardsJob reconciliation (observer-dispatched on the
+field landing/changing), and the early workplace persist in the enrich
+job; three tests pin selectivity/lane-independence/no-op. R3 shipped:
+InstagramMediaUrl (oe pre-flight + shortcode refresh, embed leg first,
+actor fallback, carousel children by position, Instagram-CDN-only
+targets), MediaMirror pre-flight with source_expired terminal reason,
+seeder pre-flight/refresh on all three hero-media sites + seed-time oe
+logging; the seeder's stricter pattern-C transport kept deliberately.
+LIVE HEALS on dev: ALL 16 stuck video assets mirrored (16 ok / 0 fail)
+through the refresh path — the handoff incident closed for real; the 7
+stali.com.au cards removed (untagged legacy → manual cleanup per plan).
+Gate critic running on the R2+R3 span; its verdict closes plan 3.
