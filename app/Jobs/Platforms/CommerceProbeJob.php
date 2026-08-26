@@ -20,6 +20,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -79,13 +80,32 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         // placed store — and the miss path writes no second link card (the
         // paste already wrote one).
         public readonly bool $suggestOnly = false,
+        /**
+         * The suggestions-inbox intent this run is ANSWERING
+         * (SuggestionsController::accept). Null for every discovery lane.
+         *
+         * An accept is an explicit user answer, which changes two things:
+         * the deep-page suggestion rule no longer applies (the question it
+         * exists to ask has been asked), and a seed that fails must settle
+         * the intent rather than leave it standing as though nothing
+         * happened.
+         */
+        public readonly ?string $acceptedIntentId = null,
     ) {
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
 
+    /**
+     * An accept gets its own uniqueness slot.
+     *
+     * uniqueFor is 300s and the discovery probe that CREATED the suggestion
+     * keys on the same (user, url) pair, so a user who answered the card
+     * inside that window had their accept silently dropped while the 202
+     * still reported success — the exact "Adding..." that never finishes.
+     */
     public function uniqueId(): string
     {
-        return $this->userId.':'.sha1($this->url);
+        return $this->userId.':'.sha1($this->url).($this->acceptedIntentId !== null ? ':accept' : '');
     }
 
     public function handle(
@@ -113,8 +133,7 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
                 // 2026-08-20): the classifier names 'shop' by HOST alone, so a
                 // deep path on a recognised shop host is exactly the 4barbers
                 // affiliate shape and must be a question, not an auto-connect.
-                'shop' => $this->seedStore($brands, $user, $this->url,
-                    trim((string) parse_url($this->url, PHP_URL_PATH), '/') !== ''),
+                'shop' => $this->seedStore($brands, $user, $this->url, $this->isDeepPage()),
                 default => $this->probe($generic, $brands, $products, $user, $canonicalizer, $observer),
             };
         } catch (Throwable $e) {
@@ -124,6 +143,16 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
 
         if (! $resolved && ! $this->suggestOnly) {
             $links->seedCustom($user, $this->url);
+        }
+
+        // An accept that resolved is settled by the reconciler on its way
+        // through PlacementPolicy, exactly as any placement is. An accept
+        // that did NOT resolve reaches no reconciler at all — seed() returns
+        // early on a probe miss, before it — so without this the user's
+        // answer left no trace: a plain link card appeared and the identical
+        // question stayed in the inbox.
+        if (! $resolved && $this->acceptedIntentId !== null) {
+            $this->settleAcceptedIntent();
         }
 
         Log::info('commerce_probe.resolved', [
@@ -245,6 +274,22 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         return false;
     }
 
+    /**
+     * Whether this URL's own path makes it a deep page — a question rather
+     * than an auto-connect (FI-10).
+     *
+     * Never true on the accept lane. The rule exists to stop an UNASKED
+     * auto-connect attributing someone else's storefront to this account;
+     * once the owner has answered the card, re-applying it downgraded the
+     * placement to Choose and the reconciler wrote the intent straight back
+     * to 'proposed' — the card returned and nothing ever connected.
+     */
+    private function isDeepPage(): bool
+    {
+        return $this->acceptedIntentId === null
+            && trim((string) parse_url($this->url, PHP_URL_PATH), '/') !== '';
+    }
+
     private function seedStore(StoreBrandSeeder $brands, User $user, string $url, bool $deepPage = false): bool
     {
         $result = $brands->seed($user, $url, self::ORIGIN, suggestOnly: $this->suggestOnly || $deepPage);
@@ -253,6 +298,35 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         // handle() must not also card the link (the suggestion carries it).
         return $result['outcome'] === 'placed'
             || (($this->suggestOnly || $deepPage) && $result['outcome'] === 'not_placed' && $result['verdict'] !== null);
+    }
+
+    /**
+     * Record that the user's answer was tried and could not be served.
+     *
+     * 'unservable' rather than the probe's own reason: block_reason is wire
+     * vocabulary the inbox renders in words, and the set is deliberately
+     * small. Which probe missed, and why, is the log's job below.
+     *
+     * Scoped to the user and to a LIVE state so a dismissal, or a placement
+     * that landed by another route while this ran, is never overwritten.
+     */
+    private function settleAcceptedIntent(): void
+    {
+        DB::table('routing.source_intents')
+            ->where('id', $this->acceptedIntentId)
+            ->where('user_id', $this->userId)
+            ->whereIn('state', ['proposed', 'blocked'])
+            ->update([
+                'state' => 'blocked',
+                'block_reason' => 'unservable',
+                'updated_at' => now(),
+            ]);
+
+        Log::info('commerce_probe.accept_unservable', [
+            'user_id' => $this->userId,
+            'intent_id' => $this->acceptedIntentId,
+            'url' => $this->url,
+        ]);
     }
 
     /** scheme://host of the probed URL, or null when it has neither. */

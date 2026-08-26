@@ -393,3 +393,105 @@ it('offers a probed Shopify storefront as a suggestion from a paste (never a pla
         ->and(DB::table('routing.source_intents')->where('id', $intent->id)->value('state'))->toBe('applied')
         ->and(DB::table('content.collections')->where('user_id', $pro->id)->where('kind', 'storefront')->where('label', 'Beardbrand')->exists())->toBeTrue();
 });
+
+it('connects a store whose suggestion carries a deep path, rather than re-proposing it', function () {
+    // The live dev row this reproduces (intent df68c566, 2026-08-24):
+    // shopify.store / 23504463 / https://stali.com.au/collections/star-wars —
+    // first seen through a collection link, not the storefront root.
+    //
+    // CommerceProbeJob's deep-page rule turns an UNASKED auto-connect into a
+    // question. On the accept lane the question has already been asked and
+    // answered, so applying it there re-proposed the very card the user just
+    // said yes to: Add reported "Adding..." forever and nothing connected.
+    setupContentTables();
+    Cache::flush();
+    $pro = createTenant('inbox-store-deep');
+    Http::fake([
+        '*/meta.json' => Http::response(['id' => 23504463, 'name' => 'ST. ALi', 'currency' => 'AUD'], 200),
+        'https://stali.com.au/' => Http::response('<html><head><title>ST. ALi</title></head><body>Coffee</body></html>', 200, ['Content-Type' => 'text/html']),
+        // REACHABLE and not a product page — the shape that sets $deepPage
+        // (CommerceProbeJob::probe, FI-10). A 404 here would take the
+        // unreachable arm instead, which probes the ORIGIN and so never
+        // records the deep canonical_url the live row carries.
+        'https://stali.com.au/collections/star-wars' => Http::response('<html><head><title>Star Wars | ST. ALi</title></head><body>A collection</body></html>', 200, ['Content-Type' => 'text/html']),
+        '*' => Http::response('', 404),
+    ]);
+
+    $deep = 'https://stali.com.au/collections/star-wars';
+    app()->call([new CommerceProbeJob((string) $pro->id, $deep, suggestOnly: true), 'handle']);
+
+    $intent = DB::table('routing.source_intents')->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->state)->toBe('proposed')
+        ->and($intent->canonical_url)->toContain('/collections/star-wars');
+
+    // Accept, then run exactly the job the controller pushed — not a
+    // hand-built one, which is what hid this: the shape of the dispatch IS
+    // the bug.
+    Queue::fake();
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intent->id}/accept")->assertStatus(202);
+
+    $pushed = null;
+    Queue::assertPushed(CommerceProbeJob::class, function ($job) use (&$pushed) {
+        $pushed = $job;
+
+        return true;
+    });
+    app()->call([$pushed, 'handle']);
+
+    expect(DB::table('routing.source_intents')->where('id', $intent->id)->value('state'))->toBe('applied')
+        ->and(IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->exists())->toBeTrue();
+});
+
+it('settles an accepted store the seeder could not build, instead of leaving the card standing', function () {
+    // ProbeGate refuses a URL with 3+ path segments outright
+    // (not_a_storefront_root) — no request goes out. seed() then returns on
+    // the probe MISS, which is BEFORE the reconciler, so nothing settled the
+    // intent: the user pressed Add, a plain link card appeared, and the
+    // identical question stayed in the inbox with no account of what happened.
+    setupContentTables();
+    Cache::flush();
+    $pro = createTenant('inbox-store-unservable');
+    $intentId = seedIntent($pro->id, [
+        'surface_key' => 'shopify.store',
+        'routing_class' => 'shop',
+        'identifier' => '23504463',
+        'canonical_url' => 'https://stali.com.au/collections/star-wars/products/mug',
+        'block_reason' => 'below_threshold',
+    ]);
+
+    Queue::fake();
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertStatus(202);
+    $pushed = null;
+    Queue::assertPushed(CommerceProbeJob::class, function ($job) use (&$pushed) {
+        $pushed = $job;
+
+        return true;
+    });
+    app()->call([$pushed, 'handle']);
+
+    $settled = DB::table('routing.source_intents')->where('id', $intentId)->first();
+    expect($settled->state)->toBe('blocked')
+        ->and($settled->block_reason)->toBe('unservable');
+
+    // And it says so, rather than re-asking the question that just failed.
+    $card = collect(actingAsUser($pro)->getJson('/api/routing/suggestions')->assertOk()->json('suggestions'))
+        ->firstWhere('surfaceKey', 'shopify.store');
+    expect($card['question'])->toBe("We couldn't reach this Shopify store. Try again?");
+});
+
+it('gives an accept its own uniqueness slot, so a probe in flight cannot swallow it', function () {
+    // uniqueFor is 300s and the discovery probe that CREATED the suggestion
+    // keys on the same (user, url) pair. A user answering the card inside
+    // that window had the accept dropped by ShouldBeUnique while accept()
+    // still returned 202 — indistinguishable, from the dashboard, from the
+    // deep-path bug above.
+    //
+    // Asserted on uniqueId() directly: Queue::fake() never takes the unique
+    // lock at all, so a dispatch-level test would pass whether or not the
+    // two ids collide.
+    $discovery = new CommerceProbeJob('user-1', 'https://stali.com.au/', 'shop');
+    $accepted = new CommerceProbeJob('user-1', 'https://stali.com.au/', 'shop', acceptedIntentId: 'intent-1');
+
+    expect($accepted->uniqueId())->not->toBe($discovery->uniqueId());
+});

@@ -224,7 +224,7 @@ class SuggestionsController extends ApiController
         // itself (applied, or blocked with the reason the inbox already
         // renders). Nothing is written here that the seeder could contradict.
         if (in_array($intent->surface_key, self::PROBED_STORE_SURFACES, true) && is_string($intent->canonical_url ?? null) && $intent->canonical_url !== '') {
-            CommerceProbeJob::dispatch((string) $user->id, (string) $intent->canonical_url, 'shop');
+            CommerceProbeJob::dispatch((string) $user->id, (string) $intent->canonical_url, 'shop', acceptedIntentId: (string) $intent->id);
 
             return $this->success([
                 'connectionId' => null,
@@ -492,6 +492,11 @@ class SuggestionsController extends ApiController
                 ? "You already have {$name} connected — swap it for this one?"
                 : "You've reached the limit for {$name} accounts.",
             'gate' => "{$name} isn't available on your account type.",
+            // The user already answered this one and the build failed. Saying
+            // so beats re-asking "Is this your Shopify store?", which is what
+            // the default branch below would do — the same question, with no
+            // hint that anything was attempted.
+            'unservable' => "We couldn't reach this {$name}. Try again?",
             'below_threshold' => "Is this your {$name}?",
             default => "Add this {$name} link?",
         };
@@ -504,6 +509,9 @@ class SuggestionsController extends ApiController
             'conflict' => ['replace', 'dismiss'],
             'cap_reached' => $intent->conflicting_connection_id !== null ? ['replace', 'dismiss'] : ['dismiss'],
             'gate' => ['dismiss'],
+            // Retryable on purpose: an unreachable storefront is usually
+            // weather, not a verdict.
+            'unservable' => ['accept', 'dismiss'],
             default => ['accept', 'dismiss'],
         };
     }
