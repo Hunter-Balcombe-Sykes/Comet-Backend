@@ -30,6 +30,34 @@ it('classifies website evidence only onto surviving roster fonts', function () {
     expect($offenders)->toBe([], 'keywords classifying to a font outside the roster');
 });
 
+it('nb-architekt is genuinely REACHABLE: a sector look and a classifier register both emit it (plan 02 step 4)', function () {
+    // Reversed 2026-08-27 (the taste map routes it): tattoo-artist and
+    // it-services wear the technical grotesk, and scanned-website evidence
+    // reaches it through the technical/mono keyword register. If both
+    // paths dry up again, that is a deliberate decision to make loudly —
+    // not silent drift back to "deliberately unreachable".
+    $presetFonts = [];
+    foreach (SectorStylePresets::refinedSlugs() as $slug) {
+        $presetFonts[] = SectorStylePresets::forSlug($slug)['typography_font_family'] ?? null;
+    }
+    expect(in_array('nb-architekt', $presetFonts, true))->toBeTrue('no sector look emits nb-architekt');
+
+    $keywords = (new ReflectionClass(FontKeywordClassifier::class))->getConstant('KEYWORDS');
+    expect(in_array('nb-architekt', $keywords, true))->toBeTrue('no classifier keyword routes to nb-architekt');
+});
+
+it('an nb-architekt look always authors uppercase true (composition rule: it is an all-caps face)', function () {
+    $overlays = array_map(SectorStylePresets::forBucket(...), SectorStylePresets::buckets());
+    foreach (SectorStylePresets::refinedSlugs() as $slug) {
+        $overlays[] = SectorStylePresets::forSlug($slug);
+    }
+    foreach ($overlays as $overlay) {
+        if (($overlay['typography_font_family'] ?? null) === 'nb-architekt') {
+            expect($overlay['typography_uppercase'] ?? null)->toBeTrue();
+        }
+    }
+});
+
 it('seeds sector presets only with surviving roster fonts', function () {
     $overlays = array_map(SectorStylePresets::forBucket(...), SectorStylePresets::buckets());
     foreach (SectorStylePresets::refinedSlugs() as $slug) {
@@ -94,17 +122,12 @@ it('seeds no design_kits column that is not in the live allowlist', function () 
     expect(array_values(array_unique($offenders)))->toBe([], 'presets writing a column outside the live allowlist');
 });
 
-it('collapsed the sector presets to accent and font, and nothing else', function () {
-    // OWNER DECISION 2026-08-09 (go-live brief §9 / plan 6.3): let the gutted
-    // sectors collapse rather than invent new differentiation. Of the columns
-    // these presets used to set, weight/text/space/radius/line-height went with
-    // the preset-only migration and the three effect_* axes were deleted
-    // outright; border_thickness survived as a two-value selection until
-    // 2026-08-27 (plan 02), when it died with theme_mode and the night-shift
-    // toggle.
-    //
-    // This pins the RESULT of that decision, so a well-meant re-enrichment is
-    // a conversation rather than a silent revert.
+it('presets speak the FULL-LOOK vocabulary and nothing outside it (plan 02 step 4)', function () {
+    // The 2026-08-09 "collapse to accent+font" pin is deliberately
+    // REVERSED here (owner decision B, 2026-08-27): every bucket is a
+    // complete authored look now. The pin's job is unchanged — presets may
+    // only write these six live columns; anything else is a write to a
+    // column that does not exist or an axis nobody resolved.
     $overlays = array_map(SectorStylePresets::forBucket(...), SectorStylePresets::buckets());
     foreach (SectorStylePresets::refinedSlugs() as $slug) {
         $overlays[] = SectorStylePresets::forSlug($slug);
@@ -117,7 +140,10 @@ it('collapsed the sector presets to accent and font, and nothing else', function
     $columns = array_values(array_unique($columns));
     sort($columns);
 
-    expect($columns)->toBe(['color_accent', 'typography_font_family']);
+    expect($columns)->toBe([
+        'color_accent', 'corners', 'spacing', 'text_size',
+        'typography_font_family', 'typography_uppercase',
+    ]);
 });
 
 it('carries no empty refinement — a slug with nothing left to say is removed', function () {

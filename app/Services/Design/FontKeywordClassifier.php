@@ -22,8 +22,12 @@ namespace App\Services\Design;
  * editorial register — it holds no serif, and pretending otherwise would
  * propose a font we cannot render).
  *
- * nb-architekt is deliberately unreachable from here: nothing on the open
- * web shares its register, so no keyword could honestly vote for it.
+ * nb-architekt joined the reachable roster 2026-08-27 (plan 02 step 4 —
+ * the taste map routes it): the technical/mono/blueprint register DOES
+ * exist on the open web (Space Mono, IBM Plex Mono, JetBrains Mono, DIN,
+ * Michroma, Orbitron — spec-sheet and techwear brands reach for exactly
+ * these), and a site declaring one is asking for the hard-edged technical
+ * grotesk, not a warm humanist.
  */
 final class FontKeywordClassifier
 {
@@ -101,6 +105,22 @@ final class FontKeywordClassifier
         'space grotesk' => 'helvetica-neue',
         'outfit' => 'helvetica-neue',
         'urbanist' => 'helvetica-neue',
+
+        // Technical / mono / blueprint — the spec-sheet register
+        // (nb-architekt reachable since 2026-08-27, plan 02).
+        'space mono' => 'nb-architekt',
+        'ibm plex mono' => 'nb-architekt',
+        'jetbrains mono' => 'nb-architekt',
+        'roboto mono' => 'nb-architekt',
+        'courier' => 'nb-architekt',
+        // 'din' alone would substring-match 'Cardinal' etc. — the real
+        // family names are specific enough.
+        'din next' => 'nb-architekt',
+        'din pro' => 'nb-architekt',
+        'd-din' => 'nb-architekt',
+        'michroma' => 'nb-architekt',
+        'orbitron' => 'nb-architekt',
+        'rajdhani' => 'nb-architekt',
     ];
 
     /**

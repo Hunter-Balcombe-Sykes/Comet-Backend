@@ -29,8 +29,15 @@ it('merges the slug refinement over the bucket base', function () {
     $out = ProfileDesignPresets::forUser($user);
 
     expect($out)->toBe($expected)
-        ->and($out['color_accent'])->toBe('#0f766e')      // spa teal beats bucket rose
-        ->and($out['typography_font_family'])->toBe('helvetica-neue'); // bucket font survives
+        ->and($out['color_accent'])->toBe('#0f766e')       // spa teal beats bucket rose
+        ->and($out['spacing'])->toBe('spacious')           // bucket look survives
+        ->and($out['corners'])->toBe('rounded')
+        ->and($out['typography_uppercase'])->toBeFalse()
+        // The bucket authors NO font since the full-look rewrite (2026-08-27
+        // — helvetica IS the package default, and re-emitting a default is
+        // noise per the sparsity rule), so the key is absent and the
+        // package default applies downstream.
+        ->and($out)->not->toHaveKey('typography_font_family');
 });
 
 it('styles a google-sourced sector too — fields, not sources', function () {

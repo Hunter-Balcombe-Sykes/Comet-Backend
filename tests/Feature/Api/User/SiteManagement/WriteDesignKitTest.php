@@ -391,7 +391,7 @@ it('accepts every legal selection value over HTTP and stores it', function () {
     foreach ([
         'text_size' => ['small', 'medium', 'large'],
         'spacing' => ['default', 'spacious'],
-        'corners' => ['default', 'rounded'],
+        'corners' => ['sharp', 'default', 'rounded'],
     ] as $column => $values) {
         foreach ($values as $value) {
             actingAsUser($pro)
