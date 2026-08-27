@@ -14,6 +14,15 @@ cause with a failing test, then prove the fix against it.
 | simondoylehair2 | instagram `simondoylehair` | 01a04196-39ea… | 2026-08-27 04:59:19 | Rebuild #2 (first: 03:57) |
 | st-ali-coffee-roasters | google_business `ChIJJ5bS6P9n1moRx76U3LjtN1A` | 01a04196-3bcc… | 2026-08-27 04:59:19 | Rebuild #2 (first: 04:31) |
 | social-animals-barbershop | (overnight session) | — | 2026-08-27 ~04:07 | Scroll-promotion test site, separate lane |
+| traethebarber | instagram `traethebarber` | 01a041c7-59ad… | 2026-08-27 05:52:58 | Partna batch; shopify store via commerce_probe |
+| barber-in-law | instagram `barber_in_law` | 01a041c8-aeb7… | 2026-08-27 05:54:26 | Partna batch (staff path); Fresha + GBP |
+| emdinonhair | instagram `emdinonhair` | 01a041c8-af90… | 2026-08-27 05:54:26 | Partna batch (staff path); Timely |
+| sammypdf | instagram `sammy.pdf` | 01a041c8-afe1… | 2026-08-27 05:54:26 | Partna batch (staff path); musician (spotify/apple/soundcloud) |
+
+Ops notes: `PARTNA_PRE_ACCOUNT_MAX_UNCLAIMED_PER_IP=15` set on development
+(2026-08-27, owner request; env var + redeploy, verified live 06:03 UTC).
+Test builds can also bypass the cap entirely via the staff
+`requestBuild(..., $staff)` path — that is how the batch ran.
 
 Log window for the 04:59 rebuilds: pulled complete via
 `scripts/logs/window.py "2026-08-27 04:58:30" "2026-08-27 05:14:00"` → 783
@@ -97,26 +106,67 @@ lines (the old 100-line cap is beaten; tool verified working).
 - `scripts/logs/window.py` + CLAUDE.md section (uncommitted, written by the
   2026-08-27 session, verified working today: 783-line window pulled).
 
+### 7. Display-name parsing — VERIFIED across 6 accounts, and it breaks Fresha
+Re-verified on both rebuilds AND the partna batch (2026-08-27):
+- simondoylehair2: `SIMON DOYLE | Barber & Educator` verbatim, ALL-CAPS
+  first/last. st-ali: `ST. ALi Coffee` verbatim (first_name WITHOUT the
+  trailing period this build — run variance vs build 1).
+- traethebarber: `Trae the Barber` → last_name **"Barber"** (descriptor
+  taken as surname).
+- barber_in_law: `Melbourne Barber | Thorton` → first "Melbourne", last
+  "Barber" — the real name is AFTER the pipe here, so naive pipe-stripping
+  keeps the wrong half. **Counter-example that kills the simple fix.**
+- emdinonhair: `Emma Dinon | Barber` → first/last parsed right, display
+  kept the vanity string.
+- sammy.pdf: `Sam Akhurst Music` → last_name **"Music"** ("Akhurst" lost).
+- **Interlock (measured):** barber_in_law's Fresha auto-selection came out
+  NULL (`employeeName: null, autoSelected: null`, 2 storewide services only)
+  — FreshaStaffMatcher was fed the garbage "Melbourne"/"Barber" parse. The
+  name-parse defect directly disables Fresha employee selection.
+- Fix direction: `PersonNameParser` needs more than delimiter-splitting —
+  descriptor-word handling (Barber, Music, Hair, Studio…), pipe-side
+  selection by name-likeness, ALL-CAPS normalisation; possibly a small AI
+  extraction call (Mistral already in the stack) with the parser as
+  fallback. Design question queued.
+
+### 8. Menu `titleCase()` artifacts — VERIFIED still live (build-2 wire)
+`Cold Brew/oat Latte Can`, `Cold Brew Bags. (italo Concentrate 1.2l)`,
+`Bourdain Roll.`, `Cookie (anzac).`, `Cronut.`, `Danish.` all serving on
+st-ali's current wire. Fix `NormalizesMenuData::titleCase()` (delimiters,
+acronyms/units, trailing periods) pinned by these exact strings as tests.
+
 ## INHERITED claims — not yet re-verified on the rebuilds
 
-- **Menu `titleCase()` artifacts** ("Cold Brew/oat Latte Can", trailing
-  periods, acronym mangling) — served on build 1's live page; recheck build 2,
-  then fix in `NormalizesMenuData::titleCase()` with the real strings as tests.
-- **Display name parsing** — "SIMON DOYLE | Barber & Educator" verbatim from
-  Instagram `fullName`; "St Ali Coffee Roasters." trailing period from
-  `PreAccountBuildService` fallback. Wanted: "Simon Doyle". Fix in
-  `PersonNameParser` + both call sites. Recheck what build 2 produced.
 - **Fresha service-name casing** at ingest (store Title Case once, at write).
 - **Menu provenance** — build 1 attributed all menu items to `manual`
-  (priority 200) with the `uber_eats` ingest source never run. Build 2:
-  `content.items` has exactly 86 menu_items (= UE count) — lane question
+  (priority 200) with the `uber_eats` ingest source never run. Lane question
   still open.
-- **OCR junk items** (ingredient-lines-as-names) — NOT reproduced in
-  `content.items` on build 2 (no long-name items), BUT the scan applied
-  `added: 10, updated: 0` — zero cross-source matches this time (build 1
-  matched and enriched). Where did the 10 go, are they duplicates of UE
-  items under different names, and did junk land in the legacy `menus` lane?
-  → next investigation round.
+
+## RESOLVED investigations
+
+- **The 10 scan-added items (St Ali build 2)** — all live on the wire:
+  4 real Express Lunch dishes + 3 real Drinks (correct prices) = genuinely
+  good adds; 3 junk price-less specials fragments (`Strawberry`,
+  `Biscoff & Chocolate`, `Blueberry`) under "More". `updated: 0` — no
+  cross-source folding this run (build 1 folded "Fillet of Fish"); OCR
+  extraction is run-to-run nondeterministic. Guardrail candidate: reject or
+  review-flag scanned items with null price AND no category AND short
+  fragment names. D1's enrich-only mode moots junk when a platform menu
+  exists; guardrail still wanted for scan-only accounts.
+- **UE path-style item links** — VERIFIED in a real browser: the
+  `/store/{slug}/{storeB64}/{section}/{subsection}/{item}` form renders the
+  dedicated item page ("LATTE | Uber Eats"). The earlier curl 403 was bot
+  detection. D4 unblocked: build path links from the stored quickView
+  `modctx` + strip `rwg_token`/`utm_*`.
+- **Partna batch first sweep (05:52–06:02 window, 971 log lines):** clean —
+  zero exceptions, no dropped connections, all four ready in ≤3 min. Only
+  finds: one `media_mirror.failed` on a Trae Instagram REEL (signed CDN mp4,
+  `mirror_attempts: 1`, still eligible — does a retry sweep exist?); Emma's
+  Timely is a bare booking link (no services scrape exists for Timely → I8);
+  Trae's `shopify` connection from commerce_probe sits `last_refresh_status:
+  pending` while 8 products already exist — understand that state; St Ali's
+  UE scrape returned 68 items this build vs 86 on build 1 (→ I9 scrape
+  variance).
 
 ## DISPROVEN / corrected claims
 
@@ -234,6 +284,19 @@ parallel; measure Simon's 49s generate step's internal phases.
   connection refused (#341). Watch; not actionable today.
 - **I6 — `ingest.fresha.booking_flow_graphql_rejected`** warning during
   selection — understand and either fix or demote.
+- **I8 — Timely services scrape (new, partna batch):** Timely connections
+  store only the booking URL — no service list, so a Timely-based partna
+  account (emdinonhair) gets a Book button but an empty services pool.
+  Timely's public booking page lists services; a scraper would fill the gap.
+- **I9 — Ordering-platform scrape variance (new):** St Ali's Uber Eats
+  scrape returned 86 items (build 1) then 68 (build 2) — an 18-item swing
+  run to run. Investigate whether the actor truncated, UE paginates, or
+  items were filtered; menu completeness shouldn't be luck.
+- **I10 — Instagram REEL mirroring:** signed fbcdn mp4 URLs are
+  expiry-sensitive; one of Trae's reels failed `fetch_failed` on first
+  mirror attempt. Confirm the retry sweep covers mirror_eligible failures
+  and how the site renders an unmirrored video meanwhile. (Relates to the
+  2026-08-26 instagram-video-mirror handoff.)
 - **I7 — Nightwatch triage hygiene:** the open-issue list mixes real bugs
   with month-old noise; resolve/ignore stale ones so new regressions stand
   out (e.g. #467 is a deliberate test handle).
