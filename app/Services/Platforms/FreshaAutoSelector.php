@@ -49,7 +49,10 @@ final readonly class FreshaAutoSelector
             // a TypeError, not a miss.
             $slug = $this->scraper->slugFromUrl($url);
             if ($slug !== null) {
-                $services = $this->scraper->fetchEmployeeServices($slug, $match['employeeId']);
+                // reportFailure false: the stored slug is EXPECTED to be stale
+                // sometimes (Fresha rotates venue slugs); the retry below at
+                // the re-resolved slug is the attempt whose failure is news.
+                $services = $this->scraper->fetchEmployeeServices($slug, $match['employeeId'], reportFailure: false);
             }
 
             // Fresha ROTATES venue slugs. The storewide fetch above absorbs that

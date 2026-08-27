@@ -328,7 +328,7 @@ class FreshaScraper
      *
      * @return list<array<string,mixed>>|null
      */
-    public function fetchEmployeeServices(string $slug, string $employeeId): ?array
+    public function fetchEmployeeServices(string $slug, string $employeeId, bool $reportFailure = true): ?array
     {
         // R8: this POST deliberately bypasses SafeUrlFetcher — GRAPHQL_URL is a
         // hardcoded constant, never user input, so there is no SSRF surface to
@@ -429,7 +429,13 @@ class FreshaScraper
                 'employee_id' => $employeeId,
                 'status' => $response->status(),
             ]);
-            report(new FreshaEmployeeMenuUnavailableException($slug, $employeeId, 'http_error', status: $response->status()));
+            // T3 (2026-08-27): the auto-selector's FIRST attempt runs at the
+            // stored slug, which Fresha rotates — it suppresses this report
+            // and retries at the re-resolved slug, reporting only a failure
+            // of THAT attempt. The dashboard picker path keeps the default.
+            if ($reportFailure) {
+                report(new FreshaEmployeeMenuUnavailableException($slug, $employeeId, 'http_error', status: $response->status()));
+            }
 
             return null;
         }
@@ -442,7 +448,9 @@ class FreshaScraper
                 'slug' => $slug,
                 'employee_id' => $employeeId,
             ]);
-            report(new FreshaEmployeeMenuUnavailableException($slug, $employeeId, 'no_categories'));
+            if ($reportFailure) {
+                report(new FreshaEmployeeMenuUnavailableException($slug, $employeeId, 'no_categories'));
+            }
 
             return null;
         }
