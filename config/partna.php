@@ -385,6 +385,9 @@ return [
             'actors' => [
                 'mistral_ocr' => (int) env('PARTNA_MISTRAL_OCR_DAILY_CAP', 900),
                 'deepseek_structure' => (int) env('PARTNA_DEEPSEEK_STRUCTURE_DAILY_CAP', 900),
+                // T5/T13 (2026-08-27): one bio-intelligence call per signup
+                // build (and per empty-bio IG connect) — ~500 tokens each.
+                'deepseek_bio' => (int) env('PARTNA_DEEPSEEK_BIO_DAILY_CAP', 900),
             ],
         ],
 

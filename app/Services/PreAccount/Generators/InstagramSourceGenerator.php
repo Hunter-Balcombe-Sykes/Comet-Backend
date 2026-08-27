@@ -2,6 +2,7 @@
 
 namespace App\Services\PreAccount\Generators;
 
+use App\Jobs\PreAccount\BioMentionChainsJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
@@ -11,7 +12,9 @@ use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\ProfileFetchFailure;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\PreAccount\SourceGenerationException;
+use App\Services\Profile\BioIntelligence;
 use App\Services\Profile\PersonNameParser;
+use Illuminate\Support\Facades\Log;
 
 // Builds a provisional user's site from a typed Instagram handle by reusing the
 // EXACT connect machinery an authenticated user gets: a pending IntegrationConnection
@@ -23,6 +26,7 @@ class InstagramSourceGenerator implements SiteSourceGenerator
     public function __construct(
         private readonly InstagramScraper $scraper,
         private readonly InstagramConnectionSeeder $seeder,
+        private readonly BioIntelligence $bioIntelligence,
     ) {}
 
     public function normalizeRef(string $raw): string
@@ -106,18 +110,68 @@ class InstagramSourceGenerator implements SiteSourceGenerator
         // implemented and do nothing. Under QUEUE_CONNECTION=sync that is not a race,
         // it is deterministic.
         $fullName = trim((string) (data_get($profile, 'fullName') ?? data_get($profile, 'full_name')));
-        if ($fullName !== '') {
-            $parsed = PersonNameParser::parse($fullName);
-            $user->display_name = $parsed['displayName'];
-            $user->first_name = $parsed['firstName'];
-            $user->last_name = $parsed['lastName'];
-            $user->save();
+        $biography = data_get($profile, 'biography') ?? data_get($profile, 'bio');
+        $biography = is_string($biography) ? trim($biography) : null;
+
+        // T5/T13/T16 (2026-08-27, D6/D8): one bio-intelligence pass — clean
+        // names (handle-first, their-words-gated), the stitched About, any
+        // literal contact details, and the classified @mentions (stored on
+        // the connection payload below for the T14 chains). The deterministic
+        // parser remains the floor: every AI field is optional, gated, and
+        // falls back to the parse (names) or to nothing (About/contact) —
+        // no-About beats a bad About.
+        $intel = $this->bioIntelligence->analyse($sourceRef, $fullName ?: null, $biography, data_get($profile, 'businessCategoryName') ?? data_get($profile, 'business_category_name'));
+
+        $parsed = $fullName !== '' ? PersonNameParser::parse($fullName) : null;
+        $displayName = $intel['displayName'] ?? $parsed['displayName'] ?? null;
+        if ($displayName !== null) {
+            $user->display_name = $displayName;
+            $user->first_name = $intel['firstName'] ?? $parsed['firstName'] ?? $user->first_name;
+            $user->last_name = $intel['firstName'] !== null ? $intel['lastName'] : ($parsed['lastName'] ?? null);
         }
+        if (trim((string) $user->bio) === '' && $intel['about'] !== null) {
+            $user->bio = $intel['about'];
+        }
+        // Structured actor business fields outrank AI-extracted bio text.
+        $email = data_get($profile, 'business_email') ?? data_get($profile, 'businessEmail')
+            ?? data_get($profile, 'public_email') ?? $intel['email'];
+        if (trim((string) $user->public_contact_email) === '' && is_string($email) && filter_var($email, FILTER_VALIDATE_EMAIL) !== false) {
+            $user->public_contact_email = $email;
+        }
+        $phone = data_get($profile, 'business_phone_number') ?? data_get($profile, 'businessPhoneNumber') ?? $intel['phone'];
+        if (trim((string) $user->public_contact_number) === '' && is_string($phone) && $phone !== '') {
+            $user->public_contact_number = $phone;
+        }
+        $user->save();
+        Log::info('pre_account.bio_intelligence', [
+            'user_id' => $user->id,
+            'ai_used' => $intel['aiUsed'],
+            'display_name' => $user->display_name,
+            'about_set' => $intel['about'] !== null,
+            'email_set' => trim((string) $user->public_contact_email) !== '',
+            'phone_set' => trim((string) $user->public_contact_number) !== '',
+            'mentions' => count($intel['mentions']),
+        ]);
 
         try {
             $this->seeder->seed($connection, $sourceRef, $user->id, $profile, $autoConnectBooking);
         } catch (\Throwable $e) {
             throw SourceGenerationException::scrapeFailed($e->getMessage());
+        }
+
+        // T14 (2026-08-27): the classified bio @mentions ride the connection
+        // payload for the workplace/brand chains — data, not action; the
+        // chains run (and gate) separately.
+        if ($intel['mentions'] !== []) {
+            $connection->refresh();
+            $connection->update(['payload' => array_merge(
+                (array) $connection->payload,
+                ['bioMentions' => $intel['mentions']],
+            )]);
+            // Delayed so the Fresha → workplace path keeps precedence: the
+            // chain only fills a workplace that is STILL empty when it runs.
+            BioMentionChainsJob::dispatch((string) $user->id)
+                ->delay(BioMentionChainsJob::DISPATCH_DELAY_SECONDS);
         }
 
         // Flag, don't fail: the site still renders off what DID come back, and a

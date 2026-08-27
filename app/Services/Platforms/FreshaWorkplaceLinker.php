@@ -30,7 +30,8 @@ use Throwable;
  * no Google Business connection exists yet: a business connects its own
  * listing on purpose, and an existing listing is never replaced.
  */
-final class FreshaWorkplaceLinker
+// Not final: BioMentionChainsJob's tests substitute it via the container (T14).
+class FreshaWorkplaceLinker
 {
     private const MAX_DISTANCE_M = 300;
 

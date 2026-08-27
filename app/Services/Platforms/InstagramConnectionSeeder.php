@@ -180,6 +180,19 @@ class InstagramConnectionSeeder
             ),
             'followersCount' => data_get($profile, 'followersCount'),
             'postsCount' => data_get($profile, 'postsCount'),
+            // T13/T16 (2026-08-27): the scrape has ALWAYS carried the
+            // biography (bioLinks() above regexes URLs out of it) — now the
+            // text itself persists, as the source for the auto-About, the
+            // name pipeline and the bio-mention chains. Same defensive
+            // multi-key reads as fullName (actor field names drift).
+            'biography' => data_get($profile, 'biography') ?? data_get($profile, 'bio'),
+            'publicEmail' => data_get($profile, 'business_email')
+                ?? data_get($profile, 'businessEmail')
+                ?? data_get($profile, 'public_email')
+                ?? data_get($profile, 'publicEmail'),
+            'publicPhone' => data_get($profile, 'business_phone_number')
+                ?? data_get($profile, 'businessPhoneNumber')
+                ?? data_get($profile, 'public_phone_number'),
             'mode' => 'automatic',
             // Single element: the most-recent photo, mirrored. Kept as a list so
             // existing consumers (flow-skeleton fallback, dashboard) read images[0].

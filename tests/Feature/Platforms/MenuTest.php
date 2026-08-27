@@ -1165,7 +1165,7 @@ it('creates a menu row via scan apply when the user has none yet', function () {
         'items' => [['name' => 'Margherita Pizza', 'description' => 'Classic.', 'price' => 14.5, 'category' => 'Pizzas']],
     ])->assertOk();
 
-    expect($res->json())->toBe(['updated' => 0, 'added' => 1]);
+    expect($res->json())->toBe(['updated' => 0, 'added' => 1, 'skipped' => 0]);
     $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
     expect($menu->content_source)->toBe('scan');
     expect($menu->fetch_status)->toBe('ok');
@@ -1208,7 +1208,7 @@ it('defaults new scan items with no category to the last-sorted "More" bucket', 
 
     actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
         'items' => [['name' => 'Mystery Dish', 'description' => null, 'price' => null, 'category' => null]],
-    ])->assertOk()->assertExactJson(['updated' => 0, 'added' => 1]);
+    ])->assertOk()->assertExactJson(['updated' => 0, 'added' => 1, 'skipped' => 0]);
 
     $category = menuContentCategories($user)['More'];
     expect((string) $category->external_ref)->toBe(MenuScanApplier::categoryRefFor('scan', 'More'));
@@ -1228,7 +1228,7 @@ it('updates an existing item by case-insensitive trimmed name match without null
         'items' => [['name' => '  chicken parma  ', 'description' => null, 'price' => 19.5, 'category' => null]],
     ])->assertOk();
 
-    expect($res->json())->toBe(['updated' => 1, 'added' => 0]);
+    expect($res->json())->toBe(['updated' => 1, 'added' => 0, 'skipped' => 0]);
     $item = menuContentRows($user)['Chicken Parma'];
     expect($item->headline)->toBe('Chicken Parma');     // display name untouched
     expect($item->description)->toBe('Original.');      // NOT null'd out — scan omitted it
@@ -1244,7 +1244,7 @@ it('updates description when the scan provides it and leaves price alone when th
 
     actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
         'items' => [['name' => 'Butter Chicken', 'description' => 'Creamy tomato curry.', 'price' => null, 'category' => null]],
-    ])->assertOk()->assertExactJson(['updated' => 1, 'added' => 0]);
+    ])->assertOk()->assertExactJson(['updated' => 1, 'added' => 0, 'skipped' => 0]);
 
     $item = menuContentRows($user)['Butter Chicken'];
     expect($item->description)->toBe('Creamy tomato curry.');
@@ -1265,7 +1265,7 @@ it('reports mixed updated/added counts for a batch with both matches and new ite
         ],
     ])->assertOk();
 
-    expect($res->json())->toBe(['updated' => 1, 'added' => 2]);
+    expect($res->json())->toBe(['updated' => 1, 'added' => 2, 'skipped' => 0]);
     expect(menuContentRows($user))->toHaveCount(3);
     // Both new items land in the SAME new "Sides" scan category, not two.
     $sides = menuContentCategories($user)['Sides'];
@@ -1301,7 +1301,7 @@ it('updates the single multi-category dish in place and never shadows a same-nam
         'items' => [['name' => 'Garlic Bread', 'description' => 'Toasted, buttery.', 'price' => 6.5, 'category' => 'sides']],
     ])->assertOk();
 
-    expect($res->json())->toBe(['updated' => 1, 'added' => 0]);
+    expect($res->json())->toBe(['updated' => 1, 'added' => 0, 'skipped' => 0]);
     $garlic = menuContentRows($user)['Garlic Bread'];
     expect((float) $garlic->base_price)->toBe(6.5);
     expect($garlic->description)->toBe('Toasted, buttery.');
@@ -1322,7 +1322,7 @@ it('attaches the scan category to a matched dish that is not listed under it yet
     ])->assertOk();
 
     // One row still — the scan grew its memberships instead of duplicating it.
-    expect($res->json())->toBe(['updated' => 1, 'added' => 0]);
+    expect($res->json())->toBe(['updated' => 1, 'added' => 0, 'skipped' => 0]);
     expect(menuContentRows($user))->toHaveCount(1);
 
     $garlic = menuContentRows($user)['Garlic Bread'];
@@ -1344,7 +1344,7 @@ it('still updates by name alone when exactly one item shares that name and the s
         'items' => [['name' => 'caesar salad', 'description' => 'With anchovies.', 'price' => 13.0, 'category' => null]],
     ])->assertOk();
 
-    expect($res->json())->toBe(['updated' => 1, 'added' => 0]);
+    expect($res->json())->toBe(['updated' => 1, 'added' => 0, 'skipped' => 0]);
     $item = menuContentRows($user)['Caesar Salad'];
     expect((float) $item->base_price)->toBe(13.0);
     expect($item->description)->toBe('With anchovies.');
@@ -1400,7 +1400,7 @@ it('scan apply accepts boundary-legal prices — zero and just under the cap', f
         ],
     ])->assertOk();
 
-    expect($res->json())->toBe(['updated' => 0, 'added' => 2]);
+    expect($res->json())->toBe(['updated' => 0, 'added' => 2, 'skipped' => 0]);
     $rows = menuContentRows($user);
     // A hand-entered zero projects to a `free` qualifier, which reads back as
     // 0.0 rather than null (ManualMenuItems::amount) — the same distinction the
@@ -1893,7 +1893,7 @@ it('commits a scan apply whose new dish collides with an existing slug base', fu
         ],
     ])->assertOk();
 
-    expect($res->json())->toBe(['updated' => 0, 'added' => 2]);
+    expect($res->json())->toBe(['updated' => 0, 'added' => 2, 'skipped' => 0]);
 
     $rows = menuContentRows($user);
     $minted = $rows['Cafe Latte'];

@@ -6,6 +6,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Profile\BioIntelligence;
 use App\Services\Profile\FoodContentProbe;
 use App\Services\Profile\SectorProvenance;
 use App\Services\Profile\SectorTaxonomy;
@@ -56,6 +57,54 @@ class InstagramIdentitySync
         ));
         $this->applyHandle($user, $this->stringOrNull($payload['username'] ?? null));
         $this->applyContactFields($user, $payload);
+        $this->applyBioIntelligence($user, $payload);
+    }
+
+    /**
+     * T13/T16 (2026-08-27, D8): fill an EMPTY About / public-contact from the
+     * biography — builds AND any later IG connect where they are still empty.
+     * Only-fill-empty is the whole ownership contract: an owner-authored value
+     * is never touched. Names are deliberately NOT changed here — for a
+     * claimed account the owner's identity is theirs; only the pre-account
+     * generator (no owner yet) writes AI names. Instagram withholds business
+     * email/phone from logged-out scrapes (applyContactFields' docblock), so
+     * the bio TEXT — gated to literal presence — is the only contact source.
+     */
+    private function applyBioIntelligence(User $user, array $payload): void
+    {
+        $biography = $this->stringOrNull($payload['biography'] ?? $payload['bio'] ?? null);
+        if ($biography === null) {
+            return;
+        }
+        $needsBio = $this->isBlank($user->bio);
+        $needsEmail = $this->isBlank($user->public_contact_email);
+        $needsPhone = $this->isBlank($user->public_contact_number);
+        if (! $needsBio && ! $needsEmail && ! $needsPhone) {
+            return;
+        }
+
+        $intel = app(BioIntelligence::class)->analyse(
+            (string) ($payload['username'] ?? $user->handle),
+            $this->stringOrNull($payload['fullName'] ?? $payload['full_name'] ?? null),
+            $biography,
+        );
+
+        $changed = false;
+        if ($needsBio && $intel['about'] !== null) {
+            $user->bio = $intel['about'];
+            $changed = true;
+        }
+        if ($needsEmail && $intel['email'] !== null) {
+            $user->public_contact_email = $intel['email'];
+            $changed = true;
+        }
+        if ($needsPhone && $intel['phone'] !== null) {
+            $user->public_contact_number = $intel['phone'];
+            $changed = true;
+        }
+        if ($changed) {
+            $user->save();
+        }
     }
 
     /**

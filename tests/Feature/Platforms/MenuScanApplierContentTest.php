@@ -114,7 +114,7 @@ it('matches a SCRAPED dish menu-wide and updates it in place rather than adding 
 
     $rows = msacRows($user);
 
-    expect($result)->toBe(['updated' => 1, 'added' => 0])
+    expect($result)->toBe(['updated' => 1, 'added' => 0, 'skipped' => 0])
         ->and($rows)->toHaveCount(1)
         ->and((string) $rows[0]->id)->toBe($scrapedId)
         // The stored headline wins — a scan never renames a dish it matched.
@@ -398,7 +398,7 @@ it('leaves a dish the owner has hand-edited untouched, and adds no duplicate', f
         ['name' => 'Garlic Bread', 'description' => 'Scan wrote this instead.', 'price' => 9.0, 'category' => 'Starters'],
     ]);
 
-    expect($result)->toBe(['updated' => 0, 'added' => 0])
+    expect($result)->toBe(['updated' => 0, 'added' => 0, 'skipped' => 0])
         ->and(msacRows($user))->toHaveCount(1)
         ->and(msacRows($user)[0]->description)->toBe('Bread.')
         ->and(msacRows($user)[0]->base_price)->toBe(12.0);

@@ -140,7 +140,7 @@ it('retries the employee menu on the rotated slug instead of degrading to storew
         $m->shouldReceive('slugFromUrl')->andReturn('anseo-studio-v0v92jna');
         // The dead slug yields nothing...
         $m->shouldReceive('fetchEmployeeServices')
-            ->with('anseo-studio-v0v92jna', 'e1')->andReturn(null);
+            ->with('anseo-studio-v0v92jna', 'e1', false)->andReturn(null);
         // ...the current one is resolvable, and serves the employee's real menu.
         $m->shouldReceive('resolveCurrentSlug')
             ->andReturn('anseo-studio-melbourne-140a-chapel-street-w8ajp04r');
@@ -190,7 +190,7 @@ it('does not re-resolve when the stored slug already serves the employee menu', 
 
     $this->mock(FreshaScraper::class, function (MockInterface $m) {
         $m->shouldReceive('slugFromUrl')->andReturn('live-slug');
-        $m->shouldReceive('fetchEmployeeServices')->with('live-slug', 'e1')->andReturn([[
+        $m->shouldReceive('fetchEmployeeServices')->with('live-slug', 'e1', false)->andReturn([[
             'serviceId' => 's:9', 'name' => 'Simon Cut', 'duration' => '45min', 'description' => null,
             'price' => 'A$80', 'priceValue' => 80, 'currency' => 'AUD', 'category' => 'Hair', 'hasVariants' => false,
         ]]);
