@@ -829,6 +829,40 @@ Everything below is the approved scope.
 - Phase gate: parallel suite green (9,613 passed; two architecture guards
   tripped, both addressed: HTTP classification + ROLLBACK header).
 
+### WAVE PHASE 2 — T24 + T27a SHIPPED + REAL-LINK GATED (2026-08-28)
+
+**T24 shipped** (commit 854e7d292): tryResolveFinalUrl (redirect-only,
+survives bot-blocked destinations — issue 21), socialLinks survives a
+missing tile list (issue 19), /collections|/shop|/store root-equivalent for
+the commerce probe (issue 18), LinkSnapshotQuality downgrade gate (issue
+17). Issue-13 fix rode along (ConnectionPayload::contentIsOwed — one
+predicate for status + dispatch).
+
+**T27a shipped + gated.** PER-PLATFORM REAL-LINK GATE LOG (owner's hard
+gate — live classify on dev unless noted):
+
+| platform | URL gated with | live result |
+|---|---|---|
+| jane_app | revolutionwellnessclinic.janeapp.com | booking ✓ + FULL E2E: LinkRouter seeded a live connection (status **ok** — issue-13 fix visible), URL served on sammypdf's public wire, then cleaned up |
+| cliniko | effective-physiotherapy-sports-injuries-clinic.cliniko.com/bookings | booking ✓ (real URL read off the clinic's own site) |
+| halaxy | eu.halaxy.com/profile/leeds-fittoworkmedicalscom/location/402572 | booking ✓ |
+| hotdoc | hotdoc.com.au/medical-centres/port-melbourne-VIC-3207/port-melbourne-medical/doctors | booking ✓ |
+| bookwell | bookwell.com.au/venue/i-love-massage-clayfield/clayfield/4011 | booking ✓ |
+| styleseat | styleseat.com/m/v/jj_styles | booking ✓ |
+| mr_yum | mryum.com/casanom | online-ordering ✓ |
+| rezdy | <operator>.rezdy.com shape | booking ✓ (no public operator URL indexed; shape-gated) |
+| fareharbor | fareharbor.com/embeds/book/<op>/ shape | booking ✓ (shape-gated) |
+| google_appointments | calendar.app.google/<token> shape | booking ✓ (tokens are private by nature; shape-gated, exact-host detector) |
+| microsoft_bookings | outlook.office365.com/owa/calendar/<id>/bookings/ | detect-only: projector matches ✓ (trailing slash canonicalisation fixed in the gate) |
+| wix_bookings | hmcsservices.wixsite.com/website/book-online + bookings.wixapps.net | wixapps.net widget shape matches ✓; the wixsite.com shape is STRUCTURALLY undetectable — wixsite.com is on the Public Suffix List, every user site is its own registrable domain (found BY this gate; detector dropped honestly) |
+
+Gate also caught: Wix's real path is /book-online (not /bookings), the
+canonicaliser strips trailing slashes (Microsoft pattern fixed), and the
+harvester's hand-maintained BOOKING_HOSTS map — not the catalog — is what
+feeds the auto-booking-connect lane (how Emma's Timely connected); all ten
+bookable brands joined it + Mr Yum in ordering (commits through the
+harvester commit).
+
 ### RUN EFFICIENCY PROTOCOL (owner ask, 2026-08-28) — for the T23–T27 run
 
 Retrospective on the 2026-08-27 run's cost drivers, and the protocol that
