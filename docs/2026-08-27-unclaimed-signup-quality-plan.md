@@ -469,6 +469,64 @@ The owner is away (dinner) once execution starts. For this run:
 ### Decisions made while owner away
 (appended as they happen — task, decision, why, evidence)
 
+- **RUN LOG (2026-08-27, evening):**
+  - T1: real-scraper probe running from production every 5 min (both known
+    channels, resolve + videos legs). First samples all OK — consistent
+    with intermittent, not constant, failure.
+  - T2 DONE (commit 1d50395d6, deployed): keep-row + spaced retry chain
+    (5m/15m/45m/2h) for system-initiated first-fetch 'unavailable'
+    failures via new ScheduleConnectRetryJob; interactive F26 delete
+    byte-identical; 7 new tests. Live gate pends the acceptance rebuild.
+  - T15 DONE (commit eb39f05ea, deployed): SectionBlockProvisioner
+    extracted; GeneratePreAccountSiteJob provisions all section blocks at
+    ready; WorkplaceObserver ensures + re-evaluates the workplace block on
+    workplace data arrival. 4 new tests. Live gate pends rebuild.
+  - T9 DONE (commit c6fbe5386): analytics ingest accepts
+    renderable-as-unclaimed sites; claimed-unpublished still 404. 3 tests.
+    Note: during this work the inherited claim "unclaimed sites are
+    published" was refined — ALL unclaimed sites have is_published=false +
+    user status 'unclaimed'; the profiles endpoint simply has no publish
+    gate, and KV routing is what serves the subdomain.
+  - FLEET BUILT: all 17 test accounts ready ≤4 min from dispatch
+    (07:26–07:30 UTC), zero exceptions in Nightwatch, all 17 sites serving.
+  - **DECISION (business name truncation — new issue 10):** left unfixed
+    this run. The ≤15-char business name cap is a deliberate TWO-layer rule
+    (UpsertWorkplaceRequest max:15 rejects manual entry;
+    BusinessName::wordTrim silently trims auto-adopted names) with likely
+    design-kit/layout reasoning and cross-repo (pages) implications — not
+    mine to reverse while the owner is away. Evidence for the owner: 7 of 8
+    real fleet businesses produce broken names, INCLUDING the workplace
+    card itself — "Oxbridge", "Barber On", "Parker", "Lux Thai",
+    "Viet Harmony", "LAKSHMI THAI" (+ st-ali's "ST. ALi Coffee").
+    Owner question queued (Q5 below).
+
+### New issues found during the run (all become tasks per the run contract)
+
+- **Issue 10 — business display/workplace name truncation** (see decision
+  above): `site.workplaces.name` carries the truncated string too, so the
+  workplace card reads "Barber On". Q5: raise the cap (render-side
+  truncation instead)? Keep display cap but store full workplace.name?
+- **Issue 11 — two more pre-fix YouTube first-fetch drops** (eoinmccarthyhair,
+  leighwinsor — each lost one channel of several; fleet built pre-deploy).
+  Confirms T2's premise; acceptance rebuild must show zero drops.
+- **Issue 12 — Oxbridge Fresha connect 'unavailable' but row kept** — their
+  fresha page scrape failed differently from the youtube shape (row
+  retained). Understand FreshaConnectFetch's failure path + whether the
+  site shows an empty fresha presence. → investigate.
+- **Issue 13 — 'pending' refresh-status rows** on link-only-ish platforms
+  (tiktok ×3, x ×2, facebook ×2 across the fleet) 20+ min after build —
+  likely platforms without fetch strategies whose rows simply stay
+  'pending' forever. Verify harmless-by-design or stuck; either way the
+  status vocabulary is dishonest. → small task.
+- **Issue 14 — SVG logo rasterization failures** (`Logo processor 422:
+  svg rasterization failed: unbound prefix` ×3, one business's logo;
+  fallback to standard WebP worked). → backlog with I-series.
+- **Issue 15 — jjsavani bio links unmatched** — 4 links seen, 0 findings,
+  3 unmatched, and no linktree scan fired (bio carries direct non-platform
+  links). Site ends up with just 3 generic links + IG media. Ground-truth
+  agent comparing; may be correct behaviour, may reveal a routing gap.
+- Reel mirror failures ×4 more in the fleet window (I10 evidence grows).
+
 ## Task ledger for the run (each with its gate)
 
 - **T1 — YouTube production probe** (verification, no fix yet): scheduled
