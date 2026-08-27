@@ -527,6 +527,59 @@ The owner is away (dinner) once execution starts. For this run:
   agent comparing; may be correct behaviour, may reveal a routing gap.
 - Reel mirror failures ×4 more in the fleet window (I10 evidence grows).
 
+### Fresh-eye agent findings (fleet, 2026-08-27 — sonnet agents, verified claims only)
+
+Context-filtered: the ground-truth agent flagged "hallucinated instagram/
+google-business/partna connections" on several accounts — all explained
+(instagram is the BUILD SOURCE, google-business came via the Fresha linker,
+partna rows are internal), discarded. What survives:
+
+- **Issue 16 — Parker's bio renders double-encoded HTML** — the info panel
+  shows literal `<p class="" style=…>` markup + an unclosed `<strong>`,
+  truncated mid-tag ("…not your average hair salon or barbershop.
+  <strong>PARKER."). Source: the previous-website about-prose scan writing
+  markup into workplace.description → mirrored to bio. Fix: strip tags +
+  decode entities + length-trim at WORD boundary in the about extractor.
+- **Issue 17 — playlunch's Links page is scraped junk** — the link-in-bio
+  scan's probe pass stored ticket-marketplace SEARCH-RESULT snippets as
+  link items: German/Dutch/French text, raw "**PLAYLUNCH**" markdown,
+  truncated "…Austral…" fragments, unrelated festivals (Hulaween). 40 link
+  items, most junk. The probe lane needs a quality gate (own-page-only,
+  no third-party search/list pages, no markdown, min title quality).
+- **Issue 18 — commerce/store links with paths never probed** — drsleek's
+  "Shop our Award-Winning Beard Serum" → drsleek.com.au/collections/all
+  stayed a passive link; Trae's root-domain store DID probe to shopify.
+  The commerce probe likely only fires on root/own-site URLs. Gate: a
+  /collections/* Shopify URL becomes a store connect.
+- **Issue 19 — Bandcamp in linktree social rows is missed** — benbohmer +
+  memphislk both carry Bandcamp in socialLinks; neither connected (memphis's
+  became a mislabeled link card titled "MEMPHIS LK" subtitled
+  "linktr.ee/memphislk" that actually points at bandcamp). Check whether
+  the scanner parses Linktree's social-icons row at all.
+- **Issue 20 — near-empty partna homepages** — anththebarberr +
+  ronanstorey-hair (IG-media-only accounts) serve a hero + 2 gallery
+  thumbnails and NOTHING else: no bio, no links, no services. The
+  "simplest partna" build renders hollow. T13 (auto-About) directly
+  improves this; consider a minimum-viable-homepage rule (e.g. surface
+  gallery items + socials more prominently when pools are thin).
+- **Issue 21 — playlunch missed BOTH Spotify links** (SPOTIFY_ALBUM card +
+  spoti.fi shortlink) — a band with no Spotify connection while
+  low-value facebook/tiktok connected. Shortlink (spoti.fi) unrolling and
+  the album-link → artist resolution both look absent. → task.
+- Smaller: benbohmer shows two visually-identical link cards (same
+  title/desc, different domains — his two websites each carrying the same
+  release promo; dedup candidate); memphislk link card titled raw domain
+  "drop.cobrand.com" (no label derivation); MR Bap menu names "S Salmon
+  Kimbap"/"C Cutlet Kimbap"/"Og Kimbap" (verify against UE source — may be
+  the store's own names); Oxbridge bio is a verbatim run-on location dump
+  (T13 shape); Aerial's "MELBOUNRE'S" typo is source data (leave).
+- CLEAN: eoinmccarthyhair + leighwinsor read well end-to-end; business
+  menus (viet-harmony 51 items) and review sections render authentically.
+
+### T1 probe interim (08:13 UTC): 8/8 samples OK across 40 min — failure
+mode is bursty/rare, consistent with retries-only being sufficient (D7's
+proxy fallback likely unneeded; final read at 12 samples).
+
 ## Task ledger for the run (each with its gate)
 
 - **T1 — YouTube production probe** (verification, no fix yet): scheduled
