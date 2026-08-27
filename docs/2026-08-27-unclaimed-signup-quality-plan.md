@@ -570,6 +570,18 @@ The owner is away (dinner) once execution starts. For this run:
   elsewhere); and its fullName is "Em|Holley|Finley" (the barbers). Both
   discovered by the chains and now handled.
 
+### RUN CLOSED (2026-08-27 ~11:05 UTC) — final verdicts
+
+- **Final full suite: 9,586 passed, 0 failed** (11 deprecated / 1 warning /
+  2 skipped, all pre-existing non-failures) — with every fix of the run
+  included. T19 gate: HELD.
+- **T14 workplace chain VERIFIED end-to-end** (Emma round-4): bio mention →
+  chained scrape → handle-name retry → name-locality corroboration →
+  Places → workplace "Star Barber" live on her public wire. (The name is
+  the 15-char cap's trim of "Star Barber Darwin" — issue 10 exhibit #8.)
+- All 21 test sites serving. T18 gate: MET (per-account evidence throughout
+  this doc; URL list in the final owner report).
+
 ### Remaining at run end (for the owner)
 
 - **T17 (headshot)** NOT built — first cross-repo task (monorepo dashboard
