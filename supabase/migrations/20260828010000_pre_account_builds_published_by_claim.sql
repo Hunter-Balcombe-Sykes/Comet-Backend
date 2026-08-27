@@ -1,3 +1,5 @@
+-- ROLLBACK: ALTER TABLE core.pre_account_builds DROP COLUMN IF EXISTS published_by_claim;
+--
 -- T28 (issue 22, 2026-08-27 post-claim round): release() must restore the
 -- pre-claim publish state, and "was this site published BY the claim?" is a
 -- fact only claim() knows at flip time. The old heuristic (! isOutreach())
