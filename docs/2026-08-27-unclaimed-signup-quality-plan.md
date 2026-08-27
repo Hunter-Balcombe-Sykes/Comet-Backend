@@ -700,6 +700,85 @@ through the platform's own SupabaseAdminService (deleted after). Findings:
   restore on that instead of the isOutreach heuristic. → task, needs the
   schema rail.
 
+### NEXT WAVE (proposed 2026-08-27 late; owner reviewing) — content-quality tasks
+
+Feasibility evidence gathered live before proposing (details in chat log):
+
+- **T23 — Named review mining (partna testimonials).** VALIDATED on real
+  testers: simondoylehair1's venue → 5/5 top Google reviews name Simon
+  ("I refuse to let anyone but Simon cut my hair"); Star Barber → 3/5 name
+  Emma. Wrong-venue control: the mislinked park venue scores 0/5 —
+  name-filtering doubles as wrong-venue protection. Infrastructure already
+  exists end-to-end: `reviews` pool + review kind +
+  GoogleBusinessReviewProjector + source_stats + exclude-only curation, and
+  unclaimed accounts ALREADY carry review items (emdinonhair has 5, text
+  kept, attribution redacted per the connector's when_unclaimed scopes —
+  note the PAYLOAD-side stripThirdPartyPii deletes the whole array, the
+  INGEST side keeps text). Build: name-match filter (reuse staff-matcher
+  token logic) + AI person-not-product verification → a `f_review` facet
+  marking "names the professional"; partna sites surface only named quotes.
+  OWNER RULING NEEDED: anonymous-quote testimonials pre-claim (text, no
+  reviewer attribution) — consistent with the ingest lane's existing
+  redaction posture; full attribution returns at claim. Caveat: Places API
+  caps at 5 "most relevant" reviews/fetch; an optional Apify
+  reviews-scraper lane deepens coverage later.
+- **T23b — Fresha reviews → the same reviews pool.** Today we scrape ZERO
+  Fresha review data (one per-employee `rating` float, kept private on the
+  manual-picker path, dropped on auto). BUT the venue-page `__NEXT_DATA__`
+  blob we already fetch and decode is narrowed to `.location` and the rest
+  discarded — staff ratings prove rating data is in there; venue
+  rating/count/review-list keys need ONE live capture to enumerate. Plug-in
+  point fully built: a second `reviews` stream on FreshaConnector + a
+  FreshaReviewProjector (f_review/f_rated/f_published + source_stats) and
+  it flows through pools.reviews with zero pool/wire changes. Same PII
+  obligations as Google reviews (redaction scopes, prune command, DSAR
+  omission). Fresha lacks a reviews display toggle — add to its binding.
+  And per-staff `rating` should survive the AUTO path (FreshaAutoSelector
+  currently drops it) so an employee-mode partna can wear their own stars.
+- **T24 — URL-intelligence service (approved).** One unroller/classifier
+  every lane calls: expand shortlinks (spoti.fi/bit.ly), parse Linktree's
+  social-icons row first-class, classify the destination not the wrapper,
+  one probe quality gate (own-page-only, no search/list pages, no
+  markdown). Closes issues 17/18/19/21 as a class.
+- **T25 — Book-CTA deep link (small).** VERIFIED: per-service items are
+  ALREADY employee-aware deep links
+  (`fresha.com/a/<slug>/booking?employeeId=…&offerItemId=…`) on both
+  manual and auto paths. The ONE gap: the fallback Book action (Services
+  page absent) emits the venue ROOT — should emit
+  `/a/<slug>/booking?employeeId=<id>` for employee-mode connections.
+- **T26 — Previous-website deep mine (approved as idea 5).** Extend the
+  about-prose scan: services list, owner's own wording, photos with
+  perceptual-hash dedup vs IG; enrich-only, includes the issue-16 HTML
+  strip fix.
+- **T27 — Platform coverage wave** (survey 2026-08-27; catalog makes
+  link-only additions a 2-file + compile change):
+  - NEW LINK-ONLY surfaces to add (routing works, cards render): AU-first
+    booking/health — Jane App, Cliniko, Halaxy, HotDoc, Bookwell; generic —
+    Wix Bookings, StyleSeat, Microsoft Bookings, Google appointment links
+    (calendar.app.google); AU ordering — Mr Yum / me&u; activities — Rezdy,
+    FareHarbor.
+  - FETCH candidates feeding EXISTING pools (best value/effort, ranked):
+    1) Booksy → services + reviews pools (public venue pages: services,
+       prices, staff, reviews — Fresha-shaped, barber-heavy);
+    2) Resident Advisor → events pool (musician testers benbohmer/memphislk
+       carry RA; public artist event listings);
+    3) Mixcloud → listen pool (public API/RSS, trivial, OEmbed pattern);
+    4) Luma → events pool (public calendar API);
+    5) Ticketmaster → events pool (free Discovery API);
+    6) Treatwell/Vagaro/Timely → services pool (same shape as Booksy;
+       Timely is Emma's actual booker);
+    7) TikTok → media pool (Apify actor lane, same cost class as
+       Instagram — biggest content win, real cost).
+  - HYGIENE (from the survey, cheap): non-content router placements are
+    born `last_refresh_status='pending'` and NOTHING ever flips them
+    (SourceReconciler:497 vs :530-535 — the issue-13 mechanism, now
+    root-caused): write 'ok' for placements with no fetch capability.
+    Also: the `services` pool declares Fresha its sole feeder; the two
+    fetch vocabularies (catalog capability vs ingest ConnectorRegistry)
+    disagree for uber_eats/doordash/square/instagram — reconcile when
+    convenient; `config/partna.php` social_platforms icon registry has
+    drifted from the catalog (41 vs 108 brands).
+
 ### T17 BUILT (2026-08-27 evening) — all three layers
 
 - **Backend**: `PURPOSE_HEADSHOT` joins `designSingletonPurposes()` (the one
