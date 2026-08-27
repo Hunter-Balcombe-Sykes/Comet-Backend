@@ -37,6 +37,7 @@ final class ProjectorRegistry
         'humanitix' => ['events' => SchemaOrgEventProjector::class],
         // Luma lands the same schema.org doc shape — same projector (T27b).
         'luma' => ['events' => SchemaOrgEventProjector::class],
+        'resident_advisor' => ['events' => SchemaOrgEventProjector::class],
         'instagram' => ['media' => InstagramMediaProjector::class],
         'mixcloud' => ['tracks' => MixcloudTrackProjector::class],
         'google_business' => [

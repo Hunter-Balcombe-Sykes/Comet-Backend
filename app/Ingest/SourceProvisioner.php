@@ -279,6 +279,10 @@ class SourceProvisioner
             'luma' => $this->lumaSlug($payload['url'] ?? $payload['link'] ?? null)
                 ?? $this->lumaSlug($resource)
                 ?? $this->bareSlug($resource, 'luma'),
+            // T27b: the artist slug off an ra.co/dj/<slug> URL.
+            'resident_advisor' => $this->residentAdvisorSlug($payload['url'] ?? $payload['link'] ?? null)
+                ?? $this->residentAdvisorSlug($resource)
+                ?? $this->bareSlug($resource, 'resident_advisor'),
             // T27b: the profile URL's first path segment IS the API username.
             'mixcloud' => $this->mixcloudUsername($payload['url'] ?? $payload['link'] ?? null)
                 ?? $this->mixcloudUsername($resource)
@@ -370,6 +374,19 @@ class SourceProvisioner
      * placeholder slug, not a synthetic acct-/link-/order-/event- ref, no
      * URL-ish shape.
      */
+    /** The artist slug of an ra.co/dj/<slug> URL, or null. */
+    private function residentAdvisorSlug(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+        if (preg_match('~^https?://(?:www\.)?ra\.co/dj/([A-Za-z0-9_-]+)/?~i', trim($value), $m) === 1) {
+            return $m[1];
+        }
+
+        return null;
+    }
+
     /** The calendar slug of a lu.ma URL (path, sans leading slash), or null. */
     private function lumaSlug(mixed $value): ?string
     {
