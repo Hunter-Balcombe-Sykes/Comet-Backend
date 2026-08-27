@@ -503,6 +503,39 @@ The owner is away (dinner) once execution starts. For this run:
     barber_in_law, emdinonhair, eoinmccarthyhair — expired + pruned via the
     audited command, rebuilt via staff path on the new code.
 
+### ACCEPTANCE RESULTS (live evidence, 2026-08-27 ~09:31–10:10 UTC)
+
+- **T2 MET**: simondoylehair's YouTube — lost on all three prior builds —
+  survived (status ok). eoinmccarthyhair's one failed channel of three is
+  RETAINED as 'unavailable' with `system_retry_scheduled` (attempt 1,
+  300s) in the logs — the keep-row + retry chain live. (Retry completion
+  being watched; deploy-restarts during the window delayed queue pickup.)
+- **T5/T13 MET**: display names now "Simon Doyle", "Emma Dinon",
+  "Eoin McCarthy" (were vanity strings); Abouts LIVE ON THE WIRE — Emma:
+  "Owner of Star Barber Darwin. AMBA modern barber of the year 2024. Andis
+  ambassador…"; barber_in_law: "Helping you see yourself. Family Lawyer
+  turned Barber. Co-owner of @studio___san…"; Simon: null (his bio is
+  link-only — correctly no About). St Ali picked up the GBP editorial
+  description + phone via the business mirror.
+- **T15 MET end-to-end**: barber-in-law's wire now ships
+  `workplace: {name: "Studio San", 159 Eley Rd, Blackburn South…}` —
+  previously linked-but-invisible; blocks enabled+active on all five.
+- **T3 MET for Simon**: `matchTier: vanity-name`, mode employee, 6
+  services. barber_in_law regression FOUND + FIXED same hour: the cleaned
+  display name starved the vanity tier of "Thorton" — matcher now also
+  reads the RAW instagram payload fullName (test pinned); prompt learns
+  the name can sit on either side of the pipe. Verifies on next rebuild.
+- **T6 MET**: st-ali scan `added: 0, skipped: 10, allow_new: false`
+  (was added: 10 this morning) — junk suppressed beside the platform menu.
+- **T4 MET**: Fresha-selection write → BuildSiteDocumentJob 22s later
+  (was 4–5 min); the scan's no-change apply correctly owed no build; no
+  purge 429s in the window (last purge failures were fleet-era 07:5x,
+  logged for the I1 watch).
+- **T7 visible**: served category order on the rebuilt st-ali now leads
+  with the platform's curated sections (smart default fallback).
+- Chains (T14) + retry completion still being watched; suite gate (T19)
+  running.
+
 - **RUN LOG (2026-08-27, evening):**
   - T1: real-scraper probe running from production every 5 min (both known
     channels, resolve + videos legs). First samples all OK — consistent
