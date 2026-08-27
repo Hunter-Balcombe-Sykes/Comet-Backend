@@ -729,6 +729,16 @@ failures).
   Only absent credential: YOUTUBE_DATA_API_KEY (T2 API leg stays
   config-gated until owner supplies it).
 
+- **T19 — Fix the pre-existing test failures (owner, mid-run instruction:
+  "before end of plan")**: the local-suite failures that predate this run —
+  the CloudflareCachePurgeJob purge-family (BlockAndMediaTouchSiteTest,
+  ProjectionWriterTest, the two flaky Fresha connect tests),
+  UpdateSiteValidation/Authorization (4), StaffUpdateSiteValidation (4),
+  RoutingCorpus (2), IndividualProfileController (1), and the
+  guard:no-unsafe-migrations failure on last night's
+  20260827072000_event_item_family.sql. All predate this run (verified via
+  stash-runs) and most trace to last night's 6c60280b3. Gate: `composer
+  test` fully green locally.
 - **Backlog (not this run unless time allows):** I2 profile latency, I3
   slow jobs, I4 streaming job, I6 graphql warning, I7 Nightwatch hygiene,
   I8 Timely services scrape, I9 UE scrape variance, I10 reel mirror retry,
