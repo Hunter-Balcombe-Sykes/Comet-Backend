@@ -25,7 +25,36 @@ final class ConnectionProfileUrl
             'youtube' => isset($payload['handle']) && trim((string) $payload['handle']) !== ''
                 ? UrlSafety::safeHref('https://www.youtube.com/@'.trim((string) $payload['handle']))
                 : UrlSafety::safeHref($payload['url'] ?? null),
+            // T25 (owner, 2026-08-28): an EMPLOYEE-mode Fresha connection's
+            // destination is the booking flow with that staff member
+            // preselected — not the venue root, which made the fallback Book
+            // action (Services page absent) dump visitors on the venue's
+            // whole staff list. Storewide/unselected keep the canonical root.
+            'fresha' => UrlSafety::safeHref(self::freshaBookingUrl($payload) ?? $payload['url'] ?? null),
             default => UrlSafety::safeHref($payload['url'] ?? $payload['link'] ?? null),
         };
+    }
+
+    /**
+     * The employee-preselected booking URL, or null when the selection is
+     * not employee-mode / the payload lacks the canonical venue url. Mirrors
+     * FreshaConnector::bookingDeepLink's shape minus the per-service
+     * offerItemId (this is the venue-level CTA).
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private static function freshaBookingUrl(array $payload): ?string
+    {
+        $selection = $payload['selection'] ?? null;
+        if (! is_array($selection) || ($selection['mode'] ?? null) !== 'employee') {
+            return null;
+        }
+        $employeeId = trim((string) data_get($selection, 'employee.employeeId', ''));
+        $base = trim((string) ($payload['url'] ?? ''));
+        if ($employeeId === '' || $base === '') {
+            return null;
+        }
+
+        return rtrim($base, '/').'/booking?employeeId='.rawurlencode($employeeId);
     }
 }
