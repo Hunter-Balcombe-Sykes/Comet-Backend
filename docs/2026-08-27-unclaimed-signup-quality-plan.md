@@ -803,6 +803,32 @@ Everything below is the approved scope.
   cannot deploy a tree carrying their in-flight scroll work). Listed here
   only as the reminder.
 
+### WAVE PHASE 1 — SHIPPED + LIVE-GATED (2026-08-28, commits e01e9e571…)
+
+- **Phase-0 tooling BUILT + live-smoked**: fleet:verify (table verified on 3
+  live accounts incl. --http), fleet:rebuild (6 tests; the sqlite no-cascade
+  caveat documented), builds:await. OutboundHttpGuard classification added.
+- **T28 SHIPPED**: published_by_claim column (migration pushed via db push
+  after a HISTORY REPAIR — six run-era local migrations had been applied
+  remotely through the MCP under auto-timestamped versions; every effect
+  probed live before marking local files applied + reverting the six MCP
+  rows). claim records the flip, release restores exactly; 3 release tests
+  incl. the fleet-shape leak reproduction.
+- **T25 SHIPPED + LIVE GATE MET**: ConnectionProfileUrl emits
+  `/a/<slug>/booking?employeeId=5182247` for simondoylehair2's live
+  employee-mode connection; Fresha serves it 200.
+- **T23b SHIPPED + LIVE GATE MET**: reviews stream ran live on Simon's
+  fresha source ("reviews":"ok", 6 records); his public wire now serves 11
+  reviews (Fresha beside Google) with stats {5.0, 37}, reviewer names
+  redacted pre-claim, texts naming Simon. Note: f_review.staff_name is
+  stored but not yet surfaced by the wire's review block — design decision
+  for later.
+- **T26 SHIPPED**: issue-16 strip (decode→strip_tags→decode→squish) with
+  Parker's real shape as fixture; menu/gallery halves confirmed already
+  built (MenuTextExtractor + WebsiteGalleryScanJob run in the scan lane).
+- Phase gate: parallel suite green (9,613 passed; two architecture guards
+  tripped, both addressed: HTTP classification + ROLLBACK header).
+
 ### RUN EFFICIENCY PROTOCOL (owner ask, 2026-08-28) — for the T23–T27 run
 
 Retrospective on the 2026-08-27 run's cost drivers, and the protocol that
