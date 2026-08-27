@@ -1394,3 +1394,17 @@ landed in design-system (3487d69): 7+6 fully sourced, honest placeholders
 elsewhere, registry 119 platforms / 108 icons / 106 wordmarks; dashboard
 typecheck green. Stale YT-Music "icon missing" catalog note dropped. Batch C
 (34 wave-2 brands) dispatched.
+
+### Wave 2 — further probe results (~05:05)
+- Astro: reviews page synthesis lost its isBusiness guard (monorepo fcab35c)
+  — partna sites with a (person-scoped) reviews pool now advertise the page.
+  NOT deployed: pages deploy stays the owner's pending scroll go-live call.
+- Bandsintown: hard 403 server-side AND the rest.bandsintown.com app_id
+  loophole is closed (explicit deny) — stays link-only.
+- Songkick: 406 server-side — stays link-only.
+- DICE: artist pages answer 200 server-side with PerformingGroup ld+json
+  carrying an `event` list — a REAL free-connector candidate; needs one real
+  artist URL for the gate (demo page's list is empty). Queued follow-up.
+- Nightwatch after all deploys: one benign slow-job flag (RunSourceJob >60s,
+  single occurrence — actor run_sync latency, job timeout is 300s). Zero
+  failed jobs in 4h. No new exceptions.
