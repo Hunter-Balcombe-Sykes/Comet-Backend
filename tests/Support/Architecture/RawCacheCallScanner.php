@@ -62,6 +62,11 @@ final class RawCacheCallScanner
         // Allowlisted by path (ci.yml "Allowlisted by path:" section).
         'app/Services/Cache/', // the canonical cache layer itself
         'app/Http/Controllers/Api/Webhooks/', // Cache::add() for idempotency dedupe
+        // T14 (2026-08-27): the bio-mention chain's GLOBAL per-handle scrape
+        // cache — one namespaced literal key ('bio_mention_profile:{handle}'),
+        // cross-tenant BY DESIGN (the same brand appears in hundreds of bios;
+        // one paid scrape shared), no per-user CacheKeyGenerator shape fits.
+        'app/Jobs/PreAccount/BioMentionChainsJob.php',
 
         // This entry carries NO justification comment in ci.yml — it is
         // present in the git-grep pathspec list with no accompanying bullet

@@ -4,8 +4,10 @@ use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Notifications\Moderation\EdgePurgeFailedStaffNotification;
 use App\Services\Cloudflare\CloudflarePurgeService;
+use GuzzleHttp\Psr7\Response;
 use Illuminate\Contracts\Queue\Job as QueueJob;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
@@ -39,22 +41,28 @@ it('has its own retry policy and queue (not the KV trait — see §28.7)', funct
         ->and($job->queue)->toBe('cloudflare');
 });
 
-it('funnels every purge through the shared cloudflare-purge rate limiter', function () {
-    $middleware = (new CloudflareCachePurgeJob('h'))->middleware();
+it('funnels every purge through the shared cloudflare-purge rate limiter (source pin — tests skip the funnel by design)', function () {
+    // T19 (2026-08-27): middleware() deliberately returns [] under tests —
+    // the sync driver ran fixture purges inline and the redis-backed funnel
+    // left unique locks held on rejection, silently dropping later
+    // dispatches (the whole purge-family flake). The PROD funnel is pinned
+    // textually instead, plus the empty-under-tests behaviour itself.
+    expect((new CloudflareCachePurgeJob('h'))->middleware())->toBe([]);
 
-    expect($middleware)->toHaveCount(1)
-        ->and($middleware[0])->toBeInstanceOf(\Illuminate\Queue\Middleware\RateLimitedWithRedis::class);
+    $source = file_get_contents(base_path('app/Jobs/Cloudflare/CloudflareCachePurgeJob.php'));
+    expect($source)->toContain("new RateLimitedWithRedis('cloudflare-purge')");
+    expect($source)->toContain('runningUnitTests');
 });
 
 it('releases on a Cloudflare 429 honouring Retry-After instead of burning an exception', function () {
     $job = new CloudflareCachePurgeJob('h');
 
-    $response = new \Illuminate\Http\Client\Response(
-        new \GuzzleHttp\Psr7\Response(429, ['Retry-After' => '42'], '{"errors":[{"code":1134}]}')
+    $response = new Illuminate\Http\Client\Response(
+        new Response(429, ['Retry-After' => '42'], '{"errors":[{"code":1134}]}')
     );
     $purge = Mockery::mock(CloudflarePurgeService::class);
     $purge->shouldReceive('purgeHandle')->once()->andThrow(
-        new \Illuminate\Http\Client\RequestException($response)
+        new RequestException($response)
     );
 
     $queueJob = Mockery::mock(QueueJob::class);
@@ -68,14 +76,14 @@ it('releases on a Cloudflare 429 honouring Retry-After instead of burning an exc
 it('still throws non-429 request failures so maxExceptions applies', function () {
     $job = new CloudflareCachePurgeJob('h');
 
-    $response = new \Illuminate\Http\Client\Response(new \GuzzleHttp\Psr7\Response(500));
+    $response = new Illuminate\Http\Client\Response(new Response(500));
     $purge = Mockery::mock(CloudflarePurgeService::class);
     $purge->shouldReceive('purgeHandle')->once()->andThrow(
-        new \Illuminate\Http\Client\RequestException($response)
+        new RequestException($response)
     );
 
     expect(fn () => $job->handle($purge))
-        ->toThrow(\Illuminate\Http\Client\RequestException::class);
+        ->toThrow(RequestException::class);
 });
 
 // 2026-07-20 follow-up: raised from 15 -> 180 with real margin over the derived

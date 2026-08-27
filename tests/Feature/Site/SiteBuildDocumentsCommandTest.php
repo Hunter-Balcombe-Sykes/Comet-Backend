@@ -14,6 +14,9 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupContentTables();
+    // T4: BuildState::bump() now dispatches the build; under sync it would
+    // run INLINE and consume the staleness these tests choreograph by hand.
+    Queue::fake();
 });
 
 function sweeperSite(bool $published = true): array
