@@ -538,10 +538,23 @@ The owner is away (dinner) once execution starts. For this run:
   block whenever a workplace row is written (Fresha linker today, T14 bio
   path later) — first checking whether the zero-blocks state is deliberate
   anywhere; audit which OTHER section blocks an unclaimed site should
-  carry while in there. **Runs BEFORE T3/T14's live-site gates can pass —
-  it is their prerequisite.** Gate: rebuilt barber-in-law shows the Studio
-  San workplace page on the live site; a build with no workplace shows
-  none.
+  carry while in there — `public_contact` is a KNOWN second case (it gates
+  users.public_contact_email/number, which T16 fills). **D12 (owner,
+  2026-08-27): the workplace block is provisioned ENABLED by default.**
+  **Runs BEFORE T3/T14/T16's live-site gates can pass — it is their
+  prerequisite.** Gate: rebuilt barber-in-law shows the Studio San
+  workplace page on the live site; a build with no workplace shows none.
+- **T16 — Public contact from Instagram (owner, 2026-08-27)**: when the
+  IG scrape carries the user's email or phone, write them to
+  `users.public_contact_email` / `public_contact_number` — only when
+  empty. Sources: the actor's business-contact fields if it emits them
+  (check + request in actor input if available), else extraction from the
+  bio text (fold into the T13/T14 Mistral bio-intelligence call).
+  Validation gates: real email format, parseable phone (normalise to
+  digits+country); junk → write nothing. Ships via the `public_contact`
+  section block (provisioned in T15). Gate: a test account with email/
+  phone in its IG shows them in the site's contact surface; accounts
+  without show nothing; no overwrites of existing values.
 - **T12 — Acceptance rebuild round**: fresh signups (simondoylehair,
   st-ali + one new partna) after all fixes; full window.py sweep, Nightwatch
   diff, live-site checks; results logged here. Gate: zero regressions, all
