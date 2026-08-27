@@ -596,6 +596,49 @@ The owner is away (dinner) once execution starts. For this run:
   — owner decision.
 - Backlog items I2-I10 + menu provenance + post-claim round as listed.
 
+### POST-RUN SESSION (2026-08-27 evening, owner back at desk) — rulings + new work
+
+Owner rulings, in order:
+
+- **D9 CLOSED**: owner enabled YouTube Data API v3 + set `YOUTUBE_DATA_API_KEY`
+  on development; redeployed; VERIFIED live via tinker — `@youtube` resolves
+  to `UCBR8-60-B28hp2BmDPdntcQ` through the API leg; the dead `@eoinmcccarthy`
+  cleanly returns null (no channel) instead of a bot-wall ambiguity.
+- **Q5 / issue 10 RULED: raise the cap.** Business/workplace names store REAL
+  and untrimmed; display truncation is a render-side (astro) concern. Cap
+  15 → 80 (sanity bound only) in BOTH layers: `UpsertWorkplaceRequest`
+  max:80 + `BusinessName::wordTrim` default 80; stale "max:15 for business
+  display_name" comment in GoogleBusinessSourceGenerator corrected
+  (display_name has been max:255 both types since the 2026-08-19 identity
+  plan). Dashboard mirror `WORKPLACE_NAME_MAX` 15 → 80 (+ the pg-business
+  proposal page's hardcoded maxLength). Test fallout updated: wordTrim
+  mechanics fixtures now pin an explicit 15; "Fade Lab Barbers" /
+  full-length-name expectations flipped to pass-through; validation
+  boundary tests moved to 80/81.
+- **T17 ruled: build ALL THREE layers now** (backend purpose + dashboard
+  upload + astro favicon), astro-lane conflict accepted.
+- **T12 fleet: rebuild all 12 now** (after the cap change deploys, so
+  workplace names come out full).
+- **Next after that: post-claim test round.**
+
+New owner tasks (this session):
+
+- **T21 — media add-sheet upload UX (dashboard + backend)**: an add-sheet
+  upload shows as a LOADING TILE inside the option grid; on completion it
+  becomes the sheet's TOP option, unselected — no success toast, sheet stays
+  open, nothing auto-added to the site. Backend half: ManualMediaWriter no
+  longer pins uploads (library-only mint — reverses the plan-04 "hand-
+  uploaded = pinned" rule); /content/uploads returns the minted `item_id`
+  so the sheet can float it. Errors still toast.
+- **T22 — Places autofill country bias (dashboard)**: every Places
+  autocomplete field (sign-up business lookup, address fields, connection
+  sheet) returned US-leaning results. Fix in the one proxy
+  (`app/api/places/route.ts`): soft-bias with Vercel's IP-derived geo
+  headers — `regionCode` from x-vercel-ip-country + a 50km `locationBias`
+  circle from x-vercel-ip-lat/long. Server-derived only (posture kept:
+  no caller-supplied params forwarded); bias not restrict; local dev
+  unchanged.
+
 - **RUN LOG (2026-08-27, evening):**
   - T1: real-scraper probe running from production every 5 min (both known
     channels, resolve + videos legs). First samples all OK — consistent
