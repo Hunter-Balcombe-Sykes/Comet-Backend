@@ -1782,7 +1782,10 @@ return [
 
     'image_pools' => [
         'gallery' => ['max' => (int) env('PARTNA_GALLERY_IMAGE_MAX', env('SIDEST_GALLERY_IMAGE_MAX', 6))],
-        'content' => ['max' => (int) env('PARTNA_CONTENT_IMAGE_MAX', env('SIDEST_CONTENT_IMAGE_MAX', 6))],
+        // 6 -> 20 (owner, 2026-08-27): sized for the old gallery-style use;
+        // the media pool is a real photo library now that the upload door
+        // feeds the sitepage gallery.
+        'content' => ['max' => (int) env('PARTNA_CONTENT_IMAGE_MAX', env('SIDEST_CONTENT_IMAGE_MAX', 20))],
         'documents' => ['max' => 1],
     ],
 
