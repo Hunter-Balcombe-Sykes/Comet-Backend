@@ -150,4 +150,12 @@ return [
         'key' => env('DEEPSEEK_API_KEY'),
     ],
 
+    // YouTube Data API v3 — the official, bot-wall-free channel resolver
+    // (T2 addendum / D9, 2026-08-27). Optional: absent key = scrape-only.
+    // The owner creates this in Google Cloud Console; free quota covers
+    // signup volumes many times over.
+    'youtube' => [
+        'data_api_key' => env('YOUTUBE_DATA_API_KEY'),
+    ],
+
 ];

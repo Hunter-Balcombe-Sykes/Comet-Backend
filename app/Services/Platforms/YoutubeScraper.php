@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Services\Http\SafeUrlFetcher;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 // Scrapes a YouTube channel's recent uploads with no API key. Two
@@ -263,9 +264,51 @@ class YoutubeScraper extends PlatformScraper
     // channelId only if neither is present. (Fixes @casey → wrong side-channel.)
     private function resolveChannelId(string $handle, array $headers): ?string
     {
+        // T2 addendum / D9 (2026-08-27): the official Data API resolves a
+        // handle with no bot-walls — the scrape leg lost three channels to
+        // intermittent challenges on the 2026-08-27 test builds. Config-gated:
+        // activates the moment YOUTUBE_DATA_API_KEY lands; the page scrape
+        // stays as the keyless path and the fallback.
+        $api = $this->apiChannelId($handle);
+        if ($api !== null) {
+            return $api;
+        }
+
         $page = $this->fetchChannelPage($handle, $headers);
 
         return $page === null ? null : $this->channelIdFromPage($page, $handle);
+    }
+
+    /** Data API handle→channel-id, or null (no key, quota, miss, error). */
+    private function apiChannelId(string $handle): ?string
+    {
+        $key = (string) config('services.youtube.data_api_key');
+        if ($key === '') {
+            return null;
+        }
+
+        try {
+            $response = Http::timeout(10)
+                ->get('https://www.googleapis.com/youtube/v3/channels', [
+                    'part' => 'id',
+                    'forHandle' => $handle,
+                    'key' => $key,
+                ]);
+        } catch (\Throwable $e) {
+            Log::warning('youtube.api_resolve_threw', ['handle' => $handle, 'error' => $e->getMessage()]);
+
+            return null;
+        }
+
+        if (! $response->successful()) {
+            Log::warning('youtube.api_resolve_not_ok', ['handle' => $handle, 'status' => $response->status()]);
+
+            return null;
+        }
+
+        $id = $response->json('items.0.id');
+
+        return is_string($id) && preg_match('/^UC[A-Za-z0-9_-]{22}$/', $id) === 1 ? $id : null;
     }
 
     /** The channel page's body on a 200; null (logged) otherwise. */
