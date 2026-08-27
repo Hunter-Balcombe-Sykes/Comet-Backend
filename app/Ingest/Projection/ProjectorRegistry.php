@@ -35,6 +35,8 @@ final class ProjectorRegistry
         'eventbrite' => ['events' => SchemaOrgEventProjector::class],
         'fresha' => ['services' => FreshaServiceProjector::class, 'reviews' => FreshaReviewProjector::class],
         'humanitix' => ['events' => SchemaOrgEventProjector::class],
+        // Luma lands the same schema.org doc shape — same projector (T27b).
+        'luma' => ['events' => SchemaOrgEventProjector::class],
         'instagram' => ['media' => InstagramMediaProjector::class],
         'mixcloud' => ['tracks' => MixcloudTrackProjector::class],
         'google_business' => [

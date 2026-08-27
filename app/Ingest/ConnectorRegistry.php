@@ -11,6 +11,7 @@ use App\Ingest\Connectors\FreshaConnector;
 use App\Ingest\Connectors\GoogleBusinessConnector;
 use App\Ingest\Connectors\HumanitixConnector;
 use App\Ingest\Connectors\InstagramConnector;
+use App\Ingest\Connectors\LumaConnector;
 use App\Ingest\Connectors\MixcloudConnector;
 use App\Ingest\Connectors\SoundcloudTracksConnector;
 use App\Ingest\Connectors\SpotifyTracksConnector;
@@ -53,6 +54,7 @@ final class ConnectorRegistry
         'google_business' => GoogleBusinessConnector::class,
         'humanitix' => HumanitixConnector::class,
         'instagram' => InstagramConnector::class,
+        'luma' => LumaConnector::class,
         'mixcloud' => MixcloudConnector::class,
         'soundcloud' => SoundcloudTracksConnector::class,
         'spotify' => SpotifyTracksConnector::class,

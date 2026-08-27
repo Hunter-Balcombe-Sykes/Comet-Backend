@@ -274,6 +274,11 @@ class SourceProvisioner
                 ?? $this->bareSlug($resource, 'fresha'),
             'instagram' => $this->instagramUsername($payload['username'] ?? null)
                 ?? $this->instagramUsername($this->bareSlug($resource, 'instagram')),
+            // T27b: the calendar slug off a lu.ma URL (multi-segment kept —
+            // personal calendars live at /u/<id>).
+            'luma' => $this->lumaSlug($payload['url'] ?? $payload['link'] ?? null)
+                ?? $this->lumaSlug($resource)
+                ?? $this->bareSlug($resource, 'luma'),
             // T27b: the profile URL's first path segment IS the API username.
             'mixcloud' => $this->mixcloudUsername($payload['url'] ?? $payload['link'] ?? null)
                 ?? $this->mixcloudUsername($resource)
@@ -365,6 +370,19 @@ class SourceProvisioner
      * placeholder slug, not a synthetic acct-/link-/order-/event- ref, no
      * URL-ish shape.
      */
+    /** The calendar slug of a lu.ma URL (path, sans leading slash), or null. */
+    private function lumaSlug(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+        if (preg_match('~^https?://(?:www\.)?lu\.ma/([A-Za-z0-9_/-]+?)/?$~i', trim($value), $m) === 1) {
+            return $m[1];
+        }
+
+        return null;
+    }
+
     /** The username segment of a mixcloud.com profile/show URL, or null. */
     private function mixcloudUsername(mixed $value): ?string
     {
