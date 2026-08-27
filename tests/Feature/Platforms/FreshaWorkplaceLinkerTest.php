@@ -132,3 +132,50 @@ it('treats two confident candidates as ambiguity', function () {
     $user = fwlUser('twins');
     expect(app(FreshaWorkplaceLinker::class)->attempt($user, fwlVenue())['outcome'])->toBe('no_match');
 });
+
+it('accepts a locality-corroborated single hit when the venue offers no other corroborator (owner, 2026-08-27)', function () {
+    // The bio-mention shape: the venue's own IG bio carries only opening
+    // hours — no address, postcode, phone or pin. The name token "darwin"
+    // appearing in the ONE name-agreeing candidate's own address is the
+    // accepted agreement.
+    $user = fwlUser('fwl-locality');
+    Http::fake([
+        'places.googleapis.com/v1/places:searchText' => Http::response(['places' => [[
+            'id' => 'place-star',
+            'displayName' => ['text' => 'Star Barber Darwin'],
+            'formattedAddress' => 'Shop 6/32 Smith St Mall, Darwin City NT 0800, Australia',
+            'location' => ['latitude' => -12.46, 'longitude' => 130.84],
+            'businessStatus' => 'OPERATIONAL',
+        ]]]),
+        'places.googleapis.com/v1/places/*' => Http::response([]),
+    ]);
+
+    $outcome = app(FreshaWorkplaceLinker::class)->attempt($user, [
+        'name' => 'Star Barber Darwin',
+        'street' => null, 'city' => null, 'postcode' => null,
+        'region' => null, 'country' => 'AU', 'lat' => null, 'lng' => null, 'phone' => null,
+    ]);
+
+    expect($outcome['outcome'])->toBe('connected');
+});
+
+it('still refuses a no-corroborator venue whose name carries no locality token in the candidate address', function () {
+    $user = fwlUser('fwl-noloc');
+    Http::fake([
+        'places.googleapis.com/v1/places:searchText' => Http::response(['places' => [[
+            'id' => 'place-x',
+            'displayName' => ['text' => 'Star Barber'],
+            'formattedAddress' => '1 Collins St, Melbourne VIC 3000, Australia',
+            'location' => ['latitude' => -37.8, 'longitude' => 144.9],
+            'businessStatus' => 'OPERATIONAL',
+        ]]]),
+    ]);
+
+    $outcome = app(FreshaWorkplaceLinker::class)->attempt($user, [
+        'name' => 'Star Barber',
+        'street' => null, 'city' => null, 'postcode' => null,
+        'region' => null, 'country' => 'AU', 'lat' => null, 'lng' => null, 'phone' => null,
+    ]);
+
+    expect($outcome['outcome'])->toBe('no_match');
+});

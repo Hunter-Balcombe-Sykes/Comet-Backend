@@ -195,6 +195,23 @@ class FreshaWorkplaceLinker
                         break;
                     }
                 }
+            } elseif (! isset($venue['lat'], $venue['lng']) && $venuePostcode === '' && $venuePhone === null) {
+                // T14/owner 2026-08-27: locality-corroborated hit for venues
+                // that OFFER no corroborator at all (a bio-mention venue whose
+                // IG bio carries only opening hours — measured on
+                // @star_barber_darwin). A locality-looking token from the
+                // venue NAME appearing in the candidate's own address is the
+                // agreement ("Star Barber DARWIN" ↔ "…Darwin NT…"). Fires
+                // only in this nothing-else-to-offer case; the single-
+                // candidate ambiguity guard below still applies.
+                foreach (preg_split('/\s+/', mb_strtolower((string) $venue['name'])) ?: [] as $token) {
+                    if (mb_strlen($token) >= 4
+                        && ! preg_match('/^(the|and|salon|studio|barbers?|barbershop|hair|beauty|nails?|spa|clinic|shop|store)$/u', $token)
+                        && stripos((string) ($place['formattedAddress'] ?? ''), $token) !== false) {
+                        $corroboration = 'name-locality';
+                        break;
+                    }
+                }
             }
             if ($corroboration === null) {
                 continue;
