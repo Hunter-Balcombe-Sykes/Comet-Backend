@@ -533,6 +533,15 @@ The owner is away (dinner) once execution starts. For this run:
   precedence) but gains the Andis store with ~5 products publishing;
   accounts with no qualifying mentions change NOTHING (false-positive
   check). Logged per-account in this doc.
+- **T15 — Section-block provisioning for pre-account builds (issue 9)**:
+  make pre-account generation provision + enable the `workplace` section
+  block whenever a workplace row is written (Fresha linker today, T14 bio
+  path later) — first checking whether the zero-blocks state is deliberate
+  anywhere; audit which OTHER section blocks an unclaimed site should
+  carry while in there. **Runs BEFORE T3/T14's live-site gates can pass —
+  it is their prerequisite.** Gate: rebuilt barber-in-law shows the Studio
+  San workplace page on the live site; a build with no workplace shows
+  none.
 - **T12 — Acceptance rebuild round**: fresh signups (simondoylehair,
   st-ali + one new partna) after all fixes; full window.py sweep, Nightwatch
   diff, live-site checks; results logged here. Gate: zero regressions, all
