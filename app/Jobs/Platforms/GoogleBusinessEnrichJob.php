@@ -327,13 +327,12 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         Cache::forget($resultKey);
 
         // ALWAYS try the Google-photos menu scan after an enrichment (owner
-        // 2026-07-17) — it enriches whatever the ordering-platform scrape
-        // produced (longer descriptions, dietary badges, scan-only dishes)
-        // rather than competing with it. Delayed so a same-connect
-        // MenuFetchJob settles first; the job itself gates on the menu
-        // capability + AI keys and no-ops for everyone else.
-        GoogleMenuPhotoScanJob::dispatch($this->userId, $this->placeId)
-            ->delay(now()->addMinutes(5));
+        // 2026-07-17, amended T6/D1 2026-08-27: with a sufficient platform
+        // menu the scan is enrich-only — no new scan-owned items) — the job
+        // itself gates on the menu capability + AI keys and no-ops for
+        // everyone else. The settling delay now applies only when an
+        // ordering-platform fetch actually needs settling.
+        GoogleMenuPhotoScanJob::dispatchAfterEnrich($this->userId, $this->placeId);
     }
 
     public function failed(Throwable $e): void

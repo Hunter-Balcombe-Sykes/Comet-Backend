@@ -139,9 +139,9 @@ class MenuScanApplier
      * without being confused for a user's own manual/Google-photo scan.
      *
      * @param  list<array{name:string, description:?string, price:?float, category:?string, dietary?:?list<string>}>  $items
-     * @return array{updated:int, added:int}
+     * @return array{updated:int, added:int, skipped:int}
      */
-    public function apply(User $user, array $items, bool $enrichOnly = false, string $source = self::SOURCE): array
+    public function apply(User $user, array $items, bool $enrichOnly = false, string $source = self::SOURCE, bool $allowNew = true): array
     {
         $userId = (string) $user->id;
 
@@ -187,6 +187,7 @@ class MenuScanApplier
 
         $updated = 0;
         $added = 0;
+        $skipped = 0;
 
         $categoryDenylist = array_flip(array_map(
             fn ($l) => mb_strtolower(trim((string) $l)),
@@ -251,6 +252,15 @@ class MenuScanApplier
             }
 
             if ($existing === null) {
+                // T6/D1 (2026-08-27): with a sufficient platform menu the scan
+                // may only ENRICH — a scanned dish nothing matched is dropped,
+                // never a new scan-owned row ("Strawberry" next to an 86-item
+                // Uber Eats menu).
+                if (! $allowNew) {
+                    $skipped++;
+
+                    continue;
+                }
                 $entries = [$this->categoryEntry(
                     $scanCategory ?? self::DEFAULT_CATEGORY_NAME, $source, $positionByRef, $nextCategoryPosition,
                 )];
@@ -343,7 +353,7 @@ class MenuScanApplier
             }
         }
 
-        return ['updated' => $updated, 'added' => $added];
+        return ['updated' => $updated, 'added' => $added, 'skipped' => $skipped];
     }
 
     /**

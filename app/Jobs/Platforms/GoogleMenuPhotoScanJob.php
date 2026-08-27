@@ -6,6 +6,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Content\ManualMenuItems;
 use App\Services\Platforms\GoogleMenuImagesScraper;
 use App\Services\Platforms\MenuAiExtractor;
 use App\Services\Platforms\MenuScanApplier;
@@ -42,6 +43,12 @@ class GoogleMenuPhotoScanJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    /**
+     * T6/D5 (2026-08-27): an ordering platform supplying at least this many
+     * menu items makes the OCR scan ENRICH-ONLY (no new scan-owned items).
+     */
+    public const PLATFORM_MENU_SUFFICIENT = 8;
+
     /** OCR text shorter than this is not a menu photo (density filter). */
     private const MENU_TEXT_MIN_CHARS = 150;
 
@@ -75,6 +82,52 @@ class GoogleMenuPhotoScanJob implements ShouldBeUnique, ShouldQueue
     public function uniqueId(): string
     {
         return $this->userId.':'.$this->placeId;
+    }
+
+    /**
+     * T6 (2026-08-27): the post-enrichment dispatch, with the delay decided by
+     * what the delay is FOR. The 5-minute hold exists purely so a same-connect
+     * MenuFetchJob settles before the scan reads the menu — a user with no
+     * ordering platform connected has no MenuFetchJob to wait for, and the
+     * scan is their ONLY menu source, so holding it just delays their menu.
+     */
+    public static function dispatchAfterEnrich(string $userId, string $placeId): void
+    {
+        // routing_class is the catalog's own vocabulary for "this connection
+        // orders food" — env-proof (the legacy `platform` column is GENERATED
+        // on Postgres and absent in sqlite tests) and covers every ordering
+        // platform without re-listing them.
+        $hasOrderingPlatform = IntegrationConnection::query()
+            ->where('user_id', $userId)
+            ->where('routing_class', 'ordering')
+            ->exists();
+
+        $job = self::dispatch($userId, $placeId);
+        if ($hasOrderingPlatform) {
+            $job->delay(now()->addMinutes(5));
+        }
+    }
+
+    /**
+     * Whether an ordering platform already supplies a sufficient menu: a
+     * successful platform fetch on record AND ≥ PLATFORM_MENU_SUFFICIENT
+     * items in the menu lane. (Item provenance is flattened today — issue
+     * "menu provenance" in the 2026-08-27 plan — so the fetch stamp carries
+     * the platform half of the signal and the count carries the volume half.)
+     */
+    public static function platformMenuSufficient(string $userId): bool
+    {
+        $fetched = Menu::query()
+            ->where('user_id', $userId)
+            ->whereNotNull('last_successful_fetch_at')
+            ->exists();
+        if (! $fetched) {
+            return false;
+        }
+
+        return app(ManualMenuItems::class)
+            ->rows($userId)
+            ->count() >= self::PLATFORM_MENU_SUFFICIENT;
     }
 
     public function handle(
@@ -137,7 +190,10 @@ class GoogleMenuPhotoScanJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $result = $applier->apply($user, $items, enrichOnly: true);
+        // T6/D1: with a sufficient platform menu, enrich matched dishes but
+        // never add scan-owned rows; scan-only accounts keep additions.
+        $allowNew = ! self::platformMenuSufficient($this->userId);
+        $result = $applier->apply($user, $items, enrichOnly: true, allowNew: $allowNew);
 
         // Persist for MenuFetchJob's post-rebuild re-apply (no re-billing).
         Menu::query()->where('user_id', $user->id)->first()?->forceFill([
@@ -154,6 +210,8 @@ class GoogleMenuPhotoScanJob implements ShouldBeUnique, ShouldQueue
             'items' => count($items),
             'updated' => $result['updated'],
             'added' => $result['added'],
+            'skipped' => $result['skipped'],
+            'allow_new' => $allowNew,
             'ocr_calls' => $ocrCalls,
         ]);
     }
