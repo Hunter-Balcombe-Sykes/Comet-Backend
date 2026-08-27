@@ -281,6 +281,9 @@ class SourceProvisioner
             // T27c: the canonical page URL off a facebook.com handle connect.
             'facebook' => $this->facebookPageUrl($payload['url'] ?? $payload['username'] ?? null)
                 ?? $this->facebookPageUrl($this->bareSlug($resource, 'facebook')),
+            // Wave 2: the numeric artist id off a deezer.com/artist URL.
+            'deezer' => $this->deezerArtistId($payload['url'] ?? $payload['link'] ?? null)
+                ?? $this->deezerArtistId($resource),
             // T27b: the calendar slug off a lu.ma URL (multi-segment kept —
             // personal calendars live at /u/<id>).
             'luma' => $this->lumaSlug($payload['url'] ?? $payload['link'] ?? null)
@@ -542,6 +545,20 @@ class SourceProvisioner
         }
 
         return rtrim((string) strtok($value, '?#'), '/');
+    }
+
+    /** The numeric artist id off a deezer.com/artist URL (locale-tolerant), or a bare id. */
+    private function deezerArtistId(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value === null) {
+            return null;
+        }
+        if (preg_match('~^https?://(?:www\.)?deezer\.com(?:/[a-z]{2})?/artist/(\d{1,15})~i', $value, $m)) {
+            return $m[1];
+        }
+
+        return preg_match('/^\d{1,15}$/', $value) === 1 ? $value : null;
     }
 
     /** A TikTok username: letters/digits/underscore/dots, @-tolerant, lowercased. */

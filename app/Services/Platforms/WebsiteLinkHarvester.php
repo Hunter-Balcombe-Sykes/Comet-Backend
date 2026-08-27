@@ -71,6 +71,8 @@ class WebsiteLinkHarvester
         'dribbble' => '~(^|\.)dribbble\.com$~',
         'vimeo' => '~(^|\.)vimeo\.com$~',
         'twitch' => '~(^|\.)twitch\.tv$~',
+        // Wave 2 (2026-08-28): Deezer joined with a real content connector.
+        'deezer' => '~(^|\.)deezer\.com$~',
     ];
 
     /**
@@ -188,6 +190,9 @@ class WebsiteLinkHarvester
         'Square' => '~(^|\.)(squareup\.com|square\.site)$~',
         // Expanded 2026-07-25 — stored under shared 'booking' key (Decision 10)
         'Booksy' => '~(^|\.)booksy\.com$~',
+        // Wave 2 (2026-08-28)
+        'Cal.com' => '~(^|\.)cal\.com$~',
+        'ClassPass' => '~(^|\.)classpass\.com$~',
         'Timely' => '~(^|\.)gettimely\.com$~',
         'Calendly' => '~(^|\.)calendly\.com$~',
         'Vagaro' => '~(^|\.)vagaro\.com$~',
@@ -257,6 +262,7 @@ class WebsiteLinkHarvester
         'Treatwell' => 'treatwell.book', 'Noterro' => 'noterro.book',
         'Schedulicity' => 'schedulicity.book', 'SimplyBook.me' => 'simplybook_me.book',
         // T27a (2026-08-28) — catalog-only, full surface keys.
+        'Cal.com' => 'cal_com.book', 'ClassPass' => 'classpass.book',
         'Jane' => 'jane_app.book', 'Cliniko' => 'cliniko.book',
         'Halaxy' => 'halaxy.book', 'HotDoc' => 'hotdoc.book',
         'Bookwell' => 'bookwell.book', 'StyleSeat' => 'styleseat.book',
@@ -340,6 +346,7 @@ class WebsiteLinkHarvester
         // Expanded 2026-07-25
         'spotify' => ['spotify', 'Spotify'],
         'soundcloud' => ['soundcloud', 'SoundCloud'],
+        'deezer' => ['deezer', 'Deezer'],
         'snapchat' => ['snapchat', 'Snapchat'],
         'threads' => ['threads', 'Threads'],
         'discord' => ['discord', 'Discord'],

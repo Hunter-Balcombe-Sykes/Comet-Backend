@@ -39,10 +39,12 @@ class LegacyPlatformMap
      * @var array<string, string> legacy slug => the surface it used to map to
      */
     private const RETIRED = [
-        // Removed 2026-07-28 by owner decision: Partna no longer supports
-        // Pinterest. Connector, catalog surface, legacy scraper and registry
-        // entry all deleted in the same change.
-        'pinterest' => 'pinterest.profile',
+        // Pinterest was retired here 2026-07-28 (connector + surface + scraper
+        // deleted). RE-ADDED 2026-08-28 as a LINK-ONLY brand in the wave-2
+        // batch — same slug, same surface key, none of the old integration
+        // machinery — so the retirement row leaves with it: a live surface may
+        // not sit in this map, and the resurrection is a deliberate decision,
+        // not the guard failing.
         // Pseudo-platform link lane retired 2026-08-19 (owner): every routed
         // link lands on its real brand surface via LinkRouter/SourceReconciler.
         // Zero live rows carried any of these at deletion time (measured).

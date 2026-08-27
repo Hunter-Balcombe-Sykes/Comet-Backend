@@ -69,6 +69,22 @@ class Square
                         ->strength(EvidenceStrength::DeepLinkWithSlug),
                 )
                 ->build(),
+            // Wave 2 (2026-08-28): square.link checkout links, detect-only —
+            // opaque slugs, so the win is recognition (a payment link routes
+            // as a shop link instead of spending a commerce probe on it).
+            SurfaceBuilder::for('square.payment_link')
+                ->displayName('Square')
+                ->routing(RoutingClass::Shop)
+                ->shelf(Shelf::Commerce)
+                ->identifier(IdentifierKind::Url)
+                ->notConnectable()
+                ->refreshEvery(0)
+                ->detect(
+                    Detector::url('square.link')
+                        ->path('#^/(?:u/)?[A-Za-z0-9]{6,32}/?$#')
+                        ->strength(EvidenceStrength::ProfileLink),
+                )
+                ->build(),
         ];
     }
 }

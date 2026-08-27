@@ -569,7 +569,14 @@ it('covers every integration GET read-route in the golden master', function () {
     // fareharbor, mr_yum, google_appointments) each gain their derived
     // /selection read; the two detect-only brands (wix_bookings,
     // microsoft_bookings) deliberately add none.
-    expect($readRoutes->count())->toBe(153);
+    // 153 → 157 on 2026-08-28 (wave 2): the 30-brand link-only batch ships
+    // DETECT-ONLY (links route from scanned bios; the legacy harvester has no
+    // classify() entries for them, so a manual card would 422 its own URL) —
+    // only the four with harvester support add routes: deezer (content
+    // connector; /selection + /accounts), cal_com + classpass (BOOKING
+    // hosts) and the revived pinterest (LINK_ONLY_HOSTS since 2026-08-11),
+    // /selection each.
+    expect($readRoutes->count())->toBe(158);
     expect($readRoutes->all())->toEqual([
         'api/platforms/acuity/selection',
         'api/platforms/apple/music/accounts',
@@ -588,13 +595,17 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/bopple/selection',
         'api/platforms/boulevard/selection',
         'api/platforms/buymeacoffee/selection',
+        'api/platforms/cal_com/selection',
         'api/platforms/calendly/selection',
         'api/platforms/chope/selection',
         'api/platforms/chownow/selection',
         'api/platforms/circle/accounts',
         'api/platforms/circle/selection',
+        'api/platforms/classpass/selection',
         'api/platforms/cliniko/selection',
         'api/platforms/codepen/selection',
+        'api/platforms/deezer/accounts',
+        'api/platforms/deezer/selection',
         'api/platforms/deliveroo/selection',
         'api/platforms/discord/selection',
         'api/platforms/doordash/selection',
@@ -657,6 +668,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/partiful/selection',
         'api/platforms/patreon/selection',
         'api/platforms/phorest/selection',
+        'api/platforms/pinterest/selection',
         'api/platforms/quandoo/selection',
         'api/platforms/reddit/selection',
         'api/platforms/resdiary/selection',

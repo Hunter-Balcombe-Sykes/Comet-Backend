@@ -211,6 +211,13 @@ final class DsarPayloadFilter
         'chownow' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'circle' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'deliveroo' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'deezer' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        // Wave 2 (2026-08-28): only the connectable four (deezer, cal_com,
+        // classpass, pinterest) — the rest of the batch is detect-only and
+        // unregistered, so DSAR rows would be stale.
+        'pinterest' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'cal_com' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'classpass' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'doordash' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'eat_app' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'genbook' => ['url', 'name', 'favicon', 'logo', 'provider'],

@@ -6,6 +6,18 @@
 // The test fails on a NEW invisible surface (regression) and on a STALE row here
 // (improvement) — update this list only with the report.
 return [
+    // Wave 2 (2026-08-28): maker-marketplace shop profiles. classify() leaves
+    // Etsy/Depop out of its host tables ON PURPOSE (a listing is worth a
+    // probe — see WebsiteLinkHarvester SHOP_HOSTS notes); the catalog
+    // detectors still route shop-PROFILE links, so the harvester gap is
+    // recorded rather than fixed.
+    'depop.shop',
+    'etsy.shop',
+    'redbubble.shop',
+    // Payment links: opaque slugs the harvester can say nothing about — the
+    // catalog detector is the whole win (no probe spent).
+    'square.payment_link',
+    'stripe.payment_link',
     'direct.book',
     'generic.store',
     'google_business.listing',

@@ -30,6 +30,7 @@ final class ProjectorRegistry
         // Booksy reviews land the same doc shape as Fresha's — shared
         // projector; the class name is historical (first producer).
         'booksy' => ['services' => BooksyServiceProjector::class, 'reviews' => FreshaReviewProjector::class],
+        'deezer' => ['tracks' => DeezerTrackProjector::class],
         // The three menu platforms land the SAME doc shape (MenuRecords) —
         // one projector, on purpose.
         'doordash' => ['menu' => MenuItemProjector::class],

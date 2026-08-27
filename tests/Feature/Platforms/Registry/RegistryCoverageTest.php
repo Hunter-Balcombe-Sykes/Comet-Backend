@@ -54,7 +54,9 @@ it('never lets a derived descriptor shadow a hand-written one', function () {
     // register() throws on a duplicate key, so a shadow can only appear if the
     // derived registration site stopped skipping on has(). Belt to that brace.
     // Retired slugs are excluded: derived IS their end state.
-    $retired = [...LinkOnlyBindings::slugs(), 'mixcloud', 'tidal', 'vimeo', 'bandcamp', 'youtube', 'youtube-music', 'apple-music', 'apple-podcast', 'spotify', 'soundcloud', 'eventbrite', 'humanitix', 'fresha', 'square', 'opentable', 'resdiary', 'nowbookit', 'google-business', 'instagram', 'square-ordering', 'bopple', 'hungrypanda', 'easi', 'booksy', 'vagaro', 'timely', 'kitomba', 'phorest', 'shortcuts', 'bella-booking', 'boulevard', 'glossgenius', 'mangomint', 'zenoti', 'mindbody', 'ovatu', 'resy', 'quandoo', 'sevenrooms', 'tock', 'tablecheck', 'ticketek', 'oztix', 'trybooking', 'resident-advisor', 'ticketmaster'];
+    $retired = [...LinkOnlyBindings::slugs(), 'mixcloud', 'tidal', 'vimeo', 'bandcamp', 'youtube', 'youtube-music', 'apple-music', 'apple-podcast', 'spotify', 'soundcloud', 'eventbrite', 'humanitix', 'fresha', 'square', 'opentable', 'resdiary', 'nowbookit', 'google-business', 'instagram', 'square-ordering', 'bopple', 'hungrypanda', 'easi', 'booksy', 'vagaro', 'timely', 'kitomba', 'phorest', 'shortcuts', 'bella-booking', 'boulevard', 'glossgenius', 'mangomint', 'zenoti', 'mindbody', 'ovatu', 'resy', 'quandoo', 'sevenrooms', 'tock', 'tablecheck', 'ticketek', 'oztix', 'trybooking', 'resident-advisor', 'ticketmaster',
+        // 2026-08-28: retired 2026-07-28, revived as a derived link-only brand.
+        'pinterest'];
     foreach (array_diff(PlatformRegistry::handWrittenFreeze(), $retired) as $slug) {
         expect($registry->get($slug)?->isDerived())->toBeFalse(
             "Derived descriptor shadowed the hand-written '{$slug}'."

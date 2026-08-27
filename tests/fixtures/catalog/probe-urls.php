@@ -98,4 +98,20 @@ return [
     'google_appointments.book' => 'https://calendar.app.google/A1bC2dE3fG4hJ5k6',
     'microsoft_bookings.book' => 'https://outlook.office365.com/owa/calendar/bookings@contoso.com/bookings/',
     'woocommerce.store' => 'https://woocommerce.com/store/acme',
+
+    // Wave 2 (2026-08-28) — real URLs verified during the batch's grammar
+    // scout pass (bot-403'd hosts noted in each definition's docblock).
+    'trustpilot.listing' => 'https://au.trustpilot.com/review/www.cheaperdomains.com.au',
+    'bark.company' => 'https://www.bark.com/en/gb/company/startup-website-co/2369176/',
+    'beatport.artist' => 'https://www.beatport.com/artist/johnny-rico/485532',
+    'cash_app.profile' => 'https://cash.app/$cashapp',
+    'dice.events' => 'https://dice.fm/artist/example-wwwwg',
+    'eventfinda.tickets' => 'https://www.eventfinda.com.au/venue/boutique-nightclub-melbourne',
+    'houzz.pro' => 'https://www.houzz.com.au/professionals/interior-designers-and-decorators/dani-louis-design-pfvwau-pf~503457392',
+    'megatix.tickets' => 'https://megatix.com.au/events/kris-davis-trio',
+    'moshtix.tickets' => 'https://www.moshtix.com.au/v2/venues/lazybones-lounge-restaurant-bar/7848',
+    'skiddle.tickets' => 'https://www.skiddle.com/venues/1/',
+    'stripe.payment_link' => 'https://buy.stripe.com/test_00g3eYaEO3BF5Ty144',
+    'square.payment_link' => 'https://square.link/u/ExAmPle12',
+    'tripadvisor.listing' => 'https://www.tripadvisor.com/Restaurant_Review-g255060-d27541618-Reviews-Sydney_Common-Sydney_New_South_Wales.html',
 ];
