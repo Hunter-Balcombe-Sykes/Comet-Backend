@@ -15,6 +15,7 @@ use App\Http\Requests\Api\PublicSite\Analytics\PingRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\SectionDwellRequest;
 use App\Http\Requests\Api\PublicSite\Analytics\SectionSeenRequest;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\User;
 use App\Services\Analytics\AnalyticsDedupGuard;
 use App\Services\Analytics\AnalyticsEvent;
 use App\Services\Analytics\AnalyticsEventSanitizer;
@@ -411,7 +412,15 @@ class AnalyticsController extends ApiController
             return null;
         }
 
-        if (! $site->is_published) {
+        // T9 (issue 4, 2026-08-27): unclaimed pre-account sites render
+        // publicly with is_published=false (profiles endpoint has no publish
+        // gate; KV routes the subdomain), so gating ingest on is_published
+        // alone silently discarded every visitor to a demo site. Accept the
+        // renderable-as-unclaimed case; a CLAIMED owner's unpublished site
+        // stays 404 — for them the publish knob IS the visibility switch.
+        // By id, not a relation walk (preventLazyLoading is armed outside prod).
+        if (! $site->is_published
+            && User::query()->whereKey($site->user_id)->value('status') !== 'unclaimed') {
             $error = $this->error('Site not found', 404);
 
             return null;
