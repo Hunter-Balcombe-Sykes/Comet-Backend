@@ -535,6 +535,29 @@ The owner is away (dinner) once execution starts. For this run:
   with the platform's curated sections (smart default fallback).
 - Chains (T14) + retry completion still being watched; suite gate (T19)
   running.
+- **T18 sweep**: all 21 test sites serving 200 (spot-checked repeatedly
+  through the run). eoin's one YouTube failure traced to a TYPO IN HIS OWN
+  LINKTREE (`@eoinmcccarthy`, triple c — channel genuinely nonexistent):
+  the retry chain is correctly burning its tiers and will F26-delete at
+  exhaustion, which is the designed outcome for a truly dead link.
+- **T14 round-2**: mentions found to be clobbered from the connection
+  payload by the async IG connect's wholesale write → mentions now ride
+  the JOB (fix deployed); barber_in_law + emdinonhair re-rebuilt 09:51:21
+  to verify the chains + the matcher raw-fullName fix end-to-end.
+
+### Remaining at run end (for the owner)
+
+- **T17 (headshot)** NOT built — first cross-repo task (monorepo dashboard
+  upload + astro favicon + backend media purpose) while the astro lane had
+  an active owner chat; scoped and ready in the ledger.
+- **T12 wider fleet**: the 12 other fleet accounts still carry their
+  pre-fix 07:26 builds (deliberate — they are the before-state record);
+  rebuild any of them post-review to see the after-state.
+- **D9**: YOUTUBE_DATA_API_KEY still an owner console step (leg is live
+  the moment the env var lands + redeploy).
+- **Q5 / issue 10**: the 15-char business-name cap (display + workplace)
+  — owner decision.
+- Backlog items I2-I10 + menu provenance + post-claim round as listed.
 
 - **RUN LOG (2026-08-27, evening):**
   - T1: real-scraper probe running from production every 5 min (both known
