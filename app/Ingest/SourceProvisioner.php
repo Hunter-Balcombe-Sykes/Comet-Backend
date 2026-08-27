@@ -282,6 +282,10 @@ class SourceProvisioner
             // T27b: the locale-qualified venue path off a booksy.com URL.
             'booksy' => $this->booksyPath($payload['url'] ?? $payload['link'] ?? null)
                 ?? $this->booksyPath($resource),
+            // T27b: the venue page URL itself (locale TLDs vary; the URL is
+            // the stable identity).
+            'treatwell' => $this->treatwellUrl($payload['url'] ?? $payload['link'] ?? null)
+                ?? $this->treatwellUrl($resource),
             // T27b: the artist slug off an ra.co/dj/<slug> URL.
             'resident_advisor' => $this->residentAdvisorSlug($payload['url'] ?? $payload['link'] ?? null)
                 ?? $this->residentAdvisorSlug($resource)
@@ -385,6 +389,20 @@ class SourceProvisioner
         }
         if (preg_match('~^https?://(?:www\.)?booksy\.com/([a-z]{2}(?:-[a-z]{2})?/[0-9]+_[A-Za-z0-9_-]+)/?~i', trim($value), $m) === 1) {
             return $m[1];
+        }
+
+        return null;
+    }
+
+    /** A treatwell venue-page URL (any locale TLD), or null. */
+    private function treatwellUrl(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+        $value = trim($value);
+        if (preg_match('~^https?://(?:www\.)?treatwell\.(?:com|co\.uk|de|fr|nl|es|it|be|at|ch|ie|pt|lt|lv|gr)/place/[A-Za-z0-9_-]+/?~i', $value) === 1) {
+            return $value;
         }
 
         return null;

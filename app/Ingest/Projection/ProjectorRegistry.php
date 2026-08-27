@@ -55,6 +55,7 @@ final class ProjectorRegistry
         'soundcloud' => ['tracks' => SoundcloudTrackProjector::class],
         'spotify' => ['tracks' => SpotifyTrackProjector::class, 'releases' => SpotifyReleaseProjector::class],
         'square' => ['menu' => MenuItemProjector::class],
+        'treatwell' => ['services' => TreatwellServiceProjector::class],
         'uber_eats' => ['menu' => MenuItemProjector::class],
         'vimeo' => ['watch' => VimeoVideoProjector::class],
         'youtube' => ['watch' => YoutubeVideoProjector::class],

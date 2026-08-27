@@ -18,6 +18,7 @@ use App\Ingest\Connectors\ResidentAdvisorConnector;
 use App\Ingest\Connectors\SoundcloudTracksConnector;
 use App\Ingest\Connectors\SpotifyTracksConnector;
 use App\Ingest\Connectors\SquareMenuConnector;
+use App\Ingest\Connectors\TreatwellConnector;
 use App\Ingest\Connectors\UberEatsMenuConnector;
 use App\Ingest\Connectors\VimeoConnector;
 use App\Ingest\Connectors\YoutubeMusicConnector;
@@ -63,6 +64,7 @@ final class ConnectorRegistry
         'soundcloud' => SoundcloudTracksConnector::class,
         'spotify' => SpotifyTracksConnector::class,
         'square' => SquareMenuConnector::class,
+        'treatwell' => TreatwellConnector::class,
         'uber_eats' => UberEatsMenuConnector::class,
         'vimeo' => VimeoConnector::class,
         'youtube' => YoutubeRssConnector::class,
