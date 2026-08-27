@@ -63,3 +63,25 @@ it('decodes HTML entities left over from a JSON-LD block that double-escaped its
     expect(app(AboutTextExtractor::class)->extract($html, 'https://venue.example'))
         ->toBe('Restaurant & Bar, North Melbourne');
 });
+
+it('strips markup a site escaped into its description (issue 16 — Parker, live 2026-08-27)', function () {
+    // Parker's real shape: the meta/JSON-LD description carried HTML-escaped
+    // markup, which entity-decoding RESURRECTED into live tags — the info
+    // panel served literal <p class="…"> markup and an unclosed <strong>
+    // where the site truncated its own string mid-tag.
+    $html = <<<'HTML'
+    <script type="application/ld+json">
+    {"@type": "LocalBusiness", "description": "&lt;p class=&quot;&quot; style=&quot;text-align:center&quot;&gt;We are not your average hair salon or barbershop. &lt;strong&gt;PARKER."}
+    </script>
+    HTML;
+
+    expect(app(AboutTextExtractor::class)->extract($html, 'https://venue.example'))
+        ->toBe('We are not your average hair salon or barbershop. PARKER.');
+});
+
+it('still passes plain prose with genuine ampersands through unchanged after the strip', function () {
+    $html = '<meta name="description" content="Cuts &amp; colour in Fitzroy.">';
+
+    expect(app(AboutTextExtractor::class)->extract($html, 'https://venue.example'))
+        ->toBe('Cuts & colour in Fitzroy.');
+});

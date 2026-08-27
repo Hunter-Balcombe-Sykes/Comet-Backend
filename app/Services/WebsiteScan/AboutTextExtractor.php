@@ -39,8 +39,19 @@ class AboutTextExtractor
     // JSON-LD block that (incorrectly) HTML-escaped its own text — real sites
     // do this — comes through json_decode() with literal "&amp;" etc. still in
     // it. Decode defensively; a site with no such bug round-trips unchanged.
+    //
+    // Issue 16 (Parker, T26 2026-08-28): that same decode RESURRECTS markup a
+    // site escaped INTO its description — "&lt;p class=…&gt;" became a live
+    // <p> tag served verbatim on the info panel, with an unclosed <strong>
+    // where the site had truncated its own string mid-tag. Strip tags after
+    // decoding (order matters: decode reveals the tags, strip removes them),
+    // decode once more for double-escaped entities, and squish whitespace —
+    // a plain-prose description round-trips through all of it unchanged.
     private function decode(string $text): string
     {
-        return html_entity_decode($text, ENT_QUOTES | ENT_HTML5);
+        $decoded = html_entity_decode($text, ENT_QUOTES | ENT_HTML5);
+        $stripped = html_entity_decode(strip_tags($decoded), ENT_QUOTES | ENT_HTML5);
+
+        return trim(preg_replace('/\s+/', ' ', $stripped) ?? $stripped);
     }
 }
