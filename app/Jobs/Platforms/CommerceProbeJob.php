@@ -216,7 +216,18 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         // origin-probe auto-connect deliberately: its live case
         // (natalieanne.com/pages/… 404ing) was the owner's own stale link,
         // and a dead page offers no markers to judge affiliation by.
-        $deepPage = trim((string) parse_url($this->url, PHP_URL_PATH), '/') !== '';
+        // T24/issue 18 (2026-08-28): a CATALOG view is root-equivalent. FI-10's
+        // live incident was /pages/<someone-else's-brand> with a discount code
+        // — an affiliate shape. drsleek.com.au/collections/all is the opposite
+        // shape: the store's own full catalogue, linked from the owner's own
+        // bio ("Shop our Award-Winning Beard Serum"), and the suggest-only
+        // arm parked it in an inbox no unclaimed account ever reads. Bare
+        // /collections[/x], /shop and /store paths auto-connect like the
+        // root; /pages/*, single /products/<x> and everything else stay the
+        // question FI-10 made them.
+        $path = trim((string) parse_url($this->url, PHP_URL_PATH), '/');
+        $catalogShaped = preg_match('#^(collections(/[^/]+)?|shop|store)/?$#i', $path) === 1;
+        $deepPage = $path !== '' && ! $catalogShaped;
 
         if ($read['outcome'] === GenericShopScraper::OUTCOME_STORE_PAGE && is_string($read['storeUrl'])) {
             return $this->seedStore($brands, $user, $read['storeUrl'], $deepPage);

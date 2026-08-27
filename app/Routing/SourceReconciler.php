@@ -495,7 +495,13 @@ class SourceReconciler
                 $context->origin,
             ),
             'is_active' => true,
-            'last_refresh_status' => 'pending',
+            // Issue-13 fix (T27 hygiene, 2026-08-28): 'pending' means content
+            // is still OWED (ConnectionPayload's contract) — true only where a
+            // fetch will actually run. A link-only placement (no fetch
+            // capability, or a non-content class whose enrichment nothing here
+            // dispatches) previously sat 'pending' FOREVER; it is born
+            // complete, so it is born 'ok'.
+            'last_refresh_status' => ConnectionPayload::contentIsOwed($surfaceKey, $routingClass) ? 'pending' : 'ok',
         ]);
         $connection->created_by_catalog_digest = CompiledCatalog::digest();
         $connection->save();
@@ -527,9 +533,7 @@ class SourceReconciler
         // here would auto-complete it; UnclaimedAutoBookingConnectTest pins
         // that), and shop rows enrich through their own connect jobs.
         // afterCommit: this runs inside reconcile()'s transaction.
-        $surface = CompiledCatalog::surface($surfaceKey);
-        $fetch = $surface['capabilities']['fetch'] ?? null;
-        if ($routingClass === 'content' && is_string($fetch) && $fetch !== '') {
+        if (ConnectionPayload::contentIsOwed($surfaceKey, $routingClass)) {
             ConnectFetchJob::dispatch((string) $connection->id, LegacyPlatformMap::legacyFor($surfaceKey), systemInitiated: true)->afterCommit();
         }
 

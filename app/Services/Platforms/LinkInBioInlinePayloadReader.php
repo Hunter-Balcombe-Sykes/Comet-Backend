@@ -112,7 +112,13 @@ class LinkInBioInlinePayloadReader
         }
 
         $links = data_get($doc, 'props.pageProps.links');
-        if (! is_array($links)) {
+        $socials = data_get($doc, 'props.pageProps.socialLinks');
+        // T24/issue 19 (2026-08-28): the socialLinks icon row must SURVIVE a
+        // missing/renamed tile list — the old early-return on !links discarded
+        // it, so a page whose shell revved (or genuinely has only the icon
+        // row) fell back to the anchor harvest and Bandcamp-shaped socials
+        // were lost (benbohmer/memphislk live). Null only when BOTH are gone.
+        if (! is_array($links) && ! is_array($socials)) {
             // Linktree revved their shell. Say so — a silent null falls back
             // to the anchor harvest, which is exactly the 3-of-6 gap this
             // arm exists to close.
@@ -125,7 +131,7 @@ class LinkInBioInlinePayloadReader
         }
 
         $urls = [];
-        $rows = [...$links, ...(array) data_get($doc, 'props.pageProps.socialLinks', [])];
+        $rows = [...(is_array($links) ? $links : []), ...(is_array($socials) ? $socials : [])];
         foreach ($rows as $row) {
             $url = is_array($row) ? trim((string) ($row['url'] ?? '')) : '';
             if (preg_match('~^https?://~i', $url) === 1 && ! in_array($url, $urls, true)) {

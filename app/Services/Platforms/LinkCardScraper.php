@@ -72,19 +72,30 @@ class LinkCardScraper
             ?? $this->metaName($meta->meta, 'twitter:image:src');
         $logo = $this->parser->absolutize($share, $finalUrl) ?? $meta->headerLogoUrl;
 
+        $storefront = StorefrontMarkers::detect($res['body']);
+        // T8: the page CARRIES product markup — a hint only (the Sell
+        // lane's own read is the authority and refuses dishonest pages);
+        // enough for the sheet to offer "add it on your Sell page".
+        $productMarkup = (bool) (preg_match('~"@type"\s*:\s*"Product"~', $res['body'])
+            || preg_match('~og:type["\'][^>]*content=["\'][^"\']*product~i', $res['body'])
+            || str_contains($res['body'], 'product:price:amount'));
+
+        // T24/issue 17: a search/listing/noindex/markdown-junk page must not
+        // wear its scraped identity as a card. Downgrade to the minimal host
+        // card (the link survives — zero-loss); the body-derived storefront/
+        // product facts stay, they are independent of the junk title.
+        if (! LinkSnapshotQuality::acceptable($finalUrl, $name, $this->metaName($meta->meta, 'robots'))) {
+            return [...$this->minimalCard($finalUrl), 'storefront' => $storefront, 'productMarkup' => $productMarkup];
+        }
+
         return [
             'url' => $finalUrl,
             'name' => $name,
             'description' => $description,
             'favicon' => $favicon,
             'logo' => $logo,
-            'storefront' => StorefrontMarkers::detect($res['body']),
-            // T8: the page CARRIES product markup — a hint only (the Sell
-            // lane's own read is the authority and refuses dishonest pages);
-            // enough for the sheet to offer "add it on your Sell page".
-            'productMarkup' => (bool) (preg_match('~"@type"\s*:\s*"Product"~', $res['body'])
-                || preg_match('~og:type["\'][^>]*content=["\'][^"\']*product~i', $res['body'])
-                || str_contains($res['body'], 'product:price:amount')),
+            'storefront' => $storefront,
+            'productMarkup' => $productMarkup,
         ];
     }
 

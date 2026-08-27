@@ -112,7 +112,7 @@ it('takes a single-flight lock on the shortlink key before fetching', function (
         ->once();
 
     $this->mock(SafeUrlFetcher::class, function ($m) {
-        $m->shouldReceive('tryFetch')->once()->andReturn(['finalUrl' => 'https://soundcloud.com/sam-akhurst']);
+        $m->shouldReceive('tryResolveFinalUrl')->once()->andReturn('https://soundcloud.com/sam-akhurst');
     });
 
     $expanded = app(ShortLinkExpander::class)->expandIfShort($url);
@@ -141,7 +141,7 @@ it('caches a failed expansion under the SHORT failure TTL', function () {
         ->once();
 
     $this->mock(SafeUrlFetcher::class, function ($m) {
-        $m->shouldReceive('tryFetch')->once()->andReturn(['finalUrl' => null]);
+        $m->shouldReceive('tryResolveFinalUrl')->once()->andReturn(null);
     });
 
     $expanded = app(ShortLinkExpander::class)->expandIfShort($url);
@@ -164,7 +164,7 @@ it('a caller that finds the cache filled after waiting on the lock issues no fet
     Cache::shouldReceive('put')->never();
 
     $this->mock(SafeUrlFetcher::class, function ($m) {
-        $m->shouldReceive('tryFetch')->never();
+        $m->shouldReceive('tryResolveFinalUrl')->never();
     });
 
     $expanded = app(ShortLinkExpander::class)->expandIfShort($url);
@@ -184,7 +184,7 @@ it('treats a legacy empty-string sentinel as keep-the-original-url', function ()
     Cache::put($key, '', 60);
 
     $this->mock(SafeUrlFetcher::class, function ($m) {
-        $m->shouldReceive('tryFetch')->never();
+        $m->shouldReceive('tryResolveFinalUrl')->never();
     });
 
     $expanded = app(ShortLinkExpander::class)->expandIfShort($url);
@@ -252,7 +252,7 @@ it('logs a breadcrumb when short-link expansion throws, instead of failing silen
     Log::spy();
 
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
-    $fetcher->shouldReceive('tryFetch')->once()->andThrow(new RuntimeException('fetch budget exhausted'));
+    $fetcher->shouldReceive('tryResolveFinalUrl')->once()->andThrow(new RuntimeException('fetch budget exhausted'));
 
     $expander = new ShortLinkExpander($fetcher, app(CacheLockService::class));
 

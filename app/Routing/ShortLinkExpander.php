@@ -117,17 +117,16 @@ class ShortLinkExpander
         $final = null;
 
         try {
-            // The body is irrelevant — only the redirect chain matters — but
-            // HEAD support is unreliable on these hosts, so a GET it is. NO
-            // withMaxBytes() tightening (T1.5g live lesson, 2026-08-20): the
-            // fetcher THROWS when a body exceeds the cap rather than
-            // truncating, and the DESTINATION page (a real SoundCloud profile,
-            // ~300KB) tripped a 4KB cap after the redirect chain had already
-            // resolved — the finalUrl was known and thrown away. The default
-            // 10MB cap bounds abuse; wall-clock is bounded by the caller's
-            // FetchBudget.
-            $result = $this->fetcher->tryFetch($url);
-            $candidate = $result['finalUrl'] ?? null;
+            // Redirect-only resolution (T24/issue 21, 2026-08-28): only the
+            // chain matters, and the DESTINATION's behaviour must not veto it.
+            // tryFetch()'s all-or-nothing contract lost the already-resolved
+            // finalUrl whenever the terminal host bot-blocked (spoti.fi →
+            // open.spotify.com refused the GET → null → negative-cached for
+            // an hour → the Spotify connect never happened). Same lesson as
+            // T1.5g's byte-cap incarnation, now closed structurally:
+            // tryResolveFinalUrl keeps the last resolved hop through terminal
+            // failures.
+            $candidate = $this->fetcher->tryResolveFinalUrl($url);
 
             if (is_string($candidate)
                 && $candidate !== ''

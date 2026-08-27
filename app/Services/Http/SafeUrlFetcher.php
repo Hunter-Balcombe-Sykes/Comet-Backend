@@ -101,6 +101,60 @@ class SafeUrlFetcher
      * @throws ConnectionException
      */
     /**
+     * Follow $url's redirect chain and return the terminal destination —
+     * even when the DESTINATION itself misbehaves (T24/issue 21, 2026-08-28:
+     * spoti.fi resolved its 3xx to open.spotify.com and then Spotify
+     * bot-blocked the terminal GET; tryFetch()'s all-or-nothing contract
+     * threw the already-known destination away and the shortlink stayed a
+     * junk "spoti.fi" card). Redirect-only semantics: every hop is still
+     * assertSafe()-validated; a terminal-hop failure (connection refusal,
+     * timeout, byte cap) returns the last RESOLVED url when at least one
+     * redirect was followed, and null when the chain never moved — a
+     * first-hop failure is not an expansion.
+     */
+    public function tryResolveFinalUrl(string $url): ?string
+    {
+        $current = $url;
+
+        try {
+            for ($hop = 0; $hop <= $this->maxRedirects; $hop++) {
+                $remaining = $this->budget->remaining();
+                if ($remaining !== null && $remaining <= 0) {
+                    break;
+                }
+
+                $this->assertSafe($current);
+
+                $hopTimeout = $remaining === null
+                    ? $this->timeoutSeconds
+                    : (int) max(1, ceil(min($this->timeoutSeconds, $remaining)));
+
+                $response = Http::withHeaders(['User-Agent' => $this->userAgent, 'Accept' => '*/*'])
+                    ->timeout($hopTimeout)
+                    ->connectTimeout(min($this->connectTimeoutSeconds, $hopTimeout))
+                    ->withoutRedirecting()
+                    ->get($current);
+
+                $status = $response->status();
+                if ($status >= 300 && $status < 400 && $response->header('Location')) {
+                    $current = $this->resolveRedirect($current, $response->header('Location'));
+
+                    continue;
+                }
+
+                // Terminal answer of ANY status — 403/429 included: the chain
+                // resolved; what the destination serves is not this method's
+                // business.
+                return $current;
+            }
+        } catch (SafeUrlException|ConnectionException) {
+            // Fall through to the moved-or-null decision below.
+        }
+
+        return $current !== $url ? $current : null;
+    }
+
+    /**
      * A copy of this fetcher with a different body cap — for the one caller
      * (MediaMirror's reel mp4) that legitimately needs more than the 10 MB
      * page/image default. Everything else about the fetch is unchanged.

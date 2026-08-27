@@ -51,7 +51,8 @@ class SuggestionApplier
             'resource_id' => $identifier,
             'payload' => ConnectionPayload::forWrite($url, $identifier, 'url', 'suggestion'),
             'is_active' => true,
-            'last_refresh_status' => 'pending',
+            // Issue-13 fix: born 'ok' unless a fetch will actually run.
+            'last_refresh_status' => ConnectionPayload::contentIsOwed($surfaceKey, $routingClass) ? 'pending' : 'ok',
         ]);
         $connection->user()->associate($user);
         $connection->save();
@@ -163,7 +164,8 @@ class SuggestionApplier
                         'suggestion',
                     ),
                     'is_active' => true,
-                    'last_refresh_status' => 'pending',
+                    // Issue-13 fix: same predicate as the dispatch below.
+                    'last_refresh_status' => ConnectionPayload::contentIsOwed((string) $intent->surface_key, (string) $intent->routing_class) ? 'pending' : 'ok',
                 ]);
                 $connection->user()->associate($user);
                 $connection->save();
@@ -181,8 +183,7 @@ class SuggestionApplier
                 // afterCommit because this runs inside the transaction. Only
                 // for a row created here — a matched-existing row came from a
                 // lane that already owns its enrichment.
-                $fetch = $surface['capabilities']['fetch'] ?? null;
-                if ((string) $intent->routing_class === 'content' && is_string($fetch) && $fetch !== '') {
+                if (ConnectionPayload::contentIsOwed((string) $intent->surface_key, (string) $intent->routing_class)) {
                     ConnectFetchJob::dispatch(
                         (string) $connection->id,
                         LegacyPlatformMap::legacyFor((string) $intent->surface_key),

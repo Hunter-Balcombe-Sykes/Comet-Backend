@@ -2,6 +2,8 @@
 
 namespace App\Routing;
 
+use App\Catalog\CompiledCatalog;
+
 /**
  * The write-time payload for a connection the router creates.
  *
@@ -22,6 +24,23 @@ namespace App\Routing;
  */
 final class ConnectionPayload
 {
+    /**
+     * Whether a ROUTER-placed connection's content is still owed — i.e. a
+     * ConnectFetchJob will actually run for it (content class + a catalog
+     * fetch capability). The initial `last_refresh_status` and the dispatch
+     * decision both read THIS predicate so they can never disagree — rows
+     * born 'pending' that nothing would ever flip was issue 13 (tiktok/x/
+     * facebook and every link-only booking/ordering placement sat 'pending'
+     * forever). Booking/shop enrichment is owned elsewhere and writes its
+     * own statuses.
+     */
+    public static function contentIsOwed(string $surfaceKey, string $routingClass): bool
+    {
+        $fetch = CompiledCatalog::surface($surfaceKey)['capabilities']['fetch'] ?? null;
+
+        return $routingClass === 'content' && is_string($fetch) && $fetch !== '';
+    }
+
     /**
      * @param  string  $canonicalUrl  the canonicalised URL of the resource
      * @param  string  $identifier  the resolved identity (handle, id, composite)
