@@ -762,10 +762,9 @@ Everything below is the approved scope.
     2) Resident Advisor → events (testers benbohmer/memphislk carry RA);
     3) Mixcloud → listen (public API/RSS, OEmbed-pattern, trivial);
     4) Luma → events (public calendar API);
-    5) Ticketmaster → events (free Discovery API — needs a free API key,
-       owner console step like YouTube's);
-    6) Treatwell, Vagaro, Timely → services (Booksy-shaped; Timely is
+    5) Treatwell, Vagaro, Timely → services (Booksy-shaped; Timely is
        Emma's real booker).
+    (Ticketmaster REMOVED — owner, 2026-08-28: leave out for now.)
     Each = fetch capability + strategy + connector + projector + cadence
     per the §3 recipe; failing-test-first; per-platform live gate on a
     test account carrying that platform.
@@ -781,6 +780,28 @@ Everything below is the approved scope.
     per-actor caps in config partna.limits.
   - HYGIENE (bundled with T27a): flip non-fetch router placements to
     'ok' at write (SourceReconciler:497 — the issue-13 fix).
+
+- **T28 — release() publish restore (folded in from the issue-22 chip,
+  owner 2026-08-28)**: add `published_by_claim` boolean to
+  core.pre_account_builds (schema rail — `supabase db push` on dev ref,
+  deployed BEFORE the code that reads it); claim() records the flip in its
+  existing claimed_at forceFill; release() unpublishes on that flag
+  (replacing the isOutreach heuristic) and clears it. Failing test first:
+  the outreach-but-unpublished release leak reproduced in the post-claim
+  round. Runs as this wave's schema-touching task.
+
+**Standing items — where each lands:**
+- Phase-0 efficiency tooling (fleet:verify / fleet:rebuild / builds:await,
+  parallel gate, one-deploy-per-phase): IN this plan — built first.
+- Issue-22 release/publish bug: IN this plan as T28 above.
+- traethebarber + sammypdf rebuild: IN this plan — rebuilt via
+  `fleet:rebuild` as its first real invocation (doubles as that command's
+  live gate), owner having left the call open; before-state is fully
+  documented so nothing is lost.
+- Astro pages deploy (headshot favicon live): NOT this plan's to do — it
+  is the owner's `npm run deploy` from their astro chat (this repo's plan
+  cannot deploy a tree carrying their in-flight scroll work). Listed here
+  only as the reminder.
 
 ### RUN EFFICIENCY PROTOCOL (owner ask, 2026-08-28) — for the T23–T27 run
 
