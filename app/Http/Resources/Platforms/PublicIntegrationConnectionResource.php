@@ -179,6 +179,19 @@ class PublicIntegrationConnectionResource extends ApiResource
         // fallbacks (url + provider): those are custom rows with no scraped
         // branding, whereas each of these is a known provider whose logo renders.
         'booksy' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        // T27a (2026-08-28) — the 12 new link-only platforms, same card shape.
+        'bookwell' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'cliniko' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'fareharbor' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'google_appointments' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'halaxy' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'hotdoc' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'jane_app' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'microsoft_bookings' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'mr_yum' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'rezdy' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'styleseat' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'wix_bookings' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'vagaro' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'timely' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'kitomba' => ['url', 'name', 'favicon', 'logo', 'provider'],

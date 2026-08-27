@@ -8,6 +8,7 @@ use App\Catalog\Definitions\Behance;
 use App\Catalog\Definitions\BellaBooking;
 use App\Catalog\Definitions\BigCartel;
 use App\Catalog\Definitions\Booksy;
+use App\Catalog\Definitions\Bookwell;
 use App\Catalog\Definitions\Bopple;
 use App\Catalog\Definitions\Boulevard;
 use App\Catalog\Definitions\Buymeacoffee;
@@ -15,6 +16,7 @@ use App\Catalog\Definitions\Calendly;
 use App\Catalog\Definitions\Chope;
 use App\Catalog\Definitions\Chownow;
 use App\Catalog\Definitions\Circle;
+use App\Catalog\Definitions\Cliniko;
 use App\Catalog\Definitions\Codepen;
 use App\Catalog\Definitions\Deliveroo;
 use App\Catalog\Definitions\DirectBooking;
@@ -25,18 +27,23 @@ use App\Catalog\Definitions\Easi;
 use App\Catalog\Definitions\EatApp;
 use App\Catalog\Definitions\Eventbrite;
 use App\Catalog\Definitions\Facebook;
+use App\Catalog\Definitions\Fareharbor;
 use App\Catalog\Definitions\Fresha;
 use App\Catalog\Definitions\Genbook;
 use App\Catalog\Definitions\GenericStore;
 use App\Catalog\Definitions\Github;
 use App\Catalog\Definitions\Gitlab;
 use App\Catalog\Definitions\Glossgenius;
+use App\Catalog\Definitions\GoogleAppointments;
 use App\Catalog\Definitions\GoogleBusiness;
 use App\Catalog\Definitions\Grubhub;
 use App\Catalog\Definitions\Gumroad;
+use App\Catalog\Definitions\Halaxy;
+use App\Catalog\Definitions\Hotdoc;
 use App\Catalog\Definitions\Humanitix;
 use App\Catalog\Definitions\Hungrypanda;
 use App\Catalog\Definitions\Instagram;
+use App\Catalog\Definitions\JaneApp;
 use App\Catalog\Definitions\JustEat;
 use App\Catalog\Definitions\Kajabi;
 use App\Catalog\Definitions\Kick;
@@ -47,8 +54,10 @@ use App\Catalog\Definitions\Luma;
 use App\Catalog\Definitions\Mangomint;
 use App\Catalog\Definitions\Medium;
 use App\Catalog\Definitions\Menulog;
+use App\Catalog\Definitions\MicrosoftBookings;
 use App\Catalog\Definitions\Mindbody;
 use App\Catalog\Definitions\Mixcloud;
+use App\Catalog\Definitions\MrYum;
 use App\Catalog\Definitions\Noterro;
 use App\Catalog\Definitions\Nowbookit;
 use App\Catalog\Definitions\Opentable;
@@ -65,6 +74,7 @@ use App\Catalog\Definitions\Reddit;
 use App\Catalog\Definitions\Resdiary;
 use App\Catalog\Definitions\ResidentAdvisor;
 use App\Catalog\Definitions\Resy;
+use App\Catalog\Definitions\Rezdy;
 use App\Catalog\Definitions\Schedulicity;
 use App\Catalog\Definitions\Setmore;
 use App\Catalog\Definitions\Sevenrooms;
@@ -81,6 +91,7 @@ use App\Catalog\Definitions\Square;
 use App\Catalog\Definitions\Squarespace;
 use App\Catalog\Definitions\Stan;
 use App\Catalog\Definitions\Strava;
+use App\Catalog\Definitions\Styleseat;
 use App\Catalog\Definitions\Substack;
 use App\Catalog\Definitions\Tablecheck;
 use App\Catalog\Definitions\Tablein;
@@ -101,6 +112,7 @@ use App\Catalog\Definitions\UberEats;
 use App\Catalog\Definitions\Vagaro;
 use App\Catalog\Definitions\Vimeo;
 use App\Catalog\Definitions\Whatsapp;
+use App\Catalog\Definitions\WixBookings;
 use App\Catalog\Definitions\Wolt;
 use App\Catalog\Definitions\Woocommerce;
 use App\Catalog\Definitions\X;
@@ -121,6 +133,7 @@ return [
     BigCartel::class,
     BellaBooking::class,
     Booksy::class,
+    Bookwell::class,
     Bopple::class,
     Boulevard::class,
     Buymeacoffee::class,
@@ -128,6 +141,7 @@ return [
     Chope::class,
     Chownow::class,
     Circle::class,
+    Cliniko::class,
     Codepen::class,
     Deliveroo::class,
     Discord::class,
@@ -137,19 +151,24 @@ return [
     EatApp::class,
     Eventbrite::class,
     Facebook::class,
+    Fareharbor::class,
     Fresha::class,
     Genbook::class,
     Github::class,
     Gitlab::class,
     Glossgenius::class,
+    GoogleAppointments::class,
     GoogleBusiness::class,
     Grubhub::class,
     DirectBooking::class,
     GenericStore::class,
     Gumroad::class,
+    Halaxy::class,
+    Hotdoc::class,
     Humanitix::class,
     Hungrypanda::class,
     Instagram::class,
+    JaneApp::class,
     JustEat::class,
     Kajabi::class,
     Kick::class,
@@ -160,8 +179,10 @@ return [
     Mangomint::class,
     Medium::class,
     Menulog::class,
+    MicrosoftBookings::class,
     Mindbody::class,
     Mixcloud::class,
+    MrYum::class,
     Noterro::class,
     Nowbookit::class,
     Opentable::class,
@@ -178,6 +199,7 @@ return [
     Resdiary::class,
     ResidentAdvisor::class,
     Resy::class,
+    Rezdy::class,
     Schedulicity::class,
     Setmore::class,
     Sevenrooms::class,
@@ -194,6 +216,7 @@ return [
     Squarespace::class,
     Stan::class,
     Strava::class,
+    Styleseat::class,
     Substack::class,
     Tablecheck::class,
     Tablein::class,
@@ -214,6 +237,7 @@ return [
     Vagaro::class,
     Vimeo::class,
     Whatsapp::class,
+    WixBookings::class,
     Wolt::class,
     Woocommerce::class,
     X::class,
