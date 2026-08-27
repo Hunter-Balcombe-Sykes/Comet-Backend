@@ -36,6 +36,7 @@ final class ProjectorRegistry
         // Eventbrite and Humanitix land the SAME doc shape
         // (App\Ingest\Support\SchemaOrgEvent) — one projector, on purpose.
         'eventbrite' => ['events' => SchemaOrgEventProjector::class],
+        'facebook' => ['media' => FacebookMediaProjector::class],
         'fresha' => ['services' => FreshaServiceProjector::class, 'reviews' => FreshaReviewProjector::class],
         'humanitix' => ['events' => SchemaOrgEventProjector::class],
         // Luma lands the same schema.org doc shape — same projector (T27b).
@@ -55,6 +56,7 @@ final class ProjectorRegistry
         'soundcloud' => ['tracks' => SoundcloudTrackProjector::class],
         'spotify' => ['tracks' => SpotifyTrackProjector::class, 'releases' => SpotifyReleaseProjector::class],
         'square' => ['menu' => MenuItemProjector::class],
+        'tiktok' => ['videos' => TiktokVideoProjector::class],
         'treatwell' => ['services' => TreatwellServiceProjector::class],
         'uber_eats' => ['menu' => MenuItemProjector::class],
         'vimeo' => ['watch' => VimeoVideoProjector::class],

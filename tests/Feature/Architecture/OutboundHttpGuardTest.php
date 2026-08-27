@@ -81,6 +81,7 @@ const OUTBOUND_HTTP_ALLOWLIST = [
     'app/Http/Middleware/Auth/VerifySupabaseJwt.php' => ['A', '$jwksUrl built from config(supabase.*)'],
     'app/Ingest/Runtime/Effects/MenuActorDriver.php' => ['A', 'Apify actor endpoint; the actor id is checked against config(partna.menu.platforms) before use, the store URL is POST body, not target'],
     'app/Ingest/Runtime/Effects/MusicActorDriver.php' => ['A', 'Apify actor endpoint from config; the artist URL is POST body, not target'],
+    'app/Ingest/Runtime/Effects/SocialActorDriver.php' => ['A', 'Apify actor endpoint; actor id from config(partna.social_actors), the profile/page identifier is POST body, not target'],
     'app/Services/Auth/SupabaseAdminService.php' => ['A', 'Supabase admin base from config'],
     'app/Services/BotProtection/Providers/HCaptchaProvider.php' => ['A', 'hcaptcha.com verify endpoint'],
     'app/Services/BotProtection/Providers/TurnstileProvider.php' => ['A', 'Cloudflare Turnstile verify endpoint'],

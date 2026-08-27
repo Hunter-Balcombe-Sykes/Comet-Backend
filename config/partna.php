@@ -357,6 +357,9 @@ return [
                 'music-spotify' => (int) env('PARTNA_SPOTIFY_APIFY_DAILY_CAP', 150),
                 'music-soundcloud' => (int) env('PARTNA_SOUNDCLOUD_APIFY_DAILY_CAP', 150),
                 'music-spotify_releases' => (int) env('PARTNA_SPOTIFY_RELEASES_APIFY_DAILY_CAP', 150),
+                // T27c social feed actors (SocialActorDriver claims these).
+                'tiktok' => (int) env('PARTNA_TIKTOK_APIFY_DAILY_CAP', 300),
+                'facebook' => (int) env('PARTNA_FACEBOOK_APIFY_DAILY_CAP', 300),
             ],
 
             // CFG-9: HTTP client timeout for Apify run-sync-get-dataset-items calls, which block
@@ -450,6 +453,20 @@ return [
         'actor_adapters' => [
             'apify~instagram-profile-scraper' => ApifyProfileScraperAdapter::class,
             'figue~instagram-profile-scraper' => FigueProfileScraperAdapter::class,
+        ],
+    ],
+
+    // T27c social feed actors (SocialActorDriver). results_limit bounds SPEND
+    // directly — both actors bill per dataset item, so this is the per-run
+    // ceiling, not a pagination preference.
+    'social_actors' => [
+        'tiktok' => [
+            'actor' => env('PARTNA_TIKTOK_ACTOR', 'clockworks~tiktok-profile-scraper'),
+            'results_limit' => (int) env('PARTNA_TIKTOK_RESULTS_LIMIT', 30),
+        ],
+        'facebook' => [
+            'actor' => env('PARTNA_FACEBOOK_ACTOR', 'apify~facebook-posts-scraper'),
+            'results_limit' => (int) env('PARTNA_FACEBOOK_RESULTS_LIMIT', 30),
         ],
     ],
 

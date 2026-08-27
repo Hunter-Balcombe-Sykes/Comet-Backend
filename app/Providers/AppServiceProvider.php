@@ -9,6 +9,7 @@ use App\Ingest\Runtime\Effects\InstagramActorDriver;
 use App\Ingest\Runtime\Effects\MenuActorDriver;
 use App\Ingest\Runtime\Effects\MusicActorDriver;
 use App\Ingest\Runtime\Effects\PlacesDetailsDriver;
+use App\Ingest\Runtime\Effects\SocialActorDriver;
 use App\Listeners\BlockSuppressedRecipients;
 use App\Listeners\RecordCacheMetrics;
 use App\Listeners\RecordScheduledTaskHeartbeat;
@@ -144,6 +145,7 @@ class AppServiceProvider extends ServiceProvider
             $app->make(InstagramActorDriver::class),
             $app->make(MusicActorDriver::class),
             $app->make(MenuActorDriver::class),
+            $app->make(SocialActorDriver::class),
         ]));
 
         // Singleton so the request-scoped $requestCache memo actually persists

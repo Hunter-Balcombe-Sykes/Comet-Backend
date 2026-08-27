@@ -274,6 +274,13 @@ class SourceProvisioner
                 ?? $this->bareSlug($resource, 'fresha'),
             'instagram' => $this->instagramUsername($payload['username'] ?? null)
                 ?? $this->instagramUsername($this->bareSlug($resource, 'instagram')),
+            // T27c: the handle off a tiktok.com/@… connect (handle-kind
+            // surfaces write `username`; older rows may carry it in resource).
+            'tiktok' => $this->tiktokUsername($payload['username'] ?? null)
+                ?? $this->tiktokUsername($this->bareSlug($resource, 'tiktok')),
+            // T27c: the canonical page URL off a facebook.com handle connect.
+            'facebook' => $this->facebookPageUrl($payload['url'] ?? $payload['username'] ?? null)
+                ?? $this->facebookPageUrl($this->bareSlug($resource, 'facebook')),
             // T27b: the calendar slug off a lu.ma URL (multi-segment kept —
             // personal calendars live at /u/<id>).
             'luma' => $this->lumaSlug($payload['url'] ?? $payload['link'] ?? null)
@@ -535,6 +542,38 @@ class SourceProvisioner
         }
 
         return rtrim((string) strtok($value, '?#'), '/');
+    }
+
+    /** A TikTok username: letters/digits/underscore/dots, @-tolerant, lowercased. */
+    private function tiktokUsername(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value !== null && preg_match('/^@?([A-Za-z0-9._]{1,60})$/', $value, $m)) {
+            return strtolower($m[1]);
+        }
+
+        return null;
+    }
+
+    /**
+     * The canonical facebook.com page URL from either a stored URL or a bare
+     * handle. Reserved widget/share paths never reach here — the catalog
+     * detector already refuses them at routing time.
+     */
+    private function facebookPageUrl(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+        if ($value === null) {
+            return null;
+        }
+        if (preg_match('~^https?://(?:www\.|m\.)?(?:facebook|fb)\.com/([A-Za-z0-9.]{1,100})/?(?:[?#]|$)~i', $value, $m)) {
+            return 'https://www.facebook.com/'.$m[1];
+        }
+        if (preg_match('/^@?([A-Za-z0-9.]{1,100})$/', $value)) {
+            return 'https://www.facebook.com/'.ltrim($value, '@');
+        }
+
+        return null;
     }
 
     /** An instagram username: letters/digits/underscore/dots, no trailing dot, ≤30. */

@@ -8,6 +8,7 @@ use App\Ingest\Connectors\BandcampConnector;
 use App\Ingest\Connectors\BooksyConnector;
 use App\Ingest\Connectors\DoordashMenuConnector;
 use App\Ingest\Connectors\EventbriteConnector;
+use App\Ingest\Connectors\FacebookConnector;
 use App\Ingest\Connectors\FreshaConnector;
 use App\Ingest\Connectors\GoogleBusinessConnector;
 use App\Ingest\Connectors\HumanitixConnector;
@@ -18,6 +19,7 @@ use App\Ingest\Connectors\ResidentAdvisorConnector;
 use App\Ingest\Connectors\SoundcloudTracksConnector;
 use App\Ingest\Connectors\SpotifyTracksConnector;
 use App\Ingest\Connectors\SquareMenuConnector;
+use App\Ingest\Connectors\TiktokConnector;
 use App\Ingest\Connectors\TreatwellConnector;
 use App\Ingest\Connectors\UberEatsMenuConnector;
 use App\Ingest\Connectors\VimeoConnector;
@@ -54,6 +56,7 @@ final class ConnectorRegistry
         'booksy' => BooksyConnector::class,
         'doordash' => DoordashMenuConnector::class,
         'eventbrite' => EventbriteConnector::class,
+        'facebook' => FacebookConnector::class,
         'fresha' => FreshaConnector::class,
         'google_business' => GoogleBusinessConnector::class,
         'humanitix' => HumanitixConnector::class,
@@ -64,6 +67,7 @@ final class ConnectorRegistry
         'soundcloud' => SoundcloudTracksConnector::class,
         'spotify' => SpotifyTracksConnector::class,
         'square' => SquareMenuConnector::class,
+        'tiktok' => TiktokConnector::class,
         'treatwell' => TreatwellConnector::class,
         'uber_eats' => UberEatsMenuConnector::class,
         'vimeo' => VimeoConnector::class,
