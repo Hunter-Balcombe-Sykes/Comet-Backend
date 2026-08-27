@@ -128,6 +128,16 @@ Re-verified on both rebuilds AND the partna batch (2026-08-27):
   selection by name-likeness, ALL-CAPS normalisation; possibly a small AI
   extraction call (Mistral already in the stack) with the parser as
   fallback. Design question queued.
+- **Owner note (2026-08-27 evening) + factual correction:** Instagram
+  supplies ONE `fullName` vanity string — separate real first/last don't
+  exist on the wire; our parser derives them (that derivation is the bug).
+  The owner's underlying point becomes the design: **decouple Fresha
+  matching from the parse** — invert the match direction. For each Fresha
+  employee (clean real names from Fresha's own data), check whether their
+  name appears in the raw IG fullName / handle / bio ("Thorton" ⊆
+  "Melbourne Barber | Thorton"). Robust regardless of vanity-string shape;
+  parsed first/last stays only as a tiebreak. Display-name improvement
+  remains its own task (T5) — this de-risks Fresha (T3) independently.
 
 ### 8. Menu `titleCase()` artifacts — VERIFIED still live (build-2 wire)
 `Cold Brew/oat Latte Can`, `Cold Brew Bags. (italo Concentrate 1.2l)`,
@@ -324,6 +334,82 @@ parallel; measure Simon's 49s generate step's internal phases.
 ## Open owner questions
 
 - (none currently — new ones get added here as work raises them)
+
+## Autonomous run contract (owner, 2026-08-27 evening — recorded verbatim in intent)
+
+The owner is away (dinner) once execution starts. For this run:
+- **Claude is in charge of decision-making** while the owner is gone —
+  decisions needed mid-task get made and LOGGED here (a "Decisions made
+  while owner away" log below), not queued.
+- **Full permission to set everything live as it goes** — commit, push,
+  deploy development, run test signups, without per-step approval.
+- **Strong gates are the trade:** every fix ships with tests proving the
+  cause first (failing) and the fix after (green); typecheck/test suite
+  runs before any push; every fix gets end-to-end verification on a REAL
+  rebuild (fresh signup) with a `window.py` sweep + Nightwatch check +
+  live-site check before it is marked done. **Keep iterating on a fix until
+  it is verified working — "pushed" is not "done".**
+- Fixes land as separate commits per task (revertability); risky tasks get
+  a feature-branch + merge only after their gate passes.
+- **Skills/doctrine exemption (owner):** this run is explicitly exempt from
+  the standing skill/doctrine workflows (giant-run etc.) where they
+  conflict with getting this plan executed; the gates above replace them.
+- If something looks destructive or irreversible beyond the dev
+  environment's normal blast radius, stop that task, log it, move on.
+
+### Decisions made while owner away
+(appended as they happen — task, decision, why, evidence)
+
+## Task ledger for the run (each with its gate)
+
+- **T1 — YouTube production probe** (verification, no fix yet): scheduled
+  probe from Laravel Cloud hitting both scraper legs for both known
+  channels every few minutes for ~1h; log outcomes. Gate: failure-rate
+  numbers on record here → decides retries-only vs proxy.
+- **T2 — YouTube resilience fix** (D3): keep-row + scheduled spaced retries
+  for system-initiated first-fetch failures; interactive delete unchanged;
+  reconcile orphaned youtube ingest sources. Gate: failing test first;
+  suite green; then a fresh signup with a YouTube linktree loses NOTHING
+  (row retained/retried) — verified in DB + logs.
+- **T3 — Fresha matching inversion** (owner note above): match employees'
+  real names against raw IG fullName/handle; parsed names demoted to
+  tiebreak. Also: sequence eager Fresha ingest after selection (issue 3),
+  understand `no_categories` first-slug failure + `booking_flow_graphql_rejected`.
+  Gate: unit tests on the six real vanity strings incl. barber_in_law;
+  fresh barber_in_law rebuild auto-selects Thorton with employee services.
+- **T4 — Event-driven site-doc rebuild + purge coalescing** (issue 2 + I1,
+  designed together): content-write bursts trigger debounced rebuild+purge;
+  ready gating on first doc build. Gate: rebuild-lag measured ≤ ~30s on a
+  fresh build (vs 4–5 min today); no purge 429s in the window.
+- **T5 — Display-name parsing improvement** (issue 7): descriptor words,
+  pipe-side selection, caps normalisation, optional AI extract w/ parser
+  fallback. Gate: table-driven tests over ALL collected real cases (Simon,
+  St Ali, Trae, barber_in_law, Emma, Sam) asserting the wanted names.
+- **T6 — OCR gating per D1** (enrich-only when platform menu sufficient;
+  prompt dispatch when no platform menu) + junk guardrail for scan-only
+  accounts. Gate: tests for both branches + boundary; St Ali rebuild shows
+  no new scan-owned items; a scan-only account still gets a menu promptly.
+- **T7 — Order-mode default per D2** (menus/services → smart). Gate: test
+  that a fresh build's served category order equals the platform's curated
+  order; St Ali wire re-checked live.
+- **T8 — titleCase rewrite** (issue 8). Gate: the six real St Ali strings
+  as fixtures, all normalised correctly; no regressions on plain names.
+- **T9 — Analytics on unclaimed sites** (issue 4): resolvePublishedSite
+  accepts renderable-unclaimed. Gate: test + live 200s from an unclaimed
+  site's ping/pageviews/item-seen.
+- **T10 — UE deep links per D4** (path-form from modctx, strip tracking).
+  Gate: unit tests on captured hrefs; rebuilt St Ali serves path-form links
+  (spot-check in browser).
+- **T11 — Fresha service-name casing** (inherited): Title Case at write.
+  Gate: fixture test on raw vs selection payload disagreement ("REFRESH").
+- **T12 — Acceptance rebuild round**: fresh signups (simondoylehair,
+  st-ali + one new partna) after all fixes; full window.py sweep, Nightwatch
+  diff, live-site checks; results logged here. Gate: zero regressions, all
+  fixed behaviours observed live.
+- **Backlog (not this run unless time allows):** I2 profile latency, I3
+  slow jobs, I4 streaming job, I6 graphql warning, I7 Nightwatch hygiene,
+  I8 Timely services scrape, I9 UE scrape variance, I10 reel mirror retry,
+  menu provenance lane, post-claim test round.
 
 ## Execution order (agreed direction, 2026-08-27)
 
