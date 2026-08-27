@@ -137,9 +137,15 @@ class WebsiteLinkHarvester
         'Zomato' => '~(^|\.)zomato\.com$~',
         // Phase 6: bopple.app was never listed, so a real ollies ordering link
         // on that host classified as nothing and spent a commerce probe. The
-        // catalog's own Bopple detector still covers only bopple.com/.me — it
+        // catalog's own Bopple detector covers bopple.app too since 2026-08-27
+        // (plan-03 batch 9) — it
         // is a separate table and is deliberately not widened here.
         'Bopple' => '~(^|\.)bopple\.(com|me|app)$~',
+        // HungryPanda: real regional ordering hosts are subdomains of
+        // hungrypanda.co (aus.hungrypanda.co etc.) — never listed here, so a
+        // pasted shop link fell to classifyFromCatalog's flat 'link' answer
+        // and became a custom card (plan-03 batch 9, live find).
+        'HungryPanda' => '~(^|\.)hungrypanda\.(co|com)$~',
     ];
 
     /**
@@ -161,6 +167,7 @@ class WebsiteLinkHarvester
         'Grubhub' => 'grubhub.order', 'Slice' => 'slice.order',
         'ChowNow' => 'chownow.order', 'Toast Takeout' => 'toast.order',
         'Wolt' => 'wolt.order', 'Zomato' => 'zomato.order',
+        'HungryPanda' => 'hungrypanda',
     ];
 
     /** square.site + the /s/order ordering path (A0.2, live-verified). */
