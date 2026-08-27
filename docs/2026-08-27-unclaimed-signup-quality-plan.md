@@ -576,6 +576,45 @@ The owner is away (dinner) once execution starts. For this run:
   st-ali + one new partna) after all fixes; full window.py sweep, Nightwatch
   diff, live-site checks; results logged here. Gate: zero regressions, all
   fixed behaviours observed live.
+- **T18 — TERMINAL GATE (owner, final instruction before leaving): every
+  test account below verified to set up and connect properly.** The roster
+  is used THROUGHOUT the run for testing, and at the very end each one is
+  re-verified: built, connections correct, content present, live site
+  serving right — with a per-account entry logged here. The final report
+  to the owner lists ALL test-site URLs for their own review.
+
+### Test-account roster (owner-supplied, 2026-08-27)
+Partna type (instagram source): jjsavani, eoinmccarthyhair, dr.sleek,
+anththebarberr, leighwinsor, ronanstorey_hair, playlunch_, benbohmermusic,
+memphislk — plus the earlier four (traethebarber, barber_in_law,
+emdinonhair, sammy.pdf) and simondoylehair.
+Business type (google_business source, share.google links to resolve →
+place name → Places search → place_id; resolution method verified, e.g.
+nkgQ5Pn9K13DOU3oV → "Oxbridge Barbershop Kensington"):
+nkgQ5Pn9K13DOU3oV, htnFukwNt9TbPoj91, qhRy7JDehEddohuTy, fp4Hzrz1XTrV9RngG,
+aNXOUQBaaPuqrF7jf, MX07mpfGggexMMRbJ, bjzvQN6daSWUzYFuj, BlpKOvYuFeKadrZ1k
+— plus st-ali. Some business ones are DELIBERATELY minimal (owner wants to
+see what the simplest builds look like — thin results there are data, not
+failures).
+
+### Run methodology notes (owner, final)
+- **Scrape-vs-outcome comparison, per account:** look at the actual
+  linktree / IG profile / scrape payloads yourself, write down what SHOULD
+  have connected/appeared, and diff against what the system did — refine
+  from the gaps, not just from errors.
+- **Issues found along the way (related or not) become TASKS in this
+  ledger immediately** — never "suggestions for later".
+- **Agent routing:** haiku/sonnet subagents for pure grunt searching where
+  quality doesn't matter; sonnet subagents for fresh-eye testing and
+  hallucination-checking of claims; ALL execution stays inline in the main
+  session.
+- Pre-flight verified 2026-08-27 before owner left: nightwatch MCP OK,
+  laravel-boost MCP OK (dev DB), supabase MCP OK (dev ref
+  glncumufgaqcmqhzwrxm), cloud CLI OK, Mistral configured OK, Apify token
+  OK, Places server key OK, window.py OK, browser pane OK, cap=1000 live.
+  Only absent credential: YOUTUBE_DATA_API_KEY (T2 API leg stays
+  config-gated until owner supplies it).
+
 - **Backlog (not this run unless time allows):** I2 profile latency, I3
   slow jobs, I4 streaming job, I6 graphql warning, I7 Nightwatch hygiene,
   I8 Timely services scrape, I9 UE scrape variance, I10 reel mirror retry,
