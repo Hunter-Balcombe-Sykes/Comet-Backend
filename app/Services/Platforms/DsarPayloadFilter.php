@@ -68,7 +68,7 @@ final class DsarPayloadFilter
      */
     private const DSAR_ALLOWLIST = [
         'instagram' => ['username', 'fullName', 'profilePicUrl', 'businessCategory', 'followersCount', 'postsCount', 'mode', 'images', 'videoUrl', 'videoPoster', 'imagesDropped'],
-        'youtube' => ['handle', 'name', 'description', 'link', 'thumbnail', 'latest', 'highlights'],
+        'youtube' => ['handle', 'avatarUrl', 'name', 'description', 'link', 'thumbnail', 'latest', 'highlights'],
         'apple-music' => ['input', 'name', 'thumbnail', 'releaseDate', 'link', 'latest', 'highlights'],
         'apple-podcast' => ['input', 'name', 'thumbnail', 'description', 'releaseDate', 'link', 'latest', 'highlights'],
         // organiser/venue removed (third-party identity); hiddenEventIds added

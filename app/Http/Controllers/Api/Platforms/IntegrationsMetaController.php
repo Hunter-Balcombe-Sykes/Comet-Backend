@@ -9,6 +9,7 @@ use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * GET /platforms/meta — sync metadata for every platform the user has
@@ -46,6 +47,37 @@ class IntegrationsMetaController extends ApiController
             ->orderBy('id')
             ->get(['id', 'platform', 'is_active', 'last_refreshed_at', 'last_refresh_status']);
 
+        // Live item counts per platform (plan 04 step B, 2026-08-27): how
+        // many content items each platform's connections actually feed —
+        // through the projection's own chain (connection → content.sources →
+        // source_items → item_anchors → items), so the number is the same
+        // truth the pools render. One grouped query for the whole user; a
+        // platform with connections but no ingested items reads 0, and the
+        // sheet says "still importing" instead of nothing. Fail-open: the
+        // content lane is absent in some partial test envs.
+        $itemCounts = [];
+        try {
+            $countRows = DB::connection('pgsql')
+                ->table('site.platform_connections as ic')
+                ->join('content.sources as cs', 'cs.connection_id', '=', 'ic.id')
+                ->join('content.source_items as si', function ($join) {
+                    $join->on('si.source_id', '=', 'cs.id')->whereNull('si.removed_at');
+                })
+                ->join('content.item_anchors as ia', function ($join) {
+                    $join->on('ia.coord', '=', 'si.coord')->on('ia.user_id', '=', 'ic.user_id');
+                })
+                ->join('content.items as i', function ($join) {
+                    $join->on('i.id', '=', 'ia.item_id')->whereNull('i.removed_at');
+                })
+                ->where('ic.user_id', $professional->id)
+                ->groupBy('ic.platform')
+                ->selectRaw('ic.platform, count(distinct i.id) as item_count')
+                ->pluck('item_count', 'platform');
+            $itemCounts = $countRows->all();
+        } catch (\Throwable) {
+            $itemCounts = [];
+        }
+
         $platforms = [];
         foreach ($rows->groupBy('platform') as $platform => $group) {
             $platforms[(string) $platform] = [
@@ -53,6 +85,7 @@ class IntegrationsMetaController extends ApiController
                 'last_refreshed_at' => $group->pluck('last_refreshed_at')->max(),
                 'last_refresh_status' => $group->first()->last_refresh_status,
                 'has_refresh_error' => $group->contains(fn ($row) => $row->last_refresh_status === 'error'),
+                'item_count' => (int) ($itemCounts[(string) $platform] ?? 0),
             ];
         }
 

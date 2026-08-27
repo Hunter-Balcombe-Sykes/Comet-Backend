@@ -20,6 +20,8 @@ final readonly class FeedPayload
 {
     public function __construct(
         public ?string $handle,
+        // The account's own avatar (youtube channel art — plan 04 step A).
+        public ?string $avatarUrl,
         public ?string $url,
         public ?string $channelId,
         public ?string $apiPath,
@@ -45,6 +47,7 @@ final readonly class FeedPayload
     {
         return new self(
             handle: self::stringOrNull($payload['handle'] ?? null),
+            avatarUrl: self::stringOrNull($payload['avatarUrl'] ?? null),
             url: self::stringOrNull($payload['url'] ?? null),
             channelId: self::stringOrNull($payload['channelId'] ?? null),
             apiPath: self::stringOrNull($payload['apiPath'] ?? null),
@@ -71,6 +74,7 @@ final readonly class FeedPayload
     {
         return [
             'handle' => $this->handle,
+            'avatarUrl' => $this->avatarUrl,
             'url' => $this->url,
             'channelId' => $this->channelId,
             'apiPath' => $this->apiPath,

@@ -34,7 +34,7 @@ it('hydrates leniently — missing keys null, unknown keys dropped, non-array ti
     expect($p->latest)->toBeNull();
     expect($p->toArray())->not->toHaveKey('_leak');
     expect(array_keys($p->toArray()))->toBe([
-        'handle', 'url', 'channelId', 'apiPath', 'input', 'login', 'username', 'artist',
+        'handle', 'avatarUrl', 'url', 'channelId', 'apiPath', 'input', 'login', 'username', 'artist',
         'name', 'description', 'link', 'thumbnail', 'image', 'releaseDate', 'location',
         'followers', 'members', 'latest', 'items',
     ]);

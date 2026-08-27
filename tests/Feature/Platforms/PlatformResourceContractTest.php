@@ -174,6 +174,9 @@ it('youtube connect returns the canonical tile shape with latest passed through 
             // Multi-account platforms echo the account row id on connect.
             'id' => 'acct-'.substr(sha1('mychannel'), 0, 16),
             'handle' => 'mychannel',
+            // avatarUrl joined the tile contract 2026-08-27 (plan 04 step A);
+            // this mocked profile has none, so it rides as null.
+            'avatarUrl' => null,
             'name' => 'Vid',
             'description' => 'd',
             'link' => 'l',
@@ -194,7 +197,7 @@ it('youtube selection strips unknown top-level keys but keeps nested latest verb
     actingAsUser($user)->getJson('/api/platforms/youtube/selection')
         ->assertOk()
         ->assertExactJson(['selection' => [
-            'handle' => 'mychannel', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'thumbnail' => 't',
+            'handle' => 'mychannel', 'avatarUrl' => null, 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'thumbnail' => 't',
             'latest' => ['videoId' => 'v1', 'extraNested' => 'kept'],
         ]]);
 });

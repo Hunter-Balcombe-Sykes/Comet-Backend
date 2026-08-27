@@ -264,14 +264,16 @@ it('freezes the multi-account /accounts contract for unpinned platforms', functi
 it('freezes the youtube selection contract', function () {
     $user = gmUser('gmytsel');
     gmSeed($user, 'youtube', [
-        'handle' => 'mychannel', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'thumbnail' => 't',
+        'handle' => 'mychannel', 'avatarUrl' => 'a', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'thumbnail' => 't',
         'latest' => ['videoId' => 'v1'], 'highlights' => [], '_leak' => 'x',
     ]);
 
     $selection = actingAsUser($user)->getJson('/api/platforms/youtube/selection')->assertOk()->json('selection');
 
+    // avatarUrl joined the contract 2026-08-27 (plan 04 step A): the channel
+    // avatar the connect stores finally reaches the wire.
     expect($selection)->toEqual([
-        'handle' => 'mychannel', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'thumbnail' => 't',
+        'handle' => 'mychannel', 'avatarUrl' => 'a', 'name' => 'Vid', 'description' => 'd', 'link' => 'l', 'thumbnail' => 't',
         'latest' => ['videoId' => 'v1'],
     ]);
 });
