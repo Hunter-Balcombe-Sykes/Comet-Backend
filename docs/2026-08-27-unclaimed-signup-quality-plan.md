@@ -533,8 +533,17 @@ The owner is away (dinner) once execution starts. For this run:
   logged for the I1 watch).
 - **T7 visible**: served category order on the rebuilt st-ali now leads
   with the platform's curated sections (smart default fallback).
-- Chains (T14) + retry completion still being watched; suite gate (T19)
-  running.
+- **T19 GATE MET**: full `php artisan test` GREEN — 9,580 passed, 0
+  failed (11 deprecated / 1 warning / 2 skipped are pre-existing
+  non-failures). The suite failed 19–29 at various points earlier today.
+- **T14 verified**: round-2 chains fired — brand chain routed Andis
+  (probe honestly declined it as non-connectable → designed fallback);
+  workplace chain correctly refused "Em|Holley|Finley" (the venue
+  account's own fullName names its barbers) → handle-derived-name retry
+  shipped, round-3 verifying.
+- **T2 chain observed across tiers**: retries at exactly +5m and +15m on
+  eoin's typo'd channel (`@eoinmcccarthy` — dead by his own linktree);
+  will exhaust and F26-delete as designed.
 - **T18 sweep**: all 21 test sites serving 200 (spot-checked repeatedly
   through the run). eoin's one YouTube failure traced to a TYPO IN HIS OWN
   LINKTREE (`@eoinmcccarthy`, triple c — channel genuinely nonexistent):
