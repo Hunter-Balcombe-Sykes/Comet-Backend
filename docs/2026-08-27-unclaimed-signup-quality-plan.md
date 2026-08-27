@@ -1408,3 +1408,50 @@ typecheck green. Stale YT-Music "icon missing" catalog note dropped. Batch C
 - Nightwatch after all deploys: one benign slow-job flag (RunSourceJob >60s,
   single occurrence — actor run_sync latency, job timeout is 300s). Zero
   failed jobs in 4h. No new exceptions.
+
+### Wave 2 — fresh-build test round (~06:05)
+
+8 cold builds requested from REAL accounts found+verified by scout agents.
+4 ready, 4 failed source_not_found — every failure was a linktree-slug ≠
+IG-handle mismatch (joaltmanpt, introtofit, paulsalehpt,
+holisticperformancept), and the system told each the exact truth ("source
+not found") — the failure taxonomy behaving as designed. Lesson for future
+rounds: verify the IG handle itself, not the linktree slug (IG blocks the
+scouts, so handle spellings need a stronger source).
+
+The 4 ready builds, all live + verified:
+- **jaimielouiserosefitness** (partna, IG) — IG + FACEBOOK auto-connected;
+  facebook ingest ran in-build; 24 media items; gallery/links live.
+- **fsbpt** (partna, IG) — honest THIN build: real account, 38 followers,
+  ZERO posts (bio just tags another handle). no_posts Note, nothing
+  tombstoned; thin is data.
+- **industry-beans-fitzroy** (business, GB) — the showcase: GB + IG + FB +
+  TIKTOK all auto-connected from the listing, tiktok+facebook ingest ran
+  IN-BUILD, 52 media + 30 VIDEOS + 5 reviews; live page serves the real
+  @industrybeans TikTok on its watch rail + reviews. T27c's whole chain
+  fires in a cold signup with zero manual steps.
+- **uncle-roccos-barber-shop** (business, GB) — GB + IG + FB; 52 media +
+  5 reviews; live.
+Also rebuilt **anththebarberr** through the new stack earlier (clean; his
+bio has no socials beyond a Square link, correctly connected).
+
+Nightwatch after the round: no new issue types. Re-fired pre-existing:
+#449 svg-mime logo rejection + #172 logo-processor container 500 (both
+long-standing build-time logo issues, worth their own fix round), #423
+source-profile-not-found (the taxonomy recording the 4 bad handles).
+
+### Wave 2 — CLOSING STATE
+Done: T27c (built+fleet-lit+cold-build-proven) · person-scoped reviews
+(backend live, astro committed) · 34-platform batch + Deezer connector
+(live-gated) · brand assets for EVERY catalog platform (3 batches, 153
+registry entries) · fresh-build test round · full suite green at every
+push · Nightwatch/Horizon clean.
+Owner decisions pending: deploy apps/pages (reviews page + your scroll
+pages go live together) · RA/Luma/mixcloud-class bio auto-connect policy
+(content links below suggest threshold — a routing-policy knob, owner
+call) · ollies test profile now serves 0 venue reviews (correct under
+person-scoping, but it's your design test page).
+Follow-ups queued: DICE free events connector (server-fetchable
+PerformingGroup ld+json; needs one real artist URL) · Vagaro capture ·
+logo-processor container (#172) + svg-mime logo handling (#449) ·
+dashboard CONNECT_ROSTER entries for deezer/cal_com/classpass/pinterest.
