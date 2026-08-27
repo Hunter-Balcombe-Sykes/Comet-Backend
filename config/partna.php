@@ -2881,11 +2881,11 @@ return [
             'merge_window_minutes' => 60 * 24 * 7,
             'staff_notify_thresholds' => [1, 3, 5, 10],
         ],
-        // Dedicated Horizon queue lane for high-priority moderation jobs (suspend, notify on-call).
-        // Isolated from the default queue so a moderation burst doesn't starve other workers.
-        'queue' => [
-            'high_priority_lane' => env('PARTNA_MODERATION_HIGH_LANE', 'moderation_high'),
-        ],
+        // The high-priority moderation lane's NAME lives in
+        // App\Jobs\Moderation\ModerationQueue::HIGH (a fixed contract shared
+        // with config/horizon.php) — the env-tunable key that stood here had
+        // zero readers and an env flip would have stranded suspend jobs on a
+        // lane no supervisor consumes (plan 05 pass 3, 2026-08-27).
         // SLA breach thresholds per severity level (hours). severity_5 = most urgent.
         // breach_warning_min: minutes before the SLA deadline at which to emit an early warning.
         'sla' => [

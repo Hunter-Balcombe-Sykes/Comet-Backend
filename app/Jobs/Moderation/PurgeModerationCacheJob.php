@@ -32,7 +32,7 @@ class PurgeModerationCacheJob implements ShouldQueue
         // Enforcement action (takes a hidden site off the edge) — must not sit
         // behind a default-queue backlog. Queueable::$queue is untyped; assign in
         // constructor to avoid PHP 8.4 trait conflict.
-        $this->queue = 'moderation_high';
+        $this->queue = ModerationQueue::HIGH;
     }
 
     public function handle(): void

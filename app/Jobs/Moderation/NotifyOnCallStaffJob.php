@@ -33,7 +33,7 @@ class NotifyOnCallStaffJob implements ShouldBeUnique, ShouldQueue
     public function __construct(public readonly string $actionLogId, public readonly string $caseId)
     {
         // Queueable::$queue is untyped; assign in constructor to avoid PHP 8.4 trait conflict.
-        $this->queue = 'moderation_high';
+        $this->queue = ModerationQueue::HIGH;
     }
 
     public function uniqueId(): string

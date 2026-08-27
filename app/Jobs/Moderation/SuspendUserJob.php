@@ -25,7 +25,7 @@ class SuspendUserJob implements ShouldQueue
         public readonly string $caseId,
     ) {
         // Queueable::$queue is untyped; assign in constructor to avoid PHP 8.4 trait conflict.
-        $this->queue = 'moderation_high';
+        $this->queue = ModerationQueue::HIGH;
     }
 
     /**
