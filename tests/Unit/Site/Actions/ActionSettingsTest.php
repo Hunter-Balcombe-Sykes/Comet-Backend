@@ -35,3 +35,24 @@ it('reads pool locks per pool sorted by position, dropping malformed rows and un
         ->and(ActionSettings::fromSite($site)->poolLocksFor('watch'))->toHaveCount(2)
         ->and(ActionSettings::fromSite($site)->poolLocksFor('listen'))->toBe([]);
 });
+
+// D2 (2026-08-27 unclaimed-signup quality plan, issue 6): `newest` is a
+// meaningless order for menus/services — undated items sort by ingestion
+// recency, which inverted St Ali's curated Uber Eats menu (scan stragglers
+// first, the store's own first section dead last, verified on the live wire).
+// Those two pools default to `smart`: identical to the curated stored-position
+// order until popularity data exists (every fresh signup), engagement-ranked
+// after claim. An explicit owner setting still wins. Recency pools keep newest.
+it('defaults menus and services to smart; explicit settings still win (D2)', function () {
+    $bare = ActionSettings::fromSite(null);
+    expect($bare->poolMode('menus'))->toBe('smart')
+        ->and($bare->poolMode('services'))->toBe('smart')
+        ->and($bare->poolMode('watch'))->toBe('newest')
+        ->and($bare->poolMode('listen'))->toBe('newest')
+        ->and($bare->poolMode('media'))->toBe('newest');
+
+    $site = new Site(['settings' => ['pool_order' => ['menus' => 'manual', 'services' => 'newest']]]);
+    $s = ActionSettings::fromSite($site);
+    expect($s->poolMode('menus'))->toBe('manual')
+        ->and($s->poolMode('services'))->toBe('newest');
+});

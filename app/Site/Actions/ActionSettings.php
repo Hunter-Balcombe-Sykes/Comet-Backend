@@ -22,6 +22,22 @@ final class ActionSettings
 
     public const DEFAULT_MODE = 'newest';
 
+    /**
+     * D2 (2026-08-27): per-pool default overrides. `newest` is honest for
+     * recency pools (watch/listen/media) but meaningless for menus/services —
+     * undated items sort by INGESTION recency, which inverted St Ali's curated
+     * Uber Eats menu on the live wire (scan stragglers first, the store's own
+     * first section last). `smart` degrades to the curated stored-position
+     * order for category blocks while no popularity data exists — every fresh
+     * signup — and becomes engagement-ranked after claim. An explicit
+     * `pool_order` setting always wins; this is only the absent-setting
+     * default, so it applies to existing sites that never chose a mode too
+     * (owner-flagged as intended).
+     *
+     * @var array<string, string>
+     */
+    public const POOL_DEFAULT_MODES = ['menus' => 'smart', 'services' => 'smart'];
+
     /** Pools that accept a mode — events is always soonest-first, reviews never ranks. */
     public const POOL_ORDER_KEYS = ['watch', 'listen', 'media', 'services', 'shop', 'custom_links', 'menus'];
 
@@ -77,7 +93,9 @@ final class ActionSettings
 
     public function poolMode(string $pool): string
     {
-        return $this->poolModes[$pool] ?? self::DEFAULT_MODE;
+        return $this->poolModes[$pool]
+            ?? self::POOL_DEFAULT_MODES[$pool]
+            ?? self::DEFAULT_MODE;
     }
 
     /**
