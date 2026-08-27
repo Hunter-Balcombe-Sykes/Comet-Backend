@@ -170,7 +170,7 @@ class InstagramSourceGenerator implements SiteSourceGenerator
             )]);
             // Delayed so the Fresha → workplace path keeps precedence: the
             // chain only fills a workplace that is STILL empty when it runs.
-            BioMentionChainsJob::dispatch((string) $user->id)
+            BioMentionChainsJob::dispatch((string) $user->id, $intel['mentions'])
                 ->delay(BioMentionChainsJob::DISPATCH_DELAY_SECONDS);
         }
 

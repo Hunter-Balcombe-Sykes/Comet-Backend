@@ -83,7 +83,7 @@ it('fills an empty workplace through the linker from a workplace mention (emdino
         })->andReturn(['outcome' => 'connected', 'placeId' => 'p1', 'reason' => null]);
     });
 
-    app()->call([new BioMentionChainsJob((string) $user->id), 'handle']);
+    app()->call([new BioMentionChainsJob((string) $user->id, data_get($user->integrationConnections()->first()?->payload, 'bioMentions', [])), 'handle']);
 });
 
 it('holds Fresha precedence — an existing workplace means the linker is never called', function () {
@@ -98,7 +98,7 @@ it('holds Fresha precedence — an existing workplace means the linker is never 
     $this->mock(InstagramScraper::class, fn ($m) => $m->shouldNotReceive('fetchProfileResult'));
     $this->mock(FreshaWorkplaceLinker::class, fn ($m) => $m->shouldNotReceive('attempt'));
 
-    app()->call([new BioMentionChainsJob((string) $user->id), 'handle']);
+    app()->call([new BioMentionChainsJob((string) $user->id, data_get($user->integrationConnections()->first()?->payload, 'bioMentions', [])), 'handle']);
 });
 
 it('routes a brand mention’s website through the commerce lane', function () {
@@ -115,7 +115,7 @@ it('routes a brand mention’s website through the commerce lane', function () {
         )->andReturn(new RouteResult('seeded', 'website', 'r1', 'link'));
     });
 
-    app()->call([new BioMentionChainsJob((string) $user->id), 'handle']);
+    app()->call([new BioMentionChainsJob((string) $user->id, data_get($user->integrationConnections()->first()?->payload, 'bioMentions', [])), 'handle']);
 });
 
 it('serves a repeated mention from the global cache — one scrape across users', function () {
@@ -126,8 +126,8 @@ it('serves a repeated mention from the global cache — one scrape across users'
         ->once()->andReturn(bmcProfile(['fullName' => 'Andis Australia', 'externalUrl' => 'https://andisclippers.com.au'])));
     $this->mock(LinkRouter::class, fn ($m) => $m->shouldReceive('route')->twice()->andReturn(new RouteResult('seeded', 'website', 'r1', 'link')));
 
-    app()->call([new BioMentionChainsJob((string) $one->id), 'handle']);
-    app()->call([new BioMentionChainsJob((string) $two->id), 'handle']);
+    app()->call([new BioMentionChainsJob((string) $one->id, [['handle' => 'andisco_aunz', 'label' => 'ambassador', 'type' => 'brand']]), 'handle']);
+    app()->call([new BioMentionChainsJob((string) $two->id, [['handle' => 'andisco_aunz', 'label' => 'ambassador', 'type' => 'brand']]), 'handle']);
 });
 
 it('does nothing for a business account or when there are no mentions', function () {
@@ -137,5 +137,5 @@ it('does nothing for a business account or when there are no mentions', function
 
     $biz = bmcUser('bizacct', [['handle' => 'x_venue', 'label' => 'Owner', 'type' => 'workplace']]);
     $biz->forceFill(['account_type' => 'business'])->save();
-    app()->call([new BioMentionChainsJob((string) $biz->id), 'handle']);
+    app()->call([new BioMentionChainsJob((string) $biz->id, [['handle' => 'x_venue', 'label' => 'Owner', 'type' => 'workplace']]), 'handle']);
 });

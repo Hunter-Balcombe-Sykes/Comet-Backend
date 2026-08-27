@@ -60,8 +60,20 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
 
     public int $uniqueFor = 3600;
 
-    public function __construct(public readonly string $userId)
-    {
+    /**
+     * Mentions ride the JOB, not the connection payload: the async Instagram
+     * connect's fetch writes the payload wholesale minutes after the
+     * generator merged bioMentions in, clobbering them before this job's
+     * +10-min run could read them (verified on the 2026-08-27 acceptance
+     * round — the job drained with zero chain logs). The payload copy stays
+     * as best-effort telemetry only.
+     *
+     * @param  list<array{handle: string, label: string, type: string}>  $mentions
+     */
+    public function __construct(
+        public readonly string $userId,
+        public readonly array $mentions = [],
+    ) {
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
 
@@ -85,11 +97,14 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $connection = IntegrationConnection::query()
-            ->where('user_id', $user->id)
-            ->where('platform', Platform::Instagram->value)
-            ->first();
-        $mentions = (array) data_get($connection?->payload, 'bioMentions', []);
+        $mentions = $this->mentions;
+        if ($mentions === []) {
+            $connection = IntegrationConnection::query()
+                ->where('user_id', $user->id)
+                ->where('platform', Platform::Instagram->value)
+                ->first();
+            $mentions = (array) data_get($connection?->payload, 'bioMentions', []);
+        }
         if ($mentions === []) {
             return;
         }
