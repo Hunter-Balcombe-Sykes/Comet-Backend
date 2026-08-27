@@ -4,9 +4,12 @@ namespace App\Observers\Core;
 
 use App\Jobs\Platforms\ScanPreviousWebsiteContentJob;
 use App\Jobs\Platforms\SweepPreviousWebsiteCardsJob;
+use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\SiteCacheInvalidator;
+use App\Services\Site\SectionBlockProvisioner;
+use App\Services\User\SectionVisibilityService;
 use Illuminate\Support\Facades\Log;
 
 // Dispatches the previous-website content scan (about text, menu, links,
@@ -79,6 +82,45 @@ class WorkplaceObserver
         // account_type.
         if ($workplace->wasRecentlyCreated || $workplace->wasChanged(array_keys(self::IDENTITY_MIRROR))) {
             $this->mirrorIdentityFields($workplace);
+        }
+
+        // T15 (issue 9): workplace data can land from a JOB with no dashboard
+        // in sight — the Fresha → Places linker on pre-account builds, T14's
+        // bio path later. Blocks used to be provisioned only by the dashboard's
+        // GET /api/sections, so those writes stayed invisible on the live site
+        // (no `workplace` block → sectionEnvelope never goes live). Ensure the
+        // block exists and re-seed is_enabled from the data that just arrived.
+        if ($workplace->wasRecentlyCreated || $workplace->wasChanged(self::CACHE_AFFECTING_COLUMNS)) {
+            $this->ensureWorkplaceBlock($workplace);
+        }
+    }
+
+    private function ensureWorkplaceBlock(Workplace $workplace): void
+    {
+        try {
+            // By id, not a relation walk — this observer runs in teardown paths
+            // where lazy-loading throws (see the deleted() docblock above).
+            $userId = Site::query()->where('id', $workplace->site_id)->value('user_id');
+            if ($userId === null) {
+                return;
+            }
+
+            app(SectionBlockProvisioner::class)->syncAllowed(
+                (string) $userId,
+                (string) $workplace->site_id,
+                ['workplace'],
+            );
+            app(SectionVisibilityService::class)->reevaluateEnabled(
+                (string) $userId,
+                (string) $workplace->site_id,
+                'workplace',
+            );
+        } catch (\Throwable $e) {
+            report($e);
+            Log::warning('workplace.section_block_ensure_failed', [
+                'site_id' => $workplace->site_id,
+                'message' => $e->getMessage(),
+            ]);
         }
     }
 

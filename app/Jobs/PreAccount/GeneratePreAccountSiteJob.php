@@ -10,6 +10,7 @@ use App\Models\Core\User\PreAccountBuild;
 use App\Services\PreAccount\ClaimNotifier;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Services\PreAccount\SourceGeneratorRegistry;
+use App\Services\Site\SectionBlockProvisioner;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -141,6 +142,19 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, Throttle
                 ->where('platform', 'instagram')
                 ->update(['is_active' => false]);
         }
+
+        // T15 (issue 9): provision the section blocks the dashboard's GET
+        // /api/sections would have seeded on first visit — an unclaimed site
+        // has no dashboard visitor, so without this the workplace/public_contact
+        // envelopes can never go live no matter what data the linker jobs write
+        // ("linked but invisible", verified on barber-in-law 2026-08-27).
+        // Idempotent, and later data arrival re-seeds is_enabled via the
+        // WorkplaceObserver hook.
+        app(SectionBlockProvisioner::class)->syncAllowed(
+            (string) $user->id,
+            (string) $site->id,
+            config('partna.section_block_types', []),
+        );
 
         // SEC-4: build_state is no longer fillable — forceFill so this transition
         // isn't a silent no-op.

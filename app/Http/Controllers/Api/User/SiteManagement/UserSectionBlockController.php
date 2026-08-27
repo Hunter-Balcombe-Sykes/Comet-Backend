@@ -8,6 +8,7 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Site\UpsertSectionBlockRequest;
 use App\Http\Resources\SectionBlockResource;
 use App\Models\Core\Site\Block;
+use App\Services\Site\SectionBlockProvisioner;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
@@ -35,11 +36,11 @@ class UserSectionBlockController extends ApiController
      * is_active — so a seeded-live block with no contact data still resolves to
      * `publicContact: null` on the wire. Adding a type here WITHOUT such a rule
      * would publish an empty section on every new site. Pinned both ways by
-     * tests/Feature/Site/SectionDefaultActiveTest.php.
+     * tests/Feature/Site/SectionDefaultActiveTest.php. The list itself lives in
+     * SectionBlockProvisioner::SEEDED_LIVE_SECTIONS (T15 extraction).
      */
-    private const SEEDED_LIVE_SECTIONS = ['workplace', 'public_contact'];
-
     use ResolveCurrentSite;
+
     use ResolveCurrentUser;
 
     public function __construct(
@@ -326,60 +327,10 @@ class UserSectionBlockController extends ApiController
      */
     protected function syncAllowedSections(string $userId, string $siteId, array $allowedSections): Collection
     {
-        $orderedAllowed = array_values(array_unique(array_filter($allowedSections, static fn ($value) => is_string($value))));
-
-        return DB::transaction(function () use ($userId, $siteId, $orderedAllowed) {
-            DB::select('select pg_advisory_xact_lock(hashtext(?))', ["blocks-sections:{$siteId}"]);
-
-            // Query ALL section blocks (not just allowed types) so the max sort_order
-            // calculation accounts for every existing row and new blocks are never
-            // inserted at a position already held by a non-allowed block.
-            $allBlocks = Block::query()
-                ->where('user_id', $userId)
-                ->where('site_id', $siteId)
-                ->where('block_group', Block::GROUP_SECTIONS)
-                ->get();
-
-            $byType = $allBlocks->keyBy('block_type');
-            $maxSortOrder = $allBlocks->max('sort_order') ?? -1;
-
-            foreach ($orderedAllowed as $blockType) {
-                $existing = $byType->get($blockType);
-                if ($existing) {
-                    // Existing row: leave is_enabled / is_active untouched.
-                    continue;
-                }
-
-                // user_id/site_id removed from $fillable (S4 Tier 2b) — set
-                // directly; both are NOT NULL so a silent drop would 500 at save().
-                $block = new Block([
-                    'block_group' => Block::GROUP_SECTIONS,
-                    'block_type' => $blockType,
-                ]);
-                $block->user_id = $userId;
-                $block->site_id = $siteId;
-
-                $block->settings = [];
-                // Sections start OFF and the owner publishes them — except the
-                // two in SEEDED_LIVE_SECTIONS, whose dashboard switch is opt-OUT.
-                $block->is_active = in_array($blockType, self::SEEDED_LIVE_SECTIONS, true);
-                $block->sort_order = ++$maxSortOrder;
-
-                // Seed is_enabled honestly from current data state. One exists()
-                // per new block — only fires on first-time setup, so the cost is
-                // one-shot, not hot-path.
-                [$canBeEnabled] = $this->visibilityService->checkVisibilityRequirements(
-                    $userId,
-                    $siteId,
-                    $blockType,
-                );
-                $block->is_enabled = $canBeEnabled;
-
-                $block->save();
-                $byType->put($blockType, $block);
-            }
-
-            return $byType->values();
-        });
+        // T15 (2026-08-27): the loop moved verbatim to SectionBlockProvisioner
+        // so the pre-account pipeline provisions the same rows with the same
+        // seeding rules. This protected seam stays for the test subclass that
+        // stubs it to a no-op (SectionBlockUpsertSortOrderTest).
+        return app(SectionBlockProvisioner::class)->syncAllowed($userId, $siteId, $allowedSections);
     }
 }
