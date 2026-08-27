@@ -76,6 +76,20 @@ lines (the old 100-line cap is beaten; tool verified working).
 - Fix direction: accept sites renderable-as-unclaimed (same rule the public
   profiles route uses).
 
+### 6. `newest` default order mode inverts curated menus — VERIFIED on the wire
+- See the corrected category-order answer below: with the `newest` default,
+  St Ali's served menu leads with OCR-scan categories and ends with the
+  store's own first section. Within-category item order is likewise
+  ingestion-reversed.
+- Fix direction (owner to confirm): default order mode should be
+  content-appropriate per pool — menus/services default to `manual`
+  (= curated platform order via stored positions) or to `smart` (whose
+  no-data fallback is exactly the curated order for categories, though item
+  order inside blocks still falls to newest). Watch/listen/media keep
+  `newest` (recency is honest there).
+- Test plan: fresh-build fixture serving order matches the platform's
+  section order; scan categories append after; `More` last.
+
 ### 5. Log retrieval cap — FIXED, needs commit
 - `scripts/logs/window.py` + CLAUDE.md section (uncommitted, written by the
   2026-08-27 session, verified working today: 783-line window pulled).
@@ -113,18 +127,45 @@ lines (the old 100-line cap is beaten; tool verified working).
 
 ## ANSWERED questions
 
-### Menu category order (St Ali) — why it is what it is
-Chip/rail order = `collections[].position` ascending
-(`groupByCategory` in `apps/pages/src/pages/[...path].astro:481`). Positions
-are assigned at write time:
-1–5 `[HOT] COFFEE, [COLD] COFFEE / JUICE, PASTRY, COFFEE BEANS, OTHERS` =
-**Uber Eats' own store menu section order** (first-seen order of the
-flattened actor items, `UberEatsMenuDriver::mapItems()`); 6 `Top Picks` from
-the website HTML scan; 7–8 `Express Lunch, Drinks` appended by the photo-OCR
-scan (`MenuScanApplier` `$nextPosition++`); `More` pinned last via the 32000
-sentinel (`MenuScanApplier.php:432`, `MenuFetchJob.php:743`). So: platform
-order first, scans append in arrival order, catch-all last. Whether Uber's
-order is the order we WANT is an open owner question (Q2).
+### Menu category order (St Ali) — why it is what it is (CORRECTED 2026-08-27)
+First answer (write-time positions = Uber's order) was WRONG about what is
+served — it read stored DB positions, but `PoolResolver` re-orders at read
+time and rewrites `position` on the wire. Verified against the live wire
+(`/api/public/profiles/st-ali-coffee-roasters` →
+`pools.menus.collections`): served order is `Drinks, Express Lunch, More,
+Top Picks, …, OTHERS, COFFEE BEANS, PASTRY, [COLD] COFFEE / JUICE,
+[HOT] COFFEE` — the OCR-scan categories FIRST and Uber's menu REVERSED.
+
+Mechanics (all verified in code):
+- Pool order mode lives in `site.settings.pool_order[pool]`
+  (`ActionSettings`, modes `newest|smart|manual`), **default `newest`** —
+  fresh builds have no setting, so menus/services run in `newest`.
+  (`site.pages.order_mode` exists too but PoolResolver doesn't read it for
+  this — it uses ActionSettings.)
+- `newest` (PoolOrdering::order): dated items first by publishedAt desc,
+  undated by **firstSeenAt desc**. Menu items are all undated → pure
+  ingestion-recency, newest write first.
+- `orderCollections('newest')`: block order = first appearance of its best
+  member in the item order → the OCR scan wrote LAST (05:05–06) so its
+  categories lead; Uber's items wrote in menu order minutes earlier so
+  Uber's first section ([HOT] COFFEE) lands dead last.
+- The stored write-time positions (Uber order → scans appended → More at
+  32000) only matter as the manual-mode order and as tiebreaks.
+
+**The actual issue (new, #6 below): `newest` is a meaningless mode for a
+menu.** Ingestion timestamps are not recency; they invert the store's own
+curated order and float scan stragglers to the top.
+
+### What smart order does with no data (owner question, answered)
+`smart` sorts blocks by `popularityRank` (sum of member scores from
+`analytics.content_popularity_scores`, recomputed every 15 min); unranked
+blocks come AFTER ranked ones ordered by stored `position`. With zero
+analytics — every fresh signup — ALL blocks are unranked, so smart
+degrades to **stored position order = Uber's curated order, scans appended,
+More last**, which is the sensible order. (Items within blocks still fall
+back to newest.) Note the interlock with issue 4: analytics endpoints 404
+on unclaimed sites, so popularity can never accumulate pre-claim — smart
+stays at its fallback until claim + publish regardless.
 
 ## NEW work items (owner asks, 2026-08-27 afternoon)
 
@@ -194,17 +235,47 @@ parallel; measure Simon's 49s generate step's internal phases.
   with month-old noise; resolve/ignore stale ones so new regressions stand
   out (e.g. #467 is a deliberate test handle).
 
+## Owner decisions on record
+
+- **D1 (2026-08-27, item A):** when an ordering platform (Uber Eats,
+  DoorDash, Square) supplies sufficient items, the OCR scan runs
+  **enrich-only — no new scan-owned items**. Sufficiency heuristic to
+  propose-and-confirm; current proposal: ≥ 8 platform-sourced items with a
+  name (price optional — some menus omit prices). No platform menu → scan
+  may add items, and should run promptly (no 5-min hold).
+
 ## Open owner questions
 
-- **Q1 (item A):** sufficient-UE threshold N? And when UE exists: skip OCR
-  entirely, or run it enrich-only (no new items)?
-- **Q2 (category order):** keep Uber Eats' own order, or impose ours
-  (e.g. food → drinks → retail)? Scan categories currently append last.
+- **Q2 (order-mode default, issue 6):** menus/services default to `manual`
+  (platform's curated order) or `smart` (same order until popularity data
+  exists, then engagement-ranked after claim)? Recommendation: `smart` —
+  identical to manual pre-claim, self-improving after.
 - **Q3 (issue 1):** approve the keep-row + scheduled-retry design for
   system-initiated connects before tests are written?
-- **Q4 (item B):** confirm the path-style UE link opened the item page for
-  you in a normal browser (I'll browser-verify too); OK to strip
-  `rwg_token`/`utm_*`?
+- **Q4 (item B):** OK to strip `rwg_token`/`utm_*` from stored UE links?
+  (Path-form browser verification pending on our side.)
+
+## Execution order (agreed direction, 2026-08-27)
+
+1. **Finish scouting the open unknowns that shape fixes** — the 10
+   scan-added items / provenance lane; titleCase + display-name recheck on
+   build 2; UE path-link browser verification.
+2. **Hypothesis-verification tests before any fix code:**
+   - YouTube: repeated-probe test FROM production (scheduled tinker/command
+     hitting both channel-page and feed legs every few minutes for ~1h,
+     logging outcome) → measures the intermittent failure rate directly and
+     settles env-flakiness vs hard-block with data.
+   - Fresha: reproduce the `no_categories` first-slug failure to understand
+     the slug-guess path.
+3. **Fix rounds, test-first, in this order** (each lands with its failing
+   test turned green): (a) YouTube resilience; (b) ingest sequencing +
+   event-driven doc rebuild + purge coalescing (designed together);
+   (c) OCR gating per D1; (d) order-mode default per Q2; (e) names/casing
+   cluster (titleCase, PersonNameParser, Fresha casing); (f) analytics on
+   unclaimed sites; (g) UE deep links.
+4. **Fresh signup round** (same two sources + one new account) to verify
+   end-to-end, with `window.py` sweep + Nightwatch diff as the acceptance
+   check.
 
 ## Next test rounds (queue)
 
