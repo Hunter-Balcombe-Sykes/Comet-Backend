@@ -36,7 +36,6 @@ class YoutubeMusic
                 ->shelf(Shelf::Music)
                 ->identifier(IdentifierKind::Slug)
                 ->refreshEvery(43200)
-                ->note('icon asset missing in design system — P6 item')
                 ->canonicalUrl('https://music.youtube.com/channel/{id}')
                 ->connect('connect.youtube_music.url.v1')
                 ->fetch('fetch.youtube_music.scrape.v1')

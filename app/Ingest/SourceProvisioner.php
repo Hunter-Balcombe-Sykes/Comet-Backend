@@ -558,7 +558,11 @@ class SourceProvisioner
     /**
      * The canonical facebook.com page URL from either a stored URL or a bare
      * handle. Reserved widget/share paths never reach here — the catalog
-     * detector already refuses them at routing time.
+     * detector already refuses them at routing time. The URL arm accepts
+     * hyphens (legacy pretty-URLs like /Le-Taj-Restaurant-Lounge-186…), and
+     * the /pages/<name>/<id> legacy form canonicalises to the numeric page
+     * id, which Facebook resolves — both shapes arrive verbatim from
+     * google-business enrichment payloads.
      */
     private function facebookPageUrl(mixed $value): ?string
     {
@@ -566,7 +570,10 @@ class SourceProvisioner
         if ($value === null) {
             return null;
         }
-        if (preg_match('~^https?://(?:www\.|m\.)?(?:facebook|fb)\.com/([A-Za-z0-9.]{1,100})/?(?:[?#]|$)~i', $value, $m)) {
+        if (preg_match('~^https?://(?:www\.|m\.)?(?:facebook|fb)\.com/pages/[^/?#]+/(\d{5,20})/?(?:[?#]|$)~i', $value, $m)) {
+            return 'https://www.facebook.com/'.$m[1];
+        }
+        if (preg_match('~^https?://(?:www\.|m\.)?(?:facebook|fb)\.com/(?!pages(?:/|$))([A-Za-z0-9.-]{1,100})/?(?:[?#]|$)~i', $value, $m)) {
             return 'https://www.facebook.com/'.$m[1];
         }
         if (preg_match('/^@?([A-Za-z0-9.]{1,100})$/', $value)) {

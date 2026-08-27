@@ -77,6 +77,27 @@ it('extracts the numeric apple id from both apple url grammars', function () {
         ->and(ingestSourceFor($podcasts)->identifier)->toBe('1200361736');
 });
 
+// T27c: the social feed pair. TikTok provisions off the router-shaped
+// username; Facebook canonicalises whatever page-URL shape enrichment stored
+// — plain vanity, hyphenated legacy pretty-URL, or /pages/<name>/<id> (the
+// numeric id resolves on facebook.com). A %-encoded pseudo-handle stays a
+// skip: it was never a page URL.
+it('provisions tiktok from the username and facebook from every real page-url shape', function () {
+    $userId = provisionerUser();
+
+    $tiktok = makeConnection($userId, ['platform' => 'tiktok', 'payload' => ['url' => 'https://www.tiktok.com/@BourkeStreetBakery', 'username' => '@BourkeStreetBakery']]);
+    $vanity = makeConnection($userId, ['platform' => 'facebook', 'payload' => ['url' => 'https://www.facebook.com/IndependentBakingCo/', 'username' => 'IndependentBakingCo']]);
+    $legacy = makeConnection($userId, ['platform' => 'facebook', 'payload' => ['url' => 'https://www.facebook.com/Le-Taj-Restaurant-Lounge-186167158111059']]);
+    $pages = makeConnection($userId, ['platform' => 'facebook', 'payload' => ['url' => 'http://www.facebook.com/pages/Amiconi-Restaurant/159505710742510']]);
+    $junk = makeConnection($userId, ['platform' => 'facebook', 'payload' => ['url' => 'https://facebook.com/basette%20Barberia', 'username' => 'basette Barberia']]);
+
+    expect(ingestSourceFor($tiktok)->identifier)->toBe('bourkestreetbakery')
+        ->and(ingestSourceFor($vanity)->identifier)->toBe('https://www.facebook.com/IndependentBakingCo')
+        ->and(ingestSourceFor($legacy)->identifier)->toBe('https://www.facebook.com/Le-Taj-Restaurant-Lounge-186167158111059')
+        ->and(ingestSourceFor($pages)->identifier)->toBe('https://www.facebook.com/159505710742510')
+        ->and(ingestSourceFor($junk))->toBeNull();
+});
+
 it('derives the fresha slug from the booking url and the youtube handle as a resolvable identifier', function () {
     $userId = provisionerUser();
 
