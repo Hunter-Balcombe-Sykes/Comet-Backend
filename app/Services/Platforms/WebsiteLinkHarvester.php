@@ -144,8 +144,10 @@ class WebsiteLinkHarvester
         // HungryPanda: real regional ordering hosts are subdomains of
         // hungrypanda.co (aus.hungrypanda.co etc.) — never listed here, so a
         // pasted shop link fell to classifyFromCatalog's flat 'link' answer
-        // and became a custom card (plan-03 batch 9, live find).
-        'HungryPanda' => '~(^|\.)hungrypanda\.(co|com)$~',
+        // and became a custom card (plan-03 batch 9, live find). .co ONLY:
+        // hungrypanda.com is a PARKED, unrelated domain (critic-verified) —
+        // classifying it would present a lander page as a live connection.
+        'HungryPanda' => '~(^|\.)hungrypanda\.co$~',
     ];
 
     /**

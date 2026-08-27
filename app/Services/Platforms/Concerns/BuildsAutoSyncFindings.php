@@ -756,7 +756,16 @@ trait BuildsAutoSyncFindings
             'instagram' => '~instagram\.com/([A-Za-z0-9._]+)~i',
         ];
         if (isset($patterns[$platform]) && preg_match($patterns[$platform], $url, $m)) {
-            $reserved = ['profile.php', 'p', 'reel', 'reels', 'stories', 'explore', 'accounts', 'share', 'tv'];
+            // The catalog's own Instagram exclusion list (Instagram.php),
+            // verbatim, plus profile.php/share/tv — the plan-03 critic
+            // caught this drifting (developer/about/legal/directory leaked
+            // as fake usernames). Superset of the catalog is safe; a subset
+            // is the bug class this line exists to close.
+            $reserved = [
+                'profile.php', 'p', 'reel', 'reels', 'stories', 'explore',
+                'accounts', 'developer', 'about', 'legal', 'directory',
+                'share', 'tv',
+            ];
 
             return in_array(strtolower($m[1]), $reserved, true) ? '' : $m[1];
         }

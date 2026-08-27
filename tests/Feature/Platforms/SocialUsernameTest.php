@@ -23,9 +23,18 @@ it('parses the handle for every catalog-normalized social, not just the old four
     // The live find: instagram (bespoke connect → fallback pattern here).
     'instagram profile' => ['instagram', 'https://www.instagram.com/stalicoffee/', 'stalicoffee'],
     'instagram with query junk' => ['instagram', 'https://instagram.com/stalicoffee?igsh=abc123', 'stalicoffee'],
-    // Reserved segments must not read as handles.
+    // Reserved segments must not read as handles — the FULL catalog
+    // exclusion list, not a sample (the critic caught 4 of these leaking).
     'instagram post is not a handle' => ['instagram', 'https://www.instagram.com/p/DAbCdEf/', ''],
     'instagram reel is not a handle' => ['instagram', 'https://www.instagram.com/reel/DAbCdEf/', ''],
+    'instagram reels tab' => ['instagram', 'https://www.instagram.com/reels/', ''],
+    'instagram stories' => ['instagram', 'https://www.instagram.com/stories/highlights/1/', ''],
+    'instagram explore' => ['instagram', 'https://www.instagram.com/explore/tags/coffee/', ''],
+    'instagram accounts' => ['instagram', 'https://www.instagram.com/accounts/login/', ''],
+    'instagram developer' => ['instagram', 'https://www.instagram.com/developer/', ''],
+    'instagram about' => ['instagram', 'https://www.instagram.com/about/us/', ''],
+    'instagram legal' => ['instagram', 'https://www.instagram.com/legal/terms/', ''],
+    'instagram directory' => ['instagram', 'https://www.instagram.com/directory/profiles/', ''],
     // Platforms whose UrlConnect normalizer now answers (previously '').
     'threads' => ['threads', 'https://www.threads.net/@sallybakes', 'sallybakes'],
     'reddit user' => ['reddit', 'https://www.reddit.com/user/spez/', 'spez'],

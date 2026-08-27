@@ -10,6 +10,7 @@ use App\Http\Resources\Content\ContentLibraryUploadResource;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
+use App\Services\Content\ManualMediaWriter;
 use App\Services\Media\Exceptions\OriginalStoreFailedException;
 use App\Services\Media\Exceptions\PoolLimitExceededException;
 use App\Services\Media\ImageVariantService;
@@ -37,6 +38,7 @@ class ContentController extends ApiController
     public function __construct(
         private readonly MediaUploadService $uploadService,
         private readonly ImageVariantService $imageService,
+        private readonly ManualMediaWriter $mediaWriter,
     ) {}
 
     /**
@@ -83,13 +85,16 @@ class ContentController extends ApiController
         // SitePolicy::create gates pending_deletion + verifies site ownership.
         $this->authorizeForUser($pro, 'create', $this->skeleton($site));
 
+        // Image OR video since plan 04 step E (the request enforces one-of).
+        $isVideo = $request->hasFile('video');
+
         try {
             $media = $this->uploadService->upload(
                 pro: $pro,
                 site: $site,
-                file: $request->file('image'),
+                file: $request->file($isVideo ? 'video' : 'image'),
                 pool: SiteMedia::POOL_CONTENT,
-                isVideo: false,
+                isVideo: $isVideo,
                 altText: $request->validated('alt_text'),
                 caption: $request->validated('caption'),
             );
@@ -97,6 +102,17 @@ class ContentController extends ApiController
             return $this->error($e->getMessage(), 422);
         } catch (OriginalStoreFailedException $e) {
             return $this->error($e->getMessage(), 500);
+        }
+
+        // The upload→pool bridge (plan 04 step E): mint + pin the media-pool
+        // item so the upload is immediately real in the grid, the picker and
+        // the sitepage gallery. Best-effort AFTER the stored upload — a
+        // bridge fault must not orphan the bytes; the library listing still
+        // shows the SiteMedia and a re-upload re-mints.
+        try {
+            $this->mediaWriter->add($pro, $media);
+        } catch (\Throwable $e) {
+            report($e);
         }
 
         return $this->success((new ContentLibraryUploadResource($media))->toArray($request), 201);
@@ -121,6 +137,13 @@ class ContentController extends ApiController
 
         if ($upload->pool !== SiteMedia::POOL_CONTENT) {
             return $this->error('Not found.', 404);
+        }
+
+        // The bridged pool item leaves with the upload (plan 04 step E).
+        try {
+            $this->mediaWriter->remove($pro, $upload);
+        } catch (\Throwable $e) {
+            report($e);
         }
 
         // Synchronous file cleanup (images have 2–3 variant files).
