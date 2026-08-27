@@ -3,6 +3,7 @@
 namespace App\Site\Pools;
 
 use App\Models\Core\Site\Site;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Analytics\ItemFamily;
@@ -175,7 +176,8 @@ class PoolResolver
             return false;
         }
 
-        $suppressed = $this->reviewsSuppressedByOwner($candidates);
+        $suppressed = $this->reviewsSuppressedByOwner($candidates)
+            + $this->reviewsOutsidePersonScope($site, $candidates);
 
         foreach ($candidates as $itemId) {
             if (! isset($suppressed[$itemId])) {
@@ -1094,7 +1096,8 @@ class PoolResolver
                 ->get(['item_id', 'author_name', 'author_photo_url', 'author_uri', 'rating', 'text', 'reviewed_at'])
                 ->keyBy('item_id');
 
-            $suppressedReviews = $this->reviewsSuppressedByOwner($reviewIds);
+            $suppressedReviews = $this->reviewsSuppressedByOwner($reviewIds)
+                + $this->reviewsOutsidePersonScope($site, $reviewIds);
         }
 
         // Public URL slugs. The legacy events lane served these off
@@ -1446,6 +1449,147 @@ class PoolResolver
         // owner switched reviews off whatever the map knows about it.
         return in_array('reviews', $disabled, true)
             || ($settings['reviews'] ?? true) === false;
+    }
+
+    /**
+     * Person-scoping for the reviews pool (owner, 2026-08-28): review items a
+     * partna account may NOT show, keyed by item id. A venue-level source
+     * (Google listing, Booksy/Treatwell page, storewide Fresha) reviews the
+     * WORKPLACE — an individual's page keeps only the reviews attributable to
+     * THEM: Fresha's structured staff attribution (f_review.staff_name), a
+     * mention of their name in the review text, or a source that is already
+     * employee-scoped at the vendor (ingest selection_ref names a team
+     * member, so every review it lands is theirs even when the text never
+     * says a name). Empty for business accounts — the venue's reviews ARE
+     * its reviews — and applied identically in hasSelection() and
+     * itemPayloads() so the advertised page and the served pool agree.
+     *
+     * With no usable name on file, venue reviews stay excluded (fail closed):
+     * publishing a co-worker's praise on the wrong person's page is the harm
+     * this scope exists to prevent, and employee-scoped sources still pass.
+     *
+     * @param  list<string>  $reviewIds
+     * @return array<string, true>
+     */
+    private function reviewsOutsidePersonScope(Site $site, array $reviewIds): array
+    {
+        if ($reviewIds === []) {
+            return [];
+        }
+
+        $pro = $site->user;
+        if ($pro === null || ! AccountCapabilities::for($pro)->reviews_scoped_to_person) {
+            return [];
+        }
+
+        // Vendor-scoped sources: a selection_ref naming a specific team
+        // member means the connector already filtered to this person — those
+        // reviews pass even when spelled differently from our display name.
+        $employeeScoped = [];
+        $rows = DB::connection('pgsql')->table('content.source_items as si')
+            ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+            ->join('ingest.sources as ing', 'ing.connection_id', '=', 'cs.connection_id')
+            ->whereIn('si.item_id', $reviewIds)
+            ->whereNotNull('ing.selection_ref')
+            ->whereNotIn('ing.selection_ref', ['', 'storewide'])
+            ->get(['si.item_id']);
+        foreach ($rows as $row) {
+            $employeeScoped[(string) $row->item_id] = true;
+        }
+
+        $names = $this->personNameTokens($pro);
+
+        $facets = DB::connection('pgsql')->table('content.f_review')
+            ->whereIn('item_id', $reviewIds)
+            ->orderBy('updated_at')
+            ->get(['item_id', 'staff_name', 'text'])
+            ->keyBy('item_id');
+
+        $outside = [];
+        foreach ($reviewIds as $itemId) {
+            $itemId = (string) $itemId;
+            if (isset($employeeScoped[$itemId])) {
+                continue;
+            }
+
+            $facet = $facets[$itemId] ?? null;
+            if ($facet !== null && $names !== null && $this->reviewMentionsPerson($facet, $names)) {
+                continue;
+            }
+
+            $outside[$itemId] = true;
+        }
+
+        return $outside;
+    }
+
+    /**
+     * The name forms a partna account can be recognised by: full display
+     * name, first_name, and each of their leading tokens. Null when nothing
+     * usable is on file.
+     *
+     * @return array{full: list<string>, first: list<string>}|null
+     */
+    private function personNameTokens(object $pro): ?array
+    {
+        $full = [];
+        $first = [];
+        foreach (['display_name' => true, 'first_name' => false] as $column => $isFull) {
+            $name = mb_strtolower(trim(preg_replace('/\s+/u', ' ', (string) ($pro->{$column} ?? '')) ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            // Only a MULTI-word display name is a "full name" — a lone token
+            // (and the first_name column, which is one by construction) is a
+            // first-token match and rides the length floor below.
+            if ($isFull && str_contains($name, ' ')) {
+                $full[] = $name;
+            }
+            $lead = explode(' ', $name)[0];
+            // A 1–2 letter lead token ("dj", initials) matches half the
+            // dictionary — too weak to attribute a stranger's words with.
+            if (mb_strlen($lead) >= 3) {
+                $first[] = $lead;
+            }
+        }
+
+        $full = array_values(array_unique($full));
+        $first = array_values(array_unique(array_diff($first, $full)));
+
+        return $full === [] && $first === [] ? null : ['full' => $full, 'first' => $first];
+    }
+
+    /** @param array{full: list<string>, first: list<string>} $names */
+    private function reviewMentionsPerson(object $facet, array $names): bool
+    {
+        $staff = mb_strtolower(trim((string) ($facet->staff_name ?? '')));
+        if ($staff !== '') {
+            $staffLead = explode(' ', preg_replace('/\s+/u', ' ', $staff) ?? $staff)[0];
+            foreach ($names['full'] as $name) {
+                if ($staff === $name || $staffLead === explode(' ', $name)[0]) {
+                    return true;
+                }
+            }
+            foreach ($names['first'] as $name) {
+                if ($staff === $name || $staffLead === $name) {
+                    return true;
+                }
+            }
+        }
+
+        $text = (string) ($facet->text ?? '');
+        if ($text === '') {
+            return false;
+        }
+
+        foreach ([...$names['full'], ...$names['first']] as $needle) {
+            // Word-boundary by letters/digits, not \b — names are unicode.
+            if (preg_match('/(?<![\p{L}\p{N}])'.preg_quote($needle, '/').'(?![\p{L}\p{N}])/iu', $text) === 1) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

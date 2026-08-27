@@ -29,6 +29,23 @@ if (! function_exists('poolTenant')) {
     }
 }
 
+if (! function_exists('poolBusinessTenant')) {
+    /**
+     * A pool tenant flipped to the business account type. Venue-level reviews
+     * shown WHOLESALE became business behaviour with the person-scoping
+     * capability (2026-08-28) — review fixtures that model the venue case use
+     * this instead of poolTenant().
+     */
+    function poolBusinessTenant(): array
+    {
+        [$pro, $siteId] = poolTenant();
+        DB::table('core.users')->where('id', $pro->id)->update(['account_type' => 'business']);
+        App\Services\Accounts\AccountCapabilities::flushCache();
+
+        return [$pro->fresh(), $siteId];
+    }
+}
+
 if (! function_exists('poolConnection')) {
     function poolConnection(string $userId, string $surfaceKey = 'youtube.channel', ?array $displaySettings = null): string
     {

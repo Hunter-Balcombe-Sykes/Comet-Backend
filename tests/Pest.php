@@ -3012,7 +3012,7 @@ function setupContentTables(): void
         // 20260813110000_f_review_author_uri.sql). Third-party PII, redacted
         // when_unclaimed by the connector manifest exactly as author_name and
         // author_photo_url already are.
-        'f_review' => 'author_name TEXT NULL, author_photo_url TEXT NULL, author_uri TEXT NULL, rating REAL NULL, text TEXT NULL, reviewed_at TEXT NULL',
+        'f_review' => 'author_name TEXT NULL, author_photo_url TEXT NULL, author_uri TEXT NULL, rating REAL NULL, text TEXT NULL, reviewed_at TEXT NULL, staff_name TEXT NULL',
         'f_channel' => 'handle TEXT NULL, followers INTEGER NULL, avatar_url TEXT NULL, is_live INTEGER NULL, verified INTEGER NULL',
         'f_file' => 'file_url TEXT NULL, mime_type TEXT NULL, size_bytes INTEGER NULL, page_count INTEGER NULL',
     ];

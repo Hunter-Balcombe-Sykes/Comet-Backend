@@ -76,6 +76,7 @@ final class AccountCapabilities
             // Both types curate their own duplicates — the platform has no
             // reason to let one account type merge items and not the other.
             can_curate_identity: true,
+            reviews_scoped_to_person: ! $isBusiness,
             workplace_brand_is_site_identity: $isBusiness,
         );
     }

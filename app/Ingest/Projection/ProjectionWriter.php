@@ -61,7 +61,7 @@ class ProjectionWriter
         // author_uri: slice 6 Task 1 (migration 20260813110000). singletonFacetRow
         // filters against this list, so an unlisted column is dropped silently —
         // no error, no row.
-        'f_review' => ['author_name', 'author_photo_url', 'author_uri', 'rating', 'text', 'reviewed_at'],
+        'f_review' => ['author_name', 'author_photo_url', 'author_uri', 'rating', 'text', 'reviewed_at', 'staff_name'],
         'f_channel' => ['handle', 'followers', 'avatar_url', 'is_live', 'verified'],
         'f_file' => ['file_url', 'mime_type', 'size_bytes', 'page_count'],
     ];

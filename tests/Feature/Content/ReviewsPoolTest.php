@@ -15,6 +15,9 @@ beforeEach(function () {
     setupContentTables();
     setupSectionsTables();
     setupMediaTables();
+    // Person-scoping (2026-08-28) joins ingest.sources to spot vendor
+    // employee-scoped review sources, so the mirror must exist.
+    setupIngestTables();
     Queue::fake();
 });
 
@@ -29,7 +32,10 @@ beforeEach(function () {
  */
 function reviewPoolFixture(array $review = [], ?array $displaySettings = null): array
 {
-    [$pro, $siteId] = poolTenant();
+    // Venue-level reviews shown WHOLESALE is business behaviour since the
+    // person-scoping capability (2026-08-28): a partna account keeps only
+    // reviews attributable to them. These fixtures model the venue case.
+    [$pro, $siteId] = poolBusinessTenant();
     $connectionId = poolConnection($pro->id, 'google_business.listing', $displaySettings);
     $sourceId = poolSource($pro->id, $connectionId);
 
@@ -447,4 +453,129 @@ it('still allows a pin on another pool', function () {
     actingAsUser($pro)
         ->putJson("/api/site/sections/{$sectionId}/items/{$itemId}", ['state' => 'pinned'])
         ->assertOk();
+});
+
+// ── Person-scoping (owner, 2026-08-28) ──────────────────────────────────────
+// A partna account's reviews pool is scoped to the PERSON: venue-level review
+// sources (a Google listing, a Booksy page, storewide Fresha) review the
+// workplace, and an individual's page keeps only the reviews attributable to
+// them — structured staff attribution, a name mention in the text, or a
+// vendor employee-scoped source. Business accounts keep the venue behaviour
+// (every fixture above flips its tenant to business for exactly that reason).
+
+/**
+ * A venue-level review on a PARTNA tenant whose display name is $displayName.
+ *
+ * @return array{object, string, string, string} [owner, siteId, itemId, connectionId]
+ */
+function partnaReviewFixture(string $displayName, array $review): array
+{
+    [$pro, $siteId] = poolTenant();
+    DB::table('core.users')->where('id', $pro->id)->update([
+        'display_name' => $displayName,
+        'first_name' => explode(' ', $displayName)[0] ?: 'X',
+    ]);
+    App\Services\Accounts\AccountCapabilities::flushCache();
+
+    $connectionId = poolConnection($pro->id, 'google_business.listing');
+    $sourceId = poolSource($pro->id, $connectionId);
+
+    $itemId = (string) Str::uuid();
+    DB::table('content.items')->insert([
+        'id' => $itemId, 'user_id' => $pro->id, 'kind' => 'review',
+        'headline_cache' => null, 'facets_cache' => '["f_review"]',
+        'first_seen_at' => now()->subDay(), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $sourceId,
+        'coord' => 'review:'.Str::random(8), 'item_id' => $itemId, 'kind' => 'review',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    DB::table('content.f_review')->insert([
+        'item_id' => $itemId, 'source_id' => $sourceId,
+        'author_name' => null, 'author_photo_url' => null, 'author_uri' => null,
+        'rating' => 5.0, 'text' => null, 'reviewed_at' => null, 'staff_name' => null,
+        ...$review,
+        'updated_at' => now(),
+    ]);
+
+    return [$pro, $siteId, $itemId, $connectionId];
+}
+
+it('keeps a venue review that mentions the person by first name', function () {
+    [, $siteId, $itemId] = partnaReviewFixture('Simon Doyle', [
+        'text' => 'Simon gave me the best cut of my life.',
+    ]);
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
+
+    expect(collect($resolved['selection'])->firstWhere('id', $itemId))->not->toBeNull()
+        ->and(app(PoolResolver::class)->hasSelection(Site::query()->findOrFail($siteId), 'reviews'))->toBeTrue();
+});
+
+it('keeps a venue review whose staff attribution names the person', function () {
+    [, $siteId, $itemId] = partnaReviewFixture('Simon Doyle', [
+        'text' => 'Great haircut, highly recommend.',
+        'staff_name' => 'Simon',
+    ]);
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
+
+    expect(collect($resolved['selection'])->firstWhere('id', $itemId))->not->toBeNull();
+});
+
+it('drops a venue review that never mentions the person, from the pool AND the nav probe', function () {
+    [, $siteId, $itemId] = partnaReviewFixture('Simon Doyle', [
+        'text' => 'Jack is the one to go to. Amazing fade.',
+        'staff_name' => 'Jack',
+    ]);
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
+
+    expect(collect($resolved['selection'])->firstWhere('id', $itemId))->toBeNull()
+        ->and(app(PoolResolver::class)->hasSelection(Site::query()->findOrFail($siteId), 'reviews'))->toBeFalse();
+});
+
+it('does not let a short lead token attribute by text mention', function () {
+    // "DJ Shadow" — the 2-letter lead is too weak to match text on; the full
+    // name still matches.
+    [, $siteId, $itemId] = partnaReviewFixture('Dj Shadow', [
+        'text' => 'The dj was fine but the venue was cold.',
+    ]);
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
+
+    expect(collect($resolved['selection'])->firstWhere('id', $itemId))->toBeNull();
+});
+
+it('keeps every review from a vendor employee-scoped source regardless of names', function () {
+    [, $siteId, $itemId, $connectionId] = partnaReviewFixture('Simon Doyle', [
+        'text' => 'Best cut in Dublin.',
+    ]);
+
+    DB::table('ingest.sources')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => (string) DB::table('site.platform_connections')->where('id', $connectionId)->value('user_id'),
+        'connection_id' => $connectionId, 'source_key' => 'fresha',
+        'surface_key' => 'fresha.book', 'identifier' => 'simon-doyle-hair',
+        'selection_ref' => '5182247', 'cost_units' => 1,
+        'min_interval_secs' => 3600, 'max_interval_secs' => 604800,
+        'auto_sync' => 1, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
+
+    expect(collect($resolved['selection'])->firstWhere('id', $itemId))->not->toBeNull();
+});
+
+it('fails closed when the partna account has no usable name', function () {
+    [, $siteId, $itemId] = partnaReviewFixture('', ['text' => 'Wonderful experience.']);
+    DB::table('core.users')->where('id', DB::table('site.sites')->where('id', $siteId)->value('user_id'))
+        ->update(['display_name' => '', 'first_name' => '']);
+    App\Services\Accounts\AccountCapabilities::flushCache();
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
+
+    expect(collect($resolved['selection'])->firstWhere('id', $itemId))->toBeNull();
 });

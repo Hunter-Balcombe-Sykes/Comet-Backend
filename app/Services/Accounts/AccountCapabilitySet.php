@@ -103,6 +103,16 @@ final readonly class AccountCapabilitySet
         // change, and so the endpoints comply with the doctrine that every new
         // endpoint consults AccountCapabilities.
         public bool $can_curate_identity,
+        // Is the reviews pool scoped to the PERSON rather than the venue
+        // (owner, 2026-08-28)? True for a partna account: a venue-level
+        // review source (Google listing, Booksy/Treatwell page, storewide
+        // Fresha) reviews the WORKPLACE, and an individual's page shows only
+        // the reviews attributable to them — Fresha's structured staff
+        // attribution, or a mention of their name in the review text
+        // (PoolResolver::reviewsOutsidePersonScope). False for a business:
+        // the venue's reviews ARE its reviews. Applies pre-claim too — an
+        // unclaimed partna build scopes by the display name the build set.
+        public bool $reviews_scoped_to_person,
         // Does the WORKPLACE's brand (its logo, square mark, and the design
         // evidence scraped off its previous website — accent, font) stand for
         // the SITE? True for a business: the workplace IS the account. False

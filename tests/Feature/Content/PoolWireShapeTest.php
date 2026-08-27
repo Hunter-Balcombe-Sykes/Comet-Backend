@@ -13,6 +13,9 @@ beforeEach(function () {
     setupContentTables();
     setupSectionsTables();
     setupMediaTables();
+    // Person-scoping (2026-08-28) joins ingest.sources for partna review
+    // candidates, so the mirror must exist.
+    setupIngestTables();
     Queue::fake();
 });
 
@@ -216,7 +219,7 @@ it('leaves a legitimate https url exactly as stored', function () {
 // — a helper declared in one test file may not be called from another
 // (CrossFileTestHelperGuardTest fatals it under --parallel).
 it('never publishes a non-http(s) review author url (#SEC-2)', function () {
-    [$pro, $siteId] = poolTenant();
+    [$pro, $siteId] = poolBusinessTenant();
     $connectionId = poolConnection($pro->id, 'google_business.listing');
     $sourceId = poolSource($pro->id, $connectionId);
 

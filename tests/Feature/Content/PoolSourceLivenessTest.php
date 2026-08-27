@@ -45,7 +45,7 @@ function sourceStats(string $sourceId, float $avg, int $count, string $summary):
 }
 
 it('stops publishing a disconnected listing\'s rating, while keeping the live one\'s (LIFE-2)', function () {
-    [$pro, $siteId] = poolTenant();
+    [$pro, $siteId] = poolBusinessTenant();
     $site = Site::findOrFail($siteId);
 
     $liveConn = poolConnection($pro->id, 'instagram.profile');
@@ -77,7 +77,7 @@ it('stops publishing a disconnected listing\'s rating, while keeping the live on
 });
 
 it('drops the rating entirely when the only stats-bearing source is disconnected', function () {
-    [$pro, $siteId] = poolTenant();
+    [$pro, $siteId] = poolBusinessTenant();
     $site = Site::findOrFail($siteId);
 
     $liveConn = poolConnection($pro->id, 'instagram.profile');
@@ -98,7 +98,7 @@ it('drops the rating entirely when the only stats-bearing source is disconnected
 });
 
 it('stops surfacing a link belonging to a disconnected source (LIFE-4)', function () {
-    [$pro, $siteId] = poolTenant();
+    [$pro, $siteId] = poolBusinessTenant();
     $site = Site::findOrFail($siteId);
 
     $liveConn = poolConnection($pro->id, 'instagram.profile');
@@ -194,7 +194,7 @@ it('emits the nested review.reviewedAt as ISO-8601 too, not just the top-level d
     // CAN prove is that the value now goes through iso() at all — the format is
     // normalised rather than passed through — and that is enough to catch a
     // regression that drops the conversion.
-    [$pro, $siteId] = poolTenant();
+    [$pro, $siteId] = poolBusinessTenant();
     $site = Site::findOrFail($siteId);
 
     $source = poolSource($pro->id, poolConnection($pro->id, 'google.business'));
@@ -274,7 +274,7 @@ it('still shows a paused connection in the item sheet Sources list, badged inact
     // The item needs a LIVE source to survive at all — with only the paused one
     // it is hidden outright, which is the ruling working correctly and not what
     // this test is about.
-    [$pro, $siteId] = poolTenant();
+    [$pro, $siteId] = poolBusinessTenant();
     $site = Site::findOrFail($siteId);
 
     $liveConn = poolConnection($pro->id, 'instagram.profile');
