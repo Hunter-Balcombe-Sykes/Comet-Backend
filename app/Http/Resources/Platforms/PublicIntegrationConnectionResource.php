@@ -46,7 +46,8 @@ class PublicIntegrationConnectionResource extends ApiResource
         // could not carry, plus slug/aliases from content.item_slugs.
         //
         // `=> []` rather than deletion, deliberately. The platforms are still
-        // REGISTERED (PlatformRegistryServiceProvider:314/315/328) because the
+        // REGISTERED (via their binding classes in Registry/Bindings —
+        // EventbriteBinding/HumanitixBinding since the PD retirement) because the
         // dashboard connect/refresh lane still uses them, and
         // PublicAllowlistCoverageTest requires every registered platform to
         // carry an entry — deleting the keys would report a

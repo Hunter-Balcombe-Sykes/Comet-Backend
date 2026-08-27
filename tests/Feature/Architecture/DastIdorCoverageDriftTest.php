@@ -322,7 +322,7 @@ const IDOR_VERB_VARIANT_OF = [
 const IDOR_UNSAFE_TO_PROBE = [
 
     // 'shop' is one of exactly two hasCompletenessPredicate() platforms
-    // (PlatformRegistryServiceProvider:479, the other is fresha), so
+    // (shop in PlatformRegistryServiceProvider, fresha in FreshaBinding), so
     // IntegrationConnectionObserver::deleted() calls site->touch() ->
     // SiteObserver:76 -> SyncSubdomainToKvJob — a real Cloudflare KV write, and
     // the single writer CLAUDE.md names.

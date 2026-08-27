@@ -1492,6 +1492,18 @@ return [
         // traffic-shaping change.
         'analytics_per_minute' => (int) env('PARTNA_THROTTLE_ANALYTICS_PER_MINUTE', 120),
         'analytics_click_per_minute' => (int) env('PARTNA_THROTTLE_ANALYTICS_CLICK_PER_MINUTE', 5),
+        // True-IP backstops behind the per-visitor limits above (plan 01,
+        // 2026-08-27): proxied beacons share Cloudflare colo IPs, so the IP
+        // dimension only exists to stop a single-address flood, sized far
+        // above any legitimate colo's fan-in. Declared here (not just as the
+        // provider's inline fallbacks) so they stay env-tunable like every
+        // sibling.
+        'analytics_ip_backstop_per_minute' => (int) env('PARTNA_THROTTLE_ANALYTICS_IP_BACKSTOP_PER_MINUTE', 3000),
+        'analytics_click_ip_backstop_per_minute' => (int) env('PARTNA_THROTTLE_ANALYTICS_CLICK_IP_BACKSTOP_PER_MINUTE', 120),
+        // Authed variant of the signup/availability limiter (UX-rebuild): the
+        // dashboard's handle-change checker runs as a logged-in user and gets
+        // triple the anonymous allowance.
+        'subdomain_availability_authed_per_minute' => (int) env('PARTNA_SUBDOMAIN_AVAILABILITY_AUTHED_PER_MINUTE', 30),
         'leads_per_minute_ip' => (int) env('PARTNA_THROTTLE_LEADS_PER_MINUTE_IP', 3),
         'leads_per_minute_subdomain' => (int) env('PARTNA_THROTTLE_LEADS_PER_MINUTE_SUBDOMAIN', 100),
 
@@ -2924,6 +2936,11 @@ return [
         'click_dedup_ttl_seconds' => (int) env('PARTNA_ANALYTICS_CLICK_DEDUP_TTL_SECONDS', 3),
         'section_dedup_ttl_seconds' => (int) env('PARTNA_ANALYTICS_SECTION_DEDUP_TTL_SECONDS', 300),
         'item_dedup_ttl_seconds' => (int) env('PARTNA_ANALYTICS_ITEM_DEDUP_TTL_SECONDS', 300),
+        // Action-beacon dedup TTLs (smart-scoring ingest, plan 01): seen is a
+        // per-visit window like section/item above; tap mirrors the rapid
+        // double-tap click window.
+        'action_dedup_ttl_seconds' => (int) env('PARTNA_ANALYTICS_ACTION_DEDUP_TTL_SECONDS', 300),
+        'action_tap_dedup_ttl_seconds' => (int) env('PARTNA_ANALYTICS_ACTION_TAP_DEDUP_TTL_SECONDS', 3),
 
         // CFG-1: PurgeRawAnalyticsEvents batch delete size — bounds each DELETE's row
         // count so the purge never holds one long-running transaction.
