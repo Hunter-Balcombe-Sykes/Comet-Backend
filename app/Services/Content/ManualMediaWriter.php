@@ -7,7 +7,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Site\SectionItem;
 use App\Models\Core\User\User;
-use App\Services\Cache\SiteCacheLanes;
+use App\Site\Documents\SiteCacheLanes;
 use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Support\Facades\DB;
 
