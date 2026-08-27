@@ -639,6 +639,67 @@ New owner tasks (this session):
   no caller-supplied params forwarded); bias not restrict; local dev
   unchanged.
 
+### FLEET REBUILD (2026-08-27 ~12:56–13:05 UTC) — all 16 on the fixed code
+
+The owner's "rebuild all now": the 07:26 fleet was 16 accounts (the plan's
+"12" undercounted), and the live-source dedupe blocks a plain re-request —
+the sanctioned path is expire → `builds:prune-expired` → fresh staff build
+(same as the 09:31 acceptance round). Executed twice: once for all 16, then
+a second expire+prune+rebuild for 6 business accounts whose FIRST redo was
+dispatched with the OLD truncated display names as source_name and thus
+allocated short handles ("oxbridge" not "oxbridge-barbershop-kensington") —
+redone with the full workplace names, all 6 re-allocated their ORIGINAL
+handles. traethebarber + sammypdf (the 05:52 batch, not the 07:26 fleet)
+left as the before-state record — forcing them needs the same destructive
+teardown; owner call.
+
+Verified live, all 16: build_state ready, zero failures, all sites 200.
+- **Cap raise live**: every business workplace name now FULL — "Oxbridge
+  Barbershop Kensington", "Barber On Bellair", "Parker Melbourne",
+  "Lux Thai massage (Kensington)", "LAKSHMI THAI MASSAGE", "Viet Harmony
+  Flemington", "MR Bap", "Aerial Studio".
+- **T17 live**: all 8 partna accounts seeded headshots (processing_state
+  ready); business accounts correctly none. jjsavani's public wire ships
+  profile.headshot incl. a serving 192px PNG urlIcon (200, image/png,
+  57KB). Favicon itself pends the owner's next apps/pages deploy.
+- **T20 live on the fleet**: playlunch + memphislk contact forms enabled,
+  routed to their real public emails, source=auto; no-email accounts
+  honestly dark.
+
+### POST-CLAIM ROUND (2026-08-27 ~13:10 UTC) — playlunch, claim→verify→release
+
+Server-side via ClaimSiteService on dev, synthetic test identity minted
+through the platform's own SupabaseAdminService (deleted after). Findings:
+
+- **Invite-gate HELD**: outreach build + no contact_email + no token →
+  CLAIM_NOT_INVITED. (All staff fleet builds are outreach — correct.)
+- **Email-gate HELD**: contact_email attached, claim with a different
+  inbox → CLAIM_EMAIL_MISMATCH.
+- **Claim verified**: status active, primary_email bound, site
+  auto-published, build claimed_at burned, welcome notification created.
+- **T20 claim-default VERIFIED LIVE**: notification_email flipped from the
+  auto-seeded public email to the account email, 'auto' marker cleared,
+  form stayed enabled.
+- **Idempotency**: double-tap same uid → success, is_new_claim not re-set
+  (no duplicate welcome).
+- **Release verified**: status unclaimed, auth/email nulled, build
+  claimed_at nulled, welcome row deleted — EXCEPT the publish flip (issue
+  22 below). Fixture fully restored after (contact block back to
+  auto+public email, build contact_email cleared, auth user deleted,
+  is_published manually restored false).
+
+- **Issue 22 — release() leaves an outreach-but-unpublished site
+  published**: release's unpublish guard is `! $build->isOutreach()`, on
+  the assumption outreach builds are provisioned published. But publish
+  intent is a requestBuild PARAM that only rides the job dispatch — a
+  staff/outreach build CAN be provisioned unpublished (the whole test
+  fleet is), and releasing a claim on one leaves is_published=true on an
+  unclaimed row: more exposed than before the claim, owned by nobody.
+  Designed fix: record the flip at claim time (`published_by_claim` on
+  pre_account_builds — needs a migration, schema rail) and have release
+  restore on that instead of the isOutreach heuristic. → task, needs the
+  schema rail.
+
 ### T17 BUILT (2026-08-27 evening) — all three layers
 
 - **Backend**: `PURPOSE_HEADSHOT` joins `designSingletonPurposes()` (the one
