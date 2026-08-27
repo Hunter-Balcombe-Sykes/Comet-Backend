@@ -94,9 +94,15 @@ class UberEatsMenuDriver implements MenuPlatformDriver
 
     /**
      * The actor's `href` → an absolute item deep link. memo23 emits the
-     * quickView form as a root-relative path (`/store/…?mod=quickView&…`);
-     * an absolute ubereats.com URL is tolerated, anything else is dropped —
-     * the contract is a REAL item link or nothing, never a guess.
+     * quickView MODAL form (`/store/…?mod=quickView&modctx=…`); an absolute
+     * ubereats.com URL is tolerated, anything else is dropped — the contract
+     * is a REAL item link or nothing, never a guess.
+     *
+     * T10/D4 (2026-08-27): the modctx blob carries the section/subsection/
+     * item UUIDs of Uber Eats' own dedicated item PAGE
+     * (`{storePath}/{section}/{subsection}/{item}` — browser-verified), so
+     * that page URL is built whenever modctx decodes; otherwise the quickView
+     * URL survives with `rwg_token`/`utm_*` tracking stripped either way.
      */
     private function itemUrl(mixed $href): ?string
     {
@@ -105,12 +111,39 @@ class UberEatsMenuDriver implements MenuPlatformDriver
             return null;
         }
         if (str_starts_with($href, '/')) {
-            return $this->safeUrl('https://www.ubereats.com'.$href);
+            $href = 'https://www.ubereats.com'.$href;
         }
 
         $host = strtolower((string) parse_url($href, PHP_URL_HOST));
+        if (preg_match('~(^|\.)ubereats\.com$~', $host) !== 1) {
+            return null;
+        }
 
-        return preg_match('~(^|\.)ubereats\.com$~', $host) === 1 ? $this->safeUrl($href) : null;
+        $path = (string) parse_url($href, PHP_URL_PATH);
+        parse_str((string) parse_url($href, PHP_URL_QUERY), $query);
+
+        // The dedicated item page, when the modal context decodes. modctx is
+        // DOUBLE-encoded in the raw href; parse_str already peeled one layer.
+        $modctx = is_string($query['modctx'] ?? null) ? json_decode(urldecode($query['modctx']), true) : null;
+        $section = is_array($modctx) ? ($modctx['sectionUuid'] ?? null) : null;
+        $subsection = is_array($modctx) ? ($modctx['subsectionUuid'] ?? null) : null;
+        $item = is_array($modctx) ? ($modctx['itemUuid'] ?? null) : null;
+        if (is_string($section) && is_string($subsection) && is_string($item)
+            && preg_match('/^[0-9a-f-]{36}$/i', $section)
+            && preg_match('/^[0-9a-f-]{36}$/i', $subsection)
+            && preg_match('/^[0-9a-f-]{36}$/i', $item)) {
+            return $this->safeUrl('https://'.$host.rtrim($path, '/')."/{$section}/{$subsection}/{$item}");
+        }
+
+        // Fallback: the link as given, minus tracking. Still a working link.
+        $kept = array_filter(
+            $query,
+            static fn ($v, $k) => $k !== 'rwg_token' && $k !== 'ps' && ! str_starts_with((string) $k, 'utm_'),
+            ARRAY_FILTER_USE_BOTH,
+        );
+        $qs = http_build_query($kept);
+
+        return $this->safeUrl('https://'.$host.$path.($qs !== '' ? '?'.$qs : ''));
     }
 
     /**
