@@ -36,13 +36,15 @@ use App\Services\Shop\ShopConnections;
  *
  * Runs at boot, on every request. Reads the compiled artefact ONLY — never
  * reflects Definitions/, and never INSTANTIATES a strategy here: everything
- * behavioural is attached as closures. Which closures depends on the slug:
- * a BEHAVIOUR_BINDINGS entry (P4/P5) hands the descriptor to its binding
- * class, which attaches the platform's full contract verbatim (fetch/
- * connect/refresh strategies, resource, payload, cadence, route shape);
- * every other derived slug gets the Brand default — BrandLinkConnect with
- * CardPayload (EmbedPayload for the two keyless music embeds), where the
- * write is LinkRouter's.
+ * behavioural is attached as closures. Which closures depends on the slug,
+ * three cases in check order: a LinkOnlyBindings entry (25 socials — x,
+ * linkedin, tiktok, skool, strava, …) gets the link-only shape (UrlConnect,
+ * LinkPayload, LinkOnly routes); a BEHAVIOUR_BINDINGS entry (P4/P5) hands
+ * the descriptor to its binding class, which attaches the platform's full
+ * contract verbatim (fetch/connect/refresh strategies, resource, payload,
+ * cadence, route shape); every remaining URL-detected slug gets the Brand
+ * default — BrandLinkConnect with CardPayload (EmbedPayload for the two
+ * keyless music embeds), where the write is LinkRouter's.
  */
 class DerivedDescriptorFactory
 {

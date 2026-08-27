@@ -800,7 +800,7 @@ it('the four Unit F wait-time thresholds have the expected values', function () 
 
     // Exact equality, not a range — so a "tidy up" pass can't silently loosen
     // one of these back toward the accidental-60s failure mode.
-    expect($waits['redis:moderation_high,default,cloudflare,cache-warm,images,media-mirror,streaming,platform_refresh,platform_connect,analytics,cloudflare_bulk'])->toBe(900)
+    expect($waits['redis:'.\App\Jobs\Moderation\ModerationQueue::HIGH.',default,cloudflare,cache-warm,images,media-mirror,streaming,platform_refresh,platform_connect,analytics,cloudflare_bulk'])->toBe(900)
         ->and($waits['redis:ingest'])->toBe(1800)
         ->and($waits['redis:notifications,mail'])->toBe(300)
         ->and($waits['redis_scraping:scraping,gdpr'])->toBe(3600)
