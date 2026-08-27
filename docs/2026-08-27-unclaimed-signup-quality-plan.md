@@ -700,29 +700,16 @@ through the platform's own SupabaseAdminService (deleted after). Findings:
   restore on that instead of the isOutreach heuristic. → task, needs the
   schema rail.
 
-### NEXT WAVE (proposed 2026-08-27 late; owner reviewing) — content-quality tasks
+### NEXT WAVE — FINAL (owner rulings 2026-08-28): T23b, T24, T25, T26-lite, T27
 
-Feasibility evidence gathered live before proposing (details in chat log):
+Owner's final cut: **T23 (named review mining) REMOVED** for now — the
+feasibility evidence (Simon 5/5, Emma 3/5 named in top-5 Google reviews;
+wrong-venue control 0/5; `reviews` pool + review items already live on
+unclaimed accounts) stays archived in the git history of this section for
+whenever it's revived. **Google-reviews-depth Apify lane also removed.**
+Everything below is the approved scope.
 
-- **T23 — Named review mining (partna testimonials).** VALIDATED on real
-  testers: simondoylehair1's venue → 5/5 top Google reviews name Simon
-  ("I refuse to let anyone but Simon cut my hair"); Star Barber → 3/5 name
-  Emma. Wrong-venue control: the mislinked park venue scores 0/5 —
-  name-filtering doubles as wrong-venue protection. Infrastructure already
-  exists end-to-end: `reviews` pool + review kind +
-  GoogleBusinessReviewProjector + source_stats + exclude-only curation, and
-  unclaimed accounts ALREADY carry review items (emdinonhair has 5, text
-  kept, attribution redacted per the connector's when_unclaimed scopes —
-  note the PAYLOAD-side stripThirdPartyPii deletes the whole array, the
-  INGEST side keeps text). Build: name-match filter (reuse staff-matcher
-  token logic) + AI person-not-product verification → a `f_review` facet
-  marking "names the professional"; partna sites surface only named quotes.
-  OWNER RULING NEEDED: anonymous-quote testimonials pre-claim (text, no
-  reviewer attribution) — consistent with the ingest lane's existing
-  redaction posture; full attribution returns at claim. Caveat: Places API
-  caps at 5 "most relevant" reviews/fetch; an optional Apify
-  reviews-scraper lane deepens coverage later.
-- **T23b — Fresha reviews → the same reviews pool.** Today we scrape ZERO
+- **T23b — Fresha reviews → the reviews pool (KEPT — confirmed easy: the plug-in point is fully built).** Today we scrape ZERO
   Fresha review data (one per-employee `rating` float, kept private on the
   manual-picker path, dropped on auto). BUT the venue-page `__NEXT_DATA__`
   blob we already fetch and decode is narrowed to `.location` and the rest
@@ -735,23 +722,31 @@ Feasibility evidence gathered live before proposing (details in chat log):
   omission). Fresha lacks a reviews display toggle — add to its binding.
   And per-staff `rating` should survive the AUTO path (FreshaAutoSelector
   currently drops it) so an employee-mode partna can wear their own stars.
-- **T24 — URL-intelligence service (approved).** One unroller/classifier
+- **T24 — URL-intelligence service (KEPT).** One unroller/classifier
   every lane calls: expand shortlinks (spoti.fi/bit.ly), parse Linktree's
   social-icons row first-class, classify the destination not the wrapper,
   one probe quality gate (own-page-only, no search/list pages, no
   markdown). Closes issues 17/18/19/21 as a class.
-- **T25 — Book-CTA deep link (small).** VERIFIED: per-service items are
+- **T25 — Book-CTA deep link (KEPT — small).** VERIFIED: per-service items are
   ALREADY employee-aware deep links
   (`fresha.com/a/<slug>/booking?employeeId=…&offerItemId=…`) on both
   manual and auto paths. The ONE gap: the fallback Book action (Services
   page absent) emits the venue ROOT — should emit
   `/a/<slug>/booking?employeeId=<id>` for employee-mode connections.
-- **T26 — Previous-website deep mine (approved as idea 5).** Extend the
-  about-prose scan: services list, owner's own wording, photos with
-  perceptual-hash dedup vs IG; enrich-only, includes the issue-16 HTML
-  strip fix.
-- **T27 — Platform coverage wave — GREEN-LIT (owner, 2026-08-28: "do all
-    the free ones + all new link-only; Apify actors are fine")**:
+- **T26 — Previous-website mine (KEPT — QUICK scope, owner 2026-08-28).**
+  Lightweight pass only: (1) the issue-16 HTML strip fix (tags stripped,
+  entities decoded, word-boundary trim) in the about extractor; (2) pull a
+  services/price list when the page offers one in obvious markup;
+  (3) grab up to a handful of images with perceptual-hash dedup vs IG.
+  Enrich-only, fill-empty, no crawling beyond the one known page. Anything
+  deeper is out of scope.
+- **T27 — Platform coverage wave — GREEN-LIT, DO PROPERLY (owner,
+    2026-08-28). HARD GATE FOR EVERY PLATFORM, link-only included: verify
+    with a REAL link — a genuine live URL for that platform connects on a
+    test account, routes/classifies correctly, and the card (or fetched
+    content) serves on the live site exactly as it should. No platform
+    ships on unit tests alone; each gets a per-platform gate entry logged
+    here with the URL used.**
   - **T27a — link-only additions (all approved)**: Jane App, Cliniko,
     Halaxy, HotDoc, Bookwell (AU health/booking); Wix Bookings, StyleSeat,
     Microsoft Bookings, Google appointment links (calendar.app.google);
@@ -780,9 +775,8 @@ Feasibility evidence gathered live before proposing (details in chat log):
        musicians both post there; also unfreezes the largest "pending
        forever" cohort);
     2) Facebook Page → media pool (Actor; many AU businesses post photos
-       ONLY to Facebook; feeds the thin-homepage problem directly);
-    3) Google Maps reviews depth (Actor) — extends T23 past the Places
-       5-review cap for named-quote mining on busy venues.
+       ONLY to Facebook; feeds the thin-homepage problem directly).
+    (Google-reviews-depth actor REMOVED — owner, 2026-08-28.)
     Budget-gated via the existing AiSpendBudget/actor-caps pattern;
     per-actor caps in config partna.limits.
   - HYGIENE (bundled with T27a): flip non-fetch router placements to
