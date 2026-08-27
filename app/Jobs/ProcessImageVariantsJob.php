@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Concerns\GuardsMediaProcessing;
+use App\Models\Core\MediaVariant;
 use App\Models\Core\Site\SiteMedia;
 use App\Services\Media\ImageVariantService;
 use App\Services\Media\UnprocessableImageException;
@@ -168,6 +169,15 @@ class ProcessImageVariantsJob implements ShouldQueue
                 siteId: $this->siteId !== '' ? $this->siteId : (string) ($siteMedia->site_id ?? ''),
             );
 
+            // T17: the headshot singleton also gets the 192px 'icon' PNG the
+            // sitepage favicon reads (logos get theirs from
+            // ProcessLogoVariantsJob; a photo takes a centre-crop instead of
+            // the logo's contain-fit). Best-effort — an icon failure never
+            // fails the already-READY-bound upload.
+            if ($siteMedia->purpose === SiteMedia::PURPOSE_HEADSHOT) {
+                $this->storeHeadshotIcon($localTmp, $diskName);
+            }
+
             SiteMedia::query()
                 ->where('id', $this->imageId)
                 ->whereNull('deleted_at')
@@ -231,6 +241,81 @@ class ProcessImageVariantsJob implements ShouldQueue
         report($e);
         $this->markFailed($e->getMessage());
         $this->cleanupR2Artifacts();
+    }
+
+    /**
+     * 192×192 centre-crop PNG from the headshot original — the partna
+     * favicon/apple-touch source (mirror of ProcessLogoVariantsJob's
+     * storeIconVariant, which is contain-fit because logos must not crop;
+     * a face benefits from filling the square).
+     */
+    private function storeHeadshotIcon(string $originalTmpPath, string $diskName): void
+    {
+        try {
+            $raw = @file_get_contents($originalTmpPath);
+            $src = $raw === false ? false : @imagecreatefromstring($raw);
+            if ($src === false) {
+                return;
+            }
+
+            $size = 192;
+            $w = imagesx($src);
+            $h = imagesy($src);
+            $crop = min($w, $h);
+            $icon = imagecreatetruecolor($size, $size);
+            imagecopyresampled(
+                $icon, $src, 0, 0,
+                intdiv($w - $crop, 2), intdiv($h - $crop, 2),
+                $size, $size, $crop, $crop,
+            );
+
+            ob_start();
+            imagepng($icon);
+            $bytes = (string) ob_get_clean();
+            imagedestroy($icon);
+            imagedestroy($src);
+            if ($bytes === '') {
+                return;
+            }
+
+            $hash = substr(hash('sha256', $bytes), 0, 16);
+            $path = "{$this->basePath}/icon_{$hash}.png";
+            $disk = Storage::disk($diskName);
+
+            $existingPath = MediaVariant::where([
+                'media_id' => $this->imageId,
+                'variant_key' => 'icon',
+                'artifact_type' => 'png',
+            ])->value('path');
+
+            $disk->put($path, $bytes, 'public');
+
+            if ($existingPath && $existingPath !== $path) {
+                try {
+                    $disk->delete($existingPath);
+                } catch (Throwable $e) {
+                    report($e);
+                }
+            }
+
+            MediaVariant::updateOrCreate(
+                ['media_id' => $this->imageId, 'variant_key' => 'icon', 'artifact_type' => 'png'],
+                [
+                    'disk' => $diskName,
+                    'path' => $path,
+                    'mime' => 'image/png',
+                    'width' => $size,
+                    'height' => $size,
+                    'file_size_bytes' => strlen($bytes),
+                    'content_hash' => $hash,
+                ],
+            );
+        } catch (Throwable $e) {
+            report($e);
+            Log::warning('ProcessImageVariantsJob: headshot icon generation failed.', [
+                'image_id' => $this->imageId, 'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     // Delete the original (and any partial variants) from R2 after terminal failure

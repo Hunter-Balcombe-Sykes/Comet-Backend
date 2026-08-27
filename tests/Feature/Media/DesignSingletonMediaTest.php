@@ -90,14 +90,23 @@ it('rejects every retired cover purpose (feature removed 2026-08-05)', function 
     }
 });
 
-it('holds the design singleton purposes at 2 logos + placeholder (covers retired 2026-08-05)', function () {
+it('holds the design singleton purposes at 2 logos + placeholder + headshot (covers retired 2026-08-05; headshot added T17 2026-08-27)', function () {
     $purposes = SiteMedia::designSingletonPurposes();
     sort($purposes);
 
-    $expected = ['logo_full', 'logo_square', 'placeholder'];
+    $expected = ['headshot', 'logo_full', 'logo_square', 'placeholder'];
     sort($expected);
 
     expect($purposes)->toBe($expected);
+});
+
+it('accepts the headshot purpose (T17, 2026-08-27)', function () {
+    $result = validateDesignMediaRequest(
+        ['purpose' => 'headshot'],
+        ['image' => UploadedFile::fake()->image('headshot.jpg', 400, 400)],
+    );
+
+    expect($result['errors'] ?? [])->not->toHaveKey('purpose');
 });
 
 it('accepts the brand placeholder purpose (singleton since 2026-07-10)', function () {

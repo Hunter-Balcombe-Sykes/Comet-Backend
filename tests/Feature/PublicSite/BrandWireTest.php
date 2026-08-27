@@ -75,6 +75,35 @@ it('emits null slots when nothing was uploaded, and never the placeholder', func
     expect($brand)->toBe(['logoFull' => null, 'logoSquare' => null]);
 });
 
+// ── T17 (owner, 2026-08-27): profile.headshot — its own key, never in brand ──
+
+it('emits the headshot on its own profile key with url + urlIcon', function () {
+    [$pro] = poolTenant();
+    $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
+    brandSingleton($site->id, 'headshot', ['optimized', 'icon']);
+
+    $profile = app(IndividualProfilePayloadBuilder::class)
+        ->build($pro->fresh(), $site)['profile'];
+
+    expect($profile['headshot'])->not->toBeNull()
+        ->and($profile['headshot']['url'])->toContain('headshot-optimized')
+        ->and($profile['headshot']['urlIcon'])->toContain('headshot-icon')
+        ->and(array_keys($profile['headshot']))->toBe(['url', 'urlHd', 'urlIcon'])
+        // The astro layer hard-nulls brand for partna accounts — the
+        // headshot must never ride inside it.
+        ->and($profile['brand'])->toBe(['logoFull' => null, 'logoSquare' => null]);
+});
+
+it('emits a null headshot when the slot is empty', function () {
+    [$pro] = poolTenant();
+    $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
+
+    $profile = app(IndividualProfilePayloadBuilder::class)
+        ->build($pro->fresh(), $site)['profile'];
+
+    expect($profile['headshot'])->toBeNull();
+});
+
 it('hides a logo that is still processing', function () {
     [$pro] = poolTenant();
     $site = Site::query()->where('user_id', $pro->id)->firstOrFail();

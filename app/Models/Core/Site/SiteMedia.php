@@ -75,9 +75,18 @@ class SiteMedia extends BaseModel
 
     public const PURPOSE_PLACEHOLDER = 'placeholder';
 
+    // T17 (owner, 2026-08-27): a partna professional's OWN profile photo —
+    // deliberately separate from the workplace's logo slots per the
+    // 2026-08-19 whose-name-is-on-the-door ruling. Auto-seeded at build from
+    // the Instagram profile picture (fill-empty only); manually replaceable
+    // via the same design-media endpoints; the sitepage uses its icon
+    // variant as the partna favicon/touch icon.
+    public const PURPOSE_HEADSHOT = 'headshot';
+
     /**
      * Design-pool singleton purposes — one row per (site, purpose): the two brand
-     * logos plus the brand placeholder image. Per-platform cover slots
+     * logos, the brand placeholder image, and the partna headshot (2026-08-27).
+     * Per-platform cover slots
      * (`cover_<key>`, registry-derived via PlatformDescriptor::isCoverable) lived
      * here until 2026-08-05, when the owner retired the whole cover feature —
      * existing cover rows are simply no longer enumerated, validated or served.
@@ -99,7 +108,7 @@ class SiteMedia extends BaseModel
      */
     public static function designSingletonPurposes(): array
     {
-        return [self::PURPOSE_LOGO_FULL, self::PURPOSE_LOGO_SQUARE, self::PURPOSE_PLACEHOLDER];
+        return [self::PURPOSE_LOGO_FULL, self::PURPOSE_LOGO_SQUARE, self::PURPOSE_PLACEHOLDER, self::PURPOSE_HEADSHOT];
     }
 
     /**

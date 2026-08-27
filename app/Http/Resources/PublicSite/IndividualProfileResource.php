@@ -53,6 +53,7 @@ class IndividualProfileResource extends ApiResource
      *     links?: list<array<string, mixed>>,
      *     pools?: array<string, array{items: list<array<string, mixed>>, latestItemId: string|null}>,
      *     brand?: array{logoFull: array<string, mixed>|null, logoSquare: array<string, mixed>|null},
+     *     headshot?: array{url: string, urlHd: string|null, urlIcon: string|null}|null,
      *     services?: list<array<string, mixed>>,
      *     document?: array<string, mixed>|null,
      *     newsletter?: array<string, mixed>|null,
@@ -110,6 +111,10 @@ class IndividualProfileResource extends ApiResource
                 // each {url, urlHd, urlSvg, urlIcon} | null. Null when the
                 // owner never uploaded one — name-as-type is the fallback.
                 'brand' => $this->sections['brand'] ?? ['logoFull' => null, 'logoSquare' => null],
+                // The partna professional's own photo (T17, 2026-08-27):
+                // {url, urlHd, urlIcon} | null. The sitepage favicon prefers
+                // urlIcon; the letter initial stays the fallback.
+                'headshot' => $this->sections['headshot'] ?? null,
                 'document' => $this->sections['document'] ?? null,
                 'newsletter' => $this->sections['newsletter'] ?? null,
                 'contact' => $this->sections['contact'] ?? null,

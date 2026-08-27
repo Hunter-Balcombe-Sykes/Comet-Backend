@@ -639,6 +639,34 @@ New owner tasks (this session):
   no caller-supplied params forwarded); bias not restrict; local dev
   unchanged.
 
+### T17 BUILT (2026-08-27 evening) — all three layers
+
+- **Backend**: `PURPOSE_HEADSHOT` joins `designSingletonPurposes()` (the one
+  allowlist — upload/DELETE/GET/resolver all follow); ProcessImageVariantsJob
+  grows a headshot-only 192px CENTRE-CROP icon variant (logos keep their
+  contain-fit lane; a photo fills the square); new `HeadshotAutoSeeder` —
+  the capability mirror of LogoAutoGrabber (gated OFF
+  workplace_brand_is_site_identity, fill-empty only, reads the
+  ALREADY-MIRRORED `{_folder}/profile.jpg` bytes off the media disk — no
+  network, no SSRF surface), called non-fatally from
+  GeneratePreAccountSiteJob beside the T15/T20 seeders; public wire ships
+  `profile.headshot` {url, urlHd, urlIcon} — its OWN key, never inside
+  `brand` (astro hard-nulls brand for partna). Tests: purpose-list pin
+  updated, headshot accept, 2 wire tests, 4 seeder tests.
+- **Dashboard**: new `components/identity/profile-photo.tsx` — single-slot
+  sibling of BusinessLogos (square, plain spinner — no bg-removal/vector
+  steps, they don't run for photos), mounted in the Identity page's partna
+  branch right after YourNameFieldset; the sidebar identity chip now wears
+  the headshot for partna accounts (was: initials always).
+- **Astro**: `ProfileWire.headshot` + `parseHeadshot` in wire.ts;
+  head-builder prefers `brand.logoSquare?.urlIcon ?? headshotIconUrl` —
+  business favicons untouched, partna favicons become the photo, letter
+  initial stays the fallback. SiteDocument.astro untouched (owner-dirty
+  file; the existing logoIconUrl branch serves the headshot unchanged).
+  **NOT deployed** — apps/pages deploys are manual (`npm run deploy`) and
+  the working tree carries the owner's in-flight scroll work; the favicon
+  goes live on the next pages deploy from that chat.
+
 - **RUN LOG (2026-08-27, evening):**
   - T1: real-scraper probe running from production every 5 min (both known
     channels, resolve + videos legs). First samples all OK — consistent

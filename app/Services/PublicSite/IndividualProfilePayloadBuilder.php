@@ -129,6 +129,10 @@ class IndividualProfilePayloadBuilder
             // wholesale, which took the logos down with the noise. Just the
             // two logo slots; the placeholder singleton stays private.
             'brand' => $this->buildBrand($site),
+            // T17 (owner, 2026-08-27): the partna professional's own photo —
+            // its OWN key, never inside `brand` (the astro layer hard-nulls
+            // brand for partna accounts by ruling). Favicon reads urlIcon.
+            'headshot' => $this->buildHeadshot($site),
             'document' => $this->buildDocument($site),
             'newsletter' => $this->buildNewsletter($sections),
             'contact' => $this->buildContact($sections),
@@ -340,6 +344,27 @@ class IndividualProfilePayloadBuilder
         return [
             'logoFull' => $slot(SiteMedia::PURPOSE_LOGO_FULL),
             'logoSquare' => $slot(SiteMedia::PURPOSE_LOGO_SQUARE),
+        ];
+    }
+
+    /**
+     * The headshot design singleton — {url, urlHd, urlIcon} | null (T17,
+     * owner 2026-08-27). Same projection as buildBrand, minus urlSvg (a
+     * photo is never vectorized).
+     *
+     * @return array{url: string, urlHd: string|null, urlIcon: string|null}|null
+     */
+    private function buildHeadshot(?Site $site): ?array
+    {
+        $row = $this->resolver->getDesignSingletons($site)[SiteMedia::PURPOSE_HEADSHOT] ?? null;
+        if (! is_array($row)) {
+            return null;
+        }
+
+        return [
+            'url' => (string) $row['url'],
+            'urlHd' => $row['url_hd'] ?? null,
+            'urlIcon' => $row['url_icon'] ?? null,
         ];
     }
 

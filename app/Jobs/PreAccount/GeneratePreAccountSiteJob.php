@@ -7,6 +7,7 @@ use App\Jobs\Concerns\ThrottlesPreAccountScraping;
 use App\Jobs\Platforms\ThrottledByProvider;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\PreAccountBuild;
+use App\Services\Design\HeadshotAutoSeeder;
 use App\Services\PreAccount\ClaimNotifier;
 use App\Services\PreAccount\ContactFormSeeder;
 use App\Services\PreAccount\SourceGenerationException;
@@ -173,6 +174,16 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, Throttle
         // unclaimed sites, routed to the public contact email when one exists.
         try {
             app(ContactFormSeeder::class)->seedForBuild($user->fresh());
+        } catch (Throwable $e) {
+            report($e);
+        }
+
+        // T17 (owner, 2026-08-27): partna accounts get their Instagram profile
+        // picture as the `headshot` design singleton (fill-empty only) — the
+        // sitepage favicon reads its icon variant. Non-fatal, same contract
+        // as the seeding steps above.
+        try {
+            app(HeadshotAutoSeeder::class)->seedFromInstagram($user, $site);
         } catch (Throwable $e) {
             report($e);
         }
