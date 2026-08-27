@@ -41,8 +41,8 @@ class WixBookings
                 ->notConnectable()
                 ->refreshEvery(0)
                 ->detect(
-                    Detector::url('wixapps.net')->path('#^/bookings#')->strength(EvidenceStrength::ProfileLink),
-                    Detector::url('wixsite.com')->path('#/bookings#')->strength(EvidenceStrength::ProfileLink),
+                    Detector::url('wixapps.net')->path('#/(bookings|book-online)(/|$)#')->strength(EvidenceStrength::ProfileLink),
+                    Detector::url('wixsite.com')->path('#/(bookings|book-online)(/|$)#')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),
         ];
