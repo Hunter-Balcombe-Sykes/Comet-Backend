@@ -149,6 +149,12 @@ final class ConnectionDisplayName
         } elseif (preg_match('~^/([a-z0-9]+(?:-[a-z0-9]+)+)/?$~i', $path, $m)) {
             $slug = $m[1];
         }
+        // A long hex run is a booking KEY wearing a slug's shape, never a
+        // store name (plan-03 batch 6, 2026-08-27: setmore's
+        // /r195da8d…-d path humanised into title-cased garbage).
+        if ($slug !== null && preg_match('/[0-9a-f]{16,}/i', str_replace('-', '', $slug)) === 1) {
+            $slug = null;
+        }
         if ($slug === null) {
             return null;
         }

@@ -47,3 +47,8 @@ it('never shows a numeric id captured from the URL as the account name (plan-03 
     // does too, falling through to the brand-label tail instead.
     expect(D::for('tidal.player', ['url' => 'https://tidal.com/artist/3648857']))->not->toBe('3648857');
 });
+
+it('refuses a hex booking key wearing a store-slug shape (plan-03 batch 6 find)', function () {
+    expect(D::for('setmore.book', ['url' => 'https://powerpoleperformance.setmore.com/r195da8d62e8d578f97b9b51e5fc1b067fafa4077-d']))
+        ->not->toBe('R195Da8D62E8D578F97B9B51E5Fc1B067Fafa4077 D');
+});
