@@ -10,8 +10,9 @@ enum PlatformRouteShape
     // connect + selection + DELETE all on GenericPlatformController (link-only socials).
     case LinkOnly;
 
-    // connect + selection + DELETE all on the platform's own controller; no /accounts
-    // (the former $singleSelection group: skool, strava, google-business).
+    // connect + selection + DELETE all on the platform's own controller; no /accounts.
+    // google-business is the only remaining user (skool and strava left for
+    // LinkOnly in the P2 demotion).
     case SingleSelection;
 
     // connect on the platform's own controller; selection + DELETE (and /accounts when
@@ -23,8 +24,9 @@ enum PlatformRouteShape
     // connect + selection + forget on GenericPlatformController and no /accounts
     // routes, which is exactly what a single-account registry-driven provider
     // needs. Do NOT "fix" it by reclassifying to SingleSelection: all three
-    // declare connectController = null (PlatformRegistryServiceProvider.php:628-630,
-    // FOUND-24), and SingleSelection wires selection + forget to that controller.
+    // declare connectController = null (->routes(MultiAccount, null, false) in each
+    // of their binding classes, FOUND-24), and SingleSelection wires selection +
+    // forget to that controller.
     // Branch on multiAccount(), never on this enum.
     case MultiAccount;
 

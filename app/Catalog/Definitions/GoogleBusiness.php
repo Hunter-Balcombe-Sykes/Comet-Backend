@@ -16,7 +16,7 @@ use App\Catalog\SurfaceBuilder;
  * dispatcher cadence; GoogleBusinessFetch additionally self-gates on a 40h
  * detailsFetchedAt freshness check (GoogleBusinessFetch.php:38-46) so a
  * manual refresh can't hammer Places inside that window. Single row per
- * user (routes SingleSelection, PRSP:621) — no ->multiAccount() call.
+ * user (routes SingleSelection via GoogleBusinessBinding) — no ->multiAccount() call.
  */
 class GoogleBusiness
 {

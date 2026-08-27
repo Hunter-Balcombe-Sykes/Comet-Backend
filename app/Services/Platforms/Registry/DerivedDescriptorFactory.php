@@ -35,9 +35,14 @@ use App\Services\Shop\ShopConnections;
  *     URL-detected surfaces map to 102 distinct slugs.
  *
  * Runs at boot, on every request. Reads the compiled artefact ONLY — never
- * reflects Definitions/, never resolves a strategy factory. Derived descriptors
- * carry no strategies at all: they are link-only by owner ruling, and the write
- * is LinkRouter's.
+ * reflects Definitions/, and never INSTANTIATES a strategy here: everything
+ * behavioural is attached as closures. Which closures depends on the slug:
+ * a BEHAVIOUR_BINDINGS entry (P4/P5) hands the descriptor to its binding
+ * class, which attaches the platform's full contract verbatim (fetch/
+ * connect/refresh strategies, resource, payload, cadence, route shape);
+ * every other derived slug gets the Brand default — BrandLinkConnect with
+ * CardPayload (EmbedPayload for the two keyless music embeds), where the
+ * write is LinkRouter's.
  */
 class DerivedDescriptorFactory
 {

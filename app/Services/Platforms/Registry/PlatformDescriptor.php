@@ -4,7 +4,6 @@ namespace App\Services\Platforms\Registry;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
-use App\Services\Platforms\Payloads\EmbedPayload;
 use App\Services\Platforms\Payloads\LinkPayload;
 use App\Services\Platforms\Strategies\Contracts\ConnectStrategy;
 use App\Services\Platforms\Strategies\Contracts\Detection;
@@ -118,14 +117,6 @@ class PlatformDescriptor
         return self::make($key)->label($label)->category(PlatformCategory::Social)
             ->resource($resourceClass)->refreshable(false)
             ->payload(LinkPayload::class);
-    }
-
-    /** oEmbed music embed: resolves name/artwork on refresh. */
-    public static function oEmbed(string $key, string $label, string $resourceClass): self
-    {
-        return self::make($key)->label($label)->category(PlatformCategory::Music)
-            ->resource($resourceClass)->refreshable(true)
-            ->payload(EmbedPayload::class);
     }
 
     public function label(string $label): self

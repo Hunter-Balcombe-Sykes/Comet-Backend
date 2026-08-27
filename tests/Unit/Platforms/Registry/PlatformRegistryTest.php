@@ -6,7 +6,7 @@ use App\Services\Platforms\Registry\PlatformRegistry;
 it('registers, looks up, and lists descriptors', function () {
     $r = new PlatformRegistry;
     $r->register(PlatformDescriptor::linkOnly('linkedin', 'LinkedIn', 'R'))
-        ->register(PlatformDescriptor::oEmbed('spotify', 'Spotify', 'R'));
+        ->register(PlatformDescriptor::make('spotify')->label('Spotify')->resource('R')->refreshable(true));
 
     expect($r->has('linkedin'))->toBeTrue();
     expect($r->get('spotify')->getLabel())->toBe('Spotify');
@@ -17,7 +17,7 @@ it('registers, looks up, and lists descriptors', function () {
 it('returns only refreshable descriptors from refreshable()', function () {
     $r = new PlatformRegistry;
     $r->register(PlatformDescriptor::linkOnly('linkedin', 'LinkedIn', 'R')) // not refreshable
-        ->register(PlatformDescriptor::oEmbed('spotify', 'Spotify', 'R'));    // refreshable
+        ->register(PlatformDescriptor::make('spotify')->label('Spotify')->resource('R')->refreshable(true));
 
     expect(array_keys($r->refreshable()))->toBe(['spotify']);
 });

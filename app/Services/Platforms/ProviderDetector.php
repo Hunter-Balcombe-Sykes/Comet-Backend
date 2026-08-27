@@ -9,9 +9,10 @@ use App\Services\Platforms\Registry\PlatformRegistry;
 // when nothing matches (→ the custom-link fallback). Registry-driven: a category's
 // candidate providers are the registered descriptors in that category that carry a
 // Detection strategy, tried in registration order (= priority). Adding a provider
-// is a descriptor + a ->detect(...) line in PlatformRegistryServiceProvider — no
-// edit here. Detection is host-level only; the provider's connect endpoint does
-// the strict path/rid validation.
+// is a descriptor + a ->detect(...) line in its binding class
+// (app/Services/Platforms/Registry/Bindings) — no edit here. Detection is
+// host-level only; the provider's connect endpoint does the strict path/rid
+// validation.
 class ProviderDetector
 {
     public function __construct(private readonly PlatformRegistry $registry) {}
