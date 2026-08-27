@@ -1318,3 +1318,37 @@ failures).
    signup after fixes land).
 5. Post-claim behaviour: none of this has yet tested CLAIMING one of these
    accounts — separate round.
+
+## OVERNIGHT WAVE 2 (owner brief, 2026-08-28 ~03:20)
+
+Owner turned all Apify scrapers on and went to bed. Brief: (1) T27c TikTok +
+Facebook drivers; (2) partna accounts get the reviews pool — person-scoped,
+name-matched, shown pre-claim; (3) exhaustive live test round (real IG /
+Google Business connects, unclaimed builds, logs) using sonnet/haiku agents
+for search+test legwork; (4) add as many link-only platforms as sensible
+(free coverage); (5) free connectors for anything scrapeable without keys;
+(6) icon+wordmark+brand-colour sweep across EVERY platform (design-system
+gap fill). Set everything live as it lands.
+
+### Shipped
+- **T27c** (4d630138a): TikTok profile feed → watch pool; Facebook page
+  posts → media pool. Shared SocialActorDriver (per-actor caps tiktok=300,
+  facebook=300), shapes from live captures (clockworks~tiktok-profile-scraper,
+  apify~facebook-posts-scraper). Owned refs tiktok:/facebook: join
+  MediaMirror's allowlist (both CDNs sign+expire). Provisioner arms read
+  existing social connections' payload username/url — 40 such rows on dev.
+  LIVE GATE: pending below.
+- **Person-scoped reviews** (90a97734f + migration 20260828030000):
+  reviews_scoped_to_person capability (partna=true). Venue-level review
+  candidates drop unless staff_name/name-mention/vendor-employee-scoped.
+  f_review.staff_name now actually persists (ProjectionWriter column list
+  had silently dropped the Fresha projector's field since T23b). Fail-closed
+  with no usable name; business accounts unchanged. Full suite 9,656 passed.
+  LIVE GATE: pending below.
+
+### In flight
+- Brand-asset agents: batch A (12 T27a booking platforms, all assets),
+  batch B (15 partial entries). Design-system folders only; registry build +
+  audit after they land.
+- Live gates queue: TikTok real-handle E2E, Facebook real-page E2E, Simon
+  fresha staff_name reland, partna venue-review scoping on a real build.
