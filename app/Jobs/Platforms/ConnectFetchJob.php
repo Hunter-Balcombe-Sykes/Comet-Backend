@@ -76,6 +76,18 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
 
     public int $maxExceptions = 2;
 
+    /**
+     * T2 (2026-08-27): spaced retry tiers for a SYSTEM-initiated connect whose
+     * first fetch failed — 5m, 15m, 45m, 2h. Sized against the observed
+     * failure mode (YouTube bot-challenge flakiness lasting minutes, not
+     * seconds: three first-fetch losses on the 2026-08-27 test builds while an
+     * identical fetch succeeded 7s later). After the last tier the F26 delete
+     * applies as before.
+     *
+     * @var list<int> seconds
+     */
+    public const SYSTEM_RETRY_DELAYS = [300, 900, 2700, 7200];
+
     public function __construct(
         public readonly string $connectionId,
         public readonly string $platform,
@@ -323,6 +335,28 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
         // of an account that has fetched OK before keeps its row: the old
         // payload is still good, only this attempt failed.
         if ($connection->last_refreshed_at === null) {
+            // T2 (2026-08-27): a SYSTEM-initiated first-fetch vendor miss is
+            // retried on a spaced chain before F26's delete — nobody is
+            // watching a modal to retry it, and the observed misses are
+            // intermittent (an identical fetch succeeded seconds later).
+            // Only 'unavailable' qualifies: 'error' (shape/unsupported) is
+            // not vendor flakiness and retrying cannot fix it. The retry is a
+            // separate non-unique job — see ScheduleConnectRetryJob's
+            // docblock for why a delayed self-dispatch cannot work here.
+            $failures = (int) $connection->consecutive_failures;
+            if ($this->systemInitiated && $status === 'unavailable' && $failures <= count(self::SYSTEM_RETRY_DELAYS)) {
+                $delay = self::SYSTEM_RETRY_DELAYS[$failures - 1];
+                ScheduleConnectRetryJob::dispatch($connection->id, $connection->platform)->delay($delay);
+                Log::info('platform.connect_job.system_retry_scheduled', [
+                    'connection_id' => $connection->id,
+                    'platform' => $connection->platform,
+                    'attempt' => $failures,
+                    'delay_seconds' => $delay,
+                ]);
+
+                return;
+            }
+
             Log::info('platform.connect_job.first_fetch_failed_row_removed', [
                 'connection_id' => $connection->id,
                 'platform' => $connection->platform,
