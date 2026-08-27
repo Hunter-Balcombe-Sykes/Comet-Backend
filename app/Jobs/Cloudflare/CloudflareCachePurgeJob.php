@@ -9,7 +9,9 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\RateLimitedWithRedis;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -20,20 +22,47 @@ use Throwable;
 //
 // Why a dedicated retry policy (not HasCloudflareRetryPolicy):
 //   The KV policy targets the KV REST API's failure profile (rare, slow). Cache
-//   purge has its own 4xx/5xx semantics — short retries with exponential backoff
-//   are enough; a third retry at 60s is wasted because the underlying mutation
-//   has long since settled. Keep this distinct from the KV trait.
+//   purge has its own 4xx/5xx semantics — short backoff for real errors, a
+//   Retry-After release for 429, a time bound (retryUntil) instead of a try
+//   count, and the shared 'cloudflare-purge' funnel in middleware() so a burst
+//   never reaches the API's own rate limit. Keep this distinct from the KV
+//   trait.
 class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
-
-    public int $tries = 3;
 
     /** @var list<int> */
     public array $backoff = [5, 15, 60];
 
     // Short-circuit permanent failures (e.g. revoked token) so failed()/Nightwatch fires after 2 attempts, not 3.
     public int $maxExceptions = 2;
+
+    /**
+     * Attempts are bounded by TIME, not a count (was $tries = 3): the funnel
+     * below and the 429 release both re-queue this job without consuming an
+     * exception, and a fixed count starved a burst — the 2026-08-27 bulk
+     * connect run drove Cloudflare's purge API into 429 (their error 1134),
+     * and three tries at 5/15/60s all landed INSIDE the same rate window, so
+     * purges died terminal and handles sat stale at the edge. Ten minutes
+     * comfortably clears any rate window while maxExceptions still kills a
+     * genuinely broken purge (revoked token) after two real failures.
+     */
+    public function retryUntil(): \DateTime
+    {
+        return now()->addMinutes(10);
+    }
+
+    /**
+     * The shared funnel for Cloudflare's purge API: every purge job on the
+     * account claims a slot before calling out, so a connect burst queues
+     * instead of tripping the API's own rate limit. Redis-backed — the
+     * queue connection is Redis. Limiter defined in AppServiceProvider;
+     * ceiling in config/partna.php cache.purge_api_per_minute.
+     */
+    public function middleware(): array
+    {
+        return [new RateLimitedWithRedis('cloudflare-purge')];
+    }
 
     // Since the 2026-08-19 prefix-purge rewrite a purge is TWO requests (one
     // prefix purge, one ≤3-URL API chunk), each bounded to timeout(10)+
@@ -163,7 +192,21 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
             }
         }
 
-        $purge->purgeHandle($h, $customDomain);
+        try {
+            $purge->purgeHandle($h, $customDomain);
+        } catch (RequestException $e) {
+            if ($e->response->status() === 429) {
+                // Cloudflare said "wait" — waiting is the whole answer. Honour
+                // Retry-After when sent; 90s otherwise (their 1134 windows are
+                // a minute). A release consumes no exception budget, and
+                // retryUntil() bounds how long we keep deferring.
+                $this->release(max(1, (int) ($e->response->header('Retry-After') ?: 90)));
+
+                return;
+            }
+
+            throw $e;
+        }
 
         // A visitor can hit the just-purged URL while the API payload layer is
         // still inside its s-maxage window (5 s for the profile wire — Laravel

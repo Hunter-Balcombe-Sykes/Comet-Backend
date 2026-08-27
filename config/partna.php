@@ -2753,6 +2753,12 @@ return [
         // would coalesce into its own predecessor.
         'purge_followup_schedule' => [15],
 
+        // Ceiling for the shared cloudflare-purge job funnel (jobs/minute
+        // across the whole install — each job is ~2 API requests). Sized
+        // under Cloudflare's own purge rate limit so a connect burst queues
+        // here instead of 429ing there (observed 2026-08-27 bulk run).
+        'purge_api_per_minute' => (int) env('PARTNA_CF_PURGE_API_PER_MINUTE', 20),
+
         // R3-CACHE-1: ops lever for ReconcilePlatformTakedownJob's purge fan-out.
         // 0 (default) = off — the cloudflare_bulk lane's strict-priority
         // isolation already delivers the "never competes with real-time

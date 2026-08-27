@@ -1012,5 +1012,16 @@ class AppServiceProvider extends ServiceProvider
                 (int) config('partna.throttle.mail_broadcast_per_second', 5)
             )->by('mail-broadcast');
         });
+
+        // The cloudflare-purge JOB funnel (CloudflareCachePurgeJob::middleware):
+        // one shared account-wide budget for Cloudflare's purge API, sized under
+        // their own rate limit so a connect burst queues here instead of 429ing
+        // there (their error 1134, observed 2026-08-27). Not gated on
+        // $throttleEnabled — this protects an external vendor budget, not us.
+        RateLimiter::for('cloudflare-purge', function () {
+            return Limit::perMinute(
+                (int) config('partna.cache.purge_api_per_minute', 20)
+            )->by('cloudflare-purge');
+        });
     }
 }

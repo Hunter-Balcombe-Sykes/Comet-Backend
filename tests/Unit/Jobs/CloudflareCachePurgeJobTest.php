@@ -28,10 +28,54 @@ beforeEach(function () {
 it('has its own retry policy and queue (not the KV trait — see §28.7)', function () {
     $job = new CloudflareCachePurgeJob('h');
 
-    expect($job->tries)->toBe(3)
+    // Time-bounded, not count-bounded (2026-08-27 bulk-connect finding): a
+    // fixed $tries burned all its attempts inside one Cloudflare 429 window.
+    expect($job->tries ?? null)->toBeNull()
+        ->and($job->retryUntil()->getTimestamp())->toBeGreaterThan(now()->addMinutes(5)->getTimestamp())
+        ->and($job->retryUntil()->getTimestamp())->toBeLessThanOrEqual(now()->addMinutes(15)->getTimestamp())
+        ->and($job->maxExceptions)->toBe(2)
         ->and($job->backoff)->toBe([5, 15, 60])
         ->and($job->timeout)->toBe(30)
         ->and($job->queue)->toBe('cloudflare');
+});
+
+it('funnels every purge through the shared cloudflare-purge rate limiter', function () {
+    $middleware = (new CloudflareCachePurgeJob('h'))->middleware();
+
+    expect($middleware)->toHaveCount(1)
+        ->and($middleware[0])->toBeInstanceOf(\Illuminate\Queue\Middleware\RateLimitedWithRedis::class);
+});
+
+it('releases on a Cloudflare 429 honouring Retry-After instead of burning an exception', function () {
+    $job = new CloudflareCachePurgeJob('h');
+
+    $response = new \Illuminate\Http\Client\Response(
+        new \GuzzleHttp\Psr7\Response(429, ['Retry-After' => '42'], '{"errors":[{"code":1134}]}')
+    );
+    $purge = Mockery::mock(CloudflarePurgeService::class);
+    $purge->shouldReceive('purgeHandle')->once()->andThrow(
+        new \Illuminate\Http\Client\RequestException($response)
+    );
+
+    $queueJob = Mockery::mock(QueueJob::class);
+    $queueJob->shouldReceive('release')->once()->with(42);
+    $queueJob->shouldIgnoreMissing();
+    $job->setJob($queueJob);
+
+    $job->handle($purge);
+});
+
+it('still throws non-429 request failures so maxExceptions applies', function () {
+    $job = new CloudflareCachePurgeJob('h');
+
+    $response = new \Illuminate\Http\Client\Response(new \GuzzleHttp\Psr7\Response(500));
+    $purge = Mockery::mock(CloudflarePurgeService::class);
+    $purge->shouldReceive('purgeHandle')->once()->andThrow(
+        new \Illuminate\Http\Client\RequestException($response)
+    );
+
+    expect(fn () => $job->handle($purge))
+        ->toThrow(\Illuminate\Http\Client\RequestException::class);
 });
 
 // 2026-07-20 follow-up: raised from 15 -> 180 with real margin over the derived
