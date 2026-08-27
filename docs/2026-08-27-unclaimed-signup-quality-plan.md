@@ -382,6 +382,43 @@ parallel; measure Simon's 49s generate step's internal phases.
   then: build the API leg config-gated (activates when the key appears);
   keep-row + retries ships independently and carries the fix.
 
+- **D10 (2026-08-27, T14 bio-handle intelligence):** GO on the full idea.
+  Verified context first: Fresha→workplace ALREADY exists
+  (`LinkFreshaVenueToGoogleJob` + `FreshaWorkplaceLinker`, owner 2026-08-19,
+  ran on today's builds) — it keeps precedence; bio-derived workplace fills
+  only when still empty. Store-connect semantics verified: since 2026-08-17
+  a store connect fills the LIBRARY only for claimed users (auto-publish
+  toggle written OFF), while pre-account builds publish the newest ~5 per
+  store (verified live: traethebarber publishes 5 of 8) — so no
+  whole-catalogue risk exists. Decisions:
+  - **Brand stores: connect with publishing ON** (owner) — ~5 brand
+    products appear on the Sell page like any store.
+  - **Workplace detection covers working-there, not just ownership** —
+    role labels ("Owner", "Co-Owner", "cuts at", "based at", "work at") AND
+    the convention heuristic: a professional whose bio has exactly ONE
+    @handle whose name/words look venue-shaped (studio, barbers, salon,
+    shop…) is a strong workplace candidate without an explicit label.
+    Part of T14 is a conventions study over real bios to tune this.
+  - Pipeline: one Mistral bio-intelligence call (shared with T13's About)
+    returns classified mentions → workplace path: chained IG scrape of the
+    referenced handle → name/address from ITS bio → Places search +
+    name-agreement scoring (reuse FreshaWorkplaceLinker's pick logic) →
+    workplace if empty; brand path: chained scrape → website → commerce
+    probe/route → store connect, publishing on. Uncertain either way →
+    routing suggestion (existing machinery) for post-claim.
+  - Chained-scrape bounds: only labeled/qualifying handles, cap ~3 per
+    build; brand/venue IG scrapes CACHED globally (same brand appears in
+    hundreds of bios — scrape once, share, TTL weeks).
+  - Known test fixtures: emdinonhair "Owner @star_barber_darwin." →
+    workplace Star Barber Darwin (Shop 6 Star Village Arcade, Darwin) —
+    Emma has NO workplace today so the bio path is the only source;
+    barber_in_law "Co-Owner @studio___san Blackburn South VIC 3130" (but
+    Fresha already set his workplace → bio path must SKIP) + "@andisco_aunz
+    ambassador." → brand store connect via andisclippers.com.au.
+- **D11 (2026-08-27, run ops):** owner will supply a large set of real test
+  accounts for iterating. **IP cap authorized to 1000** for the run (set +
+  deployed). Apify spend for test runs explicitly unbounded by owner.
+
 ## Open owner questions
 
 - (none currently — new ones get added here as work raises them)
@@ -463,6 +500,18 @@ The owner is away (dinner) once execution starts. For this run:
   bio asserting near-pass-through); fresh build shows a good About or none.
 - **T2 addendum (D9)**: YouTube Data API primary resolve leg — test the
   existing Google key first; scraper fallback; proxy last.
+- **T14 — Bio-handle intelligence per D10** (workplace + brand stores from
+  IG bio mentions): conventions study over real bios first (owner supplying
+  bulk test accounts) → mention classifier folded into the T13 Mistral
+  call → workplace chain (empty-only, Fresha linker precedence, Places
+  triple-agreement) + brand chain (commerce probe, publishing on) +
+  suggestions for the uncertain. Global cache for chained scrapes.
+  **Gate (owner-specified): re-run the known accounts and a spread of new
+  ones and verify right-case firing per account** — emdinonhair gains Star
+  Barber Darwin as workplace; barber_in_law's bio workplace SKIPS (Fresha
+  precedence) but gains the Andis store with ~5 products publishing;
+  accounts with no qualifying mentions change NOTHING (false-positive
+  check). Logged per-account in this doc.
 - **T12 — Acceptance rebuild round**: fresh signups (simondoylehair,
   st-ali + one new partna) after all fixes; full window.py sweep, Nightwatch
   diff, live-site checks; results logged here. Gate: zero regressions, all
