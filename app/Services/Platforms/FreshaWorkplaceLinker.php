@@ -195,7 +195,8 @@ class FreshaWorkplaceLinker
                         break;
                     }
                 }
-            } elseif (! isset($venue['lat'], $venue['lng']) && $venuePostcode === '' && $venuePhone === null) {
+            } elseif (! isset($venue['lat'], $venue['lng']) && $venuePostcode === '') {
+                // ($venuePhone is necessarily null here — the branch above took it.)
                 // T14/owner 2026-08-27: locality-corroborated hit for venues
                 // that OFFER no corroborator at all (a bio-mention venue whose
                 // IG bio carries only opening hours — measured on
