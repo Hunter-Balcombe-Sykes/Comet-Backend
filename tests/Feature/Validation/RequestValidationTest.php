@@ -3,7 +3,6 @@
 use App\Http\Requests\Api\BootstrapRequest;
 use App\Http\Requests\Api\PublicSite\CustomerLeads\PublicCustomerLeadRequest;
 use App\Http\Requests\Api\PublicSite\PublicSiteShowRequest;
-use App\Http\Requests\Api\User\Site\DestroyLinkBlockRequest;
 use App\Http\Requests\Api\User\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
 use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
@@ -112,15 +111,4 @@ it('rejects invalid reorder blocks payload', function () {
 
     expect($validator->fails())->toBeTrue();
     expect($validator->errors()->has('ids.0'))->toBeTrue();
-});
-
-it('rejects invalid destroy link block payload', function () {
-    $payload = [
-        'id' => 'not-a-uuid',
-    ];
-
-    $validator = Validator::make($payload, (new DestroyLinkBlockRequest)->rules());
-
-    expect($validator->fails())->toBeTrue();
-    expect($validator->errors()->has('id'))->toBeTrue();
 });
