@@ -357,24 +357,30 @@ parallel; measure Simon's 49s generate step's internal phases.
   biography. Current state (verified): users.bio is manual-only (dashboard +
   staff requests are the only writers); `InstagramScraper` already fetches
   `biography` but only regexes URLs out of it and DISCARDS the text
-  (InstagramScraper.php:380) — not even persisted to the payload. Design:
-  persist biography on the connection payload → deterministic pre-clean
-  (strip emoji/URLs/hashtags/CTAs; <~5 meaningful words → NO bio) → Mistral
-  transform in **strict keep-their-words mode: the model only stitches the
-  bio's own fragments/facts into consistent sentences, up to a short
-  paragraph — their words, not a rewrite** → post-validation (no
-  emoji/URLs, length cap, vocabulary-overlap-with-source check to
-  mechanically catch invention; fail → NO bio). No-bio always beats a bad
-  bio. Applies to pre-account builds AND any IG connect where users.bio is
+  (InstagramScraper.php:380) — not even persisted to the payload. Design
+  (amended by owner 2026-08-27: **NO deterministic pre-clean before the AI**
+  — emojis/pins/fragments carry detail Mistral can USE while stripping the
+  symbols; a pre-clean would lose it): persist biography on the connection
+  payload → **raw bio straight to Mistral** in strict keep-their-words
+  mode: the model stitches the bio's own fragments/facts into consistent
+  sentences, up to a short paragraph — their words, not a rewrite; emojis/
+  hashtags/URLs stripped BY the model as part of the transform. Refusal
+  gates wrap the call rather than precede it: (pre) skip the call when the
+  raw bio has <~5 meaningful words after ignoring URLs/emoji — nothing to
+  stitch; (post) reject output containing emoji/URLs, over length, or with
+  too little vocabulary overlap with the source (catches invention) → NO
+  bio. No-bio always beats a bad bio. Applies to pre-account builds AND any IG connect where users.bio is
   empty; auto-derived flag so an owner edit permanently wins; never
   overwrite owner-authored text.
 - **D9 (2026-08-27, T2):** official **YouTube Data API becomes the primary
   channel-resolve/latest-video path** (free quota, no bot-walls); the
-  scraper drops to fallback; paid proxy last resort (D7). Setup contingency:
-  a Google API key already exists for GBP/Places — at execution, test
-  whether it accepts YouTube Data API calls; if the API isn't enabled on
-  that Google Cloud project, that's an owner console step — until then ship
-  keep-row+retries on the scraper and log the ask.
+  scraper drops to fallback; paid proxy last resort (D7). Setup contingency
+  (RESOLVED negative, 2026-08-27): NO Google API key exists on dev at all
+  (GOOGLE_MAPS_API_KEY and GOOGLE_MAPS_SERVER_API_KEY both unset — GBP
+  enrichment is pure Apify). Owner must create a key with YouTube Data API
+  v3 enabled and set `YOUTUBE_DATA_API_KEY` themselves (+ redeploy). Until
+  then: build the API leg config-gated (activates when the key appears);
+  keep-row + retries ships independently and carries the fix.
 
 ## Open owner questions
 
