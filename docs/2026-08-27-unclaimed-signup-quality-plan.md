@@ -576,9 +576,12 @@ partna rows are internal), discarded. What survives:
 - CLEAN: eoinmccarthyhair + leighwinsor read well end-to-end; business
   menus (viet-harmony 51 items) and review sections render authentically.
 
-### T1 probe interim (08:13 UTC): 8/8 samples OK across 40 min — failure
-mode is bursty/rare, consistent with retries-only being sufficient (D7's
-proxy fallback likely unneeded; final read at 12 samples).
+### T1 probe FINAL (08:34 UTC): 11/12 samples OK across ~60 min, both
+channels, both scraper legs, from production (the 12th sample lost output to
+a cloud-CLI transport hiccup, not a YouTube failure). VERDICT: failures are
+rare bursts, not a block — T2's spaced retry chain (5m/15m/45m/2h) is amply
+sufficient; D7's proxy fallback is NOT needed; the YT Data API leg (D9)
+stays optional pending the owner's key. T1 gate: met.
 
 ## Task ledger for the run (each with its gate)
 
