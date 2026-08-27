@@ -82,5 +82,20 @@ return [
     'partna.manual_product' => 'https://acme.example.com/shop/handmade-necklace',
     'squarespace.store' => 'https://acme.squarespace.com/shop',
     'vimeo.account' => 'https://vimeo.com/acme',
+    // T27a detect-only: the wixapps.net widget-host shape (wixsite.com is PSL-blocked).
+    'wix_bookings.book' => 'https://bookings.wixapps.net/bookings/v1/acme',
+    // T27a (2026-08-28) — the REAL urls each platform's live gate used (plan
+    // doc phase-2 gate log), shapes verified against the deployed router.
+    'jane_app.book' => 'https://revolutionwellnessclinic.janeapp.com/',
+    'cliniko.book' => 'https://effective-physiotherapy-sports-injuries-clinic.cliniko.com/bookings',
+    'halaxy.book' => 'https://eu.halaxy.com/profile/leeds-fittoworkmedicalscom/location/402572',
+    'hotdoc.book' => 'https://www.hotdoc.com.au/medical-centres/port-melbourne-VIC-3207/port-melbourne-medical/doctors',
+    'bookwell.book' => 'https://www.bookwell.com.au/venue/i-love-massage-clayfield/clayfield/4011',
+    'styleseat.book' => 'https://www.styleseat.com/m/v/jj_styles',
+    'mr_yum.order' => 'https://www.mryum.com/casanom',
+    'rezdy.book' => 'https://greatoceanroadtours.rezdy.com/productList',
+    'fareharbor.book' => 'https://fareharbor.com/embeds/book/sydneyharbourkayaks/',
+    'google_appointments.book' => 'https://calendar.app.google/A1bC2dE3fG4hJ5k6',
+    'microsoft_bookings.book' => 'https://outlook.office365.com/owa/calendar/bookings@contoso.com/bookings/',
     'woocommerce.store' => 'https://woocommerce.com/store/acme',
 ];

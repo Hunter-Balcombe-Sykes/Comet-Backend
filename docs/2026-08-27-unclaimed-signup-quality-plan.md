@@ -898,7 +898,28 @@ harvester commit).
 - **Vagaro: DEFERRED** — no public venue page indexed to capture a real
   shape from this run; needs one real URL before an honest build
   (Treatwell-shaped attempt likely).
-- Remaining: T27c — TikTok, Facebook (Apify actors).
+- **Wave-final gate: full parallel suite 9,636 passed / 0 failed**
+  (guardrail fallout regenerated: routing corpus +15 detectors — which
+  caught the office.com /bookwithme trailing-slash bug, third instance of
+  the canonicaliser lesson; probe-urls fixture carries the REAL gate URLs;
+  golden master 143 → 153 selection reads for the ten connectable brands).
+
+### T27c + FOLLOW-UPS — the next session's opener
+
+- **T27c (TikTok + Facebook via Apify) NOT built this session — deliberate.**
+  Each needs: an actor-adapter scraper (InstagramScraper pattern), a
+  BilledEffectDriver + ApifyBudget key + config partna.limits caps, a REAL
+  actor dataset capture to map, and media-mirror semantics — plus knowing
+  WHICH actors the owner's Apify account has installed (owner console/env
+  step, like the YouTube key). Pattern references: InstagramActorDriver
+  (the claim-ordering rules), InstagramConnector, MenuActorDriver.
+- EventsSeeder bio-AUTO-connect parity for RA/Luma (seedAccount is
+  eventbrite/humanitix-only; the URL-connect lane works today).
+- Vagaro: needs one real venue-page capture (Treatwell-shaped attempt).
+- The fleet accounts now have Fresha REVIEWS available on next
+  reselect/refresh (the reviews stream provisions with the source's next
+  sync) — a fleet-wide `ingest:run --key=fresha` sweep would light them
+  all up at once; owner call.
 
 ### RUN EFFICIENCY PROTOCOL (owner ask, 2026-08-28) — for the T23–T27 run
 

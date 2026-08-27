@@ -40,7 +40,7 @@ class MicrosoftBookings
                 ->refreshEvery(0)
                 ->detect(
                     Detector::url('office365.com')->path('#/bookings(/|$)#')->strength(EvidenceStrength::ProfileLink),
-                    Detector::url('office.com')->path('#^/bookwithme/#')->strength(EvidenceStrength::ProfileLink),
+                    Detector::url('office.com')->path('#^/bookwithme(/|$)#')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),
         ];

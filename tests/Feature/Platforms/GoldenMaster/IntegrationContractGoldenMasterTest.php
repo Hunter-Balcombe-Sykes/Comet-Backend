@@ -564,7 +564,12 @@ it('covers every integration GET read-route in the golden master', function () {
     // 142 → 143 on 2026-08-26: square.order became connectable (menu
     // deep-links plan A1) — the upgraded square-ordering descriptor gains
     // its /selection read.
-    expect($readRoutes->count())->toBe(143);
+    // 143 → 153 on 2026-08-28 (T27a): ten new connectable link-only brands
+    // (jane_app, cliniko, halaxy, hotdoc, bookwell, styleseat, rezdy,
+    // fareharbor, mr_yum, google_appointments) each gain their derived
+    // /selection read; the two detect-only brands (wix_bookings,
+    // microsoft_bookings) deliberately add none.
+    expect($readRoutes->count())->toBe(153);
     expect($readRoutes->all())->toEqual([
         'api/platforms/acuity/selection',
         'api/platforms/apple/music/accounts',
@@ -579,6 +584,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/behance/selection',
         'api/platforms/bella-booking/selection',
         'api/platforms/booksy/selection',
+        'api/platforms/bookwell/selection',
         'api/platforms/bopple/selection',
         'api/platforms/boulevard/selection',
         'api/platforms/buymeacoffee/selection',
@@ -587,6 +593,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/chownow/selection',
         'api/platforms/circle/accounts',
         'api/platforms/circle/selection',
+        'api/platforms/cliniko/selection',
         'api/platforms/codepen/selection',
         'api/platforms/deliveroo/selection',
         'api/platforms/discord/selection',
@@ -598,6 +605,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/eventbrite/connect/status',
         'api/platforms/eventbrite/selection',
         'api/platforms/facebook/selection',
+        'api/platforms/fareharbor/selection',
         'api/platforms/fresha/connect/status',
         'api/platforms/fresha/selection',
         'api/platforms/genbook/selection',
@@ -605,15 +613,19 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/gitlab/selection',
         'api/platforms/glossgenius/selection',
         'api/platforms/google-business/selection',
+        'api/platforms/google_appointments/selection',
         'api/platforms/grubhub/selection',
         'api/platforms/gumroad/accounts',
         'api/platforms/gumroad/selection',
+        'api/platforms/halaxy/selection',
+        'api/platforms/hotdoc/selection',
         'api/platforms/humanitix/accounts',
         'api/platforms/humanitix/connect/status',
         'api/platforms/humanitix/selection',
         'api/platforms/hungrypanda/selection',
         'api/platforms/instagram/connect/status',
         'api/platforms/instagram/selection',
+        'api/platforms/jane_app/selection',
         'api/platforms/just_eat/selection',
         'api/platforms/kajabi/accounts',
         'api/platforms/kajabi/selection',
@@ -632,6 +644,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/mindbody/selection',
         'api/platforms/mixcloud/accounts',
         'api/platforms/mixcloud/selection',
+        'api/platforms/mr_yum/selection',
         'api/platforms/noterro/selection',
         'api/platforms/nowbookit/selection',
         'api/platforms/opentable/selection',
@@ -650,6 +663,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/resident-advisor/accounts',
         'api/platforms/resident-advisor/selection',
         'api/platforms/resy/selection',
+        'api/platforms/rezdy/selection',
         'api/platforms/schedulicity/selection',
         'api/platforms/setmore/selection',
         'api/platforms/sevenrooms/selection',
@@ -671,6 +685,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/square-ordering/selection',
         'api/platforms/square/selection',
         'api/platforms/strava/selection',
+        'api/platforms/styleseat/selection',
         'api/platforms/substack/selection',
         'api/platforms/tablecheck/selection',
         'api/platforms/tablein/selection',
