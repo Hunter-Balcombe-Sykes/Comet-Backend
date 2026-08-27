@@ -881,8 +881,24 @@ harvester commit).
   NOTE: RA/Luma bio-AUTO-connect parity (EventsSeeder::seedAccount is
   hard-wired to eventbrite/humanitix) is a follow-up — today they connect
   via the URL-connect card like every Brand platform, and fetch from there.
-- Remaining T27b: Booksy, Treatwell, Vagaro, Timely (services scrapers).
-  T27c: TikTok, Facebook (Apify).
+- **Booksy SHIPPED + GATED** (eb32a8523): venue schema.org (HairSalon)
+  carries makesOffer[] + review[] + aggregateRating — live-verified on a
+  real AU barber. Services (Catalogue-with-deletes, name-keyed) + reviews
+  (shared Fresha-shape projector, reviewer PII when_unclaimed). Live gate
+  on anththebarberr: 7 services + 3 reviews with stats {5.0, 25} SERVED on
+  the wire; fixture removed after.
+- **Treatwell SHIPPED + GATED** (41fcf9416): @graph business node's
+  hasOfferCatalog → categories of Offers {name, description, ISO-8601
+  duration, price+currency} — live-verified on the-barber-shop-mayfair.
+  Live gate on ronanstorey-hair: 11 services SERVED; fixture removed.
+- **Timely: NOT scrapeable — honest verdict.** The booking widget is a
+  pure JS SPA (zero server-rendered services, no JSON-LD; verified live on
+  Emma's real venue). Stays link-only + the auto-booking-connect that
+  already works. Revisit only if Timely ships public structured data.
+- **Vagaro: DEFERRED** — no public venue page indexed to capture a real
+  shape from this run; needs one real URL before an honest build
+  (Treatwell-shaped attempt likely).
+- Remaining: T27c — TikTok, Facebook (Apify actors).
 
 ### RUN EFFICIENCY PROTOCOL (owner ask, 2026-08-28) — for the T23–T27 run
 
