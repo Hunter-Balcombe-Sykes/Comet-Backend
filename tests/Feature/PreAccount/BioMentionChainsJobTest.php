@@ -139,3 +139,24 @@ it('does nothing for a business account or when there are no mentions', function
     $biz->forceFill(['account_type' => 'business'])->save();
     app()->call([new BioMentionChainsJob((string) $biz->id, [['handle' => 'x_venue', 'label' => 'Owner', 'type' => 'workplace']]), 'handle']);
 });
+
+it('retries the workplace attempt with the handle-derived name when the fullName misses (star_barber_darwin shape)', function () {
+    $user = bmcUser('emdinon2', [
+        ['handle' => 'star_barber_darwin', 'label' => 'Owner @star_barber_darwin.', 'type' => 'workplace'],
+    ]);
+
+    // The venue account's own fullName names the BARBERS, not the venue.
+    $this->mock(InstagramScraper::class, fn ($m) => $m->shouldReceive('fetchProfileResult')
+        ->once()->andReturn(bmcProfile(['fullName' => 'Em|Holley|Finley'])));
+
+    $this->mock(FreshaWorkplaceLinker::class, function ($m) {
+        $m->shouldReceive('attempt')->once()
+            ->withArgs(fn ($u, array $v) => $v['name'] === 'Em|Holley|Finley')
+            ->andReturn(['outcome' => 'no_match', 'placeId' => null, 'reason' => 'no_confident_match']);
+        $m->shouldReceive('attempt')->once()
+            ->withArgs(fn ($u, array $v) => $v['name'] === 'Star Barber Darwin' && $v['postcode'] === '0800')
+            ->andReturn(['outcome' => 'connected', 'placeId' => 'p9', 'reason' => null]);
+    });
+
+    app()->call([new BioMentionChainsJob((string) $user->id, [['handle' => 'star_barber_darwin', 'label' => 'Owner', 'type' => 'workplace']]), 'handle']);
+});

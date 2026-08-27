@@ -129,16 +129,28 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
                 if ($profile === null) {
                     continue;
                 }
+                // Two name candidates, tried in order: the account's own
+                // fullName, then the handle prettified. Round-2 acceptance
+                // (2026-08-27): @star_barber_darwin's fullName is
+                // "Em|Holley|Finley" (the barbers, not the venue) — the
+                // handle-derived "Star Barber Darwin" is what Places knows.
                 $venue = $this->venueFrom($profile, $handle);
-                $outcome = $linker->attempt($user, $venue);
-                $workplaceDone = $outcome['outcome'] === 'connected';
-                Log::info('bio_mention.workplace_chain', [
-                    'user_id' => $this->userId,
-                    'mention' => $handle,
-                    'venue' => $venue['name'],
-                    'outcome' => $outcome['outcome'],
-                    'reason' => $outcome['reason'],
-                ]);
+                $handleName = ucwords(str_replace(['_', '.'], ' ', $handle));
+                foreach (array_unique([$venue['name'], $handleName]) as $candidateName) {
+                    $attemptVenue = ['name' => $candidateName] + $venue;
+                    $outcome = $linker->attempt($user, $attemptVenue);
+                    $workplaceDone = $outcome['outcome'] === 'connected';
+                    Log::info('bio_mention.workplace_chain', [
+                        'user_id' => $this->userId,
+                        'mention' => $handle,
+                        'venue' => $candidateName,
+                        'outcome' => $outcome['outcome'],
+                        'reason' => $outcome['reason'],
+                    ]);
+                    if ($outcome['outcome'] !== 'no_match') {
+                        break;
+                    }
+                }
 
                 continue;
             }
