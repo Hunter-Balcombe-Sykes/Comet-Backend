@@ -554,6 +554,22 @@ The owner is away (dinner) once execution starts. For this run:
   the JOB (fix deployed); barber_in_law + emdinonhair re-rebuilt 09:51:21
   to verify the chains + the matcher raw-fullName fix end-to-end.
 
+- **T20 DONE (owner ask, 2026-08-27 late)**: contact form enabled by
+  default on unclaimed sites — pre-claim routed to the public contact
+  email when one exists ('auto' provenance marker; honestly dark with no
+  email); at claim an auto/empty address defaults to the bound account
+  email, owner-typed never touched. ContactFormSeeder + build/claim
+  wiring + 3 tests.
+- **Workplace-chain refinements (owner-approved live)**: handle-derived
+  venue-name retry, and the name-locality corroborator for venues whose
+  bio offers no address/phone/postcode at all (owner picked "accept
+  locality-corroborated single hit"; negative control pinned). Emma
+  round-4 verifying end-to-end.
+- **Fact correction**: @star_barber_darwin's REAL IG bio carries only
+  opening hours — no address (the address the owner quoted lives
+  elsewhere); and its fullName is "Em|Holley|Finley" (the barbers). Both
+  discovered by the chains and now handled.
+
 ### Remaining at run end (for the owner)
 
 - **T17 (headshot)** NOT built — first cross-repo task (monorepo dashboard
