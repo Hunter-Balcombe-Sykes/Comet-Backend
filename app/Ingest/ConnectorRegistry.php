@@ -5,6 +5,7 @@ namespace App\Ingest;
 use App\Ingest\Connectors\AppleMusicConnector;
 use App\Ingest\Connectors\ApplePodcastsConnector;
 use App\Ingest\Connectors\BandcampConnector;
+use App\Ingest\Connectors\BooksyConnector;
 use App\Ingest\Connectors\DoordashMenuConnector;
 use App\Ingest\Connectors\EventbriteConnector;
 use App\Ingest\Connectors\FreshaConnector;
@@ -49,6 +50,7 @@ final class ConnectorRegistry
         'apple_music' => AppleMusicConnector::class,
         'apple_podcasts' => ApplePodcastsConnector::class,
         'bandcamp' => BandcampConnector::class,
+        'booksy' => BooksyConnector::class,
         'doordash' => DoordashMenuConnector::class,
         'eventbrite' => EventbriteConnector::class,
         'fresha' => FreshaConnector::class,

@@ -279,6 +279,9 @@ class SourceProvisioner
             'luma' => $this->lumaSlug($payload['url'] ?? $payload['link'] ?? null)
                 ?? $this->lumaSlug($resource)
                 ?? $this->bareSlug($resource, 'luma'),
+            // T27b: the locale-qualified venue path off a booksy.com URL.
+            'booksy' => $this->booksyPath($payload['url'] ?? $payload['link'] ?? null)
+                ?? $this->booksyPath($resource),
             // T27b: the artist slug off an ra.co/dj/<slug> URL.
             'resident_advisor' => $this->residentAdvisorSlug($payload['url'] ?? $payload['link'] ?? null)
                 ?? $this->residentAdvisorSlug($resource)
@@ -374,6 +377,19 @@ class SourceProvisioner
      * placeholder slug, not a synthetic acct-/link-/order-/event- ref, no
      * URL-ish shape.
      */
+    /** The locale-qualified venue path of a booksy.com URL, or null. */
+    private function booksyPath(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+        if (preg_match('~^https?://(?:www\.)?booksy\.com/([a-z]{2}(?:-[a-z]{2})?/[0-9]+_[A-Za-z0-9_-]+)/?~i', trim($value), $m) === 1) {
+            return $m[1];
+        }
+
+        return null;
+    }
+
     /** The artist slug of an ra.co/dj/<slug> URL, or null. */
     private function residentAdvisorSlug(mixed $value): ?string
     {
