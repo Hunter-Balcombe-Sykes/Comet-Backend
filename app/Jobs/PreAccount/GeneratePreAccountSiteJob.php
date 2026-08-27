@@ -150,11 +150,23 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, Throttle
         // ("linked but invisible", verified on barber-in-law 2026-08-27).
         // Idempotent, and later data arrival re-seeds is_enabled via the
         // WorkplaceObserver hook.
-        app(SectionBlockProvisioner::class)->syncAllowed(
-            (string) $user->id,
-            (string) $site->id,
-            config('partna.section_block_types', []),
-        );
+        // Non-fatal on purpose: block provisioning failing must never fail a
+        // build that already generated its content — the WorkplaceObserver
+        // hook and the claim-time dashboard sync both re-provision later.
+        try {
+            app(SectionBlockProvisioner::class)->syncAllowed(
+                (string) $user->id,
+                (string) $site->id,
+                config('partna.section_block_types', []),
+            );
+        } catch (Throwable $e) {
+            report($e);
+            Log::warning('pre_account.section_blocks_provision_failed', [
+                'user_id' => $user->id,
+                'site_id' => $site->id,
+                'message' => $e->getMessage(),
+            ]);
+        }
 
         // SEC-4: build_state is no longer fillable — forceFill so this transition
         // isn't a silent no-op.

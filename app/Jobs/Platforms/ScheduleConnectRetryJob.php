@@ -27,6 +27,9 @@ class ScheduleConnectRetryJob implements ShouldQueue
 
     public int $tries = 1;
 
+    /** @var list<int> moot at one attempt; declared for the job-hygiene policy. */
+    public array $backoff = [30];
+
     public int $timeout = 15;
 
     public function __construct(
@@ -52,5 +55,15 @@ class ScheduleConnectRetryJob implements ShouldQueue
         ]);
 
         ConnectFetchJob::dispatch($this->connectionId, $this->platform, systemInitiated: true);
+    }
+
+    public function failed(\Throwable $e): void
+    {
+        report($e);
+        Log::warning('platform.connect_job.system_retry_trigger_failed', [
+            'connection_id' => $this->connectionId,
+            'platform' => $this->platform,
+            'error' => $e->getMessage(),
+        ]);
     }
 }
