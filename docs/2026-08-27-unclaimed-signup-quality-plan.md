@@ -331,6 +331,28 @@ parallel; measure Simon's 49s generate step's internal phases.
   links approved. Path-form link swap still gated on browser verification
   that the path URL opens the item page.
 
+- **D5 (2026-08-27, T6):** sufficiency threshold = **≥ 8** platform-sourced
+  menu items (name required, price optional) → scan runs enrich-only.
+- **D6 (2026-08-27, T5):** AI name extraction allowed (cost outline: a
+  ~200-token structured call per signup ≈ hundredths of a cent on Mistral's
+  small models — negligible; Mistral chosen over DeepSeek because keys +
+  `MenuAiExtractor` plumbing already exist, price difference immaterial at
+  this size). **Design (owner):** display_name derives from the
+  **username/handle first** (e.g. `simondoylehair` → handle-shaped name);
+  when the handle-derived name isn't strong (junk handles like `sammy.pdf`,
+  `emdinonhair` compounds), fall back to the IG fullName; first_name /
+  last_name come from the fullName when we're CONFIDENT in the extraction
+  (confidence-gated — never write a descriptor word as a surname). AI call
+  is the confidence backstop; deterministic parser remains for tests and
+  fallback.
+- **D7 (2026-08-27, T2):** spaced retries are the primary fix; if probe
+  fail rates are really high, build the proxy INTO the scraper as an
+  automatic fallback leg (retry direct → then proxy), not a wholesale
+  switch. Note the owner's read: first-connect often works, so a high
+  refresh-time fail rate would be surprising — for precision, the observed
+  failures ARE first-connect ones (3 of 4 first fetches failed); the probe
+  will put real numbers on it either way.
+
 ## Open owner questions
 
 - (none currently — new ones get added here as work raises them)
@@ -381,10 +403,12 @@ The owner is away (dinner) once execution starts. For this run:
   designed together): content-write bursts trigger debounced rebuild+purge;
   ready gating on first doc build. Gate: rebuild-lag measured ≤ ~30s on a
   fresh build (vs 4–5 min today); no purge 429s in the window.
-- **T5 — Display-name parsing improvement** (issue 7): descriptor words,
-  pipe-side selection, caps normalisation, optional AI extract w/ parser
-  fallback. Gate: table-driven tests over ALL collected real cases (Simon,
-  St Ali, Trae, barber_in_law, Emma, Sam) asserting the wanted names.
+- **T5 — Display-name pipeline per D6**: handle-first display name →
+  fullName fallback when handle is weak; first/last from fullName only when
+  confident (descriptor words never become surnames); AI extraction
+  (Mistral) as the confidence backstop, deterministic parser retained.
+  Gate: table-driven tests over ALL collected real cases (Simon, St Ali,
+  Trae, barber_in_law, Emma, Sam) asserting the wanted names.
 - **T6 — OCR gating per D1** (enrich-only when platform menu sufficient;
   prompt dispatch when no platform menu) + junk guardrail for scan-only
   accounts. Gate: tests for both branches + boundary; St Ali rebuild shows
