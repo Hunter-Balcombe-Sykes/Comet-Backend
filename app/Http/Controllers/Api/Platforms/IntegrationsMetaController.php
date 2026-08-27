@@ -45,7 +45,7 @@ class IntegrationsMetaController extends ApiController
             ->where('user_id', $professional->id)
             ->orderByRaw('last_refreshed_at DESC NULLS LAST')
             ->orderBy('id')
-            ->get(['id', 'platform', 'is_active', 'last_refreshed_at', 'last_refresh_status']);
+            ->get(['id', 'platform', 'is_active', 'last_refreshed_at', 'last_refresh_status', 'created_at']);
 
         // Live item counts per platform (plan 04 step B, 2026-08-27): how
         // many content items each platform's connections actually feed —
@@ -86,6 +86,12 @@ class IntegrationsMetaController extends ApiController
                 'last_refresh_status' => $group->first()->last_refresh_status,
                 'has_refresh_error' => $group->contains(fn ($row) => $row->last_refresh_status === 'error'),
                 'item_count' => (int) ($itemCounts[(string) $platform] ?? 0),
+                // Newest connection's age (plan 04 critic finding 4): the
+                // dashboard's "Importing…" affordance is only honest inside
+                // the post-connect window, so it needs to know when that
+                // window opened — a platform stuck 'pending' for a week must
+                // not read as importing forever.
+                'connected_at' => $group->pluck('created_at')->max()?->toIso8601String(),
             ];
         }
 

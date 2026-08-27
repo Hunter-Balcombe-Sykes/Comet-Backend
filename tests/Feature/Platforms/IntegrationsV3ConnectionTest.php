@@ -128,6 +128,9 @@ it('twitch connect stores the normalized link, not a scraped card', function () 
         ->assertExactJson([
             'username' => 'loserfruit',
             'url' => 'https://www.twitch.tv/loserfruit',
+            'name' => null,
+            'favicon' => null,
+            'logo' => null,
         ]);
 });
 
@@ -144,6 +147,9 @@ it('strava connect stores the normalized club link, not a member count', functio
         ->assertExactJson([
             'username' => '231407',
             'url' => 'https://www.strava.com/clubs/231407',
+            'name' => null,
+            'favicon' => null,
+            'logo' => null,
         ]);
 });
 

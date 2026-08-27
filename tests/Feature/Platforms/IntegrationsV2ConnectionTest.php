@@ -264,6 +264,9 @@ it('skool connect stores the normalized community link, not a scraped card', fun
         ->assertExactJson([
             'username' => 'mock-community',
             'url' => 'https://www.skool.com/mock-community',
+            'name' => null,
+            'favicon' => null,
+            'logo' => null,
         ]);
 
     actingAsUser($user)->postJson('/api/platforms/skool/connect', ['url' => 'https://www.skool.com/signup'])

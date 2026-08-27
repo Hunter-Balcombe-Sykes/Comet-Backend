@@ -139,11 +139,16 @@ class ContentController extends ApiController
             return $this->error('Not found.', 404);
         }
 
-        // The bridged pool item leaves with the upload (plan 04 step E).
+        // The bridged pool item leaves with the upload (plan 04 step E). If
+        // the un-bridge fails the DELETE fails with it (critic finding 11):
+        // swallowing here deleted the bytes while the pool item stayed live,
+        // pointing its site_media_id at nothing. The user can simply retry.
         try {
             $this->mediaWriter->remove($pro, $upload);
         } catch (\Throwable $e) {
             report($e);
+
+            return $this->error("That didn't finish — try again.", 500);
         }
 
         // Synchronous file cleanup (images have 2–3 variant files).

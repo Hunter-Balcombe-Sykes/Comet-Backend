@@ -104,13 +104,16 @@ function landFreshaContractService(string $userId, string $serviceId = 's:1', st
 
 // ── Facebook / TikTok (LinkConnectionResource) ───────────────────────────────
 
-it('facebook connect returns exactly {username,url}', function () {
+it('facebook connect returns exactly {username,url} + null identity keys', function () {
     actingAsUser(platformContractUser('fb1'))
         ->postJson('/api/platforms/facebook/connect', ['username' => 'jane.doe'])
         ->assertOk()
         ->assertExactJson([
             'username' => 'jane.doe',
             'url' => 'https://www.facebook.com/jane.doe',
+            'name' => null,
+            'favicon' => null,
+            'logo' => null,
         ]);
 });
 
@@ -127,16 +130,22 @@ it('facebook selection wraps the stored payload and strips unknown keys', functi
         ->assertExactJson(['selection' => [
             'username' => 'jane.doe',
             'url' => 'https://www.facebook.com/jane.doe',
+            'name' => null,
+            'favicon' => null,
+            'logo' => null,
         ]]);
 });
 
-it('tiktok connect returns exactly {username,url}', function () {
+it('tiktok connect returns exactly {username,url} + null identity keys', function () {
     actingAsUser(platformContractUser('tk1'))
         ->postJson('/api/platforms/tiktok/connect', ['username' => '@dancer'])
         ->assertOk()
         ->assertExactJson([
             'username' => 'dancer',
             'url' => 'https://www.tiktok.com/@dancer',
+            'name' => null,
+            'favicon' => null,
+            'logo' => null,
         ]);
 });
 
@@ -153,6 +162,9 @@ it('tiktok selection wraps the stored payload and strips unknown keys', function
         ->assertExactJson(['selection' => [
             'username' => 'dancer',
             'url' => 'https://www.tiktok.com/@dancer',
+            'name' => null,
+            'favicon' => null,
+            'logo' => null,
         ]]);
 });
 

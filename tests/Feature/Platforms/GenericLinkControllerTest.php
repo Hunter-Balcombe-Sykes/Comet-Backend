@@ -26,7 +26,7 @@ it('x connect stores the canonical link and echoes {username,url}', function () 
     actingAsUser(genericLinkUser('gx1'))
         ->postJson('/api/platforms/x/connect', ['username' => '@janed'])
         ->assertOk()
-        ->assertExactJson(['username' => 'janed', 'url' => 'https://x.com/janed']);
+        ->assertExactJson(['username' => 'janed', 'url' => 'https://x.com/janed', 'name' => null, 'favicon' => null, 'logo' => null]);
 });
 
 it('x connect returns the exact 422 message on unparseable input', function () {
@@ -43,7 +43,7 @@ it('x selection round-trips the stored payload and forget clears it', function (
 
     actingAsUser($user)->getJson('/api/platforms/x/selection')
         ->assertOk()
-        ->assertExactJson(['selection' => ['username' => 'janed', 'url' => 'https://x.com/janed']]);
+        ->assertExactJson(['selection' => ['username' => 'janed', 'url' => 'https://x.com/janed', 'name' => null, 'favicon' => null, 'logo' => null]]);
 
     actingAsUser($user)->deleteJson('/api/platforms/x')
         ->assertOk()
@@ -56,7 +56,7 @@ it('linkedin connect stores an /in/ profile and echoes {username,url}', function
     actingAsUser(genericLinkUser('gli1'))
         ->postJson('/api/platforms/linkedin/connect', ['username' => 'https://www.linkedin.com/in/jane-doe/'])
         ->assertOk()
-        ->assertExactJson(['username' => 'jane-doe', 'url' => 'https://www.linkedin.com/in/jane-doe/']);
+        ->assertExactJson(['username' => 'jane-doe', 'url' => 'https://www.linkedin.com/in/jane-doe/', 'name' => null, 'favicon' => null, 'logo' => null]);
 });
 
 it('linkedin connect returns the exact 422 message on a non-profile url', function () {
@@ -70,7 +70,7 @@ it('threads connect stores the canonical link and echoes {username,url}', functi
     actingAsUser(genericLinkUser('gth1'))
         ->postJson('/api/platforms/threads/connect', ['username' => '@janed'])
         ->assertOk()
-        ->assertExactJson(['username' => 'janed', 'url' => 'https://www.threads.net/@janed']);
+        ->assertExactJson(['username' => 'janed', 'url' => 'https://www.threads.net/@janed', 'name' => null, 'favicon' => null, 'logo' => null]);
 });
 
 it('threads connect returns the exact 422 message on invalid input', function () {
@@ -84,7 +84,7 @@ it('reddit connect stores a u/ profile and echoes {username,url}', function () {
     actingAsUser(genericLinkUser('grd1'))
         ->postJson('/api/platforms/reddit/connect', ['username' => 'u/janed'])
         ->assertOk()
-        ->assertExactJson(['username' => 'janed', 'url' => 'https://www.reddit.com/user/janed/']);
+        ->assertExactJson(['username' => 'janed', 'url' => 'https://www.reddit.com/user/janed/', 'name' => null, 'favicon' => null, 'logo' => null]);
 });
 
 it('reddit connect returns the exact 422 message on a non-profile url', function () {
@@ -98,7 +98,7 @@ it('tiktok connect normalizes @handle and echoes {username,url}', function () {
     actingAsUser(genericLinkUser('gtt1'))
         ->postJson('/api/platforms/tiktok/connect', ['username' => '@dancer'])
         ->assertOk()
-        ->assertExactJson(['username' => 'dancer', 'url' => 'https://www.tiktok.com/@dancer']);
+        ->assertExactJson(['username' => 'dancer', 'url' => 'https://www.tiktok.com/@dancer', 'name' => null, 'favicon' => null, 'logo' => null]);
 });
 
 it('tiktok connect returns the exact 422 message when no handle survives', function () {
@@ -112,14 +112,14 @@ it('facebook connect stores a vanity handle and echoes {username,url}', function
     actingAsUser(genericLinkUser('gfb1'))
         ->postJson('/api/platforms/facebook/connect', ['username' => 'jane.doe'])
         ->assertOk()
-        ->assertExactJson(['username' => 'jane.doe', 'url' => 'https://www.facebook.com/jane.doe']);
+        ->assertExactJson(['username' => 'jane.doe', 'url' => 'https://www.facebook.com/jane.doe', 'name' => null, 'favicon' => null, 'logo' => null]);
 });
 
 it('facebook connect extracts the Page name from a legacy /pages/ link (G4-4)', function () {
     actingAsUser(genericLinkUser('gfb2'))
         ->postJson('/api/platforms/facebook/connect', ['username' => 'https://www.facebook.com/pages/Some-Cafe/123456789'])
         ->assertOk()
-        ->assertExactJson(['username' => 'Some-Cafe', 'url' => 'https://www.facebook.com/pages/Some-Cafe/123456789']);
+        ->assertExactJson(['username' => 'Some-Cafe', 'url' => 'https://www.facebook.com/pages/Some-Cafe/123456789', 'name' => null, 'favicon' => null, 'logo' => null]);
 });
 
 it('facebook connect returns the exact 422 message on a handleless link', function () {

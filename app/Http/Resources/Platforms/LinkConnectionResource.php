@@ -17,13 +17,22 @@ use Illuminate\Http\Request;
 class LinkConnectionResource extends ApiResource
 {
     /**
-     * @return array{username: string|null, url: string|null}
+     * @return array{username: string|null, url: string|null, name: string|null, favicon: string|null, logo: string|null}
      */
     public function toArray(Request $request): array
     {
         return [
             'username' => $this->resource['username'] ?? null,
             'url' => $this->resource['url'] ?? null,
+            // Identity enrichment (plan 04 critic finding 9): the ~60 derived
+            // brand cards route through this resource too, and their payloads
+            // carry the display fields EnrichLinkCardJob fetched (name /
+            // favicon / logo) — dropping them here was why every brand card's
+            // step 3 and sheet fell to the glyph. The hand-registered socials
+            // (facebook, tiktok, …) never hold these keys and answer null.
+            'name' => $this->resource['name'] ?? null,
+            'favicon' => $this->resource['favicon'] ?? null,
+            'logo' => $this->resource['logo'] ?? null,
         ];
     }
 }

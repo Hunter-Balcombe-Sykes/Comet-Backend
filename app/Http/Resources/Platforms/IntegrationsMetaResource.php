@@ -29,6 +29,7 @@ class IntegrationsMetaResource extends ApiResource
                 'last_refresh_status' => $meta['last_refresh_status'],
                 'has_refresh_error' => $meta['has_refresh_error'],
                 'item_count' => $meta['item_count'] ?? 0,
+                'connected_at' => $meta['connected_at'] ?? null,
             ];
         }
 

@@ -13,23 +13,24 @@ beforeEach(function () {
     setupContentTables();
 });
 
-// Link-only socials: selection wraps {username,url} and strips unknown keys.
+// Link-only socials: selection wraps {username,url} (+ null identity keys
+// since the plan-04 enrichment — brand cards fill them) and strips unknown keys.
 // The _leak key is seeded into the payload to assert the resource strips it.
 dataset('link_only', [
-    'tiktok' => ['tiktok', ['username' => 'dancer', 'url' => 'https://www.tiktok.com/@dancer']],
-    'facebook' => ['facebook', ['username' => 'jane.doe', 'url' => 'https://www.facebook.com/jane.doe']],
-    'x' => ['x', ['username' => 'janed', 'url' => 'https://x.com/janed']],
-    'linkedin' => ['linkedin', ['username' => 'jane-doe', 'url' => 'https://www.linkedin.com/in/jane-doe/']],
-    'threads' => ['threads', ['username' => 'janed', 'url' => 'https://www.threads.net/@janed']],
-    'reddit' => ['reddit', ['username' => 'janed', 'url' => 'https://www.reddit.com/user/janed/']],
+    'tiktok' => ['tiktok', ['username' => 'dancer', 'url' => 'https://www.tiktok.com/@dancer', 'name' => null, 'favicon' => null, 'logo' => null]],
+    'facebook' => ['facebook', ['username' => 'jane.doe', 'url' => 'https://www.facebook.com/jane.doe', 'name' => null, 'favicon' => null, 'logo' => null]],
+    'x' => ['x', ['username' => 'janed', 'url' => 'https://x.com/janed', 'name' => null, 'favicon' => null, 'logo' => null]],
+    'linkedin' => ['linkedin', ['username' => 'jane-doe', 'url' => 'https://www.linkedin.com/in/jane-doe/', 'name' => null, 'favicon' => null, 'logo' => null]],
+    'threads' => ['threads', ['username' => 'janed', 'url' => 'https://www.threads.net/@janed', 'name' => null, 'favicon' => null, 'logo' => null]],
+    'reddit' => ['reddit', ['username' => 'janed', 'url' => 'https://www.reddit.com/user/janed/', 'name' => null, 'favicon' => null, 'logo' => null]],
     // skool, strava and twitch joined this dataset on 2026-08-16, when Phase 1.2's
     // demotion moved them onto LinkConnectionResource. Skool used to sit here with
     // its own {url, name, image, description} shape; twitch and strava had bespoke
     // selection/accounts contracts of their own further down. All three now freeze
     // the same {username, url} pair as every other link-only platform.
-    'skool' => ['skool', ['username' => 'community', 'url' => 'https://www.skool.com/community']],
-    'strava' => ['strava', ['username' => 'Midday-Milers', 'url' => 'https://www.strava.com/clubs/Midday-Milers']],
-    'twitch' => ['twitch', ['username' => 'streamer', 'url' => 'https://www.twitch.tv/streamer']],
+    'skool' => ['skool', ['username' => 'community', 'url' => 'https://www.skool.com/community', 'name' => null, 'favicon' => null, 'logo' => null]],
+    'strava' => ['strava', ['username' => 'Midday-Milers', 'url' => 'https://www.strava.com/clubs/Midday-Milers', 'name' => null, 'favicon' => null, 'logo' => null]],
+    'twitch' => ['twitch', ['username' => 'streamer', 'url' => 'https://www.twitch.tv/streamer', 'name' => null, 'favicon' => null, 'logo' => null]],
 ]);
 
 it('freezes link-only selection contract', function (string $platform, array $stored) {

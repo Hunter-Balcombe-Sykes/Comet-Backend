@@ -52,15 +52,15 @@ class ManualMediaWriter
         $coord = self::coordFor($media);
         $isVideo = $media->media_type === SiteMedia::MEDIA_TYPE_VIDEO;
 
-        $caption = trim((string) ($media->caption ?? ''));
         $facets = [
             // Dated at upload time so newest-order treats it as the real,
             // owner-made content it is (X5: dated beats first-seen).
+            // Deliberately NO f_text facet, even when the media row carries a
+            // caption: step D made media items caption-less on the dashboard,
+            // and a text facet here would resurrect the field through the
+            // back door (critic finding 10). alt/caption live on SiteMedia.
             'f_published' => ['published_from' => now()->toIso8601String()],
         ];
-        if ($caption !== '') {
-            $facets['f_text'] = ['body' => $caption];
-        }
 
         $entry = array_filter([
             'role' => $isVideo ? 'video' : 'cover',
@@ -99,10 +99,20 @@ class ManualMediaWriter
     public function remove(User $user, SiteMedia $media): void
     {
         $userId = (string) $user->id;
-        $itemId = DB::connection('pgsql')->table('content.item_anchors')
-            ->where('user_id', $userId)
-            ->where('coord', self::coordFor($media))
-            ->value('item_id');
+
+        try {
+            $itemId = DB::connection('pgsql')->table('content.item_anchors')
+                ->where('user_id', $userId)
+                ->where('coord', self::coordFor($media))
+                ->value('item_id');
+        } catch (\Throwable) {
+            // Fail-open ONLY here: a lookup that throws means the content
+            // lane itself is absent (partial test envs), so no bridged item
+            // exists to strand. A failure while marking a FOUND item removed
+            // (below) propagates — the caller must not delete the bytes a
+            // live item still points at.
+            return;
+        }
         if ($itemId === null) {
             return;
         }
