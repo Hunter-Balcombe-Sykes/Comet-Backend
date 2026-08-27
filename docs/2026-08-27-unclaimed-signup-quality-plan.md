@@ -145,6 +145,27 @@ Re-verified on both rebuilds AND the partna batch (2026-08-27):
 st-ali's current wire. Fix `NormalizesMenuData::titleCase()` (delimiters,
 acronyms/units, trailing periods) pinned by these exact strings as tests.
 
+### 9. Workplace is linked but INVISIBLE on pre-account sites — VERIFIED (owner-found)
+Owner asked why barber-in-law's site shows no workplace when his Fresha is
+Studio San with a matching Google listing. Trace (all verified in DB/code):
+- `LinkFreshaVenueToGoogleJob` worked END TO END: google-business
+  connection "Studio San" / 159 Eley Rd, Blackburn South VIC 3130 (the
+  exact listing) created 05:59:11, AND the `site.workplaces` row written
+  correctly.
+- But the public wire ships workplace only through `sectionEnvelope()`
+  (SitepageDataResolverService:117): a `site.blocks` row with
+  `block_group='sections', block_type='workplace'` must EXIST + be enabled
+  + active — and **pre-account builds provision ZERO section blocks** (all
+  four partna builds have none; 15 claimed-era sites do). So the whole
+  Fresha→Places→workplace pipeline writes data the unclaimed site can
+  never display. The same wall would silently hide everything T14 builds.
+- Fix direction: pre-account generation provisions + enables the
+  `workplace` section block whenever a workplace row is written (and
+  decide which other section blocks unclaimed sites should get). Verify
+  whether the omission is deliberate anywhere before changing.
+- Gate (folds into T3/T14): rebuilt barber-in-law SHOWS the Studio San
+  workplace on the live site.
+
 ## INHERITED claims — not yet re-verified on the rebuilds
 
 - **Fresha service-name casing** at ingest (store Title Case once, at write).
