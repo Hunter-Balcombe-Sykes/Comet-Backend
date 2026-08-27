@@ -555,6 +555,23 @@ The owner is away (dinner) once execution starts. For this run:
   section block (provisioned in T15). Gate: a test account with email/
   phone in its IG shows them in the site's contact surface; accounts
   without show nothing; no overwrites of existing values.
+- **T17 — Partna headshot / profile picture (owner, 2026-08-27 — D13)**:
+  partna accounts get an image of their OWN, separate from workplace logos
+  (verified gap: users has no avatar column; logo_full/logo_square are the
+  workplace's marks per the 2026-08-19 whose-name-is-on-the-door ruling;
+  partna favicon today = letter initial). Design: new design-singleton
+  purpose (e.g. `headshot`) on site_media — reuses upload/variant/mirror
+  machinery and DELETE /api/design-media/{purpose}; lives in the IDENTITY
+  section of the dashboard (manual upload); auto-set at account creation
+  from the IG `profilePicUrl` already in the connection payload (mirrored
+  to our storage — signed CDN URL, same treatment as other IG media; only
+  when slot empty). Wire: ship on the public profile; astro uses it as the
+  partna site's favicon/touch icon (falls back to today's initial when
+  absent); **NOT wired into page content yet** — just available in the
+  wire for future placements. Gate: fresh partna build serves the IG
+  profile photo as favicon (verified in browser tab); manual upload
+  replaces it; deleting falls back to the initial; business sites
+  unchanged.
 - **T12 — Acceptance rebuild round**: fresh signups (simondoylehair,
   st-ali + one new partna) after all fixes; full window.py sweep, Nightwatch
   diff, live-site checks; results logged here. Gate: zero regressions, all
