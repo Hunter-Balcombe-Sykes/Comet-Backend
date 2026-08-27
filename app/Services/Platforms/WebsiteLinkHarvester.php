@@ -135,6 +135,8 @@ class WebsiteLinkHarvester
         'Toast Takeout' => '~(^|\.)toasttab\.com$~',
         'Wolt' => '~(^|\.)wolt\.com$~',
         'Zomato' => '~(^|\.)zomato\.com$~',
+        // T27a (2026-08-28): AU table ordering — mryum.com + meandu.com post-merge.
+        'Mr Yum' => '~(^|\.)(mryum\.com|meandu\.com)$~',
         // Phase 6: bopple.app was never listed, so a real ollies ordering link
         // on that host classified as nothing and spent a commerce probe. The
         // catalog's own Bopple detector covers bopple.app too since 2026-08-27
@@ -169,6 +171,7 @@ class WebsiteLinkHarvester
         'Grubhub' => 'grubhub.order', 'Slice' => 'slice.order',
         'ChowNow' => 'chownow.order', 'Toast Takeout' => 'toast.order',
         'Wolt' => 'wolt.order', 'Zomato' => 'zomato.order',
+        'Mr Yum' => 'mr_yum.order',
         'HungryPanda' => 'hungrypanda',
     ];
 
@@ -213,6 +216,21 @@ class WebsiteLinkHarvester
         'Kitomba' => '~(^|\.)kitomba\.com$~',
         'Phorest' => '~(^|\.)phorest\.com$~',
         'Zenoti' => '~(^|\.)zenoti\.com$~',
+        // T27a (2026-08-28) — the new wave, catalog-only slugs below. The
+        // calendar.app.google host is EXACT: other app.google subdomains are
+        // not booking pages. Wix/Microsoft Bookings are deliberately absent —
+        // their registrable domains are shared (wixsite/office365) and only a
+        // PATH identifies a booking page, which this host-keyed map cannot
+        // express; they stay catalog-detector territory.
+        'Jane' => '~(^|\.)janeapp\.com$~',
+        'Cliniko' => '~(^|\.)cliniko\.com$~',
+        'Halaxy' => '~(^|\.)halaxy\.com$~',
+        'HotDoc' => '~(^|\.)hotdoc\.com\.au$~',
+        'Bookwell' => '~(^|\.)bookwell\.com\.au$~',
+        'StyleSeat' => '~(^|\.)styleseat\.com$~',
+        'Rezdy' => '~(^|\.)rezdy\.com$~',
+        'FareHarbor' => '~(^|\.)fareharbor\.com$~',
+        'Google Calendar' => '~^calendar\.app\.google$~',
     ];
 
     /**
@@ -238,6 +256,12 @@ class WebsiteLinkHarvester
         'Setmore' => 'setmore.book', 'Genbook' => 'genbook.book',
         'Treatwell' => 'treatwell.book', 'Noterro' => 'noterro.book',
         'Schedulicity' => 'schedulicity.book', 'SimplyBook.me' => 'simplybook_me.book',
+        // T27a (2026-08-28) — catalog-only, full surface keys.
+        'Jane' => 'jane_app.book', 'Cliniko' => 'cliniko.book',
+        'Halaxy' => 'halaxy.book', 'HotDoc' => 'hotdoc.book',
+        'Bookwell' => 'bookwell.book', 'StyleSeat' => 'styleseat.book',
+        'Rezdy' => 'rezdy.book', 'FareHarbor' => 'fareharbor.book',
+        'Google Calendar' => 'google_appointments.book',
     ];
 
     /**

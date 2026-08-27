@@ -42,7 +42,6 @@ class WixBookings
                 ->refreshEvery(0)
                 ->detect(
                     Detector::url('wixapps.net')->path('#/(bookings|book-online)(/|$)#')->strength(EvidenceStrength::ProfileLink),
-                    Detector::url('wixsite.com')->path('#/(bookings|book-online)(/|$)#')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),
         ];
