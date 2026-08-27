@@ -58,11 +58,12 @@ it('blocks a pending-deletion professional at the controller policy even when th
         ->patchJson('/api/site', ['architecture_id' => 'staple', 'is_published' => false])
         ->assertStatus(423);
 
-    // The write must not have landed. sites_architecture_id_check pins architecture_id
-    // to 'staple', so that column is indistinguishable whether or not a write landed.
-    // is_published is NOT pinned — the same PATCH would have flipped it to false — so its
-    // staying at the seeded published value is what proves the policy gate blocked the write.
+    // The write must not have landed. Since scroll became the platform default
+    // (0c4eb24b9, owner 2026-08-27) the architecture column is a REAL probe
+    // again: the blocked PATCH tried to write 'staple', so the row still
+    // reading the seeded default 'scroll' proves the write never landed —
+    // alongside is_published staying at its seeded value.
     $row = DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->first();
     expect((int) $row->is_published)->toBe(1);
-    expect($row->architecture_id)->toBe('staple');
+    expect($row->architecture_id)->toBe('scroll');
 });

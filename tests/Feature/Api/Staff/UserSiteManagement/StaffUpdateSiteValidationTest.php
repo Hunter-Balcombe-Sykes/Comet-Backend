@@ -46,7 +46,7 @@ it('ignores architecture_id entirely and never lets it reach the column', functi
     patchStaffSite($staff, $pro, ['architecture_id' => 'skeleton-9'])->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-        ->toBe('staple');
+        ->toBe('scroll');
 });
 
 it('rejects a reserved subdomain', function () {
@@ -87,7 +87,7 @@ it('accepts settings (negative tests are not over-rejecting)', function () {
     ])->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-        ->toBe('staple');
+        ->toBe('scroll');
 });
 
 it('ignores retired legacy ids and the dropped skeleton_id field', function () {
@@ -101,7 +101,7 @@ it('ignores retired legacy ids and the dropped skeleton_id field', function () {
     patchStaffSite($staff, $pro, ['skeleton_id' => 'dock'])->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-        ->toBe('staple');
+        ->toBe('scroll');
 });
 
 // ── Staff endpoint enforces the same ordering-payload rules as the user
@@ -169,13 +169,13 @@ it('denies a support-role staffer the site edit (staffManage is admin-only)', fu
         ->assertStatus(403);
 
     // The write must not have landed. sites_architecture_id_check pins architecture_id
-    // to 'staple' (the write path collapses legacy ids to it), so that column is
+    // to 'scroll' (the write path collapses legacy ids to the platform default,
     // indistinguishable whether or not a write landed. is_published is NOT pinned — the
     // same PATCH would have flipped it to false — so its staying at the seeded published
     // value is what actually proves the 403 blocked the write.
     $row = DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->first();
     expect((int) $row->is_published)->toBe(1);
-    expect($row->architecture_id)->toBe('staple');
+    expect($row->architecture_id)->toBe('scroll');
 });
 
 it('allows an admin-role staffer the site edit', function () {

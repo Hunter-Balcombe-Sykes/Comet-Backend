@@ -13,6 +13,21 @@ abstract class BaseModel extends Model
     protected $connection = 'pgsql';
 
     /**
+     * T19 (2026-08-27): microsecond timestamps UNDER TESTS ONLY. Live
+     * Postgres stores microseconds natively, but the SQLite test mirror
+     * stored second-precision strings — so two writes inside one wall-clock
+     * second made the second `touch()` a silent no-op (updated_at not dirty
+     * → no saved event → no purge dispatch), which is exactly the flake that
+     * made BlockAndMediaTouchSiteTest / ProjectionWriterTest / the Fresha
+     * connect tests fail 0–5 times per identical run, by run speed.
+     * Production format is untouched.
+     */
+    public function getDateFormat(): string
+    {
+        return app()->runningUnitTests() ? 'Y-m-d H:i:s.u' : parent::getDateFormat();
+    }
+
+    /**
      * Every belongsToMany here spans schema-qualified tables — use the variant
      * whose star select stays valid on the SQLite test mirror (see
      * SchemaQualifiedBelongsToMany).

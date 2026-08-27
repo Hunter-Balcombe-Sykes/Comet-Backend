@@ -140,7 +140,7 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     expect($data)->not->toHaveKey('design');
     expect($data)->not->toHaveKey('themeMode');
 
-    expect($data['architectureId'])->toBe('staple');
+    expect($data['architectureId'])->toBe('scroll');
     // Transition alias — must mirror architectureId until apps/pages migrates.
     // Empty designKit decodes to [] under json() because PHP can't tell
     // {} from [] post-decode; the wire byte-level check happens below.

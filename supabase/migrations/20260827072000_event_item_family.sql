@@ -7,8 +7,10 @@
 -- content_type — tests/Feature/Database/ConstraintVocabularyLockstepTest.php
 -- reads BOTH IN (...) lists out of this file.
 --
--- NOT VALID + immediate VALIDATE is safe here: both tables are small on the
--- dev ref and every existing row already satisfies the WIDER list.
+-- NOT VALID first, VALIDATE in its OWN transaction (CONVENTIONS §2): the
+-- validation scan then runs under SHARE UPDATE EXCLUSIVE instead of the
+-- ADD's heavier lock. Cheap here (small tables), but the pattern is the
+-- pattern — the safety lint holds every migration to it.
 --
 -- ROLLBACK:
 --   (delete any event_item rows first, then recreate both CHECKs from
@@ -39,6 +41,12 @@ ALTER TABLE analytics.item_views
         'service', 'service_category', 'block', 'gallery_item', 'engine_item',
         'listen_item', 'watch_item', 'link_item', 'event_item'
     )) NOT VALID;
+
+COMMIT;
+
+BEGIN;
+SET LOCAL lock_timeout      = '2s';
+SET LOCAL statement_timeout = '10s';
 
 ALTER TABLE analytics.content_popularity_scores
     VALIDATE CONSTRAINT content_popularity_scores_content_type_check;

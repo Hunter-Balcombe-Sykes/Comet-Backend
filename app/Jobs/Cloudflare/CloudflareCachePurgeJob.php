@@ -61,6 +61,18 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
      */
     public function middleware(): array
     {
+        // T19 (2026-08-27): no funnel under TESTS. The sync test driver runs
+        // fixture-time purges INLINE; the redis-backed limiter then talks to
+        // the machine's REAL redis, and a rejection releases the job without
+        // completing it — leaving the 35s unique lock held so the test's own
+        // later dispatch is silently DROPPED. That was the whole
+        // BlockAndMediaTouchSite/ProjectionWriter/Fresha-connect flake family
+        // (0–5 failures per identical run, by wall-clock). Production
+        // behaviour is unchanged.
+        if (app()->runningUnitTests()) {
+            return [];
+        }
+
         return [new RateLimitedWithRedis('cloudflare-purge')];
     }
 

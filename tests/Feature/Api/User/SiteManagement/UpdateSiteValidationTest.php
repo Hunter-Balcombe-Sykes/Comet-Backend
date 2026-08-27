@@ -122,7 +122,7 @@ it('accepts a valid architecture and settings (negative tests are not over-rejec
         ->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-        ->toBe('staple');
+        ->toBe('scroll');
 });
 
 it('rejects a genuinely unknown architecture id with a 422', function () {
@@ -137,7 +137,7 @@ it('rejects a genuinely unknown architecture id with a 422', function () {
         ->assertJsonValidationErrors(['architecture_id']);
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-        ->toBe('staple');
+        ->toBe('scroll');
 });
 
 // SEM-9: Laravel's 'boolean' rule accepts 1/'1'/0/'0' (and, once
@@ -202,5 +202,5 @@ it('rejects retired legacy architecture ids, still ignores the dropped skeleton_
         ->assertOk();
 
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
-        ->toBe('staple');
+        ->toBe('scroll');
 });
