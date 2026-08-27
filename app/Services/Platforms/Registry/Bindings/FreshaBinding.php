@@ -51,6 +51,12 @@ final class FreshaBinding
                 app(FreshaServiceProjector::class),
                 app(FreshaAutoSelector::class),
             ))
+            // T23b: the reviews pool honours this via PoolResolver::
+            // reviewsSuppressedByOwner — same gate google-business's toggle
+            // feeds. Defaults ON.
+            ->displayToggles([
+                ['key' => 'reviews', 'label' => 'Reviews', 'description' => 'Your Fresha rating and recent reviews.'],
+            ])
             ->refreshEvery((int) config('partna.refresh.intervals.fresha', 2 * 86400))
             ->connectFetch(fn () => app(FreshaConnectFetch::class))
             // The message ConnectFetchJob stores when the deferred team-mode

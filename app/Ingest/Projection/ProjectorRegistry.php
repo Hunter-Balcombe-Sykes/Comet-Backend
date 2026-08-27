@@ -33,7 +33,7 @@ final class ProjectorRegistry
         // Eventbrite and Humanitix land the SAME doc shape
         // (App\Ingest\Support\SchemaOrgEvent) — one projector, on purpose.
         'eventbrite' => ['events' => SchemaOrgEventProjector::class],
-        'fresha' => ['services' => FreshaServiceProjector::class],
+        'fresha' => ['services' => FreshaServiceProjector::class, 'reviews' => FreshaReviewProjector::class],
         'humanitix' => ['events' => SchemaOrgEventProjector::class],
         'instagram' => ['media' => InstagramMediaProjector::class],
         'google_business' => [

@@ -90,6 +90,19 @@ class FreshaConnector implements Connector
                     // parsed — this flag is a licence, not a guarantee.
                     deletesOnExhaustive: true,
                 ),
+                // T23b (owner, 2026-08-28): the venue page's __NEXT_DATA__ we
+                // already fetch carries the review list + venue rating — a
+                // second free read of the same page. Sample + null orderField:
+                // a review stream must NEVER delete (same contract as
+                // google_business's).
+                'reviews' => new StreamSpec(
+                    name: 'reviews',
+                    target: 'review',
+                    profile: SourceProfile::Sample,
+                    requires: ['rating'],
+                    volatile: [],
+                    orderField: null,
+                ),
             ],
             cost: CostClass::Free,
             defaultIntervalSeconds: 172800,
@@ -102,6 +115,14 @@ class FreshaConnector implements Connector
             // simondoylehair build: the on-create eager run wrote
             // "no_selection", 0 services.
             eagerNeedsFetchedPayload: true,
+            // Fresha reviewer PII (T23b) — same posture as google_business:
+            // an unclaimed owner never held reviewer identities by consent,
+            // so author fields strip pre-claim; review TEXT survives.
+            redactions: ['author', 'author_photo'],
+            redactionScopes: [
+                'author' => 'when_unclaimed',
+                'author_photo' => 'when_unclaimed',
+            ],
         );
     }
 
@@ -125,14 +146,25 @@ class FreshaConnector implements Connector
         $selectionRef = $pull->config['selection_ref'] ?? null;
         $selectionRef = is_string($selectionRef) && trim($selectionRef) !== '' ? trim($selectionRef) : null;
 
-        if ($pull->stream->name === 'services' && $selectionRef === null) {
+        if ($selectionRef === null) {
             // Nobody has chosen whose menu this is. Fetching the STORE menu
             // here would publish a whole salon's catalogue, at "from
             // <cheapest staff member>" prices, on one individual's page --
             // measured on dev, 22 of 23 prices understated. Landing nothing
             // is what happens today; the Note is so that "nobody chose yet"
-            // stops looking identical to "the connector is broken".
+            // stops looking identical to "the connector is broken". The same
+            // caution governs reviews (T23b): a whole venue's reviews on one
+            // unchosen individual's page is the review-shaped version of the
+            // menu mistake.
             yield new Note('no_selection', 'No Fresha team member or storewide menu has been chosen for this connection');
+
+            return;
+        }
+
+        // T23b: reviews come from the venue PAGE, not the booking GraphQL —
+        // branch before the flow fetch so the reviews stream never spends it.
+        if ($pull->stream->name === 'reviews') {
+            yield from $this->reviewsMessages($pull, $io, $slug, $selectionRef === 'storewide' ? null : $selectionRef);
 
             return;
         }
@@ -217,6 +249,122 @@ class FreshaConnector implements Connector
         $final = (string) ($response['headers']['final-url'] ?? '');
 
         return preg_match('#^https?://(?:www\.)?fresha\.com/(?:[a-z]{2,3}(?:-[a-z]{2})?/)?(?:a|book-now)/([a-z0-9-]+)#i', $final, $m) ? $m[1] : null;
+    }
+
+    /**
+     * T23b: the venue page's review list + venue rating, as review Records.
+     * EMPLOYEE mode ($employeeId non-null) keeps only reviews Fresha itself
+     * attributes to that staff member (footer.interpolations action
+     * OPEN_PROFILE carries the employeeId — structured attribution, no name
+     * matching); storewide keeps the whole venue's.
+     *
+     * @return iterable<Message>
+     */
+    private function reviewsMessages(Pull $pull, Io $io, string $slug, ?string $employeeId): iterable
+    {
+        $rotatedTo = null;
+        $location = $this->fetchLocationBlob($slug, $io);
+        if ($location === null) {
+            $current = $this->resolveCurrentSlug($slug, $io);
+            if ($current !== null && $current !== $slug) {
+                $rotatedTo = $current;
+                $slug = $current;
+                $location = $this->fetchLocationBlob($slug, $io);
+            }
+        }
+        if ($location === null) {
+            yield new Unavailable('Fresha venue page unavailable or carried no __NEXT_DATA__ location — slug may have rotated beyond the share-alias heal.');
+
+            return;
+        }
+
+        $venueRating = is_numeric($location['rating'] ?? null) ? (float) $location['rating'] : null;
+        $venueCount = is_numeric($location['reviewsCount'] ?? null) ? (int) $location['reviewsCount'] : null;
+
+        $edges = data_get($location, 'reviews.edges');
+        foreach (is_array($edges) ? $edges : [] as $edge) {
+            $node = is_array($edge) ? ($edge['node'] ?? null) : null;
+            if (! is_array($node)) {
+                continue;
+            }
+            $item = $this->mapReview($node, $venueRating, $venueCount);
+            if ($item === null) {
+                continue;
+            }
+            if ($employeeId !== null && ($item['employee_id'] ?? null) !== $employeeId) {
+                continue;
+            }
+            yield new Record('reviews', $item['review_id'], $item);
+        }
+
+        if ($rotatedTo !== null) {
+            yield new Bookmark('reviews', array_filter([...$pull->cursor, 'slug' => $rotatedTo]));
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $node
+     * @return array<string, mixed>|null
+     */
+    private function mapReview(array $node, ?float $venueRating, ?int $venueCount): ?array
+    {
+        $rating = $node['rating'] ?? null;
+        if (! is_numeric($rating)) {
+            return null;
+        }
+
+        // Fresha's structured staff attribution: the footer interpolation
+        // whose action opens the member's profile.
+        $employeeId = null;
+        $employeeName = null;
+        foreach ((array) data_get($node, 'footer.interpolations', []) as $interp) {
+            if (is_array($interp) && data_get($interp, 'action.type') === 'OPEN_PROFILE') {
+                $id = data_get($interp, 'action.employeeId');
+                $employeeId = is_scalar($id) ? (string) $id : null;
+                $employeeName = is_string($interp['text'] ?? null) ? $interp['text'] : null;
+                break;
+            }
+        }
+
+        $text = is_string($node['text'] ?? null) ? trim($node['text']) : null;
+        $id = is_string($node['id'] ?? null) && $node['id'] !== ''
+            ? $node['id']
+            : hash('sha256', json_encode([$text, data_get($node, 'date.iso')]));
+
+        return array_filter([
+            'review_id' => $id,
+            'rating' => (float) $rating,
+            'text' => $text !== null && $text !== '' ? mb_substr($text, 0, self::MAX_TEXT_LENGTH) : null,
+            'author' => is_string(data_get($node, 'author.name')) ? data_get($node, 'author.name') : null,
+            'author_photo' => is_string(data_get($node, 'author.avatar.url')) ? data_get($node, 'author.avatar.url') : null,
+            'publish_time' => is_string(data_get($node, 'date.iso')) ? data_get($node, 'date.iso') : null,
+            'published_ago' => is_string(data_get($node, 'footer.fallbackText')) ? data_get($node, 'footer.fallbackText') : null,
+            'employee_id' => $employeeId,
+            'employee_name' => $employeeName,
+            'venue_rating' => $venueRating,
+            'venue_rating_count' => $venueCount,
+        ], static fn ($v) => $v !== null);
+    }
+
+    /**
+     * The decoded `props.pageProps.data.location` blob from the venue page,
+     * or null on any failure (non-200, missing script, bad JSON).
+     *
+     * @return array<string, mixed>|null
+     */
+    private function fetchLocationBlob(string $slug, Io $io): ?array
+    {
+        $response = $io->get('https://www.fresha.com/a/'.rawurlencode($slug));
+        if ($response['status'] !== 200 || $response['body'] === '') {
+            return null;
+        }
+        if (! preg_match('#<script id="__NEXT_DATA__"[^>]*>(.+?)</script>#s', $response['body'], $m)) {
+            return null;
+        }
+        $data = json_decode($m[1], true);
+        $location = is_array($data) ? data_get($data, 'props.pageProps.data.location') : null;
+
+        return is_array($location) ? $location : null;
     }
 
     /** The venue's ISO-4217 currency from its public location page, or null. */

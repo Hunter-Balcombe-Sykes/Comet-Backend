@@ -131,7 +131,14 @@ final readonly class FreshaAutoSelector
     {
         foreach ($team as $member) {
             if ((string) ($member['employeeId'] ?? '') === $employeeId) {
-                return ['employeeId' => $employeeId, 'displayName' => (string) ($member['displayName'] ?? '')];
+                return array_filter([
+                    'employeeId' => $employeeId,
+                    'displayName' => (string) ($member['displayName'] ?? ''),
+                    // T23b: the member's own Fresha star rating survives the
+                    // AUTO path too (the manual picker always kept it), so an
+                    // employee-mode partna can wear their own stars.
+                    'rating' => isset($member['rating']) && is_numeric($member['rating']) ? (float) $member['rating'] : null,
+                ], static fn ($v) => $v !== null);
             }
         }
 
