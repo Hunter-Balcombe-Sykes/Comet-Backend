@@ -5,10 +5,8 @@ namespace App\Services\Content;
 use App\Ingest\Projection\ProjectionWriter;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
-use App\Models\Core\Site\SectionItem;
 use App\Models\Core\User\User;
 use App\Site\Documents\SiteCacheLanes;
-use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -23,21 +21,20 @@ use Illuminate\Support\Facades\DB;
  * `site_media_id` IS the upload discriminator — no mirror fetch, the bytes
  * are already ours).
  *
- * Hand-uploaded = pinned, same as a hand-added event: the owner chose this
- * picture; it goes on the site, and the grid's dot menu is where they
- * change their mind.
+ * Hand-uploaded = LIBRARY-ONLY (owner, 2026-08-27, reversing the launch
+ * "pinned like a hand-added event" rule): an add-sheet upload lands as the
+ * top unselected option in that sheet, and putting it ON the site stays an
+ * explicit second choice. The pin lane was deleted with the rule — selection
+ * goes through the pools' own selectPoolItem endpoint.
  */
 class ManualMediaWriter
 {
-    private const POOL = 'media';
-
     public function __construct(
         private readonly ProjectionWriter $writer,
-        private readonly PoolSectionProvisioner $sections,
     ) {}
 
     /**
-     * Mint (or refresh) the pool item for one uploaded SiteMedia and pin it.
+     * Mint (or refresh) the library pool item for one uploaded SiteMedia.
      *
      * @return array{id: string}|null null when the user has no site
      */
@@ -85,7 +82,6 @@ class ManualMediaWriter
             ->whereNotNull('removed_at')
             ->update(['removed_at' => null, 'updated_at' => now()]);
 
-        $this->pin($site, $itemId);
         SiteCacheLanes::bust([(string) $site->id]);
 
         return ['id' => $itemId];
@@ -132,32 +128,5 @@ class ManualMediaWriter
     private static function coordFor(SiteMedia $media): string
     {
         return 'upload:'.$media->id;
-    }
-
-    private function pin(Site $site, string $itemId): void
-    {
-        $section = $this->sections->ensure($site, self::POOL);
-        $sectionId = (string) $section->id;
-
-        $pin = SectionItem::query()
-            ->where('section_id', $sectionId)
-            ->where('item_id', $itemId)
-            ->first() ?? new SectionItem;
-
-        $pin->section_id = $sectionId;
-        $pin->item_id = $itemId;
-        $pin->state = SectionItem::STATE_PINNED;
-        $pin->sort_key ??= $this->nextSortKey($sectionId);
-        if (! $pin->exists) {
-            $pin->created_at = now();
-        }
-        $pin->save();
-    }
-
-    private function nextSortKey(string $sectionId): int
-    {
-        return (int) SectionItem::query()
-            ->where('section_id', $sectionId)
-            ->max('sort_key') + 1;
     }
 }

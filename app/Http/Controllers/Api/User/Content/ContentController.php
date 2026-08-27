@@ -104,18 +104,28 @@ class ContentController extends ApiController
             return $this->error($e->getMessage(), 500);
         }
 
-        // The upload→pool bridge (plan 04 step E): mint + pin the media-pool
-        // item so the upload is immediately real in the grid, the picker and
-        // the sitepage gallery. Best-effort AFTER the stored upload — a
-        // bridge fault must not orphan the bytes; the library listing still
-        // shows the SiteMedia and a re-upload re-mints.
+        // The upload→pool bridge (plan 04 step E; UNPINNED since 2026-08-27,
+        // owner): mint the media-pool item so the upload is immediately real
+        // in the library — the add sheet shows it as its top unselected
+        // option, and putting it ON the site stays the owner's explicit
+        // choice. Best-effort AFTER the stored upload — a bridge fault must
+        // not orphan the bytes; the library listing still shows the
+        // SiteMedia and a re-upload re-mints.
+        $bridged = null;
         try {
-            $this->mediaWriter->add($pro, $media);
+            $bridged = $this->mediaWriter->add($pro, $media);
         } catch (\Throwable $e) {
             report($e);
         }
 
-        return $this->success((new ContentLibraryUploadResource($media))->toArray($request), 201);
+        return $this->success(
+            (new ContentLibraryUploadResource($media))->toArray($request)
+                // The minted pool item's id — the add sheet uses it to float
+                // this upload to the top of its options. Null when the
+                // bridge faulted (the upload itself still succeeded).
+                + ['item_id' => $bridged['id'] ?? null],
+            201,
+        );
     }
 
     /**

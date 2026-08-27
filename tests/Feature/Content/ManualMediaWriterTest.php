@@ -37,7 +37,7 @@ function mmwUpload(string $siteId, string $type = 'image', ?string $caption = nu
     return SiteMedia::query()->findOrFail($id);
 }
 
-it('mints a pinned live media item for an image upload', function () {
+it('mints a live LIBRARY media item for an image upload — and does NOT pin it', function () {
     [$pro, $siteId] = poolTenant();
     $user = User::query()->findOrFail($pro->id);
     $media = mmwUpload($siteId, caption: 'Our shopfront');
@@ -57,8 +57,9 @@ it('mints a pinned live media item for an image upload', function () {
     $entry = DB::table('content.item_media')->where('item_id', $result['id'])->first();
     expect($entry->role)->toBe('cover');
 
-    $pin = DB::table('site.section_items')->where('item_id', $result['id'])->value('state');
-    expect($pin)->toBe('pinned');
+    // Owner, 2026-08-27: an add-sheet upload is library-only — it appears as
+    // the sheet's top unselected option; selection stays an explicit choice.
+    expect(DB::table('site.section_items')->where('item_id', $result['id'])->exists())->toBeFalse();
 });
 
 it('lands a video upload with the video role', function () {
