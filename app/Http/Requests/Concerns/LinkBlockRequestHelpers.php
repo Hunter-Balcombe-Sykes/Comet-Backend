@@ -4,7 +4,7 @@ namespace App\Http\Requests\Concerns;
 
 use App\Support\UrlSafety;
 
-// Shared helpers for Store/Update/DestroyLinkBlockRequest: settings.note
+// Shared helpers for Store/UpdateLinkBlockRequest: settings.note
 // trimming, the SubstituteBindings route-id normalization workaround, and the
 // http/https scheme allowlist (XSS/exfiltration defense — see #SLOP-6).
 trait LinkBlockRequestHelpers

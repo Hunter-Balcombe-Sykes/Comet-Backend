@@ -88,6 +88,15 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
      * Follow-ups keep a 5 s lock: their delay exceeds any lock we'd want, and
      * a lock outliving the delay would coalesce away the follow-up owed to a
      * LATER edit.
+     *
+     * KNOWN NARROWING (2026-08-27, funnel fix): a job released by the
+     * rate-limiter middleware or the 429 catch waits PAST this TTL, so
+     * coalescing only covers the happy-path window — during funnel
+     * backpressure a duplicate dispatch for the same handle can queue.
+     * Accepted deliberately: purges are idempotent, the funnel caps total
+     * API spend regardless of duplicates, and widening the lock to cover
+     * the wait would resurrect the stale-second-edit bug the 35 s value
+     * exists to prevent.
      */
     public int $uniqueFor = 35;
 

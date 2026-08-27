@@ -13,7 +13,7 @@ class PublicEmailUnsubscribeController extends ApiController
     public function unsubscribe(Request $request, string $token): JsonResponse
     {
         // Short-circuit empty / obviously-bogus tokens before hitting the DB.
-        // Real tokens are Str::random(48); mirrors PublicMarketingPreferenceController::show().
+        // Real tokens are Str::random(48) — the EmailSubscription token convention.
         if (strlen($token) < 10) {
             return $this->error('Invalid or expired unsubscribe link.', 404);
         }
