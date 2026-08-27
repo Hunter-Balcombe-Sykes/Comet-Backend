@@ -494,8 +494,8 @@ class IdentitySync
     }
 
     /**
-     * Business names cap at 15 chars. Auto-adopted from Google, so it can't
-     * be rejected mid-sync like manual entry — word-trimmed instead.
+     * Business names carry an 80-char sanity bound. Auto-adopted from Google,
+     * so it can't be rejected mid-sync like manual entry — word-trimmed instead.
      */
     private function nameOrNull(mixed $value): ?string
     {

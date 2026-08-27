@@ -91,20 +91,20 @@ it('upsert returns the exact workplace-card shape', function () {
     expect($response->json('workplace.address_line1'))->toBe('2 Other St');
 });
 
-it('rejects a workplace upsert whose name is over 15 characters', function () {
+it('rejects a workplace upsert whose name is over 80 characters', function () {
     $user = uwcUser('longname');
     uwcSite($user);
 
     actingAsUser($user)->putJson('/api/site/workplace', [
-        'name' => str_repeat('a', 16),
+        'name' => str_repeat('a', 81),
     ])->assertStatus(422);
 });
 
-it('accepts a workplace upsert whose name is exactly 15 characters', function () {
+it('accepts a workplace upsert whose name is exactly 80 characters', function () {
     $user = uwcUser('capname');
     uwcSite($user);
 
-    $name = str_repeat('a', 15);
+    $name = str_repeat('a', 80);
 
     actingAsUser($user)->putJson('/api/site/workplace', [
         'name' => $name,

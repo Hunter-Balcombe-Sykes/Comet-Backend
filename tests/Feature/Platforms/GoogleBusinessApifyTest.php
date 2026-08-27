@@ -188,9 +188,9 @@ it('adopts the Google Business name as display_name for a Business account, word
         'placeId' => 'ChIJtest', 'name' => 'Fade Lab Barbers', 'lat' => -37.0, 'lng' => 144.0,
     ])->assertOk();
 
-    // Picker name "Fade Lab Barbers" (16 chars) is over the cap — maybeAdoptGoogleName
-    // word-trims it, keeping whole words, rather than rejecting it outright.
-    expect($user->fresh()->display_name)->toBe('Fade Lab');
+    // "Fade Lab Barbers" fits the 80-char sanity bound (raised from 15 —
+    // owner, 2026-08-27, issue 10) so maybeAdoptGoogleName adopts it whole.
+    expect($user->fresh()->display_name)->toBe('Fade Lab Barbers');
 });
 
 it('leaves display_name untouched for a standard (partna) account', function () {

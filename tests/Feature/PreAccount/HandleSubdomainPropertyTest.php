@@ -12,8 +12,8 @@ use Illuminate\Support\Str;
 // B4 (spec 2026-08-18-pipeline-assurance §5). Two independent properties over
 // ~30 deliberately ugly names:
 //   1. every name allocates a valid DNS-label handle (below).
-//   2. wordTrim() never exceeds the 15-char business-name cap and never cuts
-//      mid-word.
+//   2. wordTrim() never exceeds the 80-char business-name sanity bound (raised
+//      from 15, owner 2026-08-27 issue 10) and never cuts mid-word.
 //
 // The handle==subdomain invariant itself (SIGNUP-1) is NOT proven by
 // re-deriving a subdomain from the handle and comparing — see the correction
@@ -102,19 +102,19 @@ it('allocates a handle that is a valid DNS label for every ugly name', function 
     expect($subdomain)->toBe($handle, "subdomainBaseFromHandle('{$handle}') is not idempotent on its own already-valid output for '{$name}'");
 })->with('ugly_names');
 
-it('word-trims a business name to ≤ 15 chars at a word boundary', function (string $name) {
+it('word-trims a business name to ≤ 80 chars at a word boundary', function (string $name) {
     $trimmed = BusinessName::wordTrim($name);
     $squished = Str::squish($name);
 
-    expect(mb_strlen($trimmed))->toBeLessThanOrEqual(15);
-    if ($squished !== '' && mb_strlen($squished) <= 15) {
+    expect(mb_strlen($trimmed))->toBeLessThanOrEqual(80);
+    if ($squished !== '' && mb_strlen($squished) <= 80) {
         expect($trimmed)->toBe($squished);
-    } elseif ($trimmed !== '' && ! str_contains($trimmed, ' ') && mb_strlen(explode(' ', $squished)[0]) > 15) {
+    } elseif ($trimmed !== '' && ! str_contains($trimmed, ' ') && mb_strlen(explode(' ', $squished)[0]) > 80) {
         // single over-long first word: a hard cut is the documented behaviour.
         // wordTrim() also strips trailing punctuation off the cut (BusinessName
-        // :30-38), so the result can legitimately be SHORTER than 15 — <= is the
+        // :30-38), so the result can legitimately be SHORTER than 80 — <= is the
         // actual rule, not ==.
-        expect(mb_strlen($trimmed))->toBeLessThanOrEqual(15);
+        expect(mb_strlen($trimmed))->toBeLessThanOrEqual(80);
     } elseif ($trimmed !== '') {
         // multi-word: the kept prefix must end exactly at a word boundary
         expect(str_starts_with($squished, $trimmed))->toBeTrue("'{$trimmed}' is not a prefix of '{$squished}'")

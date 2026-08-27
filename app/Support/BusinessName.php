@@ -4,10 +4,14 @@ namespace App\Support;
 
 use Illuminate\Support\Str;
 
-// Shared 15-char cap for business/workplace names. Manual entry is rejected
-// outright by validation (UpsertWorkplaceRequest max:15); a name AUTO-ADOPTED
-// from an external source (Google Business) can't be rejected mid-sync, so
-// it's silently word-trimmed here instead — used by IdentitySync's 'name'
+// Shared cap for business/workplace names. Raised 15 → 80 (owner, 2026-08-27,
+// issue 10): storage keeps the business's real name — "Oxbridge Barbershop
+// Kensington" must not become "Oxbridge" — and any tight-space truncation is a
+// render-side concern in the sitepage/dashboard, not a storage rule. 80 stays
+// as a sanity bound on auto-adopted strings. Manual entry is rejected outright
+// by validation (UpsertWorkplaceRequest max:80); a name AUTO-ADOPTED from an
+// external source (Google Business) can't be rejected mid-sync, so it's
+// silently word-trimmed here instead — used by IdentitySync's 'name'
 // candidate and GoogleBusinessController::maybeAdoptGoogleName.
 final class BusinessName
 {
@@ -20,7 +24,7 @@ final class BusinessName
      * mid-punctuation (e.g. a dangling "&" or "-"). Never returns an empty
      * string for a non-empty input.
      */
-    public static function wordTrim(string $name, int $max = 15): string
+    public static function wordTrim(string $name, int $max = 80): string
     {
         $squished = Str::squish($name);
         if ($squished === '') {

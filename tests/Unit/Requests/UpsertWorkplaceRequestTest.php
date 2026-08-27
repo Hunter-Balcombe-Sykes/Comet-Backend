@@ -64,17 +64,25 @@ it('rejects a payload with no name', function () {
     expect($errors)->toHaveKey('name');
 });
 
-it('rejects a name over 15 characters', function () {
+it('rejects a name over 80 characters', function () {
     $errors = validateWorkplacePayload([
-        'name' => str_repeat('a', 16),
+        'name' => str_repeat('a', 81),
     ]);
 
     expect($errors)->toHaveKey('name');
 });
 
-it('accepts a name at exactly 15 characters', function () {
+it('accepts a name at exactly 80 characters', function () {
     $errors = validateWorkplacePayload([
-        'name' => str_repeat('a', 15),
+        'name' => str_repeat('a', 80),
+    ]);
+
+    expect($errors)->toBe([]);
+});
+
+it('accepts a real full-length business name (cap raised from 15 — issue 10)', function () {
+    $errors = validateWorkplacePayload([
+        'name' => 'Oxbridge Barbershop Kensington',
     ]);
 
     expect($errors)->toBe([]);

@@ -37,10 +37,12 @@ class UpsertWorkplaceRequest extends BaseFormRequest
     public function rules(): array
     {
         return [
-            // Business/workplace names cap at 15 chars (manual entry — rejected
-            // outright; auto-adopted names are silently word-trimmed instead,
-            // see App\Support\BusinessName::wordTrim).
-            'name' => ['required', 'string', 'max:15'],
+            // Business/workplace names cap at 80 chars — a sanity bound, not a
+            // layout rule; display truncation is render-side (owner, 2026-08-27,
+            // issue 10). Manual entry over the bound is rejected outright;
+            // auto-adopted names are silently word-trimmed instead, see
+            // App\Support\BusinessName::wordTrim.
+            'name' => ['required', 'string', 'max:80'],
             // Structured fields are the only source of truth — no separate
             // freeform "display address" string is stored.
             'address_line1' => ['nullable', 'string', 'max:255'],

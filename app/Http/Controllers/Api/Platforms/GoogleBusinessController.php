@@ -213,9 +213,10 @@ class GoogleBusinessController extends ApiController
             return;
         }
 
-        // Business names cap at 15 chars. This value is auto-adopted from
-        // Google, not typed by hand, so it can't be rejected outright like
-        // UpsertWorkplaceRequest does for manual entry — word-trimmed instead.
+        // Business names carry an 80-char sanity bound. This value is
+        // auto-adopted from Google, not typed by hand, so it can't be rejected
+        // outright like UpsertWorkplaceRequest does for manual entry —
+        // word-trimmed instead.
         $name = BusinessName::wordTrim($name);
 
         if ($user->display_name === $name) {

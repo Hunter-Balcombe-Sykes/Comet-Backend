@@ -50,7 +50,10 @@ it('fetches place details, seeds a connection, and folds identity into the workp
 });
 
 it('word-trims an over-cap Google name onto display_name, mirroring GoogleBusinessController::maybeAdoptGoogleName', function () {
-    $longName = 'Jane Cafe Emporium of Extremely Long Names';
+    // Over the 80-char sanity bound (raised from 15 — owner, 2026-08-27,
+    // issue 10) so the trim leg still fires; a real-length name now passes
+    // through untrimmed (asserted in BusinessNameTest).
+    $longName = 'Jane Cafe Emporium of Extremely Long Names and Even Longer Subtitles for Every Season of the Year';
 
     $svc = Mockery::mock(GoogleBusinessService::class);
     $svc->shouldReceive('fetchPlaceDetails')->once()->with('ChIJlongname', Mockery::any())
@@ -66,7 +69,8 @@ it('word-trims an over-cap Google name onto display_name, mirroring GoogleBusine
     $expected = BusinessName::wordTrim($longName);
 
     expect($user->display_name)->toBe($expected)
-        ->and(mb_strlen($expected))->toBeLessThanOrEqual(15)
+        ->and(mb_strlen($expected))->toBeLessThanOrEqual(80)
+        ->and(mb_strlen($expected))->toBeLessThan(mb_strlen($longName))
         // The controller's maybeAdoptGoogleName never touches first_name — mirror
         // that exactly, so the generator must leave it alone too.
         ->and($user->first_name)->toBe('Old');

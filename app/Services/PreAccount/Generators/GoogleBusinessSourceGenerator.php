@@ -122,9 +122,10 @@ class GoogleBusinessSourceGenerator implements SiteSourceGenerator
 
         // Business accounts adopt the Google name as display name (capability-gated),
         // mirroring GoogleBusinessController::maybeAdoptGoogleName EXACTLY: word-trim
-        // to the business cap before writing, and only write when it actually changed.
-        // An untrimmed write 422s the user's first profile edit after claim
-        // (UpdateUserRequest enforces max:15 for business accounts).
+        // to the 80-char sanity bound before writing, and only write when it
+        // actually changed. (UpdateUserRequest caps display_name at 255 for both
+        // account types — the bound here exists to match the controller, not
+        // to satisfy validation.)
         if ($name !== '' && AccountCapabilities::for($user)->google_business_sets_display_name) {
             $trimmedName = BusinessName::wordTrim($name);
             if ($user->display_name !== $trimmedName) {

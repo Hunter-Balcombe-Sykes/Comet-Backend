@@ -10,6 +10,7 @@ use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\IdentitySync;
+use App\Support\BusinessName;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -132,10 +133,9 @@ it('business google connect overwrites manual name/phone, sets hours + sector, s
 
     $workplace = Workplace::query()->where('site_id', $siteId)->firstOrFail();
 
-    // Overwritten from Google.
-    // Place Details' displayName ("Fade Lab Barbers", 16 chars) is over the
-    // 15-char business-name cap — IdentitySync word-trims it to "Fade Lab".
-    expect($workplace->name)->toBe('Fade Lab');
+    // Overwritten from Google — the full displayName now stores untrimmed
+    // (cap raised 15 → 80, owner 2026-08-27, issue 10).
+    expect($workplace->name)->toBe('Fade Lab Barbers');
     expect($workplace->phone)->toBe('(03) 9123 4567');
     expect($workplace->website)->toBe('https://fadelab.example');
     expect($workplace->address_line1)->toBe('12 Example St');
@@ -246,7 +246,7 @@ it('never overwrites a MANUALLY-set sector on a business google resync, even whe
     expect($user->sector)->toBe('restaurant');
     expect($user->sector_source)->toBe('manual');
     // Confirms this connect really did run (workplace fields still overwrite).
-    expect(Workplace::query()->where('site_id', $siteId)->value('name'))->toBe('Fade Lab');
+    expect(Workplace::query()->where('site_id', $siteId)->value('name'))->toBe('Fade Lab Barbers');
 });
 
 it('lets Google FILL a sector that was manually CLEARED — (null, manual) rows never block the fill', function () {
@@ -417,10 +417,9 @@ it('never writes contact_email from a google connect, even for business', functi
     // Google returns no email → contact_email stays null and gets no stamp.
     expect($workplace->contact_email)->toBeNull();
     expect($workplace->field_sources)->not->toHaveKey('contact_email');
-    // Other fields still synced, proving the connect ran.
-    // Place Details' displayName ("Fade Lab Barbers", 16 chars) is over the
-    // 15-char business-name cap — IdentitySync word-trims it to "Fade Lab".
-    expect($workplace->name)->toBe('Fade Lab');
+    // Other fields still synced, proving the connect ran (full displayName
+    // stores untrimmed since the cap raise to 80).
+    expect($workplace->name)->toBe('Fade Lab Barbers');
 });
 
 // ── (d) Manual upsert: manual provenance + mirrors + (business) display_name ─
@@ -506,16 +505,17 @@ it('manual upsert preserves a google-business badge on a field the user did not 
     expect($workplace->field_sources['website']['source'])->toBe('google-business');
 });
 
-// ── (e) Auto-adopted names are word-trimmed to the 15-char cap ───────────────
+// ── (e) Auto-adopted names are word-trimmed to the 80-char sanity bound ──────
 
 it('word-trims a Google-sourced name that exceeds the business-name cap', function () {
+    $overCapName = 'Bayside Cafe And Bakery The Original Home Of The World Famous Bayside Sourdough Loaf And Pastry Kitchen';
     config(['services.google_maps.server_api_key' => 'server-key', 'services.apify.token' => null]);
     Http::fake([
         'places.googleapis.com/v1/places/*/photos/*' => Http::response(['photoUri' => 'https://lh3.example/x.jpg']),
         'maps.googleapis.com/maps/api/streetview/metadata*' => Http::response(['status' => 'ZERO_RESULTS']),
         'places.googleapis.com/*' => Http::response([
             'id' => 'ChIJlongname',
-            'displayName' => ['text' => 'Bayside Cafe And Bakery'],
+            'displayName' => ['text' => $overCapName],
             'location' => ['latitude' => -37.8, 'longitude' => 144.96],
         ]),
     ]);
@@ -530,9 +530,10 @@ it('word-trims a Google-sourced name that exceeds the business-name cap', functi
     ])->assertOk();
 
     $workplace = Workplace::query()->where('site_id', $siteId)->firstOrFail();
-    // "Bayside Cafe And Bakery" (24 chars) → whole words kept up to the cap.
-    expect($workplace->name)->toBe('Bayside Cafe');
-    expect(mb_strlen($workplace->name))->toBeLessThanOrEqual(15);
+    // Over the 80-char bound → whole words kept up to the cap, never mid-word.
+    expect($workplace->name)->toBe(BusinessName::wordTrim($overCapName));
+    expect(mb_strlen($workplace->name))->toBeLessThanOrEqual(80);
+    expect(mb_strlen($workplace->name))->toBeLessThan(mb_strlen($overCapName));
 });
 
 // ── Refresh path also folds identity (proves observer covers ->update) ───────
@@ -559,9 +560,7 @@ it('a scheduled refresh that changes the payload folds identity for a business a
     $this->artisan('integrations:refresh')->assertSuccessful();
 
     $workplace = Workplace::query()->where('site_id', $siteId)->firstOrFail();
-    // Place Details' displayName ("Fade Lab Barbers", 16 chars) is over the
-    // 15-char business-name cap — IdentitySync word-trims it to "Fade Lab".
-    expect($workplace->name)->toBe('Fade Lab');
+    expect($workplace->name)->toBe('Fade Lab Barbers');
     expect($workplace->opening_hours['mon'])->toBe([['open' => '0900', 'close' => '1730']]);
     $user->refresh();
     expect($user->sector)->toBe('barber');
