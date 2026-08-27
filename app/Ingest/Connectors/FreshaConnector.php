@@ -97,6 +97,11 @@ class FreshaConnector implements Connector
             // team-member selection) lands so the services pool is not empty
             // until the scheduler's next tick.
             eagerOnConnect: true,
+            // The pull reads the connection payload's selection — see the
+            // Manifest field's docblock. Measured on the 2026-08-27
+            // simondoylehair build: the on-create eager run wrote
+            // "no_selection", 0 services.
+            eagerNeedsFetchedPayload: true,
         );
     }
 

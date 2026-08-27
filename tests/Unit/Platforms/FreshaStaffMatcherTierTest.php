@@ -90,3 +90,81 @@ it('matches a first-name-only display name when it is unique (owner, 2026-08-19)
     expect(app(FreshaStaffMatcher::class)->matchWithTier($mono, team(['e1', 'Simon'], ['e2', 'Ana'])))
         ->toBe(['employeeId' => 'e1', 'tier' => 'exact']);
 });
+
+// ── T3 (2026-08-27, D10): the vanity-name tier ──────────────────────────────
+// The parsed first/last names are DERIVED from an Instagram vanity string and
+// are routinely garbage ("Melbourne Barber | Thorton" → first "Melbourne",
+// last "Barber" — the real name is after the pipe). Matching is therefore
+// INVERTED: each employee's REAL name (Fresha's own data) is looked for
+// inside the raw vanity display_name, token-wise, making selection immune to
+// parse quality. Verified live 2026-08-27: barber_in_law's auto-selection
+// came out null exactly because the matcher was fed the garbage parse.
+
+it('matches an employee whose real name sits after the pipe in the vanity string (barber_in_law)', function () {
+    $user = User::factory()->create([
+        'display_name' => 'Melbourne Barber | Thorton',
+        'first_name' => 'Melbourne',
+        'last_name' => 'Barber',
+    ]);
+
+    expect(app(FreshaStaffMatcher::class)->matchWithTier($user, team(['e1', 'Thorton'], ['e2', 'Jess'])))
+        ->toBe(['employeeId' => 'e1', 'tier' => 'vanity-name']);
+});
+
+it('matches a multi-token employee name inside a descriptor-suffixed vanity (sammy.pdf shape)', function () {
+    $user = User::factory()->create([
+        'display_name' => 'Sam Akhurst Music',
+        'first_name' => 'Sam',
+        'last_name' => 'Music',
+    ]);
+
+    expect(app(FreshaStaffMatcher::class)->matchWithTier($user, team(['e1', 'Sam Akhurst'], ['e2', 'Kim Lee'])))
+        ->toBe(['employeeId' => 'e1', 'tier' => 'vanity-name']);
+});
+
+it('the ALL-CAPS pipe vanity still resolves through the parsed tiers unchanged (simondoylehair)', function () {
+    $user = User::factory()->create([
+        'display_name' => 'SIMON DOYLE | Barber & Educator',
+        'first_name' => 'SIMON',
+        'last_name' => 'DOYLE',
+    ]);
+
+    expect(app(FreshaStaffMatcher::class)->matchWithTier($user, team(['e1', 'Simon Doyle'], ['e2', 'Ana Ruiz'])))
+        ->toBe(['employeeId' => 'e1', 'tier' => 'exact']);
+});
+
+it('two employees both contained in the vanity string is ambiguous — matches neither', function () {
+    $user = User::factory()->create([
+        'display_name' => 'Thorton & Jess | Studio San',
+        'first_name' => 'Thorton',
+        'last_name' => 'Jess',
+    ]);
+
+    expect(app(FreshaStaffMatcher::class)->matchWithTier($user, team(['e1', 'Thorton'], ['e2', 'Jess'])))
+        ->toBe(['employeeId' => null, 'tier' => null]);
+});
+
+it('an employee name of only short tokens never rides the vanity tier', function () {
+    $user = User::factory()->create([
+        'display_name' => 'Al B | Barber',
+        'first_name' => 'Al',
+        'last_name' => 'B',
+    ]);
+
+    // "Al" (2 letters) is too weak a containment signal for the vanity tier —
+    // the match still lands, but through the pre-existing first-exact tier
+    // (owner 2026-08-19 ruling), proving the vanity tier declined it.
+    expect(app(FreshaStaffMatcher::class)->matchWithTier($user, team(['e1', 'Al'], ['e2', 'Marco Rossi'])))
+        ->toBe(['employeeId' => 'e1', 'tier' => 'first-exact']);
+});
+
+it('partial token overlap is not containment — Barber Jones does not match a Barber vanity', function () {
+    $user = User::factory()->create([
+        'display_name' => 'Melbourne Barber | Thorton',
+        'first_name' => 'Melbourne',
+        'last_name' => 'Barber',
+    ]);
+
+    expect(app(FreshaStaffMatcher::class)->matchWithTier($user, team(['e1', 'Barber Jones'], ['e2', 'Thorton'])))
+        ->toBe(['employeeId' => 'e2', 'tier' => 'vanity-name']);
+});

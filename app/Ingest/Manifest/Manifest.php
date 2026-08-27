@@ -29,6 +29,12 @@ final readonly class Manifest
         public array $redactions = [],
         public array $redactionScopes = [],
         public bool $eagerOnConnect = false,
+        // T3 (2026-08-27): this connector's pull reads OUR stored payload /
+        // selection (not the vendor), so an eager run before the connection's
+        // FIRST fetch can only produce the empty answer. When true, the
+        // eager-on-create run is skipped for a never-fetched connection; the
+        // 'reselected' rerun at payload write is the correctly-ordered ingest.
+        public bool $eagerNeedsFetchedPayload = false,
     ) {}
 
     /**

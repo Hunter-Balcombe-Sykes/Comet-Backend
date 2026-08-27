@@ -22,7 +22,21 @@ use App\Models\Core\User\User;
 final class FreshaStaffMatcher
 {
     /** Exact full-name match. */
-    private const SCORE_EXACT = 4;
+    private const SCORE_EXACT = 5;
+
+    /**
+     * T3/D10 (2026-08-27): the INVERTED tier — every token of the employee's
+     * REAL name (Fresha's own data) appears token-wise in the user's raw
+     * vanity display_name. The parsed first/last names are derived from an
+     * Instagram vanity string and are routinely garbage ("Melbourne Barber |
+     * Thorton" parses to first "Melbourne", last "Barber" while the person is
+     * Thorton), so matching from the employee side is immune to parse
+     * quality. Tokens under 3 characters carry no signal and are ignored; an
+     * employee name made ONLY of short tokens never rides this tier. Ranked
+     * below exact (a verbatim parsed-name equality is still the strongest
+     * claim) and above both-tokens.
+     */
+    private const SCORE_VANITY_NAME = 4;
 
     /** Both first- AND last-name tokens present, any order. */
     private const SCORE_BOTH_TOKENS = 3;
@@ -44,6 +58,7 @@ final class FreshaStaffMatcher
     /** Score → reportable tier label, for the auto-selection audit trail. */
     private const TIER_LABELS = [
         self::SCORE_EXACT => 'exact',
+        self::SCORE_VANITY_NAME => 'vanity-name',
         self::SCORE_BOTH_TOKENS => 'both-tokens',
         self::SCORE_FIRST_EXACT => 'first-exact',
         self::SCORE_LAST_ONLY => 'last-only',
@@ -79,7 +94,8 @@ final class FreshaStaffMatcher
         }
 
         $fullName = trim(implode(' ', array_filter([$user->first_name, $user->last_name])));
-        if ($fullName === '') {
+        $vanityTokens = $this->vanityTokens((string) $user->display_name);
+        if ($fullName === '' && $vanityTokens === []) {
             return ['employeeId' => null, 'tier' => null];
         }
 
@@ -99,8 +115,14 @@ final class FreshaStaffMatcher
                 continue;
             }
 
-            if ($empName === $nameLower) {
+            if ($fullName !== '' && $empName === $nameLower) {
                 $candidates[self::SCORE_EXACT][] = $empId;
+
+                continue;
+            }
+
+            if ($vanityTokens !== [] && $this->containedInVanity($empName, $vanityTokens)) {
+                $candidates[self::SCORE_VANITY_NAME][] = $empId;
 
                 continue;
             }
@@ -140,6 +162,43 @@ final class FreshaStaffMatcher
         return count($best) === 1
             ? ['employeeId' => $best[0], 'tier' => self::TIER_LABELS[$bestScore]]
             : ['employeeId' => null, 'tier' => null];
+    }
+
+    /**
+     * The vanity display_name broken into lowercase word tokens — pipes,
+     * bullets, emoji and punctuation all become separators.
+     *
+     * @return list<string>
+     */
+    private function vanityTokens(string $displayName): array
+    {
+        $tokens = preg_split('/[^\\p{L}\\p{N}]+/u', mb_strtolower($displayName)) ?: [];
+
+        return array_values(array_filter($tokens, static fn (string $t) => $t !== ''));
+    }
+
+    /**
+     * Every signal-bearing token (≥3 chars) of the employee's name appears in
+     * the vanity tokens. An employee name with NO signal-bearing tokens never
+     * matches — two-letter names are too weak a containment claim.
+     *
+     * @param  list<string>  $vanityTokens
+     */
+    private function containedInVanity(string $empNameLower, array $vanityTokens): bool
+    {
+        $empTokens = preg_split('/[^\\p{L}\\p{N}]+/u', $empNameLower) ?: [];
+        $empTokens = array_values(array_filter($empTokens, static fn (string $t) => mb_strlen($t) >= 3));
+        if ($empTokens === []) {
+            return false;
+        }
+
+        foreach ($empTokens as $token) {
+            if (! in_array($token, $vanityTokens, true)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function isFirstNameOnly(string $empName, string $firstName, string $lastName): bool

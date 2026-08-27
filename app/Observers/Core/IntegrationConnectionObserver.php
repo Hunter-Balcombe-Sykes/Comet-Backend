@@ -457,6 +457,22 @@ class IntegrationConnectionObserver
             return;
         }
 
+        // T3 (2026-08-27): a payload-reading connector's eager run is pointless
+        // before the first fetch — it can only ingest the empty answer (and on
+        // fresha it DID, projecting "no_selection" builds). The selection
+        // landing with the fetched payload flips selection_ref → 'reselected'
+        // above re-enters here with the data actually present.
+        if ($result['status'] === 'created'
+            && $connection->last_refreshed_at === null
+            && ConnectorRegistry::manifestFor($sourceKey)->eagerNeedsFetchedPayload) {
+            Log::info('ingest.eager_run.deferred_until_fetch', [
+                'connection_id' => $connection->id,
+                'source_key' => $sourceKey,
+            ]);
+
+            return;
+        }
+
         // sync() just inserted this row; re-read it rather than threading the id
         // back through the provisioner's return contract for one caller.
         $sourceId = DB::table('ingest.sources')

@@ -106,8 +106,12 @@ it('degrades to storewide when the surname never made it onto the user', functio
 
     $payload = IntegrationConnection::where('user_id', $user->id)->where('platform', 'fresha')->firstOrFail()->fresh()->payload;
 
+    // T3 (2026-08-27): the vanity-name tier now IDENTIFIES Simon inside the
+    // unparsed vanity string even in this broken-fold state — the employee
+    // services fetch still fails (mocked null), so the selection degrades to
+    // storewide exactly as before, but the match itself is on record.
     expect($payload['selection']['mode'])->toBe('storewide')
-        ->and($payload['matchTier'])->toBeNull();
+        ->and($payload['matchTier'])->toBe('vanity-name');
 });
 
 it('makes no outbound fresha calls anywhere in the suite path', function () {
