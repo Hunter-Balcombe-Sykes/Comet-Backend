@@ -18,7 +18,9 @@ use Illuminate\Support\Facades\DB;
  * else content.items.first_seen_at). Every scored family is eligible since
  * 2026-08-23 (smart ordering v2) with its own weight and half-life from
  * config/partna.php `pools.smart` (ItemFamily::weightsFor); a family whose
- * w_fresh is 0 yields nothing. Events never score and so never appear.
+ * w_fresh is 0 yields nothing. event_item is exactly that (w_fresh 0.0) —
+ * events DO score since the smart-scoring plan (2026-08-27), but their
+ * time-shaped term is EventTimeRelevance, not this age curve.
  *
  * The page family this used to carry was retired 2026-08-23: pages are
  * actions now and get their freshness from ActionScorer.

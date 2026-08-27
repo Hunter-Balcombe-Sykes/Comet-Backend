@@ -132,25 +132,15 @@ Schedule::command('site:prune-document-versions')
 // SCALE-3 (2026-07-20): the "full-sweeps EVERY published site each run" half of
 // the earlier REVISIT is fixed — ComputeContentPopularityScores now scopes the
 // no-(--site) sweep to sites with a raw event in the last
-// RECENT_EVENTS_WINDOW_MINUTES. ⚠️ STILL OPEN: the 0.7/0.3 hysteresis
-// blend + 90-day half-life were tuned for a DAILY cadence — at 15-min the blend
-// barely smooths. Revisit before real prod scale.
+// RECENT_EVENTS_WINDOW_MINUTES.
 //
-// ⚠️ ALSO OPEN (mitigated, not fixed) — missed-tick gap introduced by that
-// scoping: at the 15-min cadence, a W-minute lookback survives K consecutive
-// missed ticks (deploy restart, scheduler blip) with zero gap only when
-// W >= (K+1) x 15. Widened 20->60min (2026-07-20): the old 20min didn't even
-// survive K=1 (a single skipped tick left a ~10min slice outside every run's
-// window); 60min survives K=3 (a 45-min scheduler outage) before that happens.
-// Beyond K=3, events in the gap still fall outside every run's window and are
-// lost unless the site is scoped in again later for an unrelated reason.
-// Mostly self-healing — the score recomputes from full raw history the next
-// time the site IS scoped in — so it only becomes permanent for a site whose
-// last-ever activity lands in a missed-tick gap before going dormant. Bounded
-// further by the 90-day raw retention, and it degrades a cosmetic ranking, not
-// money/auth. Proper fix is a persisted last-successful-run watermark instead
-// of a fixed lookback — larger work, likely a schema change, deferred.
-// `--site` is the manual escape hatch meanwhile.
+// Both ⚠️ warnings that stood here CLOSED 2026-08-27 (smart-scoring plan):
+// the fixed 0.7/0.3 blend became cadence-aware (cadenceBlendPrev — the
+// previous weight compounds 0.3^(Δt/1day), so the 15-min cadence smooths as
+// intended), and the missed-tick gap got its proper fix — the persisted
+// last-successful-run watermark (analytics.scoring_watermarks, migration
+// 20260827070000) replaces the fixed lookback, so a scheduler outage of any
+// length no longer loses the gap. `--site` remains the manual escape hatch.
 Schedule::command('analytics:compute-popularity')
     ->everyFifteenMinutes()
     ->onOneServer()

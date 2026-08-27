@@ -25,10 +25,17 @@ use Illuminate\Support\Str;
  *   freshness  = 2^(-ageDays / 14)            from connectedAt (cold start:
  *                                             new content rises by itself)
  *   prior      = priors[id] ?? priors[kind]   the importance floor
+ *   floor      = boosts[id] ?? prior          identity boosts replace the
+ *                                             prior for recipe-resolved ids
  *
- *   score   = w_demand·demandRate + w_reach·reach + w_fresh·freshness + prior
- *   blended = 0.7·score + 0.3·previous        (anti-thrash)
- *   rank    = previous-rank seed, overtake only when > 10% above the incumbent
+ *   score   = w_demand·demandRate + w_reach·reach + w_fresh·freshness + floor
+ *   blended = cadenceBlendPrev(score, previous)   anti-thrash: the previous
+ *             weight compounds 0.3^(Δt/1day), so a 15-min cadence smooths as
+ *             hard as the daily one this constant was tuned for
+ *   rank    = previous-rank seed; an unboosted pair overtakes only when
+ *             > 10% above the incumbent, while boosted pairs rank on
+ *             eff = earnedSignal + LADDER_RUNG_STEP·rungsBelow inside a
+ *             BOOSTED_SWAP_HYSTERESIS band (see rankWithHysteresis)
  *
  * Storage: analytics.content_popularity_scores, content_type='action',
  * content_key=<action id>. Stale keys (no longer a candidate) are deleted

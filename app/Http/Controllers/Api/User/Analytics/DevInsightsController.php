@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Services\Analytics\ContentFreshness;
+use App\Services\Analytics\EventTimeRelevance;
 use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Profile\SectorActionRecipes;
 use App\Site\Actions\ActionCandidates;
@@ -36,6 +37,7 @@ class DevInsightsController extends ApiController
 
     public function __construct(
         private readonly ContentFreshness $freshness,
+        private readonly EventTimeRelevance $eventRelevance,
         private readonly ActionCandidates $candidates,
         private readonly ContentPopularityReader $popularity,
     ) {}
@@ -76,7 +78,15 @@ class DevInsightsController extends ApiController
 
         // Same freshness boosts the scoring job applies — surfaced so the score
         // breakdown can show the additive term per item (family => id => boost).
+        // Events overlay their time-relevance term exactly as the scoring job
+        // does (their config fresh weight is 0, so the generic curve yields
+        // nothing) — without this the one surface built to explain "why is
+        // this first" read 0.00 for every event (plan 05 pass 6).
         $fresh = $this->freshness->boostsForSite($site);
+        $relevance = $this->eventRelevance->boostsForSite($site);
+        if ($relevance !== []) {
+            $fresh['event_item'] = $relevance;
+        }
 
         // The organic/boost split is INTERNAL by owner decision (2026-08-27):
         // the dashboard shows one blended number; only this dev endpoint says

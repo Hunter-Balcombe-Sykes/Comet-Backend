@@ -54,14 +54,17 @@ use Illuminate\Support\Str;
  * Zero-signal keys with a live boost are SEEDED into the aggregate so a
  * brand-new item ranks before its first event (cold start).
  *
- * Anti-thrash: the stored score is blended with the previous (0.7·new + 0.3·old)
- * and a row only overtakes the one ranked above it when its blended score beats
- * that incumbent by >10%. Upserted on (site_id, content_type, content_key).
+ * Anti-thrash: the stored score is blended with the previous via
+ * cadenceBlendPrev (the previous weight compounds 0.3^(Δt/1day), cadence-aware
+ * since 2026-08-27 — see the dated note by the constants), and a row only
+ * overtakes the one ranked above it when its blended score beats that
+ * incumbent by >10%. Upserted on (site_id, content_type, content_key).
  *
  * Fade-out: stored keys that no longer aggregate any signal (an item left the
- * pool, raw events purged by retention) decay through the blend
- * (new = 0 → 0.3·prev per run, no freshness) and are DELETED once below
- * SCORE_FLOOR — stale rows can't freeze at their last score/rank forever.
+ * pool, raw events purged by retention) decay through the same blend
+ * (new = 0 → the compounded previous weight per run, no freshness) and are
+ * DELETED once below SCORE_FLOOR — stale rows can't freeze at their last
+ * score/rank forever.
  */
 class ComputeContentPopularityScores extends Command
 {

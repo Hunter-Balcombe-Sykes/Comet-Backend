@@ -323,7 +323,7 @@ final class SectorActionRecipes
     {
         return match ($role) {
             'book' => self::providerOrPage($candidates, 'services'),
-            'reserve' => self::newestPlatformForPage($candidates, null, 'reservations'),
+            'reserve' => self::newestPlatformForPage($candidates, 'reservations'),
             'order' => self::providerOrPage($candidates, 'menu', pageMeta: 'menu'),
             'menu' => self::page($candidates, 'menu'),
             'shop' => self::page($candidates, 'shop') ?? self::singlePlatformForPage($candidates, 'shop'),
@@ -401,7 +401,7 @@ final class SectorActionRecipes
      *
      * @param  list<array<string, mixed>>  $candidates
      */
-    private static function newestPlatformForPage(array $candidates, ?string $page, string $family): ?string
+    private static function newestPlatformForPage(array $candidates, string $family): ?string
     {
         $reservationKeys = ['opentable', 'resdiary', 'nowbookit'];
         $matches = [];
