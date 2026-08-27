@@ -863,6 +863,27 @@ feeds the auto-booking-connect lane (how Emma's Timely connected); all ten
 bookable brands joined it + Mr Yum in ordering (commits through the
 harvester commit).
 
+### WAVE PHASE 3 (in progress) — T27b fetch platforms, live-gated as they land
+
+- **Mixcloud SHIPPED + GATED** (ec9679d25): public keyless API (shape
+  live-verified, NTSRadio). Live gate: connected on sammypdf, ingest ran
+  100 records, shows served on his listen pool beside his own tracks;
+  gate fixture removed after.
+- **Luma SHIPPED + GATED** (a63a7c295): page __NEXT_DATA__
+  initialData.data.events (shape live-verified, lu.ma/sf). Live gate: 20
+  events landed + served on the events pool; fixture removed after.
+- **Resident Advisor SHIPPED + GATED** (c1b62f8d9): ra.co HTML 403s bots
+  but its own GraphQL answers plain POSTs from the dev server —
+  artist(slug){events(type: LATEST)} discovered against the live schema.
+  Live gate on benbohmermusic's REAL profile: his actual tour ("We Belong
+  Here: Central Park", Hulaween) landed and SERVES on his page — kept
+  (genuine content; closes his half of issue 21's spirit).
+  NOTE: RA/Luma bio-AUTO-connect parity (EventsSeeder::seedAccount is
+  hard-wired to eventbrite/humanitix) is a follow-up — today they connect
+  via the URL-connect card like every Brand platform, and fetch from there.
+- Remaining T27b: Booksy, Treatwell, Vagaro, Timely (services scrapers).
+  T27c: TikTok, Facebook (Apify).
+
 ### RUN EFFICIENCY PROTOCOL (owner ask, 2026-08-28) — for the T23–T27 run
 
 Retrospective on the 2026-08-27 run's cost drivers, and the protocol that
