@@ -274,6 +274,10 @@ class SourceProvisioner
                 ?? $this->bareSlug($resource, 'fresha'),
             'instagram' => $this->instagramUsername($payload['username'] ?? null)
                 ?? $this->instagramUsername($this->bareSlug($resource, 'instagram')),
+            // T27b: the profile URL's first path segment IS the API username.
+            'mixcloud' => $this->mixcloudUsername($payload['url'] ?? $payload['link'] ?? null)
+                ?? $this->mixcloudUsername($resource)
+                ?? $this->bareSlug($resource, 'mixcloud'),
             'google_business' => $this->cleanString($connection->place_id)
                 ?? $this->cleanString($payload['placeId'] ?? null)
                 ?? $this->googlePlaceId($resource),
@@ -361,6 +365,19 @@ class SourceProvisioner
      * placeholder slug, not a synthetic acct-/link-/order-/event- ref, no
      * URL-ish shape.
      */
+    /** The username segment of a mixcloud.com profile/show URL, or null. */
+    private function mixcloudUsername(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+        if (preg_match('~^https?://(?:www\.)?mixcloud\.com/([A-Za-z0-9_-]+)/?~i', trim($value), $m) === 1) {
+            return $m[1];
+        }
+
+        return null;
+    }
+
     private function bareSlug(mixed $value, string $legacyPlaceholder): ?string
     {
         $value = $this->cleanString($value);

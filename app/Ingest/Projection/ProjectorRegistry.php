@@ -36,6 +36,7 @@ final class ProjectorRegistry
         'fresha' => ['services' => FreshaServiceProjector::class, 'reviews' => FreshaReviewProjector::class],
         'humanitix' => ['events' => SchemaOrgEventProjector::class],
         'instagram' => ['media' => InstagramMediaProjector::class],
+        'mixcloud' => ['tracks' => MixcloudTrackProjector::class],
         'google_business' => [
             'reviews' => GoogleBusinessReviewProjector::class,
             'media' => GoogleBusinessMediaProjector::class,
