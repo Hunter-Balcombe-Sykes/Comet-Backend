@@ -469,6 +469,40 @@ The owner is away (dinner) once execution starts. For this run:
 ### Decisions made while owner away
 (appended as they happen — task, decision, why, evidence)
 
+- **RUN LOG part 2 (2026-08-27, late evening):**
+  - T3 DONE (8c84e3ad8 + noise fix): vanity-name matcher tier (their-words
+    containment, ambiguity + short-token guards); eager Fresha ingest
+    deferred until first fetch (manifest eagerNeedsFetchedPayload); stale-slug
+    first attempt no longer error-reports when the retry recovers.
+  - T4 DONE (4ae78f9d5): BuildState::bump() dispatches the doc build (15s
+    delay, per-site unique coalescing); sweeper is the net. Purge-coalescing
+    half NOT touched — the 12:31 purge-funnel commit already reworked it;
+    acceptance watches for 429 recurrence.
+  - T6 DONE (e7cd6cb45): OCR enrich-only beside ≥8-item platform menu; no
+    5-min hold without an ordering platform.
+  - T7 DONE (3236f1b78), T8 DONE (7d19320ef), T9 DONE, T10 DONE (84076dca3),
+    T11 DONE (Fresha casing).
+  - T5/T13/T14/T16 DONE (453a7503f): BioIntelligence (DeepSeek chat lane —
+    D6 CORRECTION: Mistral is OCR-only in this stack; the plumbed chat lane
+    is DeepSeek), mechanical their-words gates, generator + IdentitySync
+    wiring (claimed accounts: About/contact only, names stay the owner's —
+    decision), BioMentionChainsJob (workplace via linker, brand via router,
+    global mention cache, Fresha precedence).
+  - T2 addendum DONE: YouTube Data API resolve leg, config-gated on
+    YOUTUBE_DATA_API_KEY, scrape fallback.
+  - T19 IN PROGRESS: flaky purge family KILLED at root (sync-inline purge +
+    redis funnel + retained unique lock; plus sqlite second-precision
+    timestamps making same-second touch() a no-op) — 103/103 ×3 runs;
+    scroll-default repins; routing corpus regenerated; migration VALIDATE
+    split. Full-suite gate run pending.
+  - OPS NOTE (self-report): a `git stash pop` after a bisect probe popped
+    the OWNER'S stash (mine was empty) — caught immediately, reverted with
+    `git reset --hard HEAD`, owner's stash preserved intact in the list.
+    No losses; rule adopted: never pop without having stashed.
+  - ACCEPTANCE ROUND fired 09:31:02 UTC: simondoylehair, st-ali,
+    barber_in_law, emdinonhair, eoinmccarthyhair — expired + pruned via the
+    audited command, rebuilt via staff path on the new code.
+
 - **RUN LOG (2026-08-27, evening):**
   - T1: real-scraper probe running from production every 5 min (both known
     channels, resolve + videos legs). First samples all OK — consistent
