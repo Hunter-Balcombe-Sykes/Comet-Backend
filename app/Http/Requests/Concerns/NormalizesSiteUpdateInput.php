@@ -10,8 +10,9 @@ use App\Http\Requests\Api\User\Site\UpdateSiteRequest;
 // the two classes already share DesignKitValidationRules and
 // SiteOrderingValidationRules. (The skeleton_id field alias and the
 // LEGACY_ARCHITECTURE_IDS value collapse were removed 2026-08-05 — the audit
-// found no client anywhere still sending either; architecture_id is 'staple'
-// or absent everywhere.)
+// found no client anywhere still sending either; at the time architecture_id
+// was 'staple' or absent everywhere — since 2026-08-27 the platform default
+// is 'scroll'.)
 trait NormalizesSiteUpdateInput
 {
     protected function prepareForValidation(): void

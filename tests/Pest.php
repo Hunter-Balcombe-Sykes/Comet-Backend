@@ -1038,7 +1038,7 @@ function setupSitesTable(): void
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT NOT NULL,
         subdomain TEXT NOT NULL,
-        architecture_id TEXT NOT NULL DEFAULT \'staple\' CHECK (architecture_id IN (\'staple\', \'scroll\')),
+        architecture_id TEXT NOT NULL DEFAULT \'scroll\' CHECK (architecture_id IN (\'staple\', \'scroll\')),
         subdomain_changed_at TEXT NULL,
         is_published INTEGER NOT NULL DEFAULT 0,
         unpublished_at TEXT NULL,

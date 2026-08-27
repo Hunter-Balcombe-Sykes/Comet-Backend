@@ -19,7 +19,7 @@ it('Site::factory() creates a valid Site row tied to a User', function () {
 
     expect($site->user_id)->toBe($user->id);
     expect($site->subdomain)->toBeString();
-    expect($site->architecture_id)->toBe('staple');
+    expect($site->architecture_id)->toBe('scroll');
 });
 
 it('PartnaStaff::factory()->create() defaults to support role', function () {

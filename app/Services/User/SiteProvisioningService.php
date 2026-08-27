@@ -234,8 +234,9 @@ class SiteProvisioningService
             // statement error, which is why this bug is invisible in the SQLite
             // test suite (see SiteProvisioningSavepointTest, gated to real pgsql).
             return DB::connection('pgsql')->transaction(function () use ($userId, $candidate, $published) {
-                // architecture_id defaults to 'staple' at the DB level (TEXT CHECK
-                // DEFAULT 'staple' — the only layout). New sites pick up the
+                // architecture_id defaults to 'scroll' at the DB level (TEXT
+                // CHECK, DEFAULT flipped 'staple'->'scroll' 2026-08-27,
+                // migration 20260827120000). New sites pick up the
                 // default automatically; no need to set it explicitly.
                 $site = new Site([
                     'subdomain' => $candidate,

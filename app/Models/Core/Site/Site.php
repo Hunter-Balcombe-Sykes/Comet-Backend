@@ -51,7 +51,9 @@ use Illuminate\Support\Facades\DB;
 // `architecture_id` is a TEXT enum. An "architecture" is how the sitepage is
 // laid out / how its pages connect — the renderer (partna-pages) picks a
 // code-side architecture from that value. TWO architectures exist as of
-// 2026-08-24 ('staple', the platform's original and every account's default,
+// 2026-08-24 ('staple', the platform's original — the DEFAULT moved to
+// 'scroll' on 2026-08-27 (owner): migration 20260827120000 flipped the DB
+// default and every existing row,
 // and 'scroll', a second one added empty — see ARCHITECTURE_IDS); the DB
 // CHECK constrains the column to that pair. Per-user design vars live in
 // site.design_kits (separate table).
@@ -60,7 +62,7 @@ class Site extends BaseModel
     use HasFactory, HasUuids;
 
     /** Default architecture when none has been explicitly chosen. Must match the DB CHECK constraint. */
-    public const DEFAULT_ARCHITECTURE_ID = 'staple';
+    public const DEFAULT_ARCHITECTURE_ID = 'scroll';
 
     /**
      * Allowed architecture ids — mirrors the sites_architecture_id_check DB

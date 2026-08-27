@@ -48,7 +48,7 @@ use Illuminate\Support\Facades\Log;
  *       workplace: WorkplaceData | null,
  *     },
  *     designKit: { colors: {...}, typography: {...}, ... },
- *     architectureId: 'staple',
+ *     architectureId: 'scroll',
  *     publicConfig: { analyticsEndpoint, ... },
  *   }
  *
