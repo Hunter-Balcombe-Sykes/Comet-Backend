@@ -3,6 +3,7 @@
 use App\Site\Documents\BuildState;
 use App\Site\Documents\DocumentBuilder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -12,6 +13,11 @@ beforeEach(function () {
     // f_published for every section (disconnect = hide, recency by published
     // date — W2 2026-08-18), exactly as the real DB always has them.
     setupContentTables();
+    // T4 (2026-08-27): BuildState::bump() now dispatches the build itself;
+    // under the sync test driver that inline build would race the CAS
+    // choreography these tests choreograph BY HAND. Fake the queue — the
+    // event-driven dispatch has its own test (BuildStateEventDrivenTest).
+    Queue::fake();
 });
 
 // buildTestSite()/addPage()/addSection()/addItem() live in tests/Pest.php —

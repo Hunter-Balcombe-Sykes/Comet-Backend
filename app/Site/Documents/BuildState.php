@@ -2,6 +2,7 @@
 
 namespace App\Site\Documents;
 
+use App\Jobs\Site\BuildSiteDocumentJob;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -20,6 +21,14 @@ use Illuminate\Support\Facades\DB;
  */
 class BuildState
 {
+    /**
+     * T4 (2026-08-27): seconds between the first write of a burst and the
+     * build it triggers. Small enough that content shows near-immediately,
+     * big enough that a burst's early writes usually land before the build
+     * reads (the superseded-CAS loop covers the rest).
+     */
+    public const EVENT_BUILD_DELAY_SECONDS = 15;
+
     /** Signal that a site's content changed and its document is now stale. */
     public static function bump(string $siteId): void
     {
@@ -35,6 +44,16 @@ class BuildState
                 'updated_at' => now(),
             ],
         );
+
+        // T4 (2026-08-27): content used to wait for the 5-minute stale
+        // sweeper — measured 4m09s of stale (often EMPTY first-pass) site
+        // between a write burst and its build on the st-ali test build. Every
+        // content write passes THIS choke point, so the build is dispatched
+        // here: delayed a few seconds and coalesced per site by the job's own
+        // ShouldBeUnique (a burst = one build), with the superseded-CAS loop
+        // absorbing mid-build writes and the sweeper remaining as the net.
+        BuildSiteDocumentJob::dispatch($siteId)
+            ->delay(self::EVENT_BUILD_DELAY_SECONDS);
     }
 
     /**
