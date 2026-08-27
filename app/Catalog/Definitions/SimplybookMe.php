@@ -35,6 +35,10 @@ class SimplybookMe
                 ->refreshEvery(0)
                 ->detect(
                     Detector::url('simplybook.me')->strength(EvidenceStrength::ProfileLink),
+                    // Country-TLD mirror: the .me host 302s real booking
+                    // pages onto .it (plan-03 batch 6, verified live on a
+                    // real barber's page).
+                    Detector::url('simplybook.it')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),
         ];

@@ -32,6 +32,11 @@ class Ovatu
                 ->refreshEvery(0)
                 ->detect(
                     Detector::url('ovatu.com')->strength(EvidenceStrength::ProfileLink),
+                    // book.app: Ovatu's customer mini-site domain per their
+                    // own docs ({business}.book.app). No live example was
+                    // findable tonight (plan-03 batch 6 — both documented
+                    // examples 302 to not-found), but the shape is theirs.
+                    Detector::url('book.app')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),
         ];

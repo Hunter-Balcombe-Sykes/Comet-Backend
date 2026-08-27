@@ -37,6 +37,10 @@ class Boulevard
                 ->refreshEvery(0)
                 ->detect(
                     Detector::url('boulevard.io')->strength(EvidenceStrength::ProfileLink),
+                    // joinblvd.com: the live customer booking-widget host —
+                    // dashboard.boulevard.io 301s onto it (plan-03 batch 5,
+                    // verified against a real medspa's own shared link).
+                    Detector::url('joinblvd.com')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),
         ];

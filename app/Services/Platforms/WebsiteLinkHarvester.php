@@ -185,12 +185,25 @@ class WebsiteLinkHarvester
         'Genbook' => '~(^|\.)genbook\.com$~',
         'GlossGenius' => '~(^|\.)glossgenius\.com$~',
         'Mangomint' => '~(^|\.)mangomint\.com$~',
-        'Boulevard' => '~(^|\.)boulevard\.io$~',
-        'Ovatu' => '~(^|\.)ovatu\.com$~',
+        // joinblvd.com: Boulevard's live booking-widget host (real customer
+        // links use it; dashboard.boulevard.io 301s there — plan-03 batch 5).
+        'Boulevard' => '~(^|\.)(boulevard\.io|joinblvd\.com)$~',
+        // book.app: Ovatu's customer mini-site domain (their docs; plan-03).
+        'Ovatu' => '~(^|\.)(ovatu\.com|book\.app)$~',
         'Treatwell' => '~(^|\.)treatwell\.(com|co\.uk|de|fr|nl|es|it|be|at|ch|ie|pt|lt|lv|gr)$~',
         'Noterro' => '~(^|\.)noterro\.com$~',
         'Schedulicity' => '~(^|\.)schedulicity\.com$~',
-        'SimplyBook.me' => '~(^|\.)simplybook\.me$~',
+        // simplybook.it: SimplyBook issues country-TLD mirrors and the .me
+        // host 302s straight to them (plan-03 batch 6, live redirect).
+        'SimplyBook.me' => '~(^|\.)simplybook\.(me|it)$~',
+        // The four catalog booking brands this list never learned (plan-03
+        // batch 5/6 find): their pasted links fell through to
+        // classifyFromCatalog's flat 'link' answer and seeded CUSTOM cards
+        // instead of booking provider cards.
+        'Bella Booking' => '~(^|\.)bellabooking\.com$~',
+        'Kitomba' => '~(^|\.)kitomba\.com$~',
+        'Phorest' => '~(^|\.)phorest\.com$~',
+        'Zenoti' => '~(^|\.)zenoti\.com$~',
     ];
 
     /**
@@ -209,6 +222,8 @@ class WebsiteLinkHarvester
         'Booksy' => 'booksy', 'Timely' => 'timely', 'Vagaro' => 'vagaro',
         'Mindbody' => 'mindbody', 'GlossGenius' => 'glossgenius',
         'Mangomint' => 'mangomint', 'Boulevard' => 'boulevard', 'Ovatu' => 'ovatu',
+        'Bella Booking' => 'bella-booking', 'Kitomba' => 'kitomba',
+        'Phorest' => 'phorest', 'Zenoti' => 'zenoti',
         // Catalog-only — no legacy slug exists or can exist.
         'Calendly' => 'calendly.book', 'Acuity' => 'acuity.book',
         'Setmore' => 'setmore.book', 'Genbook' => 'genbook.book',
