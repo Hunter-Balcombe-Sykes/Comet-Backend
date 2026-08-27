@@ -94,7 +94,26 @@ final class FreshaStaffMatcher
         }
 
         $fullName = trim(implode(' ', array_filter([$user->first_name, $user->last_name])));
-        $vanityTokens = $this->vanityTokens((string) $user->display_name);
+        // The RAW Instagram fullName joins the vanity source (2026-08-27
+        // acceptance finding): the bio-intelligence pass now CLEANS
+        // display_name ("Melbourne Barber | Thorton" → a person name), which
+        // is right for the site but strips exactly the token this tier needs
+        // when the cleaning is imperfect. The stored payload keeps the
+        // verbatim string.
+        $rawVanity = (string) $user->display_name;
+        try {
+            $igFullName = data_get(
+                $user->integrationConnections()->where('platform', 'instagram')->first()?->payload,
+                'fullName',
+            );
+            if (is_string($igFullName)) {
+                $rawVanity .= ' '.$igFullName;
+            }
+        } catch (\Throwable) {
+            // Optional enrichment only — a missing table (unit-test mirror) or
+            // any read fault must never break matching.
+        }
+        $vanityTokens = $this->vanityTokens($rawVanity);
         if ($fullName === '' && $vanityTokens === []) {
             return ['employeeId' => null, 'tier' => null];
         }

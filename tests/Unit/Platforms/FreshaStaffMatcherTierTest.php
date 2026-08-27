@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\FreshaStaffMatcher;
 use Tests\TestCase;
@@ -10,6 +11,7 @@ uses(TestCase::class)->in(__FILE__);
 
 beforeEach(function () {
     setupUsersTable();
+    setupIntegrationConnectionsTable();
 });
 
 function team(array ...$members): array
@@ -167,4 +169,26 @@ it('partial token overlap is not containment — Barber Jones does not match a B
 
     expect(app(FreshaStaffMatcher::class)->matchWithTier($user, team(['e1', 'Barber Jones'], ['e2', 'Thorton'])))
         ->toBe(['employeeId' => 'e2', 'tier' => 'vanity-name']);
+});
+
+it('reads the RAW instagram fullName when the cleaned display_name lost the person token (acceptance regression)', function () {
+    // 2026-08-27 acceptance finding: bio-intelligence cleaned display_name to
+    // "Melbourne Barber" — right for the site, but it stripped "Thorton", the
+    // exact token the vanity tier needed. The verbatim string lives on the
+    // instagram payload; the matcher reads it too.
+    $user = User::factory()->create([
+        'display_name' => 'Melbourne Barber',
+        'first_name' => 'Melbourne',
+        'last_name' => 'Barber',
+    ]);
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'instagram',
+        'payload' => ['username' => 'barber_in_law', 'fullName' => 'Melbourne Barber | Thorton'],
+        'is_active' => false,
+    ]);
+
+    expect(app(FreshaStaffMatcher::class)->matchWithTier($user->fresh(), team(['e1', 'Thorton'], ['e2', 'Jess'])))
+        ->toBe(['employeeId' => 'e1', 'tier' => 'vanity-name']);
 });
