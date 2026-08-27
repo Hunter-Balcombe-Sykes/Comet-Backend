@@ -750,25 +750,90 @@ Feasibility evidence gathered live before proposing (details in chat log):
   about-prose scan: services list, owner's own wording, photos with
   perceptual-hash dedup vs IG; enrich-only, includes the issue-16 HTML
   strip fix.
-- **T27 — Platform coverage wave** (survey 2026-08-27; catalog makes
-  link-only additions a 2-file + compile change):
-  - NEW LINK-ONLY surfaces to add (routing works, cards render): AU-first
-    booking/health — Jane App, Cliniko, Halaxy, HotDoc, Bookwell; generic —
-    Wix Bookings, StyleSeat, Microsoft Bookings, Google appointment links
-    (calendar.app.google); AU ordering — Mr Yum / me&u; activities — Rezdy,
-    FareHarbor.
-  - FETCH candidates feeding EXISTING pools (best value/effort, ranked):
-    1) Booksy → services + reviews pools (public venue pages: services,
-       prices, staff, reviews — Fresha-shaped, barber-heavy);
-    2) Resident Advisor → events pool (musician testers benbohmer/memphislk
-       carry RA; public artist event listings);
-    3) Mixcloud → listen pool (public API/RSS, trivial, OEmbed pattern);
-    4) Luma → events pool (public calendar API);
-    5) Ticketmaster → events pool (free Discovery API);
-    6) Treatwell/Vagaro/Timely → services pool (same shape as Booksy;
-       Timely is Emma's actual booker);
-    7) TikTok → media pool (Apify actor lane, same cost class as
-       Instagram — biggest content win, real cost).
+- **T27 — Platform coverage wave — GREEN-LIT (owner, 2026-08-28: "do all
+    the free ones + all new link-only; Apify actors are fine")**:
+  - **T27a — link-only additions (all approved)**: Jane App, Cliniko,
+    Halaxy, HotDoc, Bookwell (AU health/booking); Wix Bookings, StyleSeat,
+    Microsoft Bookings, Google appointment links (calendar.app.google);
+    Mr Yum / me&u (AU ordering); Rezdy, FareHarbor (activities). Each is a
+    Definitions class + a _manifest line + catalog:compile; slugs chosen =
+    brand prefix so NO migration (LegacyPlatformMap rule). One batch
+    commit; guardrail tests (CatalogLegacyMapTest,
+    RegistryConnectCoverageTest, PlatformEnumSyncTest) in the same commit.
+  - **T27b — free-lane fetch platforms (all approved)**, feeding existing
+    pools, in this order:
+    1) Booksy → services + reviews (public venue pages: services, prices,
+       staff, reviews — Fresha-shaped scrape, barber-heavy);
+    2) Resident Advisor → events (testers benbohmer/memphislk carry RA);
+    3) Mixcloud → listen (public API/RSS, OEmbed-pattern, trivial);
+    4) Luma → events (public calendar API);
+    5) Ticketmaster → events (free Discovery API — needs a free API key,
+       owner console step like YouTube's);
+    6) Treatwell, Vagaro, Timely → services (Booksy-shaped; Timely is
+       Emma's real booker).
+    Each = fetch capability + strategy + connector + projector + cadence
+    per the §3 recipe; failing-test-first; per-platform live gate on a
+    test account carrying that platform.
+  - **T27c — Apify-lane fetch platforms (owner approved actors)**:
+    1) TikTok → media pool (Actor cost class, Instagram-pattern: mirror
+       media, payload identity fields; biggest content win — barbers +
+       musicians both post there; also unfreezes the largest "pending
+       forever" cohort);
+    2) Facebook Page → media pool (Actor; many AU businesses post photos
+       ONLY to Facebook; feeds the thin-homepage problem directly);
+    3) Google Maps reviews depth (Actor) — extends T23 past the Places
+       5-review cap for named-quote mining on busy venues.
+    Budget-gated via the existing AiSpendBudget/actor-caps pattern;
+    per-actor caps in config partna.limits.
+  - HYGIENE (bundled with T27a): flip non-fetch router placements to
+    'ok' at write (SourceReconciler:497 — the issue-13 fix).
+
+### RUN EFFICIENCY PROTOCOL (owner ask, 2026-08-28) — for the T23–T27 run
+
+Retrospective on the 2026-08-27 run's cost drivers, and the protocol that
+replaces each. The tooling items are BUILT FIRST (phase 0) — they pay for
+themselves within the run.
+
+Where the time/tokens went last run → what changes:
+
+1. **Full suite ran serially 3+ times (~17.5 min each).** Paratest is
+   installed and WORKS: full suite `--parallel` = **3m28s, 9,597 passed,
+   0 failed, 10 processes, zero parallel flakes** (benchmarked
+   2026-08-28 — the T19 microsecond-timestamp + redis-middleware fixes
+   hold under parallelism). A 5× cut. Protocol: targeted suites while
+   developing; `php artisan test --parallel` ONCE as each task's gate;
+   serial full suite only if parallel ever surfaces a shared-state flake.
+2. **Dozens of ad-hoc `cloud tinker` one-offs** — each a JSON-envelope
+   round trip, several lost to quoting/enum-cast errors and retried, plus
+   sleep-timer polling between them. Phase 0 builds three staff artisan
+   commands (committed, reviewed once, reused forever):
+   - `fleet:verify {handles*}` — one compact table: build_state, failure,
+     headshot state, workplace name, contact-form routing, site HTTP code.
+   - `fleet:rebuild {handles*}` — the whole expire → prune → requestBuild
+     dance atomically, sourcing source_name from the FULL workplace/current
+     name (the truncated-name misfire cost a second prune cycle last run).
+   - `builds:await {--since=} {--timeout=}` — server-side poll until every
+     matching build is terminal; replaces client-side sleep loops.
+3. **Deploy churn**: each push→deploy ≈1:15 + re-verify. Protocol: batch
+   commits per phase, deploy once per phase, verify once per deploy.
+4. **Log pulls repeated over the same windows.** Protocol: every
+   window.py pull lands in a dated scratch file; grep locally; never
+   re-pull a window already on disk.
+5. **Exploration re-done in-session.** The platform-registry and
+   reviews/deep-link maps are now IN THIS LEDGER — next sessions cite
+   them instead of re-exploring. New exploration agents get: compact
+   table output demanded, scope capped to the named question.
+6. **Per-account verification done ad-hoc per account.** Protocol: the
+   T18-style terminal gate becomes a fixtures file
+   (`scripts/fleet/expected.json`: handle → expectations) diffed by
+   `fleet:verify` — pass/fail lines, no prose.
+7. **Whole-account rebuilds used to test one lane.** Where a change is
+   connector-scoped, re-run that connector alone (ingest reselect path)
+   rather than expire+prune+rebuild; full rebuilds only for
+   build-pipeline changes.
+8. **Session shape**: phase-sized sessions per the standing doctrine;
+   this ledger carries all state between them; each phase opens by
+   reading ONLY its own task section, not the whole doc.
   - HYGIENE (from the survey, cheap): non-content router placements are
     born `last_refresh_status='pending'` and NOTHING ever flips them
     (SourceReconciler:497 vs :530-535 — the issue-13 mechanism, now
