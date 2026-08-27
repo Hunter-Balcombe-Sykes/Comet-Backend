@@ -1352,3 +1352,45 @@ gap fill). Set everything live as it lands.
   audit after they land.
 - Live gates queue: TikTok real-handle E2E, Facebook real-page E2E, Simon
   fresha staff_name reland, partna venue-review scoping on a real build.
+
+### Wave 2 progress log (as of ~05:00)
+
+**T27c LIVE-GATED.** bourkestreetbakery TikTok: 28 videos → watch pool,
+covers mirrored to R2 webp (owned tiktok: refs working). IndependentBakingCo
+Facebook: 29 posts → media pool, fbcdn frames mirroring. Fleet light-up:
+backfilled 37 social sources, dispatched runs — tiktok 19/20 ok (~29
+videos each), facebook 18/19 ok (~29 posts each); the 2 unavailables are
+honest misses (dead handle / actor miss, retryable). facebookPageUrl also
+canonicalises legacy /pages/<name>/<id> + hyphenated pretty-URLs
+(4d630138a + follow-up).
+
+**Person-scoped reviews LIVE-GATED** (90a97734f + migration 20260828030000).
+Simon: 6 employee-scoped Fresha reviews serve (staff_name='Simon' now
+PERSISTS — ProjectionWriter had silently dropped the field since T23b); the
+5 Kings-Domain-park reviews from an old wrong-place GB connect are now
+correctly hidden (they used to serve!). The 5 "Simon" GB reviews on the
+deleted barbershop connection stay dropped by W2 liveness (pre-existing).
+13 fleet fresha relands dispatched, 14 ran ok. NOTE for owner: `ollies`
+(partna-typed test profile wearing ST. ALi's GB listing) now serves 0 venue
+reviews — correct under person-scoping, but visible on that test page.
+
+**Wave-2 platform batch SHIPPED + LIVE-GATED** (fb0da3592): 34 new brands
+(social/directories/commerce/payments/music/events/booking) + Deezer keyless
+content connector. Live spot-check on dev: 10/10 real URLs route to the
+right surface+identifier; bare domains refuse. Deezer E2E: Ben Böhmer
+connect → auto eager run → 50 tracks → listen pool, and identity dedup
+MERGED deezer tracks with his existing Spotify items (one item, both
+platform links). Batch is detect-only except deezer/cal_com/classpass/
+pinterest (harvester-known, connect cards work); cal.com + classpass joined
+BOOKING_HOSTS so bio links auto-connect booking. Pinterest resurrected from
+the 2026-07-28 retirement as link-only (legacy map + registry guards
+updated). Skipped with reasons: airtasker (no public profile URL exists),
+hipages (WAF-blocked, unverifiable), oneflare (dead — 301s to airtasker),
+vcita/nabooki/picktime/appointy (no verified grammar), setmore-subdomain
+(already covered by setmore.book).
+
+**Brand assets:** batch A (12 T27a booking brands) + batch B (15 partial)
+landed in design-system (3487d69): 7+6 fully sourced, honest placeholders
+elsewhere, registry 119 platforms / 108 icons / 106 wordmarks; dashboard
+typecheck green. Stale YT-Music "icon missing" catalog note dropped. Batch C
+(34 wave-2 brands) dispatched.
