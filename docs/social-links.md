@@ -10,7 +10,7 @@
 
 Link blocks on the public mini-site live in `site.blocks` with `block_group = 'links'`. Originally, every link was treated identically — the only signal of "platform" was `icon_key`, validated against a flat allowlist. The frontend had to maintain its own `icon_key → display name` mapping, the user had to know to paste full Instagram URLs, and there was no validation that a URL behind an Instagram icon actually pointed to Instagram.
 
-V2 adds a **server-side registry of social platforms** (`config('sidest.social_platforms')`) that:
+V2 adds a **server-side registry of social platforms** (`config('partna.social_platforms')`) that:
 - Tells the frontend what icon, display name, and input format to use per platform.
 - Validates and normalizes user input (handles or URLs) before storing.
 - Forces a canonical `https://` URL so all stored social links are consistent.
@@ -20,9 +20,9 @@ V2 adds a **server-side registry of social platforms** (`config('sidest.social_p
 
 ---
 
-## 2. The 24 supported platforms
+## 2. The supported platforms (37 entries as of 2026-08-27 — the config array is the count)
 
-Grouped by `default_category`. See `config('sidest.social_platforms')` for the full per-platform config.
+Grouped by `default_category`. See `config('partna.social_platforms')` for the full per-platform config.
 
 ### 2.1 Social (8)
 
@@ -93,9 +93,9 @@ Original per-platform handle/URL detail, preserved for reference.
 
 ---
 
-## 3. Adding a 25th platform
+## 3. Adding a new platform
 
-1. Add an entry to `config/sidest.php` under `social_platforms`. Required fields:
+1. Add an entry to `config/partna.php` under `social_platforms`. Required fields:
    - `display_name` (string)
    - `icon_key` (string — must also be added to `link_block_icon_keys` below)
    - `placeholder` (string — shown as input hint, e.g. `@yourname`)
@@ -103,7 +103,7 @@ Original per-platform handle/URL detail, preserved for reference.
    - `url_template` (string with `{handle}` placeholder, **must be https**)
    - `host_allowlist` (array of plain-ASCII hosts)
    - `url_path_extractor` (PHP regex matching the path portion to extract a handle)
-   - `default_category` (one of `config('sidest.link_categories')`)
+   - `default_category` (one of `config('partna.link_categories')`)
    - `handle_location` (`'path'` or `'subdomain'`)
 2. Add the new `icon_key` value to the `link_block_icon_keys` allowlist in the same file.
 3. Add a unit test case in [tests/Feature/Site/SocialLinkNormalizerTest.php](../tests/Feature/Site/SocialLinkNormalizerTest.php) covering: clean handle, URL extraction, deep-link fallback, wrong-host rejection.
@@ -120,7 +120,7 @@ If the platform assigns each user their own subdomain (e.g. `alice.substack.com`
 
 ## 3.5 Link categories
 
-Every link block has a required `category` stored in `settings.category`. The six valid values live in `config('sidest.link_categories')`:
+Every link block has a required `category` stored in `settings.category`. The six valid values live in `config('partna.link_categories')`:
 
 `social`, `booking`, `education`, `content`, `events`, `other`
 
@@ -386,8 +386,8 @@ The command is also aliased as `sidest:backfill-link-categories` for discoverabi
 
 | Concern | File |
 |---------|------|
-| Registry definition | [config/sidest.php](../config/sidest.php) — `social_platforms` key |
-| Category enum | [config/sidest.php](../config/sidest.php) — `link_categories` key |
+| Registry definition | [config/partna.php](../config/partna.php) — `social_platforms` key |
+| Category enum | [config/partna.php](../config/partna.php) — `link_categories` key |
 | Validation + normalization | [`SocialLinkNormalizer`](../app/Services/Site/SocialLinkNormalizer.php) |
 | Public registry endpoint | [`PublicConfigController::socialPlatforms`](../app/Http/Controllers/Api/PublicSite/PublicConfigController.php) |
 | Form request — create | [`StoreLinkBlockRequest`](../app/Http/Requests/Api/Professional/Site/StoreLinkBlockRequest.php) |

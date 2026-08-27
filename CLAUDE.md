@@ -268,7 +268,7 @@ The Content Pool Convergence programme closed on dev 2026-08-17. **`content.*` i
 
 **Two menu tables SURVIVE by design** and are not part of any teardown: `site.menus` (the bookkeeping row — `scan_items`, `suppressed_items`, `last_successful_fetch_at`) and `site.menu_platform_links`. Live readers in `PoolResolver`, `MenuFetchJob`, `MenuPayloadComposer`, `MenuScanApplier`, `ManualMenuItems`, `PlatformHealthNotifier`. A sweep that expects "all menu tables gone" is reading the drop list wrong.
 
-**The public wire.** `GET /api/public/profiles/{handle}` → pools live at **`data.profile.pools`**, NOT top level. Seven: `custom_links`, `events`, `listen`, `media`, `menus`, `services`, `shop`. Each carries `items` + `latestItemId`; `menus` adds `collections` + `diningModes`, `shop` adds `collections`.
+**The public wire.** `GET /api/public/profiles/{handle}` → pools live at **`data.profile.pools`**, NOT top level. Nine (= PoolRegistry::POOLS, which PoolWire iterates in full): `custom_links`, `events`, `listen`, `media`, `menus`, `reviews`, `services`, `shop`, `watch`. (Was listed as seven here until 2026-08-27 — the line predated reviews/watch joining the wire.) Each carries `items` + `latestItemId`; `menus` adds `collections` + `diningModes`, `shop` adds `collections`.
 
 - **`profile.services` and `profile.pools.services` are different things, deliberately** (owner ruling 2026-08-17). `profile.services` = owner-authored only. `pools.services` = the union of all service-kind items including Fresha-scraped, with `origin` (`auto`|`manual`) per item. Consumers pick one surface or filter by `origin`; the backend will not de-duplicate them.
 

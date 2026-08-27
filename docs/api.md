@@ -30,7 +30,7 @@ This document is the single source of truth for backend so the frontend can buil
 
 ## Companion Docs
 
-- **[docs/social-links.md](./social-links.md)** — full conceptual guide to the social link platform registry (8 platforms, handle/URL normalization, security model, frontend integration). Read this before working on link blocks, the social picker, or adding a new social platform.
+- **[docs/social-links.md](./social-links.md)** — full conceptual guide to the social link platform registry (37 entries as of 2026-08-27 — count from config/partna.php `social_platforms`; handle/URL normalization, security model, frontend integration). Read this before working on link blocks, the social picker, or adding a new social platform.
 - **[docs/frontend-contracts/](./frontend-contracts/)** — endpoint-level 202+poll async migrations, aimed at the (separate-repo) frontend. Read the relevant one before integrating against an endpoint that changed shape:
   - **[instagram-connect-async.md](./frontend-contracts/instagram-connect-async.md)** — Instagram connect.
   - **[2026-07-02-async-link-connect.md](./frontend-contracts/2026-07-02-async-link-connect.md)** — custom links / online ordering / booking / reservations "custom" branches.
@@ -46,8 +46,8 @@ All endpoints below are served under the Laravel API base URL, with the default 
 
 ### API base URL
 
-- API base URL is your APP_URL (Laravel). Example: https://api.sidest.co
-- All API routes live under /api. Example: https://api.sidest.co/api/me Public mini-site domain rules Public mini-site routes are domain-scoped. They MUST be called on the mini-site host, not the API host.
+- API base URL is your APP_URL (Laravel). Example: https://api.partna.au
+- All API routes live under /api. Example: https://api.partna.au/api/me Public mini-site domain rules Public mini-site routes are domain-scoped. They MUST be called on the mini-site host, not the API host.
 - Host pattern: https://{subdomain}.{PARTNA_PUBLIC_DOMAIN}
 - Public API base URL: https://{subdomain}.{PARTNA_PUBLIC_DOMAIN}/api
 - Example: https://joshbarber.localtest.me/api/public/site Local development tip
@@ -1602,7 +1602,7 @@ It contains requests for all Stage 1-2 endpoints plus Supabase login requests.
 
 - SUPABASE_URL
 - SUPABASE_ANON_KEY
-- API_BASE_URL (example: https://api.sidest.co/api)
+- API_BASE_URL (example: https://api.partna.au/api)
 - PUBLIC_DOMAIN (example: sidest.co or localtest.me)
 - Optionally: STAFF_DASHBOARD_ENABLED flag if you ship staff tooling in the same frontend
 

@@ -3,7 +3,7 @@
 Laravel API for Partna.
 
 - Public mini-site API (domain-scoped, unauthenticated)
-- Barber dashboard API (authenticated via Supabase JWT)
+- Professional dashboard API (authenticated via Supabase JWT)
 - Staff API (authenticated staff-only tooling)
 
 ## Docs
@@ -15,9 +15,9 @@ Laravel API for Partna.
 ### Two hosts matter
 Public mini-site endpoints must be called on the **mini-site host**, not the API host.
 
-- API host (Laravel): `APP_URL` (example: `https://api.sidest.co`)
-- Mini-site host: `https://{subdomain}.{SIDEST_PUBLIC_DOMAIN}`
-- Public API base: `https://{subdomain}.{SIDEST_PUBLIC_DOMAIN}/api`
+- API host (Laravel): `APP_URL` (example: `https://api.partna.au`)
+- Mini-site host: `https://{subdomain}.{PARTNA_PUBLIC_DOMAIN}` (`SIDEST_PUBLIC_DOMAIN` is the deprecated legacy fallback)
+- Public API base: `https://{subdomain}.{PARTNA_PUBLIC_DOMAIN}/api`
 
 ### Authentication
 Partna uses **Supabase Auth** access tokens (JWT).
@@ -59,7 +59,7 @@ php artisan serve
 ```
 
 Tip: use a wildcard dev domain like `localtest.me` or `lvh.me` so subdomains resolve locally:
-- `SIDEST_PUBLIC_DOMAIN=localtest.me`
+- `PARTNA_PUBLIC_DOMAIN=localtest.me`
 - `APP_URL=http://api.localtest.me`
 
 ## Common workflows
