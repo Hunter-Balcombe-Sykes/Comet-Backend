@@ -27,9 +27,11 @@ class UpdateSiteRequest extends BaseFormRequest
             // Non-design settings — design moved to site.design_kits, all
             // settings.design.* paths are rejected outright.
             'settings' => ['sometimes', 'array'],
-            // architecture_id left the wire 2026-08-20 — no rule, so it is an
-            // unknown key: accepted and dropped, never persisted. Deliberately
-            // NOT 'prohibited', which would 422 any client still sending it.
+            // architecture_id is BACK on the wire since 2026-08-24 (scroll
+            // shipped) — validated below with Rule::in(Site::ARCHITECTURE_IDS).
+            // Legacy skeleton_id stays an unknown key: accepted and dropped,
+            // never persisted; deliberately NOT 'prohibited', which would 422
+            // any client still sending it.
             // settings.design.* is dead — reject any incoming key under it.
             'settings.design' => ['prohibited'],
             'settings.show_branding' => ['sometimes', 'boolean'],
