@@ -40,6 +40,9 @@ lines (the old 100-line cap is beaten; tool verified working).
 - Test plan: (a) failing test — first-fetch failure on a system-initiated
   connect currently deletes the row; assert retained + retry scheduled;
   (b) interactive path still deletes; (c) retry success path re-drives ingest.
+- Held in reserve (probe decides): routing YouTube fetches through a
+  proxy/Apify if the production probe shows failure rates too high for
+  retries alone.
 
 ### 2. Site document rebuild lags the content — VERIFIED again on build 2
 - OCR scan applied 05:06:03 (`google_menu_scan.applied`, added 10) → next
@@ -244,22 +247,32 @@ parallel; measure Simon's 49s generate step's internal phases.
   name (price optional — some menus omit prices). No platform menu → scan
   may add items, and should run promptly (no 5-min hold).
 
+- **D2 (2026-08-27, issue 6):** menus/services get `smart` as their default
+  order mode. Implementation note: this is a per-pool default map in
+  `ActionSettings::poolMode()` (code-level default), NOT settings writes per
+  site — which means it also changes any EXISTING site that never set an
+  explicit mode; flagged as intended (pre-claim it equals curated order).
+- **D3 (2026-08-27, issue 1):** keep-row + scheduled-retry design for
+  system-initiated first-fetch failures approved; write the failing tests.
+- **D4 (2026-08-27, item B):** stripping `rwg_token`/`utm_*` from stored UE
+  links approved. Path-form link swap still gated on browser verification
+  that the path URL opens the item page.
+
 ## Open owner questions
 
-- **Q2 (order-mode default, issue 6):** menus/services default to `manual`
-  (platform's curated order) or `smart` (same order until popularity data
-  exists, then engagement-ranked after claim)? Recommendation: `smart` —
-  identical to manual pre-claim, self-improving after.
-- **Q3 (issue 1):** approve the keep-row + scheduled-retry design for
-  system-initiated connects before tests are written?
-- **Q4 (item B):** OK to strip `rwg_token`/`utm_*` from stored UE links?
-  (Path-form browser verification pending on our side.)
+- (none currently — new ones get added here as work raises them)
 
 ## Execution order (agreed direction, 2026-08-27)
 
 1. **Finish scouting the open unknowns that shape fixes** — the 10
    scan-added items / provenance lane; titleCase + display-name recheck on
-   build 2; UE path-link browser verification.
+   build 2; UE path-link browser verification. **Plus a partna-type test
+   batch (owner, 2026-08-27):** 2–3 fresh partna (individual) unclaimed
+   builds from different Instagram/Fresha-shaped professionals — partna is
+   under-sampled (Simon is our only one) and the name-parsing, Fresha and
+   YouTube issues are partna-centric. Run them BEFORE fixes so build-2-era
+   behaviour is on record for each, sweep with window.py + Nightwatch, and
+   fold any new issues into this ledger.
 2. **Hypothesis-verification tests before any fix code:**
    - YouTube: repeated-probe test FROM production (scheduled tinker/command
      hitting both channel-page and feed legs every few minutes for ~1h,
