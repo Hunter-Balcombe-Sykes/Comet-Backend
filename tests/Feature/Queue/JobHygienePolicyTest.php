@@ -58,8 +58,12 @@ it('every ShouldQueue job defines $tries, backoff, and $timeout', function () {
 
         $missing = [];
 
-        if (! property_exists($className, 'tries')) {
-            $missing[] = '$tries';
+        // A retryUntil() method is the sanctioned alternative attempt bound
+        // (Laravel's own rate-limited-job pattern — CloudflareCachePurgeJob
+        // since the 2026-08-27 purge-funnel fix): time-boxed retries instead
+        // of a count. One of the two must exist.
+        if (! property_exists($className, 'tries') && ! $reflection->hasMethod('retryUntil')) {
+            $missing[] = '$tries or retryUntil()';
         }
 
         // Accept either a $backoff property or a backoff() method (e.g. traits like HasCloudflareRetryPolicy).
