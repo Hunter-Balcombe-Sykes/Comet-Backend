@@ -353,6 +353,29 @@ parallel; measure Simon's 49s generate step's internal phases.
   failures ARE first-connect ones (3 of 4 first fetches failed); the probe
   will put real numbers on it either way.
 
+- **D8 (2026-08-27, T13 auto-About):** derive `users.bio` from the Instagram
+  biography. Current state (verified): users.bio is manual-only (dashboard +
+  staff requests are the only writers); `InstagramScraper` already fetches
+  `biography` but only regexes URLs out of it and DISCARDS the text
+  (InstagramScraper.php:380) — not even persisted to the payload. Design:
+  persist biography on the connection payload → deterministic pre-clean
+  (strip emoji/URLs/hashtags/CTAs; <~5 meaningful words → NO bio) → Mistral
+  transform in **strict keep-their-words mode: the model only stitches the
+  bio's own fragments/facts into consistent sentences, up to a short
+  paragraph — their words, not a rewrite** → post-validation (no
+  emoji/URLs, length cap, vocabulary-overlap-with-source check to
+  mechanically catch invention; fail → NO bio). No-bio always beats a bad
+  bio. Applies to pre-account builds AND any IG connect where users.bio is
+  empty; auto-derived flag so an owner edit permanently wins; never
+  overwrite owner-authored text.
+- **D9 (2026-08-27, T2):** official **YouTube Data API becomes the primary
+  channel-resolve/latest-video path** (free quota, no bot-walls); the
+  scraper drops to fallback; paid proxy last resort (D7). Setup contingency:
+  a Google API key already exists for GBP/Places — at execution, test
+  whether it accepts YouTube Data API calls; if the API isn't enabled on
+  that Google Cloud project, that's an owner console step — until then ship
+  keep-row+retries on the scraper and log the ask.
+
 ## Open owner questions
 
 - (none currently — new ones get added here as work raises them)
@@ -426,6 +449,14 @@ The owner is away (dinner) once execution starts. For this run:
   (spot-check in browser).
 - **T11 — Fresha service-name casing** (inherited): Title Case at write.
   Gate: fixture test on raw vs selection payload disagreement ("REFRESH").
+- **T13 — Auto-About from Instagram biography per D8**: persist biography →
+  pre-clean → strict stitch-their-words Mistral transform → validation →
+  users.bio (null on any doubt). Scope: builds + empty-bio IG connects;
+  auto-derived flag. Gate: fixture tests on real bios (incl. barber_in_law's
+  emoji-heavy one, a links-only bio asserting NO output, an already-clean
+  bio asserting near-pass-through); fresh build shows a good About or none.
+- **T2 addendum (D9)**: YouTube Data API primary resolve leg — test the
+  existing Google key first; scraper fallback; proxy last.
 - **T12 — Acceptance rebuild round**: fresh signups (simondoylehair,
   st-ali + one new partna) after all fixes; full window.py sweep, Nightwatch
   diff, live-site checks; results logged here. Gate: zero regressions, all
