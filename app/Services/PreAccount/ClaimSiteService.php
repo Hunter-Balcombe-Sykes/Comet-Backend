@@ -140,6 +140,16 @@ class ClaimSiteService
                 throw $e;
             }
 
+            // T20 (owner, 2026-08-27): an auto-seeded or empty contact-form
+            // notification email defaults to the freshly-bound account email;
+            // an owner-typed address is never touched. Best-effort — a block
+            // fault must never fail a claim.
+            try {
+                app(ContactFormSeeder::class)->applyClaimDefault($professional);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+
             // SEC-4: claimed_at is no longer fillable — forceFill so a dropped write
             // can't leave the build re-servable forever (scopeLive() filters on it).
             // Single-use = USED, not opened (spec §4). Folded into the

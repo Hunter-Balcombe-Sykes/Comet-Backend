@@ -8,6 +8,7 @@ use App\Jobs\Platforms\ThrottledByProvider;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\PreAccountBuild;
 use App\Services\PreAccount\ClaimNotifier;
+use App\Services\PreAccount\ContactFormSeeder;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Services\PreAccount\SourceGeneratorRegistry;
 use App\Services\Site\SectionBlockProvisioner;
@@ -166,6 +167,14 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, Throttle
                 'site_id' => $site->id,
                 'message' => $e->getMessage(),
             ]);
+        }
+
+        // T20 (owner, 2026-08-27): the contact form is enabled by default on
+        // unclaimed sites, routed to the public contact email when one exists.
+        try {
+            app(ContactFormSeeder::class)->seedForBuild($user->fresh());
+        } catch (Throwable $e) {
+            report($e);
         }
 
         // SEC-4: build_state is no longer fillable — forceFill so this transition
