@@ -72,6 +72,21 @@ CLOUD_LOGS_TIMEOUT=120 scripts/env/cloud-logs.sh production --tail 50
 
 Exit 124 means it timed out and was killed — that is the guard working, not a log failure.
 
+**Every response is capped at 100 lines server-side** — `--tail 2000` or a wide
+`--minutes` still returns the LAST 100 lines of the range, which silently hides
+everything earlier (this is why the 2026-08-27 pre-account YouTube failures were
+initially undiagnosable). For a complete window, use the pagination wrapper,
+which slides `--to` backwards page by page (each subprocess call is bounded by
+a 120s timeout — no orphan risk):
+
+```bash
+scripts/logs/window.py "2026-08-27 03:57:00" "2026-08-27 04:01:00"            # app=partna env=development
+scripts/logs/window.py "2026-08-27 03:57:00" "2026-08-27 04:01:00" partna production
+```
+
+Emits JSON lines oldest-first; grep the output. It warns on stderr if >100
+lines share one second (that excess is unreachable through this API).
+
 **FORBIDDEN:** `mcp__laravel-boost__read-log-entries`, `mcp__laravel-boost__last-error`.
 
 **Debugging — check logs FIRST.** Before code: `cloud env:logs partna development --minutes 10`.
