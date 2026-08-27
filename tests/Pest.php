@@ -591,6 +591,9 @@ function setupPreAccountBuildsTable(): void
         'claim_token_hash TEXT NULL',
         'claim_token_issued_at TEXT NULL',
         'claim_idempotency_key TEXT NULL',
+        // Mirrors migration 20260828010000 (T28: release restores the exact
+        // pre-claim publish state).
+        'published_by_claim INTEGER NOT NULL DEFAULT 0',
     ] as $col) {
         try {
             DB::connection('pgsql')->statement('ALTER TABLE core.pre_account_builds ADD COLUMN '.$col);

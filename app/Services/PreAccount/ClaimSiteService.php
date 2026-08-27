@@ -150,18 +150,13 @@ class ClaimSiteService
                 report($e);
             }
 
-            // SEC-4: claimed_at is no longer fillable — forceFill so a dropped write
-            // can't leave the build re-servable forever (scopeLive() filters on it).
-            // Single-use = USED, not opened (spec §4). Folded into the
-            // claimed_at write rather than issued separately: this is the last
-            // write in the claim, so the burn lands strictly AFTER every throw
-            // above. That makes "a failed claim does not consume the lead's
-            // link" structural, not dependent on transaction rollback.
-            $build->forceFill(['claimed_at' => now()] + ($tokenOk ? $this->tokens->burn() : []))->save();
-
             // Auto-publish on claim (spec §3.3). Flow 2 sites are already published
-            // (no-op); Flow 1 / early-access flip live here.
-            if (! (bool) $site->is_published) {
+            // (no-op); Flow 1 / early-access flip live here. Whether THIS claim
+            // performed the flip is recorded on the build (T28, issue 22) so
+            // release() can restore the exact pre-claim publish state instead
+            // of guessing from the build type.
+            $publishedByClaim = ! (bool) $site->is_published;
+            if ($publishedByClaim) {
                 $site->is_published = true;
                 $site->unpublished_at = null;
                 // saveQuietly: the explicit post-commit block below already invalidates
@@ -169,6 +164,18 @@ class ClaimSiteService
                 // double-dispatch via SiteObserver.
                 $site->saveQuietly();
             }
+
+            // SEC-4: claimed_at is no longer fillable — forceFill so a dropped write
+            // can't leave the build re-servable forever (scopeLive() filters on it).
+            // Single-use = USED, not opened (spec §4). Folded into the
+            // claimed_at write rather than issued separately: this is the last
+            // write in the claim, so the burn lands strictly AFTER every throw
+            // above. That makes "a failed claim does not consume the lead's
+            // link" structural, not dependent on transaction rollback.
+            $build->forceFill([
+                'claimed_at' => now(),
+                'published_by_claim' => $publishedByClaim,
+            ] + ($tokenOk ? $this->tokens->burn() : []))->save();
 
             // Claim-time side effects moved from the retired bootstrap create branch.
             // PRIV-101: subscription is opt-in only — $marketingOptIn comes straight
@@ -293,18 +300,19 @@ class ClaimSiteService
                 ->where('dedupe_key', 'welcome:'.$locked->id)
                 ->delete();
 
-            // Restore the pre-claim publish state. A self-serve build is
-            // provisioned unpublished (PreAccountBuildService::requestBuild ->
-            // createSiteForHandle(published: false)) and claim() flips it true;
-            // leaving that flip in place would leave the site MORE publicly
-            // exposed after the release than before the claim, and owned by
-            // nobody — PublicSiteResolver gates on is_published.
-            //
-            // An outreach build is provisioned PUBLISHED, so unpublishing one
-            // would not be a restore but a state the site was never in.
-            // isOutreach() is the same discriminator claim()'s invite-gate uses.
+            // Restore the pre-claim publish state — EXACTLY (T28, issue 22).
+            // claim() records whether IT performed the publish flip
+            // (published_by_claim), so release unpublishes precisely when the
+            // claim published, and never otherwise. This replaces the old
+            // `! isOutreach()` heuristic, which assumed outreach builds are
+            // provisioned published — but publish intent is a requestBuild()
+            // PARAM that only rides the job dispatch, so a staff/outreach
+            // build CAN be provisioned unpublished (the whole 2026-08-27 test
+            // fleet was), and releasing a claim on one left is_published=true
+            // on an unclaimed row: more exposed than before the claim, owned
+            // by nobody — PublicSiteResolver gates on is_published.
             $site = Site::query()->where('user_id', $locked->id)->first();
-            if ($site && ! $build->isOutreach() && (bool) $site->is_published) {
+            if ($site && (bool) $build->published_by_claim && (bool) $site->is_published) {
                 $site->is_published = false;
                 $site->unpublished_at = now();
                 // saveQuietly for the same reason claim() does: the post-commit
@@ -312,6 +320,7 @@ class ClaimSiteService
                 // so a plain save() would double-dispatch via SiteObserver.
                 $site->saveQuietly();
             }
+            $build->forceFill(['published_by_claim' => false])->save();
 
             return ['professional' => $locked->fresh(), 'build' => $build->fresh(), 'site' => $site?->fresh()];
         });

@@ -99,19 +99,42 @@ it('unpublishes a released self-serve site, restoring its pre-claim state', func
     expect($site->fresh()->is_published)->toBeFalse();
 });
 
-// ...but a staff/outreach build is provisioned PUBLISHED, so unpublishing it
-// on release would not be a restore — it would be a new state the site was
-// never in. isOutreach() is the same discriminator claim()'s invite-gate uses.
+// ...but a site that was ALREADY published pre-claim keeps that state:
+// claim() records that it performed no flip (published_by_claim=false), so
+// release restores nothing — unpublishing here would be a new state the site
+// was never in. (T28: the flag replaced the old isOutreach() heuristic.)
 it('leaves a released outreach site published, because that was its pre-claim state', function () {
     [$user, $site, $build] = makeReadyBuild();
     $build->forceFill(['built_via' => PreAccountBuild::VIA_STAFF, 'contact_email' => 'squatter@example.com'])->save();
     $site->is_published = true;
     $site->save();
     app(ClaimSiteService::class)->claim('squatter-uid', 'squatter@example.com', 'janedoe');
+    expect((bool) $build->fresh()->published_by_claim)->toBeFalse();
 
     app(ClaimSiteService::class)->release($user->fresh());
 
     expect($site->fresh()->is_published)->toBeTrue();
+});
+
+// T28 (issue 22, found live in the 2026-08-27 post-claim round): publish
+// intent is a requestBuild() PARAM that only rides the job dispatch — a
+// staff/outreach build CAN be provisioned UNPUBLISHED (the whole test fleet
+// is). The old `! isOutreach()` guard skipped these on release and left
+// is_published=true on an unclaimed row: more exposed than before the claim,
+// owned by nobody. The published_by_claim flag restores exactly.
+it('unpublishes a released outreach site that the CLAIM published (the fleet shape)', function () {
+    [$user, $site, $build] = makeReadyBuild();
+    $build->forceFill(['built_via' => PreAccountBuild::VIA_STAFF, 'contact_email' => 'squatter@example.com'])->save();
+    expect($site->fresh()->is_published)->toBeFalse();
+
+    app(ClaimSiteService::class)->claim('squatter-uid', 'squatter@example.com', 'janedoe');
+    expect($site->fresh()->is_published)->toBeTrue()
+        ->and((bool) $build->fresh()->published_by_claim)->toBeTrue();
+
+    app(ClaimSiteService::class)->release($user->fresh());
+
+    expect($site->fresh()->is_published)->toBeFalse()
+        ->and((bool) $build->fresh()->published_by_claim)->toBeFalse();
 });
 
 // SyncSubdomainToKvJob is the ONLY KV writer. Claim flips the KV entry from an

@@ -31,6 +31,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $claim_idempotency_key Caller key from the ManyChat webhook; a retry matching it re-mints (spec §5.4). Not fillable.
  * @property bool $auto_invite false = publish the site but DEFER the claim invite for manual review + POST /builds/{build}/invite. Default true = auto-send on publish (unchanged).
  * @property Carbon|null $claimed_at NULL while the build is live (scopeLive); set once the visitor claims the site.
+ * @property bool $published_by_claim T28: true while a claim's publish flip is outstanding — claim() sets it when IT published the site; release() unpublishes on it and clears it. Not fillable (forceFill, same SEC-4 posture as claimed_at).
  * @property Carbon $created_at
  * @property Carbon $updated_at
  * @property-read User|null $user
