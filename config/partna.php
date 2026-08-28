@@ -1402,6 +1402,15 @@ return [
         'failed_prune_hours' => (int) env('PARTNA_PRE_ACCOUNT_FAILED_PRUNE_HOURS', 24),
         'max_unclaimed_per_ip' => (int) env('PARTNA_PRE_ACCOUNT_MAX_UNCLAIMED_PER_IP', 3),
 
+        // #W2-SEC-1: a self-serve build has no identity attached at creation, so
+        // built_via never said who was entitled to it — any authenticated stranger
+        // who guessed the subdomain could claim it. Proof is now required on every
+        // lane, not just outreach. Mint-first, enforce-later: while false, tokens
+        // are minted and returned but not required, so an old frontend keeps
+        // working. Flip ONLY after the claim page persists and forwards
+        // claim_token, or self-serve claiming 404s for everyone.
+        'require_claim_proof' => (bool) env('PARTNA_PRE_ACCOUNT_REQUIRE_CLAIM_PROOF', false),
+
         // LIFE-4: how long a build may sit in pending/building before it's treated
         // as stuck (worker crash, never reached failed()). Used by both the hourly
         // builds:reconcile-stuck watchdog and PreAccountBuildService::reserve() —

@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api\PublicSite;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\PublicSite\CreatePreAccountBuildRequest;
+use App\Http\Resources\PreAccountBuildCreatedResource;
 use App\Http\Resources\PreAccountBuildStatusResource;
 use App\Models\Core\User\PreAccountBuild;
+use App\Services\PreAccount\ClaimTokenIssuer;
 use App\Services\PreAccount\PreAccountBuildException;
 use App\Services\PreAccount\PreAccountBuildService;
 use Illuminate\Http\JsonResponse;
@@ -14,7 +16,10 @@ use Illuminate\Http\JsonResponse;
 // endpoints. Heavily throttled — a build kicks off real scraping (Apify-billed).
 class PreAccountBuildController extends ApiController
 {
-    public function __construct(private readonly PreAccountBuildService $builds) {}
+    public function __construct(
+        private readonly PreAccountBuildService $builds,
+        private readonly ClaimTokenIssuer $tokens,
+    ) {}
 
     // POST /api/public/signup/build
     public function store(CreatePreAccountBuildRequest $request): JsonResponse
@@ -47,8 +52,16 @@ class PreAccountBuildController extends ApiController
 
         $result['build']->loadMissing('user.site');
 
+        // #W2-SEC-1: mint ONLY for a NEW build, never on the dedupe/re-serve
+        // path — minting there would let anyone who POSTs a guessable
+        // source_ref fetch a working takeover capability for someone else's
+        // build (spec §5.4). A caller who lost this token on a genuinely new
+        // build has no self-serve recovery here by design; the only reissue
+        // path is staff, POST /api/staff/builds/{build}/claim-token.
+        $claimToken = $result['reused'] ? null : $this->tokens->issue($result['build']);
+
         return $this->success(
-            (new PreAccountBuildStatusResource($result['build']))->resolve(),
+            (new PreAccountBuildCreatedResource($result['build'], $claimToken))->resolve(),
             $result['reused'] ? 200 : 202,
         );
     }

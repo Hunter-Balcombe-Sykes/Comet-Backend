@@ -73,23 +73,47 @@ class ClaimSiteService
                 throw new RuntimeException('BUILD_FAILED');
             }
 
-            // Invite-gate (owner decision, 2026-08-24). An OUTREACH build was
-            // made FOR a business that has never heard of Partna — it carries
-            // their name, photos and hours. The email-gate below only bites
-            // when contact_email is set, and its "absent = first-come" arm was
-            // written for self-serve builds, where the person claiming IS the
-            // person who just built it. On an outreach row that same arm hands
-            // a real business's site to whoever guesses the handle.
+            // Invite-gate (owner decision, 2026-08-24; widened #W2-SEC-1). An
+            // OUTREACH build was made FOR a business that has never heard of
+            // Partna — it carries their name, photos and hours. The
+            // email-gate below only bites when contact_email is set, and its
+            // "absent = first-come" arm was written for self-serve builds,
+            // where the person claiming IS the person who just built it. On
+            // an outreach row that same arm hands a real business's site to
+            // whoever guesses the handle.
             //
-            // So: an outreach build with nobody to invite is not claimable at
-            // all until staff attach an address (StaffPreAccountBuildController
-            // ::attachContactEmail). Self-serve builds are untouched.
-            // A valid claim token IS proof of invitation (spec §6.2). It stands
-            // in for contact_email on the outreach lane, which is what lets a
-            // DM'd lead claim with no email ever entering the flow.
+            // A valid claim token IS proof of invitation (spec §6.2). It
+            // stands in for contact_email, which is what lets a DM'd lead
+            // claim with no email ever entering the flow.
             $tokenOk = $this->tokens->matches($build, $claimToken);
-
             $contactEmail = trim((string) $build->contact_email);
+
+            // Lane-agnostic proof gate (#W2-SEC-1). isOutreach() is no longer
+            // the right predicate to gate ON: per CLAUDE.md its "only from a
+            // staff-authenticated write" premise is already dead — the
+            // ManyChat webhook also mints VIA_STAFF with no staff row — and
+            // entitlement was never actually about who created the row, only
+            // about whether the claimer can prove they're the intended
+            // owner. A self-serve (VIA_SIGNUP) build with no contact_email
+            // and no token has exactly the same "nobody to invite" shape as
+            // an outreach one; #W2-SEC-1 is that gap (17 such builds on dev
+            // with zero ownership check). Behind a flag because enforcing it
+            // today 404s every existing self-serve claimer until the claim
+            // page persists and forwards claim_token — mint-first,
+            // enforce-later.
+            if ((bool) config('partna.pre_account.require_claim_proof', false)
+                && $contactEmail === '' && ! $tokenOk) {
+                throw new RuntimeException('CLAIM_NOT_INVITED');
+            }
+
+            // Legacy outreach arm (owner decision, 2026-08-24), unconditional
+            // — deliberately NOT folded into the flag above. This must keep
+            // firing even while require_claim_proof is false, or turning the
+            // flag off would re-open the outreach lane that has been gated
+            // since 2026-08-24: an outreach build with nobody to invite is
+            // not claimable at all until staff attach an address
+            // (StaffPreAccountBuildController::attachContactEmail). The flag
+            // can only ADD restriction (self-serve), never remove it.
             if ($build->isOutreach() && $contactEmail === '' && ! $tokenOk) {
                 throw new RuntimeException('CLAIM_NOT_INVITED');
             }

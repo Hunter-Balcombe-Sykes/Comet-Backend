@@ -115,3 +115,56 @@ it('stores a keyed HMAC of the visitor IP, never a bare sha256', function () {
     expect($stored)->toBe(hash_hmac('sha256', '203.0.113.9', 'endpoint-pepper'));
     expect($stored)->not->toBe(hash('sha256', '203.0.113.9'));
 });
+
+// ── #W2-SEC-1: claim_token minted on create, never on the wire elsewhere ────
+
+it('returns a non-empty claim_token on a new build, and stores only its hash', function () {
+    $res = $this->postJson('/api/public/signup/build', [
+        'account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'mintme',
+    ])->assertStatus(202);
+
+    $token = $res->json('claim_token');
+    expect($token)->toBeString()->not->toBe('');
+
+    $build = PreAccountBuild::firstOrFail();
+    expect($build->claim_token_hash)->toBe(hash('sha256', $token));
+
+    // The plaintext must not appear verbatim in ANY column of the row —
+    // only the SHA-256 digest is ever persisted (ClaimTokenIssuer::issue()).
+    foreach ($build->getAttributes() as $column => $value) {
+        expect((string) $value)->not->toBe($token, "column '{$column}' leaked the plaintext token");
+    }
+});
+
+it('returns NO claim_token on a dedupe re-serve, even from a different caller', function () {
+    $this->withHeader('CF-Connecting-IP', '203.0.113.10')
+        ->postJson('/api/public/signup/build', [
+            'account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'dedupeme',
+        ])->assertStatus(202)->assertJsonPath('claim_token', fn ($t) => is_string($t) && $t !== '');
+
+    $original = PreAccountBuild::firstOrFail();
+    $originalHash = $original->claim_token_hash;
+
+    // Different caller (different source IP), same source_ref → re-serve, not
+    // a new build. Minting here would hand a working takeover capability to
+    // anyone who can guess a live source_ref (spec §5.4).
+    $res = $this->withHeader('CF-Connecting-IP', '203.0.113.11')
+        ->postJson('/api/public/signup/build', [
+            'account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'dedupeme',
+        ])->assertStatus(200);
+
+    $res->assertJsonMissingPath('claim_token');
+    expect(PreAccountBuild::firstOrFail()->claim_token_hash)->toBe($originalHash);
+});
+
+it('never surfaces claim_token on the public poll endpoint', function () {
+    $this->postJson('/api/public/signup/build', [
+        'account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'pollme',
+    ])->assertStatus(202)->assertJsonPath('claim_token', fn ($t) => is_string($t) && $t !== '');
+
+    $build = PreAccountBuild::firstOrFail();
+
+    $this->getJson("/api/public/signup/builds/{$build->id}")
+        ->assertOk()
+        ->assertJsonMissingPath('claim_token');
+});
