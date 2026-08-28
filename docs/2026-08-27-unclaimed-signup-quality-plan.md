@@ -1718,3 +1718,51 @@ is a stand-in.
 
 Deployed: backend ×3, design-system + dashboard (push), apps/pages worker.
 Backend suite 9,729 passed / 0 failed.
+
+### Issue 4 (analytics dead on unclaimed sites) — RESOLVED, and the 404s are a red herring
+
+The T9 fix (accept the renderable-as-unclaimed case) works. Measured
+2026-08-29 by POSTing a complete `ping` payload with a correct Origin to
+eight live fleet sites — theyogapeoplesydney, djhellraiser, broken-oven,
+simondoylehair, ollies, xia-tattoo, readings-carlton, bar-liberty — **8/8
+returned 200**, unclaimed ones included.
+
+The `POST /api/public/analytics/{ping,pageviews,item-seen} 404` lines still
+in the logs are NOT a live defect. A non-existent handle returns exactly
+that shape (`{"message":"Site not found"}`, the 59 bytes_sent the access
+lines report), and the ones observed came from a single residential iPhone
+holding a page whose account had already been torn down — which is the
+normal end state of a test build. `rum` returning 200 beside them was the
+clue: it takes a different resolution path, so the difference was never the
+endpoint.
+
+Do not spend another session chasing these. If they need silencing, the
+answer is client-side (stop beaconing after a 404), not a backend change.
+
+### Cloudflare purge failures — MEASURED, not re-tuned (deliberate)
+
+55 CloudflareCachePurgeJob failures in 6h, all
+`MaxAttemptsExceededException`. They cluster tightly into single minutes
+(13:22 ×10, 13:05 ×6, 13:16 ×6) — i.e. exactly the minutes this run was
+building and rebuilding accounts, not a steady background rate.
+
+Mechanism: the shared `cloudflare-purge` funnel is 20 jobs/minute
+(`partna.cache.purge_api_per_minute`), `uniqueFor` is 35s, and a batch
+dispatches roughly 7–8 purges per build (93 `cloudflare.purge.handle` in one
+5-minute window for 12 builds, from 18 dispatch sites). Under batch load the
+limiter keeps RELEASING jobs, and `retryUntil(10 min)` eventually expires
+them. Not a broken token — a starved funnel.
+
+NOT changed, on purpose. Every knob on that job carries a comment naming the
+incident it came from (the fixed `$tries` that starved the 2026-08-27 burst,
+the `uniqueFor` lock the T19 test-flake family turned on, the bulk-lane
+discriminator), and re-tuning an incident-hardened rate limiter unattended is
+how the next incident gets written. The blast radius is also small: a missed
+purge costs at most ~60s of staleness, because the edge holds
+`s-maxage=31, stale-while-revalidate=30` anyway.
+
+Recommended fix when the owner wants it, cheapest first: (1) cut the
+amplification — 7–8 purges per build for ONE subdomain is redundant, since a
+purge more often than the 31s TTL buys nothing; (2) only then consider the
+ceiling, which at 20/min is very conservative against Cloudflare's actual
+purge limits.
