@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Content\PoolController;
 use App\Models\Core\Site\Site;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Content\ManualServiceWriter;
 use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Http\Request;
@@ -40,7 +41,7 @@ if (! function_exists('poolBusinessTenant')) {
     {
         [$pro, $siteId] = poolTenant();
         DB::table('core.users')->where('id', $pro->id)->update(['account_type' => 'business']);
-        App\Services\Accounts\AccountCapabilities::flushCache();
+        AccountCapabilities::flushCache();
 
         return [$pro->fresh(), $siteId];
     }

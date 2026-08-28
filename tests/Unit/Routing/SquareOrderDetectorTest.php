@@ -4,8 +4,8 @@ use App\Routing\IriCanonicalizer;
 use App\Routing\LinkProjector;
 use App\Routing\Projection;
 use App\Routing\PublicSuffixList;
-use App\Routing\Rulepack;
 use App\Routing\RoutingPolicy;
+use App\Routing\Rulepack;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
