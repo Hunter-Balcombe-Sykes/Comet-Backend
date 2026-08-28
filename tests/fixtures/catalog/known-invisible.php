@@ -18,6 +18,11 @@ return [
     // catalog detector is the whole win (no probe spent).
     'square.payment_link',
     'stripe.payment_link',
+    // Cold-build round (2026-08-28): the bookshop's own audiobook storefront
+    // (libro.fm/<shop>). Same shape as the .store surfaces below it — the
+    // harvester's shop tables want a storefront probe, while the catalog
+    // detector routes the link on its own, which is the whole win here.
+    'libro_fm.store',
     'direct.book',
     'generic.store',
     'google_business.listing',

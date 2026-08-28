@@ -115,4 +115,23 @@ return [
     'stripe.payment_link' => 'https://buy.stripe.com/test_00g3eYaEO3BF5Ty144',
     'square.payment_link' => 'https://square.link/u/ExAmPle12',
     'tripadvisor.listing' => 'https://www.tripadvisor.com/Restaurant_Review-g255060-d27541618-Reviews-Sydney_Common-Sydney_New_South_Wales.html',
+
+    // Link-only brands added in the 2026-08-28 cold-build round — every URL
+    // shape taken from a real link seen in that run's scans, or from the
+    // vendor's own documented URL grammar.
+    'see_tickets.tickets' => 'https://www.seetickets.com/event/some-artist/the-venue/1234567',
+    'etix.tickets' => 'https://www.etix.com/ticket/p/12345678/some-show-the-venue',
+    'ticketweb.tickets' => 'https://www.ticketweb.com/event/some-artist-the-venue-tickets/1234567',
+    'tixr.tickets' => 'https://www.tixr.com/e/12345',
+    'admitone.tickets' => 'https://admitone.com/events/some-show-12345',
+    'eventim.tickets' => 'https://www.eventim.de/event/some-artist-12345/',
+    'linkfire.release' => 'https://lnk.to/some-release',
+    'feature_fm.release' => 'https://ffm.to/some-release',
+    'orchard.release' => 'https://orcd.co/some-release',
+    'laylo.drop' => 'https://laylo.com/someartist/abc123',
+    'venue_ink.book' => 'https://venue.ink/@someartist',
+    'obee.reserve' => 'https://vouchers.obeeapp.com/some-venue/gift-voucher',
+    'libro_fm.store' => 'https://libro.fm/some-bookshop',
+    'abacus.order' => 'https://w.abacus.co/store/1234567/giftcards/landingPage',
+    'heyzine.publication' => 'https://heyzine.com/flip-book/abc123def.html',
 ];

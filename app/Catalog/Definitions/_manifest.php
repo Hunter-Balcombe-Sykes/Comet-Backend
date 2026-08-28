@@ -1,6 +1,8 @@
 <?php
 
+use App\Catalog\Definitions\Abacus;
 use App\Catalog\Definitions\Acuity;
+use App\Catalog\Definitions\Admitone;
 use App\Catalog\Definitions\AppleMusic;
 use App\Catalog\Definitions\ApplePodcasts;
 use App\Catalog\Definitions\Audiomack;
@@ -38,11 +40,14 @@ use App\Catalog\Definitions\Doordash;
 use App\Catalog\Definitions\Dribbble;
 use App\Catalog\Definitions\Easi;
 use App\Catalog\Definitions\EatApp;
+use App\Catalog\Definitions\Etix;
 use App\Catalog\Definitions\Etsy;
 use App\Catalog\Definitions\Eventbrite;
 use App\Catalog\Definitions\Eventfinda;
+use App\Catalog\Definitions\Eventim;
 use App\Catalog\Definitions\Facebook;
 use App\Catalog\Definitions\Fareharbor;
+use App\Catalog\Definitions\FeatureFm;
 use App\Catalog\Definitions\Fiverr;
 use App\Catalog\Definitions\Flickr;
 use App\Catalog\Definitions\Fresha;
@@ -56,6 +61,7 @@ use App\Catalog\Definitions\GoogleBusiness;
 use App\Catalog\Definitions\Grubhub;
 use App\Catalog\Definitions\Gumroad;
 use App\Catalog\Definitions\Halaxy;
+use App\Catalog\Definitions\Heyzine;
 use App\Catalog\Definitions\Hotdoc;
 use App\Catalog\Definitions\Houzz;
 use App\Catalog\Definitions\Humanitix;
@@ -67,7 +73,10 @@ use App\Catalog\Definitions\Kajabi;
 use App\Catalog\Definitions\Kick;
 use App\Catalog\Definitions\Kitomba;
 use App\Catalog\Definitions\KoFi;
+use App\Catalog\Definitions\Laylo;
+use App\Catalog\Definitions\LibroFm;
 use App\Catalog\Definitions\Linkedin;
+use App\Catalog\Definitions\Linkfire;
 use App\Catalog\Definitions\Luma;
 use App\Catalog\Definitions\Mangomint;
 use App\Catalog\Definitions\Medium;
@@ -80,7 +89,9 @@ use App\Catalog\Definitions\Moshtix;
 use App\Catalog\Definitions\MrYum;
 use App\Catalog\Definitions\Noterro;
 use App\Catalog\Definitions\Nowbookit;
+use App\Catalog\Definitions\Obee;
 use App\Catalog\Definitions\Opentable;
+use App\Catalog\Definitions\Orchard;
 use App\Catalog\Definitions\Ordermate;
 use App\Catalog\Definitions\OrderOnline;
 use App\Catalog\Definitions\Ovatu;
@@ -101,6 +112,7 @@ use App\Catalog\Definitions\Resy;
 use App\Catalog\Definitions\Rezdy;
 use App\Catalog\Definitions\Rumble;
 use App\Catalog\Definitions\Schedulicity;
+use App\Catalog\Definitions\SeeTickets;
 use App\Catalog\Definitions\Setmore;
 use App\Catalog\Definitions\Sevenrooms;
 use App\Catalog\Definitions\Shopify;
@@ -128,9 +140,11 @@ use App\Catalog\Definitions\Thefork;
 use App\Catalog\Definitions\Threads;
 use App\Catalog\Definitions\Ticketek;
 use App\Catalog\Definitions\Ticketmaster;
+use App\Catalog\Definitions\Ticketweb;
 use App\Catalog\Definitions\Tidal;
 use App\Catalog\Definitions\Tiktok;
 use App\Catalog\Definitions\Timely;
+use App\Catalog\Definitions\Tixr;
 use App\Catalog\Definitions\Toast;
 use App\Catalog\Definitions\Tock;
 use App\Catalog\Definitions\Treatwell;
@@ -143,6 +157,7 @@ use App\Catalog\Definitions\UberEats;
 use App\Catalog\Definitions\Upwork;
 use App\Catalog\Definitions\Vagaro;
 use App\Catalog\Definitions\Venmo;
+use App\Catalog\Definitions\VenueInk;
 use App\Catalog\Definitions\Vimeo;
 use App\Catalog\Definitions\Vsco;
 use App\Catalog\Definitions\Whatsapp;
@@ -161,7 +176,9 @@ use App\Catalog\Definitions\Zomato;
 // NO attribute scanning, NO directory globbing — adding a brand is adding a
 // line here, and review sees it.
 return [
+    Abacus::class,
     Acuity::class,
+    Admitone::class,
     AppleMusic::class,
     ApplePodcasts::class,
     Audiomack::class,
@@ -199,11 +216,14 @@ return [
     Dribbble::class,
     Easi::class,
     EatApp::class,
+    Etix::class,
     Etsy::class,
     Eventbrite::class,
     Eventfinda::class,
+    Eventim::class,
     Facebook::class,
     Fareharbor::class,
+    FeatureFm::class,
     Fiverr::class,
     Flickr::class,
     Fresha::class,
@@ -217,6 +237,7 @@ return [
     Grubhub::class,
     Gumroad::class,
     Halaxy::class,
+    Heyzine::class,
     Hotdoc::class,
     Houzz::class,
     Humanitix::class,
@@ -228,7 +249,10 @@ return [
     Kick::class,
     Kitomba::class,
     KoFi::class,
+    Laylo::class,
+    LibroFm::class,
     Linkedin::class,
+    Linkfire::class,
     Luma::class,
     Mangomint::class,
     Medium::class,
@@ -241,7 +265,9 @@ return [
     MrYum::class,
     Noterro::class,
     Nowbookit::class,
+    Obee::class,
     Opentable::class,
+    Orchard::class,
     OrderOnline::class,
     Ordermate::class,
     Ovatu::class,
@@ -262,6 +288,7 @@ return [
     Rezdy::class,
     Rumble::class,
     Schedulicity::class,
+    SeeTickets::class,
     Setmore::class,
     Sevenrooms::class,
     Shopify::class,
@@ -289,9 +316,11 @@ return [
     Threads::class,
     Ticketek::class,
     Ticketmaster::class,
+    Ticketweb::class,
     Tidal::class,
     Tiktok::class,
     Timely::class,
+    Tixr::class,
     Toast::class,
     Tock::class,
     Treatwell::class,
@@ -304,6 +333,7 @@ return [
     Upwork::class,
     Vagaro::class,
     Venmo::class,
+    VenueInk::class,
     Vimeo::class,
     Vsco::class,
     Whatsapp::class,
