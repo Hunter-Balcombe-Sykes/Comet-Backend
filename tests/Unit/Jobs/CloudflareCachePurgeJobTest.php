@@ -5,6 +5,8 @@ use App\Models\Core\Staff\PartnaStaff;
 use App\Notifications\Moderation\EdgePurgeFailedStaffNotification;
 use App\Services\Cloudflare\CloudflarePurgeService;
 use GuzzleHttp\Psr7\Response;
+use Illuminate\Cache\RateLimiter;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Queue\Job as QueueJob;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Http\Client\RequestException;
@@ -413,4 +415,38 @@ it('ships ONE follow-up by default — 15 s, clearing the profile wire s-maxage 
     // Must clear the follow-up lock (5) and the profile wire's s-maxage.
     expect(min($schedule))->toBeGreaterThan(5)
         ->and(min($schedule))->toBeGreaterThan((int) config('partna.cache.public_profile_max_age'));
+});
+
+/**
+ * The middleware test above pins the TYPE (RateLimitedWithRedis) and the
+ * limiter NAME as source text. Neither reaches the other end of the string:
+ * deleting RateLimiter::for('cloudflare-purge', …) from AppServiceProvider
+ * left the whole suite green and 500s in production, because
+ * RateLimitedWithRedis resolves the named limiter at handle() time and a
+ * missing one is not a startup error.
+ *
+ * So resolve it the way the middleware does and check what it actually
+ * returns. Fails if the registration is deleted (limiter() returns null), if
+ * it is renamed, if it stops reading the config key, or if the window changes
+ * from per-minute.
+ */
+it('registers the cloudflare-purge limiter the job middleware resolves at runtime', function () {
+    $limiter = app(RateLimiter::class)->limiter('cloudflare-purge');
+
+    // Separate statement, not a chain: a null here must fail HERE, before
+    // anything tries to invoke it. A chained expect() aborts at the first
+    // failure, so this ordering is what makes the null case a clean red.
+    expect($limiter)->not->toBeNull();
+
+    $limit = $limiter();
+    $configured = (int) config('partna.cache.purge_api_per_minute');
+
+    // Non-vacuity: a config key that had gone missing would read 0 and make
+    // the maxAttempts comparison trivially true against a broken limiter.
+    expect($configured)->toBeGreaterThan(0);
+
+    expect($limit)->toBeInstanceOf(Limit::class)
+        ->and($limit->maxAttempts)->toBe($configured)
+        ->and($limit->decaySeconds)->toBe(60)
+        ->and($limit->key)->toBe('cloudflare-purge');
 });
