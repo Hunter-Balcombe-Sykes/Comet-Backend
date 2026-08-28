@@ -139,6 +139,8 @@
   fixture: { id: unknown }
 - route: "api/platforms/circle/accounts/{id}"
   fixture: { id: unknown }
+- route: "api/platforms/deezer/accounts/{id}"
+  fixture: { id: unknown }
 - route: "api/platforms/eventbrite/accounts/{id}"
   fixture: { id: unknown }
 - route: "api/platforms/humanitix/accounts/{id}"
