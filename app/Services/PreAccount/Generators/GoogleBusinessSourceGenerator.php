@@ -12,6 +12,8 @@ use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\PreAccount\SourceGenerationException;
+use App\Services\Profile\BioSource;
+use App\Services\Profile\ProfileEnricher;
 use App\Support\BusinessName;
 
 // Builds a provisional business user's site from a Google Business Profile
@@ -24,6 +26,7 @@ class GoogleBusinessSourceGenerator implements SiteSourceGenerator
 {
     public function __construct(
         private readonly GoogleBusinessService $service,
+        private readonly ProfileEnricher $enricher,
     ) {}
 
     public function normalizeRef(string $raw): string
@@ -133,6 +136,32 @@ class GoogleBusinessSourceGenerator implements SiteSourceGenerator
                 $user->save();
             }
         }
+
+        // The shared enrichment step (ProfileEnricher), the same one the Instagram
+        // source runs — an About and public contact gated to the listing's own
+        // words. Runs AFTER the connection write so Google's structured phone has
+        // already folded onto the user (IntegrationConnectionObserver::saved ->
+        // IdentitySync), and fill-if-empty then leaves it alone.
+        //
+        // Names are NOT taken from the model here: maybeAdoptGoogleName above owns
+        // display_name for a business account.
+        //
+        // KNOWN, DEFERRED (2026-08-28): this rarely changes what a business account
+        // ends up with. 74% of real listings carry no description at all, so there
+        // is nothing to analyse; for the rest, GoogleBusinessAutoSync (queued, so it
+        // lands after this returns) seeds site.workplaces.description from the same
+        // editorialSummary and WorkplaceObserver mirrors description -> users.bio,
+        // overwriting the gated About with Google's raw sentence. Sourcing a real
+        // bio input for this lane — the business's OWN website text, present on 79%
+        // of listings — and settling that precedence against the mirror is separate
+        // work. The seam is wired now so that work is a change of input, not of
+        // structure.
+        $this->enricher->enrich($user, new BioSource(
+            handle: (string) ($user->handle ?: $sourceRef),
+            fullName: $name ?: null,
+            biography: is_string($details['editorialSummary'] ?? null) ? $details['editorialSummary'] : null,
+            businessCategory: is_string($details['category'] ?? null) ? $details['category'] : null,
+        ));
 
         GoogleBusinessEnrichJob::dispatch((string) $user->id, $sourceRef, $autoConnectBooking);
     }

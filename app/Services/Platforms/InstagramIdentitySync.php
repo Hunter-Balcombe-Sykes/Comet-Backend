@@ -6,8 +6,10 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
-use App\Services\Profile\BioIntelligence;
+use App\Services\Profile\BioIntel;
+use App\Services\Profile\BioSource;
 use App\Services\Profile\FoodContentProbe;
+use App\Services\Profile\ProfileEnricher;
 use App\Services\Profile\SectorProvenance;
 use App\Services\Profile\SectorTaxonomy;
 use Illuminate\Support\Facades\DB;
@@ -26,7 +28,13 @@ class InstagramIdentitySync
 
     public function __construct(private readonly FoodContentProbe $foodContent) {}
 
-    public function applyIdentity(User $user, array $payload): void
+    /**
+     * $intel is the bio-intelligence result the CALLER already paid for this
+     * build (InstagramSourceGenerator threads its own pass through the seeder).
+     * Null on the ordinary connect/refresh path, where nobody analysed first and
+     * this method still runs its own pass.
+     */
+    public function applyIdentity(User $user, array $payload, ?BioIntel $intel = null): void
     {
         // InstagramConnectionSeeder passes the RAW Apify profile node here, not
         // the normalised $selection array — so this reads the same two shapes
@@ -57,7 +65,7 @@ class InstagramIdentitySync
         ));
         $this->applyHandle($user, $this->stringOrNull($payload['username'] ?? null));
         $this->applyContactFields($user, $payload);
-        $this->applyBioIntelligence($user, $payload);
+        $this->applyBioIntelligence($user, $payload, $intel);
     }
 
     /**
@@ -69,42 +77,39 @@ class InstagramIdentitySync
      * generator (no owner yet) writes AI names. Instagram withholds business
      * email/phone from logged-out scrapes (applyContactFields' docblock), so
      * the bio TEXT — gated to literal presence — is the only contact source.
+     *
+     * When $intel is threaded in, this build has ALREADY paid for its pass —
+     * apply it and make no second call. analyse() is billed per call and
+     * AiSpendBudget::tryClaim is a DAILY limiter, not a per-request cache, so
+     * re-analysing the same handle/fullName/biography was simply billed twice.
      */
-    private function applyBioIntelligence(User $user, array $payload): void
+    private function applyBioIntelligence(User $user, array $payload, ?BioIntel $intel = null): void
     {
+        $enricher = app(ProfileEnricher::class);
+
+        if ($intel !== null) {
+            $enricher->applyIntel($user, $intel);
+
+            return;
+        }
+
         $biography = $this->stringOrNull($payload['biography'] ?? $payload['bio'] ?? null);
         if ($biography === null) {
             return;
         }
-        $needsBio = $this->isBlank($user->bio);
-        $needsEmail = $this->isBlank($user->public_contact_email);
-        $needsPhone = $this->isBlank($user->public_contact_number);
-        if (! $needsBio && ! $needsEmail && ! $needsPhone) {
+        // Short-circuit BEFORE the enricher so a user who already has all three
+        // never triggers a paid call to fill nothing.
+        if (! $this->isBlank($user->bio)
+            && ! $this->isBlank($user->public_contact_email)
+            && ! $this->isBlank($user->public_contact_number)) {
             return;
         }
 
-        $intel = app(BioIntelligence::class)->analyse(
-            (string) ($payload['username'] ?? $user->handle),
-            $this->stringOrNull($payload['fullName'] ?? $payload['full_name'] ?? null),
-            $biography,
-        );
-
-        $changed = false;
-        if ($needsBio && $intel['about'] !== null) {
-            $user->bio = $intel['about'];
-            $changed = true;
-        }
-        if ($needsEmail && $intel['email'] !== null) {
-            $user->public_contact_email = $intel['email'];
-            $changed = true;
-        }
-        if ($needsPhone && $intel['phone'] !== null) {
-            $user->public_contact_number = $intel['phone'];
-            $changed = true;
-        }
-        if ($changed) {
-            $user->save();
-        }
+        $enricher->enrich($user, new BioSource(
+            handle: (string) ($payload['username'] ?? $user->handle),
+            fullName: $this->stringOrNull($payload['fullName'] ?? $payload['full_name'] ?? null),
+            biography: $biography,
+        ));
     }
 
     /**
