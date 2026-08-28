@@ -1625,11 +1625,33 @@ auto-applies. Measured across all 84 matched probe surfaces:
 | profile / artist / listing / events / payment_link | 0 |
 
 67 of 84. Every host-only booking/ordering/reservation/ticketing detector
-scores 28–40 against a 45 floor, so **the entire commercial half of the
-catalog is never auto-placed from a bio or website scan** — while socials
-and content place fine. Proven end to end, not inferred: theyogapeoplesydney
-projects `acuity.book`, clean margin 40, verdict `note`, no connection, no
-booking link on the site.
+scores 28–40 against a 45 floor, while socials and content clear it.
+
+**CORRECTED once the second lane was found.** The first draft of this entry
+said the whole commercial half of the catalog never auto-places. That was too
+strong, and bodytuneperth disproved it an hour later: their Cliniko booking
+link CONNECTED, with zero routing observations. Two vocabularies decide a
+link's fate — the catalog (which routes it, and is what the scores above
+measure) and `WebsiteLinkHarvester`'s hand-written host tables (which seed a
+booking/reservation/ordering card DIRECTLY, never touching LinkRouter or its
+threshold). Cliniko is in those tables. Acuity's `as.me` was not.
+
+So the real failure is narrower and fixable per host, not a threshold
+argument at all: **a catalog brand missing from the harvester's tables falls
+through to `classifyFromCatalog`'s flat `link` answer and seeds a plain link
+card instead of a booking provider card.** That exact failure is already
+recorded twice in that file (the Tock migration, and the four brands found in
+plan-03 batch 5/6) — it is a recurring class, not a one-off. FIXED for the
+five found this round: as.me, youcanbook.me, venue.ink (booking), obeeapp.com
+/obee.com.au (reservations), abacus.co (ordering).
+
+The threshold question SURVIVES the correction, but only for brands in the
+catalog and NOT in the hand tables — and the standing answer to that is to
+add the host to the tables, which costs nothing and needs no policy change.
+Worth a sweep next session: which catalog booking/ordering/reservation brands
+are still missing from those tables? The classification sweep test checks one
+probe URL per SURFACE, so it cannot see a missing HOST of a surface that
+already passes — which is exactly how as.me hid.
 
 The margins are CLEAN (margin == confidence — nothing else matched), so this
 is not ambiguity. The low score is EvidenceStrength: a host-only detector

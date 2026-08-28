@@ -100,6 +100,9 @@ class WebsiteLinkHarvester
         'Tablein' => '~(^|\.)tablein\.com$~',
         'Eat App' => '~(^|\.)eatapp\.co$~',
         'TableCheck' => '~(^|\.)tablecheck\.com$~',
+        // Obee (2026-08-28): found on Bar Liberty's scan as
+        // vouchers.obeeapp.com/<venue>/…; the product also serves obee.com.au.
+        'Obee' => '~(^|\.)(obeeapp\.com|obee\.com\.au)$~',
         // NB Yelp Reservations is deliberately absent. Every pattern in this
         // constant is matched against the HOST alone (classify() and harvest()
         // both pass $host), so a path-bearing pattern like
@@ -118,6 +121,7 @@ class WebsiteLinkHarvester
         // Catalog-only.
         'TheFork' => 'thefork.reserve', 'Chope' => 'chope.reserve',
         'Tablein' => 'tablein.reserve', 'Eat App' => 'eat_app.reserve',
+        'Obee' => 'obee.reserve',
     ];
 
     /** Online-ordering provider hosts (AU market set + expanded 2026-07-25). */
@@ -128,6 +132,9 @@ class WebsiteLinkHarvester
         'Deliveroo' => '~(^|\.)deliveroo\.(com|co\.uk|fr|ie|it|be|nl|sg|hk|ae|com\.kw|qa)$~',
         'Order Online' => '~(^|\.)order\.online$~',
         'OrderMate' => '~(^|\.)ordermate\.online$~',
+        // Abacus (2026-08-28): hospitality POS ordering and gift cards, found
+        // on Bar Liberty as w.abacus.co/store/<id>/giftcards/…
+        'Abacus' => '~(^|\.)abacus\.co$~',
         // Expanded 2026-07-25
         'SkipTheDishes' => '~(^|\.)skipthedishes\.com$~',
         'Just Eat' => '~(^|\.)just-?eat\.(co\.uk|com|fr|ie|es|it|ch|dk|no|lu)$~',
@@ -174,6 +181,7 @@ class WebsiteLinkHarvester
         'ChowNow' => 'chownow.order', 'Toast Takeout' => 'toast.order',
         'Wolt' => 'wolt.order', 'Zomato' => 'zomato.order',
         'Mr Yum' => 'mr_yum.order',
+        'Abacus' => 'abacus.order',
         'HungryPanda' => 'hungrypanda',
     ];
 
@@ -197,8 +205,17 @@ class WebsiteLinkHarvester
         'Calendly' => '~(^|\.)calendly\.com$~',
         'Vagaro' => '~(^|\.)vagaro\.com$~',
         'Mindbody' => '~(^|\.)mindbodyonline\.com$~',
-        'Acuity' => '~(^|\.)acuityscheduling\.com$~',
+        // as.me is the short booking host Acuity itself hands out, and the one
+        // people paste. Without it a <tenant>.as.me link fell through to
+        // classifyFromCatalog's flat 'link' answer and seeded a plain link
+        // card instead of a booking provider card — the Tock lesson above,
+        // repeated. Found live on theyogapeoplesydney 2026-08-28.
+        'Acuity' => '~(^|\.)(acuityscheduling\.com|as\.me)$~',
         'Setmore' => '~(^|\.)setmore\.com$~',
+        // Cold-build round (2026-08-28): catalog brands this table never
+        // learned, same class as the four found in plan-03 batch 5/6.
+        'YouCanBook.me' => '~(^|\.)youcanbook\.me$~',
+        'Venue Ink' => '~(^|\.)venue\.ink$~',
         'Genbook' => '~(^|\.)genbook\.com$~',
         'GlossGenius' => '~(^|\.)glossgenius\.com$~',
         'Mangomint' => '~(^|\.)mangomint\.com$~',
@@ -268,6 +285,7 @@ class WebsiteLinkHarvester
         'Bookwell' => 'bookwell.book', 'StyleSeat' => 'styleseat.book',
         'Rezdy' => 'rezdy.book', 'FareHarbor' => 'fareharbor.book',
         'Google Calendar' => 'google_appointments.book',
+        'YouCanBook.me' => 'youcanbookme.book', 'Venue Ink' => 'venue_ink.book',
     ];
 
     /**

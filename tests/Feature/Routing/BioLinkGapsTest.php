@@ -130,3 +130,28 @@ it('routes YouCanBook.me, whose suffix override had no brand behind it', functio
     expect(bioGapSurface('https://acme.youcanbook.me/'))->toBe('youcanbookme.book')
         ->and(bioGapSurface('https://youcanbook.me/acme'))->toBe('youcanbookme.book');
 });
+
+// ── the harvester's own host tables (the second vocabulary) ──────────────────
+
+it('classifies commercial brands as their own category, not a flat link', function () {
+    // Two vocabularies decide a link's fate: the catalog (which routes it) and
+    // WebsiteLinkHarvester's hand tables (which decide WHICH KIND of card it
+    // becomes). A catalog brand missing from the tables falls through to
+    // classifyFromCatalog's flat 'link' answer and seeds a plain link card
+    // instead of a booking/reservation/ordering provider card — the failure the
+    // Tock and plan-03 batch-5 comments in that file already record.
+    //
+    // bodytuneperth is the proof the lanes differ: their Cliniko booking link
+    // connected with ZERO routing observations, because the tables seeded it
+    // directly. theyogapeoplesydney's Acuity link, known only to the catalog,
+    // did not.
+    $harvester = app(App\Services\Platforms\WebsiteLinkHarvester::class);
+
+    $category = fn (string $url): ?string => $harvester->classify($url)['category'] ?? null;
+
+    expect($category('https://theyogapeoplelink.as.me/'))->toBe('booking')
+        ->and($category('https://acme.youcanbook.me/'))->toBe('booking')
+        ->and($category('https://venue.ink/@someartist'))->toBe('booking')
+        ->and($category('https://vouchers.obeeapp.com/some-venue/gift-voucher'))->toBe('reservations')
+        ->and($category('https://w.abacus.co/store/1234567/giftcards/landingPage'))->toBe('online-ordering');
+});
