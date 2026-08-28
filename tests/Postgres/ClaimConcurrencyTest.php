@@ -154,6 +154,27 @@ beforeEach(function () {
     )');
     $pg->statement('ALTER TABLE site.site_media ADD COLUMN IF NOT EXISTS media_type varchar(20) NOT NULL DEFAULT \'image\'');
 
+    // T20 (2026-08-27): claim() now calls ContactFormSeeder::applyClaimDefault(),
+    // which queries this table via contactBlock(). Without it that SELECT raises
+    // 42P01 — caught by claim()'s own try/catch, but the swallow does not save
+    // the surrounding Postgres transaction from being poisoned (25P02 on every
+    // statement after), so every claim in this file was failing for a reason
+    // that has nothing to do with the row lock under test. Read-only here (no
+    // seeded rows — a fresh site has no contact block), so a minimal shape is
+    // enough; not shared with any sibling file.
+    $pg->statement('CREATE TABLE IF NOT EXISTS site.blocks (
+        id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id      uuid NOT NULL,
+        site_id      uuid NOT NULL,
+        block_type   text NOT NULL DEFAULT \'link\',
+        block_group  text NOT NULL DEFAULT \'links\',
+        settings     jsonb NOT NULL DEFAULT \'{}\'::jsonb,
+        is_active    boolean NOT NULL DEFAULT true,
+        deleted_at   timestamptz,
+        created_at   timestamptz NOT NULL DEFAULT now(),
+        updated_at   timestamptz NOT NULL DEFAULT now()
+    )');
+
     $pg->statement('CREATE TABLE IF NOT EXISTS notifications.notifications (
         id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id    uuid NOT NULL,
@@ -177,18 +198,22 @@ beforeEach(function () {
 
     // Owned exclusively by this file — safe to drop and rebuild each test.
     $pg->statement('DROP TABLE IF EXISTS core.pre_account_builds CASCADE');
+    // published_by_claim: T28 (issue 22, 2026-08-27) — claim() forceFills this
+    // alongside claimed_at (supabase/migrations/20260828010000_pre_account_builds_published_by_claim.sql);
+    // without it that UPDATE 42703s.
     $pg->statement('CREATE TABLE core.pre_account_builds (
-        id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id           uuid NOT NULL REFERENCES core.users(id) ON DELETE CASCADE,
-        source_type       text NOT NULL DEFAULT \'instagram\',
-        source_key        text,
-        build_state       text NOT NULL DEFAULT \'pending\',
-        contact_email     text,
-        claimed_at        timestamptz,
-        expires_at        timestamptz,
-        built_by_staff_id uuid,
-        created_at        timestamptz NOT NULL DEFAULT now(),
-        updated_at        timestamptz NOT NULL DEFAULT now()
+        id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id            uuid NOT NULL REFERENCES core.users(id) ON DELETE CASCADE,
+        source_type        text NOT NULL DEFAULT \'instagram\',
+        source_key         text,
+        build_state        text NOT NULL DEFAULT \'pending\',
+        contact_email      text,
+        claimed_at         timestamptz,
+        expires_at         timestamptz,
+        built_by_staff_id  uuid,
+        published_by_claim boolean NOT NULL DEFAULT false,
+        created_at         timestamptz NOT NULL DEFAULT now(),
+        updated_at         timestamptz NOT NULL DEFAULT now()
     )');
     // The real partial unique index — one LIVE build per source. Named as in
     // supabase/migrations/ so a shape change there shows up here.

@@ -4,6 +4,7 @@ namespace Tests;
 
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Throwable;
 
 // Base test case for the real-Postgres regression lane (phpunit.pg.xml /
@@ -26,6 +27,19 @@ abstract class PostgresTestCase extends BaseTestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // QUEUE_CONNECTION=sync in this lane (phpunit.pg.xml) means any real
+        // dispatch runs inline. Since T4 (BuildState::bump(), 2026-08-27),
+        // every content write reachable through ProjectionWriter::bumpSite()/
+        // invalidateSiteLanes() dispatches BuildSiteDocumentJob, which needs
+        // site.pages/site.sections/site.site_documents — tables this lane's
+        // hand-rolled per-file DDL was never asked to provision, because the
+        // document-build pipeline is not what these tests are about. Faked
+        // globally so no write anywhere in this lane can accidentally run it
+        // for real; a test that specifically wants queue assertions (e.g.
+        // EnquiryReconcileSkipLockedTest) still calls Queue::fake() itself,
+        // which is idempotent against this one.
+        Queue::fake();
 
         // No pgsql connection configured at all (e.g. DB_CONNECTION left at
         // its sqlite default) — skip rather than blow up with a driver error.
