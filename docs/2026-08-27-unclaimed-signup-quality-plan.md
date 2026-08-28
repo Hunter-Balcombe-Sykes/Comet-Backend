@@ -1766,3 +1766,47 @@ amplification — 7–8 purges per build for ONE subdomain is redundant, since a
 purge more often than the 31s TTL buys nothing; (2) only then consider the
 ceiling, which at 20/min is very conservative against Cloudflare's actual
 purge limits.
+
+### ROUND 3 (12 business, new verticals) + the YouTube prefix fix (24e15270e)
+
+Dog groomer, gallery, pilates, butcher, cheese shop, brewery, optometrist,
+dentist, animal hospital, music venue, espresso bar, wine shop. All 12
+ready. Two booking/reservation brands auto-connected off the site scans —
+good-times-pilates-fitzroy → **mindbody**, stomping-ground-brewery →
+**sevenrooms** — which is the harvester-table lane working as intended.
+
+**Zero new unmatched platform candidates.** The triage queue after 36
+accounts is now almost entirely the businesses' OWN websites (ngv.vic.gov.au,
+petergbouchier.com.au, goodtimespilates.com.au, curvecycling.com,
+kayahealthclubs.com.au…), which are correctly not platforms. That is the
+signal the platform sweep has converged for this vertical mix.
+
+One real find, from djhellraiser (the richest account the fleet has built:
+50 observations and 11 connections off one Linktree):
+`youtube.com/channel/@handle` matched NEITHER youtube rule — the /channel/
+one demands a UC id, the /@ one is anchored at the path root. YouTube itself
+redirects the shape, so people paste it. FIXED; live gate on the rebuilt
+account: that URL now projects `youtube.channel`, verdict `place` (was
+`note` / no-rule-matched).
+
+Deliberately NOT touched: the other unmatched youtube.com rows (/watch,
+/playlist, youtu.be/<id>, music.youtube.com/watch) are item-level links the
+harvester already classifies as content-items.
+
+### Nightwatch review at this point
+
+- **#469 has not recurred since its fix.** Its one occurrence in 24h is at
+  11:47, which PREDATES the deploy — and was thrown by this run's own
+  fixture-cleanup tinker. The list view's title still shows the
+  `sources_user_id_fkey` text from the first occurrence; the detail is the
+  `sources_connection_id_fkey` case that was fixed.
+- **#467 is not a bug.** Latest occurrence is this run's own
+  blackhearts-sparrows: the Google Business listing supplied an Instagram
+  handle Instagram does not serve. The system degraded correctly — the
+  connection is `is_active: false`, `last_refresh_status: unavailable`,
+  empty payload, so it never reaches the site. It reports as an exception
+  because the alternative reading ("the Apify actor is broken") IS
+  actionable, and separating the two needs the actor's own error detail.
+  3 occurrences in 30 days; not worth trading a real signal for. Left alone.
+- **#172** still fires (logo-processor container). The user's logo now
+  survives it; the container outage itself is infrastructure.
