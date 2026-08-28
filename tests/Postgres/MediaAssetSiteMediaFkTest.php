@@ -25,11 +25,13 @@ beforeEach(function () {
     $pg->statement('DROP TABLE IF EXISTS content.media_assets CASCADE');
     $pg->statement('DROP TABLE IF EXISTS site.site_media CASCADE');
 
-    // Base site.site_media table (minimal DDL for FK test).
+    // Base site.site_media table (minimal DDL for FK test). Column names are
+    // the real ones — site_id/bucket/path, never user_id/storage_path, which
+    // belong to content.media_assets and never existed here (2026-08-28).
     $pg->statement('CREATE TABLE site.site_media (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id uuid NOT NULL,
-        storage_path text NULL
+        site_id uuid NOT NULL,
+        path text NULL
     )');
 
     // Base content.media_assets table without the site_media_id FK yet.
@@ -92,8 +94,8 @@ it('sets media_assets.site_media_id to NULL when the upload row is hard-deleted'
     $mediaId = (string) Str::uuid();
     $pg->table('site.site_media')->insert([
         'id' => $mediaId,
-        'user_id' => (string) Str::uuid(),
-        'storage_path' => 'test/path.jpg',
+        'site_id' => (string) Str::uuid(),
+        'path' => 'test/path.jpg',
     ]);
 
     // Insert an asset row pointing at the site_media row.

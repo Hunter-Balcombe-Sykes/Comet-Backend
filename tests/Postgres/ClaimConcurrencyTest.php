@@ -186,7 +186,6 @@ beforeEach(function () {
         starts_at  timestamptz,
         ends_at    timestamptz,
         dedupe_key text,
-        read_at    timestamptz,
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now()
     )');
@@ -205,7 +204,8 @@ beforeEach(function () {
         id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id            uuid NOT NULL REFERENCES core.users(id) ON DELETE CASCADE,
         source_type        text NOT NULL DEFAULT \'instagram\',
-        source_key         text,
+        source_ref         text NOT NULL,
+        source_ref_lc      text NOT NULL,
         build_state        text NOT NULL DEFAULT \'pending\',
         contact_email      text,
         claimed_at         timestamptz,
@@ -215,10 +215,11 @@ beforeEach(function () {
         created_at         timestamptz NOT NULL DEFAULT now(),
         updated_at         timestamptz NOT NULL DEFAULT now()
     )');
-    // The real partial unique index — one LIVE build per source. Named as in
-    // supabase/migrations/ so a shape change there shows up here.
+    // The real partial unique index — one LIVE build per source. Named AND
+    // shaped as in supabase/migrations/: (source_type, source_ref_lc), not
+    // source_key, which never existed outside this file (2026-08-28).
     $pg->statement('CREATE UNIQUE INDEX pre_account_builds_live_source_unique
-        ON core.pre_account_builds (source_type, source_key) WHERE claimed_at IS NULL');
+        ON core.pre_account_builds (source_type, source_ref_lc) WHERE claimed_at IS NULL');
 
     // PruneExpiredPreAccountBuilds calls this before forceDelete (it is gated on
     // the driver being pgsql, which in THIS lane it genuinely is). A stub is
@@ -283,7 +284,8 @@ function seedClaimTarget(string $subdomain, ?string $contactEmail = null, ?strin
         'id' => $buildId,
         'user_id' => $userId,
         'source_type' => 'instagram',
-        'source_key' => $subdomain,
+        'source_ref' => $subdomain,
+        'source_ref_lc' => mb_strtolower($subdomain),
         'build_state' => PreAccountBuild::STATE_READY,
         'contact_email' => $contactEmail,
         'expires_at' => $expiresAt,
