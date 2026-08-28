@@ -140,6 +140,40 @@ class ClaimSiteService
                 throw $e;
             }
 
+            // #W1-PRIV-1 commit 3: this is the only place a verified human email
+            // gets bound to an account (bootstrap's create branch is HTTP-dead —
+            // 410 SIGNUP_MOVED), so it's the one place a waitlist row can be
+            // linked going forward. status = 'waitlist' is load-bearing and must
+            // NOT be relaxed to invited/signed_up: verified mailbox control TODAY
+            // is not proof of authorship YESTERDAY, and stamping a past-waitlist
+            // row would launder DataExportPayloadBuilder::streamEarlyAccessSignups()'s
+            // bucket C (unowned, email-matched, past waitlist — exported redacted)
+            // into bucket A (owned — exported in full) on first claim, defeating
+            // the redaction that ownership rule exists to enforce. Best-effort,
+            // matching the ContactFormSeeder pattern below: a bookkeeping link
+            // must never fail a claim.
+            //
+            // Savepoint, not a bare try/catch: early_access_signups_user_id_unique
+            // is a real partial UNIQUE, and an account that already owns a linked
+            // row (ApproveEarlyAccessBuildJob) hitting a second waitlist row under
+            // its claimed address raises 23505. On Postgres a caught error still
+            // leaves the surrounding transaction aborted, so a bare catch here
+            // would swallow the exception and then kill every write below it —
+            // ContactFormSeeder, the publish flip, the claimed_at burn. The
+            // SQLite lane cannot see this: it has neither the partial index nor
+            // Postgres's abort-on-error semantics. Same guard, same reason, as
+            // the $professional->save() savepoint above.
+            try {
+                DB::connection('pgsql')->transaction(fn () => DB::connection('pgsql')
+                    ->table('core.early_access_signups')
+                    ->where('email_lc', $professional->primary_email)
+                    ->whereNull('user_id')
+                    ->where('status', 'waitlist')
+                    ->update(['user_id' => $professional->id, 'updated_at' => now()]));
+            } catch (\Throwable $e) {
+                report($e);
+            }
+
             // T20 (owner, 2026-08-27): an auto-seeded or empty contact-form
             // notification email defaults to the freshly-bound account email;
             // an owner-typed address is never touched. Best-effort — a block

@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
@@ -479,4 +480,97 @@ it('returns a successful claim even when a post-commit side effect throws, and s
     // it is what makes <handle>.partna.au resolve at all. A single try/catch
     // around the whole block would have skipped it.
     Queue::assertPushed(SyncSubdomainToKvJob::class);
+});
+
+// #W1-PRIV-1 commit 3: claim() is the only place a verified human email gets
+// bound to an account, so it's the one place a waitlist row can be linked
+// going forward — mirrors the ownership rule shipped in cfec3ab54/dfd1ad5cb
+// for DSAR export and account-deletion erasure.
+describe('#W1-PRIV-1: stamps user_id on early-access signups at claim time', function () {
+    beforeEach(function () {
+        setupEarlyAccessTable();
+    });
+
+    it('stamps user_id on a waitlist early-access row matching the claimed email', function () {
+        [$user] = makeReadyBuild();
+
+        $signupId = (string) Str::uuid();
+        DB::connection('pgsql')->table('core.early_access_signups')->insert([
+            'id' => $signupId,
+            'email' => 'jane@example.com',
+            'email_lc' => 'jane@example.com',
+            'type' => 'partna',
+            'status' => 'waitlist',
+            'source' => 'marketing',
+            'created_at' => '2026-02-01T00:00:00Z',
+            'updated_at' => '2026-02-01T00:00:00Z',
+        ]);
+
+        app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+        $row = DB::connection('pgsql')->table('core.early_access_signups')->where('id', $signupId)->first();
+        expect($row->user_id)->toBe($user->id);
+    });
+
+    // The anti-laundering guard: a row past the waitlist stage is bucket C in
+    // DataExportPayloadBuilder::streamEarlyAccessSignups() — exported redacted
+    // because verified mailbox control today is not proof of authorship
+    // yesterday. Stamping it here would flip it to bucket A (owned, exported
+    // in full) on nothing but a first claim, defeating that redaction.
+    it('does not stamp user_id on an invited early-access row', function () {
+        makeReadyBuild();
+
+        $signupId = (string) Str::uuid();
+        DB::connection('pgsql')->table('core.early_access_signups')->insert([
+            'id' => $signupId,
+            'email' => 'jane@example.com',
+            'email_lc' => 'jane@example.com',
+            'type' => 'partna',
+            'status' => 'invited',
+            'source' => 'marketing',
+            'created_at' => '2026-02-01T00:00:00Z',
+            'updated_at' => '2026-02-01T00:00:00Z',
+        ]);
+
+        app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+        $row = DB::connection('pgsql')->table('core.early_access_signups')->where('id', $signupId)->first();
+        expect($row->user_id)->toBeNull();
+    });
+
+    it('completes the claim when the early-access stamp fails', function () {
+        [$user, , $build] = makeReadyBuild();
+
+        DB::connection('pgsql')->statement('DROP TABLE core.early_access_signups');
+
+        $result = app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+        expect($result['professional']->id)->toBe($user->id);
+
+        $fresh = $user->fresh();
+        expect($fresh->auth_user_id)->toBe('auth-uid-1')
+            ->and($fresh->status)->toBe('active')
+            ->and($build->fresh()->claimed_at)->not->toBeNull();
+    });
+
+    it('leaves a different email\'s waitlist row untouched', function () {
+        makeReadyBuild();
+
+        $signupId = (string) Str::uuid();
+        DB::connection('pgsql')->table('core.early_access_signups')->insert([
+            'id' => $signupId,
+            'email' => 'other@example.com',
+            'email_lc' => 'other@example.com',
+            'type' => 'partna',
+            'status' => 'waitlist',
+            'source' => 'marketing',
+            'created_at' => '2026-02-01T00:00:00Z',
+            'updated_at' => '2026-02-01T00:00:00Z',
+        ]);
+
+        app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+        $row = DB::connection('pgsql')->table('core.early_access_signups')->where('id', $signupId)->first();
+        expect($row->user_id)->toBeNull();
+    });
 });
