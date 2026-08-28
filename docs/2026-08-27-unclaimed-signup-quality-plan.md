@@ -1663,3 +1663,58 @@ NOT changed unilaterally: this moves every site in the fleet and decides
 whether a pre-claim site shows a booking link nobody confirmed. It is the
 same open question the ledger already carries for content links, now with
 much higher stakes and a number attached. Owner's call.
+
+### ROUND 2 + the harvester-table fix (051aaa501, monorepo 521f415)
+
+Round 2: 12 more partna accounts (dog trainer, florists, massage/osteo,
+private chefs, illustrators, DJs), chosen to exercise the round-1 fixes on
+new real data. All 12 ready.
+
+- bio.site fix CONFIRMED on two more real accounts: thegourmet-homechef
+  (1 → 6 observations, TikTok found) and octavia-tomyn-art (→ 8, TikTok).
+- djhellraiser is the richest account the fleet has seen: 48 observations,
+  107 items, 11 connections (bandcamp, bluesky, facebook, instagram,
+  soundcloud ×2, threads, tiktok, x, youtube ×2) off one linktr.ee.
+- bodytuneperth exposed the TWO-LANE structure (see the corrected owner-
+  decision entry above): its Cliniko booking link connected with ZERO
+  routing observations, because WebsiteLinkHarvester's hand tables seed
+  booking cards directly and never touch LinkRouter.
+
+FIXED: five catalog brands missing from those hand tables, which is what
+made them seed plain link cards instead of provider cards — as.me (Acuity),
+youcanbook.me, venue.ink (booking), obeeapp.com/obee.com.au (reservations),
+abacus.co (ordering).
+
+LIVE GATE, end to end and on the real accounts that exposed it:
+- theyogapeoplesydney → `acuity` connection, surface acuity.book, routing
+  booking, carrying their real https://theyogapeoplelink.as.me/ — and the
+  live sitepage now renders that URL under the label "Acuity".
+- fayeellefineline → `venue_ink` connection, surface venue_ink.book, their
+  real https://venue.ink/@fayeellefineline — live page renders it as
+  "Venue Ink" with the venue-ink design slug resolving.
+Both accounts previously produced NO booking link at all.
+
+### 15 link-only platforms + 16 kit entries (6d9358175, monorepo 521f415)
+
+Every one found in this run's own triage queue or site scans, each verified
+a genuine multi-tenant platform first: See Tickets, Etix, TicketWeb, Tixr,
+AdmitONE, Eventim (ticketing); Linkfire, Feature.fm, The Orchard (music
+smart links — ProfileLink not MarketplaceListing, because a lnk.to page is
+the artist's own; and deliberately NOT ShortLinkExpander hosts, since one
+page carries many destinations); Laylo (Events — a dated drop); Venue Ink,
+Obee, Abacus, Libro.fm, Heyzine. All 16 verified live against the REAL urls
+from the run, 16/16 matched.
+
+Kit entries under the design-assets sourcing rules: 9 with first-party or
+Commons artwork, 7 honestly recorded as having none. Three calls worth
+keeping: Libro.fm's SVG exists only under a Wikipedia NON-FREE fair-use tag
+(rejected, not used — and its 403s are a bot wall, so it is a manual pass
+waiting to happen); Heyzine's widely-cited green traces to Brandfetch, an
+excluded aggregator (recorded unknown instead); Eventim's own site serves a
+white-on-dark variant, so the Commons navy+gold print variant was preferred
+because white vanishes on a light card. Where no colour could be verified
+(tixr, obee, libro-fm, heyzine) the entry carries a neutral ink and SAYS it
+is a stand-in.
+
+Deployed: backend ×3, design-system + dashboard (push), apps/pages worker.
+Backend suite 9,729 passed / 0 failed.
