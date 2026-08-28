@@ -43,6 +43,13 @@
             "captured_by": "fixtures:capture",
             "notes": "Lnk.Bio via its clk.bio mirror (themetapunter, 2026-08-24). 32 anchors: 4 owner links (rel=external nofollow ugc), 7 share widgets, 5 display:none SEO backlinks to Lnk.Bio's own portfolio. lnk.bio/TheMetaPunter answers 403 for the same content. Redaction replaced 156 bare numbers with [redacted-phone] (image ids, data-id attrs) — same behaviour the linktree captures note. The ANCHORS AND HREFS ARE INTACT: harvested=23, classified=4 measured against this file."
         },
+        "places/amiconi.listing.json": {
+            "source_url": "file:///private/tmp/claude-501/-Users-joshuahunter-Herd-Side-Street-backend/51326dd2-a9b4-4652-8645-29b2e54b9cf0/scratchpad/amiconi.raw.json",
+            "captured_at": "2026-08-28T07:13:38+00:00",
+            "sha256": "329676c6ae10d51c6046b1f799c726fd4dc1c8c382df71d20fa50e6d9059ad60",
+            "captured_by": "fixtures:capture",
+            "notes": "Real Places (New) details payload as STORED on a google-business connection (dev, Amiconi Restaurant, connection 01a03729). Dumped via psql from site.platform_connections.payload — the exact shape GoogleBusinessService::fetchPlaceDetails() returns. Carries editorialSummary + category: the two GBP bio-enrichment inputs."
+        },
         "shop/abovetheground-homepage.html": {
             "source_url": "https://abovetheground.com.au/",
             "captured_at": "2026-07-11",

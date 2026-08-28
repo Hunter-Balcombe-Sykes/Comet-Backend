@@ -10,6 +10,7 @@ use App\Services\Http\SafeUrlFetcher;
 use App\Services\Media\InstagramMediaUrl;
 use App\Services\Media\MediaDiskResolver;
 use App\Services\Platforms\Payloads\InstagramPayload;
+use App\Services\Profile\BioIntel;
 use App\Services\Profile\SectorTaxonomy;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -78,7 +79,11 @@ class InstagramConnectionSeeder
     // $autoConnectBooking: TRUE only on a staff/ManyChat build. Defaults FALSE so
     // the dashboard connect and refresh call sites below stay byte-identical and
     // keep showing the account holder a picker.
-    public function seed(IntegrationConnection $connection, string $username, string $userId, array $profile, bool $autoConnectBooking = false): array
+    // $intel: the bio-intelligence result the pre-account generator ALREADY paid
+    // for on this build, threaded through to InstagramIdentitySync so the same
+    // handle/fullName/biography is not analysed (and billed) a second time. Null
+    // on the dashboard connect and refresh paths, which analysed nothing first.
+    public function seed(IntegrationConnection $connection, string $username, string $userId, array $profile, bool $autoConnectBooking = false, ?BioIntel $intel = null): array
     {
         $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
 
@@ -248,7 +253,7 @@ class InstagramConnectionSeeder
         // string in this scope — resolve the model explicitly.
         $user = User::find($userId);
         if ($user !== null) {
-            $this->identitySync->applyIdentity($user, $profile);
+            $this->identitySync->applyIdentity($user, $profile, $intel);
             $this->autoSaveUnmatchedLinks($user, $sync['unmatched'], $ctx);
         }
 
