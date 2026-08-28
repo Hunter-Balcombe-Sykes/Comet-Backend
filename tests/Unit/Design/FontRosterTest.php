@@ -12,6 +12,7 @@
 use App\Http\Requests\Concerns\DesignKitValidationRules;
 use App\Services\Design\FontKeywordClassifier;
 use App\Services\Design\SectorStylePresets;
+use App\Services\Profile\SectorTaxonomy;
 
 const SURVIVING_FONTS = ['nb-architekt', 'helvetica-neue', 'monument-grotesk', 'forma-djr'];
 
@@ -67,7 +68,7 @@ it('never authors small text WITH uppercase (taste map §1.4: quiet shouting is 
     foreach (SectorStylePresets::refinedSlugs() as $slug) {
         // The rendered look is bucket + refinement merged; the invariant
         // holds on the RESULT, not each sparse layer.
-        $bucket = \App\Services\Profile\SectorTaxonomy::bucketFor($slug);
+        $bucket = SectorTaxonomy::bucketFor($slug);
         $overlays['slug:'.$slug] = array_merge(
             $bucket !== null ? SectorStylePresets::forBucket($bucket) : [],
             SectorStylePresets::forSlug($slug),

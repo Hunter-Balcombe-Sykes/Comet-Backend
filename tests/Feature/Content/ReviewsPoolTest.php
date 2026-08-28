@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Core\Site\Site;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolResolver;
@@ -475,7 +476,7 @@ function partnaReviewFixture(string $displayName, array $review): array
         'display_name' => $displayName,
         'first_name' => explode(' ', $displayName)[0] ?: 'X',
     ]);
-    App\Services\Accounts\AccountCapabilities::flushCache();
+    AccountCapabilities::flushCache();
 
     $connectionId = poolConnection($pro->id, 'google_business.listing');
     $sourceId = poolSource($pro->id, $connectionId);
@@ -573,7 +574,7 @@ it('fails closed when the partna account has no usable name', function () {
     [, $siteId, $itemId] = partnaReviewFixture('', ['text' => 'Wonderful experience.']);
     DB::table('core.users')->where('id', DB::table('site.sites')->where('id', $siteId)->value('user_id'))
         ->update(['display_name' => '', 'first_name' => '']);
-    App\Services\Accounts\AccountCapabilities::flushCache();
+    AccountCapabilities::flushCache();
 
     $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
 

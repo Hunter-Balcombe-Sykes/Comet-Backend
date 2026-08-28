@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\Profile\SectorActionRecipes;
+use Illuminate\Support\Carbon;
 
 function sarPlatform(string $key, ?string $page, string $connectedAt = '2026-08-01T00:00:00+00:00'): array
 {
@@ -86,7 +87,7 @@ it('a restaurant leads reserve → order → menu, with reserve resolving to the
 });
 
 it('a musician leads listen (editorial pick) → next event → latest release', function () {
-    \Illuminate\Support\Carbon::setTestNow('2026-08-27T00:00:00+00:00');
+    Carbon::setTestNow('2026-08-27T00:00:00+00:00');
     $candidates = [
         sarPlatform('soundcloud', 'listen'),
         sarPlatform('spotify', 'listen'),
@@ -104,11 +105,11 @@ it('a musician leads listen (editorial pick) → next event → latest release',
 
     expect(array_slice(array_keys($boosts), 0, 4))
         ->toBe(['platform:spotify', 'item:ev1', 'item:rel1', 'platform:instagram']);
-    \Illuminate\Support\Carbon::setTestNow();
+    Carbon::setTestNow();
 });
 
 it('next-event picks the soonest UPCOMING occurrence, not the furthest-future or newest-synced', function () {
-    \Illuminate\Support\Carbon::setTestNow('2026-08-27T00:00:00+00:00');
+    Carbon::setTestNow('2026-08-27T00:00:00+00:00');
     $candidates = [
         sarPlatform('spotify', 'listen'),
         sarItem('far', 'events', null, undated: true, startsAt: '2026-10-15T00:00:00+00:00'),
@@ -120,11 +121,11 @@ it('next-event picks the soonest UPCOMING occurrence, not the furthest-future or
 
     expect(array_keys($boosts))->toContain('item:soon')
         ->and(array_keys($boosts))->not->toContain('item:far');
-    \Illuminate\Support\Carbon::setTestNow();
+    Carbon::setTestNow();
 });
 
 it('next-event falls back to the most recent past occurrence when nothing is upcoming', function () {
-    \Illuminate\Support\Carbon::setTestNow('2026-08-27T00:00:00+00:00');
+    Carbon::setTestNow('2026-08-27T00:00:00+00:00');
     $candidates = [
         sarPlatform('spotify', 'listen'),
         sarItem('older', 'events', null, undated: true, startsAt: '2026-07-01T00:00:00+00:00'),
@@ -135,7 +136,7 @@ it('next-event falls back to the most recent past occurrence when nothing is upc
 
     expect(array_keys($boosts))->toContain('item:recent')
         ->and(array_keys($boosts))->not->toContain('item:older');
-    \Illuminate\Support\Carbon::setTestNow();
+    Carbon::setTestNow();
 });
 
 it('top-product picks the highest-scored shop item, undated latest-* never wins', function () {
@@ -161,7 +162,7 @@ it('a role that resolves to an id already claimed is skipped, later entries move
     // ordering platform and no menu page, both 'menu'(→null) and 'order'
     // resolve against the same platform space — order takes the single
     // ordering platform; nothing double-claims.
-    \Illuminate\Support\Carbon::setTestNow('2026-08-27T00:00:00+00:00');
+    Carbon::setTestNow('2026-08-27T00:00:00+00:00');
     $candidates = [
         sarPlatform('opentable', null),
         sarPlatform('doordash', 'menu'),
@@ -169,7 +170,7 @@ it('a role that resolves to an id already claimed is skipped, later entries move
     ];
 
     $boosts = SectorActionRecipes::resolve('bar', $candidates);
-    \Illuminate\Support\Carbon::setTestNow();
+    Carbon::setTestNow();
 
     expect(array_keys($boosts))->toBe(['platform:opentable', 'item:gig', 'platform:doordash'])
         ->and($boosts['platform:doordash'])->toBe(round(2.0 * 0.75 ** 2, 10));

@@ -202,7 +202,7 @@ it('the gallery fallback reads POOL_GALLERY only — synced content imagery is n
     $siteId = autopilotSite();
     DB::connection('pgsql')->table('site.site_media')->where('site_id', $siteId)->delete();
     DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'id' => (string) Str::uuid(),
         'site_id' => $siteId, 'pool' => 'content', 'purpose' => null,
         'processing_state' => 'ready',
         'palette' => json_encode(['dominant' => '#e0491f', 'colors' => ['#e0491f'], 'warm' => true]),
@@ -219,7 +219,7 @@ it('a neutral GALLERY palette reports neutral_palette, not the wordmark copy', f
     $siteId = autopilotSite();
     DB::connection('pgsql')->table('site.site_media')->where('site_id', $siteId)->delete();
     DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'id' => (string) Str::uuid(),
         'site_id' => $siteId, 'pool' => 'gallery', 'purpose' => null,
         'processing_state' => 'ready',
         'palette' => json_encode(['dominant' => '#111111', 'colors' => ['#111111', '#fafafa'], 'warm' => false]),
@@ -236,7 +236,7 @@ it('falls back to the oldest ready gallery image palette when no logo palette ex
     // strong brand colour.
     DB::connection('pgsql')->table('site.site_media')->where('site_id', $siteId)->delete();
     DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'id' => (string) Str::uuid(),
         'site_id' => $siteId, 'pool' => 'gallery', 'purpose' => null,
         'processing_state' => 'ready',
         'palette' => json_encode(['dominant' => '#0f766e', 'colors' => ['#0f766e'], 'warm' => false]),

@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Moderation\ModerationQueue;
 use Illuminate\Support\Str;
 
 return [
@@ -102,7 +103,7 @@ return [
         // reads back exactly the composite key the supervisor registers. Reorder
         // `defaults.supervisor-1.queue` and this string MUST move with it, or the
         // lane silently falls back to the accidental 60s ceiling.
-        'redis:'.\App\Jobs\Moderation\ModerationQueue::HIGH.',default,cloudflare,cache-warm,images,media-mirror,streaming,platform_refresh,platform_connect,analytics,cloudflare_bulk' => 900,
+        'redis:'.ModerationQueue::HIGH.',default,cloudflare,cache-warm,images,media-mirror,streaming,platform_refresh,platform_connect,analytics,cloudflare_bulk' => 900,
 
         // Lane 2 — supervisor-ingest (balance=>'auto', 1 proc): the one lane
         // where a per-queue key is legitimate. 1800s = 2x ingest:dispatch's
@@ -145,7 +146,7 @@ return [
         // that raises maxProcesses to one-per-queue (ten workers on
         // supervisor-1 alone), which is the exact 2026-07-22 dev OOM loop
         // this file's "Worker Lanes" docblock exists to prevent.
-        'redis:'.\App\Jobs\Moderation\ModerationQueue::HIGH => 30,
+        'redis:'.ModerationQueue::HIGH => 30,
         'redis:notifications' => 60,
         'redis:default' => 60,
         'redis:cloudflare' => 120,
@@ -252,7 +253,7 @@ return [
             // SyncSubdomainToKvJob — the ONLY KV writer — so it would have traded "photo
             // appears late" for "the site does not resolve".
             // Guarded by two ordering tests in HorizonQueueCoverageTest.
-            'queue' => [\App\Jobs\Moderation\ModerationQueue::HIGH, 'default', 'cloudflare', 'cache-warm', 'images', 'media-mirror', 'streaming', 'platform_refresh', 'platform_connect', 'analytics', 'cloudflare_bulk'],
+            'queue' => [ModerationQueue::HIGH, 'default', 'cloudflare', 'cache-warm', 'images', 'media-mirror', 'streaming', 'platform_refresh', 'platform_connect', 'analytics', 'cloudflare_bulk'],
             'balance' => false,
             'maxProcesses' => 1,
             'maxTime' => 0,
