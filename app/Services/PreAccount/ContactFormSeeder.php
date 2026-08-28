@@ -31,7 +31,10 @@ class ContactFormSeeder
             return;
         }
 
-        $settings = is_array($block->settings) ? $block->settings : [];
+        // site.blocks.settings is jsonb NOT NULL DEFAULT '{}', so Block::$settings
+        // (cast 'array') is always an array — the is_array() guard PHPStan flagged
+        // here was dead per that DB constraint, not defensive.
+        $settings = $block->settings;
         $publicEmail = trim((string) $user->public_contact_email);
 
         $block->is_active = true;
@@ -64,7 +67,8 @@ class ContactFormSeeder
             return;
         }
 
-        $settings = is_array($block->settings) ? $block->settings : [];
+        // Same NOT NULL DEFAULT '{}' guarantee as seedForBuild() above.
+        $settings = $block->settings;
         $current = trim((string) data_get($settings, 'notification_email', ''));
         $isAuto = data_get($settings, 'notification_email_source') === 'auto';
         if ($current !== '' && ! $isAuto) {
