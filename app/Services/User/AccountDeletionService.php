@@ -110,7 +110,7 @@ class AccountDeletionService
      */
     public const PURGED_PII_TABLES = [
         'core.users',                          // forceDelete() — the subject row
-        'core.early_access_signups',           // purgeEarlyAccessSignup() — email_lc keyed
+        'core.early_access_signups',           // purgeEarlyAccessSignup() — user_id OR (email_lc + still-waitlist) keyed, mirrors the export's ownership rule
         'core.feedback',                       // purgeFeedbackRows() — FK is SET NULL, not CASCADE
         'notifications.email_subscriptions',   // purgeGlobalEmailSubscriptions() + purgeCrossTenantSubscriptions()
         'analytics.item_views',                // purgeItemViewsPii() — user_id is a denormalised column, no FK
@@ -1007,20 +1007,47 @@ class AccountDeletionService
     }
 
     /**
-     * #P2-09: Delete core.early_access_signups row matched by email_lc.
+     * #P2-09 / #PRIV-1: Delete core.early_access_signups rows this account can
+     * prove it owns.
      *
-     * Early-access rows are keyed on email, not user_id — no DB cascade reaches them.
+     * Mirrors DataExportPayloadBuilder::streamEarlyAccessSignups()'s ownership
+     * predicate exactly — a row owned by user_id, or matched by email while
+     * still on the waitlist, is deleted. A row matched by email only, but
+     * already progressed past the waitlist, is left alone: email_lc alone
+     * can't prove the row is this account's rather than a prior holder of a
+     * reassigned address, and the export already refuses to disclose that row
+     * in full for the same reason — deleting what we won't even show would be
+     * incoherent, and would destroy a third party's record on a false
+     * positive. That surviving row still ages out on its own timeline via
+     * `early-access:prune-old-signups` (PruneEarlyAccessSignupsCommand),
+     * which hard-deletes any non-`signed_up` row past
+     * `config('partna.early_access.retention_days')` regardless of ownership.
+     *
+     * One gap that follows from the two filters combined: an UNOWNED
+     * `signed_up` row matched only by email is skipped here (it's past the
+     * waitlist) and also skipped by the prune (which excludes `signed_up`),
+     * so it has no automatic purge path at all. Unreachable today —
+     * EarlyAccessService::markSignedUp() has no production caller and
+     * `user_id` isn't fillable — but if either changes, that row needs a
+     * deliberate retention answer rather than inheriting this silence.
      */
     private function purgeEarlyAccessSignup(User $professional, ?string $lookupEmail): void
     {
-        if ($lookupEmail === null || trim($lookupEmail) === '') {
-            return;
-        }
+        $emailLc = ($lookupEmail !== null && trim($lookupEmail) !== '')
+            ? mb_strtolower(trim($lookupEmail))
+            : null;
 
         try {
             DB::connection('pgsql')
                 ->table('core.early_access_signups')
-                ->where('email_lc', mb_strtolower(trim($lookupEmail)))
+                ->where(function ($q) use ($professional, $emailLc) {
+                    $q->where('user_id', $professional->id);
+                    if ($emailLc !== null) {
+                        $q->orWhere(fn ($q2) => $q2->whereNull('user_id')
+                            ->where('email_lc', $emailLc)
+                            ->where('status', 'waitlist'));
+                    }
+                })
                 ->delete();
         } catch (\Throwable $e) {
             // LIFE-102: the failure log must carry the acting user_id — without it,
