@@ -315,6 +315,7 @@ class PublicIntegrationConnectionResource extends ApiResource
         'noterro' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'schedulicity' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'simplybook_me' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'youcanbookme' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'circle' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'kajabi' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'luma' => ['url', 'name', 'favicon', 'logo', 'provider'],

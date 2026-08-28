@@ -4,6 +4,7 @@ namespace App\Services\Platforms;
 
 use App\Jobs\Platforms\LinkInBioScanJob;
 use App\Models\Core\User\User;
+use App\Routing\ShortLinkExpander;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use Throwable;
@@ -45,6 +46,7 @@ class InstagramAutoSync
         private readonly FacebookNormalizer $facebookNormalizer,
         private readonly LinkInBioDetector $linkInBioDetector,
         private readonly LinkRouter $router,
+        private readonly ShortLinkExpander $expander,
     ) {}
 
     /**
@@ -119,6 +121,26 @@ class InstagramAutoSync
                 continue;
             }
             $url = trim($url);
+
+            // Expand shorteners FIRST, before the aggregator check and before
+            // classify() — LinkRouter owns an expander, but nothing on this
+            // path ever reaches it: classify() returns null for bit.ly (a
+            // shortener is not a platform), so the link is filed as unmatched
+            // and the router, expander and all, is never called.
+            //
+            // Found live 2026-08-28 on xia_tattoo, whose whole online presence
+            // sits behind one bit.ly: the account produced zero routing
+            // observations and zero links. A shortener in a bio is the
+            // COMMON case, not an edge — it can hide an aggregator page, a
+            // booking link or a shop, and every one of those is lost before
+            // this. Expansion is cached both ways by the expander, and
+            // expandIfShort() returns the input unchanged for everything else,
+            // so this costs nothing on the ordinary path.
+            //
+            // Deliberately ahead of the dedupe below: the whole point is that
+            // two different short links can resolve to the SAME page, and the
+            // expanded form is the only form that can be compared.
+            $url = $this->expander->expandIfShort($url);
 
             $pageKey = strtolower(rtrim(preg_replace('~^https?://(?:www\.)?~i', '', $url) ?? $url, '/'));
             if (isset($seenPages[$pageKey])) {

@@ -32,6 +32,7 @@ return [
     'timely.book' => 'https://acme.gettimely.com/book',
     'treatwell.book' => 'https://www.treatwell.co.uk/place/acme-salon',
     'vagaro.book' => 'https://www.vagaro.com/acme',
+    'youcanbookme.book' => 'https://acme.youcanbook.me/',
     'zenoti.book' => 'https://acme.zenoti.com/webstoreNew/services',
 
     // Online ordering

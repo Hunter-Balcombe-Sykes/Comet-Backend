@@ -37,6 +37,18 @@ class Acuity
                 ->refreshEvery(0)
                 ->detect(
                     Detector::url('acuityscheduling.com')->strength(EvidenceStrength::ProfileLink),
+                    // as.me is Acuity's SHORT booking host, and the one people
+                    // actually paste — Acuity itself hands out
+                    // <tenant>.as.me links. It is already a
+                    // Hosts::suffixOverrides() entry, so the registrable key
+                    // is `<tenant>.as.me` and the acuityscheduling.com
+                    // detector above never sees it: found live 2026-08-28 on
+                    // theyogapeoplesydney, whose only bio link
+                    // (theyogapeoplelink.as.me) was rejected outright and
+                    // cost them their booking link. Host-level like its
+                    // sibling — the tenant label is the identity, and there
+                    // is nothing to capture from the path.
+                    Detector::url('as.me')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),
         ];

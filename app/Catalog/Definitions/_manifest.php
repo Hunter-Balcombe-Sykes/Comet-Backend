@@ -151,6 +151,7 @@ use App\Catalog\Definitions\Wolt;
 use App\Catalog\Definitions\Woocommerce;
 use App\Catalog\Definitions\X;
 use App\Catalog\Definitions\Yelp;
+use App\Catalog\Definitions\YouCanBookMe;
 use App\Catalog\Definitions\Youtube;
 use App\Catalog\Definitions\YoutubeMusic;
 use App\Catalog\Definitions\Zenoti;
@@ -311,6 +312,7 @@ return [
     Woocommerce::class,
     X::class,
     Yelp::class,
+    YouCanBookMe::class,
     Youtube::class,
     YoutubeMusic::class,
     Zenoti::class,
