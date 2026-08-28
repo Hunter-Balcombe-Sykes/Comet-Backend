@@ -113,6 +113,64 @@ it('fleet:rebuild tears down and rebuilds, re-allocating the same handle', funct
         ->and(PreAccountBuild::query()->where('user_id', $fresh->id)->exists())->toBeTrue();
 });
 
+// ── fleet:new ────────────────────────────────────────────────────────────────
+
+function fleetSpecs(array $specs): array
+{
+    return ['--b64' => base64_encode(json_encode($specs))];
+}
+
+it('fleet:new refuses the whole batch when any spec is malformed', function () {
+    seedPartnaStaff();
+
+    $this->artisan('fleet:new', fleetSpecs([
+        ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'fnok', 'source_name' => 'Fn Ok'],
+        ['account_type' => 'partna', 'source_type' => 'tiktok', 'source_ref' => 'fnbad', 'source_name' => 'Fn Bad'],
+    ]))->assertFailed();
+
+    // The good spec ahead of the bad one was never requested.
+    expect(PreAccountBuild::query()->count())->toBe(0);
+});
+
+it('fleet:new refuses a google_business spec with no name, because the place id cannot seed a handle', function () {
+    seedPartnaStaff();
+
+    $this->artisan('fleet:new', fleetSpecs([
+        ['account_type' => 'business', 'source_type' => 'google_business', 'source_ref' => 'ChIJfake', 'source_name' => ''],
+    ]))->assertFailed();
+
+    expect(PreAccountBuild::query()->count())->toBe(0);
+});
+
+it('fleet:new dry-run prints the specs and builds nothing', function () {
+    $this->artisan('fleet:new', fleetSpecs([
+        ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'fndry', 'source_name' => 'Fn Dry'],
+    ]) + ['--dry-run' => true])
+        ->expectsOutputToContain('fndry')
+        ->expectsOutputToContain('Dry run')
+        ->assertSuccessful();
+
+    expect(PreAccountBuild::query()->count())->toBe(0);
+});
+
+it('fleet:new cold-builds an account that never existed', function () {
+    seedPartnaStaff();
+
+    $this->artisan('fleet:new', fleetSpecs([
+        ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'fnfresh', 'source_name' => 'Fn Fresh'],
+    ]))->assertSuccessful();
+
+    $user = User::query()->where('handle_lc', 'like', 'fnfresh%')->first();
+    expect($user)->not->toBeNull()
+        ->and($user->status)->toBe('unclaimed')
+        ->and(PreAccountBuild::query()->where('user_id', $user->id)->exists())->toBeTrue();
+});
+
+it('fleet:new rejects specs that are not a JSON list', function () {
+    $this->artisan('fleet:new', ['--b64' => base64_encode('"not a list"')])->assertFailed();
+    $this->artisan('fleet:new', [])->assertFailed();
+});
+
 // ── builds:await ─────────────────────────────────────────────────────────────
 
 it('builds:await returns success immediately when all builds are terminal', function () {
