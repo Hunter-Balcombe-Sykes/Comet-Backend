@@ -238,3 +238,71 @@ it('exposes url_svg in the design-singleton resolver projection', function () {
     $payload = app(IndividualProfilePayloadBuilder::class)->build($pro->fresh('site'), $site);
     expect(array_key_exists('siteImages', $payload))->toBeFalse();
 });
+
+// ── Processor outage with an SVG original (2026-08-28) ──────────────────────
+// Nightwatch showed a recurring PAIR: LogoProcessorException (container failed
+// to start) immediately followed by "MIME type 'image/svg+xml' is not an
+// accepted image format". They were one incident — failed() fell back to the
+// raster pipeline, which rejects SVG by design, so the second exception was
+// guaranteed and the user lost their logo. The SVG is now published as the
+// vector variant instead.
+
+it('publishes the original SVG as the vector variant when the processor fails', function () {
+    $pro = createTenant('logo-svg-fallback');
+    $siteId = (string) DB::table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    Storage::fake('test_disk');
+    config(['filesystems.disks.test_disk.url' => 'https://cdn.example.com']);
+    $svc = Mockery::mock(ImageVariantService::class);
+    $svc->shouldReceive('resolvedDiskName')->andReturn('test_disk');
+    app()->instance(ImageVariantService::class, $svc);
+
+    $mediaId = (string) Str::uuid();
+    DB::table('site.site_media')->insert([
+        'id' => $mediaId, 'site_id' => $siteId, 'pool' => 'design',
+        'purpose' => 'logo_full', 'bucket' => 'test_disk',
+        'path' => 'logos/x/original_abc.svg', 'original_mime' => 'image/svg+xml',
+        'media_type' => 'image',
+        'processing_state' => 'processing', 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    Storage::disk('test_disk')->put('logos/x/original_abc.svg', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"/></svg>');
+
+    Bus::fake();
+    (new ProcessLogoVariantsJob(
+        originalPath: 'logos/x/original_abc.svg',
+        imageId: $mediaId,
+        basePath: 'logos/x',
+    ))->failed(new RuntimeException('Logo processor returned HTTP 500'));
+
+    // The raster pipeline — which would reject this SVG — is never dispatched.
+    Bus::assertNotDispatched(ProcessImageVariantsJob::class);
+
+    $variant = DB::table('site.media_variants')
+        ->where('media_id', $mediaId)->where('variant_key', 'vector')->first();
+    expect($variant)->not->toBeNull()
+        ->and($variant->mime)->toBe('image/svg+xml')
+        ->and(DB::table('site.site_media')->where('id', $mediaId)->value('processing_state'))->toBe('ready');
+});
+
+it('still falls back to the raster pipeline for a non-svg original', function () {
+    $pro = createTenant('logo-raster-fallback');
+    $siteId = (string) DB::table('site.sites')->where('user_id', $pro->id)->value('id');
+
+    $mediaId = (string) Str::uuid();
+    DB::table('site.site_media')->insert([
+        'id' => $mediaId, 'site_id' => $siteId, 'pool' => 'design',
+        'purpose' => 'logo_full', 'bucket' => 'test_disk',
+        'path' => 'logos/y/original_abc.png', 'original_mime' => 'image/png',
+        'media_type' => 'image',
+        'processing_state' => 'processing', 'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    Bus::fake();
+    (new ProcessLogoVariantsJob(
+        originalPath: 'logos/y/original_abc.png',
+        imageId: $mediaId,
+        basePath: 'logos/y',
+    ))->failed(new RuntimeException('Logo processor returned HTTP 500'));
+
+    Bus::assertDispatched(ProcessImageVariantsJob::class);
+});

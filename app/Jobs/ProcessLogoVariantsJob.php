@@ -349,6 +349,25 @@ class ProcessLogoVariantsJob implements ShouldQueue
     {
         report($e);
 
+        // An SVG original has NO raster fallback (2026-08-28). The standard
+        // pipeline byte-sniffs and rejects image/svg+xml by design (SVG is an
+        // XSS vector there), so dispatching it guarantees a SECOND exception —
+        // which is exactly the pair Nightwatch has been showing: a logo
+        // processor 500 followed by "MIME type 'image/svg+xml' is not an
+        // accepted image format". The two issues were one incident.
+        //
+        // The SVG is still a perfectly good logo: this pipeline already serves
+        // vector variants through <img> (storeSvgVariant), where script-in-SVG
+        // is inert, and LogoAutoGrabber::svgIsSafe() sanitised these bytes at
+        // ingest. So publish it as the vector variant instead of throwing it
+        // at a decoder that cannot read it — the user keeps their logo, minus
+        // only the background removal the container would have done.
+        if (str_ends_with(strtolower($this->originalPath), '.svg')) {
+            $this->fallBackToRawSvg();
+
+            return;
+        }
+
         $reset = SiteMedia::query()
             ->where('id', $this->imageId)
             ->whereNull('deleted_at')
@@ -380,6 +399,49 @@ class ProcessLogoVariantsJob implements ShouldQueue
     private function resolveSiteId(SiteMedia $siteMedia): string
     {
         return $this->siteId !== '' ? $this->siteId : (string) ($siteMedia->site_id ?? '');
+    }
+
+    /**
+     * Terminal fallback for an SVG original (2026-08-28): publish the source
+     * SVG itself as the `vector` variant and mark the media ready, so a logo
+     * survives a processor outage instead of vanishing.
+     *
+     * Deliberately writes ONLY the vector variant — the raster tiers stay
+     * absent, which every consumer already tolerates (the vector variant is
+     * the one the logo surfaces prefer). If even this fails, the media is
+     * marked failed with a readable reason rather than left processing.
+     */
+    private function fallBackToRawSvg(): void
+    {
+        try {
+            $imageService = app(ImageVariantService::class);
+            $diskName = $imageService->resolvedDiskName();
+            $disk = Storage::disk($diskName);
+
+            $svg = $disk->exists($this->originalPath) ? $disk->get($this->originalPath) : null;
+            if (! is_string($svg) || $svg === '') {
+                $this->markFailed('Logo processor failed and the SVG original was unreadable.');
+
+                return;
+            }
+
+            $this->storeSvgVariant($disk, $diskName, $svg, []);
+
+            SiteMedia::query()
+                ->where('id', $this->imageId)
+                ->whereNull('deleted_at')
+                ->update([
+                    'processing_state' => SiteMedia::PROCESSING_STATE_READY,
+                    'processing_error' => null,
+                ]);
+
+            Log::warning('ProcessLogoVariantsJob: processor unavailable; served the original SVG as the vector variant.', [
+                'image_id' => $this->imageId,
+            ]);
+        } catch (Throwable $e) {
+            report($e);
+            $this->markFailed('Logo processor failed and the SVG fallback could not be stored.');
+        }
     }
 
     private function markFailed(string $reason): void
