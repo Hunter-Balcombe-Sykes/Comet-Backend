@@ -144,7 +144,6 @@ class IndividualProfileResource extends ApiResource
             // owner-picked on the dashboard's Site page; defaults to 'scroll'
             // (the platform default since 2026-08-27, migration 20260827120000).
             'architectureId' => $this->sections['architecture_id'] ?? Site::DEFAULT_ARCHITECTURE_ID,
-            // TRANSITION ALIAS — drop once apps/pages deploy reading architectureId is confirmed.
 
             // Platform-wide knobs the skeleton needs at render time (analytics
             // endpoint, etc.). Always an object.

@@ -17,6 +17,7 @@ use App\Ingest\Message\Unavailable;
 use App\Ingest\Runtime\Connector;
 use App\Ingest\Runtime\Io;
 use App\Ingest\Runtime\Pull;
+use App\Services\Platforms\ScrapedNameCasing;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -509,7 +510,7 @@ class FreshaConnector implements Connector
         if ($name === '') {
             return null;
         }
-        $name = $this->normaliseServiceName($name);
+        $name = (string) ScrapedNameCasing::titleCase($name);
 
         // The real id only ever surfaces embedded as a JSON string inside an
         // action id. A single service is `s:123`; a multi-service PACKAGE is
@@ -538,25 +539,6 @@ class FreshaConnector implements Connector
             'category' => $categoryName,
             'categoryId' => $categoryId,
         ], static fn ($v) => $v !== null);
-    }
-
-    /**
-     * T11 (2026-08-27): salons type service names in any casing — the same
-     * service arrives as "Refresh" and "REFRESH" in different lists, and
-     * SHOUTING names serve on the public page. A name with no casing signal
-     * (all-caps or all-lower) is normalised to Title Case; mixed case is the
-     * merchant's own deliberate choice and passes through. Uppercase STYLING
-     * on the sitepage stays a design-kit concern.
-     */
-    private function normaliseServiceName(string $name): string
-    {
-        $hasLower = preg_match('/\\p{Ll}/u', $name) === 1;
-        $hasUpper = preg_match('/\\p{Lu}/u', $name) === 1;
-        if ($hasLower && $hasUpper) {
-            return $name;
-        }
-
-        return ucwords(mb_strtolower($name), " \t\r\n\f\v/-(");
     }
 
     /** @return array<string, mixed>|null null when the pinned query is rejected */

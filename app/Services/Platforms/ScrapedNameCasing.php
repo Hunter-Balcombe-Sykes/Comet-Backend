@@ -3,25 +3,103 @@
 namespace App\Services\Platforms;
 
 /**
- * The shared casing vocabulary for scraped names, plus the two predicates that
- * decide when a source's own typography must survive re-casing.
+ * The token-gated re-caser for scraped names, plus the shared casing
+ * vocabulary and the three predicates that decide when a source's own
+ * typography must survive re-casing.
  *
- * Two traits re-case scraped names and they gate at DIFFERENT altitudes, on
- * purpose:
+ * Two re-casers exist and they gate at DIFFERENT altitudes, on purpose:
  *  - CasesScannedNames::scanTitleCase() gates on the WHOLE STRING — menu-photo
  *    OCR and old-website scans emit a uniformly cased line, so mixed case means
  *    a human typed it and the line passes through untouched.
- *  - NormalizesMenuData::titleCase() gates on the TOKEN, because an
- *    ordering-platform payload mixes both inside one name: "Cold Brew Bags.
+ *  - self::titleCase() gates on the TOKEN, because an ordering-platform or
+ *    booking-platform payload mixes both inside one name: "Cold Brew Bags.
  *    (Italo concentrate 1.2l)" was serving live, and a whole-string gate would
  *    leave "concentrate" lowercase.
  *
- * What must NOT differ between them is the vocabulary — which marks survive,
- * and which connectors drop to lowercase mid-name. Those lived in two places
- * and drifted; they live here once (2026-08-28).
+ * titleCase() lives HERE rather than on NormalizesMenuData (2026-08-28)
+ * because it is no longer menu-only: FreshaConnector::mapServiceItem() needs
+ * it too, and an App\Ingest connector should not inherit a private method from
+ * an App\Services\Platforms trait to get at one function. NormalizesMenuData
+ * keeps a one-line delegate as the drivers' named seam. Before this there were
+ * THREE implementations — FreshaConnector carried its own bare
+ * ucwords(mb_strtolower()) (T11, 7ae3a223f), fixed one file over the same day
+ * by T8 (7d19320ef) and never backported, so "Colour (Full Head)." shipped its
+ * period to the public services page.
+ *
+ * What must NOT differ between the two remaining re-casers is the vocabulary —
+ * which marks survive, and which connectors drop to lowercase mid-name. Those
+ * lived in two places and drifted; they live here once (2026-08-28).
  */
 final class ScrapedNameCasing
 {
+    /**
+     * Title Case for scraped item names. T8 (2026-08-27): the bare
+     * ucwords(strtolower()) shipped "Cold Brew/oat Latte Can",
+     * "Cold Brew Bags. (italo Concentrate 1.2l)" and "Cronut." to live menus.
+     * Now: capitalises after '/', '(', '-' and whitespace; strips trailing
+     * periods (incl. one straggling before an opening paren); uppercases a
+     * lone litre unit after digits ("1.2l" → "1.2L"); and leaves alone any
+     * TOKEN the source cased deliberately — see hasInteriorCapital(),
+     * isPreservedAllCapsMark() and isDeliberateAllCapsRun() below.
+     *
+     * The gate is per token, not per string (2026-08-28). T8 gated ALL-CAPS
+     * preservation on the whole string being mixed-case, which disarmed it on
+     * exactly the input that needs it — an all-caps scraped wine list — so
+     * "'23 DEEP WOODS CHARDONNAY WA" served "…Chardonnay Wa", the very
+     * example this docblock claimed to handle. A whole-string gate cannot be
+     * the answer either: "Cold Brew Bags. (Italo concentrate 1.2l)" is mixed
+     * AND needs re-casing. The signal is a property of the token.
+     */
+    public static function titleCase(?string $s): ?string
+    {
+        if ($s === null) {
+            return null;
+        }
+
+        $s = trim($s);
+        // "Cronut." / "Cookie (anzac)." → strip terminal periods; also the
+        // straggler in "Cold Brew Bags. (…" — a period directly before an
+        // opening paren is the source's own noise, never menu punctuation.
+        $s = rtrim($s, '.');
+        $s = preg_replace('/\.\s+\(/', ' (', $s) ?? $s;
+
+        $out = preg_replace_callback(
+            '/\p{L}+/u',
+            function (array $m) use ($s) {
+                [$run, $offset] = $m[0];
+
+                // Typography the source meant: an interior capital ("McDonalds",
+                // "iPhone"), an allowlisted all-caps mark ("WA", "(GF)(V)"), or a
+                // short caps run in a string that also carries lowercase ("Cold
+                // Brew CAN"). None survives a lowercase-then-capitalise pass, so
+                // all three are answered before it.
+                if (self::hasInteriorCapital($run)
+                    || self::isPreservedAllCapsMark($run)
+                    || self::isDeliberateAllCapsRun($run, $s)) {
+                    return $run;
+                }
+
+                $run = mb_strtolower($run);
+
+                // ucwords()'s old delimiter set, kept exactly: a run capitalises
+                // at the start of the name or after '/', '-' or '('. An
+                // apostrophe is NOT a boundary — "O'brien's", as before. A
+                // multibyte character's trailing byte can never match one of
+                // these, which is the right answer for punctuation anyway.
+                $boundary = $offset === 0 || strpos(" \t\r\n\f\v/-(", $s[$offset - 1]) !== false;
+
+                return $boundary
+                    ? mb_strtoupper(mb_substr($run, 0, 1)).mb_substr($run, 1)
+                    : $run;
+            },
+            $s,
+            flags: PREG_OFFSET_CAPTURE,
+        ) ?? $s;
+
+        // "1.2l" → "1.2L" — a lone litre unit riding a number.
+        return preg_replace('/(?<=\d)l\b/', 'L', $out) ?? $out;
+    }
+
     /** Uppercase tokens that survive re-casing: AU state abbreviations + dietary marks. */
     public const ALL_CAPS_MARKS = ['WA', 'VIC', 'NSW', 'QLD', 'SA', 'TAS', 'NT', 'ACT', 'GF', 'DF', 'V', 'VG'];
 

@@ -2,6 +2,10 @@
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -131,4 +135,90 @@ it('scopes metadata to the authenticated user', function () {
     $response = actingAsUser($user)->getJson('/api/platforms/meta')->assertOk();
 
     expect($response->json('platforms'))->toBe([]);
+});
+
+/**
+ * The item-count query joins four content.* tables. Production has NO content
+ * schema at all (CLAUDE.md), so there the catch fires on every call and every
+ * platform reads item_count 0 — indistinguishable from a genuinely empty
+ * account, and invisible in Nightwatch because the swallow was silent.
+ *
+ * This test file deliberately never calls setupContentTables(), so the join
+ * faults here exactly as it does in prod. Fail-open stays; the silence does not.
+ */
+it('logs and reports the swallowed item-count failure instead of silently serving zeroes', function () {
+    $user = integrationsMetaUser('metaswallow');
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'chan-swallow',
+        'payload' => ['handle' => 'metaswallow'], 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+
+    Exceptions::fake();
+    Log::spy();
+
+    actingAsUser($user)->getJson('/api/platforms/meta')
+        ->assertOk()
+        // Fail-open is the REQUIRED behaviour, not an accident — a meta
+        // endpoint must not 500 because the content lane is absent.
+        ->assertJsonPath('platforms.youtube.item_count', 0);
+
+    // withArgs BEFORE once(): Mockery applies the count to the expectation as
+    // matched, and this request logs a second, unrelated warning.
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message, array $context) => $message === 'platforms.meta.item_counts_unavailable'
+            && $context['user_id'] === $user->id
+            && $context['exception'] === QueryException::class
+            && is_string($context['error']) && $context['error'] !== '')
+        ->once();
+
+    Exceptions::assertReported(QueryException::class);
+});
+
+/**
+ * The happy path had NO coverage at all before this — item_count shipped
+ * 2026-08-27 (plan 04 step B) with only the fail-open branch reachable in
+ * tests, which is how a permanently-zero count stayed invisible. A
+ * CHARACTERIZATION test: it passes against the code as it stands. Its job is
+ * to stop the join silently reading 0 the way the swallowed catch did.
+ */
+it('counts the distinct items a connection actually feeds', function () {
+    setupContentTables();
+
+    $user = integrationsMetaUser('metacount');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'youtube', 'resource_id' => 'chan-count',
+        'payload' => ['handle' => 'metacount'], 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+
+    $pg = DB::connection('pgsql');
+    $sourceId = (string) Str::uuid();
+    $pg->table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $user->id, 'kind' => 'connection',
+        'connection_id' => $connection->id, 'priority' => 100,
+        'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    // Two source_items on ONE item — the count is DISTINCT on i.id, so this
+    // also pins that a re-ingested record does not inflate the number.
+    $itemId = addItem($user->id, 'video', 'Counted');
+    foreach (['yt:vid-1', 'yt:vid-1-dupe'] as $coord) {
+        $pg->table('content.source_items')->insert([
+            'id' => (string) Str::uuid(), 'source_id' => $sourceId, 'coord' => $coord,
+            'kind' => 'video', 'projector_version' => 1,
+            'first_seen_at' => now()->toDateTimeString(), 'last_seen_at' => now()->toDateTimeString(),
+        ]);
+        $pg->table('content.item_anchors')->insert([
+            'coord' => $coord, 'user_id' => $user->id, 'item_id' => $itemId,
+            'bound_at' => now()->toDateTimeString(),
+        ]);
+    }
+
+    // No negative log assertion here on purpose: Mockery matches the FULL
+    // argument list, so shouldNotHaveReceived('warning', ['platforms.meta.…'])
+    // would match nothing and pass whatever the code did. The count itself is
+    // the honest proof — the swallowed branch yields 0, so asserting 1 is what
+    // shows the join ran.
+    actingAsUser($user)->getJson('/api/platforms/meta')
+        ->assertOk()
+        ->assertJsonPath('platforms.youtube.item_count', 1);
 });

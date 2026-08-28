@@ -27,7 +27,7 @@ use Illuminate\Support\Facades\DB;
  * @property Carbon $updated_at
  * @property Carbon|null $subdomain_changed_at
  * @property Carbon|null $unpublished_at
- * @property string $architecture_id One of ARCHITECTURE_IDS ('staple'|'scroll'), CHECK-constrained (sites_architecture_id_check) — plain string, NOT a Postgres enum (see class comment below). Fillable and on the dashboard wire again since 2026-08-24 (reopens the 2026-08-20 lockdown — see UpdateSiteRequest). The public payload derives architectureId/skeletonId from it (IndividualProfileResource).
+ * @property string $architecture_id One of ARCHITECTURE_IDS ('staple'|'scroll'), CHECK-constrained (sites_architecture_id_check) — plain string, NOT a Postgres enum (see class comment below). Fillable and on the dashboard wire again since 2026-08-24 (reopens the 2026-08-20 lockdown — see UpdateSiteRequest). The public payload derives architectureId from it (IndividualProfileResource).
  * @property string $moderation_state One of 'active'|'warned'|'hidden' (sites_moderation_state_check).
  * @property string|null $custom_domain Lowercase-unique connected FQDN (Cloudflare for SaaS).
  * @property string|null $custom_domain_status One of 'pending'|'active'|'error', or NULL (sites_custom_domain_status_check).
