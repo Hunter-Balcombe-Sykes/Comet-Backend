@@ -157,6 +157,155 @@ it('exports early access signups matched by email_lc', function () {
     expect($payload['early_access'])->toHaveCount(1);
     expect($payload['early_access'][0]['workplace_or_industry'])->toBe('Jane Owner Studio');
     expect($payload['early_access'][0]['email'])->toBe('Jane@Example.com');
+    expect($payload['early_access'][0]['ownership'])->toBe('email_only');
+});
+
+// #PRIV-1: the under-disclosure guard — a row owned via user_id must export in
+// full even when email_lc points elsewhere (e.g. the pro changed their email
+// after the early-access row was linked).
+it('exports an early-access row owned by user_id even when email_lc differs', function () {
+    $pro = seedProForPayload((string) Str::uuid(), 'new@example.com');
+
+    DB::connection('pgsql')->table('core.early_access_signups')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'email' => 'old@example.com',
+        'email_lc' => 'old@example.com',
+        'type' => 'partna',
+        'workplace_or_industry' => 'Jane Owner Studio',
+        'platforms' => '[]',
+        'status' => 'invited',
+        'source' => 'marketing',
+        'created_at' => '2026-02-01T00:00:00Z',
+        'updated_at' => '2026-02-01T00:00:00Z',
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload['early_access'])->toHaveCount(1);
+    expect($payload['early_access'][0]['ownership'])->toBe('verified');
+    expect($payload['early_access'][0]['workplace_or_industry'])->toBe('Jane Owner Studio');
+});
+
+it('withholds occupational fields on an unowned early-access row past waitlist', function () {
+    $pro = seedProForPayload((string) Str::uuid(), 'jane@example.com');
+
+    DB::connection('pgsql')->table('core.early_access_signups')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => null,
+        'email' => 'jane@example.com',
+        'email_lc' => 'jane@example.com',
+        'type' => 'partna',
+        'workplace_or_industry' => 'Some Prior Holder Studio',
+        'platforms' => '["ig"]',
+        'status' => 'invited',
+        'source' => 'marketing',
+        'invited_at' => '2026-02-05T00:00:00Z',
+        'signed_up_at' => null,
+        'created_at' => '2026-02-01T00:00:00Z',
+        'updated_at' => '2026-02-01T00:00:00Z',
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload['early_access'])->toHaveCount(1);
+    $row = $payload['early_access'][0];
+    expect($row['ownership'])->toBe('unverified');
+    expect($row['type'])->toBe('[withheld: ownership unverified]');
+    expect($row['workplace_or_industry'])->toBe('[withheld: ownership unverified]');
+    expect($row['platforms'])->toBe('[withheld: ownership unverified]');
+    expect($row['status'])->toBe('[withheld: ownership unverified]');
+    expect($row['invited_at'])->toBe('[withheld: ownership unverified]');
+    expect($row['signed_up_at'])->toBe('[withheld: ownership unverified]');
+    expect($row['email'])->toBe('jane@example.com');
+    expect($row['id'])->not->toBeNull();
+    expect($row['created_at'])->toBe('2026-02-01T00:00:00Z');
+});
+
+it('exports an unowned waitlist row in full', function () {
+    $pro = seedProForPayload((string) Str::uuid(), 'jane@example.com');
+
+    DB::connection('pgsql')->table('core.early_access_signups')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => null,
+        'email' => 'jane@example.com',
+        'email_lc' => 'jane@example.com',
+        'type' => 'partna',
+        'workplace_or_industry' => 'Jane Owner Studio',
+        'platforms' => '[]',
+        'status' => 'waitlist',
+        'source' => 'marketing',
+        'created_at' => '2026-02-01T00:00:00Z',
+        'updated_at' => '2026-02-01T00:00:00Z',
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload['early_access'])->toHaveCount(1);
+    expect($payload['early_access'][0]['ownership'])->toBe('email_only');
+    expect($payload['early_access'][0]['workplace_or_industry'])->toBe('Jane Owner Studio');
+});
+
+// Unreachable in production: email_lc is UNIQUE and users are 1:1 with an
+// email, so a row owned by another user's user_id can never also carry THIS
+// user's email_lc. Pins the predicate (bucket D falls out for free), not a
+// live scenario.
+it('excludes an early-access row owned by a different user', function () {
+    $pro = seedProForPayload((string) Str::uuid(), 'jane@example.com');
+    $other = seedProForPayload((string) Str::uuid(), 'other@example.com');
+
+    DB::connection('pgsql')->table('core.early_access_signups')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $other->id,
+        'email' => 'jane@example.com',
+        'email_lc' => 'jane@example.com',
+        'type' => 'partna',
+        'workplace_or_industry' => 'Jane Owner Studio',
+        'platforms' => '[]',
+        'status' => 'invited',
+        'source' => 'marketing',
+        'created_at' => '2026-02-01T00:00:00Z',
+        'updated_at' => '2026-02-01T00:00:00Z',
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload['early_access'])->toBe([]);
+});
+
+// Pins the removal of the early return on a null lookup email — a provisional
+// user with no resolvable email can still own rows by user_id.
+it('exports early-access rows owned by user_id when the account has no resolvable email', function () {
+    // '' rather than null: seedProForPayload()'s $email param is non-nullable,
+    // and normaliseEmail() treats a blank string the same as null (trims to '').
+    $pro = seedProForPayload((string) Str::uuid(), '');
+
+    DB::connection('pgsql')->table('core.early_access_signups')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'email' => 'jane@example.com',
+        'email_lc' => 'jane@example.com',
+        'type' => 'partna',
+        'workplace_or_industry' => 'Jane Owner Studio',
+        'platforms' => '[]',
+        'status' => 'invited',
+        'source' => 'marketing',
+        'created_at' => '2026-02-01T00:00:00Z',
+        'updated_at' => '2026-02-01T00:00:00Z',
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload['early_access'])->toHaveCount(1);
+    expect($payload['early_access'][0]['ownership'])->toBe('verified');
+});
+
+it('discloses the early-access ownership withholding in metadata', function () {
+    $pro = seedProForPayload((string) Str::uuid());
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    expect($payload['metadata']['withheld'])->toContain('ownership unverified');
 });
 
 it('early access lookup trims whitespace on primary_email before normalising', function () {

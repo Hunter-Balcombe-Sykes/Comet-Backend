@@ -367,12 +367,15 @@ it('enqueues the KV retire before the edge cache purge, dispatch order only (EDG
 
 // ── LIFE-102 / LIFE-103: purge-step failure logs must carry user_id ────────
 //
-// Both steps are keyed on email_lc, not user_id, so their target row carries
-// no user identifier of its own — the acting user_id has to be logged
-// explicitly or a failure here is unattributable in the log stream. Each
-// step's target table is dropped to force the query inside its try/catch to
-// throw; the rest of purge() (an independent, per-step try/catch pipeline)
-// still runs to completion around it.
+// Neither step's target row carries a user identifier the log stream can
+// resolve on its own — the email subscription step (LIFE-103) is keyed
+// purely on email_lc, and even the early-access step (LIFE-102), which now
+// also matches on user_id (#PRIV-1), fails before that predicate ever
+// resolves to a row here (the table itself is gone). So the acting user_id
+// has to be logged explicitly or a failure here is unattributable in the log
+// stream. Each step's target table is dropped to force the query inside its
+// try/catch to throw; the rest of purge() (an independent, per-step
+// try/catch pipeline) still runs to completion around it.
 
 it('logs user_id when early access signup erasure fails (LIFE-102)', function () {
     $pro = seedPurgeableUser();
@@ -410,6 +413,121 @@ it('logs user_id when global email subscription erasure fails (LIFE-103)', funct
                 && ($context['user_id'] ?? null) === $pro->id;
         })
         ->once();
+});
+
+// ── #PRIV-1 commit 2: purgeEarlyAccessSignup mirrors the export's ownership
+// buckets — a row we won't disclose (bucket C: unowned, email-matched, past
+// waitlist) must also survive deletion. Symmetric with
+// DataExportPayloadBuilderTest's early-access ownership coverage.
+
+it('purges an owned early-access row and an unowned waitlist row', function () {
+    $pro = seedPurgeableUser(['primary_email' => 'jane@example.com']);
+
+    $ownedId = (string) Str::uuid();
+    $unownedWaitlistId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('core.early_access_signups')->insert([
+        [
+            'id' => $ownedId,
+            'user_id' => $pro->id,
+            'email' => 'whatever@example.com',
+            'email_lc' => 'whatever@example.com',
+            'status' => 'invited',
+            'created_at' => now()->toDateTimeString(),
+            'updated_at' => now()->toDateTimeString(),
+        ],
+        [
+            'id' => $unownedWaitlistId,
+            'user_id' => null,
+            'email' => 'jane@example.com',
+            'email_lc' => 'jane@example.com',
+            'status' => 'waitlist',
+            'created_at' => now()->toDateTimeString(),
+            'updated_at' => now()->toDateTimeString(),
+        ],
+    ]);
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200)]);
+
+    (new AccountDeletionService)->purge($pro);
+
+    $table = DB::connection('pgsql')->table('core.early_access_signups');
+    expect($table->where('id', $ownedId)->exists())->toBeFalse();
+    expect($table->where('id', $unownedWaitlistId)->exists())->toBeFalse();
+});
+
+it('does not purge an unowned early-access row past waitlist', function () {
+    $pro = seedPurgeableUser(['primary_email' => 'jane@example.com']);
+
+    $rowId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('core.early_access_signups')->insert([
+        'id' => $rowId,
+        'user_id' => null,
+        'email' => 'jane@example.com',
+        'email_lc' => 'jane@example.com',
+        'status' => 'invited',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200)]);
+
+    (new AccountDeletionService)->purge($pro);
+
+    // The wrongful-erasure guard: email_lc alone can't prove this row belongs
+    // to the deleted account rather than a prior holder of the address, so it
+    // must survive — the same reason the export withholds it rather than
+    // showing it in full.
+    expect(DB::connection('pgsql')->table('core.early_access_signups')->where('id', $rowId)->exists())->toBeTrue();
+});
+
+it('does not purge an early-access row owned by another user', function () {
+    $pro = seedPurgeableUser(['primary_email' => 'jane@example.com']);
+    $other = seedPurgeableUser(['primary_email' => 'someone-else@example.com']);
+
+    $rowId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('core.early_access_signups')->insert([
+        'id' => $rowId,
+        'user_id' => $other->id,
+        'email' => 'jane@example.com',
+        'email_lc' => 'jane@example.com',
+        'status' => 'waitlist',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200)]);
+
+    (new AccountDeletionService)->purge($pro);
+
+    expect(DB::connection('pgsql')->table('core.early_access_signups')->where('id', $rowId)->exists())->toBeTrue();
+});
+
+it('purges an owned early-access row when the subject has no resolvable email', function () {
+    $pro = seedPurgeableUser(['primary_email' => null]);
+
+    $ownedId = (string) Str::uuid();
+
+    DB::connection('pgsql')->table('core.early_access_signups')->insert([
+        'id' => $ownedId,
+        'user_id' => $pro->id,
+        'email' => 'whatever@example.com',
+        'email_lc' => 'whatever@example.com',
+        'status' => 'invited',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    Http::fake(['test.supabase.co/auth/v1/admin/users/*' => Http::response('', 200)]);
+
+    (new AccountDeletionService)->purge($pro);
+
+    // Pins the early-return restructure: a null/empty lookup email must not
+    // skip the user_id arm — a provisional-then-claimed user can own rows
+    // with no resolvable email at all.
+    expect(DB::connection('pgsql')->table('core.early_access_signups')->where('id', $ownedId)->exists())->toBeFalse();
 });
 
 it('purges to completion on the SQLite test driver without invoking the pgsql-only helper', function () {

@@ -73,23 +73,47 @@ class ClaimSiteService
                 throw new RuntimeException('BUILD_FAILED');
             }
 
-            // Invite-gate (owner decision, 2026-08-24). An OUTREACH build was
-            // made FOR a business that has never heard of Partna — it carries
-            // their name, photos and hours. The email-gate below only bites
-            // when contact_email is set, and its "absent = first-come" arm was
-            // written for self-serve builds, where the person claiming IS the
-            // person who just built it. On an outreach row that same arm hands
-            // a real business's site to whoever guesses the handle.
+            // Invite-gate (owner decision, 2026-08-24; widened #W2-SEC-1). An
+            // OUTREACH build was made FOR a business that has never heard of
+            // Partna — it carries their name, photos and hours. The
+            // email-gate below only bites when contact_email is set, and its
+            // "absent = first-come" arm was written for self-serve builds,
+            // where the person claiming IS the person who just built it. On
+            // an outreach row that same arm hands a real business's site to
+            // whoever guesses the handle.
             //
-            // So: an outreach build with nobody to invite is not claimable at
-            // all until staff attach an address (StaffPreAccountBuildController
-            // ::attachContactEmail). Self-serve builds are untouched.
-            // A valid claim token IS proof of invitation (spec §6.2). It stands
-            // in for contact_email on the outreach lane, which is what lets a
-            // DM'd lead claim with no email ever entering the flow.
+            // A valid claim token IS proof of invitation (spec §6.2). It
+            // stands in for contact_email, which is what lets a DM'd lead
+            // claim with no email ever entering the flow.
             $tokenOk = $this->tokens->matches($build, $claimToken);
-
             $contactEmail = trim((string) $build->contact_email);
+
+            // Lane-agnostic proof gate (#W2-SEC-1). isOutreach() is no longer
+            // the right predicate to gate ON: per CLAUDE.md its "only from a
+            // staff-authenticated write" premise is already dead — the
+            // ManyChat webhook also mints VIA_STAFF with no staff row — and
+            // entitlement was never actually about who created the row, only
+            // about whether the claimer can prove they're the intended
+            // owner. A self-serve (VIA_SIGNUP) build with no contact_email
+            // and no token has exactly the same "nobody to invite" shape as
+            // an outreach one; #W2-SEC-1 is that gap (17 such builds on dev
+            // with zero ownership check). Behind a flag because enforcing it
+            // today 404s every existing self-serve claimer until the claim
+            // page persists and forwards claim_token — mint-first,
+            // enforce-later.
+            if ((bool) config('partna.pre_account.require_claim_proof', false)
+                && $contactEmail === '' && ! $tokenOk) {
+                throw new RuntimeException('CLAIM_NOT_INVITED');
+            }
+
+            // Legacy outreach arm (owner decision, 2026-08-24), unconditional
+            // — deliberately NOT folded into the flag above. This must keep
+            // firing even while require_claim_proof is false, or turning the
+            // flag off would re-open the outreach lane that has been gated
+            // since 2026-08-24: an outreach build with nobody to invite is
+            // not claimable at all until staff attach an address
+            // (StaffPreAccountBuildController::attachContactEmail). The flag
+            // can only ADD restriction (self-serve), never remove it.
             if ($build->isOutreach() && $contactEmail === '' && ! $tokenOk) {
                 throw new RuntimeException('CLAIM_NOT_INVITED');
             }
@@ -138,6 +162,40 @@ class ClaimSiteService
                     throw new RuntimeException('EMAIL_ALREADY_REGISTERED', 0, $e);
                 }
                 throw $e;
+            }
+
+            // #W1-PRIV-1 commit 3: this is the only place a verified human email
+            // gets bound to an account (bootstrap's create branch is HTTP-dead —
+            // 410 SIGNUP_MOVED), so it's the one place a waitlist row can be
+            // linked going forward. status = 'waitlist' is load-bearing and must
+            // NOT be relaxed to invited/signed_up: verified mailbox control TODAY
+            // is not proof of authorship YESTERDAY, and stamping a past-waitlist
+            // row would launder DataExportPayloadBuilder::streamEarlyAccessSignups()'s
+            // bucket C (unowned, email-matched, past waitlist — exported redacted)
+            // into bucket A (owned — exported in full) on first claim, defeating
+            // the redaction that ownership rule exists to enforce. Best-effort,
+            // matching the ContactFormSeeder pattern below: a bookkeeping link
+            // must never fail a claim.
+            //
+            // Savepoint, not a bare try/catch: early_access_signups_user_id_unique
+            // is a real partial UNIQUE, and an account that already owns a linked
+            // row (ApproveEarlyAccessBuildJob) hitting a second waitlist row under
+            // its claimed address raises 23505. On Postgres a caught error still
+            // leaves the surrounding transaction aborted, so a bare catch here
+            // would swallow the exception and then kill every write below it —
+            // ContactFormSeeder, the publish flip, the claimed_at burn. The
+            // SQLite lane cannot see this: it has neither the partial index nor
+            // Postgres's abort-on-error semantics. Same guard, same reason, as
+            // the $professional->save() savepoint above.
+            try {
+                DB::connection('pgsql')->transaction(fn () => DB::connection('pgsql')
+                    ->table('core.early_access_signups')
+                    ->where('email_lc', $professional->primary_email)
+                    ->whereNull('user_id')
+                    ->where('status', 'waitlist')
+                    ->update(['user_id' => $professional->id, 'updated_at' => now()]));
+            } catch (\Throwable $e) {
+                report($e);
             }
 
             // T20 (owner, 2026-08-27): an auto-seeded or empty contact-form

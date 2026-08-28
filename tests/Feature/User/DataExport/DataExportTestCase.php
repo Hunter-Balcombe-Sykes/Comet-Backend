@@ -112,9 +112,12 @@ class DataExportTestCase
             redacted_at TEXT
         )');
 
-        // No user_id FK — joined by email_lc only.
+        // #PRIV-1: user_id FK exists since the 2026-07-26 baseline (nullable —
+        // most rows predate signup). Joined by user_id OR email_lc; see
+        // DataExportPayloadBuilder::streamEarlyAccessSignups().
         $conn->statement('CREATE TABLE IF NOT EXISTS core.early_access_signups (
             id TEXT PRIMARY KEY,
+            user_id TEXT NULL,
             email TEXT,
             email_lc TEXT,
             type TEXT,
