@@ -10,6 +10,7 @@ use App\Services\Platforms\Registry\PlatformRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * GET /platforms/meta — sync metadata for every platform the user has
@@ -74,8 +75,24 @@ class IntegrationsMetaController extends ApiController
                 ->selectRaw('ic.platform, count(distinct i.id) as item_count')
                 ->pluck('item_count', 'platform');
             $itemCounts = $countRows->all();
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            // Fail-open stays — a meta endpoint must not 500 because the
+            // content lane is absent. Silence does not: production carries no
+            // `content` schema at all (CLAUDE.md), so this fires on every call
+            // there and every platform reads item_count 0, which is
+            // indistinguishable from a genuinely empty account. Reported as
+            // well as logged because Nightwatch tracks exceptions, not
+            // warnings, and "invisible in Nightwatch" was the actual defect.
+            // Expect a high occurrence count against ONE issue while the
+            // schema is missing — that count IS the signal; do not quieten it
+            // by dropping the report.
             $itemCounts = [];
+            Log::warning('platforms.meta.item_counts_unavailable', [
+                'user_id' => $professional->id,
+                'exception' => $e::class,
+                'error' => $e->getMessage(),
+            ]);
+            report($e);
         }
 
         $platforms = [];
