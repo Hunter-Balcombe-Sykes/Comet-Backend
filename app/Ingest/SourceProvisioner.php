@@ -50,7 +50,14 @@ class SourceProvisioner
             return ['status' => 'skipped', 'reason' => 'no_connector'];
         }
 
-        if ($connection->trashed()) {
+        // A FORCE delete leaves no row behind and no deleted_at to read, so
+        // trashed() is false and the provisioning below would insert an
+        // ingest.sources row pointing at a platform_connections id that no
+        // longer exists — a 23503 the observer then has to catch and report
+        // (Nightwatch #469). Force deletion is a real path: account erasure,
+        // GDPR, and the connection-cleanup lanes all use it. Retiring here is
+        // both correct and cheap; the row's own FK cascade removes the source.
+        if ($connection->trashed() || $connection->isForceDeleting()) {
             $this->setAutoSync($connection->id, $sourceKey, false);
 
             return ['status' => 'retired', 'source_key' => $sourceKey];

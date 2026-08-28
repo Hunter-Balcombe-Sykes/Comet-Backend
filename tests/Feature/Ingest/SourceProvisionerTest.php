@@ -784,3 +784,30 @@ it('leaves a free connector scheduled and does not churn its weight', function (
     expect((bool) $row->auto_sync)->toBeTrue()
         ->and((int) $row->cost_units)->toBe((int) $before->cost_units);
 });
+
+// Nightwatch #469 (2026-08-28): the observer's deleted() hook re-provisions,
+// and on a FORCE delete the connection row is already gone — trashed() reads
+// false (force deletion sets no deleted_at), so the insert pointed at a
+// vanished platform_connections id and raised a 23503 the observer caught and
+// reported. Force deletion is a real path: account erasure and GDPR use it.
+it('retires rather than re-provisioning when a connection is force-deleted', function () {
+    $userId = provisionerUser();
+    $connection = makeConnection($userId, [
+        'platform' => 'bandcamp',
+        'payload' => ['url' => 'https://kinggizzard.bandcamp.com'],
+    ]);
+
+    expect(ingestSourceFor($connection))->not->toBeNull();
+
+    // The model exactly as the observer sees it mid-forceDelete: Laravel
+    // flips this protected flag for the duration of the delete, which is the
+    // only signal distinguishing a force delete from a soft one.
+    (function () {
+        $this->forceDeleting = true;
+    })->call($connection);
+
+    $result = app(SourceProvisioner::class)->sync($connection);
+
+    expect($result['status'])->toBe('retired')
+        ->and((bool) DB::table('ingest.sources')->where('connection_id', $connection->id)->value('auto_sync'))->toBeFalse();
+});
