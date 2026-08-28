@@ -71,12 +71,17 @@ it('replays the kimcosmik ledger: connections, cards, and probes land where the 
     //                 facebook now cap-holds as a Swap suggestion.
     //   items 2     — the bandcamp deep track + album are REAL listen items
     //                 now (T6), library-only, not link cards
-    //   noted 2     — ra.co (detect-only), facebook groups URL
+    //   noted 1     — the facebook groups URL. ra.co LEFT this line on
+    //                 2026-08-28: the artist page ra.co/dj/<slug> gained a
+    //                 captured ProfileLink detector, so kimcosmik's RA page
+    //                 now CONNECTS and the T27b connector fetches their tour
+    //                 dates onto the site — the whole point of building that
+    //                 connector. Listings (/events, /clubs) still note.
     //   probed 2    — discogs, juno (unknown domains)
     // Legacy wave landed 3 connections from this page; the ruling lands 8+1.
-    expect($result['connected'])->toBe(8)
+    expect($result['connected'])->toBe(9)
         ->and($result['items'])->toBe(2)
-        ->and($result['noted'])->toBe(2)
+        ->and($result['noted'])->toBe(1)
         ->and($result['probed'])->toBe(2)
         ->and($result['suggested'])->toBe(1);
 
@@ -94,6 +99,7 @@ it('replays the kimcosmik ledger: connections, cards, and probes land where the 
         'facebook:kimcosmik',
         'instagram:kimcosmik',
         'mixcloud:KimCosmik',
+        'resident-advisor:kimcosmik',
         'youtube:UCCY6-AIHHvrmZW5J8IAjk-A',
         'youtube:cybersoul9038',
     ]);
@@ -104,7 +110,7 @@ it('replays the kimcosmik ledger: connections, cards, and probes land where the 
 
     // Known-but-unconnectable landed as cards, not nothing.
     $urls = array_column(app(LinkPoolReader::class)->cards($pro->refresh()), 'url');
-    expect($urls)->toContain('https://ra.co/dj/kimcosmik')
+    expect($urls)->not->toContain('https://ra.co/dj/kimcosmik') // connects now, never a card
         // T6: the bandcamp album is a LISTEN ITEM now, never a link card.
         ->and($urls)->not->toContain('https://kimcosmik.bandcamp.com/album/star-glider');
 

@@ -78,7 +78,12 @@ it('keeps a below-suggest harvest link as a note', function () {
     $pro = createTenant('harvest-note');
 
     $out = app(LinkRoutingService::class)->route(
-        'https://ra.co/dj/kimcosmik', // 28 pre-penalty (MarketplaceListing), detect-only surface
+        // An RA LISTING (28 pre-penalty, MarketplaceListing). The artist page
+        // ra.co/dj/<slug> stopped being a valid example here on 2026-08-28: it
+        // gained a captured ProfileLink detector so the RA connector can fetch
+        // that DJ's tour, so it now scores 75 and places. A club/event page is
+        // still someone else's night, and still a note.
+        'https://ra.co/events/1234567',
         RoutingContext::forUser($pro, 'bio_harvest'),
     );
 

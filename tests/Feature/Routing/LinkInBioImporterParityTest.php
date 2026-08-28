@@ -27,8 +27,12 @@ beforeEach(function () {
 it('cards a matched-but-unconnectable link instead of dropping it', function () {
     Queue::fake();
     $pro = createTenant('imp-noted');
+    // An RA LISTING. The artist page ra.co/dj/<slug> stopped serving as this
+    // example on 2026-08-28 — it now carries a captured ProfileLink detector
+    // and CONNECTS (the RA connector fetches that DJ's tour). A club/event
+    // page is still a marketplace listing, still carded.
     Http::fake(['linktr.ee/*' => Http::response(
-        '<a href="https://ra.co/dj/kimcosmik">RA</a>', 200,
+        '<a href="https://ra.co/events/1234567">RA</a>', 200,
     )]);
 
     $result = app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/kimcosmik');
@@ -36,7 +40,7 @@ it('cards a matched-but-unconnectable link instead of dropping it', function () 
     $cards = app(LinkPoolReader::class)->cards($pro->refresh());
     expect($result['noted'])->toBe(1)
         ->and($cards)->toHaveCount(1)
-        ->and($cards[0]['url'])->toBe('https://ra.co/dj/kimcosmik');
+        ->and($cards[0]['url'])->toBe('https://ra.co/events/1234567');
     Queue::assertNotPushed(CommerceProbeJob::class); // recognised host: no probe
 });
 
