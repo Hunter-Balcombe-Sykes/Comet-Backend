@@ -2025,6 +2025,17 @@ class PoolResolver
                 continue;
             }
             $isVideo = (string) $row->role === 'video' || str_starts_with((string) ($row->mime_type ?? ''), 'video/');
+            // An UNMIRRORED third-party video is a dead link by construction
+            // (2026-08-28): Instagram signs video URLs with an expiry, and the
+            // only reels that ever stay unmirrored are the ones whose URL was
+            // already dead when the mirror first tried (the R3 pre-flight
+            // case) — so serving source_url here ships a <video> that never
+            // plays, a frozen black card. Dropped instead: the item's cover
+            // still carries the card, losing only motion. Owner uploads ride
+            // site_media_id and mirrored reels ride storage_path; both pass.
+            if ($isVideo && $row->storage_path === null && $row->site_media_id === null) {
+                continue;
+            }
             $frames[] = [
                 'url' => $hit['url'],
                 'width' => $hit['width'],

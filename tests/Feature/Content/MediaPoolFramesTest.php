@@ -179,7 +179,10 @@ it('emits a reel as a video frame with the cover as its poster (R7)', function (
     $source = poolSource($pro->id, poolConnection($pro->id, 'instagram.profile'));
     $item = poolItem($pro->id, $source, 'media', 'Reel', '2026-08-01T00:00:00Z');
     $cover = frameAsset($pro->id, ['source_url' => 'https://cdn.example.com/cover.jpg', 'width' => 1080, 'height' => 1350]);
-    $video = frameAsset($pro->id, ['source_url' => 'https://cdn.example.com/reel.mp4', 'mime_type' => 'video/mp4', 'width' => null, 'height' => null]);
+    // storage_path set: only a MIRRORED reel may ship as a video frame — an
+    // unmirrored one is a dead signed URL by construction (see the
+    // degrade test below).
+    $video = frameAsset($pro->id, ['source_url' => 'https://cdn.example.com/reel.mp4', 'storage_path' => 'content-media/u/reel.mp4', 'mime_type' => 'video/mp4', 'width' => null, 'height' => null]);
     DB::table('content.item_media')->insert([
         ['id' => (string) Str::uuid(), 'item_id' => $item, 'source_id' => $source, 'asset_id' => $cover, 'role' => 'cover', 'position' => 0, 'created_at' => now()],
         ['id' => (string) Str::uuid(), 'item_id' => $item, 'source_id' => $source, 'asset_id' => $video, 'role' => 'video', 'position' => 1, 'created_at' => now()],
@@ -189,6 +192,30 @@ it('emits a reel as a video frame with the cover as its poster (R7)', function (
     expect($frames)->toHaveCount(2)
         ->and($frames[0]['kind'])->toBe('image')
         ->and($frames[1]['kind'])->toBe('video')
-        ->and($frames[1]['url'])->toBe('https://cdn.example.com/reel.mp4')
+        // The MIRRORED bytes, not the vendor URL: a reel that reached R2
+        // serves from our storage, which is the whole point of mirroring a
+        // signed-and-expiring link.
+        ->and($frames[1]['url'])->toContain('content-media/u/reel.mp4')
         ->and($frames[1]['poster'])->toBe('https://cdn.example.com/cover.jpg');
+});
+
+// The R3 tail (2026-08-28): a reel whose signed URL was already dead when the
+// mirror first tried stays unmirrored forever, and serving its source_url is
+// a <video> that never plays — a frozen black card on the gallery. The frame
+// degrades away; the cover still carries the card.
+it('drops an unmirrored third-party video frame, keeping the still (dead-URL reel)', function () {
+    [$pro, $siteId] = poolTenant();
+    $source = poolSource($pro->id, poolConnection($pro->id, 'instagram.profile'));
+    $item = poolItem($pro->id, $source, 'media', 'Reel', '2026-08-01T00:00:00Z');
+    $cover = frameAsset($pro->id, ['source_url' => 'https://cdn.example.com/cover.jpg', 'width' => 1080, 'height' => 1350]);
+    $video = frameAsset($pro->id, ['source_url' => 'https://instagram.fxyz1-1.fna.fbcdn.net/dead.mp4', 'mime_type' => 'video/mp4']);
+    DB::table('content.item_media')->insert([
+        ['id' => (string) Str::uuid(), 'item_id' => $item, 'source_id' => $source, 'asset_id' => $cover, 'role' => 'cover', 'position' => 0, 'created_at' => now()],
+        ['id' => (string) Str::uuid(), 'item_id' => $item, 'source_id' => $source, 'asset_id' => $video, 'role' => 'video', 'position' => 1, 'created_at' => now()],
+    ]);
+
+    $frames = collect(poolGet($pro, 'media')['selection'])->firstWhere('id', $item)['frames'];
+    expect($frames)->toHaveCount(1)
+        ->and($frames[0]['kind'])->toBe('image')
+        ->and($frames[0]['url'])->toBe('https://cdn.example.com/cover.jpg');
 });
