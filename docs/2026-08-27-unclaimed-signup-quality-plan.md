@@ -1529,3 +1529,12 @@ no aggregate. Not worth building blind; revisit only with a real capture.
 
 **State at close:** backend suite 9,716 passed / 0 failed. Zero failed jobs.
 Astro + dashboard + backend all deployed. Fleet caches purged.
+
+**Late find (3b6a669ba): Nightwatch #469 was a real production bug.** Cleaning
+up the DICE gate fixture reproduced it exactly: the observer's deleted() hook
+re-provisions, and on a FORCE delete the connection row is already gone while
+trashed() still reads false, so SourceProvisioner inserted an ingest.sources
+row against a vanished connection_id and hit sources_connection_id_fkey. The
+observer caught it, so nothing broke — but every account erasure, GDPR
+deletion and connection-cleanup pass was logging an exception.
+isForceDeleting() now retires, matching the soft-delete arm beside it.
