@@ -1538,3 +1538,106 @@ row against a vanished connection_id and hit sources_connection_id_fkey. The
 observer caught it, so nothing broke — but every account erasure, GDPR
 deletion and connection-cleanup pass was logging an exception.
 isForceDeleting() now retires, matching the soft-delete arm beside it.
+
+## SESSION 4 (2026-08-28 overnight): cold-build run, 24 fresh accounts
+
+Owner brief: "giant run of connecting new test sites … seeing issues checking
+logs marking down fixes to do and doing them then loop", plus (mid-run) "for
+any platforms you find on way we don't have please add them as link only …
+get wordmark and logo and colour and then test they work" and "ensure we
+aren't adding anything to custom links that should be item or platform".
+
+Phase 0 tooling added (ae0f67b57): `fleet:new` (cold-build a batch from real
+sources — the missing third of the fleet trio; base64 specs because business
+names carry apostrophes and ampersands) and `fleet:places` (plain-English
+query → place_id → ready-made fleet:new specs, flagging place ids the fleet
+already holds).
+
+Round 1: 12 business (google_business, Melbourne: bakery, bookshop, record
+store, wine bar, tattoo studio, florist, yoga, bike shop, coffee, physio,
+gym, bakery) + 12 partna (instagram: tattoo, photography, makeup, nails,
+yoga, celebrant). All 24 reached `ready`; all 12 business sites HTTP 200.
+Accounts were chosen for their BIO LINKS — deliberately loaded with
+platforms we might not know (bit.ly, venue.ink, bio.site, as.me, Fresha,
+Phorest, telesipro).
+
+### FIXED + LIVE-VERIFIED (2b910ee19) — four bio links that produced nothing
+
+Measured first, then fixed. Every one of these was found by diffing "what
+the account's bio actually carries" against "what the build produced".
+
+1. **A shortener is dropped before anything can expand it.** `xia_tattoo`
+   keeps their whole presence behind one bit.ly and produced ZERO routing
+   observations. LinkRouter owns a ShortLinkExpander, but InstagramAutoSync
+   calls `harvester->classify()` first and files null as unmatched — and
+   classify() ALWAYS returns null for a shortener, because a shortener is
+   not a platform. The router, expander and all, was never reached.
+   Expansion now runs before classification and ahead of the page dedupe.
+   LIVE GATE: xia-tattoo rebuilt → 0 observations became 6, resolving to
+   the real xiatattoo.com (squarespace.store) and their JotForm booking.
+2. **bio.site was missing from LinkInBioDetector** — one character from the
+   `bio.link` already listed, and Squarespace's link-in-bio product.
+   `igotyoubabeweddings`' ONLY bio link was one of those pages: classified
+   as nothing, probed to nothing, dropped without even a custom-link card.
+   linkpop.com (Shopify) and flow.page (Flowcode) joined on the same
+   grounds. LIVE GATE: rebuilt → 1 observation became 12, Facebook found,
+   their real site unrolled.
+3. **Acuity's `as.me` had no detector.** as.me is the short host Acuity
+   itself hands out AND a `Hosts::suffixOverrides()` entry — so the
+   registrable key is `<tenant>.as.me` and the acuityscheduling.com
+   detector never saw it. `theyogapeoplesydney` lost their only booking
+   link. LIVE GATE: now projects `acuity.book` at confidence 40 — exact
+   parity with setmore.book and square.book.
+4. **`youcanbook.me` was an ORPHANED suffix override** — in Hosts since the
+   tenant-host work, with no brand behind it, so the router has always
+   treated its tenant hosts as their own registrable key and nothing ever
+   matched one.
+
+### NOT bugs — checked, and the design is right
+
+Recorded so a future session doesn't "fix" working behaviour:
+- `youtube.com/watch`, `open.spotify.com/track`, `instagram.com/reel`,
+  `eventbrite.com.au/e/…` and `soundcloud.com/<user>/<track>` are all
+  UNMATCHED in the catalog lane BY DESIGN — the harvester lane classifies
+  them as content-items/events and the importer seeds them as items.
+  Verified: classify() returns content-item/video, content-item/track,
+  social and event respectively. Eventbrite's docblock says so explicitly.
+- `pinterest.com.au` and NowBookit tenant hosts classify correctly in the
+  harvester lane; only the catalog lane misses them, which costs nothing.
+- Owner's "nothing in custom links that should be an item": CHECKED on
+  readings-carlton, which carries 10 SoundCloud track deep-links. The
+  profile connected (soundcloud.player) and all 10 tracks were `note`d with
+  `no-rule-matched` — NOT carded. Custom links are not being polluted.
+
+### OWNER DECISION (biggest finding of the run) — commercial links never auto-place
+
+The 2026-08-18 ruling was "connect as many as possible auto, for pre-account
+and always", implemented as: on a harvest origin the SUGGEST band (45)
+auto-applies. Measured across all 84 matched probe surfaces:
+
+| class | below suggest |
+|---|---|
+| book | **31/33** |
+| order | **17/19** |
+| reserve | **8/9** |
+| tickets | **9/9** |
+| store | 2/2 |
+| profile / artist / listing / events / payment_link | 0 |
+
+67 of 84. Every host-only booking/ordering/reservation/ticketing detector
+scores 28–40 against a 45 floor, so **the entire commercial half of the
+catalog is never auto-placed from a bio or website scan** — while socials
+and content place fine. Proven end to end, not inferred: theyogapeoplesydney
+projects `acuity.book`, clean margin 40, verdict `note`, no connection, no
+booking link on the site.
+
+The margins are CLEAN (margin == confidence — nothing else matched), so this
+is not ambiguity. The low score is EvidenceStrength: a host-only detector
+cannot prove the page belongs to THIS person. But on a harvest origin
+provenance comes from where the link was found — their own bio — which is
+the exact argument HarvestAutoApplyTest's docblock already makes for content.
+
+NOT changed unilaterally: this moves every site in the fleet and decides
+whether a pre-claim site shows a booking link nobody confirmed. It is the
+same open question the ledger already carries for content links, now with
+much higher stakes and a number attached. Owner's call.
