@@ -88,6 +88,15 @@ class DataExportPayloadBuilder
      * `moderation.cases` is not listed because its exported column set
      * carries no PII at all: `reportable_owner_user_id` is only a filter
      * predicate on the query, never an exported column.
+     *
+     * #PRIV-1: `core.early_access_signups` IS listed, but is exported only
+     * PARTIALLY for one of its three ownership buckets. A row owned by
+     * `user_id`, or matched by email while still on the waitlist, is exported
+     * in full. A row matched by email only, but already progressed past the
+     * waitlist, has its occupational/invitation fields withheld — the email
+     * link alone cannot prove the row is the requester's rather than a prior
+     * holder of a reassigned address. See streamEarlyAccessSignups() and
+     * EARLY_ACCESS_WITHHELD_DISCLOSURE.
      */
     public const COVERED_PII_TABLES = [
         'core.users',
@@ -114,6 +123,16 @@ class DataExportPayloadBuilder
     private const SCHEMA_VERSION = 1;
 
     private const PII_DISCLOSURE = 'This export contains personally identifiable information (PII) you collected from your customers via Partna (booking history, enquiries, email subscriptions). Handle in accordance with applicable privacy law.';
+
+    private const EARLY_ACCESS_WITHHELD_MARKER = '[withheld: ownership unverified]';
+
+    private const EARLY_ACCESS_WITHHELD_FIELDS = ['type', 'workplace_or_industry', 'platforms', 'status', 'invited_at', 'signed_up_at'];
+
+    /**
+     * #PRIV-1: Article 15 transparency for the early-access ownership rule.
+     * A withholding is lawful only if it is disclosed; this is that disclosure.
+     */
+    private const EARLY_ACCESS_WITHHELD_DISCLOSURE = 'Where a waitlist record is linked to you only by email address, with no verified link to your Partna account, and that record had already progressed beyond the waitlist stage, its occupational and invitation fields (`type`, `workplace_or_industry`, `platforms`, `status`, `invited_at`, `signed_up_at`) are shown as `[withheld: ownership unverified]`. Email addresses are sometimes reassigned between people, and we cannot prove such a record was filed by you rather than by a previous holder of the address; releasing it could disclose another person\'s data to you. The record itself, the address, and the date it was created are still shown, and every early-access record verifiably linked to your account is included in full. If a withheld record is yours, contact support and we will verify it and release the full detail.';
 
     /**
      * Normalise an email for email_lc lookups: trim whitespace then mb_strtolower.
@@ -218,8 +237,8 @@ class DataExportPayloadBuilder
             [
                 'name' => 'early_access',
                 'kind' => 'rows',
-                'resolve' => fn () => $this->streamEarlyAccessSignups($lookupEmail),
-                'csv_columns' => ['id', 'email', 'type', 'workplace_or_industry', 'platforms', 'status', 'source', 'invited_at', 'signed_up_at', 'created_at', 'updated_at'],
+                'resolve' => fn () => $this->streamEarlyAccessSignups($userId, $lookupEmail),
+                'csv_columns' => ['id', 'ownership', 'email', 'type', 'workplace_or_industry', 'platforms', 'status', 'source', 'invited_at', 'signed_up_at', 'created_at', 'updated_at'],
             ],
             [
                 'name' => 'pre_account_build',
@@ -316,7 +335,7 @@ class DataExportPayloadBuilder
             // Article 15 transparency: telling the subject what was withheld
             // and why is what makes the withholding lawful rather than an
             // undisclosed omission. See DsarPayloadFilter::WITHHELD_DISCLOSURE.
-            'withheld' => DsarPayloadFilter::WITHHELD_DISCLOSURE,
+            'withheld' => DsarPayloadFilter::WITHHELD_DISCLOSURE.' '.self::EARLY_ACCESS_WITHHELD_DISCLOSURE,
         ];
     }
 
@@ -1191,40 +1210,62 @@ class DataExportPayloadBuilder
     }
 
     /**
-     * Early-access signup record. No FK to core.users — joined only by email_lc —
-     * so the row persists after signup. Under Article 15 it is personal data of
-     * the data subject and must be exported.
+     * #PRIV-1: three-bucket ownership rule. `user_id` has existed since the
+     * 2026-07-26 baseline; a row is either (A) owned via `user_id`, (B)
+     * matched only by email and still on the waitlist, or (C) matched only
+     * by email but already progressed past the waitlist — an unverifiable
+     * link, since email addresses get reassigned between people. Bucket C is
+     * exported but has its occupational/invitation fields withheld (see
+     * EARLY_ACCESS_WITHHELD_DISCLOSURE); a row owned by a DIFFERENT user_id
+     * falls out of the predicate entirely.
      *
-     * Email-recycle note: EarlyAccessService::signupFromMarketing() upserts by
-     * email_lc via firstOrCreate, refreshing type/workplace_or_industry/platforms
-     * only while the existing row's status is still 'waitlist'. Once a row has
-     * progressed to invited or signed_up, a resubmission under a recycled email
-     * is a silent no-op — the row keeps the FORMER occupant's type, status,
-     * invited_at, and signed_up_at, not just created_at/id. Larger leak than the
-     * streamEmailSubscriptions case; no schema-level fix yet.
+     * Bucket B is safe to export in full: EarlyAccessService::signupFromMarketing()
+     * refreshes type/workplace_or_industry/platforms only while the existing
+     * row's status is still 'waitlist', so a resubmission under a recycled
+     * email has already overwritten any predecessor's content by the time the
+     * row could reach this export unowned.
      */
-    private function streamEarlyAccessSignups(?string $email): Generator
+    private function streamEarlyAccessSignups(string $userId, ?string $email): Generator
     {
         $emailLc = $this->normaliseEmail($email);
-        if ($emailLc === null) {
-            yield from [];
-
-            return;
-        }
 
         // Drops consent_ip_hash + consent_user_agent (technical fingerprint),
         // email_lc (redundant with email), and invite_token_hash (credential
-        // material — never exported). Mirrors the streamEnquiries redaction pattern.
-        yield from $this->lazyRows(
+        // material — never exported). user_id is selected only to classify
+        // ownership below and is stripped before the row is yielded — it is
+        // an internal FK, not part of the published section shape.
+        return $this->lazyRows(
             DB::connection('pgsql')
                 ->table('core.early_access_signups')
                 ->select([
-                    'id', 'email', 'type', 'workplace_or_industry',
+                    'id', 'user_id', 'email', 'type', 'workplace_or_industry',
                     'platforms', 'status', 'source',
                     'invited_at', 'signed_up_at',
                     'created_at', 'updated_at',
                 ])
-                ->where('email_lc', $emailLc)
+                ->where(function ($q) use ($userId, $emailLc) {
+                    $q->where('user_id', $userId);
+                    if ($emailLc !== null) {
+                        $q->orWhere(fn ($q2) => $q2->whereNull('user_id')->where('email_lc', $emailLc));
+                    }
+                }),
+            transform: function (object $row) use ($userId): array {
+                $row = (array) $row;
+
+                $ownership = $row['user_id'] === $userId
+                    ? 'verified'
+                    : ($row['status'] === 'waitlist' ? 'email_only' : 'unverified');
+
+                unset($row['user_id']);
+
+                if ($ownership === 'unverified') {
+                    foreach (self::EARLY_ACCESS_WITHHELD_FIELDS as $field) {
+                        $row[$field] = self::EARLY_ACCESS_WITHHELD_MARKER;
+                    }
+                }
+
+                return array_merge(['ownership' => $ownership], $row);
+            },
         );
     }
 

@@ -281,6 +281,7 @@ class AccountDeletionTestCase
         // core.early_access_signups — purge() deletes by email_lc.
         $conn->statement('CREATE TABLE IF NOT EXISTS core.early_access_signups (
             id TEXT PRIMARY KEY,
+            user_id TEXT NULL,
             email TEXT NULL,
             email_lc TEXT NULL,
             type TEXT NULL,
