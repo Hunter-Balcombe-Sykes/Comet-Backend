@@ -31,6 +31,8 @@ final class ProjectorRegistry
         // projector; the class name is historical (first producer).
         'booksy' => ['services' => BooksyServiceProjector::class, 'reviews' => FreshaReviewProjector::class],
         'deezer' => ['tracks' => DeezerTrackProjector::class],
+        // DICE lands the same schema.org doc shape — same projector (wave 2).
+        'dice' => ['events' => SchemaOrgEventProjector::class],
         // The three menu platforms land the SAME doc shape (MenuRecords) —
         // one projector, on purpose.
         'doordash' => ['menu' => MenuItemProjector::class],

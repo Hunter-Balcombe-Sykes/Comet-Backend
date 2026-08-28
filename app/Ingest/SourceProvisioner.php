@@ -281,6 +281,9 @@ class SourceProvisioner
             // T27c: the canonical page URL off a facebook.com handle connect.
             'facebook' => $this->facebookPageUrl($payload['url'] ?? $payload['username'] ?? null)
                 ?? $this->facebookPageUrl($this->bareSlug($resource, 'facebook')),
+            // Wave 2: the artist slug off a dice.fm/artist/<slug> URL.
+            'dice' => $this->diceSlug($payload['url'] ?? $payload['link'] ?? null)
+                ?? $this->diceSlug($resource),
             // Wave 2: the numeric artist id off a deezer.com/artist URL.
             'deezer' => $this->deezerArtistId($payload['url'] ?? $payload['link'] ?? null)
                 ?? $this->deezerArtistId($resource),
@@ -545,6 +548,26 @@ class SourceProvisioner
         }
 
         return rtrim((string) strtok($value, '?#'), '/');
+    }
+
+    /**
+     * The artist slug off a dice.fm/ARTIST url.
+     *
+     * Deliberately no bare-slug fallback, unlike the other arms. The
+     * `dice.events` surface detects artist, venue, promoter and partner
+     * pages on one rule, so a venue connection's resource_id is a slug that
+     * looks exactly like an artist's — and DiceConnector reads
+     * dice.fm/artist/{slug}, which for a venue is a 404. Requiring the full
+     * artist URL is what keeps a venue link a link card instead of
+     * provisioning a source that can only ever fail.
+     */
+    private function diceSlug(mixed $value): ?string
+    {
+        $value = $this->cleanString($value);
+
+        return $value !== null && preg_match('~^https?://(?:www\.)?dice\.fm/artist/([A-Za-z0-9-]{1,80})~i', $value, $m) === 1
+            ? $m[1]
+            : null;
     }
 
     /** The numeric artist id off a deezer.com/artist URL (locale-tolerant), or a bare id. */

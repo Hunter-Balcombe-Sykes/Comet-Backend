@@ -7,6 +7,7 @@ use App\Ingest\Connectors\ApplePodcastsConnector;
 use App\Ingest\Connectors\BandcampConnector;
 use App\Ingest\Connectors\BooksyConnector;
 use App\Ingest\Connectors\DeezerTracksConnector;
+use App\Ingest\Connectors\DiceConnector;
 use App\Ingest\Connectors\DoordashMenuConnector;
 use App\Ingest\Connectors\EventbriteConnector;
 use App\Ingest\Connectors\FacebookConnector;
@@ -56,6 +57,7 @@ final class ConnectorRegistry
         'bandcamp' => BandcampConnector::class,
         'booksy' => BooksyConnector::class,
         'deezer' => DeezerTracksConnector::class,
+        'dice' => DiceConnector::class,
         'doordash' => DoordashMenuConnector::class,
         'eventbrite' => EventbriteConnector::class,
         'facebook' => FacebookConnector::class,
