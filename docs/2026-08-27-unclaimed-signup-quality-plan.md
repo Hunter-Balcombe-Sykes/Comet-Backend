@@ -1810,3 +1810,67 @@ harvester already classifies as content-items.
   3 occurrences in 30 days; not worth trading a real signal for. Left alone.
 - **#172** still fires (logo-processor container). The user's logo now
   survives it; the container outage itself is infrastructure.
+
+### ROUND 4 (12 partna: nails, DJs, illustrators, chefs, florist, massage)
+
+Two more platforms confirmed and added (0c04e677e, monorepo 5526882), one
+written and then deliberately deleted.
+
+- **Hypeddit** — smart links / download gates, confirmed genuine SaaS. Joins
+  Linkfire/Feature.fm/The Orchard at ProfileLink, and like them is NOT a
+  ShortLinkExpander host. LIVE GATE on the rebuilt kjah-dnb:
+  hypeddit.com/1morething/kjahdirtymelody → `hypeddit.release` (was
+  unmatched).
+- **TicketHype** — Maltese ticketing. Small and regional, so verified rather
+  than assumed: five distinct unrelated events, each with its own checkout,
+  which is what separates a ticketer from one promoter's page. LIVE GATE on
+  the rebuilt djrubyofficial: their real event URL → `tickethype.tickets`.
+  It also ships a first-party wordmark SVG, so the kit entry has real art.
+- **Juno Download — REJECTED, after being written.** It shut down permanently
+  on 1 June 2026 and now serves a farewell page. Its links will sit in DJ
+  bios for years (kjah_dnb alone carries four), but a catalog entry would put
+  OUR branding on a card pointing at a dead store, which implies it works. A
+  defunct platform is not a platform; the bare host is the honest render.
+  Verified still unmatched after the removal.
+
+Also correctly left alone: `cygnusmusic.link` (one label's own smart-link
+domain, not multi-tenant), `beatport.com/track/…` and `soundcloud.com/<user>/
+<track>` (item-level, the harvester's job), `depop.app.link` (a Branch
+deep-link — a shortener candidate, not a brand), `adobe.com/max.html` (plain
+marketing), and the six businesses' own websites.
+
+Booking auto-connects that landed through the harvester tables this round:
+nailsbymaidy → **phorest**, theflowerboutiqueperth → **shopify**,
+chefpetetownsend → **squarespace**.
+
+**Method note worth keeping.** djrubyofficial read as a REGRESSION right
+after its rebuild — 1 connection where it had had 7. It was the async
+link-in-bio scan still in flight; four minutes later it was back to 33
+observations and 7 connections. The same trap caught this run earlier, when
+all 12 round-1 accounts looked like they had lost their bio links. **Never
+judge a build until the async scans settle** — roughly 3–5 minutes after
+`builds:await` returns ready.
+
+### RUN STATE AT CLOSE
+
+48 cold builds across 4 rounds (24 partna, 24 business) plus 8 rebuilds as
+fix gates. 101 unclaimed accounts on dev. Catalog 156 → 173 brands. Kit 159 →
+172 platform entries. Backend suite 9,730 passed / 0 failed at every push.
+Backend deployed ×6, design-system + dashboard on push, apps/pages worker ×2.
+
+Eight fixes shipped and live-gated on the real accounts that exposed them:
+shortener expansion in the bio lane (xia_tattoo), bio.site + linkpop + flow.page
+(igotyoubabeweddings), Acuity's as.me (theyogapeoplesydney), the orphaned
+youcanbook.me override, five harvester host-table rows that were seeding plain
+link cards instead of booking/reservation/ordering cards (theyogapeoplesydney +
+fayeellefineline), and youtube.com/channel/@handle (djhellraiser).
+
+Remaining failed-job noise is understood and recorded: ~47/hour
+CloudflareCachePurgeJob under batch load (funnel starvation, measured above,
+deliberately not re-tuned), plus the logo-processor container outage (#172)
+and the occasional dead scraped Instagram handle (#467, degrades correctly).
+
+**The one thing waiting on the owner** is the placement-threshold question in
+the corrected entry above — with the important caveat that the cheap answer
+(add the host to WebsiteLinkHarvester's tables) fixed every case found this
+run without touching any threshold.
