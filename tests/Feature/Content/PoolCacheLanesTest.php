@@ -2,6 +2,7 @@
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Services\Http\SafeUrlFetcher;
+use App\Site\Documents\SiteCacheLanes;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
@@ -353,9 +354,10 @@ it('a section-group upsert fires the cache lanes (builder lane)', function () {
 // PURGE-VOLUME MEASUREMENT (owner-requested, 2026-08-17). The concern: builder
 // writes are high-frequency during a site-build session (drag, rename, create),
 // so an owner reorganising their page could dispatch a purge per write.
-// CloudflareCachePurgeJob is ShouldBeUnique, uniqueFor=240, keyed on
-// handle+domain (CloudflareCachePurgeJob.php uniqueId()) — this SHOULD coalesce
-// same-handle dispatches within the window.
+// CloudflareCachePurgeJob is ShouldBeUnique, uniqueFor=35 (was 240 until
+// 2026-08-19; this comment said 240 until 2026-08-28), keyed on handle+domain
+// (CloudflareCachePurgeJob.php uniqueId()) — this SHOULD coalesce same-handle
+// dispatches within the window.
 //
 // Whether Queue::fake() actually proves that is NOT obvious and had to be
 // checked rather than assumed: uniqueness for a queued job is NOT enforced by
@@ -373,11 +375,17 @@ it('a section-group upsert fires the cache lanes (builder lane)', function () {
 // Caveat that still matters for reading the number: the lock releases when the
 // job STARTS PROCESSING, not when it finishes — and Queue::fake() never
 // processes anything, so within one test the FIRST dispatch's lock is held for
-// the full 240s uniqueFor window and never released. That is a MORE favourable
+// the full 35s uniqueFor window and never released. That is a MORE favourable
 // coalescing condition than production, where a fast-draining queue can start
-// processing (and release the lock) well inside 240s, letting a second
+// processing (and release the lock) well inside 35s, letting a second
 // dispatch back in. So this test's count is a LOWER BOUND on production purge
 // volume, not an exact prediction of it.
+//
+// I1 (2026-08-28) narrowed that gap in the code rather than in this test:
+// SiteCacheLanes now delays the purge by EDGE_PURGE_DELAY_SECONDS, so the lock
+// really is held for the window in production too. This test cannot show that
+// — it reads 1 either way — which is why the delay gets its own assertion at
+// the bottom of this file.
 it('measures actual purge-job volume for a burst of builder writes on one site', function () {
     $user = createTenant('poollanesburst');
     $siteId = (string) $user->site->id;
@@ -399,8 +407,70 @@ it('measures actual purge-job volume for a burst of builder writes on one site',
 
     // The real number, not asserted blind: 8 writes to the same site coalesce
     // to exactly ONE purge dispatch, because the first dispatch's unique lock
-    // (240s) is held for the rest of the test — Queue::fake() never processes
+    // (35s) is held for the rest of the test — Queue::fake() never processes
     // a job, so the lock is never released early the way a real worker would
     // release it. Documented in the comment above the test.
     expect($pushed)->toHaveCount(1);
+});
+
+// I1 (2026-08-27 unclaimed-signup quality plan, docs/2026-08-27-unclaimed-signup-quality-plan.md:66,301-306).
+// The plan said the purge-storm fix and the write-triggers-build change had to
+// be designed TOGETHER; they shipped as two commits that never touched the same
+// file. 4ae78f9d5 gave BuildState::bump() a delayed, ShouldBeUnique-coalesced
+// dispatch (BuildState.php:55-56); the purge one line class over
+// (SiteCacheLanes.php:49) stayed immediate, one per bust().
+//
+// 16a4efc3f then added the shared 'cloudflare-purge' RateLimiter funnel, which
+// correctly absorbs Cloudflare's 429s — a rejected job is release()d, not held.
+// But a funnel changes what happens to a dispatch, not how many there are, and
+// VOLUME is what I1 asked about.
+//
+// WHY A DELAY IS THE FIX, AND WHY THE OBVIOUS TEST DOES NOT PROVE IT:
+// the coalescing here is not new machinery. CloudflareCachePurgeJob is already
+// ShouldBeUnique with uniqueFor=35, and its lock is acquired in
+// PendingDispatch::__destruct() -> UniqueLock::acquire(). That lock releases
+// when the job STARTS PROCESSING. Undelayed, a purge starts ~1s after dispatch
+// and frees the lock, so the next write in the burst dispatches again — which
+// is exactly the observed volume. Delaying the job holds the lock for the whole
+// window instead, so the burst collapses into one.
+//
+// The consequence for testing: Queue::fake() never processes a job, so the
+// FIRST dispatch's lock is held for the whole test either way. A "one purge per
+// burst" count assertion passes with OR without this change — see the volume
+// test above, which already reads 1 and is documented as a lower bound. So
+// these two tests assert the DELAY and the invariant that makes it work,
+// not a count.
+
+it('delays the edge purge so a write burst coalesces instead of purging per write', function () {
+    $user = createTenant('poollanesdelay');
+    $a = seedContentItem($user->id);
+    $b = seedContentItem($user->id);
+
+    actingAsUser($user)
+        ->putJson('/api/content/pools/watch/order', ['itemIds' => [$b, $a]])
+        ->assertOk();
+
+    // Fails if ->delay() is dropped: $job->delay is then null, no pushed job
+    // satisfies the closure, and assertPushed reports "not pushed". It cannot
+    // pass vacuously in the other direction either — zero pushes also fails.
+    Queue::assertPushed(
+        CloudflareCachePurgeJob::class,
+        fn (CloudflareCachePurgeJob $job) => $job->delay === SiteCacheLanes::EDGE_PURGE_DELAY_SECONDS,
+    );
+});
+
+/**
+ * The delay only coalesces while the job's own ShouldBeUnique lock outlives it.
+ * Raise EDGE_PURGE_DELAY_SECONDS past CloudflareCachePurgeJob::$uniqueFor (35
+ * for a primary purge) and the lock expires before the job runs, quietly
+ * restoring per-write purge volume with every other test still green. Nothing
+ * else in the suite pins that relationship.
+ */
+it('keeps the purge delay inside the unique lock that does the coalescing', function () {
+    // Non-vacuity: a 0 delay would satisfy the test above (delay === 0) while
+    // coalescing nothing, so the lower bound is pinned too.
+    expect(SiteCacheLanes::EDGE_PURGE_DELAY_SECONDS)->toBeGreaterThan(0);
+
+    expect(SiteCacheLanes::EDGE_PURGE_DELAY_SECONDS)
+        ->toBeLessThan((new CloudflareCachePurgeJob('unused-handle'))->uniqueFor);
 });
