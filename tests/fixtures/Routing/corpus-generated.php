@@ -2873,6 +2873,14 @@ return [
         'detector' => 'ed7d45efd0854383',
     ],
     386 => [
+        'url' => 'https://youtube.com/channel/@aaa',
+        'expect' => [
+            'surface' => 'youtube.channel',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '64681bb6ded27076',
+    ],
+    387 => [
         'url' => 'https://youtube.com/channel/UCaaaaaaaaaaaaaaaaaaaaaa',
         'expect' => [
             'surface' => 'youtube.channel',
@@ -2880,14 +2888,14 @@ return [
         ],
         'detector' => '67c7aec08a3650d4',
     ],
-    387 => [
+    388 => [
         'url' => 'https://zenoti.com/',
         'expect' => [
             'surface' => 'zenoti.book',
         ],
         'detector' => 'ea00b095d01f2467',
     ],
-    388 => [
+    389 => [
         'url' => 'https://zomato.com/',
         'expect' => [
             'surface' => 'zomato.order',

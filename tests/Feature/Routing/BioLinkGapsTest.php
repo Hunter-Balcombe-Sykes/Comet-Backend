@@ -11,6 +11,7 @@ use App\Routing\IriCanonicalizer;
 use App\Routing\LinkProjector;
 use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\LinkInBioDetector;
+use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -145,7 +146,7 @@ it('classifies commercial brands as their own category, not a flat link', functi
     // connected with ZERO routing observations, because the tables seeded it
     // directly. theyogapeoplesydney's Acuity link, known only to the catalog,
     // did not.
-    $harvester = app(App\Services\Platforms\WebsiteLinkHarvester::class);
+    $harvester = app(WebsiteLinkHarvester::class);
 
     $category = fn (string $url): ?string => $harvester->classify($url)['category'] ?? null;
 
@@ -154,4 +155,13 @@ it('classifies commercial brands as their own category, not a flat link', functi
         ->and($category('https://venue.ink/@someartist'))->toBe('booking')
         ->and($category('https://vouchers.obeeapp.com/some-venue/gift-voucher'))->toBe('reservations')
         ->and($category('https://w.abacus.co/store/1234567/giftcards/landingPage'))->toBe('online-ordering');
+});
+
+it('identifies a YouTube channel pasted with a stale /channel/ prefix', function () {
+    // youtube.com/channel/@handle matched neither rule: the /channel/ one
+    // wants a UC id, the /@ one is anchored at the path root. djhellraiser's
+    // bio carried exactly this and their channel went unidentified.
+    expect(bioGapSurface('https://youtube.com/channel/@djhellraiser303'))->toBe('youtube.channel')
+        ->and(bioGapSurface('https://www.youtube.com/@djhellraiser303'))->toBe('youtube.channel')
+        ->and(bioGapSurface('https://youtube.com/channel/UCabcdefghijklmnopqrstuv'))->toBe('youtube.channel');
 });

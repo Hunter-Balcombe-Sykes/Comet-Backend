@@ -54,6 +54,20 @@ class Youtube
                         ->captures('handle')
                         ->from(IdentifierSource::Path)
                         ->strength(EvidenceStrength::ProfileLink),
+                    // /channel/@handle — a shape YouTube itself redirects but
+                    // people paste anyway, and it matched NEITHER rule above:
+                    // the /channel/ one demands a UC id, and the /@ one is
+                    // anchored at the path root. Found live 2026-08-29 on
+                    // djhellraiser, whose bio carried
+                    // youtube.com/channel/@djhellraiser303 and whose channel
+                    // the catalog could not identify. Same identifier and the
+                    // same strength as the bare @handle — it IS that handle,
+                    // wearing a stale prefix.
+                    Detector::url('youtube.com')
+                        ->path('#^/channel/@(?<handle>[^/?]+)#')
+                        ->captures('handle')
+                        ->from(IdentifierSource::Path)
+                        ->strength(EvidenceStrength::ProfileLink),
                     Detector::url('youtube.com')
                         ->path('#^/(?:c|user)/(?<handle>[^/?]+)#')
                         ->captures('handle')
