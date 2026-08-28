@@ -1455,3 +1455,77 @@ Follow-ups queued: DICE free events connector (server-fetchable
 PerformingGroup ld+json; needs one real artist URL) · Vagaro capture ·
 logo-processor container (#172) + svg-mime logo handling (#449) ·
 dashboard CONNECT_ROSTER entries for deezer/cal_com/classpass/pinterest.
+
+## SESSION 3 (2026-08-28, owner on the road): videos, verification, close-out
+
+Owner report: "videos aren't playing" on the sitepages. Investigated the whole
+chain rather than the symptom — and the chain was mostly healthy.
+
+**What was actually wrong (2 real defects, both fixed):**
+
+1. **Dead reel links reached the wire as playable video frames** (793ca595b).
+   Instagram signs video URLs with an expiry; the only reels that stay
+   unmirrored are those whose URL was already dead when MediaMirror first
+   tried, and ProjectionWriter's mirror_attempts cap then correctly stops
+   retrying. PoolResolver::frames() still emitted them as kind:'video', so
+   astro rendered a <video> that could never play — a frozen black card.
+   Now dropped; the cover still carries the card. MEASURED: exactly 5 frames
+   fleet-wide were affected. Every other unmirrored asset (5,230 covers,
+   1,179 gallery stills) sits on a NON-expiring host and is served from
+   source by design, so the fix is scoped precisely to the defect.
+
+2. **Edge cache, not code.** The reviews page (and much else) looked broken
+   because *.partna.au HTML was cached from before the deploy. The astro
+   build had never been deployed at all — the live worker was from ~03:45,
+   predating the reviews fix AND the brand assets. Deployed both, purged the
+   fleet, and everything appeared. Worth remembering: after an astro deploy,
+   purge before judging.
+
+**Verified WORKING end to end (no change needed):**
+- Instagram reels play: 14/14 on broken-oven, desktop AND mobile 375px,
+  correct iOS-safe attributes (muted/playsInline/loop/autoplay), 0 errors,
+  all mirrored to R2 with posters.
+- TikTok renders on the watch rail (links out, exactly like YouTube/Vimeo —
+  that IS the design, not a gap); Facebook renders as mirrored gallery
+  images with platform chips; zero fbcdn hotlinks anywhere.
+- Person-scoped reviews live on partna sites (simondoylehair, ollies,
+  broken-oven all show /reviews).
+- 35 of 36 wave-2 backend brand keys resolve to a design-system entry.
+
+**Also fixed this session:**
+- **Stripe had no design-system entry at all** — the one backend brand key
+  with no folder, so a routed payment link wore a fallback glyph. Sourced
+  (monorepo 55d50ea). Registry 153 → 154.
+- **18 connectable platforms were unreachable from the dashboard**
+  (monorepo 55d50ea): every T27a booking brand, mr_yum, and the wave-2 set
+  had working /connect routes but no CONNECT_ROSTER row — a working
+  integration no user could find. doordash/uber_eats/order_online stay out
+  deliberately (menu lane has its own surface).
+- **Nightwatch #172 + #449 were ONE incident** (2c382b2b7). Logo processor
+  container down → failed() fell back to the raster pipeline → which rejects
+  SVG by design → guaranteed second exception, logo lost. An SVG original
+  now publishes as the vector variant (a path that already exists for the
+  success case, served through <img> where script-in-SVG is inert, bytes
+  sanitised at ingest). The container outage still reports — that signal is
+  real.
+- **RA/Luma parity CLOSED** (d83f59e8f). T27b built an RA connector that
+  fetches a DJ's tour and proved it on Ben Bohmer, but nothing triggered it:
+  ra.co carried only a bare-host MarketplaceListing detector, so
+  ra.co/dj/<slug> scored 28 and became an inert link card. Now a captured
+  ProfileLink (75, places) — detector specificity, not a threshold change.
+  Listings (/events, /clubs) still note at 28. The kimcosmik wave pin gains
+  a 9th connection: that real DJ's tour dates now reach their site. Luma
+  deliberately unchanged — a bare lu.ma slug is an event by design.
+- **DICE connector shipped + live-gated** (73d9fb8a9). The last events
+  candidate: Bandsintown (403, and its app_id API loophole is closed) and
+  Songkick (406) both refuse server-side fetches, but DICE answers a plain
+  GET with a schema.org PerformingGroup whose event array is already the
+  shared Event shape. Live gate: grouper-ebvw → 2 real C2C Festival dates
+  with venue + times into the events pool. Fixture cleaned up after.
+
+**Vagaro: still deferred, now with evidence.** Its venue page serves one
+ld+json block that decodes to nothing usable — no Service list, no reviews,
+no aggregate. Not worth building blind; revisit only with a real capture.
+
+**State at close:** backend suite 9,716 passed / 0 failed. Zero failed jobs.
+Astro + dashboard + backend all deployed. Fleet caches purged.
