@@ -42,6 +42,13 @@ class BackfillStorefrontFaviconsCommand extends Command
 
         $candidates = DB::table('content.storefronts as s')
             ->join('content.collections as c', 'c.id', '=', 's.collection_id')
+            // content.storefronts is a sidecar on content.collections, and
+            // ordering platforms carry one too. ShopConnections::storeQuery()
+            // filters on this same kind, so without it here the candidate
+            // count included rows storeByCollection() would then refuse — 21
+            // of 33 on dev, dropped with no line of output, which reads as
+            // coverage that did not happen.
+            ->where('c.kind', 'storefront')
             ->whereNull('s.favicon_url')
             ->whereNull('s.logo_url')
             ->where('s.is_individual', false)
@@ -55,15 +62,23 @@ class BackfillStorefrontFaviconsCommand extends Command
 
         $found = 0;
         $missed = 0;
+        $unresolvable = 0;
 
         foreach ($candidates as $row) {
+            // Counted, never a bare continue: every candidate must be
+            // accounted for in the summary, or the numbers silently stop
+            // adding up and the run reads as more complete than it was.
             $store = $shop->storeByCollection((string) $row->collection_id);
             if ($store === null) {
+                $unresolvable++;
+
                 continue;
             }
 
             $source = $store->url ?: $store->sourceUrl;
             if (! is_string($source) || trim($source) === '') {
+                $unresolvable++;
+
                 continue;
             }
 
@@ -90,6 +105,10 @@ class BackfillStorefrontFaviconsCommand extends Command
 
         $verb = $dryRun ? 'would set' : 'set';
         $this->info("Candidates {$candidates->count()}; {$verb} {$found}; still without an icon {$missed}.");
+
+        if ($unresolvable > 0) {
+            $this->warn("  {$unresolvable} candidate(s) could not be read back as a store and were skipped.");
+        }
 
         return self::SUCCESS;
     }
