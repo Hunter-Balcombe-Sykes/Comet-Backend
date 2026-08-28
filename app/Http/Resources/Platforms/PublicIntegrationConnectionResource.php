@@ -331,6 +331,8 @@ class PublicIntegrationConnectionResource extends ApiResource
         'libro_fm' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'abacus' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'heyzine' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'hypeddit' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'tickethype' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'circle' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'kajabi' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'luma' => ['url', 'name', 'favicon', 'logo', 'provider'],

@@ -66,6 +66,7 @@ use App\Catalog\Definitions\Hotdoc;
 use App\Catalog\Definitions\Houzz;
 use App\Catalog\Definitions\Humanitix;
 use App\Catalog\Definitions\Hungrypanda;
+use App\Catalog\Definitions\Hypeddit;
 use App\Catalog\Definitions\Instagram;
 use App\Catalog\Definitions\JaneApp;
 use App\Catalog\Definitions\JustEat;
@@ -139,6 +140,7 @@ use App\Catalog\Definitions\Telegram;
 use App\Catalog\Definitions\Thefork;
 use App\Catalog\Definitions\Threads;
 use App\Catalog\Definitions\Ticketek;
+use App\Catalog\Definitions\TicketHype;
 use App\Catalog\Definitions\Ticketmaster;
 use App\Catalog\Definitions\Ticketweb;
 use App\Catalog\Definitions\Tidal;
@@ -242,6 +244,7 @@ return [
     Houzz::class,
     Humanitix::class,
     Hungrypanda::class,
+    Hypeddit::class,
     Instagram::class,
     JaneApp::class,
     JustEat::class,
@@ -314,6 +317,7 @@ return [
     Telegram::class,
     Thefork::class,
     Threads::class,
+    TicketHype::class,
     Ticketek::class,
     Ticketmaster::class,
     Ticketweb::class,

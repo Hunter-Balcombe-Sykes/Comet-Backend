@@ -134,4 +134,8 @@ return [
     'libro_fm.store' => 'https://libro.fm/some-bookshop',
     'abacus.order' => 'https://w.abacus.co/store/1234567/giftcards/landingPage',
     'heyzine.publication' => 'https://heyzine.com/flip-book/abc123def.html',
+
+    // Round 4 (2026-08-29) — real urls from kjah_dnb's bio.
+    'hypeddit.release' => 'https://hypeddit.com/someartist/sometrack',
+    'tickethype.tickets' => 'https://tickethype.com.mt/rubyandfriends_tortuga2026',
 ];
