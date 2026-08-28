@@ -18,20 +18,15 @@ namespace App\Services\Platforms;
  * Transform rules:
  *  - capitalize each word; connector words (of, and, the, with, on, in, a, &)
  *    stay lowercase MID-name — first and last word always capitalize;
- *  - an UPPERCASE allowlist survives: AU state abbreviations (WA, VIC, NSW,
- *    QLD, SA, TAS, NT, ACT) and dietary marks (GF, DF, V, VG);
+ *  - an UPPERCASE allowlist survives: AU state abbreviations and dietary
+ *    marks — the list lives in ScrapedNameCasing, shared with the menu-driver
+ *    re-caser so the two cannot drift apart again;
  *  - unit tokens pass through untouched (1.2L, 225g, 7pk, 2L);
  *  - applied at PROJECTION/WRITE time, not display — slugs, the matcher and
  *    the wire all see the clean name. Item AND category names.
  */
 trait CasesScannedNames
 {
-    /** @var list<string> lowercase mid-name connectors. */
-    private static array $scanCaseConnectors = ['of', 'and', 'the', 'with', 'on', 'in', 'a', '&'];
-
-    /** @var list<string> uppercase tokens that survive the transform. */
-    private static array $scanCaseAllcaps = ['WA', 'VIC', 'NSW', 'QLD', 'SA', 'TAS', 'NT', 'ACT', 'GF', 'DF', 'V', 'VG'];
-
     private function scanTitleCase(?string $name): ?string
     {
         if ($name === null) {
@@ -72,12 +67,12 @@ trait CasesScannedNames
         $upper = mb_strtoupper($word);
         // The allowlist token keeps (or gains) its canonical uppercase form —
         // "'23 deep woods chardonnay wa" and "…CHARDONNAY WA" both keep "WA".
-        if (in_array(rtrim($upper, '.,'), self::$scanCaseAllcaps, true)) {
+        if (in_array(rtrim($upper, '.,'), ScrapedNameCasing::ALL_CAPS_MARKS, true)) {
             return rtrim($upper, '.,').substr($word, strlen(rtrim($word, '.,')));
         }
 
         $lower = mb_strtolower($word);
-        if (! $edge && in_array(rtrim($lower, '.,'), self::$scanCaseConnectors, true)) {
+        if (! $edge && in_array(rtrim($lower, '.,'), ScrapedNameCasing::CONNECTORS, true)) {
             return $lower;
         }
 

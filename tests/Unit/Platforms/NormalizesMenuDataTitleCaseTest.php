@@ -47,3 +47,64 @@ it('handles hyphens and null', function () use ($harness) {
     expect($harness->tc('anzac-day special'))->toBe('Anzac-Day Special');
     expect($harness->tc(null))->toBeNull();
 });
+
+// 2026-08-28: T8's ALL-CAPS preservation was gated on the WHOLE STRING being
+// mixed-case (`preg_match('/[a-z]/', $s)`), so it disarmed on exactly the
+// sources that need it — an all-caps scraped wine list — and the docblock's own
+// marquee example served "…Chardonnay Wa". Separately, ucwords(strtolower())
+// flattened every interior capital, because the `\b[A-Z]{2,3}\b` restore list
+// can only ever see a STANDALONE caps token. Both are token-level properties,
+// so the gate moved to the token.
+
+it('preserves an interior capital the source typed deliberately', function () use ($harness) {
+    expect($harness->tc('McDonalds'))->toBe('McDonalds');
+    expect($harness->tc('iPhone Charger'))->toBe('iPhone Charger');
+    expect($harness->tc("MacGyver's iPad Case"))->toBe("MacGyver's iPad Case");
+});
+
+it('preserves an all-caps mark in an ALL-CAPS source, not just a mixed-case one', function () use ($harness) {
+    // The docblock's own example, in the shape a scraped wine list arrives in.
+    expect($harness->tc("'23 DEEP WOODS CHARDONNAY WA"))->toBe("'23 Deep Woods Chardonnay WA");
+    expect($harness->tc('BANANA BREAD GF'))->toBe('Banana Bread GF');
+    expect($harness->tc('PARMA (VIC)'))->toBe('Parma (VIC)');
+});
+
+it('does not mistake a short ordinary word for an acronym', function () use ($harness) {
+    // Why the preserved set is an ALLOWLIST and not a length rule: `[A-Z]{2,3}`
+    // matches THE, HOT and RED just as happily as WA.
+    expect($harness->tc('THE BIG ONE'))->toBe('The Big One');
+    expect($harness->tc('HOT CHIPS'))->toBe('Hot Chips');
+    expect($harness->tc('RED WINE SPECIAL'))->toBe('Red Wine Special');
+});
+
+it('preserves an all-caps mark but never promotes a lowercase one', function () use ($harness) {
+    // Preserve, never promote. "gf"/"v" are ordinary words far more often than
+    // they are marks, and a scrape gives no way to tell them apart — so a
+    // lowercase source gets ordinary title case, nothing cleverer.
+    expect($harness->tc('SALT AND PEPPER SQUID GF'))->toBe('Salt And Pepper Squid GF');
+    expect($harness->tc('banana bread gf'))->toBe('Banana Bread Gf');
+});
+
+it('preserves two marks packed into one whitespace token', function () use ($harness) {
+    // Live on dev when this was written. The gate is per LETTER RUN, not per
+    // whitespace token — "(GF)(V)" is one token whose letters are "GFV", which
+    // is no mark at all, so a token-level gate served "(Gf)(V)".
+    expect($harness->tc('Veggie Tofu Coconut Curry (GF)(V)'))->toBe('Veggie Tofu Coconut Curry (GF)(V)');
+    expect($harness->tc('VEGGIE TOFU COCONUT CURRY (GF)(V)'))->toBe('Veggie Tofu Coconut Curry (GF)(V)');
+});
+
+it('lowercases an accented capital instead of stranding it mid-word', function () use ($harness) {
+    // strtolower() is byte-wise: "CAFÉ LATTE" served "CafÉ Latte".
+    expect($harness->tc('CAFÉ LATTE'))->toBe('Café Latte');
+    expect($harness->tc('JAMÓN CROQUETAS'))->toBe('Jamón Croquetas');
+});
+
+it('keeps a short caps run that the rest of a mixed-case name vouches for', function () use ($harness) {
+    // T8's original signal, kept: in a string that also carries lowercase, an
+    // all-caps run is the source's own contrast. Both live on dev.
+    expect($harness->tc('Cold Brew CAN (Double Shot Latte)'))->toBe('Cold Brew CAN (Double Shot Latte)');
+    expect($harness->tc('OG Kimbap'))->toBe('OG Kimbap');
+    // ...and an ALL-CAPS source has no contrast to offer, so the same run is
+    // ordinary text there. This is the asymmetry that made the bug invisible.
+    expect($harness->tc('COLD BREW CAN'))->toBe('Cold Brew Can');
+});
