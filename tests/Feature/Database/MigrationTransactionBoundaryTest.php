@@ -394,6 +394,110 @@ it('Check 8 grandfathers a pre-cutoff bundled VALIDATE', function () {
     expect($r['exit'])->toBe(0, "Files on/before VALIDATE_TXN_GUARD_CUTOFF are grandfathered; output:\n{$r['output']}");
 });
 
+// ─── #W1-MIG-1: guard Check 10 — inline ADD COLUMN ... REFERENCES ─────────────
+// Reuses guardRunAgainstFixture() defined above. Check 2 anchors on ADD CONSTRAINT,
+// so an FK hanging off an ADD COLUMN was structurally invisible to it; Check 10
+// closes that. content.storefronts is used deliberately — it is on NEITHER hot
+// list, so only Check 10 can fire here, never Check 5.
+
+it('Check 10 flags an inline ADD COLUMN ... REFERENCES on a pre-existing table (post-cutoff)', function () {
+    $r = guardRunAgainstFixture(
+        '20260829120000_w1mig1_bad.sql',
+        'ALTER TABLE "content"."storefronts"'."\n".
+        '    ADD COLUMN "source_item_id" uuid REFERENCES "content"."source_items" ("id") ON DELETE CASCADE;'."\n"
+    );
+
+    expect($r['exit'])->toBe(1, "Expected the guard to FAIL on an inline ADD COLUMN ... REFERENCES; output:\n{$r['output']}")
+        ->and($r['output'])->toContain('inline ADD COLUMN ... REFERENCES');
+});
+
+// THE ANTI-FALSE-POSITIVE CASE. This is the shape Check 10 exists to steer authors
+// TOWARDS -- if the check flags it, the check is worse than useless.
+it('Check 10 allows the split: ADD COLUMN with no REFERENCES, then ADD CONSTRAINT ... NOT VALID', function () {
+    $r = guardRunAgainstFixture(
+        '20260829120000_w1mig1_split.sql',
+        'ALTER TABLE "content"."storefronts" ADD COLUMN "source_item_id" uuid;'."\n".
+        'ALTER TABLE "content"."storefronts"'."\n".
+        '    ADD CONSTRAINT media_assets_source_item_id_fkey'."\n".
+        '    FOREIGN KEY ("source_item_id") REFERENCES "content"."source_items" ("id") ON DELETE CASCADE'."\n".
+        '    NOT VALID;'."\n"
+    );
+
+    expect($r['exit'])->toBe(0, "The two-statement split is the safe pattern Check 10 steers towards and must pass; output:\n{$r['output']}");
+});
+
+// Proves the clause terminator (?=,\s*ADD\s+(?:COLUMN|CONSTRAINT)\b|;|\z). Without
+// it the lazy .*? would swallow the sibling ADD CONSTRAINT's REFERENCES into the
+// ADD COLUMN clause and flag a compliant file.
+it('Check 10 allows a single-statement multi-clause split (ADD COLUMN, ADD CONSTRAINT ... NOT VALID)', function () {
+    $r = guardRunAgainstFixture(
+        '20260829120000_w1mig1_multiclause.sql',
+        'ALTER TABLE "content"."storefronts"'."\n".
+        '    ADD COLUMN "source_item_id" uuid,'."\n".
+        '    ADD CONSTRAINT media_assets_source_item_id_fkey'."\n".
+        '    FOREIGN KEY ("source_item_id") REFERENCES "content"."source_items" ("id") ON DELETE CASCADE'."\n".
+        '    NOT VALID;'."\n"
+    );
+
+    expect($r['exit'])->toBe(0, "One statement, two clauses is still the safe split -- the clause terminator must not merge them; output:\n{$r['output']}");
+});
+
+it('Check 10 grandfathers a pre-cutoff inline ADD COLUMN ... REFERENCES', function () {
+    $r = guardRunAgainstFixture(
+        '20260826120000_w1mig1_old.sql',
+        'ALTER TABLE "content"."storefronts"'."\n".
+        '    ADD COLUMN "source_item_id" uuid REFERENCES "content"."source_items" ("id") ON DELETE CASCADE;'."\n"
+    );
+
+    expect($r['exit'])->toBe(0, "Files on/before INLINE_FK_GUARD_CUTOFF are grandfathered -- retro-splitting an applied, validated FK costs more locking than leaving it; output:\n{$r['output']}");
+});
+
+// ─── #W1-SCALE-1: guard Check 5 — the populated content.* tables are hot too ───
+// Reuses guardRunAgainstFixture() defined above. These fixtures are DML-only, so
+// Check 10 cannot fire on them; only Check 5 can.
+
+it('Check 5 flags a backfill UPDATE on content.item_media with no timeout (post-cutoff)', function () {
+    $r = guardRunAgainstFixture(
+        '20260829130000_w1scale1_bad.sql',
+        'UPDATE "content"."item_media" SET "source_item_id" = NULL WHERE "source_item_id" IS NOT NULL;'."\n"
+    );
+
+    expect($r['exit'])->toBe(1, "Expected the guard to FAIL on an unbounded backfill of hot content.item_media; output:\n{$r['output']}")
+        ->and($r['output'])->toContain('backfill DML on live-traffic table');
+});
+
+// The remedy Check 5 prints for a bare-statement backfill must be the SESSION-level
+// form: CONVENTIONS.md §5 forbids backfilling inside a transaction, and SET LOCAL is
+// a silent no-op outside one. Accepting it here is what makes that advice actionable.
+it('Check 5 accepts a session-level SET lock_timeout on a bare-statement backfill', function () {
+    $r = guardRunAgainstFixture(
+        '20260829130000_w1scale1_ok.sql',
+        "SET lock_timeout      = '2s';\n".
+        "SET statement_timeout = '10s';\n".
+        'UPDATE "content"."item_media" SET "source_item_id" = NULL WHERE "source_item_id" IS NOT NULL;'."\n"
+    );
+
+    expect($r['exit'])->toBe(0, "A session-level SET lock_timeout is the correct bound for a backfill outside a transaction; output:\n{$r['output']}");
+});
+
+it('Check 5 grandfathers a pre-cutoff unbounded backfill on a content.* hot table', function () {
+    $r = guardRunAgainstFixture(
+        '20260826120000_w1scale1_old.sql',
+        'UPDATE "content"."item_media" SET "source_item_id" = NULL WHERE "source_item_id" IS NOT NULL;'."\n"
+    );
+
+    expect($r['exit'])->toBe(0, "Files on/before CONTENT_TIMEOUT_GUARD_CUTOFF are grandfathered -- 20260826120000 is already applied to dev; output:\n{$r['output']}");
+});
+
+it('Check 5 ignores a content.* table deliberately left off the hot list', function () {
+    $r = guardRunAgainstFixture(
+        '20260829130000_w1scale1_cold.sql',
+        'UPDATE "content"."storefronts" SET "user_id" = NULL WHERE "user_id" IS NOT NULL;'."\n"
+    );
+
+    expect($r['exit'])->toBe(0, "content.storefronts is not on CONTENT_HOT_TABLES (15 rows on dev); only the populated six are in scope; output:\n{$r['output']}");
+});
+
 // ─── G3 (audit Unit H): disable-file marker needs COMMENT-PROSE justification ──
 // Reuses guardRunAgainstFixture() defined above. G3 anchors the justification
 // search to the contiguous comment-only prefix after the marker (`--` lines /

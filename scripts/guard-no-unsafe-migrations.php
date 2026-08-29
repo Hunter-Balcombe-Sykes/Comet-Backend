@@ -3,23 +3,25 @@
 /**
  * Guard: no unsafe migration patterns (Master Pattern 20).
  *
- * Fails on nine patterns that cause lock-induced downtime (or a failed from-zero apply):
+ * Fails on ten patterns that cause lock-induced downtime (or a failed from-zero apply):
  *   1. CREATE INDEX without CONCURRENTLY
  *   2. ADD CONSTRAINT ... FOREIGN KEY without NOT VALID
  *   3. ADD CONSTRAINT ... CHECK without NOT VALID
  *   4. ALTER COLUMN ... SET NOT NULL (must use the four-step NOT VALID pattern)
- *   5. DDL/DML on a hot table (HOT_TABLES) without a BEGIN + SET LOCAL lock_timeout
+ *   5. DDL/DML on a hot table (HOT_TABLES / CONTENT_HOT_TABLES) without a lock timeout
  *   6. more than one statement in a file that contains a CONCURRENTLY statement (pipeline/25001)
  *   7. DROP INDEX without CONCURRENTLY on a HOT_TABLES table
  *   8. VALIDATE CONSTRAINT in the same transaction as its ADD CONSTRAINT ... NOT VALID
  *   9. ADD COLUMN ... GENERATED ... STORED on a pre-existing table without a bounded transaction
+ *  10. ADD COLUMN ... REFERENCES (an inline FK is added VALIDATED — Check 2 is blind to it)
  *
  * Migrations with timestamps <= GRANDFATHERED_CUTOFF are skipped — they ran safely on
  * empty tables before this convention was established (2026-05-14, timestamp 20260514100000).
  * All new migrations after that date are subject to Checks 1-4.
  *
- * Check 5 has its own, later boundary (TIMEOUT_GUARD_CUTOFF) since it shipped well
- * after GRANDFATHERED_CUTOFF — see the constant's comment for why.
+ * Check 5 has its own, later boundaries (TIMEOUT_GUARD_CUTOFF for HOT_TABLES,
+ * CONTENT_TIMEOUT_GUARD_CUTOFF for CONTENT_HOT_TABLES) since it shipped well after
+ * GRANDFATHERED_CUTOFF — see each constant's comment for why.
  *
  * Every table/index identifier in this repo's migrations is double-quoted
  * ("site"."platform_connections"). Checks 1, 5 and 7 match identifiers with
@@ -73,10 +75,58 @@ const VALIDATE_TXN_GUARD_CUTOFF = '20260722000000';
 // requirement below. At this cutoff the check flags 0 files on a clean tree.
 const GENERATED_STORED_GUARD_CUTOFF = '20260726000000';
 
+// Check 10 (inline ADD COLUMN ... REFERENCES) shipped 2026-08-29, closing the
+// hole audit #W1-MIG-1 found in Check 2: Check 2 anchors on ADD CONSTRAINT, so an
+// FK hanging off an ADD COLUMN is structurally invisible to it. Its own boundary
+// grandfathers the two pre-existing files that use the pattern and are already
+// applied to dev (20260812090000_content_media_assets_site_media_id,
+// 20260826120000_facet_source_item_origin). Both landed on sub-6 MB content.*
+// tables whose validation scan cost milliseconds, and both FKs are convalidated
+// there today; retro-splitting an already-VALIDATED FK (DROP CONSTRAINT + re-add
+// NOT VALID + VALIDATE) takes STRICTLY MORE locking than leaving it, and opens a
+// window in which the harvesting pipeline can write an orphan with no FK to stop
+// it. Production has no content schema at all, so those files apply against empty
+// tables there. At this cutoff the check flags 0 files on a clean tree; only NEW
+// files are subject to it.
+const INLINE_FK_GUARD_CUTOFF = '20260828999999';
+
+// Check 5's content.* extension shipped 2026-08-29 (audit #W1-SCALE-1). Check 5
+// applies ONE cutoff per table, so the populated content.* tables get their own,
+// later boundary: adding them under TIMEOUT_GUARD_CUTOFF would retro-flag
+// 20260826120000_facet_source_item_origin, which is already applied to dev with
+// its backfill complete (15.5k rows at the largest — milliseconds, not a stall)
+// and which matches zero rows on production, where these tables do not exist yet
+// and will be created empty in the same reconciliation run. Editing an applied
+// migration never re-runs it anyway (docs/migration-guidelines.md §Editing
+// already-applied migrations), so the fix is forward-only. At this cutoff the
+// check flags 0 files on a clean tree; only NEW files are subject to it.
+const CONTENT_TIMEOUT_GUARD_CUTOFF = '20260828999999';
+
 // Tables served by live traffic. The first three are named in
 // docs/migration-guidelines.md §Lock and statement timeouts; core.users is added
 // because it is read on every authenticated request.
 const HOT_TABLES = ['site.design_kits', 'site.sites', 'site.blocks', 'core.users'];
+
+// The populated content.* tables — the single curation store, written on every
+// ingest run and read on every public profile render. They were never added to
+// HOT_TABLES when the content-pool programme landed, which is why a four-table
+// backfill migration passed CI unbounded (#W1-SCALE-1). Check 5 only: these are
+// deliberately NOT fed to Check 7, whose index-name token heuristic would start
+// flagging every drop of an index whose name contains `items`/`offers`/`item_tags`
+// — a separate decision with its own retro-flag surface, not a free ride on this one.
+const CONTENT_HOT_TABLES = [
+    'content.items',
+    'content.item_media',
+    'content.offers',
+    'content.item_tags',
+    'content.item_variants',
+    'content.source_items',
+    // Meets the same criterion as the rest: ProjectionWriter inserts and reads it on
+    // every ingest run, and PoolResolver joins it on every media-pool render. It was
+    // missed on the first pass of this list, which would have left #W1-SCALE-1 open
+    // for one live table while closing it for six.
+    'content.media_assets',
+];
 
 const MIGRATIONS_DIR = 'supabase/migrations';
 
@@ -302,37 +352,78 @@ foreach (glob(MIGRATIONS_DIR.'/*.sql') as $file) {
 
     // ── Check 5: hot-table DDL/DML without a lock/statement timeout ───────────
     // A migration that can't get its lock should abort in 2s with a clear error,
-    // not queue behind live traffic and stall the whole deploy. SET LOCAL is
-    // transaction-scoped, so the file also needs explicit BEGIN/COMMIT -- without
-    // it the SET LOCAL is a silent no-op.
-    if ($m[1] > TIMEOUT_GUARD_CUTOFF) {
-        foreach (HOT_TABLES as $hotTable) {
-            $touches = preg_match(
-                '/\b(?:ALTER\s+TABLE|UPDATE)\s+(?:ONLY\s+)?'.preg_quote($hotTable, '/').'\b/i',
-                $content,
-            ) === 1;
+    // not queue behind live traffic and stall the whole deploy.
+    //
+    // TWO shapes are accepted, because the repo's own conventions demand both:
+    //   - DDL: BEGIN + SET LOCAL lock_timeout + COMMIT. SET LOCAL is
+    //     transaction-scoped, so without the explicit BEGIN it is a silent no-op.
+    //   - A bare-statement BACKFILL: a SESSION-level `SET lock_timeout = '2s';`
+    //     at the top of the file. CONVENTIONS.md §5 forbids backfilling inside a
+    //     migration transaction, so telling the author to wrap an UPDATE in
+    //     BEGIN/COMMIT would be advising a convention violation -- and SET LOCAL
+    //     outside a transaction bounds nothing at all.
+    //
+    // Each table carries its OWN cutoff: the content.* tables joined the list
+    // long after the site.*/core.* ones (see CONTENT_TIMEOUT_GUARD_CUTOFF).
+    $timeoutTables = [];
+    foreach (HOT_TABLES as $hotTable) {
+        $timeoutTables[$hotTable] = TIMEOUT_GUARD_CUTOFF;
+    }
+    foreach (CONTENT_HOT_TABLES as $hotTable) {
+        $timeoutTables[$hotTable] = CONTENT_TIMEOUT_GUARD_CUTOFF;
+    }
 
-            if (! $touches) {
-                continue;
-            }
+    foreach ($timeoutTables as $hotTable => $cutoff) {
+        if ($m[1] <= $cutoff) {
+            continue;
+        }
 
-            $hasTimeout = preg_match('/\bSET\s+LOCAL\s+lock_timeout\b/i', $content) === 1;
-            $hasTxn = preg_match('/^\s*BEGIN\s*;/im', $content) === 1;
+        $quoted = preg_quote($hotTable, '/');
+        $touchesDdl = preg_match('/\bALTER\s+TABLE\s+(?:ONLY\s+)?'.$quoted.'\b/i', $content) === 1;
+        $touchesDml = preg_match('/\bUPDATE\s+(?:ONLY\s+)?'.$quoted.'\b/i', $content) === 1;
 
-            if ($hasTimeout && $hasTxn) {
+        if (! $touchesDdl && ! $touchesDml) {
+            continue;
+        }
+
+        $hasTimeout = preg_match('/\bSET\s+LOCAL\s+lock_timeout\b/i', $content) === 1;
+        $hasTxn = preg_match('/^\s*BEGIN\s*;/im', $content) === 1;
+
+        if ($hasTimeout && $hasTxn) {
+            break;
+        }
+
+        // Backfill-only file: the session-level form is the correct bound here.
+        // The negative lookahead keeps `SET LOCAL lock_timeout` (already handled
+        // above, and a no-op outside a transaction) from satisfying this leg.
+        if (! $touchesDdl) {
+            $hasSessionTimeout = preg_match('/\bSET\s+(?!LOCAL\b)(?:SESSION\s+)?lock_timeout\b/i', $content) === 1;
+            if ($hasSessionTimeout) {
                 break;
             }
 
-            $errors[] = "$basename: DDL/DML on live-traffic table `$hotTable` without a lock timeout.\n"
-                ."  Wrap the statements and set the timeouts inside the transaction:\n"
-                ."    BEGIN;\n"
-                ."    SET LOCAL lock_timeout      = '2s';\n"
-                ."    SET LOCAL statement_timeout = '10s';\n"
-                ."    ...\n"
-                ."    COMMIT;\n"
+            $errors[] = "$basename: backfill DML on live-traffic table `$hotTable` without a lock timeout.\n"
+                ."  A backfill must NOT run inside a migration transaction (CONVENTIONS.md §5),\n"
+                ."  and SET LOCAL bounds nothing outside one -- it is a silent no-op there.\n"
+                ."  Bound it at SESSION level, once at the top of the file:\n"
+                ."    SET lock_timeout      = '2s';\n"
+                ."    SET statement_timeout = '10s';\n"
+                ."    UPDATE ...;\n"
                 .'  See: docs/migration-guidelines.md §Lock and statement timeouts';
             break;
         }
+
+        $errors[] = "$basename: DDL/DML on live-traffic table `$hotTable` without a lock timeout.\n"
+            ."  Wrap the statements and set the timeouts inside the transaction:\n"
+            ."    BEGIN;\n"
+            ."    SET LOCAL lock_timeout      = '2s';\n"
+            ."    SET LOCAL statement_timeout = '10s';\n"
+            ."    ...\n"
+            ."    COMMIT;\n"
+            ."  A data backfill does NOT belong in that transaction (CONVENTIONS.md §5) --\n"
+            ."  put it in its own file and bound it with a session-level SET lock_timeout.\n"
+            .'  See: docs/migration-guidelines.md §Lock and statement timeouts';
+        break;
     }
 
     // ── Check 6: a CONCURRENTLY statement must be ALONE in its file (pipeline/25001) ─
@@ -509,6 +600,58 @@ foreach (glob(MIGRATIONS_DIR.'/*.sql') as $file) {
                     ."    COMMIT;\n"
                     .'  See: supabase/migrations/CONVENTIONS.md §8';
                 break;
+            }
+        }
+    }
+
+    // ── Check 10: inline ADD COLUMN ... REFERENCES (a VALIDATED FK) ───────────
+    // An FK created as part of ADD COLUMN is added VALIDATED: Postgres runs
+    // RI_Initial_Check (a full scan of the altered table) inside the ADD COLUMN's
+    // ACCESS EXCLUSIVE window, and holds SHARE ROW EXCLUSIVE on the REFERENCED
+    // table for the duration -- blocking its writers too. Check 2 is blind to this
+    // shape because it anchors on ADD CONSTRAINT. Same class of hole as the inline
+    // column CHECK in CONVENTIONS.md §2, one lens over (audit #W1-MIG-1). There is
+    // no NOT VALID escape hatch inline, so the fix is always the split.
+    // Exempt when the table is created in the same file (nothing to scan).
+    if ($m[1] > INLINE_FK_GUARD_CUTOFF) {
+        // Match one ALTER TABLE clause at a time. The lookahead terminator is
+        // load-bearing: without it, the LEGITIMATE single-statement split
+        // (`ADD COLUMN foo uuid, ADD CONSTRAINT fk_foo FOREIGN KEY (foo)
+        // REFERENCES ... NOT VALID;`) would be swallowed whole into the ADD
+        // COLUMN clause and flagged.
+        if (preg_match_all(
+            '/\bADD\s+COLUMN\b.*?(?=,\s*ADD\s+(?:COLUMN|CONSTRAINT)\b|;|\z)/is',
+            $content,
+            $colMatches,
+            PREG_OFFSET_CAPTURE,
+        )) {
+            foreach ($colMatches[0] as $cm) {
+                if (! preg_match('/\bREFERENCES\b/i', $cm[0])) {
+                    continue;
+                }
+
+                // Which table? Walk back to the nearest ALTER TABLE before this clause.
+                $before = substr($content, 0, $cm[1]);
+                $table = null;
+                if (preg_match_all('/\bALTER\s+TABLE\s+(?:ONLY\s+)?([\w.]+)/i', $before, $atMatches)) {
+                    $table = end($atMatches[1]);
+                }
+
+                if ($table !== null && preg_match(
+                    '/\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?'.preg_quote($table, '/').'\b/i',
+                    $content,
+                ) === 1) {
+                    continue; // table created in this file — empty, nothing to validate
+                }
+
+                $errors[] = "$basename: inline ADD COLUMN ... REFERENCES on pre-existing table `".($table ?? '?')."`.\n"
+                    ."  An inline REFERENCES adds the FK VALIDATED - a full scan under the ADD COLUMN's\n"
+                    ."  ACCESS EXCLUSIVE lock, plus SHARE ROW EXCLUSIVE on the referenced table.\n"
+                    ."  Split it: ADD COLUMN (no REFERENCES), then in a separate statement\n"
+                    ."    ADD CONSTRAINT <name> FOREIGN KEY (col) REFERENCES ... NOT VALID;\n"
+                    ."  then VALIDATE CONSTRAINT <name> in its own transaction/file.\n"
+                    .'  See: supabase/migrations/CONVENTIONS.md §4';
+                break; // one error per file is enough
             }
         }
     }

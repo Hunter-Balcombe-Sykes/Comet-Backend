@@ -1394,7 +1394,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 1 of 3 complete
+- P1 High: 2 of 3 complete
 - P2 Medium: 0 of 10 complete
 - P3 Low: 0 of 14 complete
 
@@ -1402,7 +1402,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-SCALE-1** · P1 — Facet-origin backfill migration runs four unbounded full-table UPDATEs with no lock/statement timeout
+- [x] **#W1-SCALE-1** · P1 — Facet-origin backfill migration runs four unbounded full-table UPDATEs with no lock/statement timeout
     - **Where:** supabase/migrations/20260826120000_facet_source_item_origin.sql:54-112
     - **Affects:** Deploy safety for `content.item_media`, `content.offers`, `content.item_tags`, `content.item_variants` whenever this migration reaches an environment where the `content` schema is live and populated (dev today; production once the deferred schema reconciliation runs — CLAUDE.md: prod is currently missing the `content` schema entirely).
     - **Effort:** M (~2–4h)
@@ -1428,6 +1428,7 @@ None.
                 AND si2."id" <> si."id"
           );
         ```
+    - Resolution (2026-08-28): WONTFIX on the migration file; the lint gap it exposed is fixed forward. 20260826120000 is already applied to dev (ledger row verified) and its backfill COMPLETED — 15,307/15,514 item_media, 5,629/5,725 offers, 1,713/1,812 item_tags, 590/590 item_variants. At those row counts the four UPDATEs are milliseconds, not a stall, and on production they will match ZERO rows: prod has no content schema, so reconciliation creates these tables empty in the same run before this file reaches them. Editing an applied migration only changes fresh-apply behaviour, and the prescribed BEGIN + SET LOCAL statement_timeout wrapper would contradict CONVENTIONS.md §5 (never backfill inside a migration transaction) while capping the backfill at a hard 10s abort — the opposite of safer at the scale the finding worries about. The REAL defect is that guard Check 5's HOT_TABLES never gained the populated content.* tables when the content-pool programme landed, which is why this file passed CI. Fixed by adding CONTENT_HOT_TABLES (7 tables) on its own cutoff, and by correcting Check 5's printed remedy: for a bare-statement backfill it now advises and ACCEPTS a session-level SET lock_timeout, because SET LOCAL outside a transaction is a silent no-op — the old text steered authors toward either a §5 violation or a bound that bounds nothing.
 
 - [x] **#W1-SCALE-2** · P1 — `PoolResolver` re-reads every `site.section_items` row ever created for a section on the public sitepage hot path
     - **Where:** app/Site/Pools/PoolResolver.php:117-131 (`hasSelection()`), 236-245 (`plan()`)
@@ -4580,7 +4581,7 @@ Group findings that share a file, subsystem, or root-cause pattern into coherent
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 0 complete
 - P3 Low: 0 of 0 complete
 
@@ -4588,7 +4589,7 @@ Group findings that share a file, subsystem, or root-cause pattern into coherent
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-MIG-1** · P1 — Inline `ADD COLUMN ... REFERENCES` on four `content.*` tables adds a validated FK, bypassing both the repo's `NOT VALID`/`VALIDATE` convention and the automated lint that enforces it
+- [x] **#W1-MIG-1** · P1 — Inline `ADD COLUMN ... REFERENCES` on four `content.*` tables adds a validated FK, bypassing both the repo's `NOT VALID`/`VALIDATE` convention and the automated lint that enforces it
     - **Where:** supabase/migrations/20260826120000_facet_source_item_origin.sql:34-48
     - **Affects:** `content.item_media`, `content.offers`, `content.item_tags`, `content.item_variants` — all four are being written continuously by the active platform-harvesting pipeline (the wave-2 batch of 34 new brands + Deezer + TikTok/Facebook connectors landed in the days immediately preceding this migration, per recent commits `fb0da3592`, `4d630138a`). Concurrent writers to these tables are blocked for the duration of each `ALTER TABLE`'s FK-validation scan.
     - **Effort:** M (~2-4h)
@@ -4617,6 +4618,7 @@ Group findings that share a file, subsystem, or root-cause pattern into coherent
             ADD COLUMN IF NOT EXISTS "source_item_id" uuid NULL
             REFERENCES "content"."source_items" ("id") ON DELETE CASCADE;
         ```
+    - Resolution (2026-08-28): LINT-ONLY; the DB half is WONTFIX. The lint gap is real — Check 2 anchors on ADD CONSTRAINT, so an FK hanging off ADD COLUMN was structurally invisible, and exactly two files in the tree carry the pattern. But the prescribed remedy (split the already-applied migration and re-add NOT VALID -> VALIDATE) is rejected: the CLI tracks by version, not content hash, so the edit would never run on dev and would only change fresh-apply behaviour; and DROP CONSTRAINT + re-add takes STRICTLY MORE locking than doing nothing while opening an FK-absent write window on live harvesting tables. Measured on dev: the four content.* tables are 590-15,514 rows and all four FKs are already convalidated, so the validation scan cost milliseconds. Production has no content schema at all, so these files will apply there against empty tables and land correctly validated. The finding's lock analysis is also off — ADD COLUMN takes ACCESS EXCLUSIVE regardless; the FK's genuine incremental cost is the RI_Initial_Check scan inside that existing window plus SHARE ROW EXCLUSIVE on the REFERENCED table, which the finding never mentions. Fixed forward with guard Check 10 (cutoff 20260828999999, grandfathering the two applied files), a CONVENTIONS.md §4 paragraph mirroring §2's inline-CHECK precedent, and four behavioural tests including the two anti-false-positive cases that keep the legitimate one-statement split passing.
 
 ## Suggested Bundled Sessions
 
