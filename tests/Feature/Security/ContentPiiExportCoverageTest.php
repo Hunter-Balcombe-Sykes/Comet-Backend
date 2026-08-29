@@ -28,7 +28,15 @@ const CONTENT_PII_COLUMNS = [
     // author_uri: slice 6 (migration 20260813110000). This map is CURATED, not
     // discovered — a new PII column is invisible to this guard until it is
     // listed here, so listing it is part of adding it, not a follow-up.
-    'content.f_review' => ['author_name', 'author_photo_url', 'author_uri', 'text'],
+    // staff_name: #W1-PRIV-2 / #W2-DINT-1 (migration 20260828030000). It names
+    // the team member a venue-level review was about, which on a storewide
+    // source is routinely a COLLEAGUE, not the account holder — so it is PII
+    // about a third party as often as about the subject. It is listed here as
+    // exported (streamContentFReview selects it) and deliberately NOT in
+    // WITHHELD_THIRD_PARTY: the export masks the colleague case row-by-row at
+    // runtime, and select-then-mask counts as exported — the guard below fails
+    // a column claimed both ways.
+    'content.f_review' => ['author_name', 'author_photo_url', 'author_uri', 'text', 'staff_name'],
     'content.f_authored' => ['creator', 'creator_url'],
     'content.f_channel' => ['handle', 'avatar_url'],
     'content.f_text' => ['headline', 'body', 'summary'],

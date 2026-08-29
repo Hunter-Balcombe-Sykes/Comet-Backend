@@ -1741,6 +1741,104 @@ it('DINT-2: exports content.* sections user-scoped, with reviewer identity withh
     expect(json_encode($payload))->not->toContain('contrib/1234567890');
 });
 
+/*
+| #W1-PRIV-2 / #W2-DINT-1: content.f_review.staff_name was never selected into
+| the export at all. Selecting it UNCONDITIONALLY (what both findings
+| prescribed, on the false premise that it is always the account holder's own
+| name) would ship a colleague's name in the subject's DSAR bundle: a
+| venue-level source lands the whole team's reviews under this user's items,
+| which is precisely why PoolResolver person-scopes the reviews pool. So it is
+| selected and disclosed on a name match, masked otherwise.
+*/
+it('#W1-PRIV-2: exports f_review.staff_name only where it names the requester', function () {
+    setupContentTables();
+
+    // display_name 'Jane', no first_name — one usable first-token, 'jane'.
+    $pro = seedProForPayload((string) Str::uuid());
+    $now = now()->toDateTimeString();
+
+    $sourceId = (string) Str::uuid();
+    DB::connection('pgsql')->table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $pro->id, 'kind' => 'manual',
+        'priority' => 100, 'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    // Headlines are deliberately name-free: the json_encode assertion below is
+    // a whole-payload leak check, so a colleague's name must exist in exactly
+    // one place — the column under test.
+    $mine = seedContentItem($pro->id, ['id' => (string) Str::uuid(), 'kind' => 'review', 'headline_cache' => 'Review one']);
+    $theirs = seedContentItem($pro->id, ['id' => (string) Str::uuid(), 'kind' => 'review', 'headline_cache' => 'Review two']);
+    $unattributed = seedContentItem($pro->id, ['id' => (string) Str::uuid(), 'kind' => 'review', 'headline_cache' => 'Review three']);
+
+    DB::connection('pgsql')->table('content.f_review')->insert([
+        ['item_id' => $mine, 'source_id' => $sourceId, 'rating' => 5, 'staff_name' => 'Jane', 'updated_at' => $now],
+        ['item_id' => $theirs, 'source_id' => $sourceId, 'rating' => 4, 'staff_name' => 'Jack', 'updated_at' => $now],
+        ['item_id' => $unattributed, 'source_id' => $sourceId, 'rating' => 3, 'staff_name' => null, 'updated_at' => $now],
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+
+    $rows = collect($payload['content']['f_review'])->keyBy('item_id');
+    expect($rows)->toHaveCount(3);
+
+    // (a) the requester's own attribution — verbatim.
+    expect($rows[$mine])->toHaveKey('staff_name');
+    expect($rows[$mine]['staff_name'])->toBe('Jane');
+
+    // (b) a colleague's — masked, and gone from the WHOLE payload. The
+    // json_encode check is the load-bearing half: a value masked in this
+    // section but echoed anywhere else is still a disclosure.
+    expect($rows[$theirs]['staff_name'])->toBe('[withheld: names another person]');
+    expect(json_encode($payload))->not->toContain('Jack');
+
+    // (c) no attribution — key present, null. Nothing was withheld, so the
+    // marker must not appear here and pretend otherwise.
+    expect($rows[$unattributed])->toHaveKey('staff_name');
+    expect($rows[$unattributed]['staff_name'])->toBeNull();
+
+    // A withholding is lawful only if it is disclosed (Article 15). Pin a fragment
+    // of the disclosure PROSE, not the marker literal — the marker is quoted inside
+    // the disclosure, so asserting on it alone would pass even if the sentence
+    // explaining the withholding were dropped.
+    expect($payload['metadata']['withheld'])->toContain('venue-level source');
+});
+
+// The fail-closed half of the same rule: an account with no usable name on file
+// cannot match anything, so every attributed review names someone we cannot
+// confirm is the requester. Disclose nothing rather than guess — the opposite
+// would leak on precisely the accounts holding the least data.
+it('#W1-PRIV-2: withholds staff_name entirely when the account has no usable name', function () {
+    setupContentTables();
+
+    $pro = seedProForPayload((string) Str::uuid());
+    // build() re-loads the user via loadUser(), so the no-usable-name state has to
+    // be on the ROW, not the in-memory model. display_name is the only name column
+    // this lane's core.users stand-in carries; first_name is absent and already
+    // reads as null.
+    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)
+        ->update(['display_name' => null]);
+    $now = now()->toDateTimeString();
+
+    $sourceId = (string) Str::uuid();
+    DB::connection('pgsql')->table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $pro->id, 'kind' => 'manual',
+        'priority' => 100, 'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    $item = seedContentItem($pro->id, ['id' => (string) Str::uuid(), 'kind' => 'review', 'headline_cache' => 'Review one']);
+    DB::connection('pgsql')->table('content.f_review')->insert([
+        ['item_id' => $item, 'source_id' => $sourceId, 'rating' => 5, 'staff_name' => 'Jane', 'updated_at' => $now],
+    ]);
+
+    $payload = app(DataExportPayloadBuilder::class)->build($pro->id);
+    $rows = collect($payload['content']['f_review'])->keyBy('item_id');
+
+    // 'Jane' would have matched had the account carried a name — it is masked
+    // because we cannot establish it names the requester.
+    expect($rows[$item]['staff_name'])->toBe('[withheld: names another person]');
+    expect(json_encode($payload))->not->toContain('Jane');
+});
+
 // Slice 6 §5.5: content.source_stats joins the export. rating_avg/rating_count
 // are business facts about the subject's OWN listing and are disclosed;
 // summary_text is Google-authored prose derived from reviews and is withheld
