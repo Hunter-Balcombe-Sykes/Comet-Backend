@@ -8,6 +8,7 @@ use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Services\Content\ManualServiceItems;
 use App\Services\Platforms\DsarPayloadFilter;
 use App\Services\User\Concerns\ResolvesDeletedEmail;
+use App\Site\Pools\PersonNameMatch;
 use Generator;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Arr;
@@ -97,6 +98,16 @@ class DataExportPayloadBuilder
      * link alone cannot prove the row is the requester's rather than a prior
      * holder of a reassigned address. See streamEarlyAccessSignups() and
      * EARLY_ACCESS_WITHHELD_DISCLOSURE.
+     *
+     * #W1-PRIV-2 / #W2-DINT-1: `content.f_review` is listed and IS exported,
+     * but one of its columns is exported conditionally. `staff_name` names the
+     * team member a venue-level review was about — the requester on their own
+     * reviews, a colleague on the rest of the venue's. It is disclosed on a
+     * name match and replaced with `[withheld: names another person]`
+     * otherwise. See streamContentFReview() and
+     * STAFF_NAME_WITHHELD_DISCLOSURE. It is deliberately NOT in
+     * ContentPiiExportCoverageTest's WITHHELD_THIRD_PARTY: select-then-mask
+     * IS exporting, and that guard fails a column listed both ways.
      */
     public const COVERED_PII_TABLES = [
         'core.users',
@@ -133,6 +144,15 @@ class DataExportPayloadBuilder
      * A withholding is lawful only if it is disclosed; this is that disclosure.
      */
     private const EARLY_ACCESS_WITHHELD_DISCLOSURE = 'Where a waitlist record is linked to you only by email address, with no verified link to your Partna account, and that record had already progressed beyond the waitlist stage, its occupational and invitation fields (`type`, `workplace_or_industry`, `platforms`, `status`, `invited_at`, `signed_up_at`) are shown as `[withheld: ownership unverified]`. Email addresses are sometimes reassigned between people, and we cannot prove such a record was filed by you rather than by a previous holder of the address; releasing it could disclose another person\'s data to you. The record itself, the address, and the date it was created are still shown, and every early-access record verifiably linked to your account is included in full. If a withheld record is yours, contact support and we will verify it and release the full detail.';
+
+    private const STAFF_NAME_WITHHELD_MARKER = '[withheld: names another person]';
+
+    /**
+     * #W1-PRIV-2 / #W2-DINT-1: Article 15 transparency for the review
+     * staff-attribution rule. A withholding is lawful only if it is disclosed;
+     * this is that disclosure.
+     */
+    private const STAFF_NAME_WITHHELD_DISCLOSURE = 'Reviews collected from a venue-level source (a Google listing, or a storewide Booksy / Treatwell / Fresha page) carry the name of the team member the review was about. Where that name is yours it is shown in full; where it names a colleague it is shown as `[withheld: names another person]`, because your right of access does not extend to identifying another member of staff. The review\'s rating and date are shown either way. This rule is applied uniformly to every account.';
 
     /**
      * Normalise an email for email_lc lookups: trim whitespace then mb_strtolower.
@@ -263,8 +283,10 @@ class DataExportPayloadBuilder
             // withheld the same way DsarPayloadFilter withholds them from the
             // integrations section (see WITHHELD_DISCLOSURE). author_name,
             // author_photo_url, author_uri and text are deliberately omitted
-            // below.
-            ['name' => 'content.f_review', 'kind' => 'rows', 'resolve' => fn () => $this->streamContentFReview($userId)],
+            // below. staff_name IS exported, but only where it names the
+            // requester — see streamContentFReview() and
+            // STAFF_NAME_WITHHELD_DISCLOSURE.
+            ['name' => 'content.f_review', 'kind' => 'rows', 'resolve' => fn () => $this->streamContentFReview($userId, $professional->display_name, $professional->first_name)],
             // Slice 6: source-level aggregates. summary_text is Google-authored
             // prose derived from reviews and is withheld the same way
             // DsarPayloadFilter withholds the legacy reviewSummary key — see
@@ -335,7 +357,7 @@ class DataExportPayloadBuilder
             // Article 15 transparency: telling the subject what was withheld
             // and why is what makes the withholding lawful rather than an
             // undisclosed omission. See DsarPayloadFilter::WITHHELD_DISCLOSURE.
-            'withheld' => DsarPayloadFilter::WITHHELD_DISCLOSURE.' '.self::EARLY_ACCESS_WITHHELD_DISCLOSURE,
+            'withheld' => DsarPayloadFilter::WITHHELD_DISCLOSURE.' '.self::EARLY_ACCESS_WITHHELD_DISCLOSURE.' '.self::STAFF_NAME_WITHHELD_DISCLOSURE,
         ];
     }
 
@@ -584,15 +606,52 @@ class DataExportPayloadBuilder
      * on the day the column landed: it is a permanent link to the reviewer's
      * Google contributor profile, so it identifies them at least as directly
      * as author_name.
+     *
+     * #W1-PRIV-2 / #W2-DINT-1 (2026-08-29): staff_name (migration
+     * 20260828030000) IS now selected, having been silently absent. It is NOT
+     * unconditionally the subject's own name — the findings asserted that, and
+     * it is false. A venue-level source (Google listing, storewide Fresha)
+     * lands reviews of the whole team under this user's items, and staff_name
+     * is exactly the field naming WHICH team member; PoolResolver's person
+     * scope exists because of that. So the value is disclosed when it names
+     * the requester and replaced with STAFF_NAME_WITHHELD_MARKER otherwise —
+     * the same ownership-bucket + disclosed-marker shape
+     * streamEarlyAccessSignups() uses. Null stays null: nothing was withheld.
+     *
+     * The match is PersonNameMatch, shared verbatim with the pool's person
+     * scope so the two cannot drift. Business accounts get the SAME rule: one
+     * could argue venue staff names are that account's own operational data
+     * (AccountCapabilities::reviews_scoped_to_person is false for them), but a
+     * carve-out there would disclose a named third party on the strength of an
+     * account-type flag. Uniform is the deliberate choice, not an oversight.
+     *
+     * @param  ?string  $displayName  the requester's core.users.display_name
+     * @param  ?string  $firstName  the requester's core.users.first_name
      */
-    private function streamContentFReview(string $userId): Generator
+    private function streamContentFReview(string $userId, ?string $displayName = null, ?string $firstName = null): Generator
     {
+        $names = PersonNameMatch::tokens($displayName, $firstName);
+
         return $this->lazyRows(
             DB::connection('pgsql')
                 ->table('content.f_review')
                 ->join('content.items', 'content.f_review.item_id', '=', 'content.items.id')
                 ->where('content.items.user_id', $userId)
-                ->select(['content.f_review.item_id', 'content.f_review.source_id', 'content.f_review.rating', 'content.f_review.reviewed_at', 'content.f_review.updated_at'])
+                ->select(['content.f_review.item_id', 'content.f_review.source_id', 'content.f_review.rating', 'content.f_review.staff_name', 'content.f_review.reviewed_at', 'content.f_review.updated_at']),
+            transform: function (object $row) use ($names): array {
+                $row = (array) $row;
+
+                $staff = $row['staff_name'];
+                // Fails CLOSED with no usable name on file ($names === null):
+                // an attribution we cannot verify as the requester's is a
+                // colleague's until proven otherwise.
+                if ($staff !== null && trim((string) $staff) !== ''
+                    && ($names === null || ! PersonNameMatch::matchesStaffName((string) $staff, $names))) {
+                    $row['staff_name'] = self::STAFF_NAME_WITHHELD_MARKER;
+                }
+
+                return $row;
+            },
         );
     }
 

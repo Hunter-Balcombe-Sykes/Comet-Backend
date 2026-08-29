@@ -151,3 +151,30 @@ it('B7/PRIV-3: AnalyticsController rum() hashes the handle instead of logging it
     // "hashes the rum beacon handle instead of logging it raw" case drives the
     // rum() endpoint and asserts on the captured Log::info context.
 });
+
+it('#W1-SEC-4: MenuAiExtractor logs the exception CLASS on a transport throw, never getMessage()', function () {
+    $src = readSource('app/Services/Platforms/MenuAiExtractor.php');
+
+    // A caught Throwable's message can embed the full request URL — a signed
+    // Google Places photo URL or a scraped website's PDF link. The log payload
+    // must carry only the exception class; report($e) still gets full detail.
+    expect($src)
+        ->not->toContain("'error' => \$e->getMessage()")
+        ->and(substr_count($src, "'error' => \$e::class"))->toBe(2);
+    // Behavioural coverage: tests/Unit/Platforms/MenuAiExtractorFaultReportingTest.php's
+    // "reports a transport-level throw with the exception CLASS in the log, not
+    // a raw message" case drives the ocr() catch and asserts on Http::fake().
+});
+
+it('#W1-SEC-4: WebsiteMenuPdfScanJob hashes document_url instead of logging it raw', function () {
+    $src = readSource('app/Jobs/Platforms/WebsiteMenuPdfScanJob.php');
+
+    // documentUrl is a real hosted PDF link (a scraped website's document URL,
+    // possibly carrying access-scoped query parameters) — never log it verbatim.
+    expect($src)
+        ->not->toContain("'document_url' => \$this->documentUrl")
+        ->and(substr_count($src, 'document_url_hash'))->toBe(4);
+    // Behavioural coverage: tests/Feature/Platforms/WebsiteMenuPdfScanJobTest.php
+    // exercises this job end to end; the hash values themselves aren't asserted
+    // there (this source guard is what pins the shape).
+});

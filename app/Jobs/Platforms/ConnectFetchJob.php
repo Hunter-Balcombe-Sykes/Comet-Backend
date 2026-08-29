@@ -2,6 +2,7 @@
 
 namespace App\Jobs\Platforms;
 
+use App\Exceptions\Platforms\ConnectionAbandonedException;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\FeatureAvailability\FeatureAvailability;
@@ -362,6 +363,22 @@ class ConnectFetchJob implements ShouldBeUnique, ShouldQueue
                 'platform' => $connection->platform,
                 'status' => $status,
             ]);
+
+            // B3 (#W2-OBS-4): the row is about to be hard-deleted with no
+            // health-state row behind it — the refresh lane's
+            // consecutive_failures/PlatformHealthNotifier never got a chance to
+            // see this connection. Unthrottled and unconditional: terminal,
+            // once-per-connection, naturally rate-limited by the retry chain.
+            // A user-initiated abandonment is NOT reported — the modal already
+            // shows the error to the person who can retry it.
+            if ($this->systemInitiated) {
+                report(new ConnectionAbandonedException(
+                    $this->platform,
+                    $connection->id,
+                    $failures,
+                ));
+            }
+
             $connection->delete();
         }
     }

@@ -96,9 +96,19 @@ final class MediaMirror
             if ($fresh === null) {
                 return $this->fail($assetId, 'source_expired', $sourceUrl, userId: $userId);
             }
-            DB::connection('pgsql')->table('content.media_assets')
+            $wrote = DB::connection('pgsql')->table('content.media_assets')
                 ->where('id', $assetId)
+                // #SEC-5, see the video/image branches below: a mismatched
+                // pair should write nothing rather than land a refreshed URL
+                // on another user's row.
+                ->where('user_id', $userId)
                 ->update(['source_url' => $fresh]);
+            // See the video branch: a zero-row UPDATE is a failure, not a
+            // success — continuing to stream() a URL that was never
+            // persisted would report a mirror that never happened.
+            if ($wrote !== 1) {
+                return $this->fail($assetId, 'asset_unwritable', $sourceUrl, userId: $userId);
+            }
             $sourceUrl = $fresh;
         }
 
@@ -118,6 +128,13 @@ final class MediaMirror
      * shortcode + carousel position for the asset, from the coord its item's
      * instagram source row carries (`instagram:acct-{hash}:{shortCode}`) and
      * the asset's item_media position — then a freshly-signed URL for it.
+     *
+     * #SEC-5: `content.item_media` carries no `user_id` of its own, so both
+     * legs join through `content.media_assets` and filter on `ma.user_id` to
+     * stay in the caller's owner scope. This read runs BEFORE the write and
+     * BEFORE `freshUrl()` spends an embed fetch plus a billed Apify actor
+     * call, so a mismatched pair costs nothing rather than merely writing
+     * nothing.
      */
     private function refreshedInstagramUrl(string $userId, string $assetId, string $sourceUrl): ?string
     {
@@ -127,14 +144,18 @@ final class MediaMirror
         // item_id join stays as the fallback for legacy rows that predate
         // the origin column.
         $row = DB::connection('pgsql')->table('content.item_media as im')
+            ->join('content.media_assets as ma', 'ma.id', '=', 'im.asset_id')
             ->join('content.source_items as si', 'si.id', '=', 'im.source_item_id')
             ->where('im.asset_id', $assetId)
+            ->where('ma.user_id', $userId)
             ->where('si.coord', 'like', 'instagram:%')
             ->orderBy('im.position')
             ->first(['si.coord', 'im.position']);
         $row ??= DB::connection('pgsql')->table('content.item_media as im')
+            ->join('content.media_assets as ma', 'ma.id', '=', 'im.asset_id')
             ->join('content.source_items as si', 'si.item_id', '=', 'im.item_id')
             ->where('im.asset_id', $assetId)
+            ->where('ma.user_id', $userId)
             ->where('si.coord', 'like', 'instagram:%')
             ->orderBy('im.position')
             ->first(['si.coord', 'im.position']);
@@ -317,9 +338,19 @@ final class MediaMirror
         $path = 'content-media/'.$userId.'/'.substr(hash('sha256', $variant['bytes']), 0, 32).'.webp';
 
         try {
-            Storage::disk(config('partna.media_disk'))->put($path, $variant['bytes']);
+            $stored = Storage::disk(config('partna.media_disk'))->put($path, $variant['bytes']);
         } catch (\Throwable $e) {
             return $this->fail($assetId, 'store_failed', $sourceUrl, $e->getMessage(), $userId);
+        }
+
+        // See the video branch: the media disk is `throw => true`, so a failed
+        // write normally arrives as the exception above — but PARTNA_MEDIA_DISK
+        // can point at the non-throwing `public_dev` alias, where a failed write
+        // is a false return. Unchecked, that fell straight through to the UPDATE
+        // below, writing a storage_path for an object that does not exist AND
+        // clearing the mirror state, so nothing ever retried it.
+        if ($stored === false) {
+            return $this->fail($assetId, 'store_failed', $sourceUrl, 'the disk rejected the write', $userId);
         }
 
         // fingerprint is deliberately absent from this update.

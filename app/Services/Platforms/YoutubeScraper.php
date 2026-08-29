@@ -2,7 +2,9 @@
 
 namespace App\Services\Platforms;
 
+use App\Exceptions\Platforms\VendorAccountFaultException;
 use App\Services\Http\SafeUrlFetcher;
+use App\Support\ThrottledReport;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -114,6 +116,14 @@ class YoutubeScraper extends PlatformScraper
      */
     public function fetchUploadsFeed(string $channelId, int $limit = 15, ?ConditionalContext $cond = null): ?array
     {
+        // B3 (#W2-OBS-4): deliberately NOT escalated to report(). This runs per
+        // channel, per refresh tick — the failure is already carried by the
+        // REFRESH lane (YoutubeFetch/YoutubeMusicFetch convert a null feed to
+        // FetchUnavailableException -> PlatformRefresher::recordFailure ->
+        // consecutive_failures -> PlatformHealthNotifier::connectionRefreshFailing
+        // at the breaker trip). Adding report() here would fire on every tick for
+        // every dead channel, exactly the noise PlatformRefresher.php:84-88 rules
+        // out. Do not re-file this without re-reading that ruling.
         $headers = array_merge(['User-Agent' => self::USER_AGENT], $cond?->headers() ?? []);
 
         // The channel feed (?channel_id=UC…) is the only uploads feed YouTube
@@ -301,7 +311,18 @@ class YoutubeScraper extends PlatformScraper
         }
 
         if (! $response->successful()) {
-            Log::warning('youtube.api_resolve_not_ok', ['handle' => $handle, 'status' => $response->status()]);
+            $status = $response->status();
+            Log::warning('youtube.api_resolve_not_ok', ['handle' => $handle, 'status' => $status]);
+
+            // B3 (#W2-OBS-4): 401/403 means the shared YOUTUBE_DATA_API_KEY is
+            // rejected — the scrape leg silently absorbs it forever otherwise.
+            // 404/429/5xx stay Log::warning-only; the scrape fallback covers them.
+            if (in_array($status, [401, 403], true)) {
+                ThrottledReport::once(
+                    "youtube:data_api_fault:{$status}",
+                    new VendorAccountFaultException('youtube_data_api', 'key_rejected', $status),
+                );
+            }
 
             return null;
         }

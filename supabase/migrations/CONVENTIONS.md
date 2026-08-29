@@ -3,7 +3,9 @@
 These rules apply to every `.sql` file added under `supabase/migrations/` after 2026-05-14.
 Pre-convention migrations are grandfathered (they ran safely on empty tables before launch).
 
-A CI lint (`guard:no-unsafe-migrations`) enforces the three most dangerous violations automatically.
+A CI lint (`guard:no-unsafe-migrations`, also a pre-push hook) enforces ten of these rules
+automatically; the rest are convention. Each check carries its own grandfathering cutoff — see the
+constants at the top of `scripts/guard-no-unsafe-migrations.php`.
 
 ---
 
@@ -47,8 +49,10 @@ in its own one-statement file, never inside a `BEGIN`/`COMMIT`. A bare `DROP IND
 `ACCESS EXCLUSIVE` on the index's table for the catalog write, blocking every writer until it
 completes — the same downtime class as a non-concurrent `CREATE INDEX`. Enforced by
 `scripts/guard-no-unsafe-migrations.php` **Check 7** for files timestamped after `20260722000000`
-(hot tables: `site.design_kits`, `site.sites`, `site.blocks`, `core.users`); pre-convention files
-are grandfathered, and any file that must deviate carries the
+(hot tables: `site.design_kits`, `site.sites`, `site.blocks`, `core.users` — deliberately *not* the
+`content.*` group §8 adds to Check 5: Check 7 infers the table from the index *name*, and tokens like
+`items`/`offers`/`item_tags` collide far too readily to be worth the false positives); pre-convention
+files are grandfathered, and any file that must deviate carries the
 `-- guard:no-unsafe-migrations:disable-file` marker with a written justification.
 
 The collapsed baseline is `CONCURRENTLY`-free, so a from-zero apply of `supabase/migrations/` is now
@@ -156,6 +160,22 @@ COMMIT;
 every row. With `NOT VALID`, only new rows are checked at write time; `VALIDATE CONSTRAINT` back-fills
 the existing rows under `SHARE UPDATE EXCLUSIVE`.
 
+**Inline `REFERENCES` counts too**: `ALTER TABLE … ADD COLUMN col uuid REFERENCES other(id)` creates
+the FK **validated** — Postgres runs `RI_Initial_Check` over the whole table inside the `ADD COLUMN`'s
+`ACCESS EXCLUSIVE` window, and holds `SHARE ROW EXCLUSIVE` on the *referenced* table while it does,
+blocking that table's writers too. There is no `NOT VALID` escape hatch inline. Split it: `ADD COLUMN`
+with no inline `REFERENCES`, then a named `ADD CONSTRAINT … NOT VALID`, then `VALIDATE CONSTRAINT` in
+a separate transaction — the §4 pattern above, exactly as written. Enforced by
+`scripts/guard-no-unsafe-migrations.php` **Check 10** for files timestamped after `20260828999999`;
+Check 2 anchors on `ADD CONSTRAINT` and is structurally blind to this shape, which is why it needed a
+check of its own (audit `#W1-MIG-1`, the same class of hole as the inline column CHECK in §2). The two
+pre-existing files that use the pattern (`20260812090000_content_media_assets_site_media_id`,
+`20260826120000_facet_source_item_origin`) are **grandfathered**: both landed on sub-6 MB `content.*`
+tables where the validation scan cost milliseconds, both FKs are already validated on dev, and
+re-splitting an applied-and-validated FK (`DROP CONSTRAINT` → re-add `NOT VALID` → `VALIDATE`) takes
+strictly *more* locking than leaving it while opening an FK-absent write window on a live-harvested
+table. Production has no `content` schema, so those files apply against empty tables there.
+
 ---
 
 ## 5. Never backfill data inside a migration transaction
@@ -227,9 +247,8 @@ parse object resolution (audit `migrations-early/MIG-4`).
 
 ## 8. Lock and statement timeouts on hot-table DDL
 
-Every migration that runs DDL/DML against a live-traffic table (`site.design_kits`, `site.sites`,
-`site.blocks`, `core.users`) opens a transaction and sets bounded timeouts, so a blocked lock aborts
-fast instead of stalling the whole sequential `db push`:
+Every migration that runs DDL/DML against a live-traffic table opens a transaction and sets bounded
+timeouts, so a blocked lock aborts fast instead of stalling the whole sequential `db push`:
 
 ```sql
 BEGIN;
@@ -239,11 +258,32 @@ SET LOCAL statement_timeout = '10s';
 COMMIT;
 ```
 
-**Enforced** by `scripts/guard-no-unsafe-migrations.php` **Check 5** for files timestamped after
-`20260711999999`. This is **forward-only**: the pre-convention files that lack the guards are
+**The hot list is eleven tables**, in two groups with two different cutoffs:
+
+| Group | Tables | Cutoff |
+|---|---|---|
+| `site.*` / `core.*` | `site.design_kits`, `site.sites`, `site.blocks`, `core.users` | `20260711999999` |
+| `content.*` (the curation store — written on every ingest run, read on every public render) | `content.items`, `content.item_media`, `content.offers`, `content.item_tags`, `content.item_variants`, `content.source_items`, `content.media_assets` | `20260828999999` |
+
+**A backfill takes the SESSION-level form, not this one.** §5 forbids running a backfill inside a
+migration transaction, and `SET LOCAL` bounds nothing outside one — it is a silent no-op there. So a
+bare-statement backfill file bounds itself once at the top instead:
+
+```sql
+SET lock_timeout      = '2s';
+SET statement_timeout = '10s';
+
+UPDATE content.item_media m SET … WHERE …;
+```
+
+**Enforced** by `scripts/guard-no-unsafe-migrations.php` **Check 5**, which accepts either shape
+(`BEGIN` + `SET LOCAL` for DDL; session-level `SET` for a DML-only file) and prints whichever remedy
+fits the file. This is **forward-only**: the pre-convention files that lack the guards are
 grandfathered, not retrofitted — they re-apply against an empty, traffic-free DB at the prod cutover,
 where there is no live traffic to contend for the lock (audit `migrations-early/MIG-7`,
-`migrations-recent/MIG-8`). Add the guards to every *new* hot-table migration.
+`migrations-recent/MIG-8`). The `content.*` group got its own later cutoff for the same reason: it was
+added in 2026-08 (audit `#W1-SCALE-1`), long after those tables' migrations had already been applied
+to dev. Add the guards to every *new* hot-table migration.
 
 ---
 
@@ -348,8 +388,10 @@ already used that spelling before this convention was written.
 | Set NOT NULL | `ALTER COLUMN SET NOT NULL` | Four-step NOT VALID pattern (see §3) |
 | Add FK | `ADD CONSTRAINT FOREIGN KEY` | `ADD CONSTRAINT ... NOT VALID` → `VALIDATE CONSTRAINT` |
 | Backfill data | `UPDATE` inside migration transaction | Separate file or dispatched job |
-| DDL/DML on a hot table | No timeout, or `SET LOCAL` with no `BEGIN` | `BEGIN;` + `SET LOCAL lock_timeout`/`statement_timeout` + `COMMIT;` |
+| DDL on a hot table | No timeout, or `SET LOCAL` with no `BEGIN` | `BEGIN;` + `SET LOCAL lock_timeout`/`statement_timeout` + `COMMIT;` (see §8 for the eleven-table list) |
+| Backfill on a hot table | `SET LOCAL` outside a transaction (silent no-op) | Session-level `SET lock_timeout`/`statement_timeout` at the top of the file (see §8) |
 | Inline column CHECK | `ADD COLUMN col … CHECK (…)` | `ADD COLUMN` then `ADD CONSTRAINT … NOT VALID` → `VALIDATE` (see §2) |
+| Inline column FK | `ADD COLUMN col … REFERENCES …` | `ADD COLUMN` then `ADD CONSTRAINT … NOT VALID` → `VALIDATE` (see §4) |
 | Drop index (hot table) | `DROP INDEX` | `DROP INDEX CONCURRENTLY IF EXISTS` (own file, no transaction) (see §1) |
 | Drop function/trigger | Unqualified `DROP FUNCTION foo` | Schema-qualified `DROP FUNCTION schema.foo()` (see §7) |
 | Bundle VALIDATE with ADD | `ADD … NOT VALID; VALIDATE;` one txn | `COMMIT` between them — VALIDATE in its own txn/file (see §2) |

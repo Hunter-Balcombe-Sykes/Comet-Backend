@@ -14,6 +14,7 @@ use App\Routing\LinkProjector;
 use App\Routing\Projection;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\ApifyBudget;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
@@ -576,8 +577,15 @@ class GoogleBusinessAutoSync
             // (nothing changed), but MUST fire whenever the seed ran, even if
             // every store in this batch was a dupe (mirrors the pre-lock
             // unconditional dispatch for that case).
+            // B5: the key now comes from CacheKeyGenerator::orderingFamilyLock()
+            // rather than being rebuilt from ORDERING_FAMILY here, because
+            // SourceReconciler::exclusiveSlotLockKey() takes the SAME lock for
+            // the 'ordering' routing class and the two must agree byte for
+            // byte. runUnderSeedLock() is what withPlatformSeedLock() delegates
+            // to anyway — same log key, same context, same TTL/block — so this
+            // is a key-source change, not a behaviour change.
             $ran = false;
-            $findings = $this->withPlatformSeedLock($userId, self::ORDERING_FAMILY, function () use ($userId, $stores, &$ran) {
+            $findings = $this->runUnderSeedLock(CacheKeyGenerator::orderingFamilyLock($userId), 'platforms.auto_sync.platform_lock_timeout', ['user_id' => $userId, 'platform' => self::ORDERING_FAMILY], function () use ($userId, $stores, &$ran) {
                 $ran = true;
                 $findings = [];
 

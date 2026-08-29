@@ -2,7 +2,9 @@
 
 namespace App\Services\Platforms;
 
+use App\Exceptions\Platforms\VendorAccountFaultException;
 use App\Services\Cache\AiSpendBudget;
+use App\Support\ThrottledReport;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -25,8 +27,13 @@ use Throwable;
 // Both absent → configured() false and the job exits quietly (same
 // "not configured" contract as MenuController::scan()'s 503).
 //
-// Privacy/logging: image URLs are public Google media links; API keys and
-// response payloads are never logged — status codes only.
+// Privacy/logging: callers can pass a real hosted URL (a Google Places photo
+// URL carrying a scoped access key, or a scraped website's PDF link) as well
+// as a manual-upload base64 data URI — API keys and response payloads are
+// never logged, and (#W1-SEC-4) neither is a caught exception's raw message,
+// because Laravel's HTTP client embeds the full request URL in it. Log
+// payloads carry the exception CLASS + HTTP status only; report($e) below
+// still gets the full exception object, so Nightwatch keeps full detail.
 class MenuAiExtractor
 {
     use CleansScrapedStrings;
@@ -134,13 +141,19 @@ PROMPT;
                     'table_format' => 'markdown',
                 ]);
         } catch (Throwable $e) {
-            Log::warning('menu_ai.ocr.threw', ['user_id' => $userId, 'error' => $e->getMessage()]);
+            // #W1-SEC-4: log the exception CLASS, not getMessage() — Laravel's HTTP
+            // client can embed the full request URL (a signed Google Places photo
+            // link) in a transport exception's message. report($e) below keeps the
+            // full exception for Nightwatch; only the log payload is reduced.
+            Log::warning('menu_ai.ocr.threw', ['user_id' => $userId, 'error' => $e::class]);
+            ThrottledReport::once('menu_ai:fault:mistral:threw', $e);
 
             return null;
         }
 
         if (! $response->successful()) {
             Log::warning('menu_ai.ocr.not_ok', ['user_id' => $userId, 'status' => $response->status()]);
+            $this->reportVendorFault('mistral', $response->status());
 
             return null;
         }
@@ -185,13 +198,16 @@ PROMPT;
                     ],
                 ]);
         } catch (Throwable $e) {
-            Log::warning('menu_ai.structure.threw', ['user_id' => $userId, 'error' => $e->getMessage()]);
+            // #W1-SEC-4: exception CLASS only in the log payload — see ocr()'s catch.
+            Log::warning('menu_ai.structure.threw', ['user_id' => $userId, 'error' => $e::class]);
+            ThrottledReport::once('menu_ai:fault:deepseek:threw', $e);
 
             return null;
         }
 
         if (! $response->successful()) {
             Log::warning('menu_ai.structure.not_ok', ['user_id' => $userId, 'status' => $response->status()]);
+            $this->reportVendorFault('deepseek', $response->status());
 
             return null;
         }
@@ -202,6 +218,47 @@ PROMPT;
         }
 
         return $this->parseItems($content);
+    }
+
+    /**
+     * Escalate a vendor's non-2xx to Nightwatch when the status says
+     * something about OUR account rather than routine backpressure (B3
+     * escalation matrix, #W1-OBS-1). $vendor is 'mistral' or 'deepseek'.
+     *
+     *   401/402/403 (key/billing rejected)  -> THROTTLED, 1h per vendor+status
+     *   400/404/422 (endpoint moved / our payload wrong) -> UNTHROTTLED —
+     *     a canary bounded by our own deploy cadence, not vendor volume
+     *   429 (routine backpressure)          -> nothing extra; Log::warning covers it
+     *   >= 500 (vendor infra)               -> THROTTLED, 1h per vendor
+     *   any other 4xx                       -> nothing extra
+     *
+     * mistral_ocr / deepseek_structure are capped at 900 calls/day EACH
+     * (config/partna.php) — an unthrottled report on every call during an
+     * outage would be up to 1800 Nightwatch events/day.
+     */
+    private function reportVendorFault(string $vendor, int $status): void
+    {
+        if (in_array($status, [401, 402, 403], true)) {
+            ThrottledReport::once(
+                "menu_ai:fault:{$vendor}:{$status}",
+                new VendorAccountFaultException($vendor, 'rejected', $status),
+            );
+
+            return;
+        }
+
+        if (in_array($status, [400, 404, 422], true)) {
+            report(new VendorAccountFaultException($vendor, 'unexpected_status', $status));
+
+            return;
+        }
+
+        if ($status >= 500) {
+            ThrottledReport::once(
+                "menu_ai:fault:{$vendor}:5xx",
+                new VendorAccountFaultException($vendor, 'server_error', $status),
+            );
+        }
     }
 
     /**

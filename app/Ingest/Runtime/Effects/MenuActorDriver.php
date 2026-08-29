@@ -2,8 +2,10 @@
 
 namespace App\Ingest\Runtime\Effects;
 
+use App\Exceptions\Platforms\VendorAccountFaultException;
 use App\Ingest\Runtime\EffectNotAttempted;
 use App\Services\Cache\ApifyBudget;
+use App\Support\ThrottledReport;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -208,6 +210,14 @@ final class MenuActorDriver implements BilledEffectDriver
             }
 
             if (in_array($status, self::ACCOUNT_FAULT_STATUSES, true)) {
+                // B3 (#W2-OBS-5): throttled — an account-wide fault (revoked
+                // token, unrented actor, x402) would otherwise fire once per
+                // store per attempt across the whole digest run.
+                ThrottledReport::once(
+                    "ingest:apify:account_fault:menu:{$status}",
+                    new VendorAccountFaultException('apify', "actor:menu:{$actor}", $status),
+                );
+
                 return BilledEffectResult::noAnswer(
                     "menu actor '{$actor}' returned {$status} — account or actor fault, not a verdict on the store"
                 );

@@ -2,6 +2,7 @@
 
 use App\Services\Media\ImagePixelBudget;
 use App\Services\Media\MediaMirror;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -46,6 +47,43 @@ function mirrorProjectedAsset(string $userId, string $fingerprint): string
     ]);
 
     return $id;
+}
+
+/**
+ * The content.sources -> content.source_items -> content.item_media chain
+ * refreshedInstagramUrl() correlates through, for one already-projected
+ * asset. $ownerId is the SOURCE's owner — the row the join is meant to find.
+ */
+function mirrorInstagramRefreshFixture(string $ownerId, string $assetId, string $shortCode): void
+{
+    $sourceId = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $sourceId,
+        'user_id' => $ownerId,
+        'kind' => 'connection',
+        'priority' => 100,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    $sourceItemId = (string) Str::uuid();
+    DB::table('content.source_items')->insert([
+        'id' => $sourceItemId,
+        'source_id' => $sourceId,
+        'coord' => "instagram:acct-abc:{$shortCode}",
+        'kind' => 'media',
+        'first_seen_at' => now(),
+        'last_seen_at' => now(),
+    ]);
+    DB::table('content.item_media')->insert([
+        'id' => (string) Str::uuid(),
+        'item_id' => (string) Str::uuid(),
+        'source_id' => $sourceId,
+        'source_item_id' => $sourceItemId,
+        'asset_id' => $assetId,
+        'role' => 'video',
+        'position' => 0,
+        'created_at' => now(),
+    ]);
 }
 
 it('writes storage_path onto the existing asset row without minting a second', function () {
@@ -427,6 +465,66 @@ it('will not land one user\'s bytes on another user\'s asset row, and says so ra
         ->and($row->mirror_last_reason)->toBeNull();
 });
 
+it('will not refresh a stranger\'s expired Instagram URL, and spends no embed fetch on the mismatched pair (SEC-1)', function () {
+    $owner = createTenant('exo-'.Str::lower(Str::random(6)));
+    $other = createTenant('exs-'.Str::lower(Str::random(6)));
+    // Live-verified expired stamp (InstagramMediaUrlTest.php): 0x6A88938E is
+    // in the past, so isExpired() trips before any owner scope is checked.
+    $expiredUrl = 'https://scontent.cdninstagram.com/o1/v/x.mp4?oe=6A88938E';
+    $assetId = mirrorProjectedAsset($owner->id, 'url-'.sha1('instagram:acct-abc:EXPIRE1:0'));
+    DB::table('content.media_assets')->where('id', $assetId)->update(['source_url' => $expiredUrl]);
+    mirrorInstagramRefreshFixture($owner->id, $assetId, 'EXPIRE1');
+
+    Http::fake([
+        'www.instagram.com/p/EXPIRE1/embed/*' => Http::response(
+            '<script>{"video_url\":\"https:\\\\/\\\\/scontent.cdninstagram.com\\\\/o1\\\\/v\\\\/fresh.mp4?oe=7A000000\"}</script>'
+        ),
+    ]);
+
+    // A job dispatched with a mismatched (userId, assetId) pair, on a row
+    // that ALSO needs its Instagram URL refreshed.
+    $ok = app(MediaMirror::class)->mirror($other->id, $assetId, $expiredUrl);
+
+    expect($ok)->toBeFalse();
+    // The item_media/source_items join is scoped to the caller's user_id, so
+    // the mismatched pair finds no row and never reaches freshUrl() — no
+    // embed fetch, and (were this the actor fallback) no billed Apify call.
+    Http::assertNothingSent();
+
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+    expect($row->source_url)->toBe($expiredUrl)
+        ->and($row->storage_path)->toBeNull()
+        ->and((int) $row->mirror_attempts)->toBe(0)
+        ->and($row->mirror_last_reason)->toBeNull();
+});
+
+it('refreshes the owner\'s own expired Instagram URL and proceeds to mirror it', function () {
+    $owner = createTenant('exr-'.Str::lower(Str::random(6)));
+    // No `/o1/v/` segment, so mirror()'s own kind sniff on the ORIGINAL
+    // (expired) URL picks 'image', matching the display_url embed field.
+    $expiredUrl = 'https://scontent.cdninstagram.com/v/x.jpg?oe=6A88938E';
+    $freshUrl = 'https://scontent.cdninstagram.com/v/fresh.jpg?oe=7A000000';
+    $assetId = mirrorProjectedAsset($owner->id, 'url-'.sha1('instagram:acct-abc:REFRESH1:0'));
+    DB::table('content.media_assets')->where('id', $assetId)->update(['source_url' => $expiredUrl]);
+    mirrorInstagramRefreshFixture($owner->id, $assetId, 'REFRESH1');
+
+    Http::fake([
+        'www.instagram.com/p/REFRESH1/embed/*' => Http::response(
+            '<script>{"display_url\":\"https:\\\\/\\\\/scontent.cdninstagram.com\\\\/v\\\\/fresh.jpg?oe=7A000000\"}</script>'
+        ),
+        $freshUrl => Http::response(mirrorImageBytes(400, 400), 200, ['Content-Type' => 'image/jpeg']),
+    ]);
+
+    $ok = app(MediaMirror::class)->mirror($owner->id, $assetId, $expiredUrl);
+
+    expect($ok)->toBeTrue();
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+    // The refresh branch itself: source_url is rewritten in place, not left
+    // pointing at the dead signed link.
+    expect($row->source_url)->toBe($freshUrl)
+        ->and($row->storage_path)->not->toBeNull();
+});
+
 /**
  * Bytes in a format GD may decode but `getimagesize*` cannot parse.
  *
@@ -622,4 +720,76 @@ it('rejects an oversized image on its file size, before it is ever read into a s
         // anything hands the bytes to the decoder.
         ->and($row->mirror_last_reason)->toBe('body_rejected')
         ->and(mirrorTempFiles($dir))->toBe([]);
+});
+
+// ── #W2-OBS-3: a false return from put() is a failure, not a silent success ──
+//
+// The media disk is `throw => true`, so a failed write normally arrives as an
+// exception. But PARTNA_MEDIA_DISK can point at the non-throwing `public_dev`
+// alias, where a failed write is a FALSE RETURN — and the image branch used to
+// discard that return, writing a storage_path for an object that does not exist
+// and clearing the mirror state on the way. The video branch has guarded this
+// since it was written; these two pin the image branch to the same contract.
+
+/**
+ * A real, non-throwing disk whose put() refuses — the `public_dev` shape.
+ *
+ * A real adapter rather than Storage::shouldReceive('disk'): the facade
+ * override is global and would also intercept the unrelated disk use inside
+ * mirror(), so a passing test would prove nothing about the branch under test.
+ */
+function mirrorRejectingDisk(string $name = 'rejecting'): void
+{
+    $real = Storage::disk('media');
+
+    Storage::set($name, new class($real->getDriver(), $real->getAdapter(), []) extends FilesystemAdapter
+    {
+        public function put($path, $contents, $options = [])
+        {
+            return false;
+        }
+    });
+
+    config()->set('partna.media_disk', $name);
+}
+
+it('treats a false disk return as a failure rather than a silent success', function () {
+    $user = createTenant('mir-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:ABC123:0'));
+    Http::fake(['*' => Http::response(mirrorImageBytes(320, 320), 200, ['Content-Type' => 'image/jpeg'])]);
+    mirrorRejectingDisk();
+
+    $ok = app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/photo.jpg');
+
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+
+    // storage_path stays NULL: a path for an object that is not there is worse
+    // than no path at all, because nothing would ever retry it.
+    expect($ok)->toBeFalse()
+        ->and($row->storage_path)->toBeNull()
+        ->and($row->mime_type)->toBeNull()
+        ->and((int) $row->mirror_attempts)->toBe(1)
+        ->and($row->mirror_last_reason)->toBe('store_failed');
+});
+
+it('does not clear an existing failure state when the disk rejects the write', function () {
+    // The fall-through the fix closes: clearedMirrorState() is folded into the
+    // success UPDATE, so reaching it on a rejected write would reset
+    // mirror_attempts to 0 and null the reason — resetting the give-up counter
+    // on every single attempt, which is unbounded retry with no operator line.
+    $user = createTenant('mir-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:ABC123:0'));
+    DB::table('content.media_assets')->where('id', $assetId)
+        ->update(['mirror_attempts' => 2, 'mirror_last_reason' => 'fetch_failed']);
+    Http::fake(['*' => Http::response(mirrorImageBytes(320, 320), 200, ['Content-Type' => 'image/jpeg'])]);
+    mirrorRejectingDisk();
+
+    $ok = app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/photo.jpg');
+
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+
+    expect($ok)->toBeFalse()
+        ->and((int) $row->mirror_attempts)->toBe(3)
+        ->and($row->mirror_last_reason)->toBe('store_failed')
+        ->and($row->storage_path)->toBeNull();
 });

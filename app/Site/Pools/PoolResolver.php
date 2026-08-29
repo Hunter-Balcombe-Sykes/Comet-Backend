@@ -1532,49 +1532,22 @@ class PoolResolver
      */
     private function personNameTokens(object $pro): ?array
     {
-        $full = [];
-        $first = [];
-        foreach (['display_name' => true, 'first_name' => false] as $column => $isFull) {
-            $name = mb_strtolower(trim(preg_replace('/\s+/u', ' ', (string) ($pro->{$column} ?? '')) ?? ''));
-            if ($name === '') {
-                continue;
-            }
-            // Only a MULTI-word display name is a "full name" — a lone token
-            // (and the first_name column, which is one by construction) is a
-            // first-token match and rides the length floor below.
-            if ($isFull && str_contains($name, ' ')) {
-                $full[] = $name;
-            }
-            $lead = explode(' ', $name)[0];
-            // A 1–2 letter lead token ("dj", initials) matches half the
-            // dictionary — too weak to attribute a stranger's words with.
-            if (mb_strlen($lead) >= 3) {
-                $first[] = $lead;
-            }
-        }
-
-        $full = array_values(array_unique($full));
-        $first = array_values(array_unique(array_diff($first, $full)));
-
-        return $full === [] && $first === [] ? null : ['full' => $full, 'first' => $first];
+        // Delegated (2026-08-29): the GDPR export needs the SAME judgement to
+        // decide whether f_review.staff_name is the requester or a co-worker
+        // (#W1-PRIV-2), and two drifting name matchers is a hazard this repo
+        // has already paid for once.
+        return PersonNameMatch::tokens(
+            $pro->display_name ?? null,
+            $pro->first_name ?? null,
+        );
     }
 
     /** @param array{full: list<string>, first: list<string>} $names */
     private function reviewMentionsPerson(object $facet, array $names): bool
     {
-        $staff = mb_strtolower(trim((string) ($facet->staff_name ?? '')));
-        if ($staff !== '') {
-            $staffLead = explode(' ', preg_replace('/\s+/u', ' ', $staff) ?? $staff)[0];
-            foreach ($names['full'] as $name) {
-                if ($staff === $name || $staffLead === explode(' ', $name)[0]) {
-                    return true;
-                }
-            }
-            foreach ($names['first'] as $name) {
-                if ($staff === $name || $staffLead === $name) {
-                    return true;
-                }
-            }
+        // Structured staff attribution — shared with the DSAR lane.
+        if (PersonNameMatch::matchesStaffName((string) ($facet->staff_name ?? ''), $names)) {
+            return true;
         }
 
         $text = (string) ($facet->text ?? '');

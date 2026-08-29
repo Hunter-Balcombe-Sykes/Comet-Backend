@@ -8,8 +8,13 @@ use App\Jobs\Platforms\CommerceProbeJob;
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\AutoBookingConnectDispatcher;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -27,6 +32,12 @@ use Illuminate\Support\Str;
  */
 class SourceReconciler
 {
+    /** Cache::lock TTL (seconds) for the exclusive-slot lock — auto-released if a wedged worker never reaches block()'s timeout. Mirrors BuildsAutoSyncFindings::SEED_LOCK_TTL. */
+    private const EXCLUSIVE_SLOT_LOCK_TTL = 10;
+
+    /** Cache::lock block() wait (seconds) before giving up and applying nothing. Mirrors BuildsAutoSyncFindings::SEED_LOCK_BLOCK. */
+    private const EXCLUSIVE_SLOT_LOCK_BLOCK = 3;
+
     public function __construct(
         private readonly ConnectionIdentity $identity,
         private readonly IriCanonicalizer $canonicaliser,
@@ -117,15 +128,140 @@ class SourceReconciler
         // routing class. A second one is not an error and is not silently
         // dropped — it is held as a conflict the user resolves in the
         // suggestions inbox (Keep / Replace).
-        if ($verdict === Verdict::Place && $this->isExclusiveAuto($routingClass) && ! $context->isDirectRequest()) {
-            $incumbent = $this->incumbentFor($user, $routingClass, $placement->surfaceKey, $identifier, $aliasConnectionId);
-            if ($incumbent !== null) {
-                $verdict = Verdict::Hold;
-                $blockReason = 'conflict';
-                $conflictId = $incumbent;
+        //
+        // #W2-LIFE-3: that check and the write it guards have to be ONE
+        // critical section. Read-then-write with nothing in between let two
+        // concurrent harvests both see "no incumbent"; the loser's
+        // forceFill(['is_primary' => true]) inside applyIntent() then raised an
+        // uncaught 23505 on idx_platform_connections_primary_per_class INSIDE
+        // the LIFE-16 transaction, taking the whole reconcile down with it (a
+        // 500 / failed job) — so the "hold it as a conflict" semantics this
+        // block exists to provide never ran at all. (The audit's stated impact,
+        // "two rows both marked is_primary", is not the bug: that partial
+        // unique index already makes it impossible.)
+        //
+        // LOCK OUTER, DB TRANSACTION INNER — never the reverse. Same ordering
+        // as every other holder of these keys
+        // (ManagesIntegrationConnection::withCrossPlatformLock,
+        // BuildsAutoSyncFindings::runUnderSeedLock), and the only ordering that
+        // cannot deadlock against them.
+        $exclusiveLockKey = $verdict === Verdict::Place && $this->isExclusiveAuto($routingClass) && ! $context->isDirectRequest()
+            ? $this->exclusiveSlotLockKey($routingClass, (string) $user->id)
+            : null;
+
+        $settle = function () use (
+            $user, $placement, $context, $iri, $routingClass, $surface, $identifier, $aliasConnectionId, &$verdict, &$blockReason, &$conflictId
+        ): array {
+            if ($verdict === Verdict::Place && $this->isExclusiveAuto($routingClass) && ! $context->isDirectRequest()) {
+                $incumbent = $this->incumbentFor($user, $routingClass, $placement->surfaceKey, $identifier, $aliasConnectionId);
+                if ($incumbent !== null) {
+                    $verdict = Verdict::Hold;
+                    $blockReason = 'conflict';
+                    $conflictId = $incumbent;
+                }
             }
+
+            // $verdict/$blockReason/$conflictId go in BY REFERENCE: the cap
+            // check inside can still downgrade Place -> Hold, and reconcile()'s
+            // $result (and the fresha auto-connect gate below it) must see that
+            // downgrade — passing by value silently reported a `place` verdict
+            // for a link the cap had just held.
+            return $this->settleAndApply($user, $placement, $context, $iri, $routingClass, $surface, $identifier, $verdict, $blockReason, $conflictId, $aliasConnectionId);
+        };
+
+        if ($exclusiveLockKey !== null) {
+            try {
+                [$intentId, $connectionId] = Cache::lock($exclusiveLockKey, self::EXCLUSIVE_SLOT_LOCK_TTL)
+                    ->block(self::EXCLUSIVE_SLOT_LOCK_BLOCK, $settle);
+            } catch (LockTimeoutException) {
+                // Contention: write NOTHING and say so. Mirrors
+                // BuildsAutoSyncFindings::runUnderSeedLock's "$default =
+                // nothing applied" contract — the intent is not written, the
+                // connection is not created, and the next harvest re-proposes
+                // the same link.
+                Log::warning('routing.reconcile.exclusive_slot_lock_timeout', [
+                    'user_id' => (string) $user->id,
+                    'routing_class' => $routingClass,
+                    'surface_key' => $placement->surfaceKey,
+                ]);
+
+                // NOTE the verdict in $result is the PLACEMENT's, not a settled one:
+                // nothing was applied, but a caller matching on 'place' (e.g.
+                // LinkInBioImporter::handlePlaced) will still count this as connected.
+                // Contention-only and self-healing on the next harvest, but do not read
+                // this return as "the placement happened".
+                return $result;
+            }
+        } else {
+            [$intentId, $connectionId] = $settle();
         }
 
+        $result['intent_id'] = $intentId;
+        $result['connection_id'] = $connectionId;
+        $result['verdict'] = $verdict->value;
+        $result['block_reason'] = $blockReason;
+
+        // An unclaimed pre-account site has nobody to answer "whose menu is
+        // this?", so a Fresha connection placed here would otherwise sit
+        // selection-less and publish nothing — FreshaConnector::pull() refuses a
+        // null selection_ref before any HTTP call (F7 2026-08-10, re-found as
+        // R14 2026-08-19). FreshaAutoSelector answers it: the account holder's
+        // own menu when the staff matcher identifies them, storewide when it
+        // cannot.
+        //
+        // Gated on the USER's claim state, not a caller flag. This lane's
+        // $autoConnectBooking is vestigial (LinkInBioScanJob:52-56) — a flag has
+        // to survive every hop and that one did not. A claimed owner is present
+        // and keeps their picker.
+        //
+        // AFTER the transaction, deliberately: dispatchFor() re-queries the row
+        // just written and enqueues a job that must not run against a rolled-back
+        // write. (ConnectFetchJob is dispatched afterCommit() as well, so this is
+        // belt and braces, not redundancy — the re-query itself must see the row.)
+        //
+        // AND OUTSIDE $settle's lock, equally deliberately: under
+        // QUEUE_CONNECTION=sync this reaches FreshaConnectFetch.php:271, which
+        // takes CacheKeyGenerator::bookingXorLock itself. Cache::lock is NOT
+        // reentrant, so moving this call inside the closure self-deadlocks the
+        // booking path against a lock it already holds. Do not move it.
+        if ($verdict === Verdict::Place
+            && $connectionId !== null
+            && $placement->surfaceKey === 'fresha.book'
+            && $user->isUnclaimed()
+            && (bool) config('partna.connect.auto_booking.enabled', true)
+        ) {
+            $this->autoBookingConnect->dispatchFor((string) $user->id);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Everything downstream of the exclusive-slot check: the per-surface cap,
+     * then the LIFE-16 transaction. Split out of reconcile() only so the
+     * exclusive path can run it and the incumbent check together under one
+     * lock — the body is unchanged.
+     *
+     * $verdict / $blockReason / $conflictId are BY REFERENCE: the cap check
+     * below downgrades Place -> Hold, and the caller's result (plus the fresha
+     * auto-connect gate) reads the downgraded values.
+     *
+     * @param  array<string, mixed>  $surface
+     * @return array{0: string, 1: ?string}
+     */
+    private function settleAndApply(
+        User $user,
+        Placement $placement,
+        RoutingContext $context,
+        Iri $iri,
+        string $routingClass,
+        array $surface,
+        string $identifier,
+        Verdict &$verdict,
+        ?string &$blockReason,
+        ?string &$conflictId,
+        ?string $aliasConnectionId,
+    ): array {
         // Per-surface account cap. Skipped entirely when the identity resolver
         // matched an EXISTING row (alias or exact): folding a link into an
         // account we already hold adds no account, so it can never be what the
@@ -162,7 +298,7 @@ class SourceReconciler
         // IntegrationConnectionObserver::$afterCommit — see the comment on
         // that property — so nothing here performs I/O inside the
         // transaction.
-        [$intentId, $connectionId] = DB::transaction(function () use (
+        return DB::transaction(function () use (
             $user, $placement, $context, $iri, $routingClass, $identifier, $verdict, $blockReason, $conflictId, $aliasConnectionId
         ) {
             $intentId = $this->upsertIntent($user, $placement, $context, $iri, $routingClass, $identifier, $verdict, $blockReason, $conflictId);
@@ -195,44 +331,37 @@ class SourceReconciler
 
             return [$intentId, $connectionId];
         });
-
-        $result['intent_id'] = $intentId;
-        $result['connection_id'] = $connectionId;
-        $result['verdict'] = $verdict->value;
-        $result['block_reason'] = $blockReason;
-
-        // An unclaimed pre-account site has nobody to answer "whose menu is
-        // this?", so a Fresha connection placed here would otherwise sit
-        // selection-less and publish nothing — FreshaConnector::pull() refuses a
-        // null selection_ref before any HTTP call (F7 2026-08-10, re-found as
-        // R14 2026-08-19). FreshaAutoSelector answers it: the account holder's
-        // own menu when the staff matcher identifies them, storewide when it
-        // cannot.
-        //
-        // Gated on the USER's claim state, not a caller flag. This lane's
-        // $autoConnectBooking is vestigial (LinkInBioScanJob:52-56) — a flag has
-        // to survive every hop and that one did not. A claimed owner is present
-        // and keeps their picker.
-        //
-        // AFTER the transaction, deliberately: dispatchFor() re-queries the row
-        // just written and enqueues a job that must not run against a rolled-back
-        // write. (ConnectFetchJob is dispatched afterCommit() as well, so this is
-        // belt and braces, not redundancy — the re-query itself must see the row.)
-        if ($verdict === Verdict::Place
-            && $connectionId !== null
-            && $placement->surfaceKey === 'fresha.book'
-            && $user->isUnclaimed()
-            && (bool) config('partna.connect.auto_booking.enabled', true)
-        ) {
-            $this->autoBookingConnect->dispatchFor((string) $user->id);
-        }
-
-        return $result;
     }
 
     private function isExclusiveAuto(string $routingClass): bool
     {
         return in_array($routingClass, ['booking', 'reservations', 'ordering'], true);
+    }
+
+    /**
+     * The serialisation point for an exclusive routing class — the SAME key
+     * every other writer of that class's slot takes, so the reconciler
+     * excludes them rather than merely excluding itself.
+     *
+     * Deliberately NOT BuildsAutoSyncFindings::withBookingXorLock and friends:
+     * that trait is off limits here (its own docblock records why the
+     * reconciler cannot take it), so the keys are resolved from
+     * CacheKeyGenerator directly. Ordering has no XOR key of its own — its
+     * family has always serialised on the platform-wide 'online-ordering'
+     * connection lock, named as orderingFamilyLock() so this and
+     * GoogleBusinessAutoSync::seedOrdering build one identical string.
+     *
+     * Null = not an exclusive class (isExclusiveAuto() is the gate; this
+     * returning null for a class it admits would silently drop the lock).
+     */
+    private function exclusiveSlotLockKey(string $routingClass, string $userId): ?string
+    {
+        return match ($routingClass) {
+            'booking' => CacheKeyGenerator::bookingXorLock($userId),
+            'reservations' => CacheKeyGenerator::reservationsXorLock($userId),
+            'ordering' => CacheKeyGenerator::orderingFamilyLock($userId),
+            default => null,
+        };
     }
 
     /**
@@ -504,7 +633,60 @@ class SourceReconciler
             'last_refresh_status' => ConnectionPayload::contentIsOwed($surfaceKey, $routingClass) ? 'pending' : 'ok',
         ]);
         $connection->created_by_catalog_digest = CompiledCatalog::digest();
-        $connection->save();
+
+        // #W1-LIFE-3 / #W2-LIFE-2. The read above and this INSERT are a
+        // classic pre-read/write gap: a concurrent reconcile for the same
+        // (user, surface, resource) triple can commit between them, and the
+        // loser then hits idx_platform_connections_unique_active
+        // (20260727110005) — a 500 / failed job where the correct outcome is
+        // the idempotent "already handled".
+        //
+        // SAVEPOINT, not a catch in place. We are inside reconcile()'s LIFE-16
+        // transaction, and Postgres ABORTS the entire transaction on any
+        // statement error: a 23505 caught where it was raised leaves every
+        // later statement failing 25P02, so the re-read below could never run.
+        // A nested DB::connection('pgsql')->transaction() emits SAVEPOINT /
+        // RELEASE instead of BEGIN / COMMIT; on the violation Laravel rolls
+        // back to the savepoint and rethrows, leaving the outer transaction
+        // healthy. The catch therefore sits OUTSIDE the nested call, by which
+        // point the savepoint is already gone. Exactly the idiom in
+        // SiteProvisioningService::attemptSubdomain() (and Laravel's own
+        // Builder::createOrFirst()); this repo has shipped the catch-in-place
+        // version three times (see ProjectionWriter.php's note).
+        //
+        // Not insertOrIgnore, either (the SourceProvisioner idiom): that
+        // bypasses Eloquent, and with it IntegrationConnectionObserver,
+        // booted()'s saving() validators, HasUuids, and the non-fillable
+        // created_by_catalog_digest set above.
+        //
+        // UniqueConstraintViolationException covers BOTH drivers — Postgres
+        // matches 23505, SQLite matches the "UNIQUE constraint failed"
+        // message — so never string-match a SQLSTATE here.
+        try {
+            DB::connection('pgsql')->transaction(function () use ($connection) {
+                $connection->save();
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            // Under READ COMMITTED the winner is visible now: it committed,
+            // which is precisely why we got the violation. The throw converts
+            // an impossible re-read (violation on a row that then isn't there)
+            // into a loud failure rather than a bogus id.
+            $winnerId = IntegrationConnection::query()
+                ->where('user_id', $user->id)
+                ->where('surface_key', $surfaceKey)
+                ->where('resource_id', $identifier)
+                ->whereNull('deleted_at')
+                ->value('id');
+
+            if ($winnerId === null) {
+                throw $e;
+            }
+
+            // Same early return as the $connection !== null arm above: the
+            // winner already owns the is_primary decision and, for a content
+            // surface, already dispatched its own ConnectFetchJob.
+            return (string) $winnerId;
+        }
 
         // First connection in an exclusive class owns the CTA.
         if ($this->isExclusiveAuto($routingClass)) {
@@ -516,7 +698,23 @@ class SourceReconciler
                 ->exists();
 
             if (! $hasPrimary) {
-                $connection->forceFill(['is_primary' => true])->save();
+                // #W2-LIFE-3, second half. Same savepoint reasoning as above,
+                // against idx_platform_connections_primary_per_class
+                // (20260727110008). Different resolution though: losing this
+                // race means someone else's connection owns the CTA, which is
+                // a perfectly good outcome — swallow and carry on with
+                // is_primary false rather than rethrowing. reconcile() holds
+                // the exclusive-slot lock across this whole span for auto
+                // writes, so in practice only a DIRECT paste (which bypasses
+                // the lock by design) can reach the catch.
+                try {
+                    DB::connection('pgsql')->transaction(function () use ($connection) {
+                        $connection->forceFill(['is_primary' => true])->save();
+                    });
+                } catch (UniqueConstraintViolationException) {
+                    // Keep the in-memory model honest with what the DB holds.
+                    $connection->is_primary = false;
+                }
             }
         }
 

@@ -14,6 +14,7 @@
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 
 // pinPoolPresence() lives in tests/Pest.php — shared with
 // PresenceProbeEscalationTest.php, which needs the exact same trick.
@@ -97,4 +98,39 @@ it('threads two distinct probe labels when two different probes fault in the sam
         expect($ctx['site_id'])->toBe($pro->site->id);
         expect($ctx['user_id'])->toBe($pro->id);
     }
+});
+
+it('tags a content-pool read fault with the new event name and its own escalation bucket', function () {
+    // #W1-LIFE-5: the seven content-pool reads reuse safeQuery() via its new
+    // optional $event parameter so they log under 'sitepage.content_read_failed'
+    // instead of the presence-probe event — a fault here is a different FAMILY
+    // of read (content, not presence) and must not be indistinguishable from
+    // the 8 presence probes above in either the log stream or the escalation
+    // counter.
+    $pro = createTenant('probe-content-fault');
+    setupSectionsTables();
+    setupBlocksTable();
+    // Deliberately no setupMediaTables() — getDocument()'s SiteMedia query
+    // genuinely faults (missing site.site_media), same "missing table in a
+    // partial test env" idiom as every other probe fault in this file.
+
+    Log::spy();
+
+    $result = app(SitepageDataResolverService::class)->getDocument($pro->site);
+
+    expect($result)->toBe(['state' => 'draft', 'data' => null]);
+
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->withArgs(fn (string $message, array $ctx) => $message === 'sitepage.content_read_failed'
+            && $ctx['probe'] === 'content_document'
+            && $ctx['site_id'] === $pro->site->id
+            && $ctx['user_id'] === $pro->id
+            && is_string($ctx['error']) && $ctx['error'] !== '');
+
+    // Escalation still runs through the shared trait, keyed on THIS probe's
+    // own bucket (sitepage_probe_content_document) — distinct from every
+    // presence-probe bucket above, so a sustained content-read outage pages
+    // independently of a sustained presence-probe outage.
+    expect(RateLimiter::attempts('analytics:fault:sitepage_probe_content_document'))->toBe(1);
 });

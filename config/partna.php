@@ -2933,6 +2933,14 @@ return [
             'severity_2_hours' => 72,
             'severity_1_hours' => 168,
             'breach_warning_min' => 120,
+            // moderation:sla-scan runs every 15 min against a 120-min warning
+            // window, so a case stays "at risk" for ~8 scan runs before it
+            // breaches. Without a cooldown, an un-suppressed alert would page
+            // on-call ~8x for the same case (#W1-LIFE-1). Keyed on max
+            // severity in the scan, so an escalation to a higher band still
+            // pages immediately instead of being muted by the lower band's
+            // cooldown.
+            'alert_cooldown_seconds' => (int) env('PARTNA_MODERATION_SLA_ALERT_COOLDOWN_SECONDS', 3600),
         ],
     ],
 
@@ -2979,6 +2987,22 @@ return [
         // double-tap click window.
         'action_dedup_ttl_seconds' => (int) env('PARTNA_ANALYTICS_ACTION_DEDUP_TTL_SECONDS', 300),
         'action_tap_dedup_ttl_seconds' => (int) env('PARTNA_ANALYTICS_ACTION_TAP_DEDUP_TTL_SECONDS', 3),
+
+        // SCALE-3: per-SITE pageview ingest ceiling, per fixed one-minute window.
+        // Every OTHER control on the pageview route is per-IP — throttle:analytics
+        // (AppServiceProvider::configureRateLimiting, 'analytics') is 120/min per
+        // visitor IP plus a 3000/min per-true-IP backstop. A distributed crawler
+        // sweep spread across many source IPs against one viral page passes all of
+        // them, and the resulting ingest consumes shared `analytics` queue capacity
+        // that belongs to every other tenant. This is the only tenant-scoped bound.
+        //
+        // NOT a bot filter and NOT a dedup: pageview deliberately records bot UAs and
+        // genuine refreshes (owner decision — see AnalyticsController::pageview()).
+        // Sized far above any plausible organic minute (2000/min ≈ 2.9M/day for ONE
+        // site, against a whole-platform target of ~1M beacons/day), so only an
+        // abusive or runaway source can reach it. Over the cap the beacon still
+        // answers 201 — only the queue write is dropped.
+        'pageview_site_cap_per_minute' => (int) env('PARTNA_ANALYTICS_PAGEVIEW_SITE_CAP_PER_MINUTE', 2000),
 
         // CFG-1: PurgeRawAnalyticsEvents batch delete size — bounds each DELETE's row
         // count so the purge never holds one long-running transaction.

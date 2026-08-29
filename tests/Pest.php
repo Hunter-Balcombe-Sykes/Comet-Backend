@@ -2911,6 +2911,17 @@ function setupContentTables(): void
         // already exists / unsupported — ignore
     }
 
+    // Mirrors idx_content_sources_connection (20260727140000): one source
+    // per connection. Without this, ensureContentSource()'s insertOrIgnore
+    // deduplicates nothing in the SQLite lane and any assertion built on it
+    // is vacuous.
+    try {
+        $pg->statement('CREATE UNIQUE INDEX IF NOT EXISTS content.idx_content_sources_connection
+            ON sources (connection_id) WHERE connection_id IS NOT NULL');
+    } catch (Throwable $e) {
+        // already exists / unsupported — ignore
+    }
+
     $pg->statement('CREATE TABLE IF NOT EXISTS content.source_items (
         id TEXT PRIMARY KEY NOT NULL,
         source_id TEXT NOT NULL,

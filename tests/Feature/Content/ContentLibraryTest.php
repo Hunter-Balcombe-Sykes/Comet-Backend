@@ -18,6 +18,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
+use App\Services\Media\VideoVariantService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -231,6 +232,30 @@ it('upload rejects a file whose real bytes do not match its declared image mime'
     ])->assertStatus(422)
         ->assertJsonValidationErrors('image');
 
+    expect(SiteMedia::query()->count())->toBe(0);
+});
+
+// #W2-SEC-2 (reclassified): a rejected video container must 422, not 500.
+// ffprobe (VideoVariantService::probeAndValidate) already validates the
+// container pre-DB/pre-storage — mirrors UserUploadController's catch chain.
+it('upload maps an invalid video container to 422, not a 500', function () {
+    Storage::fake('media');
+    config(['partna.media_disk' => 'media', 'filesystems.disks.media.url' => 'https://cdn.test']);
+
+    [$user] = contentUserWithSite('up5');
+
+    $videoVariant = Mockery::mock(VideoVariantService::class);
+    $videoVariant->shouldReceive('probeAndValidate')
+        ->once()
+        ->andThrow(new RuntimeException('ffprobe failed (exit 1): Invalid data found when processing input'));
+    app()->instance(VideoVariantService::class, $videoVariant);
+
+    $res = actingAsUser($user)->postJson('/api/content/uploads', [
+        'video' => UploadedFile::fake()->create('corrupt.mp4', 512, 'video/mp4'),
+    ]);
+
+    $res->assertStatus(422);
+    expect($res->json('message'))->toContain('Invalid video file');
     expect(SiteMedia::query()->count())->toBe(0);
 });
 

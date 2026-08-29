@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\Platforms\ConnectionAbandonedException;
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\FeatureAvailabilityRule;
 use App\Models\Core\Site\IntegrationConnection;
@@ -617,4 +618,63 @@ it('connectFetchStrategy() falls back to fetchStrategy() for every descriptor ex
     $fresha = $registry->get('fresha');
     expect($fresha->connectFetchStrategy())->toBeInstanceOf(FreshaConnectFetch::class);
     expect($fresha->fetchStrategy())->toBeInstanceOf(FreshaFetch::class);
+});
+
+// ── B3 (#W2-OBS-4): report a SYSTEM-initiated connection once it is abandoned ──
+// The retry chain (SYSTEM_RETRY_DELAYS) has no health-state row behind it — the
+// refresh lane's consecutive_failures/PlatformHealthNotifier never got a chance
+// to see a connection that never fetched OK once. When the chain is exhausted
+// and F26 is about to hard-delete the row, this is the only remaining signal.
+
+it('reports a ConnectionAbandonedException when a system-initiated connect exhausts its retry chain', function () {
+    Exceptions::fake();
+    setupIngestTables(); // the delete-triggered observer touches ingest.sources
+    $user = cfjUser('cfj6');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'vimeo',
+        'resource_id' => 'acct-cfj6',
+        'payload' => ['apiPath' => 'someuser', 'url' => 'https://vimeo.com/someuser', 'link' => 'https://vimeo.com/someuser'],
+        'is_active' => true,
+        'last_refresh_status' => 'pending',
+        'last_refreshed_at' => null,
+        // One short of the cap: this failure lands consecutive_failures at
+        // count(SYSTEM_RETRY_DELAYS) + 1 — past the retry chain entirely.
+        'consecutive_failures' => count(ConnectFetchJob::SYSTEM_RETRY_DELAYS),
+    ]);
+
+    $this->mock(VimeoApi::class, fn ($m) => $m->shouldReceive('fetchVideos')->once()->andReturn([]));
+
+    $job = new ConnectFetchJob($connection->id, 'vimeo', systemInitiated: true);
+    app()->call([$job, 'handle']);
+
+    expect($connection->fresh()->trashed())->toBeTrue();
+    Exceptions::assertReported(function (ConnectionAbandonedException $e) use ($connection) {
+        return $e->platform === 'vimeo'
+            && $e->connectionId === $connection->id
+            && $e->attempts === count(ConnectFetchJob::SYSTEM_RETRY_DELAYS) + 1;
+    });
+});
+
+it('does not report ConnectionAbandonedException for a user-initiated terminal failure — the modal already shows it', function () {
+    Exceptions::fake();
+    setupIngestTables(); // the delete-triggered observer touches ingest.sources
+    $user = cfjUser('cfj7');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'vimeo',
+        'resource_id' => 'acct-cfj7',
+        'payload' => ['apiPath' => 'someuser2', 'url' => 'https://vimeo.com/someuser2', 'link' => 'https://vimeo.com/someuser2'],
+        'is_active' => true,
+        'last_refresh_status' => 'pending',
+        'last_refreshed_at' => null,
+    ]);
+
+    $this->mock(VimeoApi::class, fn ($m) => $m->shouldReceive('fetchVideos')->once()->andReturn([]));
+
+    $job = new ConnectFetchJob($connection->id, 'vimeo'); // interactive default
+    app()->call([$job, 'handle']);
+
+    expect($connection->fresh()->trashed())->toBeTrue();
+    Exceptions::assertReportedCount(0);
 });

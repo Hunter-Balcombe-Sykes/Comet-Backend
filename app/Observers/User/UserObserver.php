@@ -54,6 +54,16 @@ class UserObserver
         'last_name',
         'public_contact_number',
         'public_contact_email',
+        // Renders as `profile.bio` (IndividualProfileResource). Added
+        // 2026-08-29 (#W1-CCH-1): WorkplaceObserver's identity mirror writes
+        // this column directly via $user->save() for a business account, a
+        // save this class also observes — without it here, that save's own
+        // updated() never rotates site.sites.updated_at, so the
+        // public.profile:{handle}:{ts} key never advances and the mirrored
+        // bio is invisible on the public payload until an unrelated write
+        // happens to touch the site. Same class of omission as
+        // public_contact_* below, just for a different writer.
+        'bio',
     ];
 
     public function __construct(

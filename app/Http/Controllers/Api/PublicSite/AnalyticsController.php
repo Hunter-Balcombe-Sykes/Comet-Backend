@@ -19,8 +19,10 @@ use App\Models\Core\User\User;
 use App\Services\Analytics\AnalyticsDedupGuard;
 use App\Services\Analytics\AnalyticsEvent;
 use App\Services\Analytics\AnalyticsEventSanitizer;
+use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Analytics\Contracts\AnalyticsIngestor;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Cache\DailyCounterClaim;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -35,8 +37,19 @@ use Illuminate\Support\Str;
 class AnalyticsController extends ApiController
 {
     use DetectsClientInfo;
+    use EscalatesRepeatedFaults;
     use HashesClientData;
     use ResolvesSiteFromRequest;
+
+    /**
+     * TTL on the per-site pageview burst counter — 2x the 60s bucket width. The
+     * window is defined by the minute bucket IN the key, so this only has to
+     * outlive the bucket it belongs to; the doubling means a claim landing on a
+     * window boundary can never leave a key without an expiry.
+     */
+    private const PAGEVIEW_BURST_BUCKET_SECONDS = 60;
+
+    private const PAGEVIEW_BURST_TTL_SECONDS = self::PAGEVIEW_BURST_BUCKET_SECONDS * 2;
 
     public function __construct(
         private readonly AnalyticsIngestor $ingestor,
@@ -56,8 +69,32 @@ class AnalyticsController extends ApiController
             return $this->error('Site not found', 404);
         }
 
-        // NOTE: pageview intentionally has NO bot filter and NO dedup (preserved). A bot
-        // UA still records a pageview today; changing that is a separate metrics decision.
+        // pageview intentionally has NO bot filter and NO dedup, and that is UNCHANGED
+        // (#W1-SCALE-3, 2026-08-29). A bot UA still records a pageview and is separated
+        // at READ time by device_type ('label, don't drop' — owner decision, pinned by
+        // PageviewDeviceTypeTest); a genuine refresh still counts. What WAS missing is a
+        // tenant-scoped bound: every other control here is per-IP, so a distributed
+        // crawler sweep across many source IPs slipped through all of them. The per-site
+        // burst cap below is that bound, and it is the whole of the change — do not
+        // re-file the bot filter or a visitor-keyed dedup against this method.
+        // Checked BEFORE buildEvent(): that builder is pure (no logging, no writes, no
+        // dispatch), so running it first would only cost work we are about to discard.
+        // Bot LABELLING is unaffected either way — it happens inside buildEvent, which
+        // still runs for every request under the cap.
+        if (! $this->withinSiteBurstCap($site)) {
+            // Over the ceiling: mint the id and answer exactly as a recorded pageview
+            // does, dropping only the queue write. Byte-identical response, so there is
+            // no wire change and no way to fingerprint the cap.
+            //
+            // Fixed window, so up to 2x the cap can pass across a bucket boundary, and
+            // over the ceiling a real visitor's pageview is dropped alongside a bot's.
+            // Both are inherent to a per-site ceiling and were signed off as such.
+            return $this->success([
+                'message' => 'Pageview recorded',
+                'visit_id' => (string) Str::orderedUuid(),
+            ], 201);
+        }
+
         $event = $this->buildEvent(
             type: AnalyticsEvent::TYPE_PAGEVIEW,
             request: $request,
@@ -501,6 +538,57 @@ class AnalyticsController extends ApiController
         $host = parse_url($origin, PHP_URL_HOST);
 
         return is_string($host) && $host !== '' ? strtolower($host) : null;
+    }
+
+    /**
+     * #W1-SCALE-3 — per-SITE pageview ingest ceiling, fixed one-minute window.
+     *
+     * The route already carries throttle:analytics (120/min per visitor IP + a
+     * 3000/min per-true-IP backstop, AppServiceProvider::configureRateLimiting).
+     * Both are per-IP: a crawler sweep distributed across many source IPs against
+     * one viral page satisfies every one of them, and the ingest it generates eats
+     * shared `analytics` queue capacity belonging to other tenants. This is the
+     * only bound keyed by the thing being protected — the site.
+     *
+     * FAILS OPEN. Any cache fault ingests normally: analytics is a fail-open
+     * subsystem by contract (QueuedIngestor, AnalyticsDedupGuard), and a Valkey
+     * blip must never drop or 500 a beacon. A SUSTAINED run of faults still pages
+     * via EscalatesRepeatedFaults, under its own 'pageview_burst' label so it
+     * cannot merge with the dedup guard's counter.
+     *
+     * The counter goes through DailyCounterClaim, not a bare Cache::increment:
+     * INCRBY on a missing key recreates it with NO expiry, and cache shares a
+     * Valkey instance with the queue under instance-wide volatile-lru, where a
+     * TTL-less key is permanent, inevictable ballast. DailyCounterClaim asserts
+     * the TTL server-side on every path.
+     */
+    private function withinSiteBurstCap(Site $site): bool
+    {
+        $cap = (int) config('partna.analytics.pageview_site_cap_per_minute', 2000);
+
+        // A non-positive cap disables the ceiling outright — the kill switch.
+        if ($cap <= 0) {
+            return true;
+        }
+
+        try {
+            return DailyCounterClaim::claim(
+                // now(), not time(): the bucket then follows Carbon's test clock, so a
+                // window-boundary case is expressible instead of being a race.
+                CacheKeyGenerator::analyticsPageviewSiteBurst($site->id, intdiv(now()->getTimestamp(), self::PAGEVIEW_BURST_BUCKET_SECONDS)),
+                $cap,
+                self::PAGEVIEW_BURST_TTL_SECONDS,
+            );
+        } catch (\Throwable $e) {
+            Log::warning('analytics.pageview_burst_cap_fault', [
+                'site_id' => $site->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            self::escalateIfSustained($e, 'pageview_burst');
+
+            return true;
+        }
     }
 
     /**

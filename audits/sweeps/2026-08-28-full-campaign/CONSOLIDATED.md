@@ -101,7 +101,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 1 of 5 complete
+- P1 High: 5 of 5 complete
 - P2 Medium: 0 of 9 complete
 - P3 Low: 0 of 2 complete
 
@@ -109,7 +109,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-SEC-1** · P1 — MediaMirror's expired-URL refresh write is the one update in the class not scoped by `user_id`
+- [x] **#W1-SEC-1** · P1 — MediaMirror's expired-URL refresh write is the one update in the class not scoped by `user_id`
     - **Where:** app/Services/Media/MediaMirror.php:99-101 (`mirror()`); app/Services/Media/MediaMirror.php:122-134 (`refreshedInstagramUrl()`)
     - **Affects:** `content.media_assets` rows; a mismatched (userId, assetId) pair passed to `MediaMirror::mirror()` (via `MirrorMediaAssetJob`, e.g. from a dispatch bug or an asset re-association race) would overwrite a `source_url` cross-tenant instead of failing.
     - **Effort:** S (~0.5–1h)
@@ -131,8 +131,9 @@
             $sourceUrl = $fresh;
         }
         ```
+    - Resolution (2026-08-28): FIXED, and the prescription was incomplete. Scoping the UPDATE by user_id is half of it; the other half is the class's own doctrine at :250-266 — a zero-row UPDATE must not be treated as success, or the job continues to stream() with a URL that was never persisted. Both are now in place, routing a miss through the existing asset_unwritable reason (fail() is itself owner-scoped, so a mismatched pair bumps nobody's counter). The READ is scoped too, through a join to content.media_assets on ma.user_id, because content.item_media has no user_id column and BOTH the primary and fallback joins correlated by asset_id alone. That ordering matters for cost as well as leakage: the read runs before the write and freshUrl() spends an embed fetch AND a billed Apify actor call, so a mismatched pair should cost nothing. The new negative test pins the read scope (Http::assertNothingSent — nothing is even fetched); a positive control covers the refresh branch end-to-end, which had no coverage at all before. The write-scope predicate is defence-in-depth with no direct test: content.media_assets.id is the PRIMARY KEY, so user_id is fixed per asset and the scoped read can never hand the write a mismatched pair. asset_unwritable is asserted in zero tests for any of the three branches — pre-existing debt across the class, not introduced here.
 
-- [ ] **#W1-SEC-2** · P1 — Menu-scan upload has no decompression/pixel-bomb guard
+- [x] **#W1-SEC-2** · P1 — Menu-scan upload has no decompression/pixel-bomb guard
     - **Where:** app/Http/Requests/Platforms/ScanMenuUploadRequest.php:20-32; app/Http/Controllers/Api/Platforms/MenuController.php:146-154
     - **Affects:** Any authenticated food-business user uploading a menu photo/PDF; the OCR pipeline (Mistral) and the PHP worker processing the upload.
     - **Effort:** S (~0.5–1h)
@@ -154,8 +155,9 @@
         $mime = (string) $file->getMimeType();
         $dataUri = 'data:'.$mime.';base64,'.base64_encode((string) file_get_contents($file->getPathname()));
         ```
+    - Resolution (2026-08-28): FIXED, with the stated impact corrected. The finding claims a pixel bomb "can crash the server process" — nothing on this path rasterises: the bytes are base64-encoded and POSTed to Mistral OCR, and peak memory is already bounded by the existing max:20480 rule. The real cost is narrower but real: a ~33-byte PNG declaring 20000x20000 passes both existing rules and spends a BILLED OCR call on a payload that will fail or hang. Guarded in ScanMenuUploadRequest::withValidator() using the existing ImagePixelBudget::exceeds() (bytes-based, fails closed on an unreadable header). NOT getimagesize(), which is not a decode gate, and NOT safeToDecode() — its decodable() allowlist is jpeg/png/webp, so it would 422 every legitimate menu PDF; PDFs take an explicit early return. The regression assertion is Http::assertNothingSent(), i.e. the billed call never happens.
 
-- [ ] **#W1-SEC-3** · P1 — Non-admin staff can use hidden PII fields as search filters to confirm they exist, defeating the PII-hide gate
+- [x] **#W1-SEC-3** · P1 — Non-admin staff can use hidden PII fields as search filters to confirm they exist, defeating the PII-hide gate
     - **Where:** app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php index()
     - **Affects:** Professional users' email addresses and phone numbers; any non-admin staff role using the professionals search screen.
     - **Effort:** S (~0.5–1h)
@@ -183,8 +185,9 @@
         ...
         $showPii = $staff && $staff->isAdmin();
         ```
+    - Resolution (2026-08-28): FIXED. The $showPii gate is now hoisted above the query and shapes the PREDICATE as well as the response, so the primary_email/phone ILIKE legs simply do not match for a non-admin. handle, display_name, first_name, last_name, sector and the subdomain sub-query stay ungated — all are rendered to every staff tier, so none is an oracle. No Policy introduced: index() deliberately has no authorizeForUser because the target is a collection, and the house pattern for role-shaped DATA is the inline isAdmin() read (show(), StaffWorkplaceController) — this is query shaping, not an authorization abort. The regression test asserts the support actor's email search returns the SAME result set as an unrelated random string (the no-narrowing assertion the finding actually asks for; a bare "returns empty" would be weaker), with an admin positive control proving the capability is preserved for the tier that already sees the value. Verified in the APPLIED-SCHEMA lane (ILIKE has no SQLite equivalent), and the reviewer confirmed non-vacuity by reverting the gate and observing exactly the two expected failures. grep confirms no sibling endpoint has the same hide-in-response-but-search-on-it mismatch. PRODUCT NOTE: support-tier staff lose email/phone lookup entirely on this endpoint — deliberate, but flagged to the owner.
 
-- [ ] **#W1-SEC-4** · P1 — MenuAiExtractor logs raw exception messages that can carry signed hosted-media URLs
+- [x] **#W1-SEC-4** · P1 — MenuAiExtractor logs raw exception messages that can carry signed hosted-media URLs
     - **Where:** app/Services/Platforms/MenuAiExtractor.php:128-140 (`ocr()`), 187-191 (`structure()`); real hosted-URL callers app/Jobs/Platforms/GoogleMenuPhotoScanJob.php:177, app/Jobs/Platforms/WebsiteMenuPdfScanJob.php:74
     - **Affects:** Log/Nightwatch persistence of Google Places photo URLs and scanned-website document URLs, both of which can carry access-scoped query parameters.
     - **Effort:** S (~0.5–1h)
@@ -200,6 +203,7 @@
             return null;
         }
         ```
+    - Resolution (2026-08-28): PARTIALLY STALE. The named leak is unreachable: ocr() POSTs to the constant MISTRAL_OCR_URL with the hosted URL in the request BODY, and Laravel pins http_errors=false (PendingRequest.php:268) with no ->throw() here, so the catch only ever sees ConnectionException — whose message carries the constant Mistral URI, never the photo URL. The Places key is an X-Goog-Api-Key header, not a query param. Hardened anyway (log $e::class; the full exception object still reaches Nightwatch via report(), so no diagnostic detail is lost) and fixed the REAL adjacent leak the finding walked past: WebsiteMenuPdfScanJob logged document_url VERBATIM at :76, :85, :96 and :108 — now sha1-hashed, matching the correlation handle the job already computes at :54. The value passed to ocrDocumentUrl() is untouched, so the hash is log-only and does not break identity.
 
 - [x] **#W1-SEC-5** · P1 — DSAR export can leak a previous email owner's early-access signup history after email recycle
     - **Resolved:** Fixed 2026-08-28 as a duplicate of #W1-PRIV-1 (same method, same mechanism) — see that finding. Its prescribed interim (suppress when `created_at` predates the account by an implausible margin) was REJECTED: timestamp proximity is not ownership and would wrongly redact a genuine applicant who signs up long after joining the waitlist.
@@ -501,7 +505,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 5 complete
+- P1 High: 5 of 5 complete
 - P2 Medium: 1 of 20 complete
 - P3 Low: 0 of 12 complete
 
@@ -509,7 +513,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-LIFE-1** · P1 — `moderation:sla-scan` only logs SLA breaches, no Nightwatch alert path
+- [x] **#W1-LIFE-1** · P1 — `moderation:sla-scan` only logs SLA breaches, no Nightwatch alert path
     - **Where:** app/Console/Commands/Moderation/ModerationSlaScanCommand.php:35 (scheduled by routes/console.php:466-470)
     - **Affects:** Trust & safety response times — every open/triaged/under_review moderation case approaching its SLA deadline.
     - **Effort:** S (~0.5–1h)
@@ -530,7 +534,7 @@
         }
         ```
 
-- [ ] **#W1-LIFE-2** · P1 — `ensureContentSource()` find-or-create races against its own unique index, surfacing as an uncaught 500
+- [x] **#W1-LIFE-2** · P1 — `ensureContentSource()` find-or-create races against its own unique index, surfacing as an uncaught 500
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:379-399 (`ensureContentSource()`)
     - **Affects:** First projection of a newly connected platform; concurrent connector runs for the same connection.
     - **Effort:** S (~0.5–1h)
@@ -560,8 +564,9 @@
 
         return $id;
         ```
+    - Resolution (2026-08-28): FIXED, with the stated impact corrected. It is NOT an "uncaught 500" — both callers are non-HTTP: RunExecutor.php:245 wraps the call in catch (\Throwable) -> report(), downgrades the run to degraded and writes a severity=critical ingest.anomalies row (so it pages and the whole stream's projection is dropped for that run); the other caller is the ingest:project artisan command. Reachability is narrow but real: RunExecutor is serialised per source by SourceScheduler's claim, but ingest:project bypasses that claim entirely (ProjectionWriter's own comment at :226-231) and two ingest.sources sharing one connection_id are not excluded. Fixed with insertOrIgnore + re-read + a loud throw on a null re-read, matching ensureManualSource() 30 lines below. Also added the missing idx_content_sources_connection to the SQLite stand-in — without it insertOrIgnore deduplicates nothing in that lane and any assertion on it is vacuous.
 
-- [ ] **#W1-LIFE-3** · P1 — `applyIntent()`'s connection insert can still race an identical concurrent placement into an uncaught exception
+- [x] **#W1-LIFE-3** · P1 — `applyIntent()`'s connection insert can still race an identical concurrent placement into an uncaught exception
     - **Where:** app/Routing/SourceReconciler.php:472-501 (`applyIntent()`)
     - **Affects:** Duplicate placements for the same `(user, surface, identifier)` racing from a scan, paste, or retried job — the whole `reconcile()` call fails instead of resolving to the already-created connection.
     - **Effort:** S (~0.5–1h)
@@ -594,7 +599,7 @@
         $connection->save();
         ```
 
-- [ ] **#W1-LIFE-4** · P1 — `loadDesignKit()` runs an unprotected query on the public sitepage build path
+- [x] **#W1-LIFE-4** · P1 — `loadDesignKit()` runs an unprotected query on the public sitepage build path
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:484-487 (`loadDesignKit()`)
     - **Affects:** Every public sitepage build (cache miss + `WarmPublicSiteCacheJob`); a `design_kits` query blip returns a 500 to the visitor.
     - **Effort:** S (~0.5–1h)
@@ -610,7 +615,7 @@
             ->first();
         ```
 
-- [ ] **#W1-LIFE-5** · P1 — Seven content-projection methods on the public sitepage build path bypass the resolver's own fault-tolerance machinery
+- [x] **#W1-LIFE-5** · P1 — Seven content-projection methods on the public sitepage build path bypass the resolver's own fault-tolerance machinery
     - **Where:** app/Services/PublicSite/SitepageDataResolverService.php — `getLinks()`, `getGallery()`, `getContentMedia()`, `getDesignSingletons()`, `getDocument()`, `getWorkplace()`, `getServices()`/`buildServicesData()`
     - **Affects:** All public sitepage content sections; a query fault in any one of these causes a full 500 instead of a degraded, short-TTL payload.
     - **Effort:** M (~2–4h)
@@ -1389,7 +1394,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 3 complete
+- P1 High: 3 of 3 complete
 - P2 Medium: 0 of 10 complete
 - P3 Low: 0 of 14 complete
 
@@ -1397,7 +1402,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-SCALE-1** · P1 — Facet-origin backfill migration runs four unbounded full-table UPDATEs with no lock/statement timeout
+- [x] **#W1-SCALE-1** · P1 — Facet-origin backfill migration runs four unbounded full-table UPDATEs with no lock/statement timeout
     - **Where:** supabase/migrations/20260826120000_facet_source_item_origin.sql:54-112
     - **Affects:** Deploy safety for `content.item_media`, `content.offers`, `content.item_tags`, `content.item_variants` whenever this migration reaches an environment where the `content` schema is live and populated (dev today; production once the deferred schema reconciliation runs — CLAUDE.md: prod is currently missing the `content` schema entirely).
     - **Effort:** M (~2–4h)
@@ -1423,8 +1428,9 @@ None.
                 AND si2."id" <> si."id"
           );
         ```
+    - Resolution (2026-08-28): WONTFIX on the migration file; the lint gap it exposed is fixed forward. 20260826120000 is already applied to dev (ledger row verified) and its backfill COMPLETED — 15,307/15,514 item_media, 5,629/5,725 offers, 1,713/1,812 item_tags, 590/590 item_variants. At those row counts the four UPDATEs are milliseconds, not a stall, and on production they will match ZERO rows: prod has no content schema, so reconciliation creates these tables empty in the same run before this file reaches them. Editing an applied migration only changes fresh-apply behaviour, and the prescribed BEGIN + SET LOCAL statement_timeout wrapper would contradict CONVENTIONS.md §5 (never backfill inside a migration transaction) while capping the backfill at a hard 10s abort — the opposite of safer at the scale the finding worries about. The REAL defect is that guard Check 5's HOT_TABLES never gained the populated content.* tables when the content-pool programme landed, which is why this file passed CI. Fixed by adding CONTENT_HOT_TABLES (7 tables) on its own cutoff, and by correcting Check 5's printed remedy: for a bare-statement backfill it now advises and ACCEPTS a session-level SET lock_timeout, because SET LOCAL outside a transaction is a silent no-op — the old text steered authors toward either a §5 violation or a bound that bounds nothing.
 
-- [ ] **#W1-SCALE-2** · P1 — `PoolResolver` re-reads every `site.section_items` row ever created for a section on the public sitepage hot path
+- [x] **#W1-SCALE-2** · P1 — `PoolResolver` re-reads every `site.section_items` row ever created for a section on the public sitepage hot path
     - **Where:** app/Site/Pools/PoolResolver.php:117-131 (`hasSelection()`), 236-245 (`plan()`)
     - **Affects:** Public sitepage resolution on every cache-miss/purge rebuild for any site with an active curation history (excluding items from a pool is a normal, expected lifecycle action, not an edge case).
     - **Effort:** M (~2–4h)
@@ -1442,8 +1448,9 @@ None.
             ->where('section_id', $section->id)
             ->get(['section_id', 'item_id', 'state', 'sort_key']);
         ```
+    - Resolution (2026-08-28): WONTFIX — quantified and rejected. (1) The prescribed whereIn(state, [pinned, excluded]) is a NO-OP: the CHECK constraint (supabase/migrations/20260727150000:84) permits exactly those two values. (2) The read is already indexed by idx_section_items_section (section_id, state) at :90 and column-narrowed by SCALE-13. (3) Exclusions are not unbounded — section_items_item_id_fk is ON DELETE CASCADE onto content.items (20260729150007), so an exclusion cannot outlive its item. (4) Measured on dev 2026-08-28: excluded = 3 rows TOTAL across 2 sections, vs pinned = 1662 across 126 sections (max 169 in one). The volume is pins, which are load-bearing selection + ordering and can be neither pruned nor filtered. (5) The prescribed prune is a CORRECTNESS REGRESSION: plan() computes selection = (pinned u ruleCandidates) - excluded, so deleting an excluded row makes the item eligible again and re-shows an owner-hidden item on the public page. (6) The public build never runs plan()'s query at all — PoolWire batches preloadSections()/preloadCuration() into two shared reads and injects $curation. Revisit only if a real site is observed with thousands of rows in one section.
 
-- [ ] **#W1-SCALE-3** · P1 — Public pageview ingest has no bot filter or dedup, so a viral page's bot traffic writes unbounded events to the analytics queue
+- [x] **#W1-SCALE-3** · P1 — Public pageview ingest has no bot filter or dedup, so a viral page's bot traffic writes unbounded events to the analytics queue
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php:45-74 (`pageview()`)
     - **Affects:** The `analytics` queue, Redis, and Postgres write capacity for every site during a traffic spike; the only analytics endpoint of the eight on this controller with no `isBotUserAgent()` gate.
     - **Effort:** M (~2–4h)
@@ -1466,6 +1473,7 @@ None.
 
         $this->ingestor->ingest($event);
         ```
+    - Resolution (2026-08-28): FIXED, but NOT as prescribed — the prescription would have reversed a documented owner decision. The code fact is live (pageview() is the one public method with no isBotUserAgent() gate), but three independent artefacts say that is DELIBERATE: two in-code notes at AnalyticsController.php:59-68, DetectsClientInfo.php:87-90 returning null rather than "bot" SPECIFICALLY to preserve pageview's row shape and naming this method as the reason, and PageviewDeviceTypeTest, which PINS that a curl/ and a facebookexternalhit UA still write a 201 + a row labelled device_type=bot. The design is LABEL, DON'T DROP: bots are recorded and separated at read time. Adding the filter would have broken two tests and silently changed the headline metric every site owner sees; a visitor-keyed dedup was rejected too, since suppressing a genuine refresh is the same metric change by another route. "Unbounded" is also overstated — throttle:analytics is 120/min per visitor IP plus a 3000/min per-true-IP backstop, and QueuedIngestor already dispatches on the 3.0s-bounded redis_request connection. What was GENUINELY missing: every one of those controls is per-IP, so a distributed crawler across many source IPs passes all of them and one tenant can consume shared analytics queue capacity. Fixed with a per-SITE burst ceiling (default 2000/min, owner-approved), applied before the pure buildEvent() so bot labelling is untouched, dropping ONLY the queue write. Over the cap the response is byte-identical 201 + visit_id, so the cap cannot be fingerprinted and no client breaks; any cache fault ingests normally (analytics fails open by design) while escalateIfSustained still pages on a sustained one. Accepted and stated: a fixed window lets up to 2x the cap through at a bucket boundary, and above the ceiling a real visitor is dropped alongside a bot.
 
 ## P2 — Should fix
 
@@ -2177,7 +2185,7 @@ None — every surviving finding here is a database migration/schema change, whi
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 2 complete
+- P1 High: 2 of 2 complete
 - P2 Medium: 0 of 8 complete
 - P3 Low: 0 of 2 complete
 
@@ -2185,7 +2193,7 @@ None — every surviving finding here is a database migration/schema change, whi
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-CCH-1** · P1 — Workplace identity-mirror write invalidates the site cache before the mirrored user row is written, leaving a stale-cache race for non-contact fields
+- [x] **#W1-CCH-1** · P1 — Workplace identity-mirror write invalidates the site cache before the mirrored user row is written, leaving a stale-cache race for non-contact fields
     - **Where:** app/Observers/Core/WorkplaceObserver.php:67-82
     - **Affects:** Public sitepage readers for business accounts with `workplace_brand_is_site_identity` — a concurrent visitor can be served a rebuilt cache entry carrying the pre-edit bio/location, which then persists for the full TTL because the subsequent user save doesn't always re-bust the site cache.
     - **Effort:** S (~0.5–1h)
@@ -2209,8 +2217,9 @@ None — every surviving finding here is a database migration/schema change, whi
             $this->mirrorIdentityFields($workplace);
         }
         ```
+    - Resolution (2026-08-28): FIXED, with two corrections to the finding's technical block. (1) It is a wrong-line ordering bug, not a transaction-boundary bug — WorkplaceObserver already has $afterCommit = true. (2) The second $user->save() DOES fire lane 1 (UserObserver passes bustSite: true -> invalidateSitePayload DELs site:payload:{subdomain}); what it did not do is advance site.sites.updated_at, so the public.profile:{handle}:{ts} entry — a different key, never busted by design because rotation IS the design — survived. Exposure is the 60s primary TTL plus its x10 stale twin (~10 min), not the full payload TTL. Blast radius is narrower than stated: of the eight IDENTITY_MIRROR columns, phone/contact_email are already in PUBLIC_PROFILE_USER_FIELDS (self-healing) and location_* reach no public surface; only description -> users.bio was exposed. Fixed by moving the mirror above the touchSite block AND adding bio to PUBLIC_PROFILE_USER_FIELDS so every bio writer rotates the key, not just this one.
 
-- [ ] **#W1-CCH-2** · P1 — Menu-scrape blocked-target check and write are not atomic, allowing duplicate concurrent Apify runs against the same target
+- [x] **#W1-CCH-2** · P1 — Menu-scrape blocked-target check and write are not atomic, allowing duplicate concurrent Apify runs against the same target
     - **Where:** app/Services/Platforms/MenuApifyScraper.php (fetchStores, fetchHttpStores)
     - **Affects:** Menu scrape jobs, Apify spend budgets, and platform WAF/blocklist reputation — a burst of concurrent jobs for the same store can each pass the blocked-target filter and each issue a billed scrape.
     - **Effort:** M (~2–4h)
@@ -2237,6 +2246,7 @@ None — every surviving finding here is a database migration/schema change, whi
             Cache::put($blockedKey, ['at' => now()->toIso8601String(), 'reason' => $this->responseRetryable($resp) ? 'blocked' : 'hard_error'], $ttl);
         }
         ```
+    - Resolution (2026-08-28): WONTFIX — premise debunked, no code change. menuScrapeBlocked is a NEGATIVE cache written ONLY when a scrape FAILS (MenuApifyScraper.php:236, :305) and forgotten on success (:229, :302), so in the success path no marker exists to race on and a single-flight lock around the check/write would prevent ZERO paid runs; the audit read a failure-suppression marker as a claim token. Duplicate paid scrapes are already prevented at the job boundary: MenuFetchJob implements ShouldBeUnique (app/Jobs/Platforms/MenuFetchJob.php:59) with uniqueId() = userId (:91) and uniqueFor = 1800 (:82), and all four dispatchers use Job::dispatch() rather than Bus::dispatch(), so the unique lock is not dropped; plus ApifyBudget::tryClaim(menu) per target before the pool (:183, atomic via DailyCounterClaim, per-actor AND global daily caps) and the RateLimited(platform-connect) middleware (:104). fetchHttpStores() takes no Apify token and claims no budget, so it bills nothing and the money argument cannot apply to it at all. Residual, real but P3 and availability-not-spend: a lost Cache::forget can leave a recovered target negative-cached for blocked_ttl_seconds — a spurious skip bounded by TTL.
 
 ## P2 — Should fix
 
@@ -3057,7 +3067,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 2 complete
+- P1 High: 2 of 2 complete
 - P2 Medium: 0 of 10 complete
 - P3 Low: 0 of 10 complete
 
@@ -3065,7 +3075,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-OBS-1** · P1 — MenuAiExtractor swallows every Mistral/DeepSeek failure with `Log::warning` only — no `report()`, no `$this->fail()`
+- [x] **#W1-OBS-1** · P1 — MenuAiExtractor swallows every Mistral/DeepSeek failure with `Log::warning` only — no `report()`, no `$this->fail()`
     - **Where:** app/Services/Platforms/MenuAiExtractor.php:136-146, 187-197
     - **Affects:** All four automatic AI menu-scan paths (`GoogleMenuPhotoScanJob`, `WebsiteMenuPdfScanJob`, `WebsiteMenuHtmlScanJob`) plus the manual `MenuController::scan()` endpoint — this is, per its own docblock, "the single implementation since 2026-08-26."
     - **Effort:** S (~0.5–1h)
@@ -3090,7 +3100,7 @@ None.
         }
         ```
 
-- [ ] **#W1-OBS-2** · P1 — ProjectionWriter's media-merge cap drops surplus photos with `Log::warning` only — real, unrecoverable data loss
+- [x] **#W1-OBS-2** · P1 — ProjectionWriter's media-merge cap drops surplus photos with `Log::warning` only — real, unrecoverable data loss
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:1762-1771 (`foldCollections`)
     - **Affects:** Any user whose merged content items collectively carry more than `content.merge_media_cap` (default 8) images — the surplus is permanently discarded, not deferred.
     - **Effort:** S (~0.5–1h)
@@ -3112,6 +3122,7 @@ None.
             ]);
         }
         ```
+    - Resolution (2026-08-28): FIXED, rescoped — the "unrecoverable data loss" framing holds for the MANUAL lane ONLY. A connector coord's dropped media is re-derived by the next reprojection from ingest.record_versions via the uncapped replaceCollections() path (foldCollections docblock :1583-1586, replaceCollections :2136-2139), so for connector-sourced media the drop is transient and self-healing. The manual lane IS terminal: writeManualItem() writes facets once from an HTTP payload persisted nowhere, so there is nothing to replay, and $hasCuration only spares a loser that is pinned or has a manual_overrides row — an unpinned hand-added item with photos was discarded for good. Two further corrections: this is NOT core.enforce_site_gallery_max6 (that trigger is on site.site_media, a different table from content.item_media), and the prescribed escalateIfSustained pattern does not exist in ProjectionWriter at all — its idiom is a bare report(). Fixed by exempting manual-origin rows from the cap (joined via item_media.source_item_id, since source_items are repointed onto the survivor before the fold) and adding report(MergeFoldMediaDroppedException) beside the retained Log::warning. Manual rows still increment the held counter, so they displace connector rows rather than defeating the cap. Dev-only exposure today: production carries no content schema.
 
 ## P2 — Should fix
 
@@ -3741,7 +3752,7 @@ None.
 ## Progress
 
 - P0 Blockers: 1 of 1 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 2 complete
 - P3 Low: 0 of 1 complete
 
@@ -3790,7 +3801,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-PRIV-2** · P1 — `content.f_review.staff_name` was added to the schema but `DataExportPayloadBuilder` never learned to export it
+- [x] **#W1-PRIV-2** · P1 — `content.f_review.staff_name` was added to the schema but `DataExportPayloadBuilder` never learned to export it
     - **Where:** app/Services/User/DataExport/DataExportPayloadBuilder.php:569-578 (`streamContentFReview`); supabase/migrations/20260828030000_f_review_staff_name.sql
     - **Affects:** Any professional whose site has a Fresha (or future) review connection carrying structured staff attribution — their own name, per the migration's own comment — is now stored but not returned in their own DSAR export.
     - **Effort:** S (~0.5–1h)
@@ -3820,6 +3831,7 @@ None.
             );
         }
         ```
+    - Resolution (2026-08-28): FIXED, but NOT as prescribed — the finding's premise about the column is wrong. It asserts staff_name is "the professional's own name, never reviewer PII", quoting the migration COMMENT (an Evidence block that is a comment, not executable code — automatically suspect). That holds only for employee-scoped Fresha connections: for a STOREWIDE venue source, f_review rows under this user's items routinely carry a CO-WORKER's name. PoolResolver's person-scope filter (:1456-1470) exists precisely for this, and ReviewsPoolTest:530-538 pins it — owner "Simon Doyle", row reading "Jack", dropped as not his. An unconditional select would therefore have pushed a third party's name into the requester's DSAR bundle: the exact class of data this method deliberately withholds (author_name, author_photo_url, author_uri, text), and a GDPR Art. 15(4) problem in its own right. Implemented instead: select it, disclose on match, mask otherwise with a stated marker, and disclose the withholding in metadata.withheld. The matcher was extracted to PersonNameMatch so the DSAR lane and the public pool path cannot drift; equivalence was verified by a 1985-case differential harness against the pre-extraction code, 0 divergences, with ReviewsPoolTest unchanged and green as the live-path proof. Fails CLOSED when the account has no usable name. No migration.
 
 ## P2 — Should fix
 
@@ -3942,7 +3954,7 @@ Based on my verification of the source files, I can now provide the adjudicated 
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-EDGE-1** · P1 — Bulk platform takedowns can delay cache purge up to 1 hour, leaving stale content visible
+- [x] **#W1-EDGE-1** · P1 — Bulk platform takedowns can delay cache purge up to 1 hour, leaving stale content visible
     - **Where:** app/Jobs/Platforms/ReconcilePlatformTakedownJob.php:113 (dispatch), config/partna.php:2793–2799 (queue config)
     - **Affects:** Compliance/safety — when a platform is globally disabled, affected sites' cached content remains publicly visible for up to 1 hour while purge jobs queue on the lowest-priority lane.
     - **Effort:** M (~2–4h)
@@ -3970,6 +3982,7 @@ Based on my verification of the source files, I can now provide the adjudicated 
         'bulk_purge_stagger_seconds' => (int) env('PARTNA_CACHE_BULK_PURGE_STAGGER_SECONDS', 0),
         'bulk_purge_max_delay_seconds' => (int) env('PARTNA_CACHE_BULK_PURGE_MAX_DELAY_SECONDS', 3600),
         ```
+    - Resolution (2026-08-28): PARTIALLY STALE; the real defect underneath it is fixed and the escalation half is WONTFIX. (a) "up to 1 hour" is false by default — bulk_purge_stagger_seconds defaults to 0 (config/partna.php:2802) and ReconcilePlatformTakedownJob.php:115 dispatches at T+0 unless an ops opt-in sets it; the 3600s cap bounds a delay that is disabled. (b) "lowest-priority lane" is true but deliberate and documented (config/horizon.php:256, job docblock :33-35). (c) "nobody gets paged" is half false — CloudflareCachePurgeJob.php:275 and ReconcilePlatformTakedownJob.php:142 both report() on terminal failure. (d) The prescribed moderationCaseId is UNIMPLEMENTABLE: the only callers are StaffFeatureAvailabilityController:63 and StaffSegmentController:151, a feature-availability rule and a segment rule, neither of which has a moderation case — passing one would hand on-call a dangling reference. Escalation half closed WONTFIX. THE REAL DEFECT, which the finding missed: the takedown fired cache lane 3 ONLY, never advancing site.sites.updated_at, so the edge purge was partly self-defeating — it evicted the CDN and the next visitor refilled it from a still-stale origin cache. Fixed by adding lane 2 (one batched site.sites updated_at UPDATE per chunk, plus raiseResolveFloor per subdomain so the 30s handle.resolve cache stops serving the pre-takedown timestamp). Deliberately NOT routed through SiteCacheLanes::bust(), which delays lane 3 by 15s — wrong for a compliance takedown.
 
 ## Suggested Bundled Sessions
 
@@ -4041,7 +4054,7 @@ The audit contains 39 raw findings. After deduplication and confidence-based fil
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-CFG-1** · P1 — Feature flag `partna.connect.auto_booking.enabled` defaults to `true`, enabling unvetted feature in fresh environments
+- [x] **#W1-CFG-1** · P1 — Feature flag `partna.connect.auto_booking.enabled` defaults to `true`, enabling unvetted feature in fresh environments
     - **Where:** config/partna.php:2161
     - **Affects:** Unclaimed Fresha sites; auto-booking connection behavior in fresh deployments without explicit opt-in.
     - **Effort:** S (~0.5–1h)
@@ -4056,8 +4069,9 @@ The audit contains 39 raw findings. After deduplication and confidence-based fil
         'auto_booking' => [
             'enabled' => (bool) env('PARTNA_AUTO_BOOKING_ENABLED', true),
         ```
+    - Resolution (2026-08-28): WONTFIX — premise false. The flag is a KILL SWITCH for a shipped feature, not a rollout gate for an unvetted one (46dfd867a, 2026-08-11). `partna.connect.deferred` is this repo's rollout-gate key and DOES default off (config/partna.php:2159); auto_booking is deliberately separate — see the comment at config/partna.php:2162-2168. Default TRUE is pinned on purpose by tests/Unit/Config/AutoBookingConfigTest.php:8, and all three consumers (SourceReconciler.php:225, LinkRouter.php:319, GoogleBusinessAutoSync.php:346) pass `true` as the config() fallback. Blast radius is already bounded by global_daily_cap=500/day and the isUnclaimed() gate. Flipping the default would disable a live pre-account feature in every fresh env.
 
-- [ ] **#W1-CFG-2** · P1 — Notification prune command hardcodes `--days=30`, potentially bypassing per-category retention config
+- [x] **#W1-CFG-2** · P1 — Notification prune command hardcodes `--days=30`, potentially bypassing per-category retention config
     - **Where:** routes/console.php:60
     - **Affects:** Notification retention; long-lived categories like `policy_update` (365d) and `profile_task` (180d) may be pruned too early if the command honors the explicit override.
     - **Effort:** S (~0.5–1h)
@@ -4072,6 +4086,7 @@ The audit contains 39 raw findings. After deduplication and confidence-based fil
         Schedule::command('partna:prune-notifications', ['--days' => 30])
             ->dailyAt('03:25')
         ```
+    - Resolution (2026-08-28): STALE — per-category retention IS honoured, via ends_at, not via --days. NotificationPublisher.php:98-99,122 stamps ends_at = now + notification_retention_days[<category>] at PUBLISH time; PruneNotifications.php:78-79 deletes on `ends_at < cutoff`. So --days=30 is a grace period AFTER expiry (a 365-day policy_update goes at day 395), not a retention window — nothing is pruned early. Closed by adding a clarifying comment at routes/console.php and in the command docblock, plus a regression test in PruneNotificationsCriticalTest pinning that a +365d notification survives a --days=30 run.
 
 ---
 
@@ -4567,7 +4582,7 @@ Group findings that share a file, subsystem, or root-cause pattern into coherent
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 0 complete
 - P3 Low: 0 of 0 complete
 
@@ -4575,7 +4590,7 @@ Group findings that share a file, subsystem, or root-cause pattern into coherent
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-MIG-1** · P1 — Inline `ADD COLUMN ... REFERENCES` on four `content.*` tables adds a validated FK, bypassing both the repo's `NOT VALID`/`VALIDATE` convention and the automated lint that enforces it
+- [x] **#W1-MIG-1** · P1 — Inline `ADD COLUMN ... REFERENCES` on four `content.*` tables adds a validated FK, bypassing both the repo's `NOT VALID`/`VALIDATE` convention and the automated lint that enforces it
     - **Where:** supabase/migrations/20260826120000_facet_source_item_origin.sql:34-48
     - **Affects:** `content.item_media`, `content.offers`, `content.item_tags`, `content.item_variants` — all four are being written continuously by the active platform-harvesting pipeline (the wave-2 batch of 34 new brands + Deezer + TikTok/Facebook connectors landed in the days immediately preceding this migration, per recent commits `fb0da3592`, `4d630138a`). Concurrent writers to these tables are blocked for the duration of each `ALTER TABLE`'s FK-validation scan.
     - **Effort:** M (~2-4h)
@@ -4604,6 +4619,7 @@ Group findings that share a file, subsystem, or root-cause pattern into coherent
             ADD COLUMN IF NOT EXISTS "source_item_id" uuid NULL
             REFERENCES "content"."source_items" ("id") ON DELETE CASCADE;
         ```
+    - Resolution (2026-08-28): LINT-ONLY; the DB half is WONTFIX. The lint gap is real — Check 2 anchors on ADD CONSTRAINT, so an FK hanging off ADD COLUMN was structurally invisible, and exactly two files in the tree carry the pattern. But the prescribed remedy (split the already-applied migration and re-add NOT VALID -> VALIDATE) is rejected: the CLI tracks by version, not content hash, so the edit would never run on dev and would only change fresh-apply behaviour; and DROP CONSTRAINT + re-add takes STRICTLY MORE locking than doing nothing while opening an FK-absent write window on live harvesting tables. Measured on dev: the four content.* tables are 590-15,514 rows and all four FKs are already convalidated, so the validation scan cost milliseconds. Production has no content schema at all, so these files will apply there against empty tables and land correctly validated. The finding's lock analysis is also off — ADD COLUMN takes ACCESS EXCLUSIVE regardless; the FK's genuine incremental cost is the RI_Initial_Check scan inside that existing window plus SHARE ROW EXCLUSIVE on the REFERENCED table, which the finding never mentions. Fixed forward with guard Check 10 (cutoff 20260828999999, grandfathering the two applied files), a CONVENTIONS.md §4 paragraph mirroring §2's inline-CHECK precedent, and four behavioural tests including the two anti-false-positive cases that keep the legitimate one-statement split passing.
 
 ## Suggested Bundled Sessions
 
@@ -4916,7 +4932,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 1 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 15 complete
 - P3 Low: 0 of 1 complete
 
@@ -4946,7 +4962,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W2-SEC-2** · P1 — Manual content-library video upload has no byte-sniff, unlike the sibling image path
+- [x] **#W2-SEC-2** · P1 — Manual content-library video upload has no byte-sniff, unlike the sibling image path
     - **Where:** app/Http/Requests/Api/User/Content/UploadContentImageRequest.php:32-38, 44-64
     - **Affects:** The content-library video upload endpoint (`POST /content/uploads` with a video file) — any authenticated user can upload a file whose real content does not match its declared `.mp4/.mov/.webm` extension/MIME.
     - **Effort:** S (~0.5–1h)
@@ -4970,6 +4986,7 @@ None.
             $this->assertImageMimeBytes($this->file('image'), $v, 'image');
         }
         ```
+    - Resolution (2026-08-28): STALE — premise wrong on both counts, reclassified. Laravel's `mimes:`/`mimetypes:` rules ARE content-sniffed, not extension-derived: ValidatesAttributes::validateMimes() ends in in_array($value->guessExtension(), $parameters), Symfony File::guessExtension() resolves through getMimeType() (finfo), and UploadedFile overrides only getClientMimeType() — verified in vendor source. Separately the video is container-validated pre-DB and pre-storage by ffprobe via VideoVariantService::probeAndValidate() (MediaUploadService.php:96-104), which is strictly stronger than a finfo mime sniff. The prescribed assertVideoMimeBytes was therefore NOT added: it would add no coverage and would risk false 422s on legitimate containers finfo reports as video/x-matroska or application/octet-stream. The ONE real defect on this path was different and is fixed: ContentController::storeUpload did not catch InvalidVideoFileException / VideoDispatchFailedException, so a rejected container 500d instead of 422/503-ing. Now mirrors UserUploadController.php:85-89.
 
 ## P2 — Should fix
 
@@ -5351,7 +5368,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 3 complete
+- P1 High: 3 of 3 complete
 - P2 Medium: 0 of 20 complete
 - P3 Low: 0 of 26 complete
 
@@ -5359,7 +5376,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W2-LIFE-1** · P1 — Public payload builder crashes for early-setup accounts with no Site row
+- [x] **#W2-LIFE-1** · P1 — Public payload builder crashes for early-setup accounts with no Site row
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:653 (`buildPublicConfig()`)
     - **Affects:** Any pre-account / early-setup individual resolved via `IndividualProfileController::show` before their `site.sites` row exists — a cache-miss request for that handle 500s instead of rendering.
     - **Effort:** S (~0.5–1h)
@@ -5372,8 +5389,9 @@ None.
         ```php
         $config['shopLinkMode'] = $pro->site->shop_link_mode ?? Site::DEFAULT_SHOP_LINK_MODE;
         ```
+    - Resolution (2026-08-28): STALE — false premise, and it was false at the 9567e3057 scan sha too (the line is byte-identical there). `$pro->site->shop_link_mode ?? Site::DEFAULT_SHOP_LINK_MODE` cannot throw: `??` evaluates its left operand in isset context, so a null property chain yields the default with no warning and no Error (verified by execution). The lazy-load path is safe too — Model::preventLazyLoading is armed outside production, but Builder::hydrate() only arms it per-model when count($items) > 1 (vendor/laravel/framework Eloquent/Builder.php:471-473), and the controller hydrates $pro with a single-row User::find(). IndividualProfileControllerTest passes on the full HTTP path with a persisted user. No fix required. Residual, logged as a nit not a defect: $pro->site is one avoidable lazy query on the hot path when build() already holds $site.
 
-- [ ] **#W2-LIFE-2** · P1 — `SourceReconciler::applyIntent()` creates a link connection with a bare read-then-insert; no lock, no `insertOrIgnore`, no typed unique-catch
+- [x] **#W2-LIFE-2** · P1 — `SourceReconciler::applyIntent()` creates a link connection with a bare read-then-insert; no lock, no `insertOrIgnore`, no typed unique-catch
     - **Where:** app/Routing/SourceReconciler.php:475-507 (`applyIntent()`)
     - **Affects:** Automatic link-routing writes for any user whose scanned links resolve concurrently to the same `(user, surface_key, resource_id)` — e.g. an Instagram bio-scan and a link-in-bio unroll surfacing the same URL in the same sweep, or a paste racing a scheduled scan.
     - **Effort:** M (~2–4h)
@@ -5403,8 +5421,9 @@ None.
         $connection->created_by_catalog_digest = CompiledCatalog::digest();
         $connection->save();
         ```
+    - Resolution (2026-08-28): FIXED — this is the SAME finding as #W1-LIFE-3 (identical file, identical lines, identical evidence, found independently by two lenses). One fix, two ticks. See #W1-LIFE-3 for the reasoning, including why the prescribed catch-inside-the-transaction was rejected in favour of a savepoint.
 
-- [ ] **#W2-LIFE-3** · P1 — `SourceReconciler::reconcile()` checks the booking/reservations XOR conflict without taking the shared cross-service lock
+- [x] **#W2-LIFE-3** · P1 — `SourceReconciler::reconcile()` checks the booking/reservations XOR conflict without taking the shared cross-service lock
     - **Where:** app/Routing/SourceReconciler.php:120-127 (`reconcile()`, the `isExclusiveAuto` branch)
     - **Affects:** Users with more than one automated booking/reservations/ordering surface discovered close together (e.g. a Fresha link and a Square link both surfacing from the same bio scan) — two concurrent reconciles can both see no incumbent and both install a "primary" connection for the same exclusive class.
     - **Effort:** M (~2–4h)
@@ -5424,6 +5443,7 @@ None.
             }
         }
         ```
+    - Resolution (2026-08-28): FIXED, but the stated impact was WRONG. The audit claims the missing lock lets two connections both be marked is_primary; that cannot happen — idx_platform_connections_primary_per_class is UNIQUE on (user_id, routing_class) WHERE is_primary AND deleted_at IS NULL and has blocked it since 20260727110008. The REAL bug is worse in a different way: the loser's forceFill([is_primary => true])->save() raised an UNCAUGHT 23505 INSIDE the LIFE-16 transaction, so the whole reconcile rolled back into a 500/failed job and the XOR "hold it as a conflict for the inbox" semantics was bypassed entirely — two active booking-class connections, one primary. That index is also absent from the SQLite stand-in, so this arm is only provable in the PG lane. Fixed by taking the exclusive-slot lock around the incumbent check AND the transaction together (lock OUTER, transaction INNER), and savepoint-wrapping the is_primary write so a lost race resolves to "someone else owns the CTA" rather than rethrowing. Note the prescription named withBookingXorLock, which lives on BuildsAutoSyncFindings and SourceReconciler deliberately cannot take; isExclusiveAuto() also covers THREE classes, and there is no orderingXorLock — the ordering family serialises on platformConnectionLock(online-ordering), now exposed as CacheKeyGenerator::orderingFamilyLock() so the reconciler and GoogleBusinessAutoSync::seedOrdering share one source of truth. dispatchFor() stays OUTSIDE the lock closure: under the sync queue it reaches FreshaConnectFetch, which takes bookingXorLock itself, and Cache::lock is not reentrant.
 
 ## P2 — Should fix
 
@@ -7450,7 +7470,7 @@ None — every surviving finding requires a `supabase/migrations/` change (a new
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 1 complete
 - P3 Low: 0 of 3 complete
 
@@ -7458,7 +7478,7 @@ None — every surviving finding requires a `supabase/migrations/` change (a new
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W2-DINT-1** · P1 — `content.f_review.staff_name` (the professional's own name) is never selected into the GDPR data-export payload
+- [x] **#W2-DINT-1** · P1 — `content.f_review.staff_name` (the professional's own name) is never selected into the GDPR data-export payload
     - **Where:** app/Services/User/DataExport/DataExportPayloadBuilder.php:576, app/Ingest/Projection/ProjectionWriter.php:64
     - **Affects:** Any professional whose Fresha reviews carry structured staff attribution (`staff_name`) and who requests a data export (Art. 15/DSAR).
     - **Effort:** S (~0.5–1h)
@@ -7475,6 +7495,7 @@ None — every surviving finding requires a `supabase/migrations/` change (a new
         ```php
         ->select(['content.f_review.item_id', 'content.f_review.source_id', 'content.f_review.rating', 'content.f_review.reviewed_at', 'content.f_review.updated_at'])
         ```
+    - Resolution (2026-08-28): FIXED — same bug as #W1-PRIV-2, same fix, one change. See that finding for the full reasoning, including why the prescribed unconditional select was rejected (staff_name can name a co-worker on a storewide venue source, not only the requester).
 
 ## P2 — Should fix
 
@@ -7888,7 +7909,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 5 complete
+- P1 High: 5 of 5 complete
 - P2 Medium: 0 of 11 complete
 - P3 Low: 0 of 4 complete
 
@@ -7896,7 +7917,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W2-OBS-1** · P1 — On-call moderation paging job marks itself "completed" when no admin staff exist
+- [x] **#W2-OBS-1** · P1 — On-call moderation paging job marks itself "completed" when no admin staff exist
     - **Where:** app/Jobs/Moderation/NotifyOnCallStaffJob.php:56-61
     - **Affects:** CSAM auto-action and case-escalation staff paging — the sole notification path for high-priority moderation events.
     - **Effort:** S (~0.5–1h)
@@ -7915,7 +7936,7 @@ None.
         }
         ```
 
-- [ ] **#W2-OBS-2** · P1 — Moderation enforcement jobs ignore zero-row writes and still mark the action "completed"
+- [x] **#W2-OBS-2** · P1 — Moderation enforcement jobs ignore zero-row writes and still mark the action "completed"
     - **Where:** app/Jobs/Moderation/QuarantineMediaJob.php:46-51, app/Jobs/Moderation/SuspendSiteJob.php:52-59,68-84, app/Jobs/Moderation/SuspendUserJob.php:50-63
     - **Affects:** CSAM quarantine, site suspension, and user suspension/ban enforcement — a missing target row can leave harmful content or an active account while the audit trail says "completed."
     - **Effort:** S (~0.5–1h)
@@ -7949,7 +7970,7 @@ None.
         return $media?->site_id;
         ```
 
-- [ ] **#W2-OBS-3** · P1 — Image mirror write ignores `Storage::put()`'s false return and marks missing bytes as mirrored
+- [x] **#W2-OBS-3** · P1 — Image mirror write ignores `Storage::put()`'s false return and marks missing bytes as mirrored
     - **Where:** app/Services/Media/MediaMirror.php:319-323
     - **Affects:** Any content asset that mirrors through the image branch while `PARTNA_MEDIA_DISK` points at a non-throwing disk alias (the file's own docblock names `public_dev`). The row is marked mirrored with `mirror_attempts` reset, and nothing retries or alerts.
     - **Effort:** S (~0.5–1h)
@@ -7972,7 +7993,7 @@ None.
             }
         ```
 
-- [ ] **#W2-OBS-4** · P1 — YouTube upstream fetch failures return null with only `Log::warning`, so a permanently dropped channel connection is invisible to on-call
+- [x] **#W2-OBS-4** · P1 — YouTube upstream fetch failures return null with only `Log::warning`, so a permanently dropped channel connection is invisible to on-call
     - **Where:** app/Services/Platforms/YoutubeScraper.php:155-172 (fetchUploadsFeed), :283-301 (apiChannelId — see #OBS-13)
     - **Affects:** YouTube channel connect/refresh for all users; the comment at line 130 documents a *live-verified* 2026-08-21 incident (three consecutive requests answering 500/404/200) where "a terminal miss permanently drops the channel... nobody watching a modal to retry."
     - **Effort:** M (~2–4h)
@@ -7998,8 +8019,9 @@ None.
             return null;
         }
         ```
+    - Resolution (2026-08-28): PARTIALLY STALE — narrowed, not implemented as prescribed. The quoted Log::warning lines are live, but the stated consequence is not: (a) ConnectFetchJob::markTerminal (T2, 2026-08-27, AFTER the wave-1 scan sha) now retries a system-initiated first-fetch miss on SYSTEM_RETRY_DELAYS = [300,900,2700,7200] before F26 deletes the row, so one transient miss no longer drops the channel; (b) the REFRESH lane already carries the failure — YoutubeFetch/YoutubeMusicFetch throw FetchUnavailableException, PlatformRefresher::recordFailure increments consecutive_failures, and PlatformHealthNotifier::connectionRefreshFailing fires a critical in-app+email notice at the breaker trip. The prescribed fix is REJECTED as written: report() inside fetchUploadsFeed() would fire on every refresh tick for every dead channel — the exact noise PlatformRefresher.php:84-88 rules out by design — and $this->fail() in ConnectFetchJob would defeat the T2 retry chain. Fixed only the two genuinely unobserved sites: the post-retry system-initiated abandonment in markTerminal (was Log::info only, row then hard-deleted, no breaker, no notifier) and YoutubeScraper::apiChannelId's 401/403 on the shared YOUTUBE_DATA_API_KEY (was a silent fallback to the scrape leg, forever). fetchUploadsFeed keeps a comment recording why it stays quiet, so this is not re-filed.
 
-- [ ] **#W2-OBS-5** · P1 — Apify account-fault statuses (401/402/403/404) on the social-actor driver are logged but never reported to Nightwatch
+- [x] **#W2-OBS-5** · P1 — Apify account-fault statuses (401/402/403/404) on the social-actor driver are logged but never reported to Nightwatch
     - **Where:** app/Ingest/Runtime/Effects/SocialActorDriver.php:100-116
     - **Affects:** TikTok and Facebook social-feed scraping for every user connecting either platform; on-call visibility into a revoked Apify token, exhausted budget, or deactivated actor.
     - **Effort:** S (~0.5–1h)

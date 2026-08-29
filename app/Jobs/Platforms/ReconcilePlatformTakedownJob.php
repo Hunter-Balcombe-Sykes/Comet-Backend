@@ -6,12 +6,14 @@ use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\Segments\UserSegment;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
+use App\Services\Cache\SiteCacheService;
 use App\Services\Segments\SegmentResolver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -33,6 +35,15 @@ use Illuminate\Support\Facades\Log;
  * run it too. Purges dispatch bulk:true onto the lowest-priority cloudflare_bulk
  * lane (never competing with real-time purges) with an optional run-global
  * stagger; see config/partna.php 'cache.bulk_purge_*'.
+ *
+ * CORRECTION (#W1-EDGE-1, 2026-08-29): "only two apply" undercounted by one.
+ * IntegrationConnectionObserver also touches($connection->user->site) on an
+ * is_active change for platforms with a completeness predicate (shop,
+ * fresha) — a THIRD applicable behaviour this job did not reproduce. Rather
+ * than special-case those two platforms, this job now reproduces that
+ * behaviour's EFFECT unconditionally for every affected user below (lane 2:
+ * the origin payload cache key), which covers it for all platforms, not just
+ * the two with a completeness predicate.
  */
 class ReconcilePlatformTakedownJob implements ShouldQueue
 {
@@ -98,10 +109,25 @@ class ReconcilePlatformTakedownJob implements ShouldQueue
                 'updated_at' => now(),
             ]);
 
+            $userIds = $connections->pluck('user_id')->unique();
+
+            // Lane 2 — the origin payload cache key
+            // (public.profile:{handle}:{ts}, derived from site.sites.updated_at).
+            // The bulk flip above is a raw query-builder update: no Eloquent
+            // event fires, so nothing else rolls this column for these users.
+            // Without it the taken-down platform's content keeps rendering
+            // from the pre-takedown payload cache for up to its TTL + stale
+            // window. ONE statement per PAGE (not per row) — asserted by a
+            // dedicated test.
+            $now = now();
+            DB::connection('pgsql')->table('site.sites')
+                ->whereIn('user_id', $userIds)
+                ->update(['updated_at' => $now]);
+
             // One join per page replaces the refresher's per-row
             // User::with('site')->find() N+1.
             $subdomainsByUser = Site::query()
-                ->whereIn('user_id', $connections->pluck('user_id')->unique())
+                ->whereIn('user_id', $userIds)
                 ->pluck('subdomain', 'user_id');
 
             foreach ($subdomainsByUser as $subdomain) {
@@ -109,6 +135,14 @@ class ReconcilePlatformTakedownJob implements ShouldQueue
                     continue;
                 }
                 $seen[$subdomain] = true;
+
+                // Defeats the 30s handle.resolve cache, which ALSO caches
+                // updated_at_ts — without raising the floor, a reader that
+                // queried pre-flip can re-cache the stale ts for the
+                // remainder of that cache's TTL, and the rotated key above is
+                // never constructed (SiteCacheService::raiseResolveFloor()
+                // docblock).
+                app(SiteCacheService::class)->raiseResolveFloor($subdomain, $now->timestamp);
 
                 $pending = CloudflareCachePurgeJob::dispatch($subdomain, bulk: true);
 
@@ -118,6 +152,18 @@ class ReconcilePlatformTakedownJob implements ShouldQueue
                 }
                 $index++;
             }
+
+            // Deliberately NOT routed through SiteCacheLanes::bust():
+            // (1) bust() delays lane 3 by EDGE_PURGE_DELAY_SECONDS (15s) —
+            //     SiteCacheLanes.php:66-69 explicitly carves compliance
+            //     purges (this job named among them) out of that delay; a
+            //     takedown's edge purge must stay immediate.
+            // (2) lane 1 (BuildState::bump) is the POOL-DOCUMENT lane. A
+            //     connection's is_active flip is filtered LIVE by
+            //     SitepageDataResolverService — there is no document to
+            //     rebuild here, so lane 1 does not apply.
+            // Lane 2 is reproduced explicitly above instead. A future sweep
+            // finding this job outside the bust() seam is not an omission.
         });
 
         if (count($seen) > $warnThreshold) {

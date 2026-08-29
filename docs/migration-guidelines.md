@@ -48,17 +48,63 @@ At current row counts (≤ 200) the validation scan is instant; the split matter
 
 ## Lock and statement timeouts (#SCALE-3)
 
-DDL against tables served by live traffic (`site.design_kits`, `site.sites`, `site.blocks`, `core.users`) should be guarded by timeouts so a stuck lock-wait doesn't cascade into a deploy outage. This is CI-enforced: `guard:no-unsafe-migrations` Check 5 fails any migration (timestamped after `TIMEOUT_GUARD_CUTOFF`) that runs `ALTER TABLE` or `UPDATE` against one of these tables without both an explicit `BEGIN;` and a `SET LOCAL lock_timeout` inside it — see `scripts/guard-no-unsafe-migrations.php`.
+DDL against tables served by live traffic should be guarded by timeouts so a stuck lock-wait doesn't cascade into a deploy outage. This is CI-enforced: `guard:no-unsafe-migrations` Check 5 fails any migration that runs `ALTER TABLE` or `UPDATE` against one of these tables without a lock timeout — see `scripts/guard-no-unsafe-migrations.php`.
 
-**Add at the top of every migration that runs DDL on a live-traffic table:**
+**The list is eleven tables, in two groups with two different cutoffs** (the `content.*` group was added in 2026-08, long after its own migrations had already been applied to dev — hence the later boundary):
+
+| Group | Tables | Constant | Cutoff |
+|---|---|---|---|
+| `site.*` / `core.*` | `site.design_kits`, `site.sites`, `site.blocks`, `core.users` | `HOT_TABLES` | `TIMEOUT_GUARD_CUTOFF` = `20260711999999` |
+| `content.*` — the curation store, written on every ingest run and read on every public profile render | `content.items`, `content.item_media`, `content.offers`, `content.item_tags`, `content.item_variants`, `content.source_items`, `content.media_assets` | `CONTENT_HOT_TABLES` | `CONTENT_TIMEOUT_GUARD_CUTOFF` = `20260828999999` |
+
+**DDL — add inside the transaction:**
 ```sql
-SET LOCAL lock_timeout    = '2s';
+BEGIN;
+SET LOCAL lock_timeout      = '2s';
 SET LOCAL statement_timeout = '10s';
+-- … DDL …
+COMMIT;
 ```
 
-`SET LOCAL` scopes the timeout to the current transaction only — it has no effect on application queries.
+`SET LOCAL` scopes the timeout to the current transaction only — it has no effect on application queries. It also has no effect at all *outside* a transaction: outside `BEGIN`/`COMMIT` it is a silent no-op, which is why Check 5 requires the explicit `BEGIN;` alongside it.
+
+**A backfill takes the session-level form instead.** `CONVENTIONS.md` §5 forbids running a backfill inside a migration transaction, so a bare-statement backfill file cannot use `SET LOCAL` at all. Bound it once at the top of the file:
+
+```sql
+SET lock_timeout      = '2s';
+SET statement_timeout = '10s';
+
+UPDATE content.item_media m SET … WHERE …;
+```
+
+Check 5 accepts either shape and prints whichever remedy fits the file it flagged.
 
 If the DDL cannot acquire the lock within 2 s, the migration aborts with a clear error rather than silently queuing. Fix the cause (outstanding long-running query) and re-run; don't raise the timeout as the first response.
+
+## Inline `ADD COLUMN … REFERENCES` (#W1-MIG-1)
+
+An FK written inline on an `ADD COLUMN` is created **validated**: Postgres scans the whole table under the `ADD COLUMN`'s `ACCESS EXCLUSIVE` lock, and holds `SHARE ROW EXCLUSIVE` on the *referenced* table throughout, blocking that table's writers too. There is no `NOT VALID` escape hatch inline.
+
+**Avoid:**
+```sql
+ALTER TABLE content.item_media
+    ADD COLUMN source_item_id uuid REFERENCES content.source_items (id) ON DELETE CASCADE;
+```
+
+**Prefer — the §4 split:**
+```sql
+ALTER TABLE content.item_media ADD COLUMN source_item_id uuid;
+
+ALTER TABLE content.item_media
+    ADD CONSTRAINT item_media_source_item_id_fkey
+    FOREIGN KEY (source_item_id) REFERENCES content.source_items (id) ON DELETE CASCADE
+    NOT VALID;
+
+-- separate transaction / file:
+ALTER TABLE content.item_media VALIDATE CONSTRAINT item_media_source_item_id_fkey;
+```
+
+CI-enforced by Check 10 (`INLINE_FK_GUARD_CUTOFF` = `20260828999999`); exempt when the table is created in the same file. Check 2 anchors on `ADD CONSTRAINT` and cannot see this shape — that blindness is the whole reason Check 10 exists.
 
 ## Editing already-applied migrations
 
