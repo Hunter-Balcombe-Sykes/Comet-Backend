@@ -1,6 +1,8 @@
 <?php
 
+use App\Exceptions\Platforms\VendorAccountFaultException;
 use App\Services\Platforms\YoutubeScraper;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -44,4 +46,33 @@ it('never calls the API without a key', function () {
 
     expect(app(YoutubeScraper::class)->channelIdFrom('@x'))->toBe('UCzHb4PHcEeWN8Fc6EsP0CPw');
     Http::assertNotSent(fn ($request) => str_contains($request->url(), 'googleapis.com'));
+});
+
+// B3 (#W2-OBS-4): a 401/403 on the shared YOUTUBE_DATA_API_KEY means the key
+// itself is rejected — otherwise the scrape leg silently absorbs it forever.
+
+it('escalates a 403 from the Data API and still falls back to the scrape leg', function () {
+    Exceptions::fake();
+    config(['services.youtube.data_api_key' => 'test-key']);
+    Http::fake([
+        'www.googleapis.com/youtube/v3/channels*' => Http::response(['error' => 'forbidden'], 403),
+        'www.youtube.com/*' => Http::response('"externalId":"UCzHb4PHcEeWN8Fc6EsP0CPw"', 200),
+    ]);
+
+    expect(app(YoutubeScraper::class)->channelIdFrom('@dvlpmnttv'))
+        ->toBe('UCzHb4PHcEeWN8Fc6EsP0CPw');
+    Exceptions::assertReported(fn (VendorAccountFaultException $e) => $e->vendor === 'youtube_data_api' && $e->status === 403);
+});
+
+it('does not escalate a 404 from the Data API — the scrape fallback covers it', function () {
+    Exceptions::fake();
+    config(['services.youtube.data_api_key' => 'test-key']);
+    Http::fake([
+        'www.googleapis.com/youtube/v3/channels*' => Http::response(['error' => 'not found'], 404),
+        'www.youtube.com/*' => Http::response('"externalId":"UCzHb4PHcEeWN8Fc6EsP0CPw"', 200),
+    ]);
+
+    expect(app(YoutubeScraper::class)->channelIdFrom('@dvlpmnttv'))
+        ->toBe('UCzHb4PHcEeWN8Fc6EsP0CPw');
+    Exceptions::assertReportedCount(0);
 });

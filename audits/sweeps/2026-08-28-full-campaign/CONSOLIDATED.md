@@ -101,7 +101,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 1 of 5 complete
+- P1 High: 2 of 5 complete
 - P2 Medium: 0 of 9 complete
 - P3 Low: 0 of 2 complete
 
@@ -184,7 +184,7 @@
         $showPii = $staff && $staff->isAdmin();
         ```
 
-- [ ] **#W1-SEC-4** · P1 — MenuAiExtractor logs raw exception messages that can carry signed hosted-media URLs
+- [x] **#W1-SEC-4** · P1 — MenuAiExtractor logs raw exception messages that can carry signed hosted-media URLs
     - **Where:** app/Services/Platforms/MenuAiExtractor.php:128-140 (`ocr()`), 187-191 (`structure()`); real hosted-URL callers app/Jobs/Platforms/GoogleMenuPhotoScanJob.php:177, app/Jobs/Platforms/WebsiteMenuPdfScanJob.php:74
     - **Affects:** Log/Nightwatch persistence of Google Places photo URLs and scanned-website document URLs, both of which can carry access-scoped query parameters.
     - **Effort:** S (~0.5–1h)
@@ -200,6 +200,7 @@
             return null;
         }
         ```
+    - Resolution (2026-08-28): PARTIALLY STALE. The named leak is unreachable: ocr() POSTs to the constant MISTRAL_OCR_URL with the hosted URL in the request BODY, and Laravel pins http_errors=false (PendingRequest.php:268) with no ->throw() here, so the catch only ever sees ConnectionException — whose message carries the constant Mistral URI, never the photo URL. The Places key is an X-Goog-Api-Key header, not a query param. Hardened anyway (log $e::class; the full exception object still reaches Nightwatch via report(), so no diagnostic detail is lost) and fixed the REAL adjacent leak the finding walked past: WebsiteMenuPdfScanJob logged document_url VERBATIM at :76, :85, :96 and :108 — now sha1-hashed, matching the correlation handle the job already computes at :54. The value passed to ocrDocumentUrl() is untouched, so the hash is log-only and does not break identity.
 
 - [x] **#W1-SEC-5** · P1 — DSAR export can leak a previous email owner's early-access signup history after email recycle
     - **Resolved:** Fixed 2026-08-28 as a duplicate of #W1-PRIV-1 (same method, same mechanism) — see that finding. Its prescribed interim (suppress when `created_at` predates the account by an implausible margin) was REJECTED: timestamp proximity is not ownership and would wrongly redact a genuine applicant who signs up long after joining the waitlist.
@@ -3058,7 +3059,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 2 complete
+- P1 High: 1 of 2 complete
 - P2 Medium: 0 of 10 complete
 - P3 Low: 0 of 10 complete
 
@@ -3066,7 +3067,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-OBS-1** · P1 — MenuAiExtractor swallows every Mistral/DeepSeek failure with `Log::warning` only — no `report()`, no `$this->fail()`
+- [x] **#W1-OBS-1** · P1 — MenuAiExtractor swallows every Mistral/DeepSeek failure with `Log::warning` only — no `report()`, no `$this->fail()`
     - **Where:** app/Services/Platforms/MenuAiExtractor.php:136-146, 187-197
     - **Affects:** All four automatic AI menu-scan paths (`GoogleMenuPhotoScanJob`, `WebsiteMenuPdfScanJob`, `WebsiteMenuHtmlScanJob`) plus the manual `MenuController::scan()` endpoint — this is, per its own docblock, "the single implementation since 2026-08-26."
     - **Effort:** S (~0.5–1h)
@@ -7892,7 +7893,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 5 complete
+- P1 High: 2 of 5 complete
 - P2 Medium: 0 of 11 complete
 - P3 Low: 0 of 4 complete
 
@@ -7976,7 +7977,7 @@ None.
             }
         ```
 
-- [ ] **#W2-OBS-4** · P1 — YouTube upstream fetch failures return null with only `Log::warning`, so a permanently dropped channel connection is invisible to on-call
+- [x] **#W2-OBS-4** · P1 — YouTube upstream fetch failures return null with only `Log::warning`, so a permanently dropped channel connection is invisible to on-call
     - **Where:** app/Services/Platforms/YoutubeScraper.php:155-172 (fetchUploadsFeed), :283-301 (apiChannelId — see #OBS-13)
     - **Affects:** YouTube channel connect/refresh for all users; the comment at line 130 documents a *live-verified* 2026-08-21 incident (three consecutive requests answering 500/404/200) where "a terminal miss permanently drops the channel... nobody watching a modal to retry."
     - **Effort:** M (~2–4h)
@@ -8002,8 +8003,9 @@ None.
             return null;
         }
         ```
+    - Resolution (2026-08-28): PARTIALLY STALE — narrowed, not implemented as prescribed. The quoted Log::warning lines are live, but the stated consequence is not: (a) ConnectFetchJob::markTerminal (T2, 2026-08-27, AFTER the wave-1 scan sha) now retries a system-initiated first-fetch miss on SYSTEM_RETRY_DELAYS = [300,900,2700,7200] before F26 deletes the row, so one transient miss no longer drops the channel; (b) the REFRESH lane already carries the failure — YoutubeFetch/YoutubeMusicFetch throw FetchUnavailableException, PlatformRefresher::recordFailure increments consecutive_failures, and PlatformHealthNotifier::connectionRefreshFailing fires a critical in-app+email notice at the breaker trip. The prescribed fix is REJECTED as written: report() inside fetchUploadsFeed() would fire on every refresh tick for every dead channel — the exact noise PlatformRefresher.php:84-88 rules out by design — and $this->fail() in ConnectFetchJob would defeat the T2 retry chain. Fixed only the two genuinely unobserved sites: the post-retry system-initiated abandonment in markTerminal (was Log::info only, row then hard-deleted, no breaker, no notifier) and YoutubeScraper::apiChannelId's 401/403 on the shared YOUTUBE_DATA_API_KEY (was a silent fallback to the scrape leg, forever). fetchUploadsFeed keeps a comment recording why it stays quiet, so this is not re-filed.
 
-- [ ] **#W2-OBS-5** · P1 — Apify account-fault statuses (401/402/403/404) on the social-actor driver are logged but never reported to Nightwatch
+- [x] **#W2-OBS-5** · P1 — Apify account-fault statuses (401/402/403/404) on the social-actor driver are logged but never reported to Nightwatch
     - **Where:** app/Ingest/Runtime/Effects/SocialActorDriver.php:100-116
     - **Affects:** TikTok and Facebook social-feed scraping for every user connecting either platform; on-call visibility into a revoked Apify token, exhausted budget, or deactivated actor.
     - **Effort:** S (~0.5–1h)

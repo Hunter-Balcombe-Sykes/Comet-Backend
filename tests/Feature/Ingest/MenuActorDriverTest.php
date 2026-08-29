@@ -1,10 +1,12 @@
 <?php
 
+use App\Exceptions\Platforms\VendorAccountFaultException;
 use App\Ingest\Runtime\EffectNotAttempted;
 use App\Ingest\Runtime\Effects\BilledEffectContext;
 use App\Ingest\Runtime\Effects\BilledEffectOutcome;
 use App\Ingest\Runtime\Effects\MenuActorDriver;
 use App\Services\Cache\ApifyBudget;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 
 beforeEach(function () {
@@ -273,6 +275,7 @@ it('reports no answer on an account-level 4xx, so a config break is never cached
     // 401/402/403/404 say our token, rental or actor id is wrong — nothing at
     // all about the store. Settling them Answered([]) would cache a
     // configuration break as "no menu" for every store at once.
+    Exceptions::fake();
     Http::fake(['api.apify.com/*' => Http::response(['error' => 'nope'], $status)]);
 
     $result = app(MenuActorDriver::class)->run(menuCtx());
@@ -280,6 +283,8 @@ it('reports no answer on an account-level 4xx, so a config break is never cached
     expect($result->outcome)->toBe(BilledEffectOutcome::NoAnswer);
     // Hard: not retried.
     Http::assertSentCount(1);
+    // B3 (#W2-OBS-5): throttled report, representative status pinned below.
+    Exceptions::assertReported(fn (VendorAccountFaultException $e) => $e->vendor === 'apify' && $e->status === $status);
 })->with([401, 402, 403, 404]);
 
 // ── Transport ────────────────────────────────────────────────────────────────

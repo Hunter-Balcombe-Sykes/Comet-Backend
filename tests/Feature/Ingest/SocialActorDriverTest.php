@@ -3,11 +3,13 @@
 // T27c (2026-08-28): the shared TikTok/Facebook Apify driver — spend-shape
 // guarantees: refusals before the claim, proof-key filtering, empty ⇒ noAnswer.
 
+use App\Exceptions\Platforms\VendorAccountFaultException;
 use App\Ingest\Runtime\EffectNotAttempted;
 use App\Ingest\Runtime\Effects\BilledEffectContext;
 use App\Ingest\Runtime\Effects\BilledEffectOutcome;
 use App\Ingest\Runtime\Effects\SocialActorDriver;
 use App\Services\Cache\ApifyBudget;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 
 function socialCtx(string $name, array $input): BilledEffectContext
@@ -73,12 +75,38 @@ it('treats an empty dataset as noAnswer, never as an empty account', function ()
 });
 
 it('reads a 404 as an account/actor fault, not a verdict on the profile', function () {
+    Exceptions::fake();
     $driver = socialDriver();
     Http::fake(['api.apify.com/*' => Http::response(['error' => 'actor not rented'], 404)]);
 
     $result = $driver->run(socialCtx('facebook', ['page_url' => 'https://www.facebook.com/nasa']));
 
     expect($result->outcome)->toBe(BilledEffectOutcome::NoAnswer);
+    Exceptions::assertReported(fn (VendorAccountFaultException $e) => $e->status === 404
+        && $e->reason === 'actor:facebook');
+});
+
+it('reports an account fault (throttled) for each of 401/402/403/404, without changing the noAnswer outcome', function (int $status) {
+    Exceptions::fake();
+    $driver = socialDriver();
+    Http::fake(['api.apify.com/*' => Http::response(['error' => 'nope'], $status)]);
+
+    $result = $driver->run(socialCtx('tiktok', ['username' => 'someone']));
+
+    // Pinning that the report did not change the effect outcome.
+    expect($result->outcome)->toBe(BilledEffectOutcome::NoAnswer);
+    Exceptions::assertReported(fn (VendorAccountFaultException $e) => $e->vendor === 'apify' && $e->status === $status);
+})->with([401, 402, 403, 404]);
+
+it('throttles repeated account-fault reports to one per actor+status across two runs', function () {
+    Exceptions::fake();
+    $driver = socialDriver();
+    Http::fake(['api.apify.com/*' => Http::response(['error' => 'nope'], 401)]);
+
+    $driver->run(socialCtx('tiktok', ['username' => 'someone']));
+    $driver->run(socialCtx('tiktok', ['username' => 'someone-else']));
+
+    Exceptions::assertReportedCount(1);
 });
 
 it('refuses a facebook effect whose page_url is not facebook.com', function () {

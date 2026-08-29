@@ -2,8 +2,10 @@
 
 namespace App\Ingest\Runtime\Effects;
 
+use App\Exceptions\Platforms\VendorAccountFaultException;
 use App\Ingest\Runtime\EffectNotAttempted;
 use App\Services\Cache\ApifyBudget;
+use App\Support\ThrottledReport;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -107,6 +109,14 @@ final class SocialActorDriver implements BilledEffectDriver
             }
 
             if (in_array($status, self::ACCOUNT_FAULT_STATUSES, true)) {
+                // B3 (#W2-OBS-5): a plain report() here would fire once per profile
+                // per digest run — an account-wide fault (revoked token, unrented
+                // actor, x402) fires N times per run. Throttled per actor+status.
+                ThrottledReport::once(
+                    "ingest:apify:account_fault:{$name}:{$status}",
+                    new VendorAccountFaultException('apify', "actor:{$name}", $status),
+                );
+
                 return BilledEffectResult::noAnswer(
                     "{$name} actor returned {$status} — account or actor fault, not a verdict on the profile"
                 );

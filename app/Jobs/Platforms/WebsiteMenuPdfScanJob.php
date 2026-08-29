@@ -73,7 +73,7 @@ class WebsiteMenuPdfScanJob implements ShouldBeUnique, ShouldQueue
 
         $text = $extractor->ocrDocumentUrl($this->documentUrl, $this->userId);
         if (! is_string($text) || trim($text) === '') {
-            Log::info('website_menu_pdf_scan.no_text', ['user_id' => $this->userId, 'document_url' => $this->documentUrl]);
+            Log::info('website_menu_pdf_scan.no_text', ['user_id' => $this->userId, 'document_url_hash' => sha1($this->documentUrl)]);
 
             return;
         }
@@ -82,7 +82,7 @@ class WebsiteMenuPdfScanJob implements ShouldBeUnique, ShouldQueue
         if ($items === null || $items === []) {
             Log::info('website_menu_pdf_scan.no_items', [
                 'user_id' => $this->userId,
-                'document_url' => $this->documentUrl,
+                'document_url_hash' => sha1($this->documentUrl),
                 'failed' => $items === null,
             ]);
 
@@ -93,7 +93,7 @@ class WebsiteMenuPdfScanJob implements ShouldBeUnique, ShouldQueue
 
         Log::info('website_menu_pdf_scan.applied', [
             'user_id' => $this->userId,
-            'document_url' => $this->documentUrl,
+            'document_url_hash' => sha1($this->documentUrl),
             'items' => count($items),
             'updated' => $result['updated'],
             'added' => $result['added'],
@@ -105,7 +105,7 @@ class WebsiteMenuPdfScanJob implements ShouldBeUnique, ShouldQueue
         report($e);
         Log::error('website_menu_pdf_scan.failed', [
             'user_id' => $this->userId,
-            'document_url' => $this->documentUrl,
+            'document_url_hash' => sha1($this->documentUrl),
             'error' => $e->getMessage(),
         ]);
     }
