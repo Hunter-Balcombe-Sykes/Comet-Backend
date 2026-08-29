@@ -261,6 +261,27 @@ class CacheKeyGenerator
     }
 
     /**
+     * Per-SITE pageview burst counter (#W1-SCALE-3, AnalyticsController::pageview()).
+     * NOT a dedup key — this is a fixed-window ceiling, so it is keyed by site and
+     * minute bucket only and carries no visitor identifier: a genuine refresh must
+     * still count, exactly as it does today.
+     *
+     * $minuteBucket is intdiv(now()->getTimestamp(), 60). The bucket is IN the key, so
+     * the window rotates by key rather than by expiry, and the TTL exists only to
+     * reap the previous bucket. The caller MUST write it through
+     * {@see DailyCounterClaim::claim()} with a TTL of twice the bucket width (120s,
+     * a constant AnalyticsController owns), so a claim landing on a window boundary
+     * can never leave an un-expiring key behind. Never Cache::forever(): cache and
+     * queue share one Valkey instance
+     * under instance-wide volatile-lru, where carrying a TTL is exactly what keeps a
+     * key evictable (CacheKeyspaceConstraintsTest).
+     */
+    public static function analyticsPageviewSiteBurst(string $siteId, int $minuteBucket): string
+    {
+        return "analytics:burst:pageview:{$siteId}:{$minuteBucket}";
+    }
+
+    /**
      * Derived insights for a professional. Computed over a fixed rolling window
      * (not the dashboard's selected range), so it's keyed by user only and shares
      * the summary version token — a new ingest busts both at once.
@@ -380,6 +401,23 @@ class CacheKeyGenerator
     public static function reservationsXorLock(string $userId): string
     {
         return "platforms:reservations-xor:lock:{$userId}";
+    }
+
+    /**
+     * The ordering family's serialisation point. Unlike booking/reservations it
+     * is NOT its own XOR key — the family has always serialised on the
+     * platform-wide 'online-ordering' connection lock, and the key must stay
+     * byte-identical to that or the two writers stop excluding each other (the
+     * platformConnectionLock suffix-drift bug, again).
+     *
+     * Co-holders: GoogleBusinessAutoSync::seedOrdering (its ORDERING_FAMILY
+     * seed lock) and SourceReconciler::exclusiveSlotLockKey() for the
+     * 'ordering' routing class. Named here so there is ONE place the string is
+     * built rather than three that must agree by inspection.
+     */
+    public static function orderingFamilyLock(string $userId): string
+    {
+        return self::platformConnectionLock('online-ordering', $userId);
     }
 
     /** Global daily Apify claim counter across ALL actors (SCALE-2 cost ceiling). */

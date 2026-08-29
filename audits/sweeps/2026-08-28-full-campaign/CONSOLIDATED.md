@@ -1394,7 +1394,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 2 of 3 complete
+- P1 High: 3 of 3 complete
 - P2 Medium: 0 of 10 complete
 - P3 Low: 0 of 14 complete
 
@@ -1450,7 +1450,7 @@ None.
         ```
     - Resolution (2026-08-28): WONTFIX — quantified and rejected. (1) The prescribed whereIn(state, [pinned, excluded]) is a NO-OP: the CHECK constraint (supabase/migrations/20260727150000:84) permits exactly those two values. (2) The read is already indexed by idx_section_items_section (section_id, state) at :90 and column-narrowed by SCALE-13. (3) Exclusions are not unbounded — section_items_item_id_fk is ON DELETE CASCADE onto content.items (20260729150007), so an exclusion cannot outlive its item. (4) Measured on dev 2026-08-28: excluded = 3 rows TOTAL across 2 sections, vs pinned = 1662 across 126 sections (max 169 in one). The volume is pins, which are load-bearing selection + ordering and can be neither pruned nor filtered. (5) The prescribed prune is a CORRECTNESS REGRESSION: plan() computes selection = (pinned u ruleCandidates) - excluded, so deleting an excluded row makes the item eligible again and re-shows an owner-hidden item on the public page. (6) The public build never runs plan()'s query at all — PoolWire batches preloadSections()/preloadCuration() into two shared reads and injects $curation. Revisit only if a real site is observed with thousands of rows in one section.
 
-- [ ] **#W1-SCALE-3** · P1 — Public pageview ingest has no bot filter or dedup, so a viral page's bot traffic writes unbounded events to the analytics queue
+- [x] **#W1-SCALE-3** · P1 — Public pageview ingest has no bot filter or dedup, so a viral page's bot traffic writes unbounded events to the analytics queue
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php:45-74 (`pageview()`)
     - **Affects:** The `analytics` queue, Redis, and Postgres write capacity for every site during a traffic spike; the only analytics endpoint of the eight on this controller with no `isBotUserAgent()` gate.
     - **Effort:** M (~2–4h)
@@ -1473,6 +1473,7 @@ None.
 
         $this->ingestor->ingest($event);
         ```
+    - Resolution (2026-08-28): FIXED, but NOT as prescribed — the prescription would have reversed a documented owner decision. The code fact is live (pageview() is the one public method with no isBotUserAgent() gate), but three independent artefacts say that is DELIBERATE: two in-code notes at AnalyticsController.php:59-68, DetectsClientInfo.php:87-90 returning null rather than "bot" SPECIFICALLY to preserve pageview's row shape and naming this method as the reason, and PageviewDeviceTypeTest, which PINS that a curl/ and a facebookexternalhit UA still write a 201 + a row labelled device_type=bot. The design is LABEL, DON'T DROP: bots are recorded and separated at read time. Adding the filter would have broken two tests and silently changed the headline metric every site owner sees; a visitor-keyed dedup was rejected too, since suppressing a genuine refresh is the same metric change by another route. "Unbounded" is also overstated — throttle:analytics is 120/min per visitor IP plus a 3000/min per-true-IP backstop, and QueuedIngestor already dispatches on the 3.0s-bounded redis_request connection. What was GENUINELY missing: every one of those controls is per-IP, so a distributed crawler across many source IPs passes all of them and one tenant can consume shared analytics queue capacity. Fixed with a per-SITE burst ceiling (default 2000/min, owner-approved), applied before the pure buildEvent() so bot labelling is untouched, dropping ONLY the queue write. Over the cap the response is byte-identical 201 + visit_id, so the cap cannot be fingerprinted and no client breaks; any cache fault ingests normally (analytics fails open by design) while escalateIfSustained still pages on a sustained one. Accepted and stated: a fixed window lets up to 2x the cap through at a bucket boundary, and above the ceiling a real visitor is dropped alongside a bot.
 
 ## P2 — Should fix
 

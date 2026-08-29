@@ -2988,6 +2988,22 @@ return [
         'action_dedup_ttl_seconds' => (int) env('PARTNA_ANALYTICS_ACTION_DEDUP_TTL_SECONDS', 300),
         'action_tap_dedup_ttl_seconds' => (int) env('PARTNA_ANALYTICS_ACTION_TAP_DEDUP_TTL_SECONDS', 3),
 
+        // SCALE-3: per-SITE pageview ingest ceiling, per fixed one-minute window.
+        // Every OTHER control on the pageview route is per-IP — throttle:analytics
+        // (AppServiceProvider::configureRateLimiting, 'analytics') is 120/min per
+        // visitor IP plus a 3000/min per-true-IP backstop. A distributed crawler
+        // sweep spread across many source IPs against one viral page passes all of
+        // them, and the resulting ingest consumes shared `analytics` queue capacity
+        // that belongs to every other tenant. This is the only tenant-scoped bound.
+        //
+        // NOT a bot filter and NOT a dedup: pageview deliberately records bot UAs and
+        // genuine refreshes (owner decision — see AnalyticsController::pageview()).
+        // Sized far above any plausible organic minute (2000/min ≈ 2.9M/day for ONE
+        // site, against a whole-platform target of ~1M beacons/day), so only an
+        // abusive or runaway source can reach it. Over the cap the beacon still
+        // answers 201 — only the queue write is dropped.
+        'pageview_site_cap_per_minute' => (int) env('PARTNA_ANALYTICS_PAGEVIEW_SITE_CAP_PER_MINUTE', 2000),
+
         // CFG-1: PurgeRawAnalyticsEvents batch delete size — bounds each DELETE's row
         // count so the purge never holds one long-running transaction.
         'purge_batch_size' => (int) env('PARTNA_ANALYTICS_PURGE_BATCH_SIZE', 10_000),
