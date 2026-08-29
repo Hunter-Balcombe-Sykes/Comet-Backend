@@ -4,10 +4,9 @@ namespace App\Console\Commands\Moderation;
 
 use App\Exceptions\Moderation\ModerationSlaBreachRiskException;
 use App\Models\Moderation\ModerationCase;
+use App\Support\ThrottledReport;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
-use Throwable;
 
 /**
  * Periodically scan open moderation cases and warn when they are approaching
@@ -72,8 +71,8 @@ class ModerationSlaScanCommand extends Command
     }
 
     /**
-     * Suppress repeat pages for the same severity band via Cache::add
-     * (SETNX), keyed on max severity so an escalation pages through the
+     * Suppress repeat pages for the same severity band via ThrottledReport,
+     * keyed on max severity so an escalation pages through the
      * cooldown on its own key. On a cache fault, report() UNCONDITIONALLY —
      * this is trust & safety, so a broken suppression mechanism must
      * over-page, never under-page. Inverse of the analytics fail-open
@@ -82,20 +81,15 @@ class ModerationSlaScanCommand extends Command
      */
     private function reportBreachRisk(int $count, int $maxSeverity, int $soonestDueInMinutes): void
     {
-        $ttl = (int) config('partna.moderation.sla.alert_cooldown_seconds', 3600);
-        $key = "moderation:sla-breach-alert:severity-{$maxSeverity}";
-
-        try {
-            $claimed = Cache::add($key, 1, $ttl);
-        } catch (Throwable $e) {
-            Log::error('moderation.sla.alert_cooldown_cache_fault', [
-                'exception' => $e->getMessage(),
-            ]);
-            $claimed = true;
-        }
-
-        if ($claimed) {
-            report(new ModerationSlaBreachRiskException($count, $maxSeverity, $soonestDueInMinutes));
-        }
+        // ThrottledReport is the house seam for "report at most once per cooldown"
+        // and already carries the fail-loud guarantee this path needs: if the lock
+        // store is unreachable it reports UNTHROTTLED rather than self-muting. Using
+        // it here also keeps this command clear of GS-1's raw-Cache guard, which a
+        // hand-rolled Cache::add() trips.
+        ThrottledReport::once(
+            "moderation:sla-breach-alert:severity-{$maxSeverity}",
+            new ModerationSlaBreachRiskException($count, $maxSeverity, $soonestDueInMinutes),
+            (int) config('partna.moderation.sla.alert_cooldown_seconds', 3600),
+        );
     }
 }
