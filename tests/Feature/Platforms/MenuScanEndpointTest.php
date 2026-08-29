@@ -159,6 +159,26 @@ it('422s an oversized file', function () {
     Http::assertNothingSent();
 });
 
+it('422s a pixel-bomb image before any billed OCR call', function () {
+    $user = scanEndpointUser('scanep13');
+    Http::fake();
+
+    // A ~33-byte PNG header declaring 20000x20000 — real bytes, no rasterised
+    // allocation. finfo reports image/png, getimagesizefromstring reports the
+    // declared dimensions without decoding pixel data (#W1-SEC-2).
+    $ihdr = pack('N', 20000).pack('N', 20000)."\x08\x02\x00\x00\x00";
+    $png = "\x89PNG\r\n\x1a\n".pack('N', 13).'IHDR'.$ihdr.pack('N', crc32('IHDR'.$ihdr));
+    $path = tempnam(sys_get_temp_dir(), 'menubomb');
+    file_put_contents($path, $png);
+    $bomb = new UploadedFile($path, 'menu.png', 'image/png', null, true);
+
+    actingAsUser($user)->post('/api/platforms/menu/scan', ['file' => $bomb], ['Accept' => 'application/json'])
+        ->assertStatus(422)
+        ->assertJsonPath('errors.file.0', 'That image is too big to process. Use one under 24 megapixels.');
+
+    Http::assertNothingSent();
+});
+
 it('422s when OCR reads nothing menu-like', function () {
     $user = scanEndpointUser('scanep7');
     Http::fake([

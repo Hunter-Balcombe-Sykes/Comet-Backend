@@ -101,7 +101,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 2 of 5 complete
+- P1 High: 3 of 5 complete
 - P2 Medium: 0 of 9 complete
 - P3 Low: 0 of 2 complete
 
@@ -132,7 +132,7 @@
         }
         ```
 
-- [ ] **#W1-SEC-2** · P1 — Menu-scan upload has no decompression/pixel-bomb guard
+- [x] **#W1-SEC-2** · P1 — Menu-scan upload has no decompression/pixel-bomb guard
     - **Where:** app/Http/Requests/Platforms/ScanMenuUploadRequest.php:20-32; app/Http/Controllers/Api/Platforms/MenuController.php:146-154
     - **Affects:** Any authenticated food-business user uploading a menu photo/PDF; the OCR pipeline (Mistral) and the PHP worker processing the upload.
     - **Effort:** S (~0.5–1h)
@@ -154,6 +154,7 @@
         $mime = (string) $file->getMimeType();
         $dataUri = 'data:'.$mime.';base64,'.base64_encode((string) file_get_contents($file->getPathname()));
         ```
+    - Resolution (2026-08-28): FIXED, with the stated impact corrected. The finding claims a pixel bomb "can crash the server process" — nothing on this path rasterises: the bytes are base64-encoded and POSTed to Mistral OCR, and peak memory is already bounded by the existing max:20480 rule. The real cost is narrower but real: a ~33-byte PNG declaring 20000x20000 passes both existing rules and spends a BILLED OCR call on a payload that will fail or hang. Guarded in ScanMenuUploadRequest::withValidator() using the existing ImagePixelBudget::exceeds() (bytes-based, fails closed on an unreadable header). NOT getimagesize(), which is not a decode gate, and NOT safeToDecode() — its decodable() allowlist is jpeg/png/webp, so it would 422 every legitimate menu PDF; PDFs take an explicit early return. The regression assertion is Http::assertNothingSent(), i.e. the billed call never happens.
 
 - [ ] **#W1-SEC-3** · P1 — Non-admin staff can use hidden PII fields as search filters to confirm they exist, defeating the PII-hide gate
     - **Where:** app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php index()
@@ -4925,7 +4926,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 1 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 15 complete
 - P3 Low: 0 of 1 complete
 
@@ -4955,7 +4956,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W2-SEC-2** · P1 — Manual content-library video upload has no byte-sniff, unlike the sibling image path
+- [x] **#W2-SEC-2** · P1 — Manual content-library video upload has no byte-sniff, unlike the sibling image path
     - **Where:** app/Http/Requests/Api/User/Content/UploadContentImageRequest.php:32-38, 44-64
     - **Affects:** The content-library video upload endpoint (`POST /content/uploads` with a video file) — any authenticated user can upload a file whose real content does not match its declared `.mp4/.mov/.webm` extension/MIME.
     - **Effort:** S (~0.5–1h)
@@ -4979,6 +4980,7 @@ None.
             $this->assertImageMimeBytes($this->file('image'), $v, 'image');
         }
         ```
+    - Resolution (2026-08-28): STALE — premise wrong on both counts, reclassified. Laravel's `mimes:`/`mimetypes:` rules ARE content-sniffed, not extension-derived: ValidatesAttributes::validateMimes() ends in in_array($value->guessExtension(), $parameters), Symfony File::guessExtension() resolves through getMimeType() (finfo), and UploadedFile overrides only getClientMimeType() — verified in vendor source. Separately the video is container-validated pre-DB and pre-storage by ffprobe via VideoVariantService::probeAndValidate() (MediaUploadService.php:96-104), which is strictly stronger than a finfo mime sniff. The prescribed assertVideoMimeBytes was therefore NOT added: it would add no coverage and would risk false 422s on legitimate containers finfo reports as video/x-matroska or application/octet-stream. The ONE real defect on this path was different and is fixed: ContentController::storeUpload did not catch InvalidVideoFileException / VideoDispatchFailedException, so a rejected container 500d instead of 422/503-ing. Now mirrors UserUploadController.php:85-89.
 
 ## P2 — Should fix
 

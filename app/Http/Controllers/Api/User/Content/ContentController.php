@@ -11,8 +11,10 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
 use App\Services\Content\ManualMediaWriter;
+use App\Services\Media\Exceptions\InvalidVideoFileException;
 use App\Services\Media\Exceptions\OriginalStoreFailedException;
 use App\Services\Media\Exceptions\PoolLimitExceededException;
+use App\Services\Media\Exceptions\VideoDispatchFailedException;
 use App\Services\Media\ImageVariantService;
 use App\Services\Media\MediaUploadService;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
@@ -100,8 +102,12 @@ class ContentController extends ApiController
             );
         } catch (PoolLimitExceededException $e) {
             return $this->error($e->getMessage(), 422);
+        } catch (InvalidVideoFileException $e) {
+            return $this->error($e->getMessage(), 422);
         } catch (OriginalStoreFailedException $e) {
             return $this->error($e->getMessage(), 500);
+        } catch (VideoDispatchFailedException $e) {
+            return $this->error($e->getMessage(), 503);
         }
 
         // The upload→pool bridge (plan 04 step E; UNPINNED since 2026-08-27,
