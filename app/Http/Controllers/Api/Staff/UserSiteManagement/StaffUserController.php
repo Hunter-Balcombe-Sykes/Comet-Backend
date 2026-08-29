@@ -43,12 +43,20 @@ class StaffUserController extends ApiController
      * single User target and this is a paginated collection; per-row authorize calls
      * would be N gate evaluations for a currently-unconditional ability. The PII gate
      * ($showPii below) is the enforcement point for this endpoint, same as show().
+     * #W1-SEC-3: $showPii now also shapes the `q` search predicate, not just the
+     * response — a column hidden from a caller must not be searchable by that
+     * caller either (see the q closure below).
      */
     public function index(Request $request): JsonResponse
     {
         $status = $request->query('status'); // optional: active|suspended
         $perPage = $this->normalizePerPage($request, (int) config('partna.staff.pagination.per_page', 25), (int) config('partna.staff.pagination.per_page_max', 100));
         $searchLike = $this->prepareSearchLike($request, 'q');
+
+        // Hoisted above the query so both the search predicate and the response
+        // shaping below read the same value and cannot drift (#W1-SEC-3).
+        $staff = $request->attributes->get('partna_staff');
+        $showPii = $staff && $staff->isAdmin();
 
         $query = User::query()
             ->with(['site'])
@@ -69,12 +77,20 @@ class StaffUserController extends ApiController
         }
 
         if ($searchLike) {
-            $query->where(function ($qq) use ($searchLike) {
+            $query->where(function ($qq) use ($searchLike, $showPii) {
                 $qq->whereRaw('handle ILIKE ?', [$searchLike])
-                    ->orWhereRaw('display_name ILIKE ?', [$searchLike])
-                    ->orWhereRaw('primary_email ILIKE ?', [$searchLike])
-                    ->orWhereRaw('phone ILIKE ?', [$searchLike])
-                    ->orWhereRaw('first_name ILIKE ?', [$searchLike])
+                    ->orWhereRaw('display_name ILIKE ?', [$searchLike]);
+
+                // #W1-SEC-3: a column hidden from this caller must not be a
+                // search predicate either — matching on it (even via ILIKE,
+                // even without echoing the field back) is an existence oracle
+                // over the exact value $showPii exists to withhold.
+                if ($showPii) {
+                    $qq->orWhereRaw('primary_email ILIKE ?', [$searchLike])
+                        ->orWhereRaw('phone ILIKE ?', [$searchLike]);
+                }
+
+                $qq->orWhereRaw('first_name ILIKE ?', [$searchLike])
                     ->orWhereRaw('last_name ILIKE ?', [$searchLike])
                     ->orWhereRaw('sector ILIKE ?', [$searchLike])
                     ->orWhereHas('site', function ($s) use ($searchLike) {
@@ -84,10 +100,6 @@ class StaffUserController extends ApiController
         }
 
         $page = $query->paginate($perPage);
-
-        // PII gate: only admin staff may see raw email + phone in the list view.
-        $staff = $request->attributes->get('partna_staff');
-        $showPii = $staff && $staff->isAdmin();
 
         // Keep response light for list-view
         $professionals = $page->getCollection()->map(

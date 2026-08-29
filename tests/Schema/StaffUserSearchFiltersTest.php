@@ -12,11 +12,20 @@
  * is the ONLY protection on this endpoint. An in-process call skips that
  * entire stack, so it could never notice if the stack were removed.
  *
- * TEST-104: adds coverage for the `q` ILIKE path (handle/email/display_name/
- * sector/etc). ILIKE is Postgres-only syntax with no SQLite equivalent, so
- * this file now lives in the applied-schema lane (tests/Schema/) rather than
- * behind a driver-gated skip in tests/Feature/ — see the #COV-LANE-4 note
- * below for why the move needed real fixture fixes, not just a relocation.
+ * TEST-104: adds coverage for the `q` ILIKE path (handle/display_name/
+ * sector/etc, plus email/phone now gated to admin — #W1-SEC-3). ILIKE is
+ * Postgres-only syntax with no SQLite equivalent, so this file now lives in
+ * the applied-schema lane (tests/Schema/) rather than behind a driver-gated
+ * skip in tests/Feature/ — see the #COV-LANE-4 note below for why the move
+ * needed real fixture fixes, not just a relocation.
+ *
+ * #W1-SEC-3 (2026-08-29): primary_email/phone were ILIKE search predicates
+ * for every staff tier even though StaffUserListResource nulls both fields
+ * unless $showPii — a support actor could confirm the exact hidden value
+ * existed by searching for it. Fixed by gating those two legs behind
+ * $showPii in StaffUserController::index(); the support-actor email test
+ * below was INVERTED (was a positive match, now asserts no narrowing) and a
+ * phone case plus an admin positive control were added alongside it.
  *
  * #COV-LANE-4 drift bug (FIXTURE fault, not production): core.users.sector
  * has a real CHECK constraint (users_sector_check, baseline_pilot.sql) fixed
@@ -100,12 +109,29 @@ function ovaSearchStaffActor(): PartnaStaff
 }
 
 /**
+ * Admin-role sibling of ovaSearchStaffActor() — #W1-SEC-3 positive control:
+ * $showPii gates the `q` search predicate on primary_email/phone, and admin
+ * is the only tier that should still be able to search (and see) them.
+ */
+function ovaSearchAdminActor(): PartnaStaff
+{
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+    $staff->role = PartnaStaff::ROLE_ADMIN;
+    $staff->primary_email = 'ova-search-admin@partna.au';
+
+    return $staff;
+}
+
+/**
  * Real HTTP request against GET /api/staff/professionals through the full
  * middleware stack (TEST-105). Returns the ids of matching professionals.
+ * $actor defaults to the support-role helper; pass ovaSearchAdminActor() to
+ * exercise the admin tier (#W1-SEC-3).
  */
-function ovaSearchIds(array $query = []): array
+function ovaSearchIds(array $query = [], ?PartnaStaff $actor = null): array
 {
-    $response = actingAsStaff(ovaSearchStaffActor())
+    $response = actingAsStaff($actor ?? ovaSearchStaffActor())
         ->getJson('/api/staff/professionals?'.http_build_query($query));
 
     $response->assertOk();
@@ -197,14 +223,14 @@ it('rejects an unauthenticated request with 401', function () {
 });
 
 // ---------------------------------------------------------------------------
-// TEST-104 — q ILIKE path (handle/email/display_name/phone/first_name/
-// last_name/sector/subdomain). Runs for real now that this file lives in the
-// applied-schema lane; sector fixtures use real users_sector_check slugs
-// (see file-level docblock) rather than the fabricated strings SQLite never
-// validated.
+// TEST-104 — q ILIKE path (handle/display_name/first_name/last_name/sector/
+// subdomain, plus email/phone gated to admin). Runs for real now that this
+// file lives in the applied-schema lane; sector fixtures use real
+// users_sector_check slugs (see file-level docblock) rather than the
+// fabricated strings SQLite never validated.
 // ---------------------------------------------------------------------------
 
-it('q matches handle, email, display_name, and sector case-insensitively', function () {
+it('q matches handle, display_name, and sector case-insensitively for a support actor', function () {
     $byHandle = ovaSearchUser(['handle' => 'zqneedle-handle', 'sector' => 'photographer']);
     $byEmail = ovaSearchUser(['primary_email' => 'zqneedle-email@example.test', 'sector' => 'videographer']);
     $byDisplayName = ovaSearchUser(['display_name' => 'Zqneedle Display Name', 'sector' => 'graphic-designer']);
@@ -215,8 +241,20 @@ it('q matches handle, email, display_name, and sector case-insensitively', funct
         // Case-insensitive substring match against handle.
         expect(ovaSearchIds(['q' => 'ZQNEEDLE-HANDLE']))->toBe([$byHandle]);
 
-        // Matches primary_email.
-        expect(ovaSearchIds(['q' => 'zqneedle-email']))->toBe([$byEmail]);
+        // #W1-SEC-3: primary_email is hidden from a support actor's response
+        // (StaffUserListResource nulls it), so it must not be usable as a
+        // search predicate either — matching would be an existence oracle
+        // over the exact value being withheld. A support actor's search must
+        // NOT narrow at all: the result is identical to an unrelated string
+        // that matches nothing, not merely "empty" by coincidence.
+        $supportEmailHit = ovaSearchIds(['q' => 'zqneedle-email']);
+        $supportUnrelated = ovaSearchIds(['q' => 'zqneedle-unrelated-'.Str::random(8)]);
+        expect($supportEmailHit)->toBe([])
+            ->and($supportEmailHit)->toBe($supportUnrelated);
+
+        // Positive control: admin staff (who DO see primary_email in the
+        // response) retain the ability to search it.
+        expect(ovaSearchIds(['q' => 'zqneedle-email'], ovaSearchAdminActor()))->toBe([$byEmail]);
 
         // Matches display_name, including the embedded space.
         expect(ovaSearchIds(['q' => 'Zqneedle Display']))->toBe([$byDisplayName]);
@@ -230,5 +268,42 @@ it('q matches handle, email, display_name, and sector case-insensitively', funct
         expect(ovaSearchIds(['q' => 'zqneedle-does-not-exist-anywhere']))->toBe([]);
     } finally {
         ovaSearchCleanup([$byHandle, $byEmail, $byDisplayName, $bySector, $bystander]);
+    }
+});
+
+it('q still matches subdomain for a support actor — not gated by #W1-SEC-3 (rendered to every staff tier)', function () {
+    $ownerId = ovaSearchUser(['handle' => 'zqneedle-subdomain-owner']);
+
+    try {
+        $siteId = Str::uuid()->toString();
+        DB::connection('pgsql')->table('site.sites')->insert([
+            'id' => $siteId,
+            'user_id' => $ownerId,
+            'subdomain' => 'zqneedle-subdomain-'.Str::random(6),
+        ]);
+        $subdomain = DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->value('subdomain');
+
+        expect(ovaSearchIds(['q' => $subdomain]))->toBe([$ownerId]);
+    } finally {
+        ovaSearchCleanup([$ownerId]);
+    }
+});
+
+it('#W1-SEC-3: q does not let a support actor use phone as a search oracle, but admin retains it', function () {
+    $byPhone = ovaSearchUser(['phone' => '+61491570156', 'sector' => 'writer']);
+
+    try {
+        // Support actor: no narrowing at all — identical to an unrelated
+        // string, not merely "empty" by coincidence.
+        $supportPhoneHit = ovaSearchIds(['q' => '+61491570156']);
+        $supportUnrelated = ovaSearchIds(['q' => 'zqneedle-unrelated-'.Str::random(8)]);
+        expect($supportPhoneHit)->toBe([])
+            ->and($supportPhoneHit)->toBe($supportUnrelated);
+
+        // Admin positive control: the capability is preserved for the tier
+        // that already sees the value.
+        expect(ovaSearchIds(['q' => '+61491570156'], ovaSearchAdminActor()))->toBe([$byPhone]);
+    } finally {
+        ovaSearchCleanup([$byPhone]);
     }
 });

@@ -101,7 +101,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 3 of 5 complete
+- P1 High: 4 of 5 complete
 - P2 Medium: 0 of 9 complete
 - P3 Low: 0 of 2 complete
 
@@ -156,7 +156,7 @@
         ```
     - Resolution (2026-08-28): FIXED, with the stated impact corrected. The finding claims a pixel bomb "can crash the server process" — nothing on this path rasterises: the bytes are base64-encoded and POSTed to Mistral OCR, and peak memory is already bounded by the existing max:20480 rule. The real cost is narrower but real: a ~33-byte PNG declaring 20000x20000 passes both existing rules and spends a BILLED OCR call on a payload that will fail or hang. Guarded in ScanMenuUploadRequest::withValidator() using the existing ImagePixelBudget::exceeds() (bytes-based, fails closed on an unreadable header). NOT getimagesize(), which is not a decode gate, and NOT safeToDecode() — its decodable() allowlist is jpeg/png/webp, so it would 422 every legitimate menu PDF; PDFs take an explicit early return. The regression assertion is Http::assertNothingSent(), i.e. the billed call never happens.
 
-- [ ] **#W1-SEC-3** · P1 — Non-admin staff can use hidden PII fields as search filters to confirm they exist, defeating the PII-hide gate
+- [x] **#W1-SEC-3** · P1 — Non-admin staff can use hidden PII fields as search filters to confirm they exist, defeating the PII-hide gate
     - **Where:** app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php index()
     - **Affects:** Professional users' email addresses and phone numbers; any non-admin staff role using the professionals search screen.
     - **Effort:** S (~0.5–1h)
@@ -184,6 +184,7 @@
         ...
         $showPii = $staff && $staff->isAdmin();
         ```
+    - Resolution (2026-08-28): FIXED. The $showPii gate is now hoisted above the query and shapes the PREDICATE as well as the response, so the primary_email/phone ILIKE legs simply do not match for a non-admin. handle, display_name, first_name, last_name, sector and the subdomain sub-query stay ungated — all are rendered to every staff tier, so none is an oracle. No Policy introduced: index() deliberately has no authorizeForUser because the target is a collection, and the house pattern for role-shaped DATA is the inline isAdmin() read (show(), StaffWorkplaceController) — this is query shaping, not an authorization abort. The regression test asserts the support actor's email search returns the SAME result set as an unrelated random string (the no-narrowing assertion the finding actually asks for; a bare "returns empty" would be weaker), with an admin positive control proving the capability is preserved for the tier that already sees the value. Verified in the APPLIED-SCHEMA lane (ILIKE has no SQLite equivalent), and the reviewer confirmed non-vacuity by reverting the gate and observing exactly the two expected failures. grep confirms no sibling endpoint has the same hide-in-response-but-search-on-it mismatch. PRODUCT NOTE: support-tier staff lose email/phone lookup entirely on this endpoint — deliberate, but flagged to the owner.
 
 - [x] **#W1-SEC-4** · P1 — MenuAiExtractor logs raw exception messages that can carry signed hosted-media URLs
     - **Where:** app/Services/Platforms/MenuAiExtractor.php:128-140 (`ocr()`), 187-191 (`structure()`); real hosted-URL callers app/Jobs/Platforms/GoogleMenuPhotoScanJob.php:177, app/Jobs/Platforms/WebsiteMenuPdfScanJob.php:74
