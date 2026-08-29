@@ -8,9 +8,11 @@
 //   - seedReservation()  → BuildsAutoSyncFindings::withReservationsXorLock
 //     (cross-platform XOR across opentable/resdiary/nowbookit/reservations,
 //     structurally identical to the existing booking-XOR lock).
-//   - seedOrdering()     → BuildsAutoSyncFindings::withPlatformSeedLock keyed
-//     'online-ordering' (same key ManagesIntegrationConnection::
-//     withConnectionLock() would build for a dashboard write to that platform).
+//   - seedOrdering()     → runUnderSeedLock keyed via
+//     CacheKeyGenerator::orderingFamilyLock() (#W2-LIFE-3 routed it through that
+//     seam so SourceReconciler serialises against it; the key is byte-identical
+//     to the platformConnectionLock('online-ordering') it built before, which is
+//     why the literal below still matches).
 //   - dispatchInstagram() → withPlatformSeedLock keyed 'instagram' — but ONLY
 //     around the placeholder write; the job dispatch stays outside the lock
 //     because InstagramConnectJob (via InstagramConnectionSeeder::seed) takes

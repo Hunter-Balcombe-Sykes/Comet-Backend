@@ -505,7 +505,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 4 of 5 complete
+- P1 High: 5 of 5 complete
 - P2 Medium: 1 of 20 complete
 - P3 Low: 0 of 12 complete
 
@@ -566,7 +566,7 @@
         ```
     - Resolution (2026-08-28): FIXED, with the stated impact corrected. It is NOT an "uncaught 500" — both callers are non-HTTP: RunExecutor.php:245 wraps the call in catch (\Throwable) -> report(), downgrades the run to degraded and writes a severity=critical ingest.anomalies row (so it pages and the whole stream's projection is dropped for that run); the other caller is the ingest:project artisan command. Reachability is narrow but real: RunExecutor is serialised per source by SourceScheduler's claim, but ingest:project bypasses that claim entirely (ProjectionWriter's own comment at :226-231) and two ingest.sources sharing one connection_id are not excluded. Fixed with insertOrIgnore + re-read + a loud throw on a null re-read, matching ensureManualSource() 30 lines below. Also added the missing idx_content_sources_connection to the SQLite stand-in — without it insertOrIgnore deduplicates nothing in that lane and any assertion on it is vacuous.
 
-- [ ] **#W1-LIFE-3** · P1 — `applyIntent()`'s connection insert can still race an identical concurrent placement into an uncaught exception
+- [x] **#W1-LIFE-3** · P1 — `applyIntent()`'s connection insert can still race an identical concurrent placement into an uncaught exception
     - **Where:** app/Routing/SourceReconciler.php:472-501 (`applyIntent()`)
     - **Affects:** Duplicate placements for the same `(user, surface, identifier)` racing from a scan, paste, or retried job — the whole `reconcile()` call fails instead of resolving to the already-created connection.
     - **Effort:** S (~0.5–1h)
@@ -5368,7 +5368,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 1 of 3 complete
+- P1 High: 3 of 3 complete
 - P2 Medium: 0 of 20 complete
 - P3 Low: 0 of 26 complete
 
@@ -5391,7 +5391,7 @@ None.
         ```
     - Resolution (2026-08-28): STALE — false premise, and it was false at the 9567e3057 scan sha too (the line is byte-identical there). `$pro->site->shop_link_mode ?? Site::DEFAULT_SHOP_LINK_MODE` cannot throw: `??` evaluates its left operand in isset context, so a null property chain yields the default with no warning and no Error (verified by execution). The lazy-load path is safe too — Model::preventLazyLoading is armed outside production, but Builder::hydrate() only arms it per-model when count($items) > 1 (vendor/laravel/framework Eloquent/Builder.php:471-473), and the controller hydrates $pro with a single-row User::find(). IndividualProfileControllerTest passes on the full HTTP path with a persisted user. No fix required. Residual, logged as a nit not a defect: $pro->site is one avoidable lazy query on the hot path when build() already holds $site.
 
-- [ ] **#W2-LIFE-2** · P1 — `SourceReconciler::applyIntent()` creates a link connection with a bare read-then-insert; no lock, no `insertOrIgnore`, no typed unique-catch
+- [x] **#W2-LIFE-2** · P1 — `SourceReconciler::applyIntent()` creates a link connection with a bare read-then-insert; no lock, no `insertOrIgnore`, no typed unique-catch
     - **Where:** app/Routing/SourceReconciler.php:475-507 (`applyIntent()`)
     - **Affects:** Automatic link-routing writes for any user whose scanned links resolve concurrently to the same `(user, surface_key, resource_id)` — e.g. an Instagram bio-scan and a link-in-bio unroll surfacing the same URL in the same sweep, or a paste racing a scheduled scan.
     - **Effort:** M (~2–4h)
@@ -5421,8 +5421,9 @@ None.
         $connection->created_by_catalog_digest = CompiledCatalog::digest();
         $connection->save();
         ```
+    - Resolution (2026-08-28): FIXED — this is the SAME finding as #W1-LIFE-3 (identical file, identical lines, identical evidence, found independently by two lenses). One fix, two ticks. See #W1-LIFE-3 for the reasoning, including why the prescribed catch-inside-the-transaction was rejected in favour of a savepoint.
 
-- [ ] **#W2-LIFE-3** · P1 — `SourceReconciler::reconcile()` checks the booking/reservations XOR conflict without taking the shared cross-service lock
+- [x] **#W2-LIFE-3** · P1 — `SourceReconciler::reconcile()` checks the booking/reservations XOR conflict without taking the shared cross-service lock
     - **Where:** app/Routing/SourceReconciler.php:120-127 (`reconcile()`, the `isExclusiveAuto` branch)
     - **Affects:** Users with more than one automated booking/reservations/ordering surface discovered close together (e.g. a Fresha link and a Square link both surfacing from the same bio scan) — two concurrent reconciles can both see no incumbent and both install a "primary" connection for the same exclusive class.
     - **Effort:** M (~2–4h)
@@ -5442,6 +5443,7 @@ None.
             }
         }
         ```
+    - Resolution (2026-08-28): FIXED, but the stated impact was WRONG. The audit claims the missing lock lets two connections both be marked is_primary; that cannot happen — idx_platform_connections_primary_per_class is UNIQUE on (user_id, routing_class) WHERE is_primary AND deleted_at IS NULL and has blocked it since 20260727110008. The REAL bug is worse in a different way: the loser's forceFill([is_primary => true])->save() raised an UNCAUGHT 23505 INSIDE the LIFE-16 transaction, so the whole reconcile rolled back into a 500/failed job and the XOR "hold it as a conflict for the inbox" semantics was bypassed entirely — two active booking-class connections, one primary. That index is also absent from the SQLite stand-in, so this arm is only provable in the PG lane. Fixed by taking the exclusive-slot lock around the incumbent check AND the transaction together (lock OUTER, transaction INNER), and savepoint-wrapping the is_primary write so a lost race resolves to "someone else owns the CTA" rather than rethrowing. Note the prescription named withBookingXorLock, which lives on BuildsAutoSyncFindings and SourceReconciler deliberately cannot take; isExclusiveAuto() also covers THREE classes, and there is no orderingXorLock — the ordering family serialises on platformConnectionLock(online-ordering), now exposed as CacheKeyGenerator::orderingFamilyLock() so the reconciler and GoogleBusinessAutoSync::seedOrdering share one source of truth. dispatchFor() stays OUTSIDE the lock closure: under the sync queue it reaches FreshaConnectFetch, which takes bookingXorLock itself, and Cache::lock is not reentrant.
 
 ## P2 — Should fix
 
