@@ -17,6 +17,7 @@ use Illuminate\Notifications\Notification as NotificationMessage;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Notification;
+use RuntimeException;
 use Throwable;
 
 class NotifyOnCallStaffJob implements ShouldBeUnique, ShouldQueue
@@ -53,11 +54,14 @@ class NotifyOnCallStaffJob implements ShouldBeUnique, ShouldQueue
 
         // On-call routing: all admin staff are treated as on-call.
         // PartnaStaff has no is_on_call column — all role='admin' rows are on-call.
-        $oncall = PartnaStaff::query()->where('role', 'admin')->get();
+        $oncall = PartnaStaff::query()->where('role', PartnaStaff::ROLE_ADMIN)->get();
         if ($oncall->isEmpty()) {
-            $this->markCompleted($entry);
-
-            return;
+            // #W2-OBS-1: an empty roster means nobody was paged, so the entry must not
+            // read 'completed'. This job is dispatched INDEPENDENTLY (nothing downstream
+            // of it in ModerationActionDispatcher), so throwing is safe here — unlike the
+            // chained enforcement jobs, which use markFailed(). failed() then writes
+            // status='failed' + failure_reason and reports to Nightwatch.
+            throw new RuntimeException('No on-call staff available to page for moderation case '.$this->caseId);
         }
 
         $latestDecision = $case->decisions()->latest('decided_at')->first();

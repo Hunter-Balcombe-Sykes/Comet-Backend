@@ -43,10 +43,21 @@ class QuarantineMediaJob implements ShouldQueue
             // Prefer explicit site_media_id from action_target; fall back to reportable_id
             $mediaId = $entry->action_target['site_media_id'] ?? $case->reportable_id;
 
-            DB::update(
+            // #W2-OBS-2: UPDATE returns rows MATCHED (Postgres and the SQLite stand-in
+            // alike), so a re-run against already-quarantined media still returns 1 and
+            // 0 unambiguously means "no such media row". markFailed() does NOT throw —
+            // this job is the FIRST link of the csam_auto_suspend chain and a throw
+            // would strand the suspension/KV actions behind it.
+            $affected = DB::update(
                 "UPDATE site.site_media SET processing_state = 'quarantined' WHERE id = ?",
                 [$mediaId]
             );
+
+            if ($affected === 0) {
+                $this->markFailed($entry, "quarantine_media: no site_media row for id {$mediaId}");
+
+                return;
+            }
 
             $this->markCompleted($entry);
         });

@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\Moderation\ModerationTargetMissingException;
 use App\Jobs\Moderation\QuarantineMediaJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
@@ -7,6 +8,7 @@ use App\Models\Moderation\ActionLogEntry;
 use App\Models\Moderation\Decision;
 use App\Models\Moderation\ModerationCase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -116,4 +118,30 @@ it('is idempotent (running twice does not error, state stays quarantined)', func
 
     $row = DB::selectOne('SELECT processing_state FROM site.site_media WHERE id = ?', [$mediaId]);
     expect($row->processing_state)->toBe('quarantined');
+})->group('postgres');
+
+// #W2-OBS-2: a missing media row used to be marked 'completed', asserting an
+// enforcement action that never happened. It must NOT throw — this job is the
+// first link of the csam_auto_suspend Bus::chain, and a throw would strand the
+// suspension and KV-retirement links behind it.
+it('marks the entry failed and reports when the media row does not exist', function () {
+    Exceptions::fake();
+    $missingId = Str::uuid()->toString();
+
+    $case = ModerationCase::factory()->csamMatch()->create([
+        'reportable_type' => 'SiteMedia',
+        'reportable_id' => $missingId,
+    ]);
+    $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create();
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create([
+        'action_type' => 'quarantine_media',
+        'action_target' => ['site_media_id' => $missingId],
+    ]);
+
+    (new QuarantineMediaJob($entry->id, $case->id))->handle();
+
+    $fresh = $entry->fresh();
+    expect($fresh->status)->toBe('failed');
+    expect((string) $fresh->failure_reason)->toContain($missingId);
+    Exceptions::assertReported(ModerationTargetMissingException::class);
 })->group('postgres');

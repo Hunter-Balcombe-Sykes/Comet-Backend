@@ -101,7 +101,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 4 of 5 complete
+- P1 High: 5 of 5 complete
 - P2 Medium: 0 of 9 complete
 - P3 Low: 0 of 2 complete
 
@@ -109,7 +109,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-SEC-1** · P1 — MediaMirror's expired-URL refresh write is the one update in the class not scoped by `user_id`
+- [x] **#W1-SEC-1** · P1 — MediaMirror's expired-URL refresh write is the one update in the class not scoped by `user_id`
     - **Where:** app/Services/Media/MediaMirror.php:99-101 (`mirror()`); app/Services/Media/MediaMirror.php:122-134 (`refreshedInstagramUrl()`)
     - **Affects:** `content.media_assets` rows; a mismatched (userId, assetId) pair passed to `MediaMirror::mirror()` (via `MirrorMediaAssetJob`, e.g. from a dispatch bug or an asset re-association race) would overwrite a `source_url` cross-tenant instead of failing.
     - **Effort:** S (~0.5–1h)
@@ -131,6 +131,7 @@
             $sourceUrl = $fresh;
         }
         ```
+    - Resolution (2026-08-28): FIXED, and the prescription was incomplete. Scoping the UPDATE by user_id is half of it; the other half is the class's own doctrine at :250-266 — a zero-row UPDATE must not be treated as success, or the job continues to stream() with a URL that was never persisted. Both are now in place, routing a miss through the existing asset_unwritable reason (fail() is itself owner-scoped, so a mismatched pair bumps nobody's counter). The READ is scoped too, through a join to content.media_assets on ma.user_id, because content.item_media has no user_id column and BOTH the primary and fallback joins correlated by asset_id alone. That ordering matters for cost as well as leakage: the read runs before the write and freshUrl() spends an embed fetch AND a billed Apify actor call, so a mismatched pair should cost nothing. The new negative test pins the read scope (Http::assertNothingSent — nothing is even fetched); a positive control covers the refresh branch end-to-end, which had no coverage at all before. The write-scope predicate is defence-in-depth with no direct test: content.media_assets.id is the PRIMARY KEY, so user_id is fixed per asset and the scoped read can never hand the write a mismatched pair. asset_unwritable is asserted in zero tests for any of the three branches — pre-existing debt across the class, not introduced here.
 
 - [x] **#W1-SEC-2** · P1 — Menu-scan upload has no decompression/pixel-bomb guard
     - **Where:** app/Http/Requests/Platforms/ScanMenuUploadRequest.php:20-32; app/Http/Controllers/Api/Platforms/MenuController.php:146-154
@@ -3749,7 +3750,7 @@ None.
 ## Progress
 
 - P0 Blockers: 1 of 1 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 2 complete
 - P3 Low: 0 of 1 complete
 
@@ -3798,7 +3799,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-PRIV-2** · P1 — `content.f_review.staff_name` was added to the schema but `DataExportPayloadBuilder` never learned to export it
+- [x] **#W1-PRIV-2** · P1 — `content.f_review.staff_name` was added to the schema but `DataExportPayloadBuilder` never learned to export it
     - **Where:** app/Services/User/DataExport/DataExportPayloadBuilder.php:569-578 (`streamContentFReview`); supabase/migrations/20260828030000_f_review_staff_name.sql
     - **Affects:** Any professional whose site has a Fresha (or future) review connection carrying structured staff attribution — their own name, per the migration's own comment — is now stored but not returned in their own DSAR export.
     - **Effort:** S (~0.5–1h)
@@ -3828,6 +3829,7 @@ None.
             );
         }
         ```
+    - Resolution (2026-08-28): FIXED, but NOT as prescribed — the finding's premise about the column is wrong. It asserts staff_name is "the professional's own name, never reviewer PII", quoting the migration COMMENT (an Evidence block that is a comment, not executable code — automatically suspect). That holds only for employee-scoped Fresha connections: for a STOREWIDE venue source, f_review rows under this user's items routinely carry a CO-WORKER's name. PoolResolver's person-scope filter (:1456-1470) exists precisely for this, and ReviewsPoolTest:530-538 pins it — owner "Simon Doyle", row reading "Jack", dropped as not his. An unconditional select would therefore have pushed a third party's name into the requester's DSAR bundle: the exact class of data this method deliberately withholds (author_name, author_photo_url, author_uri, text), and a GDPR Art. 15(4) problem in its own right. Implemented instead: select it, disclose on match, mask otherwise with a stated marker, and disclose the withholding in metadata.withheld. The matcher was extracted to PersonNameMatch so the DSAR lane and the public pool path cannot drift; equivalence was verified by a 1985-case differential harness against the pre-extraction code, 0 divergences, with ReviewsPoolTest unchanged and green as the live-path proof. Fails CLOSED when the account has no usable name. No migration.
 
 ## P2 — Should fix
 
@@ -7463,7 +7465,7 @@ None — every surviving finding requires a `supabase/migrations/` change (a new
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 1 complete
 - P3 Low: 0 of 3 complete
 
@@ -7471,7 +7473,7 @@ None — every surviving finding requires a `supabase/migrations/` change (a new
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W2-DINT-1** · P1 — `content.f_review.staff_name` (the professional's own name) is never selected into the GDPR data-export payload
+- [x] **#W2-DINT-1** · P1 — `content.f_review.staff_name` (the professional's own name) is never selected into the GDPR data-export payload
     - **Where:** app/Services/User/DataExport/DataExportPayloadBuilder.php:576, app/Ingest/Projection/ProjectionWriter.php:64
     - **Affects:** Any professional whose Fresha reviews carry structured staff attribution (`staff_name`) and who requests a data export (Art. 15/DSAR).
     - **Effort:** S (~0.5–1h)
@@ -7488,6 +7490,7 @@ None — every surviving finding requires a `supabase/migrations/` change (a new
         ```php
         ->select(['content.f_review.item_id', 'content.f_review.source_id', 'content.f_review.rating', 'content.f_review.reviewed_at', 'content.f_review.updated_at'])
         ```
+    - Resolution (2026-08-28): FIXED — same bug as #W1-PRIV-2, same fix, one change. See that finding for the full reasoning, including why the prescribed unconditional select was rejected (staff_name can name a co-worker on a storewide venue source, not only the requester).
 
 ## P2 — Should fix
 
@@ -7901,7 +7904,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 3 of 5 complete
+- P1 High: 5 of 5 complete
 - P2 Medium: 0 of 11 complete
 - P3 Low: 0 of 4 complete
 
@@ -7909,7 +7912,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W2-OBS-1** · P1 — On-call moderation paging job marks itself "completed" when no admin staff exist
+- [x] **#W2-OBS-1** · P1 — On-call moderation paging job marks itself "completed" when no admin staff exist
     - **Where:** app/Jobs/Moderation/NotifyOnCallStaffJob.php:56-61
     - **Affects:** CSAM auto-action and case-escalation staff paging — the sole notification path for high-priority moderation events.
     - **Effort:** S (~0.5–1h)
@@ -7928,7 +7931,7 @@ None.
         }
         ```
 
-- [ ] **#W2-OBS-2** · P1 — Moderation enforcement jobs ignore zero-row writes and still mark the action "completed"
+- [x] **#W2-OBS-2** · P1 — Moderation enforcement jobs ignore zero-row writes and still mark the action "completed"
     - **Where:** app/Jobs/Moderation/QuarantineMediaJob.php:46-51, app/Jobs/Moderation/SuspendSiteJob.php:52-59,68-84, app/Jobs/Moderation/SuspendUserJob.php:50-63
     - **Affects:** CSAM quarantine, site suspension, and user suspension/ban enforcement — a missing target row can leave harmful content or an active account while the audit trail says "completed."
     - **Effort:** S (~0.5–1h)

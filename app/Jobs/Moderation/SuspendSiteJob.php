@@ -12,6 +12,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class SuspendSiteJob implements ShouldQueue
 {
@@ -35,9 +36,13 @@ class SuspendSiteJob implements ShouldQueue
      * either both commit or both roll back.
      *
      * Human-report cases target the Site directly; CSAM cases target a SiteMedia,
-     * so the owning site is resolved from the media row. Any other reportable
-     * type is a graceful no-op (the entry is still marked completed so the action
-     * log stays consistent).
+     * so the owning site is resolved from the media row.
+     *
+     * Three outcomes, deliberately split (#W2-OBS-2):
+     *  - site hidden                        → completed
+     *  - reportable type carries no site    → genuine no-op, still completed
+     *  - the media row or site row is GONE  → failed + reported (never thrown —
+     *    this job is a Bus::chain link; see HasActionLogLifecycle::markFailed())
      */
     public function handle(): void
     {
@@ -49,11 +54,37 @@ class SuspendSiteJob implements ShouldQueue
             // if the site update throws, the action log reflects the attempt.
             $this->markDispatched($entry);
 
-            $siteId = $this->resolveSiteId($case);
-            if ($siteId !== null) {
-                Site::query()
-                    ->where('id', $siteId)
-                    ->update(['moderation_state' => 'hidden']);
+            ['siteId' => $siteId, 'missing' => $missing] = $this->resolveSiteId($case);
+
+            if ($missing) {
+                $this->markFailed($entry, "suspend_site: no site_media row for {$case->reportable_id}");
+
+                return;
+            }
+
+            if ($siteId === null) {
+                // Genuine no-op: the reported thing (User, Block, …) has no owning
+                // site to hide. Not a failure — logged so it stays visible.
+                Log::info('Moderation suspend_site no-op for reportable type', [
+                    'action_log_id' => $this->actionLogId,
+                    'case_id' => $this->caseId,
+                    'reportable_type' => $case->reportable_type,
+                ]);
+                $this->markCompleted($entry);
+
+                return;
+            }
+
+            // UPDATE returns rows MATCHED, so an already-hidden site still returns 1;
+            // 0 means the site row itself has gone.
+            $affected = Site::query()
+                ->where('id', $siteId)
+                ->update(['moderation_state' => 'hidden']);
+
+            if ($affected === 0) {
+                $this->markFailed($entry, "suspend_site: no site row for {$siteId}");
+
+                return;
             }
 
             $this->markCompleted($entry);
@@ -61,14 +92,17 @@ class SuspendSiteJob implements ShouldQueue
     }
 
     /**
-     * Resolve which site to hide. 'Site' cases carry the site id directly;
-     * 'SiteMedia' cases (CSAM) carry a media id, so look up its owning site_id.
-     * Returns null for other reportable types (graceful no-op).
+     * Resolve which site to hide, distinguishing "there is no site to hide for this
+     * reportable type" (missing = false, siteId = null → no-op) from "the media row
+     * we were told to trace is gone" (missing = true → failure). Collapsing those
+     * two into one null is what made a missing CSAM media row report success.
+     *
+     * @return array{siteId: ?string, missing: bool}
      */
-    private function resolveSiteId(ModerationCase $case): ?string
+    private function resolveSiteId(ModerationCase $case): array
     {
         if ($case->reportable_type === 'Site') {
-            return $case->reportable_id;
+            return ['siteId' => $case->reportable_id, 'missing' => false];
         }
 
         if ($case->reportable_type === 'SiteMedia') {
@@ -77,9 +111,13 @@ class SuspendSiteJob implements ShouldQueue
                 [$case->reportable_id]
             );
 
-            return $media?->site_id;
+            if ($media === null) {
+                return ['siteId' => null, 'missing' => true];
+            }
+
+            return ['siteId' => $media->site_id, 'missing' => false];
         }
 
-        return null;
+        return ['siteId' => null, 'missing' => false];
     }
 }
