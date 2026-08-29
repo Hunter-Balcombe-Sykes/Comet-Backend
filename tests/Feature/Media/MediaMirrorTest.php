@@ -49,6 +49,43 @@ function mirrorProjectedAsset(string $userId, string $fingerprint): string
     return $id;
 }
 
+/**
+ * The content.sources -> content.source_items -> content.item_media chain
+ * refreshedInstagramUrl() correlates through, for one already-projected
+ * asset. $ownerId is the SOURCE's owner — the row the join is meant to find.
+ */
+function mirrorInstagramRefreshFixture(string $ownerId, string $assetId, string $shortCode): void
+{
+    $sourceId = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $sourceId,
+        'user_id' => $ownerId,
+        'kind' => 'connection',
+        'priority' => 100,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    $sourceItemId = (string) Str::uuid();
+    DB::table('content.source_items')->insert([
+        'id' => $sourceItemId,
+        'source_id' => $sourceId,
+        'coord' => "instagram:acct-abc:{$shortCode}",
+        'kind' => 'media',
+        'first_seen_at' => now(),
+        'last_seen_at' => now(),
+    ]);
+    DB::table('content.item_media')->insert([
+        'id' => (string) Str::uuid(),
+        'item_id' => (string) Str::uuid(),
+        'source_id' => $sourceId,
+        'source_item_id' => $sourceItemId,
+        'asset_id' => $assetId,
+        'role' => 'video',
+        'position' => 0,
+        'created_at' => now(),
+    ]);
+}
+
 it('writes storage_path onto the existing asset row without minting a second', function () {
     // D9: the fingerprint collision trap. BrandAssetPipeline keys on a bare
     // content hash; ProjectionWriter keys on url-sha1(...). A mirror that
@@ -426,6 +463,66 @@ it('will not land one user\'s bytes on another user\'s asset row, and says so ra
     $row = DB::table('content.media_assets')->where('id', $assetId)->first();
     expect((int) $row->mirror_attempts)->toBe(0)
         ->and($row->mirror_last_reason)->toBeNull();
+});
+
+it('will not refresh a stranger\'s expired Instagram URL, and spends no embed fetch on the mismatched pair (SEC-1)', function () {
+    $owner = createTenant('exo-'.Str::lower(Str::random(6)));
+    $other = createTenant('exs-'.Str::lower(Str::random(6)));
+    // Live-verified expired stamp (InstagramMediaUrlTest.php): 0x6A88938E is
+    // in the past, so isExpired() trips before any owner scope is checked.
+    $expiredUrl = 'https://scontent.cdninstagram.com/o1/v/x.mp4?oe=6A88938E';
+    $assetId = mirrorProjectedAsset($owner->id, 'url-'.sha1('instagram:acct-abc:EXPIRE1:0'));
+    DB::table('content.media_assets')->where('id', $assetId)->update(['source_url' => $expiredUrl]);
+    mirrorInstagramRefreshFixture($owner->id, $assetId, 'EXPIRE1');
+
+    Http::fake([
+        'www.instagram.com/p/EXPIRE1/embed/*' => Http::response(
+            '<script>{"video_url\":\"https:\\\\/\\\\/scontent.cdninstagram.com\\\\/o1\\\\/v\\\\/fresh.mp4?oe=7A000000\"}</script>'
+        ),
+    ]);
+
+    // A job dispatched with a mismatched (userId, assetId) pair, on a row
+    // that ALSO needs its Instagram URL refreshed.
+    $ok = app(MediaMirror::class)->mirror($other->id, $assetId, $expiredUrl);
+
+    expect($ok)->toBeFalse();
+    // The item_media/source_items join is scoped to the caller's user_id, so
+    // the mismatched pair finds no row and never reaches freshUrl() — no
+    // embed fetch, and (were this the actor fallback) no billed Apify call.
+    Http::assertNothingSent();
+
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+    expect($row->source_url)->toBe($expiredUrl)
+        ->and($row->storage_path)->toBeNull()
+        ->and((int) $row->mirror_attempts)->toBe(0)
+        ->and($row->mirror_last_reason)->toBeNull();
+});
+
+it('refreshes the owner\'s own expired Instagram URL and proceeds to mirror it', function () {
+    $owner = createTenant('exr-'.Str::lower(Str::random(6)));
+    // No `/o1/v/` segment, so mirror()'s own kind sniff on the ORIGINAL
+    // (expired) URL picks 'image', matching the display_url embed field.
+    $expiredUrl = 'https://scontent.cdninstagram.com/v/x.jpg?oe=6A88938E';
+    $freshUrl = 'https://scontent.cdninstagram.com/v/fresh.jpg?oe=7A000000';
+    $assetId = mirrorProjectedAsset($owner->id, 'url-'.sha1('instagram:acct-abc:REFRESH1:0'));
+    DB::table('content.media_assets')->where('id', $assetId)->update(['source_url' => $expiredUrl]);
+    mirrorInstagramRefreshFixture($owner->id, $assetId, 'REFRESH1');
+
+    Http::fake([
+        'www.instagram.com/p/REFRESH1/embed/*' => Http::response(
+            '<script>{"display_url\":\"https:\\\\/\\\\/scontent.cdninstagram.com\\\\/v\\\\/fresh.jpg?oe=7A000000\"}</script>'
+        ),
+        $freshUrl => Http::response(mirrorImageBytes(400, 400), 200, ['Content-Type' => 'image/jpeg']),
+    ]);
+
+    $ok = app(MediaMirror::class)->mirror($owner->id, $assetId, $expiredUrl);
+
+    expect($ok)->toBeTrue();
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+    // The refresh branch itself: source_url is rewritten in place, not left
+    // pointing at the dead signed link.
+    expect($row->source_url)->toBe($freshUrl)
+        ->and($row->storage_path)->not->toBeNull();
 });
 
 /**
