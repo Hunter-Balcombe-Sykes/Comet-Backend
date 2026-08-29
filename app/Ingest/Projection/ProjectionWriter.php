@@ -11,6 +11,7 @@ use App\Content\Identity\Resolver;
 use App\Content\Identity\SourceItem;
 use App\Content\Values\Contribution;
 use App\Content\Values\ValueResolver;
+use App\Exceptions\Ingest\MergeFoldMediaDroppedException;
 use App\Jobs\Media\MirrorMediaAssetJob;
 use App\Routing\SecretParams;
 use App\Services\Content\ContentItemSlugAllocator;
@@ -383,9 +384,19 @@ class ProjectionWriter
             return (string) $existing;
         }
 
-        $id = (string) Str::uuid();
-        DB::table('content.sources')->insert([
-            'id' => $id,
+        // idx_content_sources_connection is a PARTIAL unique index on
+        // (connection_id) WHERE connection_id IS NOT NULL — two concurrent
+        // callers for the same connection can both miss the SELECT above and
+        // both attempt an insert. insertOrIgnore lets the loser's insert be
+        // silently suppressed by that index (losing the race is normal, not
+        // an error) instead of throwing; the loser then re-reads to find out
+        // who actually won. Returning the locally-minted uuid here instead of
+        // the re-read value would be the naive half-fix: every facet row this
+        // run writes would carry a source_id with no backing content.sources
+        // row. Same shape as ensureManualSource() below, which solved the
+        // identical race first.
+        DB::table('content.sources')->insertOrIgnore([
+            'id' => (string) Str::uuid(),
             'user_id' => $userId,
             'kind' => 'connection',
             'connection_id' => $connectionId,
@@ -395,7 +406,13 @@ class ProjectionWriter
             'updated_at' => now(),
         ]);
 
-        return $id;
+        $id = DB::table('content.sources')->where('connection_id', $connectionId)->value('id');
+
+        if ($id === null) {
+            throw new \RuntimeException("Could not resolve a content source for connection {$connectionId}.");
+        }
+
+        return (string) $id;
     }
 
     /**
@@ -1586,6 +1603,10 @@ class ProjectionWriter
      * moveLinks()/moveSlugs() below already do exactly this for the two tables
      * no projection rewrites.
      *
+     * The media CAP is the one place the lane distinction is honoured, and it
+     * has to be: a cap that drops a manual photo destroys it for good, while a
+     * dropped connector photo comes back on the next reprojection.
+     *
      * Callers MUST invoke this only where the discarded item is actually
      * deleted. A loser spared by $hasCuration is still rendered wherever it is
      * pinned, and emptying it would be a fresh data-loss bug on exactly the
@@ -1604,6 +1625,32 @@ class ProjectionWriter
         $cap = max(1, (int) config('partna.content.merge_media_cap', 8));
         $mediaHeld = DB::table('content.item_media')->where('item_id', $keptItemId)->count();
         $mediaDropped = 0;
+
+        // The cap may only drop what a reprojection can put back. A connector
+        // coord's media is re-derived from ingest.record_versions through the
+        // UNCAPPED replaceCollections() path (see its docblock and this
+        // method's), so dropping one is transient. A MANUAL coord's facets were
+        // written once from an HTTP payload persisted nowhere — there is
+        // nothing to replay, so dropping one is terminal. Exempt them.
+        //
+        // Keyed off source_item_id, NOT item_id: mergeInto() has already
+        // repointed the loser's source_items onto the survivor by the time this
+        // runs, so the item_id on those rows no longer distinguishes the lanes.
+        // Resolved ONCE, outside the loop — this is inside the identity
+        // advisory lock and resolveItemsLocked()'s transaction, and a per-row
+        // query would hold both open for a round-trip per photo.
+        //
+        // A NULL-origin row keeps today's behaviour (capped): it is
+        // unattributable — pre-backfill, or a row whose origin was never
+        // stamped — and guessing "manual" for it would relax the bound on
+        // exactly the rows we know least about.
+        $manualOrigins = DB::table('content.item_media as im')
+            ->join('content.source_items as si', 'si.id', '=', 'im.source_item_id')
+            ->join('content.sources as s', 's.id', '=', 'si.source_id')
+            ->where('im.item_id', $discardedItemId)
+            ->where('s.kind', 'manual')
+            ->pluck('im.source_item_id')
+            ->flip();
 
         // table => the value tuple that decides whether the survivor already
         // carries this contribution. Single-value facets (f_text, f_link, …)
@@ -1707,7 +1754,12 @@ class ProjectionWriter
                 }
 
                 if ($table === 'item_media') {
-                    if ($mediaHeld >= $cap) {
+                    // Exempt above the cap, never below it — a manual row still
+                    // counts towards $mediaHeld, so it is the connector rows
+                    // behind it that give way, not the guard that disappears.
+                    $manual = $row->source_item_id !== null && isset($manualOrigins[$row->source_item_id]);
+
+                    if (! $manual && $mediaHeld >= $cap) {
                         // Only ever drops INCOMING rows. The survivor's own are
                         // never removed: a connector item legitimately carrying
                         // 20 images must not be truncated the moment anything
@@ -1768,6 +1820,14 @@ class ProjectionWriter
                 'kept' => $mediaHeld,
                 'dropped' => $mediaDropped,
             ]);
+
+            // Log::warning does not reach Nightwatch (CLAUDE.md), and this
+            // class's escalation idiom is a bare report(). Everything that can
+            // reach here is RECOVERABLE — manual origins are exempt above, so
+            // only connector rows the next reprojection re-derives are dropped
+            // — but a sustained run means the cap is mis-set, and that is an
+            // operator event rather than a line nobody greps for.
+            report(new MergeFoldMediaDroppedException($userId, $keptItemId, $mediaDropped));
         }
     }
 

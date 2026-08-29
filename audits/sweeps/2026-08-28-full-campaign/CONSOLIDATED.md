@@ -502,7 +502,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 3 of 5 complete
+- P1 High: 4 of 5 complete
 - P2 Medium: 1 of 20 complete
 - P3 Low: 0 of 12 complete
 
@@ -531,7 +531,7 @@
         }
         ```
 
-- [ ] **#W1-LIFE-2** · P1 — `ensureContentSource()` find-or-create races against its own unique index, surfacing as an uncaught 500
+- [x] **#W1-LIFE-2** · P1 — `ensureContentSource()` find-or-create races against its own unique index, surfacing as an uncaught 500
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:379-399 (`ensureContentSource()`)
     - **Affects:** First projection of a newly connected platform; concurrent connector runs for the same connection.
     - **Effort:** S (~0.5–1h)
@@ -561,6 +561,7 @@
 
         return $id;
         ```
+    - Resolution (2026-08-28): FIXED, with the stated impact corrected. It is NOT an "uncaught 500" — both callers are non-HTTP: RunExecutor.php:245 wraps the call in catch (\Throwable) -> report(), downgrades the run to degraded and writes a severity=critical ingest.anomalies row (so it pages and the whole stream's projection is dropped for that run); the other caller is the ingest:project artisan command. Reachability is narrow but real: RunExecutor is serialised per source by SourceScheduler's claim, but ingest:project bypasses that claim entirely (ProjectionWriter's own comment at :226-231) and two ingest.sources sharing one connection_id are not excluded. Fixed with insertOrIgnore + re-read + a loud throw on a null re-read, matching ensureManualSource() 30 lines below. Also added the missing idx_content_sources_connection to the SQLite stand-in — without it insertOrIgnore deduplicates nothing in that lane and any assertion on it is vacuous.
 
 - [ ] **#W1-LIFE-3** · P1 — `applyIntent()`'s connection insert can still race an identical concurrent placement into an uncaught exception
     - **Where:** app/Routing/SourceReconciler.php:472-501 (`applyIntent()`)
@@ -2179,7 +2180,7 @@ None — every surviving finding here is a database migration/schema change, whi
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 1 of 2 complete
+- P1 High: 2 of 2 complete
 - P2 Medium: 0 of 8 complete
 - P3 Low: 0 of 2 complete
 
@@ -2213,7 +2214,7 @@ None — every surviving finding here is a database migration/schema change, whi
         ```
     - Resolution (2026-08-28): FIXED, with two corrections to the finding's technical block. (1) It is a wrong-line ordering bug, not a transaction-boundary bug — WorkplaceObserver already has $afterCommit = true. (2) The second $user->save() DOES fire lane 1 (UserObserver passes bustSite: true -> invalidateSitePayload DELs site:payload:{subdomain}); what it did not do is advance site.sites.updated_at, so the public.profile:{handle}:{ts} entry — a different key, never busted by design because rotation IS the design — survived. Exposure is the 60s primary TTL plus its x10 stale twin (~10 min), not the full payload TTL. Blast radius is narrower than stated: of the eight IDENTITY_MIRROR columns, phone/contact_email are already in PUBLIC_PROFILE_USER_FIELDS (self-healing) and location_* reach no public surface; only description -> users.bio was exposed. Fixed by moving the mirror above the touchSite block AND adding bio to PUBLIC_PROFILE_USER_FIELDS so every bio writer rotates the key, not just this one.
 
-- [ ] **#W1-CCH-2** · P1 — Menu-scrape blocked-target check and write are not atomic, allowing duplicate concurrent Apify runs against the same target
+- [x] **#W1-CCH-2** · P1 — Menu-scrape blocked-target check and write are not atomic, allowing duplicate concurrent Apify runs against the same target
     - **Where:** app/Services/Platforms/MenuApifyScraper.php (fetchStores, fetchHttpStores)
     - **Affects:** Menu scrape jobs, Apify spend budgets, and platform WAF/blocklist reputation — a burst of concurrent jobs for the same store can each pass the blocked-target filter and each issue a billed scrape.
     - **Effort:** M (~2–4h)
@@ -2240,6 +2241,7 @@ None — every surviving finding here is a database migration/schema change, whi
             Cache::put($blockedKey, ['at' => now()->toIso8601String(), 'reason' => $this->responseRetryable($resp) ? 'blocked' : 'hard_error'], $ttl);
         }
         ```
+    - Resolution (2026-08-28): WONTFIX — premise debunked, no code change. menuScrapeBlocked is a NEGATIVE cache written ONLY when a scrape FAILS (MenuApifyScraper.php:236, :305) and forgotten on success (:229, :302), so in the success path no marker exists to race on and a single-flight lock around the check/write would prevent ZERO paid runs; the audit read a failure-suppression marker as a claim token. Duplicate paid scrapes are already prevented at the job boundary: MenuFetchJob implements ShouldBeUnique (app/Jobs/Platforms/MenuFetchJob.php:59) with uniqueId() = userId (:91) and uniqueFor = 1800 (:82), and all four dispatchers use Job::dispatch() rather than Bus::dispatch(), so the unique lock is not dropped; plus ApifyBudget::tryClaim(menu) per target before the pool (:183, atomic via DailyCounterClaim, per-actor AND global daily caps) and the RateLimited(platform-connect) middleware (:104). fetchHttpStores() takes no Apify token and claims no budget, so it bills nothing and the money argument cannot apply to it at all. Residual, real but P3 and availability-not-spend: a lost Cache::forget can leave a recovered target negative-cached for blocked_ttl_seconds — a spurious skip bounded by TTL.
 
 ## P2 — Should fix
 
@@ -3060,7 +3062,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 1 of 2 complete
+- P1 High: 2 of 2 complete
 - P2 Medium: 0 of 10 complete
 - P3 Low: 0 of 10 complete
 
@@ -3093,7 +3095,7 @@ None.
         }
         ```
 
-- [ ] **#W1-OBS-2** · P1 — ProjectionWriter's media-merge cap drops surplus photos with `Log::warning` only — real, unrecoverable data loss
+- [x] **#W1-OBS-2** · P1 — ProjectionWriter's media-merge cap drops surplus photos with `Log::warning` only — real, unrecoverable data loss
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:1762-1771 (`foldCollections`)
     - **Affects:** Any user whose merged content items collectively carry more than `content.merge_media_cap` (default 8) images — the surplus is permanently discarded, not deferred.
     - **Effort:** S (~0.5–1h)
@@ -3115,6 +3117,7 @@ None.
             ]);
         }
         ```
+    - Resolution (2026-08-28): FIXED, rescoped — the "unrecoverable data loss" framing holds for the MANUAL lane ONLY. A connector coord's dropped media is re-derived by the next reprojection from ingest.record_versions via the uncapped replaceCollections() path (foldCollections docblock :1583-1586, replaceCollections :2136-2139), so for connector-sourced media the drop is transient and self-healing. The manual lane IS terminal: writeManualItem() writes facets once from an HTTP payload persisted nowhere, so there is nothing to replay, and $hasCuration only spares a loser that is pinned or has a manual_overrides row — an unpinned hand-added item with photos was discarded for good. Two further corrections: this is NOT core.enforce_site_gallery_max6 (that trigger is on site.site_media, a different table from content.item_media), and the prescribed escalateIfSustained pattern does not exist in ProjectionWriter at all — its idiom is a bare report(). Fixed by exempting manual-origin rows from the cap (joined via item_media.source_item_id, since source_items are repointed onto the survivor before the fold) and adding report(MergeFoldMediaDroppedException) beside the retained Log::warning. Manual rows still increment the held counter, so they displace connector rows rather than defeating the cap. Dev-only exposure today: production carries no content schema.
 
 ## P2 — Should fix
 
@@ -7895,7 +7898,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 2 of 5 complete
+- P1 High: 3 of 5 complete
 - P2 Medium: 0 of 11 complete
 - P3 Low: 0 of 4 complete
 
@@ -7956,7 +7959,7 @@ None.
         return $media?->site_id;
         ```
 
-- [ ] **#W2-OBS-3** · P1 — Image mirror write ignores `Storage::put()`'s false return and marks missing bytes as mirrored
+- [x] **#W2-OBS-3** · P1 — Image mirror write ignores `Storage::put()`'s false return and marks missing bytes as mirrored
     - **Where:** app/Services/Media/MediaMirror.php:319-323
     - **Affects:** Any content asset that mirrors through the image branch while `PARTNA_MEDIA_DISK` points at a non-throwing disk alias (the file's own docblock names `public_dev`). The row is marked mirrored with `mirror_attempts` reset, and nothing retries or alerts.
     - **Effort:** S (~0.5–1h)

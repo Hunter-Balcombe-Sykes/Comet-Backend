@@ -296,18 +296,23 @@ it('drops an item whose f_link.url override is unsafe from the pool selection en
 // pins that a two-source item keeps the item and serves the survivor.
 it('keeps an item and serves its low-priority fallback when only the high-priority link is unsafe', function () {
     [$pro, $siteId] = poolTenant();
-    $connectionId = poolConnection($pro->id);
+    // Two sources means two CONNECTIONS: idx_content_sources_connection is UNIQUE on
+    // connection_id, so a single connection can never own two content.sources rows.
+    // This fixture used to share one connection id, which the SQLite stand-in accepted
+    // only because it was missing that index (added with #W1-LIFE-2).
+    $highConnectionId = poolConnection($pro->id);
+    $lowConnectionId = poolConnection($pro->id);
 
     $highSourceId = (string) Str::uuid();
     DB::table('content.sources')->insert([
         'id' => $highSourceId, 'user_id' => $pro->id, 'kind' => 'connection',
-        'connection_id' => $connectionId, 'priority' => 200,
+        'connection_id' => $highConnectionId, 'priority' => 200,
         'created_at' => now(), 'updated_at' => now(),
     ]);
     $lowSourceId = (string) Str::uuid();
     DB::table('content.sources')->insert([
         'id' => $lowSourceId, 'user_id' => $pro->id, 'kind' => 'connection',
-        'connection_id' => $connectionId, 'priority' => 50,
+        'connection_id' => $lowConnectionId, 'priority' => 50,
         'created_at' => now(), 'updated_at' => now(),
     ]);
 

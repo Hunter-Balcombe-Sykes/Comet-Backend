@@ -317,9 +317,19 @@ final class MediaMirror
         $path = 'content-media/'.$userId.'/'.substr(hash('sha256', $variant['bytes']), 0, 32).'.webp';
 
         try {
-            Storage::disk(config('partna.media_disk'))->put($path, $variant['bytes']);
+            $stored = Storage::disk(config('partna.media_disk'))->put($path, $variant['bytes']);
         } catch (\Throwable $e) {
             return $this->fail($assetId, 'store_failed', $sourceUrl, $e->getMessage(), $userId);
+        }
+
+        // See the video branch: the media disk is `throw => true`, so a failed
+        // write normally arrives as the exception above — but PARTNA_MEDIA_DISK
+        // can point at the non-throwing `public_dev` alias, where a failed write
+        // is a false return. Unchecked, that fell straight through to the UPDATE
+        // below, writing a storage_path for an object that does not exist AND
+        // clearing the mirror state, so nothing ever retried it.
+        if ($stored === false) {
+            return $this->fail($assetId, 'store_failed', $sourceUrl, 'the disk rejected the write', $userId);
         }
 
         // fingerprint is deliberately absent from this update.

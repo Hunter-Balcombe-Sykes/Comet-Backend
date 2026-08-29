@@ -21,8 +21,10 @@
 // Identifiers are mff_-prefixed and helpers mff-prefixed so neither collides
 // with a sibling PG-lane file's (CrossFileTestHelperGuardTest).
 
+use App\Exceptions\Ingest\MergeFoldMediaDroppedException;
 use App\Ingest\Projection\ProjectionWriter;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Tests\PostgresTestCase;
@@ -431,6 +433,43 @@ function mffRuledPair(array $mediaA, array $mediaB): array
     return [$userId, $coordA, $coordB, $itemA, $itemB];
 }
 
+/**
+ * Re-home one item's media onto a CONNECTOR source, coord and all.
+ *
+ * mffRuledPair() builds BOTH sides with writeManualItem(), so every fixture in
+ * this file is manual by default — and the merge-media cap now EXEMPTS manual
+ * origins (dropping one is terminal; a connector row comes back on the next
+ * reprojection). A cap test built on the default fixture would therefore drop
+ * nothing and pass for the wrong reason. This makes the loser look like what
+ * the cap is actually for.
+ *
+ * The coord is left LIVE: mergeInto() repoints the loser's source_items onto
+ * the survivor before the fold, which is exactly the state the exemption's
+ * source_item_id lookup has to survive.
+ */
+function mffConnectorOrigin(string $userId, string $itemId): string
+{
+    $sourceId = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $userId, 'kind' => 'connection',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $sourceItemId = (string) Str::uuid();
+    DB::table('content.source_items')->insert([
+        'id' => $sourceItemId, 'source_id' => $sourceId,
+        'coord' => 'connector:'.Str::uuid(), 'item_id' => $itemId, 'kind' => 'release',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+
+    DB::table('content.item_media')->where('item_id', $itemId)->update([
+        'source_id' => $sourceId,
+        'source_item_id' => $sourceItemId,
+    ]);
+
+    return $sourceItemId;
+}
+
 it('carries the loser media onto the survivor instead of cascading it away', function () {
     [$userId, $coordA, , $itemA, $itemB] = mffRuledPair(
         [mffPhoto('https://cdn.test/a.jpg')],
@@ -490,8 +529,11 @@ it('leaves a curated loser its own media, because it is not deleted', function (
 it('caps what a fold adds without ever removing what the survivor already had', function () {
     config(['partna.content.merge_media_cap' => 2]);
     Log::spy();
+    // The cap reports as well as logs now; keep the real handler out of a test
+    // that is spying on the logger.
+    Exceptions::fake();
 
-    [$userId, $coordA, , $itemA] = mffRuledPair(
+    [$userId, $coordA, , $itemA, $itemB] = mffRuledPair(
         [
             mffPhoto('https://cdn.test/a1.jpg', 'gallery'),
             mffPhoto('https://cdn.test/a2.jpg', 'gallery'),
@@ -502,6 +544,12 @@ it('caps what a fold adds without ever removing what the survivor already had', 
             mffPhoto('https://cdn.test/b2.jpg', 'gallery'),
         ],
     );
+
+    // RE-FIXTURED 2026-08-28 (#W1-OBS-2). The cap now exempts manual origins,
+    // and mffRuledPair() makes both sides manual — so without this line the
+    // fold drops nothing and the assertions below pass while testing nothing.
+    // The cap's whole remaining job is connector rows, so the loser is one.
+    mffConnectorOrigin($userId, $itemB);
 
     $kept = app(ProjectionWriter::class)->resolveIdentityFor($userId, 'release', [$coordA])[$coordA];
 
@@ -646,4 +694,101 @@ it('renumbers per role and keeps the moved rows in their original order', functi
         $inc = $rows->filter(fn ($r) => $r->role === $role && str_contains((string) $r->source_url, '/b-'))->min('position');
         expect($inc)->toBeGreaterThan($own, "moved {$role} did not land after the survivor's own");
     }
+});
+
+// ── #W1-OBS-2: the cap may only drop what a reprojection can put back ────────
+//
+// The cap was added to bound what ONE fold may ADD, and it does that. What it
+// could not tell apart was the two lanes underneath it. A dropped CONNECTOR
+// row is a cache invalidation — the next reprojection rewrites it under the
+// kept id from ingest.record_versions, through the UNCAPPED replaceCollections()
+// path. A dropped MANUAL row is gone: writeManualItem() wrote it once from an
+// HTTP payload persisted nowhere, and mergeInto() then hard-deletes the loser.
+// So the cap now reads the origin's source kind and exempts manual.
+
+it('never drops a manual-origin photo the cap would otherwise eat', function () {
+    // The survivor is ALREADY at double the cap, so every incoming row is one
+    // the old code dropped on sight.
+    config(['partna.content.merge_media_cap' => 1]);
+    Exceptions::fake();
+
+    [$userId, $coordA, , $itemA] = mffRuledPair(
+        [
+            mffPhoto('https://cdn.test/a1.jpg', 'gallery'),
+            mffPhoto('https://cdn.test/a2.jpg', 'gallery'),
+        ],
+        [
+            mffPhoto('https://cdn.test/b1.jpg', 'gallery'),
+            mffPhoto('https://cdn.test/b2.jpg', 'gallery'),
+        ],
+    );
+
+    $kept = app(ProjectionWriter::class)->resolveIdentityFor($userId, 'release', [$coordA])[$coordA];
+
+    $urls = DB::table('content.item_media as im')
+        ->join('content.media_assets as ma', 'ma.id', '=', 'im.asset_id')
+        ->where('im.item_id', $kept)->pluck('ma.source_url');
+
+    // Both hand-added photos survive. Nothing can put them back: the loser is
+    // hard-deleted a few lines later in mergeInto().
+    expect($kept)->toBe($itemA)
+        ->and($urls)->toHaveCount(4)
+        ->and($urls->filter(fn ($u) => str_contains((string) $u, '/b'))->all())->toHaveCount(2);
+
+    // And nothing reported, because nothing was capped. Asserted on the
+    // exception rather than on Log::spy: a shouldNotHaveReceived('warning',
+    // [...]) with the wrong arity matches nothing and passes vacuously, and
+    // report() fires on exactly the same `$mediaDropped > 0` branch as the log
+    // line does.
+    Exceptions::assertNotReported(MergeFoldMediaDroppedException::class);
+});
+
+it('still caps a null-origin row, which is unattributable', function () {
+    // A pre-backfill row carries no source_item_id at all, so there is no
+    // source to read a kind off. Guessing "manual" would relax the bound on
+    // exactly the rows we know least about; today's behaviour is kept.
+    config(['partna.content.merge_media_cap' => 1]);
+    Exceptions::fake();
+
+    [$userId, $coordA, , $itemA, $itemB] = mffRuledPair(
+        [mffPhoto('https://cdn.test/a1.jpg', 'gallery')],
+        [mffPhoto('https://cdn.test/b1.jpg', 'gallery')],
+    );
+
+    DB::table('content.item_media')->where('item_id', $itemB)->update(['source_item_id' => null]);
+
+    $kept = app(ProjectionWriter::class)->resolveIdentityFor($userId, 'release', [$coordA])[$coordA];
+
+    $urls = DB::table('content.item_media as im')
+        ->join('content.media_assets as ma', 'ma.id', '=', 'im.asset_id')
+        ->where('im.item_id', $kept)->pluck('ma.source_url');
+
+    expect($kept)->toBe($itemA)
+        ->and($urls)->toHaveCount(1)
+        ->and($urls->filter(fn ($u) => str_contains((string) $u, '/b'))->all())->toBe([]);
+});
+
+it('reports a capped fold, because Log::warning does not reach Nightwatch', function () {
+    config(['partna.content.merge_media_cap' => 1]);
+    Exceptions::fake();
+
+    [$userId, $coordA, , $itemA, $itemB] = mffRuledPair(
+        [mffPhoto('https://cdn.test/a1.jpg', 'gallery')],
+        [
+            mffPhoto('https://cdn.test/b1.jpg', 'gallery'),
+            mffPhoto('https://cdn.test/b2.jpg', 'gallery'),
+        ],
+    );
+
+    mffConnectorOrigin($userId, $itemB);
+
+    $kept = app(ProjectionWriter::class)->resolveIdentityFor($userId, 'release', [$coordA])[$coordA];
+
+    // The drops are recoverable — that is why they are exempt from nothing and
+    // reported rather than thrown. But a SUSTAINED run of them means the cap is
+    // mis-set, and nobody greps a log line for that.
+    expect($kept)->toBe($itemA);
+    Exceptions::assertReported(fn (MergeFoldMediaDroppedException $e) => $e->userId === $userId
+        && $e->itemId === $kept
+        && $e->dropped === 2);
 });

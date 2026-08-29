@@ -2,6 +2,7 @@
 
 use App\Services\Media\ImagePixelBudget;
 use App\Services\Media\MediaMirror;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -622,4 +623,76 @@ it('rejects an oversized image on its file size, before it is ever read into a s
         // anything hands the bytes to the decoder.
         ->and($row->mirror_last_reason)->toBe('body_rejected')
         ->and(mirrorTempFiles($dir))->toBe([]);
+});
+
+// ── #W2-OBS-3: a false return from put() is a failure, not a silent success ──
+//
+// The media disk is `throw => true`, so a failed write normally arrives as an
+// exception. But PARTNA_MEDIA_DISK can point at the non-throwing `public_dev`
+// alias, where a failed write is a FALSE RETURN — and the image branch used to
+// discard that return, writing a storage_path for an object that does not exist
+// and clearing the mirror state on the way. The video branch has guarded this
+// since it was written; these two pin the image branch to the same contract.
+
+/**
+ * A real, non-throwing disk whose put() refuses — the `public_dev` shape.
+ *
+ * A real adapter rather than Storage::shouldReceive('disk'): the facade
+ * override is global and would also intercept the unrelated disk use inside
+ * mirror(), so a passing test would prove nothing about the branch under test.
+ */
+function mirrorRejectingDisk(string $name = 'rejecting'): void
+{
+    $real = Storage::disk('media');
+
+    Storage::set($name, new class($real->getDriver(), $real->getAdapter(), []) extends FilesystemAdapter
+    {
+        public function put($path, $contents, $options = [])
+        {
+            return false;
+        }
+    });
+
+    config()->set('partna.media_disk', $name);
+}
+
+it('treats a false disk return as a failure rather than a silent success', function () {
+    $user = createTenant('mir-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:ABC123:0'));
+    Http::fake(['*' => Http::response(mirrorImageBytes(320, 320), 200, ['Content-Type' => 'image/jpeg'])]);
+    mirrorRejectingDisk();
+
+    $ok = app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/photo.jpg');
+
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+
+    // storage_path stays NULL: a path for an object that is not there is worse
+    // than no path at all, because nothing would ever retry it.
+    expect($ok)->toBeFalse()
+        ->and($row->storage_path)->toBeNull()
+        ->and($row->mime_type)->toBeNull()
+        ->and((int) $row->mirror_attempts)->toBe(1)
+        ->and($row->mirror_last_reason)->toBe('store_failed');
+});
+
+it('does not clear an existing failure state when the disk rejects the write', function () {
+    // The fall-through the fix closes: clearedMirrorState() is folded into the
+    // success UPDATE, so reaching it on a rejected write would reset
+    // mirror_attempts to 0 and null the reason — resetting the give-up counter
+    // on every single attempt, which is unbounded retry with no operator line.
+    $user = createTenant('mir-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($user->id, 'url-'.sha1('instagram:ABC123:0'));
+    DB::table('content.media_assets')->where('id', $assetId)
+        ->update(['mirror_attempts' => 2, 'mirror_last_reason' => 'fetch_failed']);
+    Http::fake(['*' => Http::response(mirrorImageBytes(320, 320), 200, ['Content-Type' => 'image/jpeg'])]);
+    mirrorRejectingDisk();
+
+    $ok = app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/photo.jpg');
+
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+
+    expect($ok)->toBeFalse()
+        ->and((int) $row->mirror_attempts)->toBe(3)
+        ->and($row->mirror_last_reason)->toBe('store_failed')
+        ->and($row->storage_path)->toBeNull();
 });
