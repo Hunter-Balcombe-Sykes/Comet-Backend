@@ -506,10 +506,24 @@ class IndividualProfilePayloadBuilder
             return [];
         }
 
-        $row = DB::connection('pgsql')
-            ->table('site.design_kits')
-            ->where('site_id', $site->id)
-            ->first();
+        // #W1-LIFE-4: a fault here degrades to "no stored design_kit row" —
+        // $row stays null, so the merge below still layers
+        // ProfileDesignPresets over it (see the merge's own comment).
+        // Returning [] here instead would ALSO discard that presets layer.
+        try {
+            $row = DB::connection('pgsql')
+                ->table('site.design_kits')
+                ->where('site_id', $site->id)
+                ->first();
+        } catch (QueryException $e) {
+            Log::warning('sitepage.design_kit_read_failed', [
+                'site_id' => $site->id,
+                'user_id' => $site->user_id,
+                'error' => $e->getMessage(),
+            ]);
+            $this->resolver->markDegraded();
+            $row = null;
+        }
 
         // Manual layer: the user's stored (non-null) columns. partna-pages fills
         // the remaining nulls from code-side defaults via mergeDesignKit().

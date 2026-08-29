@@ -440,18 +440,24 @@ class SitepageDataResolverService
      * per-platform label) so a broad platform-registry outage doesn't need 5 faults
      * PER platform before it's loud.
      *
+     * $event lets a distinct family of callers (content-pool reads, #W1-LIFE-5)
+     * log under their own event name instead of the presence-probe one, without
+     * disturbing the 8 existing callers (whose escalation bucket + Log::warning
+     * event name are pinned by PresenceProbeLoggingTest / PresenceProbeEscalationTest)
+     * or requiring a second wrapper.
+     *
      * @template T
      *
      * @param  \Closure(): T  $query
      * @param  T  $default
      * @return T
      */
-    private function safeQuery(\Closure $query, mixed $default, ?string $probe = null, ?Site $site = null): mixed
+    private function safeQuery(\Closure $query, mixed $default, ?string $probe = null, ?Site $site = null, string $event = 'sitepage.presence_probe_failed'): mixed
     {
         try {
             return $query();
         } catch (QueryException $e) {
-            Log::warning('sitepage.presence_probe_failed', [
+            Log::warning($event, [
                 'probe' => $probe,
                 'site_id' => $site?->id,
                 'user_id' => $site?->user_id,
@@ -518,18 +524,27 @@ class SitepageDataResolverService
                 return [];
             }
 
-            return SiteMedia::query()
-                ->where('site_id', $site->id)
-                ->where('pool', SiteMedia::POOL_GALLERY)
-                ->where('is_active', true)
-                ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
-                ->with('mediaVariants')
-                ->orderBy('sort_order')
-                ->get()
-                ->map(fn (SiteMedia $media) => $this->buildGalleryItem($media))
-                ->filter(fn (?array $item) => $item !== null && $item['url'] !== '')
-                ->values()
-                ->all();
+            // #W1-LIFE-5: a DB fault here degrades to "no gallery items", the
+            // same empty answer an un-authored gallery already returns — never
+            // a 500 on the platform's hottest read path.
+            return $this->safeQuery(
+                fn () => SiteMedia::query()
+                    ->where('site_id', $site->id)
+                    ->where('pool', SiteMedia::POOL_GALLERY)
+                    ->where('is_active', true)
+                    ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
+                    ->with('mediaVariants')
+                    ->orderBy('sort_order')
+                    ->get()
+                    ->map(fn (SiteMedia $media) => $this->buildGalleryItem($media))
+                    ->filter(fn (?array $item) => $item !== null && $item['url'] !== '')
+                    ->values()
+                    ->all(),
+                [],
+                'content_gallery',
+                $site,
+                'sitepage.content_read_failed',
+            );
         });
     }
 
@@ -636,18 +651,26 @@ class SitepageDataResolverService
             return [];
         }
 
-        return SiteMedia::query()
-            ->where('site_id', $site->id)
-            ->where('pool', SiteMedia::POOL_CONTENT)
-            ->where('is_active', true)
-            ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
-            ->with('mediaVariants')
-            ->orderBy('sort_order')
-            ->get()
-            ->map(fn (SiteMedia $media) => $this->buildMediaItem($media))
-            ->filter(fn (?array $item) => $item !== null && $item['url'] !== '')
-            ->values()
-            ->all();
+        // #W1-LIFE-5: fault -> empty design-media list, the same shape an
+        // unstocked pool already returns.
+        return $this->safeQuery(
+            fn () => SiteMedia::query()
+                ->where('site_id', $site->id)
+                ->where('pool', SiteMedia::POOL_CONTENT)
+                ->where('is_active', true)
+                ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
+                ->with('mediaVariants')
+                ->orderBy('sort_order')
+                ->get()
+                ->map(fn (SiteMedia $media) => $this->buildMediaItem($media))
+                ->filter(fn (?array $item) => $item !== null && $item['url'] !== '')
+                ->values()
+                ->all(),
+            [],
+            'content_media',
+            $site,
+            'sitepage.content_read_failed',
+        );
     }
 
     // ── Design singletons (logos + placeholder) ─────────────────────────
@@ -673,30 +696,38 @@ class SitepageDataResolverService
             return [];
         }
 
-        return SiteMedia::query()
-            ->where('site_id', $site->id)
-            ->where('pool', SiteMedia::POOL_DESIGN)
-            ->whereIn('purpose', SiteMedia::designSingletonPurposes())
-            ->where('is_active', true)
-            ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
-            ->with('mediaVariants')
-            ->get()
-            ->mapWithKeys(function (SiteMedia $media): array {
-                $urls = $media->variantUrls();
-                $url = $urls['optimized'] ?? $urls['original'] ?? '';
-                if ($url === '') {
-                    return [];
-                }
+        // #W1-LIFE-5: fault -> no singletons, the same shape a site with no
+        // uploaded logos/placeholder already returns.
+        return $this->safeQuery(
+            fn () => SiteMedia::query()
+                ->where('site_id', $site->id)
+                ->where('pool', SiteMedia::POOL_DESIGN)
+                ->whereIn('purpose', SiteMedia::designSingletonPurposes())
+                ->where('is_active', true)
+                ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
+                ->with('mediaVariants')
+                ->get()
+                ->mapWithKeys(function (SiteMedia $media): array {
+                    $urls = $media->variantUrls();
+                    $url = $urls['optimized'] ?? $urls['original'] ?? '';
+                    if ($url === '') {
+                        return [];
+                    }
 
-                return [(string) $media->purpose => [
-                    'url' => $url,
-                    'url_hd' => $urls['maximized'] ?? null,
-                    'url_svg' => $media->svgVariantUrl(),
-                    // 192px PNG (square logos) — the sitepage favicon source.
-                    'url_icon' => $media->iconVariantUrl(),
-                ]];
-            })
-            ->all();
+                    return [(string) $media->purpose => [
+                        'url' => $url,
+                        'url_hd' => $urls['maximized'] ?? null,
+                        'url_svg' => $media->svgVariantUrl(),
+                        // 192px PNG (square logos) — the sitepage favicon source.
+                        'url_icon' => $media->iconVariantUrl(),
+                    ]];
+                })
+                ->all(),
+            [],
+            'content_design_singletons',
+            $site,
+            'sitepage.content_read_failed',
+        );
     }
 
     // ── Links (every category + synthesised booking) ────────────────────
@@ -717,13 +748,25 @@ class SitepageDataResolverService
             return [];
         }
 
-        $rows = Block::query()
-            ->where('site_id', $site->id)
-            ->where('block_group', 'links')
-            ->where('is_active', true)
-            ->whereNull('deleted_at')
-            ->orderBy('sort_order')
-            ->get()
+        // #W1-LIFE-5: wrap the READ only — the default is an empty Collection,
+        // matching what an un-authored links block already yields, so the
+        // ->map() projection below (business logic, not I/O) is never
+        // swallowed by a DB fault.
+        $blocks = $this->safeQuery(
+            fn () => Block::query()
+                ->where('site_id', $site->id)
+                ->where('block_group', 'links')
+                ->where('is_active', true)
+                ->whereNull('deleted_at')
+                ->orderBy('sort_order')
+                ->get(),
+            collect(),
+            'content_links',
+            $site,
+            'sitepage.content_read_failed',
+        );
+
+        $rows = $blocks
             ->map(function (Block $block): array {
                 $settings = is_array($block->settings) ? $block->settings : [];
                 // Phase 2: platform + category read from promoted columns.
@@ -832,9 +875,20 @@ class SitepageDataResolverService
                 return null;
             }
 
-            // loadMissing avoids N+1 when the calling controller already eager-loaded.
-            $site->loadMissing('workplace');
-            $workplace = $site->workplace;
+            // #W1-LIFE-5: fault -> no workplace card, the same shape a site
+            // with no workplace row already returns. loadMissing avoids N+1
+            // when the calling controller already eager-loaded.
+            $workplace = $this->safeQuery(
+                function () use ($site) {
+                    $site->loadMissing('workplace');
+
+                    return $site->workplace;
+                },
+                null,
+                'content_workplace',
+                $site,
+                'sitepage.content_read_failed',
+            );
 
             if (! $workplace) {
                 return null;
@@ -876,14 +930,22 @@ class SitepageDataResolverService
      */
     public function getDocument(?Site $site): array
     {
+        // #W1-LIFE-5: fault -> null media, the same shape a site with no
+        // document uploaded already returns.
         $media = $site
-            ? SiteMedia::query()
-                ->where('site_id', $site->id)
-                ->where('pool', SiteMedia::POOL_DOCUMENTS)
-                ->where('is_active', true)
-                ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
-                ->orderByDesc('created_at')
-                ->first()
+            ? $this->safeQuery(
+                fn () => SiteMedia::query()
+                    ->where('site_id', $site->id)
+                    ->where('pool', SiteMedia::POOL_DOCUMENTS)
+                    ->where('is_active', true)
+                    ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
+                    ->orderByDesc('created_at')
+                    ->first(),
+                null,
+                'content_document',
+                $site,
+                'sitepage.content_read_failed',
+            )
             : null;
 
         if (! $media) {
@@ -949,7 +1011,15 @@ class SitepageDataResolverService
         // Slice 3a §3.4/Task 5: the manual-source join lives in
         // ManualServiceItems, shared with UserServiceController's dashboard
         // read — one query, not two independently-drifting copies.
-        $services = app(ManualServiceItems::class)->publicList($proId, $site);
+        // #W1-LIFE-5: fault -> no services, the same shape an owner with no
+        // authored services already returns.
+        $services = $this->safeQuery(
+            fn () => app(ManualServiceItems::class)->publicList($proId, $site),
+            [],
+            'content_services',
+            $site,
+            'sitepage.content_read_failed',
+        );
 
         return [
             'booking_mode' => $bookingMode,

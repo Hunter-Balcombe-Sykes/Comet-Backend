@@ -502,7 +502,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 1 of 5 complete
+- P1 High: 3 of 5 complete
 - P2 Medium: 1 of 20 complete
 - P3 Low: 0 of 12 complete
 
@@ -595,7 +595,7 @@
         $connection->save();
         ```
 
-- [ ] **#W1-LIFE-4** · P1 — `loadDesignKit()` runs an unprotected query on the public sitepage build path
+- [x] **#W1-LIFE-4** · P1 — `loadDesignKit()` runs an unprotected query on the public sitepage build path
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:484-487 (`loadDesignKit()`)
     - **Affects:** Every public sitepage build (cache miss + `WarmPublicSiteCacheJob`); a `design_kits` query blip returns a 500 to the visitor.
     - **Effort:** S (~0.5–1h)
@@ -611,7 +611,7 @@
             ->first();
         ```
 
-- [ ] **#W1-LIFE-5** · P1 — Seven content-projection methods on the public sitepage build path bypass the resolver's own fault-tolerance machinery
+- [x] **#W1-LIFE-5** · P1 — Seven content-projection methods on the public sitepage build path bypass the resolver's own fault-tolerance machinery
     - **Where:** app/Services/PublicSite/SitepageDataResolverService.php — `getLinks()`, `getGallery()`, `getContentMedia()`, `getDesignSingletons()`, `getDocument()`, `getWorkplace()`, `getServices()`/`buildServicesData()`
     - **Affects:** All public sitepage content sections; a query fault in any one of these causes a full 500 instead of a degraded, short-TTL payload.
     - **Effort:** M (~2–4h)
@@ -1390,7 +1390,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 3 complete
+- P1 High: 1 of 3 complete
 - P2 Medium: 0 of 10 complete
 - P3 Low: 0 of 14 complete
 
@@ -1425,7 +1425,7 @@ None.
           );
         ```
 
-- [ ] **#W1-SCALE-2** · P1 — `PoolResolver` re-reads every `site.section_items` row ever created for a section on the public sitepage hot path
+- [x] **#W1-SCALE-2** · P1 — `PoolResolver` re-reads every `site.section_items` row ever created for a section on the public sitepage hot path
     - **Where:** app/Site/Pools/PoolResolver.php:117-131 (`hasSelection()`), 236-245 (`plan()`)
     - **Affects:** Public sitepage resolution on every cache-miss/purge rebuild for any site with an active curation history (excluding items from a pool is a normal, expected lifecycle action, not an edge case).
     - **Effort:** M (~2–4h)
@@ -1443,6 +1443,7 @@ None.
             ->where('section_id', $section->id)
             ->get(['section_id', 'item_id', 'state', 'sort_key']);
         ```
+    - Resolution (2026-08-28): WONTFIX — quantified and rejected. (1) The prescribed whereIn(state, [pinned, excluded]) is a NO-OP: the CHECK constraint (supabase/migrations/20260727150000:84) permits exactly those two values. (2) The read is already indexed by idx_section_items_section (section_id, state) at :90 and column-narrowed by SCALE-13. (3) Exclusions are not unbounded — section_items_item_id_fk is ON DELETE CASCADE onto content.items (20260729150007), so an exclusion cannot outlive its item. (4) Measured on dev 2026-08-28: excluded = 3 rows TOTAL across 2 sections, vs pinned = 1662 across 126 sections (max 169 in one). The volume is pins, which are load-bearing selection + ordering and can be neither pruned nor filtered. (5) The prescribed prune is a CORRECTNESS REGRESSION: plan() computes selection = (pinned u ruleCandidates) - excluded, so deleting an excluded row makes the item eligible again and re-shows an owner-hidden item on the public page. (6) The public build never runs plan()'s query at all — PoolWire batches preloadSections()/preloadCuration() into two shared reads and injects $curation. Revisit only if a real site is observed with thousands of rows in one section.
 
 - [ ] **#W1-SCALE-3** · P1 — Public pageview ingest has no bot filter or dedup, so a viral page's bot traffic writes unbounded events to the analytics queue
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php:45-74 (`pageview()`)
@@ -5356,7 +5357,7 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 3 complete
+- P1 High: 1 of 3 complete
 - P2 Medium: 0 of 20 complete
 - P3 Low: 0 of 26 complete
 
@@ -5364,7 +5365,7 @@ None.
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W2-LIFE-1** · P1 — Public payload builder crashes for early-setup accounts with no Site row
+- [x] **#W2-LIFE-1** · P1 — Public payload builder crashes for early-setup accounts with no Site row
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:653 (`buildPublicConfig()`)
     - **Affects:** Any pre-account / early-setup individual resolved via `IndividualProfileController::show` before their `site.sites` row exists — a cache-miss request for that handle 500s instead of rendering.
     - **Effort:** S (~0.5–1h)
@@ -5377,6 +5378,7 @@ None.
         ```php
         $config['shopLinkMode'] = $pro->site->shop_link_mode ?? Site::DEFAULT_SHOP_LINK_MODE;
         ```
+    - Resolution (2026-08-28): STALE — false premise, and it was false at the 9567e3057 scan sha too (the line is byte-identical there). `$pro->site->shop_link_mode ?? Site::DEFAULT_SHOP_LINK_MODE` cannot throw: `??` evaluates its left operand in isset context, so a null property chain yields the default with no warning and no Error (verified by execution). The lazy-load path is safe too — Model::preventLazyLoading is armed outside production, but Builder::hydrate() only arms it per-model when count($items) > 1 (vendor/laravel/framework Eloquent/Builder.php:471-473), and the controller hydrates $pro with a single-row User::find(). IndividualProfileControllerTest passes on the full HTTP path with a persisted user. No fix required. Residual, logged as a nit not a defect: $pro->site is one avoidable lazy query on the hot path when build() already holds $site.
 
 - [ ] **#W2-LIFE-2** · P1 — `SourceReconciler::applyIntent()` creates a link connection with a bare read-then-insert; no lock, no `insertOrIgnore`, no typed unique-catch
     - **Where:** app/Routing/SourceReconciler.php:475-507 (`applyIntent()`)
