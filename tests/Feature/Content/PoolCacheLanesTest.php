@@ -1,6 +1,9 @@
 <?php
 
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Models\Core\Site\Site;
+use App\Models\Core\Site\Workplace;
+use App\Services\Cache\SiteCacheInvalidator;
 use App\Services\Http\SafeUrlFetcher;
 use App\Site\Documents\SiteCacheLanes;
 use Illuminate\Support\Facades\DB;
@@ -473,4 +476,93 @@ it('keeps the purge delay inside the unique lock that does the coalescing', func
 
     expect(SiteCacheLanes::EDGE_PURGE_DELAY_SECONDS)
         ->toBeLessThan((new CloudflareCachePurgeJob('unused-handle'))->uniqueFor);
+});
+
+// #W1-CCH-1 (2026-08-29): WorkplaceObserver::saved() ran the identity mirror
+// AFTER touchSite() — touchSite() publishes the NEW
+// public.profile:{handle}:{ts} cache key (via SiteCacheService::
+// raiseResolveFloor(), post-commit), and that key is never explicitly busted
+// (rotation by key IS the design). Mirroring `description` -> `users.bio`
+// AFTER the key rotated meant the new key went live while users.bio still
+// held the PRE-edit value, poisoning it for the full payload TTL + stale
+// window.
+//
+// SEQUENCE, not co-occurrence: a plain "did bio end up updated" assertion
+// passes under EITHER ordering, since both blocks run within the same
+// request. Instead, bind a recording SiteCacheInvalidator double that reads
+// core.users.bio straight from the DB the MOMENT touchSite() is called —
+// this observes what a real cache-key reader racing the request would see.
+//
+// touchSite() is called TWICE by this one save: once by WorkplaceObserver
+// itself (reason 'workplace-save'), and once more by UserObserver — because
+// mirrorIdentityFields()'s own $user->save() now also fires
+// touchParentSiteIfPublicFieldChanged() (bio is in PUBLIC_PROFILE_USER_FIELDS
+// as of this same fix). That SECOND call necessarily reads the post-edit
+// bio under EITHER ordering, since it only exists because the mirror already
+// ran — so it says nothing about WorkplaceObserver's own ordering and would
+// mask a regression if not excluded. Key the recording by $reason and assert
+// on the 'workplace-save' call specifically.
+it('a workplace description edit mirrors users.bio BEFORE the site cache key rotates', function () {
+    setupWorkplacesTable();
+    $user = createTenant('poollanesworkplaceorder', ['account_type' => 'business']);
+    $siteId = (string) $user->site->id;
+
+    Workplace::forceCreate([
+        'site_id' => $siteId,
+        'name' => 'Ordering Co',
+        'description' => 'Original blurb.',
+    ]);
+
+    // Bound AFTER the create above (whose own mirror/touch we don't care
+    // about) and BEFORE the update under test. createClassCallable() resolves
+    // the observer — and its constructor deps — fresh from the container on
+    // EVERY event dispatch (Dispatcher::createClassCallable), so this bind is
+    // picked up by the very next save.
+    $recorder = new class extends SiteCacheInvalidator
+    {
+        /** @var array<string, ?string> reason => bio read at that call */
+        public array $bioByReason = [];
+
+        public function touchSite(Closure|Site|null $site, string $reason, array $context = []): void
+        {
+            $resolved = $site instanceof Closure ? $site() : $site;
+            $this->bioByReason[$reason] = $resolved !== null
+                ? DB::connection('pgsql')->table('core.users')->where('id', $resolved->user_id)->value('bio')
+                : null;
+        }
+    };
+    app()->instance(SiteCacheInvalidator::class, $recorder);
+
+    $workplace = Workplace::where('site_id', $siteId)->first();
+    $workplace->description = 'Updated blurb.';
+    $workplace->save();
+
+    expect($recorder->bioByReason)->toHaveKey('workplace-save');
+    // Fails under the OLD ordering: WorkplaceObserver's OWN touchSite() ran
+    // before the mirror, so this reads the PRE-edit value ('Original
+    // blurb.') because mirrorIdentityFields()'s $user->save() hadn't landed
+    // yet. Passes once the mirror runs first.
+    expect($recorder->bioByReason['workplace-save'])->toBe('Updated blurb.');
+});
+
+// Pins B8a step 2 independently of the ordering above: a bio edit that
+// arrives with NO workplace involved (a direct dashboard edit, the GBP
+// IdentitySync fold) must ALSO roll the public cache key. Before 'bio' was
+// added to UserObserver::PUBLIC_PROFILE_USER_FIELDS, this wrote the column
+// but left site.sites.updated_at behind, so the SiteCacheInvalidator fix in
+// the test above would still not have helped the next bio writer.
+it('a bio-only user write advances site.sites.updated_at and purges the edge', function () {
+    $user = createTenant('poollanesbioonly');
+    $siteId = (string) $user->site->id;
+
+    DB::connection('pgsql')->table('site.sites')->where('id', $siteId)
+        ->update(['updated_at' => now()->subMinute()]);
+    $before = DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->value('updated_at');
+
+    $user->bio = 'Freshly written bio.';
+    $user->save();
+
+    expect(DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->value('updated_at'))
+        ->not->toBe($before);
+    Queue::assertPushed(CloudflareCachePurgeJob::class);
 });

@@ -65,6 +65,26 @@ class WorkplaceObserver
             $this->dispatchCardSweep($workplace);
         }
 
+        // One rule for every workplace-vs-person field (2026-08-19 identity
+        // plan): for a BUSINESS the workplace IS the account, so each field
+        // mirrors onto the matching user column; for a partna the two are
+        // independent and nothing mirrors. Gated on the capability, never on
+        // account_type.
+        //
+        // MUST run BEFORE touchSite() below. `description` mirrors to
+        // `users.bio`, which is public (IndividualProfileResource). touchSite()
+        // publishes the NEW public.profile:{handle}:{ts} cache key (via
+        // SiteCacheService::raiseResolveFloor(), post-commit — see that
+        // method's docblock) — and that key is never explicitly busted,
+        // rotation by key IS the design. If the mirror ran after touchSite(),
+        // the new key would go live while users.bio still held the pre-edit
+        // value, poisoning that key for the full payload TTL plus its stale
+        // window. Running the mirror first means the DB write it does is
+        // already visible by the time the key rotates.
+        if ($workplace->wasRecentlyCreated || $workplace->wasChanged(array_keys(self::IDENTITY_MIRROR))) {
+            $this->mirrorIdentityFields($workplace);
+        }
+
         // wasRecentlyCreated covers first insert (whole card is new content);
         // wasChanged() gates updates to the public-visible columns only.
         if ($workplace->wasRecentlyCreated || $workplace->wasChanged(self::CACHE_AFFECTING_COLUMNS)) {
@@ -73,15 +93,6 @@ class WorkplaceObserver
                 'workplace-save',
                 ['site_id' => $workplace->site_id],
             );
-        }
-
-        // One rule for every workplace-vs-person field (2026-08-19 identity
-        // plan): for a BUSINESS the workplace IS the account, so each field
-        // mirrors onto the matching user column; for a partna the two are
-        // independent and nothing mirrors. Gated on the capability, never on
-        // account_type.
-        if ($workplace->wasRecentlyCreated || $workplace->wasChanged(array_keys(self::IDENTITY_MIRROR))) {
-            $this->mirrorIdentityFields($workplace);
         }
 
         // T15 (issue 9): workplace data can land from a JOB with no dashboard

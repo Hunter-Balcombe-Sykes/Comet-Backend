@@ -7,6 +7,7 @@ use App\Models\Core\Segments\UserSegment;
 use App\Models\Core\Segments\UserSegmentMember;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Cache\SiteCacheService;
 use App\Services\Platforms\IdentitySync;
 use App\Services\Segments\SegmentResolver;
 use Illuminate\Support\Facades\DB;
@@ -190,17 +191,19 @@ it('staggers dispatch delay across the run using a run-global index, capped', fu
 });
 
 // R3-CACHE-1: the enumeration guard. Pins that a takedown's bulk update reaches
-// ONLY the cache purge — not the identity fold, the Instagram auto-sync flip, or
-// the mirrored-media cleanup — so this test fails the day a future
-// IntegrationConnectionObserver arm gets gated on is_active and the takedown
-// ought to run it too. (Slice 7 unit E retired the two content-selection arms
-// this guard also used to cover.) Seed rows via a raw insert (not
-// IntegrationConnection::create()) so the seed itself doesn't fire the
-// CREATE-time observer arms this test isn't about. Sites + payloads are seeded
-// so each of the five arms below WOULD fire if the bulk update ever started
-// triggering Eloquent events — an absent side effect is then a real guard, not
-// a no-op by omission (e.g. a missing site would make GB seed/IG auto-enable
-// trivially pass regardless of whether the arm ran).
+// ONLY the cache purge (plus, since #W1-EDGE-1, the origin cache-key bump this
+// job now reproduces explicitly — see the lane-2 tests below) — not the
+// identity fold, the Instagram auto-sync flip, or the mirrored-media cleanup —
+// so this test fails the day a future IntegrationConnectionObserver arm gets
+// gated on is_active and the takedown ought to run it too. (Slice 7 unit E
+// retired the two content-selection arms this guard also used to cover.) Seed
+// rows via a raw insert (not IntegrationConnection::create()) so the seed
+// itself doesn't fire the CREATE-time observer arms this test isn't about.
+// Sites + payloads are seeded so each of the five arms below WOULD fire if the
+// bulk update ever started triggering Eloquent events — an absent side effect
+// is then a real guard, not a no-op by omission (e.g. a missing site would
+// make GB seed/IG auto-enable trivially pass regardless of whether the arm
+// ran).
 it('bypasses every reachable observer side effect except the purge (enumeration guard)', function () {
     Queue::fake();
 
@@ -254,4 +257,99 @@ it('bypasses every reachable observer side effect except the purge (enumeration 
         ->where('id', $igConnectionId)
         ->value('display_settings');
     expect(json_decode((string) $igSettings, true))->toBe(['auto_sync_latest' => false]);
+});
+
+// #W1-EDGE-1 lane 2 (2026-08-29): the bulk flip is a raw query-builder update,
+// so IntegrationConnectionObserver never fires and nothing else rolls
+// site.sites.updated_at for the affected users. Without this, the origin
+// payload cache key (public.profile:{handle}:{ts}, derived from that column)
+// keeps serving the taken-down platform's content for up to the payload TTL +
+// its stale window even after the edge purge lands.
+it('rotates the origin payload cache key for every affected site, and leaves unaffected sites alone', function () {
+    Queue::fake();
+
+    $userA = takedownUser('tkorigina');
+    skoolConn($userA);
+    takedownSite($userA, 'originsubda');
+
+    $userB = takedownUser('tkoriginb');
+    skoolConn($userB);
+    takedownSite($userB, 'originsubdb');
+
+    // A different platform — must NOT move.
+    $other = takedownUser('tkoriginother');
+    IntegrationConnection::create([
+        'user_id' => $other->id, 'platform' => 'instagram', 'resource_id' => 'ig-origin',
+        'payload' => ['username' => 'x'], 'is_active' => true,
+    ]);
+    takedownSite($other, 'originsubdc');
+
+    DB::connection('pgsql')->table('site.sites')->update(['updated_at' => now()->subMinutes(10)]);
+    $beforeA = DB::connection('pgsql')->table('site.sites')->where('subdomain', 'originsubda')->value('updated_at');
+    $beforeB = DB::connection('pgsql')->table('site.sites')->where('subdomain', 'originsubdb')->value('updated_at');
+    $beforeC = DB::connection('pgsql')->table('site.sites')->where('subdomain', 'originsubdc')->value('updated_at');
+
+    (new ReconcilePlatformTakedownJob('skool'))->handle(app(SegmentResolver::class));
+
+    expect(DB::connection('pgsql')->table('site.sites')->where('subdomain', 'originsubda')->value('updated_at'))
+        ->not->toBe($beforeA);
+    expect(DB::connection('pgsql')->table('site.sites')->where('subdomain', 'originsubdb')->value('updated_at'))
+        ->not->toBe($beforeB);
+    expect(DB::connection('pgsql')->table('site.sites')->where('subdomain', 'originsubdc')->value('updated_at'))
+        ->toBe($beforeC);
+});
+
+// Guards against a per-row regression: over a >200-row seed (chunkById pages
+// 200 at a time, so this yields exactly 2 chunks), the site.sites UPDATE
+// count must equal the CHUNK count, not the row count.
+it('bumps site.sites.updated_at with exactly one statement per chunk, not per row', function () {
+    Queue::fake();
+
+    for ($i = 0; $i < 250; $i++) {
+        $user = takedownUser('tkchunk'.$i);
+        skoolConn($user);
+        takedownSite($user, 'chunksub'.$i);
+    }
+
+    $siteUpdateCount = 0;
+    DB::connection('pgsql')->listen(function ($query) use (&$siteUpdateCount) {
+        if (str_starts_with(strtolower(ltrim($query->sql)), 'update') && str_contains($query->sql, '"site"."sites"')) {
+            $siteUpdateCount++;
+        }
+    });
+
+    (new ReconcilePlatformTakedownJob('skool'))->handle(app(SegmentResolver::class));
+
+    // 250 rows / 200 per chunkById page = 2 chunks (200 + 50). A per-row
+    // regression would read 250 here instead.
+    expect($siteUpdateCount)->toBe(2);
+});
+
+// Without raising the floor, the 30s handle.resolve cache keeps handing
+// readers the pre-takedown updated_at_ts, and the rotated key above (lane 2)
+// is never constructed for the rest of that cache's TTL — same reasoning as
+// SiteCacheService::raiseResolveFloor()'s own docblock.
+it('raises the handle-resolve floor for every newly-seen subdomain', function () {
+    Queue::fake();
+
+    $userA = takedownUser('tkfloora');
+    skoolConn($userA);
+    takedownSite($userA, 'floorsubda');
+
+    $userB = takedownUser('tkfloorb');
+    skoolConn($userB);
+    takedownSite($userB, 'floorsubdb');
+
+    $raised = [];
+    $this->partialMock(SiteCacheService::class, function ($mock) use (&$raised) {
+        $mock->shouldReceive('raiseResolveFloor')
+            ->andReturnUsing(function (string $handle, ?int $timestamp) use (&$raised) {
+                $raised[] = $handle;
+                expect($timestamp)->toBeGreaterThan(0);
+            });
+    });
+
+    (new ReconcilePlatformTakedownJob('skool'))->handle(app(SegmentResolver::class));
+
+    expect($raised)->toEqualCanonicalizing(['floorsubda', 'floorsubdb']);
 });

@@ -2177,7 +2177,7 @@ None — every surviving finding here is a database migration/schema change, whi
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 2 complete
+- P1 High: 1 of 2 complete
 - P2 Medium: 0 of 8 complete
 - P3 Low: 0 of 2 complete
 
@@ -2185,7 +2185,7 @@ None — every surviving finding here is a database migration/schema change, whi
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-CCH-1** · P1 — Workplace identity-mirror write invalidates the site cache before the mirrored user row is written, leaving a stale-cache race for non-contact fields
+- [x] **#W1-CCH-1** · P1 — Workplace identity-mirror write invalidates the site cache before the mirrored user row is written, leaving a stale-cache race for non-contact fields
     - **Where:** app/Observers/Core/WorkplaceObserver.php:67-82
     - **Affects:** Public sitepage readers for business accounts with `workplace_brand_is_site_identity` — a concurrent visitor can be served a rebuilt cache entry carrying the pre-edit bio/location, which then persists for the full TTL because the subsequent user save doesn't always re-bust the site cache.
     - **Effort:** S (~0.5–1h)
@@ -2209,6 +2209,7 @@ None — every surviving finding here is a database migration/schema change, whi
             $this->mirrorIdentityFields($workplace);
         }
         ```
+    - Resolution (2026-08-28): FIXED, with two corrections to the finding's technical block. (1) It is a wrong-line ordering bug, not a transaction-boundary bug — WorkplaceObserver already has $afterCommit = true. (2) The second $user->save() DOES fire lane 1 (UserObserver passes bustSite: true -> invalidateSitePayload DELs site:payload:{subdomain}); what it did not do is advance site.sites.updated_at, so the public.profile:{handle}:{ts} entry — a different key, never busted by design because rotation IS the design — survived. Exposure is the 60s primary TTL plus its x10 stale twin (~10 min), not the full payload TTL. Blast radius is narrower than stated: of the eight IDENTITY_MIRROR columns, phone/contact_email are already in PUBLIC_PROFILE_USER_FIELDS (self-healing) and location_* reach no public surface; only description -> users.bio was exposed. Fixed by moving the mirror above the touchSite block AND adding bio to PUBLIC_PROFILE_USER_FIELDS so every bio writer rotates the key, not just this one.
 
 - [ ] **#W1-CCH-2** · P1 — Menu-scrape blocked-target check and write are not atomic, allowing duplicate concurrent Apify runs against the same target
     - **Where:** app/Services/Platforms/MenuApifyScraper.php (fetchStores, fetchHttpStores)
@@ -3942,7 +3943,7 @@ Based on my verification of the source files, I can now provide the adjudicated 
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-EDGE-1** · P1 — Bulk platform takedowns can delay cache purge up to 1 hour, leaving stale content visible
+- [x] **#W1-EDGE-1** · P1 — Bulk platform takedowns can delay cache purge up to 1 hour, leaving stale content visible
     - **Where:** app/Jobs/Platforms/ReconcilePlatformTakedownJob.php:113 (dispatch), config/partna.php:2793–2799 (queue config)
     - **Affects:** Compliance/safety — when a platform is globally disabled, affected sites' cached content remains publicly visible for up to 1 hour while purge jobs queue on the lowest-priority lane.
     - **Effort:** M (~2–4h)
@@ -3970,6 +3971,7 @@ Based on my verification of the source files, I can now provide the adjudicated 
         'bulk_purge_stagger_seconds' => (int) env('PARTNA_CACHE_BULK_PURGE_STAGGER_SECONDS', 0),
         'bulk_purge_max_delay_seconds' => (int) env('PARTNA_CACHE_BULK_PURGE_MAX_DELAY_SECONDS', 3600),
         ```
+    - Resolution (2026-08-28): PARTIALLY STALE; the real defect underneath it is fixed and the escalation half is WONTFIX. (a) "up to 1 hour" is false by default — bulk_purge_stagger_seconds defaults to 0 (config/partna.php:2802) and ReconcilePlatformTakedownJob.php:115 dispatches at T+0 unless an ops opt-in sets it; the 3600s cap bounds a delay that is disabled. (b) "lowest-priority lane" is true but deliberate and documented (config/horizon.php:256, job docblock :33-35). (c) "nobody gets paged" is half false — CloudflareCachePurgeJob.php:275 and ReconcilePlatformTakedownJob.php:142 both report() on terminal failure. (d) The prescribed moderationCaseId is UNIMPLEMENTABLE: the only callers are StaffFeatureAvailabilityController:63 and StaffSegmentController:151, a feature-availability rule and a segment rule, neither of which has a moderation case — passing one would hand on-call a dangling reference. Escalation half closed WONTFIX. THE REAL DEFECT, which the finding missed: the takedown fired cache lane 3 ONLY, never advancing site.sites.updated_at, so the edge purge was partly self-defeating — it evicted the CDN and the next visitor refilled it from a still-stale origin cache. Fixed by adding lane 2 (one batched site.sites updated_at UPDATE per chunk, plus raiseResolveFloor per subdomain so the 30s handle.resolve cache stops serving the pre-takedown timestamp). Deliberately NOT routed through SiteCacheLanes::bust(), which delays lane 3 by 15s — wrong for a compliance takedown.
 
 ## Suggested Bundled Sessions
 
