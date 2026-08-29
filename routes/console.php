@@ -57,6 +57,10 @@ Schedule::command('partna:purge-soft-deletes')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('purge-soft-deletes'));
 
+// --days is a GRACE PERIOD AFTER EXPIRY, not a retention window. Per-category retention is
+// already applied at publish time by NotificationPublisher, which stamps
+// ends_at = now + partna.notification_retention_days.<category>. This command deletes on
+// ends_at < cutoff, so a policy_update (365d) goes at day 395, not day 30.
 Schedule::command('partna:prune-notifications', ['--days' => 30])
     ->dailyAt('03:25')
     ->onOneServer()

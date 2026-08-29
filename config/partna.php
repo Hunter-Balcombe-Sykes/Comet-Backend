@@ -2933,6 +2933,14 @@ return [
             'severity_2_hours' => 72,
             'severity_1_hours' => 168,
             'breach_warning_min' => 120,
+            // moderation:sla-scan runs every 15 min against a 120-min warning
+            // window, so a case stays "at risk" for ~8 scan runs before it
+            // breaches. Without a cooldown, an un-suppressed alert would page
+            // on-call ~8x for the same case (#W1-LIFE-1). Keyed on max
+            // severity in the scan, so an escalation to a higher band still
+            // pages immediately instead of being muted by the lower band's
+            // cooldown.
+            'alert_cooldown_seconds' => (int) env('PARTNA_MODERATION_SLA_ALERT_COOLDOWN_SECONDS', 3600),
         ],
     ],
 

@@ -501,7 +501,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 5 complete
+- P1 High: 1 of 5 complete
 - P2 Medium: 1 of 20 complete
 - P3 Low: 0 of 12 complete
 
@@ -509,7 +509,7 @@
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-LIFE-1** · P1 — `moderation:sla-scan` only logs SLA breaches, no Nightwatch alert path
+- [x] **#W1-LIFE-1** · P1 — `moderation:sla-scan` only logs SLA breaches, no Nightwatch alert path
     - **Where:** app/Console/Commands/Moderation/ModerationSlaScanCommand.php:35 (scheduled by routes/console.php:466-470)
     - **Affects:** Trust & safety response times — every open/triaged/under_review moderation case approaching its SLA deadline.
     - **Effort:** S (~0.5–1h)
@@ -4041,7 +4041,7 @@ The audit contains 39 raw findings. After deduplication and confidence-based fil
 
 ## P1 — Fix before pilot launch
 
-- [ ] **#W1-CFG-1** · P1 — Feature flag `partna.connect.auto_booking.enabled` defaults to `true`, enabling unvetted feature in fresh environments
+- [x] **#W1-CFG-1** · P1 — Feature flag `partna.connect.auto_booking.enabled` defaults to `true`, enabling unvetted feature in fresh environments
     - **Where:** config/partna.php:2161
     - **Affects:** Unclaimed Fresha sites; auto-booking connection behavior in fresh deployments without explicit opt-in.
     - **Effort:** S (~0.5–1h)
@@ -4056,8 +4056,9 @@ The audit contains 39 raw findings. After deduplication and confidence-based fil
         'auto_booking' => [
             'enabled' => (bool) env('PARTNA_AUTO_BOOKING_ENABLED', true),
         ```
+    - Resolution (2026-08-28): WONTFIX — premise false. The flag is a KILL SWITCH for a shipped feature, not a rollout gate for an unvetted one (46dfd867a, 2026-08-11). `partna.connect.deferred` is this repo's rollout-gate key and DOES default off (config/partna.php:2159); auto_booking is deliberately separate — see the comment at config/partna.php:2162-2168. Default TRUE is pinned on purpose by tests/Unit/Config/AutoBookingConfigTest.php:8, and all three consumers (SourceReconciler.php:225, LinkRouter.php:319, GoogleBusinessAutoSync.php:346) pass `true` as the config() fallback. Blast radius is already bounded by global_daily_cap=500/day and the isUnclaimed() gate. Flipping the default would disable a live pre-account feature in every fresh env.
 
-- [ ] **#W1-CFG-2** · P1 — Notification prune command hardcodes `--days=30`, potentially bypassing per-category retention config
+- [x] **#W1-CFG-2** · P1 — Notification prune command hardcodes `--days=30`, potentially bypassing per-category retention config
     - **Where:** routes/console.php:60
     - **Affects:** Notification retention; long-lived categories like `policy_update` (365d) and `profile_task` (180d) may be pruned too early if the command honors the explicit override.
     - **Effort:** S (~0.5–1h)
@@ -4072,6 +4073,7 @@ The audit contains 39 raw findings. After deduplication and confidence-based fil
         Schedule::command('partna:prune-notifications', ['--days' => 30])
             ->dailyAt('03:25')
         ```
+    - Resolution (2026-08-28): STALE — per-category retention IS honoured, via ends_at, not via --days. NotificationPublisher.php:98-99,122 stamps ends_at = now + notification_retention_days[<category>] at PUBLISH time; PruneNotifications.php:78-79 deletes on `ends_at < cutoff`. So --days=30 is a grace period AFTER expiry (a 365-day policy_update goes at day 395), not a retention window — nothing is pruned early. Closed by adding a clarifying comment at routes/console.php and in the command docblock, plus a regression test in PruneNotificationsCriticalTest pinning that a +365d notification survives a --days=30 run.
 
 ---
 

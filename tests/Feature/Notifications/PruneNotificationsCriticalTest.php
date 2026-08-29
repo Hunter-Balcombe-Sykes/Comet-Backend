@@ -127,3 +127,22 @@ it('aborts without deleting when the given batch size is non-positive (infinite-
 
     expect(DB::table('notifications.notifications')->count())->toBe(1);
 });
+
+// CFG-2: --days is a grace period measured from ends_at, not a retention window, so a
+// long-retention category is NOT pruned early. NotificationPublisher stamps
+// ends_at = now + partna.notification_retention_days.<category> at publish time; a
+// 365-day policy_update therefore survives the daily --days=30 run until day 395.
+// This is the assertion the audit finding assumed was missing.
+it('leaves a long-retention notification alone until its own ends_at has passed', function () {
+    // Stamped as NotificationPublisher would for a 365-day category.
+    seedPruneRow('policy-update', critical: false, endsAt: now()->addDays(365)->toDateTimeString());
+    // Same category, but already 31 days past its own expiry — beyond the 30-day grace.
+    seedPruneRow('policy-update-expired', critical: false, endsAt: now()->subDays(31)->toDateTimeString());
+
+    Artisan::call('partna:prune-notifications', ['--days' => 30]);
+
+    $remaining = DB::table('notifications.notifications')->pluck('id')->all();
+
+    expect($remaining)->toContain('policy-update')
+        ->and($remaining)->not->toContain('policy-update-expired');
+});

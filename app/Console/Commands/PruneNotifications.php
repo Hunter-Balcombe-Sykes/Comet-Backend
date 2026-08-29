@@ -14,6 +14,11 @@ use Illuminate\Support\Facades\DB;
 //
 // SCALE-1: batched like PurgeRawAnalyticsEvents::purgeBatched / PruneOldFeedbackSubmissionsCommand
 // so the daily-scheduled prune never holds one long-running unbounded DELETE as the table grows.
+//
+// CFG-2: --days is a grace period measured from ends_at, NOT a retention window, so it does not
+// bypass per-category retention: NotificationPublisher stamps ends_at = now +
+// partna.notification_retention_days.<category> at publish time, and this command deletes on
+// ends_at < cutoff. A 365-day policy_update is therefore removed at day 395.
 class PruneNotifications extends Command
 {
     // Default batch size for the delete loop (mirrors the sibling commands'
