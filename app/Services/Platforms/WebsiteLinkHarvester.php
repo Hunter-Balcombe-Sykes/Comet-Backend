@@ -47,6 +47,50 @@ class WebsiteLinkHarvester
      */
     private const RESHOWN_CLASS = '~^(d-[a-z0-9]+-(?!none$)[a-z0-9-]+|[a-z0-9]+:(?!hidden$)[a-z0-9!:._/-]+)$~';
 
+    /*
+     * ── THE FOUR HOST TABLES ARE A DELIBERATE, PERMANENT SPLIT ──────────────
+     *
+     * SOCIAL_HOSTS / RESERVATION_HOSTS / ORDERING_HOSTS / BOOKING_HOSTS are
+     * hand-maintained and answer BEFORE the compiled catalog. That is policy,
+     * not debt. Read this before "fixing" it a fifth time.
+     *
+     * WHY THEY ARE NOT COLLAPSED INTO THE CATALOG. `routing_class` is a
+     * PLACEMENT vocabulary (7 values); classify() returns a CATEGORY (9). They
+     * do not line up, and three of the gaps are structural:
+     *
+     *   • routing_class 'content' has no category, no gateAllows() arm and no
+     *     LinkRouter seeder. Seven content-class surfaces — youtube,
+     *     youtube_music, spotify, soundcloud, twitch, vimeo, deezer — are
+     *     'social' HERE and are among the platform's most-connected brands. A
+     *     collapse silently stops connecting all seven.
+     *   • 'event' vs 'event-organiser' is a PATH distinction. No *.event
+     *     surface exists; the catalog carries only organiser/ticketing pages.
+     *     LinkRouter::seedEvent() branches on exactly that string.
+     *   • LINK_ONLY_HOSTS is 4/5 absent from the catalog entirely (amazon, ltk,
+     *     poshmark, shopmy). Its probe-starvation protection has no catalog
+     *     expression at all.
+     *
+     * And no catalog field reproduces the boundary: 20 of the detect-only
+     * surfaces are is_connectable=true, while 12 connectable-today surfaces are
+     * is_connectable=false.
+     *
+     * WHAT THE CATALOG DOES OWN. classifyFromCatalog() backstops these tables
+     * and PROMOTES a surface to its real category for exactly
+     * routing_class ∈ {booking, reservations, ordering} AND is_connectable —
+     * the three classes whose vocabulary is 1:1 with a category that has a real
+     * gate arm and a real seeder. A new brand in one of those classes therefore
+     * needs NO row here. Everything else answers 'link'.
+     *
+     * WHAT TO DO WHEN YOU ADD A BRAND. Nothing, if it is booking / reservations
+     * / ordering — the promotion covers it. Otherwise
+     * CatalogClassificationSweepTest fails and tells you to either add a row
+     * here or record the detect-only decision in
+     * tests/fixtures/catalog/known-link-only.php.
+     *
+     * Full reasoning with the measured numbers:
+     * docs/superpowers/specs/2026-08-28-link-classifier-seam-design.md
+     */
+
     /** Host-pattern → socials key. First match per key wins (homepage order). */
     private const SOCIAL_HOSTS = [
         'instagram' => '~(^|\.)instagram\.com$~',
@@ -729,12 +773,17 @@ class WebsiteLinkHarvester
      * LAST resort: ask the compiled catalog whether it can name this host.
      *
      * The constants above run FIRST and this never overrides them — that
-     * ordering is the whole design. They are host-only by construction and have
-     * no confidence floor, so they answer correctly for the 178 catalog hosts
-     * they cover, while the projector scores a bare host-only detector in the
-     * low 30s and would downgrade Booksy, GitHub, DoorDash, Resy, Treatwell and
-     * friends from a real connection to a link card. A union recovers the 39
-     * hosts the tables miss and regresses nothing.
+     * ordering is the whole design. They are host-only by construction and
+     * answer correctly for the catalog hosts they cover.
+     *
+     * (Historical note: the original argument for running SECOND was that
+     * LinkProjector::FLOOR was 35, above what a bare host-only detector scores,
+     * so a catalog-first order would have downgraded Booksy, GitHub, DoorDash,
+     * Resy and Treatwell to link cards. FLOOR has been 25 since the N1 fix —
+     * LinkProjector.php:26-44 — and Projection::matched() has no confidence
+     * test, so identification is no longer the reason. The ordering survives
+     * because these tables carry CATEGORY decisions the catalog cannot make:
+     * see the policy block above SOCIAL_HOSTS.)
      *
      * Category is 'link' — recognised, never auto-connected, and above all
      * costing no commerce probe (LinkRouter::routeUnclassified). Naming the
