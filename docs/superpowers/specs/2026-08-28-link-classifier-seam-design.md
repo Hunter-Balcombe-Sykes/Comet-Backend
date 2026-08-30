@@ -552,6 +552,31 @@ invisible.
    mis-categorised, missing. The Task 3 promotion does not reach this lane
    because `harvestHtml()` never calls `classifyFromCatalog()`. Sized **M**;
    needs its own branch and review.
+
+   **CLOSED 2026-08-30.** `harvestHtml()`'s per-link loop now falls through to
+   `classify()` after the four constants miss, bucketing on exactly the three
+   promotable categories (`booking` → `booking`, `reservations` →
+   `reservation`, `online-ordering` → `order.providers`). Routing through
+   `classify()` rather than `classifyFromCatalog()` is what makes the two entry
+   points agree by construction; `PROMOTABLE_ROUTING_CLASS` was not widened and
+   there is deliberately **no socials fall-through**, so the 24 detect-only
+   social surfaces stay out of `$socials` and that policy decision stays where
+   it was made. Recovered today: `shortcuts.book` and `easi.order` — measured,
+   the full promotable-class picture being booking 39 surfaces / 4 missed,
+   ordering 20 / 1, reservations 13 / 0, where the other three misses
+   (`direct.book`, `microsoft_bookings.book`, `wix_bookings.book`) are
+   `is_connectable: false` and correctly stay missing, since
+   `classifyFromCatalog()` answers `'link'` for them. The value is future
+   brands, not these two. Cost: a pure projector call per otherwise-unmatched
+   link — **7.3 ms → 22.4 ms** on a pathological 1000-link page (the
+   `extractLinks()` cap), **1.32 ms** on a realistic 60-link homepage; both
+   consumers (`GoogleBusinessEnrichJob`, `ScanPreviousWebsiteContentJob`) are
+   queued jobs, so no mitigation was built. Guarded by a catalog-derived
+   agreement test in `CatalogClassificationSweepTest.php` asserting both
+   directions — every surface `classify()` categorises into one of the three
+   must appear in the matching bucket, and one it does not must appear in none
+   — which is stronger than a coverage assertion and accommodates the
+   constants legitimately bucketing four `is_connectable: false` brands.
 2. **`content` is a routing class with no product lane** (18 surfaces and
    growing — it took 5 new brands in two days). Until `classify()`,
    `LinkRouter::gateAllows()` and `LinkRouter`'s `match` all learn it, every

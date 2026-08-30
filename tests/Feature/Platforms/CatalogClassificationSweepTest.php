@@ -122,6 +122,66 @@ it('records every detect-only surface as a decision, not an accident', function 
     );
 });
 
+// ── The two-entry-point agreement guard (spec §6.1 follow-up, 2026-08-30) ────
+//
+// classify() and harvestHtml() are this class's two entry points and they
+// disagreed on exactly one lane: harvestHtml() walked the four host constants
+// and STOPPED, never reaching classifyFromCatalog(). A catalog-only
+// booking/ordering brand on a scraped homepage was therefore not mis-bucketed —
+// it was absent from the payload entirely (measured 2026-08-30: shortcuts.book
+// and easi.order, plus every future brand in those three classes).
+//
+// The invariant is agreement, not coverage: whatever classify() answers for a
+// URL, harvestHtml() must put that URL in the matching bucket — and in NO
+// bucket when classify() answers anything else. Stated that way it holds for
+// the hand-written constants too, which legitimately bucket a few brands the
+// catalog marks is_connectable=false; those constants answer first in BOTH
+// entry points, so the two still agree.
+//
+// Derived from the compiled catalog, never hand-listed — a hand list is what
+// let 39 hosts go invisible in the first place (N1), and the same rot is what
+// produced this bug.
+function harvestBuckets(): array
+{
+    // classify() category => the harvestHtml() payload key it must land in.
+    // Exactly PROMOTABLE_ROUTING_CLASS's three categories: the ones whose
+    // vocabulary is 1:1 with a real gate arm and a real seeder. Widening this
+    // map without widening that const would re-open the disagreement.
+    return ['booking' => 'booking', 'reservations' => 'reservation', 'online-ordering' => 'order'];
+}
+
+it('buckets a surface through harvestHtml() exactly as classify() categorises it', function () {
+    $harvester = app(WebsiteLinkHarvester::class);
+    $disagreements = [];
+
+    foreach (sweepSurfaces() as $key => $surface) {
+        $url = SweepProbeUrl::for($surface, sweepHandWritten());
+        if ($url === null) {
+            continue; // reported by the probe-URL test above
+        }
+
+        $category = $harvester->classify($url)['category'] ?? null;
+        $out = $harvester->harvestHtml('<a href="'.htmlspecialchars($url, ENT_QUOTES).'">x</a>', 'https://harvest.test/');
+
+        foreach (harvestBuckets() as $classifyCategory => $bucket) {
+            $wanted = $category === $classifyCategory;
+            if ($wanted !== isset($out[$bucket])) {
+                $disagreements[] = $wanted
+                    ? "{$key}  classify()='{$classifyCategory}' but harvestHtml() dropped it  ({$url})"
+                    : "{$key}  classify()='".($category ?? 'null')."' yet harvestHtml() put it in '{$bucket}'  ({$url})";
+            }
+        }
+    }
+    sort($disagreements);
+
+    expect($disagreements)->toBeEmpty(
+        "The two entry points disagree. A dropped link means a scraped homepage loses it\n"
+        ."entirely; an extra one means seedBooking()/seedOnlineOrdering() gets a write\n"
+        ."classify() never sanctioned. Fix harvestHtml()'s fall-through, not this list:\n - "
+        .implode("\n - ", $disagreements),
+    );
+});
+
 it('does not classify a retired surface into a real connection', function () {
     // Regression guard (spec 2026-08-18-pipeline-assurance §5 B5 point 4):
     // RETIRED_SURFACES must never appear in the swept set. sweepSurfaces()'s

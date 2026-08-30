@@ -603,7 +603,32 @@ class WebsiteLinkHarvester
 
             if ($this->matchesAnyHost(self::BOOKING_HOSTS, $host)) {
                 $booking[] = $url;
+
+                continue;
             }
+
+            // The four constants are host-only; the catalog names booking /
+            // reservations / ordering brands they have never heard of, and until
+            // 2026-08-30 this loop stopped here — so such a brand on a scraped
+            // homepage was not mis-bucketed, it was ABSENT (shortcuts.book,
+            // easi.order, and every future brand in those three classes).
+            //
+            // classify(), not classifyFromCatalog(): the same promotion the
+            // single-URL entry point applies, so the two cannot drift apart
+            // again. Only the three promotable categories bucket — a detect-only
+            // surface answers 'link' and stays out, which is what keeps the 24
+            // detect-only socials (ko-fi, paypal.me, yelp.listing…) out of
+            // $socials. Do NOT add a socials arm; that reverses the decision.
+            // Cost is one pure projector call per otherwise-unmatched link:
+            // 7.3ms -> 22.4ms on a 1000-link page, 1.32ms on a realistic 60-link
+            // one (measured 2026-08-30). Both callers are queued jobs.
+            $classified = $this->classify($url);
+            match ($classified['category'] ?? null) {
+                'booking' => $booking[] = $url,
+                'reservations' => $reservationLinks[] = ['url' => $url],
+                'online-ordering' => $orderProviders[] = ['name' => $classified['label'], 'url' => $url],
+                default => null,
+            };
         }
 
         // (Outcome logging lives in GoogleBusinessEnrichJob, which knows
