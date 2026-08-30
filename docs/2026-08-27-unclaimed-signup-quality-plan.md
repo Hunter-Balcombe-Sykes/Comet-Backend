@@ -2142,3 +2142,32 @@ of the pipeline — website scan, commerce probe and social seed land minutes
 later, and at 60+ builds/hour the scraping queue backs up to ~35. This
 mis-read me twice tonight. And a fleet-wide sweep (build state × live HTTP)
 found a bug nobody was looking for; it is cheap and worth repeating.
+
+### Purge fix VERIFIED — the deadline was the constraint, not the rate
+
+Batch 4 (24 accounts, launched 12:08) is the controlled test, run against a
+comparable batch 3 (24 accounts, 11:07) under the ceiling-only change:
+
+| burst | funnel | retryUntil | CloudflareCachePurgeJob failures |
+|---|---|---|---|
+| batch 3 | 60/min | 10 min | **38** |
+| batch 4 | 60/min | **30 min** | **0** |
+
+Queried directly rather than inferred (`payload LIKE '%CloudflareCachePurgeJob%'`
+since 12:08 → 0), because the first time I measured this I read it before the
+rows existed and reported a wrong zero. Last purge failure of the night:
+11:42:46, before the fix deployed.
+
+So the sequence of fixes reads: the other lane's 15s debounce cut the
+amplification (right first move), raising the funnel 20 → 60 moved 49 → 38
+(necessary, not sufficient), and extending the deadline 10 → 30 closed it. All
+three were needed; only the last one was the actual constraint.
+
+### One RunSourceJob failure — checked, not a bug
+
+Batch 4's only failed job was `RunSourceJob`, MaxAttemptsExceeded, from the
+77-deep scraping backlog. It is **1 of 356 failed_jobs rows ever**, and its
+design is deliberate: `$tries = 1` because "a fetch is not safely re-runnable
+by the queue — retrying a failed attempt is SourceScheduler's job via
+next_attempt_at/backoff". The scheduler owns the retry, so the source is
+picked up again on its own cadence. No action.
