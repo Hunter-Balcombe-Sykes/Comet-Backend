@@ -88,6 +88,12 @@ it('persists admin_notes when staff PATCHes the professional', function () {
     $staff->role = PartnaStaff::ROLE_ADMIN;
     $request->attributes->set('partna_staff', $staff);
 
+    // update() also runs the fresh-AAL2 gate first (#W1-SEC-12) — bypassing the
+    // middleware means supabase_amr is never set, so without this the gate
+    // would 401 before the fill/save ever runs. Stand in the same fresh totp
+    // entry VerifySupabaseJwt/actingAsStaff would set.
+    $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
+
     $controller = app(StaffUserController::class);
     $controller->update($request, $professional);
 

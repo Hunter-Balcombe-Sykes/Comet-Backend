@@ -63,6 +63,11 @@ Gate: MFA was verified within `$maxAgeSeconds` (default: `config('partna.mfa.fre
 
 Use for high-sensitivity actions where a stale `aal2` token is insufficient.
 
+`StaffUserController` uses a local (non-policy) wrapper around the same `Aal2FreshnessGate` for
+`updateStatus`, `bulkUpdateStatus`, `update`, `destroy`, `restore`, `forceDestroy` and `releaseClaim` —
+a controller cannot call this `protected` policy method directly, so it delegates to the shared gate
+service instead of duplicating the freshness logic.
+
 ## MFA Factor Unenroll Endpoint
 
 **Route:** `DELETE /api/account/mfa/factors/{factorId}`
