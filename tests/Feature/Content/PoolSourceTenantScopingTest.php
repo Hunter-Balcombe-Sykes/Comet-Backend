@@ -4,6 +4,7 @@ use App\Models\Core\Site\Site;
 use App\Site\Pools\PoolResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -27,6 +28,8 @@ beforeEach(function () {
     setupMediaTables();
     // reviewsOutsidePersonScope() joins ingest.sources.
     setupIngestTables();
+    // The media case resolves a storage_path through MediaUrlResolver.
+    Storage::fake('media');
     Queue::fake();
 });
 
@@ -200,4 +203,161 @@ it('still groups an item under its own owner collection', function () {
     $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'services');
 
     expect(array_keys($resolved['collections']))->toContain($collectionId);
+});
+
+// ── Round 2: the two joins the first pass missed ─────────────────────────────
+
+it('never publishes another tenant media asset url or storage path', function () {
+    // content.item_media carries no user_id, so asset_id is a SECOND FK hop out
+    // of the owner-scoped id list. What leaks is not a label: source_url and
+    // storage_path go straight to MediaUrlResolver and onto the public wire.
+    [$proA, $siteAId] = poolTenant();
+    [$proB] = poolTenant();
+
+    $sourceA = poolSource($proA->id, null);
+    // kind 'media', not 'video': `frames` (the gallery-role leak) only ships on
+    // the media and product kinds, so on a video the second assertion below
+    // would pass without ever reaching the payload.
+    $itemA = poolItem($proA->id, $sourceA, 'media', 'A photo of A', '2026-08-01T00:00:00Z');
+    poolPin($siteAId, 'media', $itemA);
+
+    // TWO of B's assets, mislinked onto A's item. Two because MediaUrlResolver
+    // prefers storage_path over source_url on a single asset, so one row would
+    // make whichever assertion lost that precedence vacuous.
+    $assetStored = (string) Str::uuid();
+    $assetLinked = (string) Str::uuid();
+    DB::table('content.media_assets')->insert([
+        ['id' => $assetStored, 'user_id' => $proB->id, 'fingerprint' => 'fp-'.Str::random(8),
+            'source_url' => null, 'storage_path' => 'media/owner-b/private.jpg',
+            'mime_type' => 'image/jpeg', 'width' => 800, 'height' => 600, 'created_at' => now()],
+        ['id' => $assetLinked, 'user_id' => $proB->id, 'fingerprint' => 'fp-'.Str::random(8),
+            'source_url' => 'https://cdn.example.test/owner-b-private-photo.jpg',
+            'storage_path' => null,
+            'mime_type' => 'image/jpeg', 'width' => 800, 'height' => 600, 'created_at' => now()],
+    ]);
+    DB::table('content.item_media')->insert([
+        ['id' => (string) Str::uuid(), 'item_id' => $itemA, 'source_id' => $sourceA,
+            'asset_id' => $assetStored, 'role' => 'cover', 'position' => 0,
+            'alt_text' => null, 'created_at' => now()],
+        ['id' => (string) Str::uuid(), 'item_id' => $itemA, 'source_id' => $sourceA,
+            'asset_id' => $assetLinked, 'role' => 'gallery', 'position' => 1,
+            'alt_text' => null, 'created_at' => now()],
+    ]);
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteAId), 'media');
+    // UNESCAPED_SLASHES, deliberately: json_encode writes `media\/owner-b`, so a
+    // path assertion against the default encoding never matches and is vacuous.
+    $encoded = json_encode($resolved, JSON_UNESCAPED_SLASHES);
+
+    expect($encoded)->not->toContain('media/owner-b/private.jpg');
+    expect($encoded)->not->toContain('owner-b-private-photo.jpg');
+    expect(collect($resolved['library'])->firstWhere('id', $itemA)['thumbnail'])->toBeNull();
+    expect(collect($resolved['library'])->firstWhere('id', $itemA)['frames'])->toBe([]);
+});
+
+it('still publishes this owner own media asset', function () {
+    // The counterweight: scoping must not blank every thumbnail on the site.
+    [$pro, $siteId] = poolTenant();
+
+    $source = poolSource($pro->id, null);
+    $itemId = poolItem($pro->id, $source, 'media', 'A photo', '2026-08-01T00:00:00Z');
+    poolPin($siteId, 'media', $itemId);
+
+    $assetId = (string) Str::uuid();
+    DB::table('content.media_assets')->insert([
+        'id' => $assetId, 'user_id' => $pro->id, 'fingerprint' => 'fp-'.Str::random(8),
+        'source_url' => 'https://cdn.example.test/owner-own-photo.jpg',
+        'storage_path' => null, 'mime_type' => 'image/jpeg',
+        'width' => 800, 'height' => 600, 'created_at' => now(),
+    ]);
+    DB::table('content.item_media')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $itemId, 'source_id' => $source,
+        'asset_id' => $assetId, 'role' => 'cover', 'position' => 0,
+        'alt_text' => null, 'created_at' => now(),
+    ]);
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'media');
+
+    expect(collect($resolved['library'])->firstWhere('id', $itemId)['thumbnail'])
+        ->toBe('https://cdn.example.test/owner-own-photo.jpg');
+});
+
+it('never publishes another tenant storefront checkout url or discount code', function () {
+    // content.storefronts is a 1:1 sidecar keyed by collection_id (its PRIMARY
+    // KEY), and its user_id is DENORMALISED off the collection — so it can
+    // disagree with the collection's owner, which is the whole reason it is
+    // pinned separately. What that publishes is a checkout URL and a DISCOUNT
+    // CODE, both of which the store treats as the owner's own.
+    [$proA, $siteAId] = poolTenant();
+    [$proB] = poolTenant();
+
+    $storeA = shopStore($proA->id, ['label' => 'A Store']);
+    // The drift: A's collection carrying B's storefront row.
+    DB::table('content.storefronts')->where('collection_id', $storeA)->update([
+        'user_id' => $proB->id,
+        'url' => 'https://owner-b-checkout.example.test',
+        'discount_code' => 'OWNERB40',
+    ]);
+
+    $itemA = shopProduct($proA->id, $storeA, 'A Jacket');
+    poolPin($siteAId, 'shop', $itemA);
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteAId), 'shop');
+    $encoded = json_encode($resolved);
+
+    expect($encoded)->not->toContain('owner-b-checkout.example.test');
+    expect($encoded)->not->toContain('OWNERB40');
+
+    // The LEFT join must survive: the collection itself is A's, so the group
+    // header still exists — only the foreign sidecar's fields are gone. A
+    // `where` here instead of an ON clause would have dropped the group too.
+    expect(array_keys($resolved['collections']))->toContain($storeA);
+    expect($resolved['collections'][$storeA]['url'])->toBeNull();
+    expect($resolved['collections'][$storeA]['discountCode'])->toBeNull();
+});
+
+it('still publishes this owner own storefront url and discount code', function () {
+    [$pro, $siteId] = poolTenant();
+
+    $store = shopStore($pro->id, [
+        'label' => 'My Store',
+        'url' => 'https://my-checkout.example.test',
+        'discount_code' => 'MINE10',
+    ]);
+    $itemId = shopProduct($pro->id, $store, 'My Jacket');
+    poolPin($siteId, 'shop', $itemId);
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'shop');
+
+    expect($resolved['collections'][$store]['url'])->toBe('https://my-checkout.example.test');
+    expect($resolved['collections'][$store]['discountCode'])->toBe('MINE10');
+});
+
+it('still groups a menu category that has no storefront sidecar at all', function () {
+    // The regression the ON clause exists to avoid, pinned directly: a
+    // `where('s.user_id', …)` converts the left join to an inner one, and every
+    // sidecar-less collection — every menu and service category — stops
+    // grouping. Nothing about tenancy fails here; the join shape does.
+    [$pro, $siteId] = poolTenant();
+
+    $source = poolSource($pro->id, poolConnection($pro->id, 'fresha.book'));
+    $itemId = poolItem($pro->id, $source, 'service', 'A Haircut', now()->toDateTimeString());
+    poolPin($siteId, 'services', $itemId);
+
+    $collectionId = (string) Str::uuid();
+    DB::table('content.collections')->insert([
+        'id' => $collectionId, 'user_id' => $pro->id, 'parent_id' => null,
+        'label' => 'Cuts', 'kind' => 'service_category', 'external_ref' => 'cuts',
+        'position' => 0, 'is_user_created' => 0,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+    DB::table('content.collection_items')->insert([
+        'collection_id' => $collectionId, 'item_id' => $itemId,
+        'source_id' => $source, 'position' => 0,
+    ]);
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'services');
+
+    expect(array_keys($resolved['collections']))->toContain($collectionId);
+    expect($resolved['collections'][$collectionId]['provider'])->toBeNull();
 });

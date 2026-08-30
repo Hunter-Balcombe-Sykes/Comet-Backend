@@ -259,6 +259,13 @@ class LinkProjector
      * detector its match — which is also what an uncompilable one already did
      * everywhere else in score().
      *
+     * "Execution error" is BOTH halves of preg_match's `false`, so this changes
+     * COMPILE failure here too, not only the runtime case the finding named: an
+     * uncompilable reject pattern used to let the detector carry on and now
+     * fails it closed. That half is not attacker-reachable (CatalogCompileCommand
+     * rejects an uncompilable pattern, so the shipped catalog cannot carry one)
+     * and it moves in the same direction, which is why it is not split out.
+     *
      * Purity is untouched: the verdict still depends only on (Iri, Rulepack).
      */
     private function rejects(string $pattern, string $subject, string $detectorId, string $field): bool

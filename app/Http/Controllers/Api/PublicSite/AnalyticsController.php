@@ -495,9 +495,19 @@ class AnalyticsController extends ApiController
      * signal, not authentication: it is unforgeable from page JS, which is what makes
      * it worth checking, and trivially settable by a scripted client, which is what
      * it will never fix. What that residual costs is analytics pollution under a
-     * known site_id — no data leakage, no tenant crossing, no authorization decision
-     * — bounded by the `analytics` / `analytics-click` limiters and their per-true-IP
-     * backstop.
+     * known site_id — no data leakage, no tenant crossing, no authorization decision.
+     *
+     * What actually BOUNDS the volume, stated exactly: withinSiteBurstCap() — keyed
+     * on $site->id, 2000/min, and the only control here an attacker cannot rotate
+     * — and it covers PAGEVIEWS ONLY. The other seven originAllowed() routes (click,
+     * section-seen, section-dwell, item-seen, action-seen, action-tap, ping) have no
+     * unforgeable bound at all: the `analytics` / `analytics-click` limiters key on
+     * x-visitor-ip with a CF-Connecting-IP "backstop", and NEITHER is authenticated —
+     * api.partna.au is a dns-only CNAME to Laravel Cloud, so no proxy sets
+     * CF-Connecting-IP and AppServiceProvider reads it raw, in preference to
+     * $request->ip(). One header pair rotates both buckets. Do not cite that backstop
+     * as a bound; if one is wanted for the other seven, it is a per-site cap like the
+     * pageview one, not another header.
      *
      * The proposed close, an HMAC beacon token minted into the page payload, does not
      * hold: the payload is PUBLIC, so the same attacker fetches the page and replays
@@ -644,8 +654,14 @@ class AnalyticsController extends ApiController
      * a FALLBACK for a beacon carrying neither visitor_id nor session_id — both
      * of which the same caller sets freely in the body. So a forged
      * x-visitor-ip buys an attacker who has already forged Origin nothing the
-     * request body did not already give them. Same reading as the throttle
-     * keys (AppServiceProvider), where the true-IP backstop is the real bound.
+     * request body did not already give them.
+     *
+     * The `analytics` throttle keys read the same header, and its CF-Connecting-IP
+     * "backstop" is NOT a second, harder bound: nothing proxies api.partna.au (a
+     * dns-only CNAME to Laravel Cloud), and AppServiceProvider reads that header
+     * raw in preference to $request->ip(), so one header pair rotates both buckets.
+     * The only unforgeable bound on this controller is withinSiteBurstCap(), and it
+     * covers pageviews alone.
      */
     private function visitorIp(Request $request): ?string
     {

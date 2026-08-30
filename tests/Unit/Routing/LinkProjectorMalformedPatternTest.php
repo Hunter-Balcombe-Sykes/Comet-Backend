@@ -169,23 +169,34 @@ it('rejects when a reject pattern hits a PCRE runtime error on a crafted subject
     // not valid UTF-8. preg_match returns false with PREG_BAD_UTF8_ERROR, which
     // is the attacker-reachable half of this class: the catalog is guaranteed
     // compilable (CatalogCompileCommand), the pasted URL is not guaranteed
-    // decodable.
+    // decodable. That makes this the ONLY reachable instance of #W1-SEC-11 in
+    // production, so it has to discriminate.
+    //
+    // The path_pattern deliberately carries NO /u. With it, the same bad subject
+    // errors the path match too, score() returns null through the PRE-EXISTING
+    // path, and the test passes identically on pre-fix code — vacuous. Without
+    // it the path cleanly matches (40 + 35 = 75, well clear of FLOOR 25), so
+    // pre-fix the detector matches and only the reject fix makes it fail.
     $projector = slop21Projector([
-        'path_pattern' => '#^/schedule/#u',
+        'path_pattern' => '#^/schedule/#',
         'reject_patterns' => ['#/schedule/private#u'],
     ]);
 
     $badUtf8 = "/schedule/\xC3\x28";
 
-    // Pin the premise: this really is a RUNTIME failure, not a non-match. (Read
-    // here, not after project() — preg_last_error is global and any later preg
-    // call, inside the assertion machinery included, clears it.)
+    // Pin the premise: the REJECT pattern really is a runtime failure, and the
+    // path pattern really is a clean match. (Read here, not after project() —
+    // preg_last_error is global and any later preg call, inside the assertion
+    // machinery included, clears it.)
     expect(@preg_match('#/schedule/private#u', $badUtf8))->toBeFalse();
     expect(preg_last_error())->toBe(PREG_BAD_UTF8_ERROR);
+    expect(@preg_match('#^/schedule/#', $badUtf8))->toBe(1);
+    expect(preg_last_error())->toBe(PREG_NO_ERROR);
 
     $projection = $projector->project(slop21Iri($badUtf8));
 
     expect($projection->matched())->toBeFalse();
+    expect($projection->surfaceKey)->toBeNull();
     Exceptions::assertReported(fn (MalformedDetectorPatternException $e) => $e->field === 'reject_patterns[0]');
 });
 

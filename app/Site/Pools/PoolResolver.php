@@ -605,16 +605,32 @@ class PoolResolver
      *                                         they are building for.
      * @return array{array<string, array<string, mixed>>, Collection<string, object>}
      *
-     * #W1-SEC-10: every join below onto a tenant-OWNED table (content.sources,
-     * content.collections) carries its own `user_id = $site->user_id`. The $ids
-     * list is owner-scoped by the content.items read directly below, but the
-     * link tables it travels through — source_items, collection_items, offers,
-     * the facet tables — carry no user_id of their own, so without the explicit
-     * predicate the one tenancy check in this method is the FIRST query, and a
-     * single mislinked source_id or collection_id anywhere upstream (a writer
-     * bug, a hand-run SQL fix) publishes another account's row on this page.
-     * Same posture the identity_candidates read already takes; the columns are
-     * NOT NULL and indexed on (user_id, …), so this costs nothing.
+     * #W1-SEC-10: the $ids list is owner-scoped by the content.items read
+     * directly below, but the link tables it travels through — source_items,
+     * collection_items, item_media, offers, the facet tables — carry no user_id
+     * of their own, so without an explicit predicate the one tenancy check in
+     * this method is the FIRST query, and a single mislinked source_id,
+     * collection_id or asset_id anywhere upstream (a writer bug, a hand-run SQL
+     * fix) publishes another account's row on this page. Every join below onto a
+     * table that OWNS a user_id therefore states it: content.sources (f_catalog,
+     * f_link, offers, source_items), content.collections, content.storefronts
+     * (in the ON clause — a where would collapse the left join) and
+     * content.media_assets. All four columns are NOT NULL. Three lead a real
+     * index — idx_content_sources_user, idx_collections_user, and
+     * media_assets_fingerprint_unique (user_id, fingerprint); storefronts'
+     * (user_id, provider, external_ref) index is PARTIAL, but that join arrives
+     * on storefronts' PRIMARY KEY, so the predicate filters the single row
+     * already fetched. Nothing here changes a plan. Same posture the
+     * identity_candidates read already takes.
+     *
+     * DELIBERATELY EXCLUDED, and still open: content.sources.connection_id. It
+     * is NULLABLE, so pinning site.platform_connections.user_id is an ON-clause
+     * job on four left joins, and it also implicates the two connection reads
+     * below ($payloadByConnection on site.platform_connections, and the
+     * ingest.sources read keyed by the same ids) which are plain whereIn lookups
+     * with no tenancy of their own. A mislinked connection_id would leak another
+     * account's platform label, display_settings and sync cadence. Bigger than
+     * this fix; not closed here — do not read the list above as covering it.
      */
     private function itemPayloads(Site $site, array $ids, bool $withDuplicateCandidates): array
     {
@@ -671,7 +687,16 @@ class PoolResolver
             // collections, and a dish only in menu_category / order_platform.
             $links = DB::connection('pgsql')->table('content.collection_items as ci')
                 ->join('content.collections as c', 'c.id', '=', 'ci.collection_id')
-                ->leftJoin('content.storefronts as s', 's.collection_id', '=', 'c.id')
+                // #W1-SEC-10: the storefront's OWN tenancy, stated in the ON
+                // clause and not as a where — a where on a left-joined column
+                // silently converts this back to an inner join, and a menu
+                // category (no sidecar) would stop grouping. collection_id is
+                // storefronts' PRIMARY KEY and user_id is NOT NULL since
+                // 20260819000100, so this filters the one row already fetched.
+                // What it protects is a checkout URL and a DISCOUNT CODE.
+                ->leftJoin('content.storefronts as s', fn ($j) => $j
+                    ->on('s.collection_id', '=', 'c.id')
+                    ->where('s.user_id', '=', $site->user_id))
                 ->whereIn('ci.item_id', $ids)
                 // #W1-SEC-10: content.collection_items has no user_id, so the
                 // collection's own tenancy is stated here rather than inferred
@@ -1148,6 +1173,14 @@ class PoolResolver
         $coverRows = DB::connection('pgsql')->table('content.item_media')
             ->join('content.media_assets', 'content.media_assets.id', '=', 'content.item_media.asset_id')
             ->whereIn('content.item_media.item_id', $ids)
+            // #W1-SEC-10: content.item_media carries no user_id, so asset_id is a
+            // SECOND FK hop out of the owner-scoped id list. media_assets.user_id
+            // is NOT NULL and indexed via UNIQUE (user_id, fingerprint), and what
+            // this query hands MediaUrlResolver — source_url, storage_path,
+            // site_media_id — goes straight onto the public wire. Without the
+            // predicate one mislinked asset_id publishes another account's image
+            // URL and its R2 storage path.
+            ->where('content.media_assets.user_id', $site->user_id)
             // `logo` joins the set (2026-08-17): a link's favicon rides the
             // logo role and reads back as `favicon` below. cover()/frames()
             // still see only their own roles.
@@ -1444,6 +1477,16 @@ class PoolResolver
      * settings to decide what to publish. Same predicate the
      * identity_candidates read already states structurally; NOT NULL on
      * content.sources, so it can never silently match nothing.
+     *
+     * ⚠️ Alone among the pinned reads, this predicate is fail-OPEN on corrupt
+     * data: suppression needs EVERY source row of an item to hide reviews, so
+     * dropping rows drops suppressions and MORE reviews publish. That is the
+     * right direction for the cross-tenant case this pins (a foreign row must
+     * not un-suppress, and must not suppress either), but it means a bug that
+     * made this query return too little would silently republish content an
+     * owner switched off, rather than blanking the pool. The other nine
+     * #W1-SEC-10 predicates fail closed. Change this one with that asymmetry
+     * in mind.
      *
      * @param  list<string>  $reviewIds
      * @return array<string, true>
