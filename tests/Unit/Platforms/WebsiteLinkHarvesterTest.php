@@ -71,6 +71,44 @@ it('harvests from a raw html string the same way harvest() does from a url', fun
     expect($out['booking'][0])->toContain('fresha.com');
 });
 
+// ── The catalog fall-through (spec 2026-08-28 §6.1 follow-up, 2026-08-30) ────
+// The four host constants are hand-maintained; a booking/ordering brand the
+// catalog knows and they do not used to vanish from the payload rather than be
+// mis-bucketed. The catalog-derived agreement guard lives in
+// tests/Feature/Platforms/CatalogClassificationSweepTest.php — these two pin
+// the brands that were actually recovered, by name.
+
+it('buckets a catalog-only booking brand no host constant covers', function () {
+    $harvester = new WebsiteLinkHarvester(Mockery::mock(SafeUrlFetcher::class));
+
+    $out = $harvester->harvestHtml('<a href="https://acme.shortcuts.com.au/">Book</a>', 'https://venue.example');
+
+    expect($out['booking'])->toBe(['https://acme.shortcuts.com.au/']);
+});
+
+it('buckets a catalog-only ordering brand under its catalog display name', function () {
+    $harvester = new WebsiteLinkHarvester(Mockery::mock(SafeUrlFetcher::class));
+
+    $out = $harvester->harvestHtml('<a href="https://easi.com.au/order/acme">Order</a>', 'https://venue.example');
+
+    expect($out['order']['providers'])->toHaveCount(1)
+        ->and($out['order']['providers'][0]['url'])->toBe('https://easi.com.au/order/acme')
+        // The catalog's authored display_name verbatim (as the constants path
+        // puts 'Uber Eats' there) — EASI is the brand's own casing, not a slip.
+        ->and($out['order']['providers'][0]['name'])->toBe('EASI');
+});
+
+it('leaves a detect-only social host out of every bucket', function () {
+    // ko-fi is one of the 24 catalog social surfaces we have decided NOT to
+    // connect; classify() answers 'link'. The fall-through buckets only the
+    // three promotable categories, so it stays absent. Bucketing it would
+    // silently reverse that policy — the single most likely way to get this
+    // change wrong.
+    $harvester = new WebsiteLinkHarvester(Mockery::mock(SafeUrlFetcher::class));
+
+    expect($harvester->harvestHtml('<a href="https://ko-fi.com/acme">Ko-fi</a>', 'https://venue.example'))->toBe([]);
+});
+
 it('allOutboundLinks returns every absolute outbound link, not just categorized ones', function () {
     $fetcher = Mockery::mock(SafeUrlFetcher::class);
     $harvester = new WebsiteLinkHarvester($fetcher);
