@@ -879,3 +879,95 @@ it('still writes active owners with no TTL', function () {
 
     (new SyncSubdomainToKvJob($user->id))->handle($kv);
 });
+
+// ── a failed pre-account build must not stay routable ────────────────────────
+//
+// Found live 2026-08-30: three Instagram scrapes failed in one cold-build batch
+// and all three subdomains still served HTTP 200 — a public page carrying a real
+// person's NAME with no bio, no images, no links, just "Claim and finish site
+// setup". SiteObserver publishes the subdomain when the site ROW is created,
+// before the build runs, and GeneratePreAccountSiteJob's failure arms return
+// before their own KV sync, so nothing ever took the route back down.
+
+function kvUnclaimedWithBuild(string $handle, ?string $buildState): string
+{
+    setupUsersTable();
+    setupHandleAliasesTable();
+    setupSitesTable();
+    setupPreAccountBuildsTable();
+
+    $proId = (string) Str::uuid();
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => $proId,
+        'handle' => $handle,
+        'handle_lc' => strtolower($handle),
+        'display_name' => ucfirst($handle),
+        'first_name' => ucfirst($handle),
+        'account_type' => 'partna',
+        'status' => 'unclaimed',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    if ($buildState !== null) {
+        DB::connection('pgsql')->table((new PreAccountBuild)->getTable())->insert([
+            'id' => (string) Str::uuid(),
+            'user_id' => $proId,
+            'source_type' => 'instagram',
+            'source_ref' => $handle,
+            'build_state' => $buildState,
+            'expires_at' => now()->addDays(7)->toDateTimeString(),
+            'created_at' => now()->toDateTimeString(),
+            'updated_at' => now()->toDateTimeString(),
+        ]);
+    }
+
+    return $proId;
+}
+
+it('retires the route for an unclaimed account whose build FAILED', function () {
+    $proId = kvUnclaimedWithBuild('deadbuild', PreAccountBuild::STATE_FAILED);
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('put');
+    $kv->shouldReceive('delete')->once()->with('deadbuild');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($proId))->handle($kv);
+});
+
+it('keeps the route for an unclaimed account whose build is READY', function () {
+    $proId = kvUnclaimedWithBuild('livebuild', PreAccountBuild::STATE_READY);
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('delete');
+    // TTL is NOT null for an unclaimed owner — the entry expires at the edge in
+    // lockstep with the build (spec §4), so this asserts a positive TTL rather
+    // than the permanent write an active account gets.
+    $kv->shouldReceive('put')->once()->with(
+        'livebuild',
+        ['type' => 'individual'],
+        Mockery::on(fn ($ttl) => is_int($ttl) && $ttl >= 60),
+    );
+    $kv->shouldReceive('bulkPut')->once()->with([]);
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($proId))->handle($kv);
+});
+
+it('was ALREADY retiring a buildless unclaimed account — the new gate is consistent with that', function () {
+    // Pins the pre-existing rule this gate sits beside rather than duplicating:
+    // "expired (or buildless) unclaimed — treat as gone". Written down because it
+    // is the reason the new gate reads build_state === 'failed' specifically and
+    // not "no readable build" — the buildless case was already handled, one
+    // branch earlier, and reaching for it again would have been a second answer
+    // to a question already settled.
+    $proId = kvUnclaimedWithBuild('nobuildrow', null);
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('put');
+    $kv->shouldReceive('delete')->once()->with('nobuildrow');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($proId))->handle($kv);
+});

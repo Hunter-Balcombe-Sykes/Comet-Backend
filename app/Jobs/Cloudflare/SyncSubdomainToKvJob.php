@@ -3,6 +3,7 @@
 namespace App\Jobs\Cloudflare;
 
 use App\Jobs\Concerns\HasCloudflareRetryPolicy;
+use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\Cloudflare\CloudflareKvService;
 use Carbon\Carbon;
@@ -114,6 +115,34 @@ class SyncSubdomainToKvJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
             return;
         }
 
+        // An unclaimed account whose build FAILED is not routable either. The
+        // clause above reads "unclaimed = routable", which is right for a build
+        // that worked and wrong for one that did not: SiteObserver publishes the
+        // subdomain the moment the site ROW is created, before the build runs, and
+        // GeneratePreAccountSiteJob's failure arms return before their own KV
+        // sync — so nothing ever took the route back down.
+        //
+        // Found live 2026-08-30: three Instagram scrapes failed in one batch and
+        // all three served HTTP 200 at their real subdomain — a public page
+        // carrying a REAL PERSON'S NAME, no bio, no images, no links, just
+        // "Claim and finish site setup". For a product whose whole premise is
+        // building someone a site before they ask, that is the worst possible
+        // render, and worse than a 404.
+        //
+        // Scoped to FAILED, not to "not yet ready": a build in flight resolves in
+        // seconds and the success path re-syncs at the end, while a failed build
+        // is permanent. A later successful rebuild flips build_state to ready and
+        // dispatches its own sync, which re-adds the route.
+        //
+        // Safe for claiming: the claim link is {frontend_url}/claim/{subdomain}
+        // (ClaimNotifier), on the app frontend — it never depended on the
+        // subdomain resolving.
+        if ($pro->isUnclaimed() && $this->latestBuildFailed($pro)) {
+            $this->retire($kv, $pro);
+
+            return;
+        }
+
         $current = strtolower(trim((string) $pro->handle));
 
         // Read the site once — needed for both the moderation gate below and the
@@ -186,6 +215,24 @@ class SyncSubdomainToKvJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
      * delete is a no-op at Cloudflare. Aliases are left to expire via their own
      * TTL / the handles:prune-expired-aliases sweep.
      */
+    /**
+     * Whether this unclaimed account's most recent pre-account build failed.
+     *
+     * Read straight off the table rather than through a relation: this job runs
+     * with lazy-loading prevention armed outside production, and the column set
+     * is two values. Table name comes from the MODEL, not a literal — the schema
+     * prefix differs between the SQLite test database and Postgres.
+     */
+    private function latestBuildFailed(User $pro): bool
+    {
+        $state = DB::table((new PreAccountBuild)->getTable())
+            ->where('user_id', $pro->id)
+            ->orderByDesc('created_at')
+            ->value('build_state');
+
+        return $state === 'failed';
+    }
+
     private function retire(CloudflareKvService $kv, ?User $pro): void
     {
         $handle = strtolower(trim((string) ($pro?->handle ?: $this->capturedHandle)));

@@ -319,3 +319,48 @@ it('leaves the IG connection active for a non-early-access build (signup)', func
     $conn = IntegrationConnection::where('user_id', $user->id)->where('platform', 'instagram')->first();
     expect((bool) $conn->is_active)->toBeTrue();
 });
+
+// A failed build must take its route DOWN. SiteObserver publishes the subdomain
+// when the site row is created — before this job runs — so without these
+// dispatches a failed build leaves a live public page carrying the person's
+// name, no bio, no images, just "Claim and finish site setup". Found live
+// 2026-08-30 on three failed Instagram scrapes, all serving HTTP 200.
+it('retires the route when the build fails with a SourceGenerationException', function () {
+    Exceptions::fake();
+    Queue::fake([SyncSubdomainToKvJob::class]);
+    $build = makePendingBuild();
+    bindGenerator(fn () => throw SourceGenerationException::sourceNotFound());
+
+    (new GeneratePreAccountSiteJob($build->id, $build->source_type))->handle(app(SourceGeneratorRegistry::class));
+
+    expect($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_FAILED);
+    Queue::assertPushed(
+        SyncSubdomainToKvJob::class,
+        fn (SyncSubdomainToKvJob $job) => $job->userId === (string) $build->user_id,
+    );
+});
+
+it('retires the route when the build fails with an unexpected throwable', function () {
+    Exceptions::fake();
+    Queue::fake([SyncSubdomainToKvJob::class]);
+    $build = makePendingBuild();
+    bindGenerator(fn () => throw new RuntimeException('actor exploded'));
+
+    (new GeneratePreAccountSiteJob($build->id, $build->source_type))->handle(app(SourceGeneratorRegistry::class));
+
+    expect($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_FAILED);
+    Queue::assertPushed(SyncSubdomainToKvJob::class);
+});
+
+it('retires the route when the job dies outright, where $user was never in scope', function () {
+    Queue::fake([SyncSubdomainToKvJob::class]);
+    $build = makePendingBuild();
+
+    (new GeneratePreAccountSiteJob($build->id, $build->source_type))->failed(new RuntimeException('timed out'));
+
+    expect($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_FAILED);
+    Queue::assertPushed(
+        SyncSubdomainToKvJob::class,
+        fn (SyncSubdomainToKvJob $job) => $job->userId === (string) $build->user_id,
+    );
+});

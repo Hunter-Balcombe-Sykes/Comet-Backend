@@ -121,12 +121,26 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, Throttle
             report($e);
             Log::warning('pre_account.build_failed', ['build_id' => $build->id, 'failure_code' => $e->failureCode]);
 
+            // Take the route back DOWN. SiteObserver published this subdomain when
+            // the site row was created, before this job ran, so a failed build
+            // leaves a live public page carrying the person's name and nothing
+            // else. SyncSubdomainToKvJob reconciles from build_state, which is
+            // now 'failed', so this dispatch retires it (2026-08-30).
+            SyncSubdomainToKvJob::dispatch($user->id);
+
             return;
         } catch (Throwable $e) {
             // SEC-4: build_state/failure_code are no longer fillable — forceFill so a
             // dropped write can't silently strand this build in the wrong state.
             $build->forceFill(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => PreAccountBuild::FAILURE_SCRAPE_FAILED])->save();
             report($e);
+
+            // Take the route back DOWN. SiteObserver published this subdomain when
+            // the site row was created, before this job ran, so a failed build
+            // leaves a live public page carrying the person's name and nothing
+            // else. SyncSubdomainToKvJob reconciles from build_state, which is
+            // now 'failed', so this dispatch retires it (2026-08-30).
+            SyncSubdomainToKvJob::dispatch($user->id);
 
             return;
         }
@@ -211,5 +225,14 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, Throttle
         report($e);
         PreAccountBuild::query()->whereKey($this->buildId)
             ->update(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => PreAccountBuild::FAILURE_SCRAPE_FAILED]);
+
+        // Same reason as the in-handle failure arms: retire the route a failed
+        // build must not keep. This path is the job dying outright (timeout,
+        // attempts exhausted), so $user was never in scope — read the id off the
+        // build row we just marked.
+        $userId = PreAccountBuild::query()->whereKey($this->buildId)->value('user_id');
+        if ($userId) {
+            SyncSubdomainToKvJob::dispatch((string) $userId);
+        }
     }
 }
