@@ -109,3 +109,39 @@ it('still returns null for a host neither the tables nor the catalog know', func
     'a spoofed brand host' => ['https://bandcamp.evil.com/artist'],
     'a lookalike domain' => ['https://rnedium.com/@writer'],
 ]);
+
+// ── Seam promotion (spec 2026-08-28-link-classifier-seam-design §4) ──────────
+//
+// booking / reservations / ordering are the three routing classes whose
+// vocabulary is 1:1 with a classify() category that has BOTH a real
+// gateAllows() arm and a real seeder, so the catalog can name them directly and
+// a new brand in one of those classes needs no host-table row. Nine commits
+// since 2026-08-01 were that one bug, and every one was in these three classes.
+//
+// is_connectable is the second condition, not a nicety: a surface the catalog
+// refuses to connect must never reach seedBooking() / seedOnlineOrdering().
+
+it('promotes a connectable booking/reservations/ordering surface to its real category', function (string $url, string $platform, string $category, string $label) {
+    expect(catalogClassifier()->classify($url))
+        ->toBe(['platform' => $platform, 'category' => $category, 'label' => $label]);
+})->with([
+    'easi ordering' => ['https://easi.com.au/order/acme', 'easi', 'online-ordering', 'EASI'],
+    'shortcuts booking' => ['https://acme.shortcuts.com.au/', 'shortcuts', 'booking', 'Shortcuts'],
+]);
+
+it('holds a non-connectable surface at link even when its routing class is promotable', function (string $url, string $platform, string $label) {
+    expect(catalogClassifier()->classify($url))
+        ->toBe(['platform' => $platform, 'category' => 'link', 'label' => $label]);
+})->with([
+    'microsoft bookings' => ['https://outlook.office365.com/owa/calendar/bookings@contoso.com/bookings/', 'microsoft_bookings', 'Microsoft Bookings'],
+    'wix bookings' => ['https://bookings.wixapps.net/bookings/v1/acme', 'wix_bookings', 'Wix Bookings'],
+]);
+
+it('leaves the social, content and events classes at link', function (string $url, string $platform, string $label) {
+    expect(catalogClassifier()->classify($url))
+        ->toBe(['platform' => $platform, 'category' => 'link', 'label' => $label]);
+})->with([
+    'social class' => ['https://ko-fi.com/acme', 'ko-fi', 'Ko-fi'],
+    'content class' => ['https://www.mixcloud.com/someone/', 'mixcloud', 'Mixcloud'],
+    'events class' => ['https://www.songkick.com/artists/1234567', 'songkick', 'Songkick'],
+]);

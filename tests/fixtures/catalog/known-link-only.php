@@ -99,10 +99,4 @@ return [
     'venmo.profile',
     'vsco.profile',
     'yelp.listing',
-
-    // Promoted by the seam change in this branch; these two rows are deleted in
-    // the same commit that adds the promotion. Listed here only so this commit
-    // stands green on its own.
-    'easi.order',
-    'shortcuts.book',
 ];

@@ -394,6 +394,30 @@ class WebsiteLinkHarvester
     ];
 
     /**
+     * Catalog routing_class => classify() category, for the classes where the
+     * two vocabularies are 1:1 AND LinkRouter has BOTH a gateAllows() arm and a
+     * real seeder. A brand in one of these needs no host-table row above.
+     *
+     * Deliberately three entries, and the omissions are the design:
+     *   • 'social' — a catalog social surface is not thereby an account the
+     *     owner controls (paypal.me, trustpilot.listing, a Pinterest board).
+     *   • 'content' — no category, no gate arm, no seeder anywhere.
+     *   • 'events' — cannot express event vs event-organiser; no *.event
+     *     surface exists and seedEvent() branches on exactly that.
+     *   • 'shop' — must keep its commerce probe (the guard in
+     *     classifyFromCatalog() below reads the actual product).
+     *
+     * See the policy block above SOCIAL_HOSTS.
+     *
+     * @var array<string, string>
+     */
+    private const PROMOTABLE_ROUTING_CLASS = [
+        'booking' => 'booking',
+        'reservations' => 'reservations',
+        'ordering' => 'online-ordering',
+    ];
+
+    /**
      * SOCIAL_HOSTS key => [platform slug, display label], used only by classify().
      *
      * @var array<string, array{0: string, 1: string}>
@@ -818,7 +842,9 @@ class WebsiteLinkHarvester
                 return null;
             }
 
-            if (LegacyPlatformMap::routingClassFor($projection->surfaceKey) === 'shop') {
+            $routingClass = LegacyPlatformMap::routingClassFor($projection->surfaceKey);
+
+            if ($routingClass === 'shop') {
                 // A shop-class surface we do NOT sync as a store (Gumroad,
                 // stan.store — no product feed) is a link card at its
                 // storefront root: "tameimpala.gumroad.com" is the shop, and
@@ -831,9 +857,19 @@ class WebsiteLinkHarvester
                 }
             }
 
+            // is_connectable is the second condition, not a nicety: promoting a
+            // surface the catalog itself refuses to connect would hand
+            // seedBooking() / seedOnlineOrdering() a write they must never make.
+            // It is what holds microsoft_bookings.book and wix_bookings.book at
+            // 'link' — both are the right class, both are path-identified
+            // brands on shared registrable domains, neither is connectable.
+            $category = ($surface['is_connectable'] ?? false) === true
+                ? (self::PROMOTABLE_ROUTING_CLASS[$routingClass] ?? 'link')
+                : 'link';
+
             return [
                 'platform' => LegacyPlatformMap::legacyFor($projection->surfaceKey),
-                'category' => 'link',
+                'category' => $category,
                 'label' => (string) $surface['display_name'],
             ];
         } catch (CatalogNotCompiled) {
