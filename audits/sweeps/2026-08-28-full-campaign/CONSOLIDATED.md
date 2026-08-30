@@ -352,7 +352,7 @@
         return $result === 1;
         ```
 
-- [ ] **#W1-SEC-12** · P2 — Staff profile update / soft-delete / restore skip the fresh-AAL2 gate applied to status changes and force-destroy
+- [x] **#W1-SEC-12** · P2 — Staff profile update / soft-delete / restore skip the fresh-AAL2 gate applied to status changes and force-destroy
     - **Where:** app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php `update()`, `destroy()`, `restore()`
     - **Affects:** Professional account mutations (profile edits, archive, restore) under a stale or hijacked staff session that still carries a valid-but-old AAL2 claim.
     - **Effort:** S (~0.5–1h)
@@ -369,6 +369,7 @@
             // ... no requiresFreshAal2() call
         }
         ```
+    - Resolution (2026-08-30): FIXED, and the finding undersold the route topology. It implied one route group; there are three. `update()` sits in the `staff.admin` group (admin-only), but `destroy()` and `restore()` are in the lower-privileged group reachable by any staff role, with only `UserSelfPolicy::staffManage()` (`return $actor->isAdmin();`) between a support staffer and the action. `require.aal2` was already on all three, so the missing half was specifically freshness — Supabase keeps `aal` sticky at `aal2` for the session lifetime and never downgrades on refresh, so that middleware proves "MFA happened once", never "recently". Added the identical `requiresFreshAal2()` gate block (byte-for-byte, gate-before-authorize) to all three methods, matching `updateStatus()`, `bulkUpdateStatus()`, `forceDestroy()`, and `releaseClaim()`. Accepted consequence, owner-approved: a support-role staffer with stale MFA now gets `401 mfa_fresh_required` on `destroy`/`restore` where they previously got `403` — pinned deliberately by an explicit ordering test rather than left as an unexplained behaviour change.
 
 - [ ] **#W1-SEC-13** · P2 — WebsiteLinkHarvester parses untrusted third-party HTML without `LIBXML_NONET`
     - **Where:** app/Services/Platforms/WebsiteLinkHarvester.php:747-750
