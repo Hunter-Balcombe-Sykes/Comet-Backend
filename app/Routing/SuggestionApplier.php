@@ -205,8 +205,17 @@ class SuggestionApplier
                 $connection->forceFill(['is_primary' => true])->save();
             }
 
-            // #W2-SEC-12: same owner-scoping as the denial branch above.
-            DB::table('routing.source_intents')
+            // #W2-SEC-12: same owner-scoping as the denial branch above. A
+            // mismatched-owner $intent would otherwise let a foreign intent's
+            // surface/identifier data mint a connection under $user while this
+            // predicate matches 0 rows below, settling nothing — the
+            // connection creation above would then be the only visible
+            // effect, silently succeeding on inconsistent state. This is the
+            // LAST statement in the transaction, so throwing here rolls back
+            // the connection create/update and the incumbent demotion above,
+            // matching SourceReconciler::upsertSourceIntent's "affected-row
+            // count as the invariant check" pattern (~:530-533).
+            $settled = DB::table('routing.source_intents')
                 ->where('id', $intent->id)
                 ->where('user_id', $user->id)
                 ->update([
@@ -216,6 +225,10 @@ class SuggestionApplier
                     'resolved_at' => now(),
                     'updated_at' => now(),
                 ]);
+
+            if ($settled === 0) {
+                throw new \RuntimeException("Could not settle source intent {$intent->id} for user {$user->id}");
+            }
 
             return $connection;
         });
