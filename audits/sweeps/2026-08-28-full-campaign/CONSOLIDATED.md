@@ -383,7 +383,7 @@
         $loaded = $doc->loadHTML($html, LIBXML_NOWARNING | LIBXML_NOERROR);
         ```
 
-- [ ] **#W1-SEC-14** · P2 — GDPR export discloses another professional's internal `user_id` on cross-tenant email-subscription rows
+- [x] **#W1-SEC-14** · P2 — GDPR export discloses another professional's internal `user_id` on cross-tenant email-subscription rows
     - **Where:** app/Services/User/DataExport/DataExportPayloadBuilder.php streamEmailSubscriptions()
     - **Affects:** Data subjects whose email appears on another professional's subscriber list; the other professional's internal ID is disclosed as a side effect.
     - **Effort:** S (~0.5–1h)
@@ -660,7 +660,7 @@
          */
         ```
 
-- [ ] **#W1-LIFE-7** · P2 — Email subscription upsert overwrites the previous occupant's data on email recycle
+- [x] **#W1-LIFE-7** · P2 — Email subscription upsert overwrites the previous occupant's data on email recycle
     - **Where:** app/Services/User/DataExport/DataExportPayloadBuilder.php:1167-1171 (docblock above `streamEmailSubscriptions()`)
     - **Affects:** Data subjects whose `notifications.email_subscriptions` record can be silently overwritten by a later signup under the same (recycled) email.
     - **Effort:** S (~0.5–1h)
@@ -676,6 +676,7 @@
         // the new user's data; only created_at and id are preserved from the
         // prior occupant.
         ```
+    - Resolution (2026-08-30): WONTFIX-stale. Both prescribed fixes already exist and predate the scan: FK `email_subscriptions_user_fk` at `supabase/migrations/20260726000000_baseline_pilot.sql:3817`, and partial unique indexes `email_subscriptions_unique_pro_list_email_lc` on `(user_id, list_key, email_lc) WHERE user_id IS NOT NULL` (line 3051) and `email_subscriptions_unique_global_list_email_lc` on `(list_key, email_lc) WHERE user_id IS NULL` (line 3047). `PublicEmailSubscriptionController::subscribe()` already scopes its upsert lookup by `(user_id, list_key, email_lc)` (`:100-104`). The finding's Evidence block was a `//` comment, not executable code — it narrated a stale docblock rather than the actual writer/schema.
 
 - [ ] **#W1-LIFE-8** · P2 — `buildActions()` swallows `QueryException` without marking the resolver degraded
     - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:282-287 (`buildActions()`)
@@ -2675,7 +2676,7 @@ None.
             ADD COLUMN IF NOT EXISTS "external_ref" text NULL;
         ```
 
-- [ ] **#W1-DINT-3** · P2 — Email-subscription upsert overwrites the prior subscriber's data when an email is recycled
+- [x] **#W1-DINT-3** · P2 — Email-subscription upsert overwrites the prior subscriber's data when an email is recycled
     - **Where:** app/Services/User/DataExport/DataExportPayloadBuilder.php:1167-1171 (`streamEmailSubscriptions` docblock)
     - **Affects:** Former/subsequent users sharing a recycled email; `notifications.email_subscriptions` accuracy and retention.
     - **Effort:** M (~2–4h)
@@ -2692,6 +2693,7 @@ None.
          * prior occupant. Bounded leak, mostly metadata. Schema-level fix is to
          * add an owner FK; that's a follow-up.
         ```
+    - Resolution (2026-08-30): WONTFIX-stale. Both prescribed fixes already exist and predate the scan: FK `email_subscriptions_user_fk` at `supabase/migrations/20260726000000_baseline_pilot.sql:3817`, and partial unique indexes `email_subscriptions_unique_pro_list_email_lc` on `(user_id, list_key, email_lc) WHERE user_id IS NOT NULL` (line 3051) and `email_subscriptions_unique_global_list_email_lc` on `(list_key, email_lc) WHERE user_id IS NULL` (line 3047). `PublicEmailSubscriptionController::subscribe()` already scopes its upsert lookup by `(user_id, list_key, email_lc)` (`:100-104`). The finding's Evidence block was a `//` comment, not executable code — it narrated a stale docblock rather than the actual writer/schema.
 
 - [ ] **#W1-DINT-4** · P2 — Workplace identity mirror dual-write can silently diverge with no rollback or retry
     - **Where:** app/Observers/Core/WorkplaceObserver.php:98-140 (`mirrorIdentityFields`)
@@ -3835,7 +3837,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#W1-PRIV-3** · P2 — Email-subscription export can carry a prior email-occupant's row id and timestamp on email recycle
+- [x] **#W1-PRIV-3** · P2 — Email-subscription export can carry a prior email-occupant's row id and timestamp on email recycle
     - **Where:** app/Services/User/DataExport/DataExportPayloadBuilder.php:1148-1191 (`streamEmailSubscriptions`)
     - **Affects:** A user whose email address was previously used to subscribe to another professional's newsletter; their export may include that prior subscription's `id` and `created_at` (no other prior-occupant fields survive).
     - **Effort:** S (~0.5–1h)
@@ -3864,6 +3866,7 @@ None.
             }
         })
         ```
+    - Resolution (2026-08-30): Accepted residual risk, documented in code rather than fixed (see the rewritten docblock above `streamEmailSubscriptions()`, `37d775c79`). `user_id` on this table is the list-owner (professional) attribution FK, not a subscriber-identity FK, so there is no subscriber key to bucket ownership on the way #PRIV-1 did for `early_access_signups`. A live `id`/`created_at` refresh on a detected recycle was rejected as not cheap: `broadcast_email_receipts.subscription_id` FKs `email_subscriptions.id` ON DELETE CASCADE with no ON UPDATE CASCADE (baseline SQL line 3812), and in-flight `SendSubscriptionConfirmationJob` / `SendStaffBroadcastEmailToSubscriberJob` hold the old `subscriptionId` and `->find()` it — rotating `id` under a queued job would silently orphan it. The residual disclosure is bounded to two non-identifying fields (a UUID and a timestamp, no name/email/status/consent from the prior occupant).
 
 - [ ] **#W1-PRIV-4** · P2 — `fleet:verify` prints a site owner's contact-form email in full to console output
     - **Where:** app/Console/Commands/FleetVerifyCommand.php:52-55, 67-79

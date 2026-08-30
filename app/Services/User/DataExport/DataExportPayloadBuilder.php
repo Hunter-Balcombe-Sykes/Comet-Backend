@@ -1250,13 +1250,14 @@ class DataExportPayloadBuilder
         // 2026-07-26) and the two partial unique indexes
         // (`..._unique_pro_list_email_lc` on (user_id, list_key, email_lc) and
         // `..._unique_global_list_email_lc` on (list_key, email_lc) WHERE
-        // user_id IS NULL) already exist, and PublicEmailSubscriptionController
-        // already scopes its upsert lookup by (user_id, list_key, email_lc),
-        // not by email_lc alone. `user_id` here is the site-OWNER
-        // (professional) attribution FK, not a subscriber-identity FK — a
-        // subscriber to another professional's newsletter need not hold a
-        // Partna account at all, so there is no stronger subscriber identity
-        // to key on.
+        // user_id IS NULL) already exist, and BOTH recycle-capable writers —
+        // PublicEmailSubscriptionController::subscribe() and
+        // PublicCustomerLeadController::upsertMarketingSubscription() — already
+        // scope their upsert lookup by (user_id, list_key, email_lc), not by
+        // email_lc alone. `user_id` here is the site-OWNER (professional)
+        // attribution FK, not a subscriber-identity FK — a subscriber to
+        // another professional's newsletter need not hold a Partna account at
+        // all, so there is no stronger subscriber identity to key on.
         //
         // #W1-PRIV-3 (re-checked 2026-08-30, residual risk accepted, not
         // fixed): because the per-(user_id, list_key, email_lc) row is keyed
@@ -1268,7 +1269,14 @@ class DataExportPayloadBuilder
         // case, there is no reliable ownership signal to bucket on here — the
         // system cannot distinguish "the same subscriber returning" from "a
         // different person who inherited this address" from email alone, so
-        // building a withholding rule would be guessing, not verifying. The
+        // building a withholding rule would be guessing, not verifying. A
+        // live `id`/`created_at` refresh on a detected recycle is also not
+        // cheap to add: `broadcast_email_receipts.subscription_id` FKs
+        // `email_subscriptions.id` ON DELETE CASCADE with no ON UPDATE
+        // CASCADE, and in-flight SendSubscriptionConfirmationJob /
+        // SendStaffBroadcastEmailToSubscriberJob hold the old subscription id
+        // across the queue boundary and ->find() it on the worker side —
+        // rotating `id` under either job would silently orphan it. The
         // residual disclosure is two non-identifying fields (a UUID and a
         // timestamp, no name/email/status/consent from the prior occupant) —
         // bounded enough that a detection heuristic isn't worth the false
