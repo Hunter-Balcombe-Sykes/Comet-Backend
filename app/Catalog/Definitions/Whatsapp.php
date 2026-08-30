@@ -43,6 +43,30 @@ class Whatsapp
                     Detector::url('whatsapp.com')
                         ->path('#^/(?:send|message)#')
                         ->strength(EvidenceStrength::ProfileLink),
+                    // The BARE phone path — wa.me/<number>, which is what
+                    // WhatsApp's own click-to-chat produces and what this very
+                    // surface's canonicalUrl above emits. The two entry-point
+                    // paths did not cover it, so the catalog could not identify
+                    // the single most common WhatsApp link there is.
+                    //
+                    // It went unnoticed because the OTHER lane hid it: a wa.me
+                    // link found directly in an Instagram bio is seeded by
+                    // WebsiteLinkHarvester (classify() answers whatsapp/social)
+                    // and never reaches the catalog. Only links unrolled from an
+                    // AGGREGATOR page route through here — so the bug needed a
+                    // Linktree/bio.site carrying a wa.me link to show itself.
+                    // Found live 2026-08-30 on finderseekerphotography, whose
+                    // bio.site WhatsApp link noted as no-rule-matched while two
+                    // other accounts' identical-shaped links connected fine.
+                    //
+                    // Captures nothing, deliberately, matching its siblings and
+                    // the note above: the phone number stays the owner-entered
+                    // identity rather than one parsed out of a detected URL.
+                    // Optional leading '+' because that is how people write an
+                    // international number, and it survives into the path.
+                    Detector::url('whatsapp.com')
+                        ->path('#^/\+?\d{7,15}/?$#')
+                        ->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),
         ];

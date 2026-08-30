@@ -228,12 +228,20 @@ class RoutingCorpusCommand extends Command
             if ($c === '\\' && $i + 1 < $len) {
                 $next = $body[$i + 1];
                 // \d etc. as a bare token (rare here, but cheap to support)
-                $out .= match ($next) {
+                $token = match ($next) {
                     'd' => '1',
                     'w' => 'a',
                     default => $next,
                 };
                 $i += 2;
+                // Honour a {n,m} minimum, exactly as the [class] branch below
+                // already does. Without this an escape sampled ONCE regardless:
+                // `\d{7,15}` (WhatsApp's bare phone path) synthesised the
+                // single digit "1", which its own pattern then rejected, and the
+                // detector was reported unsatisfiable when it is perfectly
+                // satisfiable. The two branches now agree.
+                $reps = $this->minRepetitions($body, $i);
+                $out .= str_repeat($token, max(1, $reps));
                 // consume a quantifier on the escape
                 $i = $this->skipQuantifier($body, $i);
 

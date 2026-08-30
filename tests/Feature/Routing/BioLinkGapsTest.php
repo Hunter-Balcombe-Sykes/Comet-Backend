@@ -165,3 +165,20 @@ it('identifies a YouTube channel pasted with a stale /channel/ prefix', function
         ->and(bioGapSurface('https://www.youtube.com/@djhellraiser303'))->toBe('youtube.channel')
         ->and(bioGapSurface('https://youtube.com/channel/UCabcdefghijklmnopqrstuv'))->toBe('youtube.channel');
 });
+
+it('identifies a bare wa.me phone link, the shape its own canonicalUrl emits', function () {
+    // Only links unrolled from an AGGREGATOR reach the catalog — a wa.me link
+    // straight out of an Instagram bio is seeded by the harvester and never
+    // gets here, which is why this survived so long. finderseekerphotography's
+    // bio.site WhatsApp link noted as no-rule-matched while two other accounts'
+    // identical-shaped links connected through the other lane.
+    expect(bioGapSurface('https://wa.me/61421637062'))->toBe('whatsapp.chat')
+        // Leading '+' is how people write an international number.
+        ->and(bioGapSurface('https://wa.me/+61421637062'))->toBe('whatsapp.chat')
+        // The two entry-point shapes that already worked must keep working.
+        ->and(bioGapSurface('https://wa.me/message/ABCDEFGHIJK'))->toBe('whatsapp.chat')
+        ->and(bioGapSurface('https://api.whatsapp.com/send?phone=61421637062'))->toBe('whatsapp.chat')
+        // Not a phone number — must NOT be claimed as a chat link.
+        ->and(bioGapSurface('https://wa.me/12'))->toBeNull()
+        ->and(bioGapSurface('https://wa.me/abcdefghij'))->toBeNull();
+});

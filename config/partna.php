@@ -2789,7 +2789,22 @@ return [
         // across the whole install — each job is ~2 API requests). Sized
         // under Cloudflare's own purge rate limit so a connect burst queues
         // here instead of 429ing there (observed 2026-08-27 bulk run).
-        'purge_api_per_minute' => (int) env('PARTNA_CF_PURGE_API_PER_MINUTE', 20),
+        //
+        // Raised 20 → 60 on 2026-08-30, with the measurement that justifies it.
+        // At 20/min the funnel could not drain a build burst inside the job's
+        // own retryUntil(10 min): jobs were RELEASED by the limiter until the
+        // window expired, then died MaxAttemptsExceeded. Measured 55 such
+        // failures in 6h on 2026-08-28, clustered into the exact minutes a batch
+        // was building — and, decisively, 49 more in 90 minutes on 2026-08-30
+        // AFTER the 15s purge debounce landed. Cutting the amplification was
+        // the right first fix and it was not sufficient on its own; a batch of
+        // 39 accounts still outruns 20/min.
+        //
+        // 60 drains that same burst in under two minutes and stays far under
+        // Cloudflare's own ceiling (their general API allows ~240 requests/min,
+        // and each job is ~2). Still an env override, so ops can move it
+        // without a deploy.
+        'purge_api_per_minute' => (int) env('PARTNA_CF_PURGE_API_PER_MINUTE', 60),
 
         // R3-CACHE-1: ops lever for ReconcilePlatformTakedownJob's purge fan-out.
         // 0 (default) = off — the cloudflare_bulk lane's strict-priority
