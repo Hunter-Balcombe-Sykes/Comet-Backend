@@ -1971,3 +1971,64 @@ auto-retries a failed build, so no Apify credit is burned; the only loss is
 that ops cannot count "how many cold builds fail because the account is
 private". Deliberate design, no live harm, owner asleep — recorded as a small
 improvement rather than a vocabulary change made unattended.
+
+### CORRECTION: the purge ceiling raise was not the fix (7997f7e87)
+
+I reported "0 purge failures since the raise". That reading was taken at
+11:13, before the rows existed. Measured properly afterwards: **26 more
+between 11:05–11:20 and 12 between 11:20–11:45**, then zero once the burst
+drained. 38 for this batch against 49 for a comparable one before — a modest
+improvement, not a fix.
+
+What the failures actually say: every one is `MaxAttemptsExceeded`, and not
+one is a Cloudflare 429. So the binding constraint is the job's own
+`retryUntil` DEADLINE, not the rate. ~480 purges need ~8 minutes to drain at
+60/min, and the tail lands past the ten-minute mark. **retryUntil 10 → 30.**
+
+That costs no safety and the reason is worth keeping: a genuinely broken
+purge (revoked token) is killed by `maxExceptions = 2` after two REAL
+failures, independently of this deadline. retryUntil only ever bounds how
+long a job may sit being rate-limited, and a late purge is harmless — the
+edge holds `s-maxage=31`, so the worst case is a longer stale window, not a
+wrong one.
+
+### Instagram fake-font names render raw (7997f7e87)
+
+thebloomroommalvern's site showed its name in Unicode math-bold — the
+largest text on the page. Not a font: the author picked characters out of
+Mathematical Alphanumeric Symbols, so a screen reader announces them
+codepoint by codepoint, a font stack falls back mid-word, and
+PersonNameParser sees characters that are not letters. 1 account in 161.
+
+`StyledUnicodeText::fold()` folds PER CHARACTER rather than running NFKC over
+the whole string — whole-string NFKC would also rewrite '™'→'TM', '№'→'No'
+and '½'→'1⁄2', all plausible in a real business name. Applied at the scrape
+read, the only point the AI path (BioSource) and the deterministic path
+(PersonNameParser) share.
+
+### wa.me/<phone>, Hey You, Postmates
+
+- `wa.me/<phone>` had NO catalog rule — the shape WhatsApp's own click-to-chat
+  emits, and the shape this surface's own `canonicalUrl` produces. Only
+  aggregator-unrolled links reach the catalog, which is why it survived.
+  LIVE GATE: finderseekerphotography → `whatsapp.chat`, placed, connected.
+- Writing it exposed a bug in `routing:corpus`: it sampled `\d` once and threw
+  `{7,15}` away, calling a satisfiable pattern unsatisfiable. The `[class]`
+  branch already honoured minimums; the escape branch never did. Corpus now
+  covers all 395 detectors.
+- **Hey You** and **Postmates** added from
+  `platforms.google_business.ordering_unroutable` warnings on live venues —
+  that log line is the ordering lane naming hosts it cannot place, and is the
+  cleanest signal for this class of gap yet found. `spotapps.co` appeared in
+  the same warnings and is NOT added: it answers 403 and could not be
+  confirmed.
+
+### Throughput note, for whoever runs the next big batch
+
+At 63 builds in an hour the `scraping` queue backs up to ~33 jobs and a
+rebuild can sit `pending` for 15+ minutes. Nothing is broken — Horizon
+drains it — but it means **`builds:await` returning `ready` is not the end
+of the pipeline**. The website scan, commerce probe and social seed all land
+minutes later. This mis-read me twice tonight: once as "the cross-city batch
+got no website scans" (it got them, late) and once as "djrubyofficial
+regressed" in the previous session. Wait for the queue, not just the build.
