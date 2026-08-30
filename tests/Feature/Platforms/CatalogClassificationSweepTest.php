@@ -74,6 +74,53 @@ it('classifies every surface, or the surface is a pinned known gap', function ()
         .implode("\n - ", $nowVisible),
     );
 });
+function sweepKnownLinkOnly(): array
+{
+    return require dirname(__DIR__, 2).'/fixtures/catalog/known-link-only.php';
+}
+
+// The seam guard (spec 2026-08-28-link-classifier-seam-design §B.3). classify()
+// answers 'link' for a catalog surface no host constant covers and no promotable
+// routing class claims: recognised, costs no probe, never auto-connected. That is
+// a POLICY — but until this test it was invisible at add-time, so wave 2 could
+// land 37 definitions with 3 harvester rows and nobody knew until a live find.
+//
+// Two-way, exactly like known-invisible.php above: a NEW detect-only surface
+// fails (add the harvester row, or record the decision), and a stale row fails
+// (it was promoted — delete the row).
+it('records every detect-only surface as a decision, not an accident', function () {
+    $classifier = app(WebsiteLinkHarvester::class);
+    $known = array_flip(sweepKnownLinkOnly());
+    $newlyLinkOnly = [];
+    $noLongerLinkOnly = [];
+
+    foreach (sweepSurfaces() as $key => $surface) {
+        $url = SweepProbeUrl::for($surface, sweepHandWritten());
+        if ($url === null) {
+            continue; // reported by the probe-URL test above
+        }
+        $isLinkOnly = SweepProbeUrl::bucket($classifier->classify($url)) === 'link-only';
+        if ($isLinkOnly && ! isset($known[$key])) {
+            $newlyLinkOnly[] = "{$key}  ({$url})";
+        }
+        if (! $isLinkOnly && isset($known[$key])) {
+            $noLongerLinkOnly[] = $key;
+        }
+    }
+    sort($newlyLinkOnly);
+    sort($noLongerLinkOnly);
+
+    expect($newlyLinkOnly)->toBeEmpty(
+        "These surfaces classify as a generic link card. Either give the brand a row in\n"
+        ."WebsiteLinkHarvester's host constants, or record the detect-only decision (with a\n"
+        ."reason) in tests/fixtures/catalog/known-link-only.php:\n - "
+        .implode("\n - ", $newlyLinkOnly),
+    );
+    expect($noLongerLinkOnly)->toBeEmpty(
+        "These known-link-only.php rows now classify into a real category — remove them:\n - "
+        .implode("\n - ", $noLongerLinkOnly),
+    );
+});
 
 it('does not classify a retired surface into a real connection', function () {
     // Regression guard (spec 2026-08-18-pipeline-assurance §5 B5 point 4):
