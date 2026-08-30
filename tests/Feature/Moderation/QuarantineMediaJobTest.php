@@ -3,6 +3,7 @@
 use App\Exceptions\Moderation\ModerationTargetMissingException;
 use App\Jobs\Moderation\QuarantineMediaJob;
 use App\Models\Core\Site\Site;
+use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
 use App\Models\Moderation\ActionLogEntry;
 use App\Models\Moderation\Decision;
@@ -151,12 +152,18 @@ it('does not re-quarantine media cleared after this action log entry already com
     $attemptsAfterFirstRun = $entry->fresh()->attempts;
 
     // Staff clear the media in between the first delivery and the redelivery.
-    DB::update("UPDATE site.site_media SET processing_state = 'active' WHERE id = ?", [$mediaId]);
+    // site_media_processing_state_check allows pending|processing|scanning|ready|
+    // failed|quarantined only — 'ready' (SiteMedia::PROCESSING_STATE_READY) is
+    // what every other clear/available write site in app/ uses.
+    DB::update(
+        'UPDATE site.site_media SET processing_state = ? WHERE id = ?',
+        [SiteMedia::PROCESSING_STATE_READY, $mediaId]
+    );
 
     QuarantineMediaJob::dispatch($entry->id, $case->id);
 
     $row = DB::selectOne('SELECT processing_state FROM site.site_media WHERE id = ?', [$mediaId]);
-    expect($row->processing_state)->toBe('active');
+    expect($row->processing_state)->toBe(SiteMedia::PROCESSING_STATE_READY);
     expect($entry->fresh()->attempts)->toBe($attemptsAfterFirstRun);
 })->group('postgres');
 

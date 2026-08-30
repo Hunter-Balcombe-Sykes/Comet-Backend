@@ -22,8 +22,25 @@ class SuspendSiteJob implements ShouldBeUnique, ShouldQueue
 
     public int $timeout = 60;
 
-    // 5-min lock expiry so a crashed worker can't hold the lock forever — same
-    // headroom as NotifyOnCallStaffJob's uniqueFor.
+    // Honest scope of this lock (round-2 review correction — do not restate the
+    // old "prevents a crashed worker from holding a stale redelivery" framing):
+    // ModerationActionDispatcher dispatches this job as the OPENING link of the
+    // hide_site Bus::chain, and Bus::chain(...)->dispatch() calls
+    // Dispatcher::dispatch() directly for the first link — no PendingDispatch is
+    // built, so UniqueLock::acquire() (which lives only in
+    // PendingDispatch::shouldDispatch(), run from its __destruct()) is NEVER
+    // invoked there. (For suspend_user/ban_user/csam_auto_suspend chains this job
+    // runs later, so the lock IS acquired via dispatchNextJobInChain()'s global
+    // dispatch() call — but that still buys nothing: a Horizon at-least-once
+    // redelivery re-enters CallQueuedHandler::call() directly and never touches
+    // UniqueLock::acquire() regardless of chain position.) The
+    // `status === 'completed'` check below does 100% of the work that stops a
+    // stale redelivery re-hiding a site staff has since restored. ShouldBeUnique
+    // only debounces a genuinely concurrent duplicate DISPATCH of the same
+    // actionLogId, and no path currently produces one (actionLogId is a fresh
+    // Str::uuid() per dispatchFor() call — ModerationActionDispatcher is the only
+    // dispatcher). Kept as harmless insurance for a possible future manual-retry
+    // endpoint; re-verify this reasoning if one is ever added.
     public int $uniqueFor = 300;
 
     public function __construct(
