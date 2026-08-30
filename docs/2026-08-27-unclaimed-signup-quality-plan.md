@@ -2105,3 +2105,40 @@ the actual business name.
 Note its FIRST rebuild attempt failed `scrape_failed` — and that failure
 independently re-gated the earlier fix: the route went to 404 on its own,
 with no intervention, on a failure nobody pointed the fix at.
+
+### SESSION 5 CLOSE-OUT
+
+**87 cold builds** across four batches (23 Instagram + 16 Melbourne business +
+24 cross-city business + 24 restaurant), plus rebuild gates. 3 failed, all
+`profile_unavailable` — genuinely restricted Instagram accounts, and all three
+correctly 404 rather than serving a shell.
+
+Shipped and live-gated, each on the account or sweep that exposed it:
+
+| fix | found by | gate |
+|---|---|---|
+| Failed build served a public page with the person's name | 3 failed scrapes in batch 1 | 3 × 404, controls still 200; later fired **automatically** on a 4th failure |
+| `wa.me/<phone>` had no catalog rule | fetching finderseeker's bio.site by hand | rebuilt → `whatsapp.chat`, placed, connected |
+| Early-access invite pointed at a dead subdomain | fleet-wide sweep of 161 sites | test; the 2 anomalies are the artefact that exposed it |
+| Instagram fake-font names rendered raw | reading a live page | rebuilt → plain name, 0 styled chars live, emoji kept |
+| `routing:corpus` called a satisfiable pattern unsatisfiable | writing the wa.me detector | corpus covers all 395 detectors |
+| Purge deadline (the real constraint) | measuring, twice, after a wrong first call | see below |
+| Policy comment overstated its escape hatch | auditing the other lane's merge | deleting a row fails the sweep by name |
+| Hey You + Postmates | `ordering_unroutable` log lines | both project; kit entries shipped |
+
+**The catalog has converged for these verticals.** Across 87 accounts the
+triage queue produced ZERO new platform candidates — it is now entirely the
+businesses' own websites (singleo.com.au, gelatomessina.com,
+adelaidecentralmarket.com.au …) plus item-level links the harvester already
+owns. The two brands added tonight came from `ordering_unroutable` warnings,
+not the queue, which makes that log line the better signal for this class.
+
+**Two owner decisions recorded, deliberately not acted on:** the unclaimed
+review sample (5 of 44 shown, newest is 1-star, beside a 4.5/5 aggregate), and
+`failure_code` flattening `profile_unavailable` into `scrape_failed`.
+
+**Method notes worth keeping.** `builds:await` returning ready is NOT the end
+of the pipeline — website scan, commerce probe and social seed land minutes
+later, and at 60+ builds/hour the scraping queue backs up to ~35. This
+mis-read me twice tonight. And a fleet-wide sweep (build state × live HTTP)
+found a bug nobody was looking for; it is cheap and worth repeating.
