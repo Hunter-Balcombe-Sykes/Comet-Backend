@@ -3892,7 +3892,7 @@ None.
 
         $this->table(['handle', 'status', 'build', 'failure', 'headshot', 'workplace', 'contact', 'http'], $rows);
         ```
-    - **Resolution (2026-08-30):** FIXED. `fleet:verify` masks the contact email via `maskEmail()`.
+    - Resolution (2026-08-30): FIXED. `fleet:verify` masks the contact email via `maskEmail()`.
 
 ## P3 — Nice to have
 
@@ -5188,7 +5188,7 @@ None.
             'updated_at' => now(),
         ]);
         ```
-    - **Resolution (2026-08-30):** FIXED. Both `routing.source_intents` updates in `apply()` are now `user_id`-scoped, and the settle update throws `\RuntimeException` on a zero affected-row count inside the transaction closure, so a mismatched-owner caller rolls back the connection create and incumbent demotion instead of committing a connection built from a foreign intent's data. Surfaces as a fail-closed 500, genericised in production.
+    - Resolution (2026-08-30): FIXED. Both `routing.source_intents` updates in `apply()` are now `user_id`-scoped, and the settle update throws `\RuntimeException` on a zero affected-row count inside the transaction closure, so a mismatched-owner caller rolls back the connection create and incumbent demotion instead of committing a connection built from a foreign intent's data. Surfaces as a fail-closed 500, genericised in production.
 
 - [ ] **#W2-SEC-13** · P2 — `ProjectionWriter::ensureContentSource()` / `accountRef()` resolve connection-scoped rows by ID alone despite `$userId` already being in scope
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:379-399, 568-577
@@ -5274,7 +5274,7 @@ None.
             'error' => $e->getMessage(),
         ]);
         ```
-    - **Resolution (2026-08-30):** FIXED. The failure log now carries `host` + `path_length` only, never `path` itself: for this class's target hosts (bit.ly-style shorteners, `on.soundcloud.com`, `spotify.link`) the path segment IS the opaque short-code — the whole identifying secret — so logging it would reconstruct the pasted short URL verbatim, the same leak one segment over. Matches `MediaMirror`'s host-only log-hygiene convention (app/Services/Media/MediaMirror.php:479-483). Logging-only: `routing.link_observations` still stores the URL verbatim by design, and redaction stays strictly after canonicalisation.
+    - Resolution (2026-08-30): FIXED. The failure log now carries `host` + `path_length` only, never `path` itself: for this class's target hosts (bit.ly-style shorteners, `on.soundcloud.com`, `spotify.link`) the path segment IS the opaque short-code — the whole identifying secret — so logging it would reconstruct the pasted short URL verbatim, the same leak one segment over. Matches `MediaMirror`'s host-only log-hygiene convention (app/Services/Media/MediaMirror.php:479-483). Logging-only: `routing.link_observations` still stores the URL verbatim by design, and redaction stays strictly after canonicalisation.
 
 ## P3 — Nice to have
 
