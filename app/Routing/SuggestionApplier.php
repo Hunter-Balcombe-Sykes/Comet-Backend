@@ -213,7 +213,7 @@ class SuggestionApplier
             // effect, silently succeeding on inconsistent state. This is the
             // LAST statement in the transaction, so throwing here rolls back
             // the connection create/update and the incumbent demotion above,
-            // matching SourceReconciler::upsertSourceIntent's "affected-row
+            // matching SourceReconciler::upsertIntent's "affected-row
             // count as the invariant check" pattern (~:530-533).
             $settled = DB::table('routing.source_intents')
                 ->where('id', $intent->id)

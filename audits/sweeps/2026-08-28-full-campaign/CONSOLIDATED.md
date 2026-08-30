@@ -3865,7 +3865,7 @@ None.
         })
         ```
 
-- [ ] **#W1-PRIV-4** · P2 — `fleet:verify` prints a site owner's contact-form email in full to console output
+- [x] **#W1-PRIV-4** · P2 — `fleet:verify` prints a site owner's contact-form email in full to console output
     - **Where:** app/Console/Commands/FleetVerifyCommand.php:52-55, 67-79
     - **Affects:** Account holders' notification/contact email addresses; anyone with visibility into terminal history, screen-shares, or captured `cloud command:run` output when this diagnostic is run.
     - **Effort:** S (~0.5–1h)
@@ -3892,6 +3892,7 @@ None.
 
         $this->table(['handle', 'status', 'build', 'failure', 'headshot', 'workplace', 'contact', 'http'], $rows);
         ```
+    - **Resolution (2026-08-30):** FIXED. `fleet:verify` masks the contact email via `maskEmail()`.
 
 ## P3 — Nice to have
 
@@ -5169,7 +5170,7 @@ None.
         // only write in the class, it costs nothing, ...
         ```
 
-- [ ] **#W2-SEC-12** · P2 — `SuggestionApplier::apply()` mutates `routing.source_intents` by ID alone, relying entirely on the caller having already tenant-scoped the intent
+- [x] **#W2-SEC-12** · P2 — `SuggestionApplier::apply()` mutates `routing.source_intents` by ID alone, relying entirely on the caller having already tenant-scoped the intent
     - **Where:** app/Routing/SuggestionApplier.php:82-91, 201-207
     - **Affects:** Any future caller of `SuggestionApplier::apply()` that does not pre-scope its `$intent` lookup to `$user->id` — today's only caller does, so this is a latent hardening gap, not an active exploit.
     - **Effort:** S (~0.5–1h)
@@ -5187,6 +5188,7 @@ None.
             'updated_at' => now(),
         ]);
         ```
+    - **Resolution (2026-08-30):** FIXED. Both `routing.source_intents` updates in `apply()` are now `user_id`-scoped, and the settle update throws `\RuntimeException` on a zero affected-row count inside the transaction closure, so a mismatched-owner caller rolls back the connection create and incumbent demotion instead of committing a connection built from a foreign intent's data. Surfaces as a fail-closed 500, genericised in production.
 
 - [ ] **#W2-SEC-13** · P2 — `ProjectionWriter::ensureContentSource()` / `accountRef()` resolve connection-scoped rows by ID alone despite `$userId` already being in scope
     - **Where:** app/Ingest/Projection/ProjectionWriter.php:379-399, 568-577
@@ -5257,7 +5259,7 @@ None.
         $loaded = $doc->loadHTML($html, LIBXML_NOWARNING | LIBXML_NOERROR);
         ```
 
-- [ ] **#W2-SEC-17** · P2 — `ShortLinkExpander` logs the full user-supplied URL, including any query-string secrets, on expansion failure
+- [x] **#W2-SEC-17** · P2 — `ShortLinkExpander` logs the full user-supplied URL, including any query-string secrets, on expansion failure
     - **Where:** app/Routing/ShortLinkExpander.php:147-150
     - **Affects:** Log/Nightwatch retention for any user who pastes a short link carrying a signed or tokenized query parameter that later fails to expand.
     - **Effort:** S (~0.5–1h)
@@ -5272,6 +5274,7 @@ None.
             'error' => $e->getMessage(),
         ]);
         ```
+    - **Resolution (2026-08-30):** FIXED. The failure log now carries `host` + `path_length` only, never `path` itself: for this class's target hosts (bit.ly-style shorteners, `on.soundcloud.com`, `spotify.link`) the path segment IS the opaque short-code — the whole identifying secret — so logging it would reconstruct the pasted short URL verbatim, the same leak one segment over. Matches `MediaMirror`'s host-only log-hygiene convention (app/Services/Media/MediaMirror.php:479-483). Logging-only: `routing.link_observations` still stores the URL verbatim by design, and redaction stays strictly after canonicalisation.
 
 ## P3 — Nice to have
 
