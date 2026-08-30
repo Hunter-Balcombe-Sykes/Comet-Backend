@@ -144,8 +144,14 @@ class ShortLinkExpander
             // nothing reaching Nightwatch. Breadcrumb every time; only a
             // SUSTAINED run escalates (EscalatesRepeatedFaults, same as
             // ContentPopularityReader). The TTLs are deliberate — do not touch.
+            // #W2-SEC-17: $url is user-pasted and may carry a signed/tokenized
+            // query string a third-party shortener embeds — log host+path only,
+            // matching MediaMirror's log-hygiene convention. This is strictly
+            // about what gets LOGGED: the routing lane still stores the URL
+            // verbatim in routing.link_observations by design.
             Log::warning('routing.shortlink_expand_failed', [
-                'url' => $url,
+                'host' => parse_url($url, PHP_URL_HOST),
+                'path' => parse_url($url, PHP_URL_PATH),
                 'error' => $e->getMessage(),
             ]);
             self::escalateIfSustained($e, 'shortlink_expand');

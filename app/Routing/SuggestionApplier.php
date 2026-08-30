@@ -81,11 +81,18 @@ class SuggestionApplier
         // already renders (dismiss-only), and the caller surfaces a 403.
         $denied = RoutingCapabilityGate::denialFor($user, (string) $intent->routing_class);
         if ($denied !== null) {
-            DB::table('routing.source_intents')->where('id', $intent->id)->update([
-                'state' => 'blocked',
-                'block_reason' => 'gate',
-                'updated_at' => now(),
-            ]);
+            // #W2-SEC-12: scope by owner, not id alone — matching
+            // SuggestionsController::findIntent()'s tenant-scoping discipline
+            // so this method carries its own safety net rather than trusting
+            // every future caller to pre-scope $intent.
+            DB::table('routing.source_intents')
+                ->where('id', $intent->id)
+                ->where('user_id', $user->id)
+                ->update([
+                    'state' => 'blocked',
+                    'block_reason' => 'gate',
+                    'updated_at' => now(),
+                ]);
 
             throw new AuthorizationException($denied);
         }
@@ -198,13 +205,17 @@ class SuggestionApplier
                 $connection->forceFill(['is_primary' => true])->save();
             }
 
-            DB::table('routing.source_intents')->where('id', $intent->id)->update([
-                'state' => 'applied',
-                'block_reason' => null,
-                'connection_id' => $connection->id,
-                'resolved_at' => now(),
-                'updated_at' => now(),
-            ]);
+            // #W2-SEC-12: same owner-scoping as the denial branch above.
+            DB::table('routing.source_intents')
+                ->where('id', $intent->id)
+                ->where('user_id', $user->id)
+                ->update([
+                    'state' => 'applied',
+                    'block_reason' => null,
+                    'connection_id' => $connection->id,
+                    'resolved_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
             return $connection;
         });
