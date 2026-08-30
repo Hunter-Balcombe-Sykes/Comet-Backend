@@ -333,6 +333,7 @@ it('early access lookup trims whitespace on primary_email before normalising', f
 
 it('exports owned, global, AND cross-professional email_subscriptions for the user (P1-15)', function () {
     $pro = seedProForPayload((string) Str::uuid(), 'jane@example.com');
+    $otherProId = (string) Str::uuid();
 
     DB::connection('pgsql')->table('notifications.email_subscriptions')->insert([
         // Owned row — joined by user_id.
@@ -366,7 +367,7 @@ it('exports owned, global, AND cross-professional email_subscriptions for the us
         // and consent timestamp. MUST appear in Jane's DSAR.
         [
             'id' => (string) Str::uuid(),
-            'user_id' => (string) Str::uuid(),
+            'user_id' => $otherProId,
             'email_lc' => 'jane@example.com',
             'list_key' => 'marketing',
             'email' => 'jane@example.com',
@@ -402,6 +403,15 @@ it('exports owned, global, AND cross-professional email_subscriptions for the us
     expect($emailLcs)->each->toBe('jane@example.com');
     expect(collect($payload['email_subscriptions'])->pluck('list_key')->sort()->values()->all())
         ->toBe(['marketing', 'marketing', 'sidest_updates']);
+
+    // #W1-SEC-14: the cross-professional row's user_id names a DIFFERENT
+    // professional and must be nulled; the owned row's user_id is the
+    // subject's own id and is safe to keep. Keyed by consent_source (unique
+    // per fixture row) rather than a timestamp, which the pgsql/sqlite
+    // stand-ins can format differently.
+    $byConsentSource = collect($payload['email_subscriptions'])->keyBy('consent_source');
+    expect($byConsentSource->get('signup')['user_id'])->toBe($pro->id);
+    expect($byConsentSource->get('public_site_form')['user_id'])->toBeNull();
 });
 
 it('exports handle_change_log entries with actor_id redacted to coarse actor_kind', function () {
