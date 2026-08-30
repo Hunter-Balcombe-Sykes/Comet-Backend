@@ -2,6 +2,7 @@
 
 namespace App\Jobs\PreAccount;
 
+use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Jobs\Concerns\ThrottlesPreAccountScraping;
 use App\Jobs\Platforms\ThrottledByProvider;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
@@ -201,6 +202,27 @@ class ApproveEarlyAccessBuildJob implements ShouldBeUnique, ShouldQueue, Throttl
         // Open the 30-day claim window (this also lifts the "dark, unapproved"
         // IG-deactivation signal for any future re-generation).
         $build->forceFill(['expires_at' => now()->addDays((int) config('partna.pre_account.expiry_days', 30))])->save();
+
+        // …and re-sync the route, because until this line the build had NO
+        // expiry and SyncSubdomainToKvJob reads a null expires_at as gone
+        // ("expired (or buildless) unclaimed — treat as gone"). Two deliberate
+        // designs disagreeing: this lane sets expires_at NULL on purpose so an
+        // unapproved build is never pruned, while the KV job takes the same
+        // null as a signal to retire.
+        //
+        // Every KV sync before this point — SiteObserver's on site creation,
+        // and GeneratePreAccountSiteJob's on success — therefore ran while the
+        // expiry was still null and RETIRED the handle. Nothing re-dispatched
+        // afterwards: this job never referenced SyncSubdomainToKvJob at all and
+        // PreAccountBuild has no observer. So the claim window opened onto a
+        // subdomain that did not resolve, and the invite below pointed at a
+        // site the person could not see.
+        //
+        // Found 2026-08-30 by a fleet-wide sweep: 156 of 161 unclaimed sites
+        // answered 200 and 3 answered 404 correctly (failed builds), leaving
+        // exactly two anomalies — `business` and `business1`, both READY, both
+        // 404, and both built_via=early_access with a null expires_at.
+        SyncSubdomainToKvJob::dispatch((string) $build->user_id);
 
         $signup->forceFill(['status' => EarlyAccessSignup::STATUS_INVITED, 'invited_at' => now()])->save();
 

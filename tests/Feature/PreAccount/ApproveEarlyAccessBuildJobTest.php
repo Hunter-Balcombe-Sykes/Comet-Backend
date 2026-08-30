@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Jobs\PreAccount\ApproveEarlyAccessBuildJob;
 use App\Mail\PreAccount\ClaimInviteMail;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
@@ -465,4 +466,47 @@ it('does NOT fail the job on a build collision — a live build already exists (
     expect($signup->fresh()->status)->toBe('waitlist');
     expect($signup->fresh()->user_id)->toBeNull();
     Mail::assertNothingQueued();
+});
+
+// Opening the claim window has to make the subdomain resolve again. Until the
+// window opens the build carries expires_at = NULL on purpose (an unapproved
+// build must never be pruned), and SyncSubdomainToKvJob reads that same null as
+// "gone" — so every sync before this point RETIRED the handle. Nothing
+// re-dispatched afterwards: this job never referenced the KV job and
+// PreAccountBuild has no observer, so the invite pointed at a subdomain that
+// did not resolve.
+//
+// Found 2026-08-30 by a fleet sweep — 156/161 unclaimed sites answered 200, 3
+// answered 404 correctly (failed builds), and the only two anomalies were
+// READY-but-404 builds, both built_via=early_access with a null expires_at.
+it('re-syncs the route when it opens the claim window', function () {
+    Mail::fake();
+    Queue::fake([SyncSubdomainToKvJob::class]);
+
+    // GBP shape so the job skips the re-scrape branch entirely — this test is
+    // about the route, not the generator.
+    $user = User::factory()->create(['status' => 'unclaimed', 'display_name' => 'Kay']);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'ea_kv_kay']);
+    $build = PreAccountBuild::factory()->make([
+        'source_type' => 'google_business', 'built_via' => PreAccountBuild::VIA_EARLY_ACCESS,
+        'expires_at' => null, 'contact_email' => 'lead-kv@example.com',
+    ]);
+    $build->build_state = PreAccountBuild::STATE_READY;
+    $build->user()->associate($user);
+    $build->save();
+    $signup = EarlyAccessSignup::create([
+        'email' => 'lead-kv@example.com', 'email_lc' => 'lead-kv@example.com', 'type' => 'partna',
+        'status' => EarlyAccessSignup::STATUS_WAITLIST, 'source' => 'marketing',
+    ]);
+    $signup->forceFill(['user_id' => $user->id])->save();
+
+    (new ApproveEarlyAccessBuildJob($signup->id, $build->source_type))->handle(
+        app(SourceGeneratorRegistry::class), app(ClaimNotifier::class), app(PreAccountBuildService::class),
+    );
+
+    expect($build->fresh()->expires_at)->not->toBeNull();
+    Queue::assertPushed(
+        SyncSubdomainToKvJob::class,
+        fn (SyncSubdomainToKvJob $job) => $job->userId === (string) $build->user_id,
+    );
 });
