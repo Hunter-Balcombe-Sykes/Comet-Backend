@@ -78,13 +78,27 @@ class WebsiteLinkHarvester
      * and PROMOTES a surface to its real category for exactly
      * routing_class ∈ {booking, reservations, ordering} AND is_connectable —
      * the three classes whose vocabulary is 1:1 with a category that has a real
-     * gate arm and a real seeder. A new brand in one of those classes therefore
-     * needs NO row here. Everything else answers 'link'.
+     * gate arm and a real seeder. A CONNECTABLE new brand in one of those
+     * classes therefore needs no row here. Everything else answers 'link'.
      *
-     * WHAT TO DO WHEN YOU ADD A BRAND. Nothing, if it is booking / reservations
-     * / ordering — the promotion covers it. Otherwise
-     * CatalogClassificationSweepTest fails and tells you to either add a row
-     * here or record the detect-only decision in
+     * MIND THE is_connectable HALF OF THAT CONDITION. It is not decoration: a
+     * DETECT-ONLY brand in those same three classes is NOT promoted, so it
+     * does still need a row here, and without one its booking or ordering link
+     * renders as a generic card. Four live brands sit in exactly that gap and
+     * are carried by rows below — venue.ink, youcanbook.me, obeeapp.com and
+     * abacus.co (2026-08-29 cold-build round). The gate is a proxy for the
+     * real hazard, which is promoting a surface whose HOST does not uniquely
+     * name the brand: direct.book is any domain at all, and
+     * microsoft_bookings/wix_bookings are path-identified on shared
+     * registrable domains (office365.com, wixapps.net). Those three are right
+     * to exclude. The four above are dedicated hosts and are excluded only as
+     * collateral — if a catalog field ever expresses "dedicated host", that is
+     * the better predicate and those rows can go.
+     *
+     * WHAT TO DO WHEN YOU ADD A BRAND. Nothing, if it is booking /
+     * reservations / ordering AND connectable — the promotion covers it.
+     * Otherwise CatalogClassificationSweepTest fails and tells you to either
+     * add a row here or record the detect-only decision in
      * tests/fixtures/catalog/known-link-only.php.
      *
      * Full reasoning with the measured numbers:

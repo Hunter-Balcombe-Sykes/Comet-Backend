@@ -11,8 +11,10 @@
 // its row here — the test fails in that direction too.
 //
 // classifyFromCatalog() already promotes routing_class booking / reservations /
-// ordering when the surface is connectable, so a new brand in one of those
-// classes never lands here. Everything below is a class the catalog cannot
+// ordering when the surface is connectable, so a CONNECTABLE new brand in one
+// of those classes never lands here. A DETECT-ONLY one in those classes is not
+// promoted and lands in WebsiteLinkHarvester's host tables instead — see the
+// four carried there (venue.ink, youcanbook.me, obeeapp.com, abacus.co). Everything below is a class the catalog cannot
 // name for us; why, per group, and in full:
 // docs/superpowers/specs/2026-08-28-link-classifier-seam-design.md §A.2.
 return [
