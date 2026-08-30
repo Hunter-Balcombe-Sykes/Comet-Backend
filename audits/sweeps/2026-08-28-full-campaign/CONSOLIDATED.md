@@ -5531,7 +5531,7 @@ None.
         }
         ```
 
-- [ ] **#W2-LIFE-8** · P2 — `SuspendUserJob` has no completed-state guard; an at-least-once redelivery can re-suspend a user support already reinstated
+- [x] **#W2-LIFE-8** · P2 — `SuspendUserJob` has no completed-state guard; an at-least-once redelivery can re-suspend a user support already reinstated
     - **Where:** app/Jobs/Moderation/SuspendUserJob.php:40-65 (`handle()`)
     - **Affects:** Moderated users suspended/banned and later reinstated by support — a redelivered enforcement job can silently re-apply the suspension.
     - **Effort:** S (~0.5–1h)
@@ -5560,7 +5560,9 @@ None.
         }
         ```
 
-- [ ] **#W2-LIFE-9** · P2 — `SuspendSiteJob` has the same missing completed-state guard as `#LIFE-8`
+    - **Resolution (2026-08-30):** Fixed by `4c549e39b` + `9a5c0d621` — a completed-status guard (`if ($entry->status === 'completed') { return; }`) added at the top of `handle()`, re-reading `$entry->status` from fresh DB state inside the transaction, closes the redelivery gap this finding describes. `ShouldBeUnique` was also added but is NOT what closes this: `Bus::chain(...)->dispatch()` (`ModerationActionDispatcher::dispatchFor()`) never constructs a `PendingDispatch`, so `UniqueLock::acquire()` — which lives only in `PendingDispatch::shouldDispatch()`, run from its `__destruct()` — is never invoked for the first link of a chain, and even where it is invoked for a later chain link, a Horizon at-least-once redelivery re-enters `CallQueuedHandler::call()` directly and never touches the lock regardless. The completed-status guard is the entire protection here; do not read the lock as load-bearing.
+
+- [x] **#W2-LIFE-9** · P2 — `SuspendSiteJob` has the same missing completed-state guard as `#LIFE-8`
     - **Where:** app/Jobs/Moderation/SuspendSiteJob.php:42-61 (`handle()`)
     - **Affects:** Sites hidden by moderation and later restored — a redelivered job can silently re-hide a reinstated site.
     - **Effort:** S (~0.5–1h)
@@ -5585,7 +5587,9 @@ None.
         }
         ```
 
-- [ ] **#W2-LIFE-10** · P2 — `QuarantineMediaJob` has the same missing completed-state guard, and never checks whether its raw UPDATE actually touched a row
+    - **Resolution (2026-08-30):** Fixed by `4c549e39b` + `9a5c0d621` — a completed-status guard (`if ($entry->status === 'completed') { return; }`) added at the top of `handle()`, re-reading `$entry->status` from fresh DB state inside the transaction, closes the redelivery gap this finding describes. `ShouldBeUnique` was also added but is NOT what closes this: `Bus::chain(...)->dispatch()` (`ModerationActionDispatcher::dispatchFor()`) never constructs a `PendingDispatch`, so `UniqueLock::acquire()` — which lives only in `PendingDispatch::shouldDispatch()`, run from its `__destruct()` — is never invoked for the first link of a chain, and even where it is invoked for a later chain link, a Horizon at-least-once redelivery re-enters `CallQueuedHandler::call()` directly and never touches the lock regardless. The completed-status guard is the entire protection here; do not read the lock as load-bearing.
+
+- [x] **#W2-LIFE-10** · P2 — `QuarantineMediaJob` has the same missing completed-state guard, and never checks whether its raw UPDATE actually touched a row
     - **Where:** app/Jobs/Moderation/QuarantineMediaJob.php:35-53 (`handle()`)
     - **Affects:** CSAM-moderation media-quarantine enforcement — a duplicate delivery re-applies the quarantine, and a missing/already-deleted media row is marked "completed" as if enforcement succeeded.
     - **Effort:** S (~0.5–1h)
@@ -5605,6 +5609,8 @@ None.
 
         $this->markCompleted($entry);
         ```
+
+    - **Resolution (2026-08-30):** The completed-state guard half is fixed here — see the shared resolution note on #W2-JOB-3 (same fix, commits `4c549e39b` + `9a5c0d621`). The "never checks whether the UPDATE matched a row" half was already closed by `5d008fb1e` (verified ancestor of the branch base), which added an `$affected === 0` check with a non-throwing, chain-safe `markFailed()` across all three jobs (`QuarantineMediaJob`, `SuspendUserJob`, `SuspendSiteJob`).
 
 - [ ] **#W2-LIFE-11** · P2 — `ProcessImageVariantsJob` dispatches an edge-cache purge and logs success on its final READY update without checking whether the write actually matched a row
     - **Where:** app/Jobs/ProcessImageVariantsJob.php:181-209 (`runHandle()`, the final `PROCESSING_STATE_READY` update)
@@ -5822,7 +5828,7 @@ None.
         }
         ```
 
-- [ ] **#W2-LIFE-20** · P2 — `moderation:sla-scan` logs SLA-breach warnings but never alerts Nightwatch
+- [x] **#W2-LIFE-20** · P2 — `moderation:sla-scan` logs SLA-breach warnings but never alerts Nightwatch
     - **Where:** routes/console.php (`moderation:sla-scan` schedule)
     - **Affects:** Trust & safety operations — moderation cases approaching or breaching their SLA deadline generate no page.
     - **Effort:** S (~0.5–1h)
@@ -5840,6 +5846,8 @@ None.
             ->withoutOverlapping(30)
             ->onFailure($reportScheduledFailure('moderation:sla-scan'));
         ```
+
+    - **Resolution (2026-08-30):** WONTFIX-stale in full. Already closed by `37e7e4cb7` + `577ced921` (both verified ancestors of the branch base): `ModerationSlaScanCommand::reportBreachRisk()` (`app/Console/Commands/Moderation/ModerationSlaScanCommand.php:82-94`) already wraps a `ModerationSlaBreachRiskException` in `ThrottledReport::once()`, fails loud on a cache fault, and keys its cooldown on the max severity band — so Nightwatch is in fact paged. This finding's Evidence block showed only the `Schedule::command()` registration in `routes/console.php`, not the command body where the fix actually landed.
 
 - [ ] **#W2-LIFE-21** · P2 — Cloudflare KV subdomain routing backstop only runs weekly
     - **Where:** routes/console.php (`partna:backfill-subdomain-kv` schedule)
@@ -7649,7 +7657,7 @@ None — every surviving finding requires a `supabase/migrations/` change (a new
 
 ## P2 — Should fix
 
-- [ ] **#W2-JOB-1** · P2 — `SuspendSiteJob` has neither a completed-status short-circuit nor `ShouldBeUnique`
+- [x] **#W2-JOB-1** · P2 — `SuspendSiteJob` has neither a completed-status short-circuit nor `ShouldBeUnique`
     - **Where:** app/Jobs/Moderation/SuspendSiteJob.php:16, 42-61
     - **Affects:** `ActionLogEntry` audit-trail integrity for site suspensions; wasted redelivery work
     - **Effort:** S (~0.5–1h)
@@ -7682,7 +7690,9 @@ None — every surviving finding requires a `supabase/migrations/` change (a new
         }
         ```
 
-- [ ] **#W2-JOB-2** · P2 — `SuspendUserJob` has neither a completed-status short-circuit nor `ShouldBeUnique`
+    - **Resolution (2026-08-30):** Fixed by `4c549e39b` + `9a5c0d621` — a completed-status guard (`if ($entry->status === 'completed') { return; }`) added at the top of `handle()`, re-reading `$entry->status` from fresh DB state inside the transaction, closes the redelivery gap this finding describes. `ShouldBeUnique` was also added but is NOT what closes this: `Bus::chain(...)->dispatch()` (`ModerationActionDispatcher::dispatchFor()`) never constructs a `PendingDispatch`, so `UniqueLock::acquire()` — which lives only in `PendingDispatch::shouldDispatch()`, run from its `__destruct()` — is never invoked for the first link of a chain, and even where it is invoked for a later chain link, a Horizon at-least-once redelivery re-enters `CallQueuedHandler::call()` directly and never touches the lock regardless. The completed-status guard is the entire protection here; do not read the lock as load-bearing.
+
+- [x] **#W2-JOB-2** · P2 — `SuspendUserJob` has neither a completed-status short-circuit nor `ShouldBeUnique`
     - **Where:** app/Jobs/Moderation/SuspendUserJob.php:16, 40-65
     - **Affects:** `ActionLogEntry` audit-trail integrity for user suspensions/bans; wasted redelivery work
     - **Effort:** S (~0.5–1h)
@@ -7719,7 +7729,9 @@ None — every surviving finding requires a `supabase/migrations/` change (a new
         }
         ```
 
-- [ ] **#W2-JOB-3** · P2 — `QuarantineMediaJob` has neither a completed-status short-circuit nor `ShouldBeUnique`
+    - **Resolution (2026-08-30):** Fixed by `4c549e39b` + `9a5c0d621` — a completed-status guard (`if ($entry->status === 'completed') { return; }`) added at the top of `handle()`, re-reading `$entry->status` from fresh DB state inside the transaction, closes the redelivery gap this finding describes. `ShouldBeUnique` was also added but is NOT what closes this: `Bus::chain(...)->dispatch()` (`ModerationActionDispatcher::dispatchFor()`) never constructs a `PendingDispatch`, so `UniqueLock::acquire()` — which lives only in `PendingDispatch::shouldDispatch()`, run from its `__destruct()` — is never invoked for the first link of a chain, and even where it is invoked for a later chain link, a Horizon at-least-once redelivery re-enters `CallQueuedHandler::call()` directly and never touches the lock regardless. The completed-status guard is the entire protection here; do not read the lock as load-bearing.
+
+- [x] **#W2-JOB-3** · P2 — `QuarantineMediaJob` has neither a completed-status short-circuit nor `ShouldBeUnique`
     - **Where:** app/Jobs/Moderation/QuarantineMediaJob.php:19, 35-53
     - **Affects:** `ActionLogEntry` audit-trail integrity for CSAM/media quarantine actions; wasted redelivery work
     - **Effort:** S (~0.5–1h)
@@ -7749,6 +7761,8 @@ None — every surviving finding requires a `supabase/migrations/` change (a new
             });
         }
         ```
+
+    - **Resolution (2026-08-30):** Fixed by `4c549e39b` + `9a5c0d621` — a completed-status guard (`if ($entry->status === 'completed') { return; }`) added at the top of `handle()`, re-reading `$entry->status` from fresh DB state inside the transaction, closes the redelivery gap this finding describes. `ShouldBeUnique` was also added but is NOT what closes this: `Bus::chain(...)->dispatch()` (`ModerationActionDispatcher::dispatchFor()`) never constructs a `PendingDispatch`, so `UniqueLock::acquire()` — which lives only in `PendingDispatch::shouldDispatch()`, run from its `__destruct()` — is never invoked for the first link of a chain, and even where it is invoked for a later chain link, a Horizon at-least-once redelivery re-enters `CallQueuedHandler::call()` directly and never touches the lock regardless. The completed-status guard is the entire protection here; do not read the lock as load-bearing.
 
 - [ ] **#W2-JOB-4** · P2 — `PurgeModerationCacheJob` can re-dispatch `SyncSubdomainToKvJob`/`CloudflareCachePurgeJob` on redelivery; no completed-status guard or `ShouldBeUnique`
     - **Where:** app/Jobs/Moderation/PurgeModerationCacheJob.php:21, 38-75
