@@ -2032,3 +2032,38 @@ of the pipeline**. The website scan, commerce probe and social seed all land
 minutes later. This mis-read me twice tonight: once as "the cross-city batch
 got no website scans" (it got them, late) and once as "djrubyofficial
 regressed" in the previous session. Wait for the queue, not just the build.
+
+### OWNER DECISION: an unclaimed site can lead with the owner's worst review
+
+melbourne-watch-repairs' live page opens its reviews with a **1-star**, on a
+site we built for them without asking.
+
+Checked before calling it anything, and it is NOT an ordering bug — the pool
+orders by `recency` and the 1-star genuinely is the newest:
+
+| rating | published | verbatim |
+|---|---|---|
+| **1** | 2025-02-26 | a year ago |
+| 5 | 2024-08-09 | 2 years ago |
+| 5 | 2020-03-18 | 6 years ago |
+| 5 | 2018-06-18 | 8 years ago |
+| 5 | 2017-03-24 | 9 years ago |
+
+The sharper problem is not the order, it is the SAMPLE. Google reports **44
+reviews at 4.5/5**, we display that aggregate on the page, and beside it we
+show **5** ingested reviews whose newest is the one-star. The sample
+contradicts the aggregate printed next to it.
+
+NOT changed, and this one is deliberate. Reordering reviews to favour good
+ones is exactly what this codebase already treats as serious: reviews are
+EXCLUDE_ONLY (hide, never pin), MANUAL_ADD_FORBIDDEN ("creating an item of
+kind review is fabricating a testimonial"), and the privacy disclosure
+justifies republishing a stranger's words on the grounds that visitors see
+"genuine, attributable" reviews. Quietly ranking by rating would undercut all
+three, and it is not a change to make unattended.
+
+Options for the owner, cheapest first: (1) ingest more reviews so the sample
+matches the aggregate — the mismatch is the actual defect; (2) show the
+aggregate more prominently than any single review; (3) leave it, on the
+grounds that recency is the honest order. My read is (1): 5 of 44 is a
+sampling problem, and fixing it needs no editorial judgement at all.
