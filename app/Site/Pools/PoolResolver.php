@@ -1648,11 +1648,13 @@ class PoolResolver
             $out[] = [
                 'label' => (string) $row->label,
                 'sku' => $row->sku === null ? null : (string) $row->sku,
-                // Unverified against real data: image_url is populated on 0 of
-                // 268 dev rows, so this round-trips in tests only.
+                // Re-measured 2026-08-30 (the earlier "0 of 268 dev rows" claim
+                // repeated here twice is stale and was false): 399 of 908 dev
+                // item_variants rows carry a non-null image_url, every one a
+                // Shopify CDN url with a ?v=<epoch> cache-buster.
                 // #SEC-2: same http/https allowlist as every other wire url — UrlSafety has
                 // no image-specific form. Also drops protocol-relative/relative srcs, which
-                // no current writer produces (image_url is populated on 0 of 268 dev rows).
+                // no current writer produces.
                 'imageUrl' => UrlSafety::safeHref($row->image_url),
                 'availability' => $offer->availability ?? null,
                 'price' => $offer === null ? null : [

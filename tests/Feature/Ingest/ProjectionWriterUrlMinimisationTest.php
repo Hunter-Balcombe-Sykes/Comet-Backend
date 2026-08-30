@@ -199,3 +199,71 @@ it('leaves a non-URL_COLUMNS singleton-facet column verbatim — the denylist pr
     expect(DB::table('content.f_authored')->where('item_id', $item->id)->value('creator'))
         ->toBe('Some Artist?utm_content=jane@example.com');
 });
+
+// #W1-DINT-6: author_uri is the reviewer's permanent Google contributor-profile
+// link and reaches the public wire as authorUri, but was absent from
+// URL_COLUMNS while its sibling author_photo_url was listed. No dev row carries
+// a query string today (Google's authorAttribution.uri has none), so this pins
+// the guard for the day one does — not a behaviour change on existing data.
+it('minimises content.f_review.author_uri, the sibling of author_photo_url', function () {
+    $userId = createTenant('pum-'.Str::lower(Str::random(6)))->id;
+
+    $sourceId = (string) Str::uuid();
+    $itemId = (string) Str::uuid();
+    $now = now()->toDateTimeString();
+    DB::table('content.sources')->insert([
+        'id' => $sourceId, 'user_id' => $userId, 'kind' => 'connection',
+        'priority' => 100, 'created_at' => $now, 'updated_at' => $now,
+    ]);
+    DB::table('content.items')->insert([
+        'id' => $itemId, 'user_id' => $userId, 'kind' => 'review',
+        'headline_cache' => 'A reviewer', 'facets_cache' => '[]',
+        'first_seen_at' => $now, 'last_seen_at' => $now, 'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    $writer = app(ProjectionWriter::class);
+    $build = new ReflectionMethod($writer, 'singletonFacetRow');
+    $build->setAccessible(true);
+    $row = $build->invoke($writer, 'f_review', [
+        'author_name' => 'Jane',
+        'author_uri' => 'https://www.google.com/maps/contrib/1234/reviews?utm_source=newsletter&token=eyJa.eyJb.c&id=42',
+        'rating' => 5.0,
+    ]);
+
+    $flush = new ReflectionMethod($writer, 'flushSingletonFacets');
+    $flush->setAccessible(true);
+    $flush->invoke($writer, $sourceId, ['f_review' => [$itemId => $row]]);
+
+    expect(DB::table('content.f_review')->where('item_id', $itemId)->value('author_uri'))
+        ->toBe('https://www.google.com/maps/contrib/1234/reviews?utm_source=[redacted]&token=[redacted]&id=42');
+});
+
+// #W1-DINT-5: item_variants.image_url sat unminimised in the same
+// replaceCollections() builder block as offers.url and offers.item_url, both of
+// which were already minimised. writeManualItem() is the shortest path into
+// that builder; every connector (shop included) shares it.
+//
+// The ?v= half of this test is the load-bearing one: every populated dev row is
+// a Shopify CDN url whose ?v=<epoch> cache-buster is REQUIRED for the storefront
+// image to resolve. minimiseUrl() redacts values in place and `v` matches no
+// secret/PII/tracking segment, so it must survive byte-for-byte. If that
+// assertion ever fails, live shop images are what breaks.
+it('minimises content.item_variants.image_url while leaving a Shopify ?v= cache-buster verbatim', function () {
+    $userId = createTenant('pum-'.Str::lower(Str::random(6)))->id;
+
+    $itemId = app(ProjectionWriter::class)->writeManualItem($userId, 'manual:'.sha1('https://x.test/variant-img'), [
+        'kind' => 'product',
+        'headline' => 'Tee',
+        'variants' => [
+            ['label' => 'Grey', 'image_url' => 'https://cdn.shopify.com/s/files/1/0/grey.jpg?v=1782743818'],
+            ['label' => 'Navy', 'image_url' => 'https://cdn.test/navy.jpg?utm_source=newsletter&sig=deadbeef&v=1782743818'],
+        ],
+    ]);
+
+    $rows = DB::table('content.item_variants')->where('item_id', $itemId)->orderBy('position')->get();
+
+    expect($rows)->toHaveCount(2)
+        // Verbatim — no redaction, no re-ordering, no dropped pair.
+        ->and($rows[0]->image_url)->toBe('https://cdn.shopify.com/s/files/1/0/grey.jpg?v=1782743818')
+        ->and($rows[1]->image_url)->toBe('https://cdn.test/navy.jpg?utm_source=[redacted]&sig=[redacted]&v=1782743818');
+});
