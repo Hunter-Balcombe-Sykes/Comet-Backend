@@ -5,3708 +5,2936 @@
 // pattern accepts, plus the surface and identifier the real pipeline
 // produced for it. Hand-written attacker/negative cases live alongside
 // this file in corpus-negatives.php.
-return array (
-  0 => 
-  array (
-    'url' => 'https://aa.bigcartel.com/',
-    'expect' => 
-    array (
-      'surface' => 'bigcartel.store',
-      'identifier' => 'aa',
-    ),
-    'detector' => '9f849d66cd3cfcc7',
-  ),
-  1 => 
-  array (
-    'url' => 'https://aa.gumroad.com/',
-    'expect' => 
-    array (
-      'surface' => 'gumroad.store',
-      'identifier' => 'aa',
-    ),
-    'detector' => 'bf6cb5dce35fa7ea',
-  ),
-  2 => 
-  array (
-    'url' => 'https://aa.myshopify.com/',
-    'expect' => 
-    array (
-      'surface' => 'shopify.store',
-      'identifier' => 'aa',
-    ),
-    'detector' => '76a9ccd9a8e7c53a',
-  ),
-  3 => 
-  array (
-    'url' => 'https://aa.substack.com/',
-    'expect' => 
-    array (
-      'surface' => 'substack.publication',
-      'identifier' => 'aa',
-    ),
-    'detector' => '3beaebd9e5c3d8b1',
-  ),
-  4 => 
-  array (
-    'url' => 'https://aaa.circle.so/',
-    'expect' => 
-    array (
-      'surface' => 'circle.community',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '94017fcb04da7092',
-  ),
-  5 => 
-  array (
-    'url' => 'https://aaa.mykajabi.com/',
-    'expect' => 
-    array (
-      'surface' => 'kajabi.courses',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '9a888e4bc937d7e5',
-  ),
-  6 => 
-  array (
-    'url' => 'https://aaa.resdiary.com/',
-    'expect' => 
-    array (
-      'surface' => 'resdiary.reserve',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '82d5bfefb57c17e1',
-  ),
-  7 => 
-  array (
-    'url' => 'https://aaaa.bandcamp.com/',
-    'expect' => 
-    array (
-      'surface' => 'bandcamp.artist',
-      'identifier' => 'aaaa',
-    ),
-    'detector' => 'eab45cdae72b22c4',
-  ),
-  8 => 
-  array (
-    'url' => 'https://abacus.co/',
-    'expect' => 
-    array (
-      'surface' => 'abacus.order',
-    ),
-    'detector' => '5eea26da85fc2399',
-  ),
-  9 => 
-  array (
-    'url' => 'https://acmestore.as.me/',
-    'expect' => 
-    array (
-      'surface' => 'acuity.book',
-    ),
-    'detector' => 'e3d1269985f44b74',
-  ),
-  10 => 
-  array (
-    'url' => 'https://acmestore.gettimely.com/',
-    'expect' => 
-    array (
-      'surface' => 'timely.book',
-    ),
-    'detector' => 'f521d831f543093a',
-  ),
-  11 => 
-  array (
-    'url' => 'https://acmestore.nowbookit.com/?accountid=100000&venueid=100001',
-    'expect' => 
-    array (
-      'surface' => 'nowbookit.reserve',
-    ),
-    'detector' => '61b7c316fdcaa81d',
-  ),
-  12 => 
-  array (
-    'url' => 'https://acmestore.setmore.com/',
-    'expect' => 
-    array (
-      'surface' => 'setmore.book',
-    ),
-    'detector' => 'cb254f601df38e09',
-  ),
-  13 => 
-  array (
-    'url' => 'https://acmestore.simplybook.me/',
-    'expect' => 
-    array (
-      'surface' => 'simplybook_me.book',
-    ),
-    'detector' => 'a102b1090efe3444',
-  ),
-  14 => 
-  array (
-    'url' => 'https://acmestore.square.site/',
-    'expect' => 
-    array (
-      'surface' => 'square.book',
-    ),
-    'detector' => '4a177e0bdd28c67f',
-  ),
-  15 => 
-  array (
-    'url' => 'https://acmestore.square.site/s/order/',
-    'expect' => 
-    array (
-      'surface' => 'square.order',
-    ),
-    'detector' => '9050e12b984132ba',
-  ),
-  16 => 
-  array (
-    'url' => 'https://acmestore.youcanbook.me/',
-    'expect' => 
-    array (
-      'surface' => 'youcanbookme.book',
-    ),
-    'detector' => '9e6abeeb345bb38c',
-  ),
-  17 => 
-  array (
-    'url' => 'https://acuityscheduling.com/',
-    'expect' => 
-    array (
-      'surface' => 'acuity.book',
-    ),
-    'detector' => '7c8853389c4e92a1',
-  ),
-  18 => 
-  array (
-    'url' => 'https://admitone.com/',
-    'expect' => 
-    array (
-      'surface' => 'admitone.tickets',
-    ),
-    'detector' => '1208c937fd429faf',
-  ),
-  19 => 
-  array (
-    'url' => 'https://admitonelive.com/',
-    'expect' => 
-    array (
-      'surface' => 'admitone.tickets',
-    ),
-    'detector' => '7033a9351e28cde9',
-  ),
-  20 => 
-  array (
-    'url' => 'https://app.google/',
-    'expect' => 
-    array (
-      'surface' => 'google_appointments.book',
-    ),
-    'detector' => '5644cedd176de3b3',
-  ),
-  21 => 
-  array (
-    'url' => 'https://audiomack.com/aa',
-    'expect' => 
-    array (
-      'surface' => 'audiomack.artist',
-      'identifier' => 'aa',
-    ),
-    'detector' => 'a6220fc75e15b1bc',
-  ),
-  22 => 
-  array (
-    'url' => 'https://bandsintown.com/a/1',
-    'expect' => 
-    array (
-      'surface' => 'bandsintown.artist',
-      'identifier' => '1',
-    ),
-    'detector' => '54d143c662208cab',
-  ),
-  23 => 
-  array (
-    'url' => 'https://bark.com/en/aa/company/aaa',
-    'expect' => 
-    array (
-      'surface' => 'bark.company',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '092a1463f2bd7e57',
-  ),
-  24 => 
-  array (
-    'url' => 'https://beatport.com/artist/aaa/1',
-    'expect' => 
-    array (
-      'surface' => 'beatport.artist',
-      'identifier' => '1',
-    ),
-    'detector' => 'a2e82df0265c1cf2',
-  ),
-  25 => 
-  array (
-    'url' => 'https://behance.net/',
-    'expect' => 
-    array (
-      'surface' => 'behance.profile',
-    ),
-    'detector' => 'd74e4646da084b67',
-  ),
-  26 => 
-  array (
-    'url' => 'https://behance.net/aa',
-    'expect' => 
-    array (
-      'surface' => 'behance.profile',
-      'identifier' => 'aa',
-    ),
-    'detector' => '8081071a53da2f5c',
-  ),
-  27 => 
-  array (
-    'url' => 'https://bellabooking.com/',
-    'expect' => 
-    array (
-      'surface' => 'bella_booking.book',
-    ),
-    'detector' => '0ec0dc6194b16602',
-  ),
-  28 => 
-  array (
-    'url' => 'https://book.app/',
-    'expect' => 
-    array (
-      'surface' => 'ovatu.book',
-    ),
-    'detector' => '49b8699165aa79db',
-  ),
-  29 => 
-  array (
-    'url' => 'https://booksy.com/',
-    'expect' => 
-    array (
-      'surface' => 'booksy.book',
-    ),
-    'detector' => '86bb8fa004146298',
-  ),
-  30 => 
-  array (
-    'url' => 'https://bookwell.com.au/',
-    'expect' => 
-    array (
-      'surface' => 'bookwell.book',
-    ),
-    'detector' => 'f48edcc99323a839',
-  ),
-  31 => 
-  array (
-    'url' => 'https://bopple.app/',
-    'expect' => 
-    array (
-      'surface' => 'bopple.order',
-    ),
-    'detector' => 'd28d552aaa1cf946',
-  ),
-  32 => 
-  array (
-    'url' => 'https://bopple.com/',
-    'expect' => 
-    array (
-      'surface' => 'bopple.order',
-    ),
-    'detector' => '4e3ca5bb3000384e',
-  ),
-  33 => 
-  array (
-    'url' => 'https://bopple.me/',
-    'expect' => 
-    array (
-      'surface' => 'bopple.order',
-    ),
-    'detector' => '3caa16e5cecbe1c3',
-  ),
-  34 => 
-  array (
-    'url' => 'https://boulevard.io/',
-    'expect' => 
-    array (
-      'surface' => 'boulevard.book',
-    ),
-    'detector' => '1444b9094dbe290e',
-  ),
-  35 => 
-  array (
-    'url' => 'https://bsky.app/profile/a',
-    'expect' => 
-    array (
-      'surface' => 'bluesky.profile',
-      'identifier' => 'a',
-    ),
-    'detector' => '91ad4e2a04b4d1b4',
-  ),
-  36 => 
-  array (
-    'url' => 'https://buy.stripe.com/aaaaaaaa',
-    'expect' => 
-    array (
-      'surface' => 'stripe.payment_link',
-    ),
-    'detector' => 'abdf126c7c3f9024',
-  ),
-  37 => 
-  array (
-    'url' => 'https://buymeacoffee.com/',
-    'expect' => 
-    array (
-      'surface' => 'buymeacoffee.page',
-    ),
-    'detector' => 'f60f728146b1ba98',
-  ),
-  38 => 
-  array (
-    'url' => 'https://buymeacoffee.com/aa',
-    'expect' => 
-    array (
-      'surface' => 'buymeacoffee.page',
-      'identifier' => 'aa',
-    ),
-    'detector' => '9583ecab2b38c9bf',
-  ),
-  39 => 
-  array (
-    'url' => 'https://cal.com/aa',
-    'expect' => 
-    array (
-      'surface' => 'cal_com.book',
-      'identifier' => 'aa',
-    ),
-    'detector' => '4b133d61c8ba4884',
-  ),
-  40 => 
-  array (
-    'url' => 'https://calendly.com/aa',
-    'expect' => 
-    array (
-      'surface' => 'calendly.book',
-      'identifier' => 'aa',
-    ),
-    'detector' => '0f419bcb5f7a6d86',
-  ),
-  41 => 
-  array (
-    'url' => 'https://cameo.com/aa',
-    'expect' => 
-    array (
-      'surface' => 'cameo.profile',
-      'identifier' => 'aa',
-    ),
-    'detector' => 'f29abc5d11e9b2a6',
-  ),
-  42 => 
-  array (
-    'url' => 'https://cash.app/$a',
-    'expect' => 
-    array (
-      'surface' => 'cash_app.profile',
-      'identifier' => 'a',
-    ),
-    'detector' => 'cca6b267125aa403',
-  ),
-  43 => 
-  array (
-    'url' => 'https://chope.co/',
-    'expect' => 
-    array (
-      'surface' => 'chope.reserve',
-    ),
-    'detector' => 'f6c548a1dd086076',
-  ),
-  44 => 
-  array (
-    'url' => 'https://chownow.com/',
-    'expect' => 
-    array (
-      'surface' => 'chownow.order',
-    ),
-    'detector' => '974d921f573a3c00',
-  ),
-  45 => 
-  array (
-    'url' => 'https://classpass.com/studios/aaa',
-    'expect' => 
-    array (
-      'surface' => 'classpass.book',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '4231517e774169bb',
-  ),
-  46 => 
-  array (
-    'url' => 'https://cliniko.com/',
-    'expect' => 
-    array (
-      'surface' => 'cliniko.book',
-    ),
-    'detector' => 'd39bf87ebb18a29e',
-  ),
-  47 => 
-  array (
-    'url' => 'https://codepen.io/',
-    'expect' => 
-    array (
-      'surface' => 'codepen.profile',
-    ),
-    'detector' => '0d7e3d213bbccec3',
-  ),
-  48 => 
-  array (
-    'url' => 'https://codepen.io/aa',
-    'expect' => 
-    array (
-      'surface' => 'codepen.profile',
-      'identifier' => 'aa',
-    ),
-    'detector' => '851d4090d83d957f',
-  ),
-  49 => 
-  array (
-    'url' => 'https://dailymotion.com/aa',
-    'expect' => 
-    array (
-      'surface' => 'dailymotion.channel',
-      'identifier' => 'aa',
-    ),
-    'detector' => '1f802cb87a6b995e',
-  ),
-  50 => 
-  array (
-    'url' => 'https://deezer.com/artist/1',
-    'expect' => 
-    array (
-      'surface' => 'deezer.artist',
-      'identifier' => '1',
-    ),
-    'detector' => 'b8cbb2a0298bef31',
-  ),
-  51 => 
-  array (
-    'url' => 'https://deliveroo.ae/',
-    'expect' => 
-    array (
-      'surface' => 'deliveroo.order',
-    ),
-    'detector' => 'ebb60595a01863b9',
-  ),
-  52 => 
-  array (
-    'url' => 'https://deliveroo.be/',
-    'expect' => 
-    array (
-      'surface' => 'deliveroo.order',
-    ),
-    'detector' => '70263737f68dc13f',
-  ),
-  53 => 
-  array (
-    'url' => 'https://deliveroo.co.uk/',
-    'expect' => 
-    array (
-      'surface' => 'deliveroo.order',
-    ),
-    'detector' => '9a48e95ab320babb',
-  ),
-  54 => 
-  array (
-    'url' => 'https://deliveroo.com.kw/',
-    'expect' => 
-    array (
-      'surface' => 'deliveroo.order',
-    ),
-    'detector' => 'a806daede3d53fc1',
-  ),
-  55 => 
-  array (
-    'url' => 'https://deliveroo.com/',
-    'expect' => 
-    array (
-      'surface' => 'deliveroo.order',
-    ),
-    'detector' => 'da9bd2a660f0c555',
-  ),
-  56 => 
-  array (
-    'url' => 'https://deliveroo.fr/',
-    'expect' => 
-    array (
-      'surface' => 'deliveroo.order',
-    ),
-    'detector' => 'ef85029ad161dd7c',
-  ),
-  57 => 
-  array (
-    'url' => 'https://deliveroo.hk/',
-    'expect' => 
-    array (
-      'surface' => 'deliveroo.order',
-    ),
-    'detector' => 'a95288728db0332f',
-  ),
-  58 => 
-  array (
-    'url' => 'https://deliveroo.ie/',
-    'expect' => 
-    array (
-      'surface' => 'deliveroo.order',
-    ),
-    'detector' => '3e59c38c24c3ac73',
-  ),
-  59 => 
-  array (
-    'url' => 'https://deliveroo.it/',
-    'expect' => 
-    array (
-      'surface' => 'deliveroo.order',
-    ),
-    'detector' => '397410c232c55c56',
-  ),
-  60 => 
-  array (
-    'url' => 'https://deliveroo.nl/',
-    'expect' => 
-    array (
-      'surface' => 'deliveroo.order',
-    ),
-    'detector' => 'ac30eb257f49cb7a',
-  ),
-  61 => 
-  array (
-    'url' => 'https://deliveroo.qa/',
-    'expect' => 
-    array (
-      'surface' => 'deliveroo.order',
-    ),
-    'detector' => '05b4e6dbfec27419',
-  ),
-  62 => 
-  array (
-    'url' => 'https://deliveroo.sg/',
-    'expect' => 
-    array (
-      'surface' => 'deliveroo.order',
-    ),
-    'detector' => '5002f3318cc6964c',
-  ),
-  63 => 
-  array (
-    'url' => 'https://depop.com/aaa',
-    'expect' => 
-    array (
-      'surface' => 'depop.shop',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '4578a9be3e0e4eeb',
-  ),
-  64 => 
-  array (
-    'url' => 'https://dice.fm/artist/aaa',
-    'expect' => 
-    array (
-      'surface' => 'dice.events',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '5dba8f18ed90fc88',
-  ),
-  65 => 
-  array (
-    'url' => 'https://discord.com/invite/aa',
-    'expect' => 
-    array (
-      'surface' => 'discord.server',
-      'identifier' => 'aa',
-    ),
-    'detector' => '4b7d5ee5547c1bee',
-  ),
-  66 => 
-  array (
-    'url' => 'https://discord.gg/aa',
-    'expect' => 
-    array (
-      'surface' => 'discord.server',
-      'identifier' => 'aa',
-    ),
-    'detector' => 'e6529ff88ed263ed',
-  ),
-  67 => 
-  array (
-    'url' => 'https://doordash.com/',
-    'expect' => 
-    array (
-      'surface' => 'doordash.order',
-    ),
-    'detector' => 'ee08e818423fce07',
-  ),
-  68 => 
-  array (
-    'url' => 'https://dribbble.com/',
-    'expect' => 
-    array (
-      'surface' => 'dribbble.profile',
-    ),
-    'detector' => '04d4e29145001e2d',
-  ),
-  69 => 
-  array (
-    'url' => 'https://dribbble.com/aa',
-    'expect' => 
-    array (
-      'surface' => 'dribbble.profile',
-      'identifier' => 'aa',
-    ),
-    'detector' => '08ecfc32ac9373c7',
-  ),
-  70 => 
-  array (
-    'url' => 'https://easi.com.au/',
-    'expect' => 
-    array (
-      'surface' => 'easi.order',
-    ),
-    'detector' => 'fe1768d5b84af90b',
-  ),
-  71 => 
-  array (
-    'url' => 'https://easi.com/',
-    'expect' => 
-    array (
-      'surface' => 'easi.order',
-    ),
-    'detector' => '35eb911b487cdeb4',
-  ),
-  72 => 
-  array (
-    'url' => 'https://easiglobal.com.au/',
-    'expect' => 
-    array (
-      'surface' => 'easi.order',
-    ),
-    'detector' => 'fc8f7818b7e2d8c0',
-  ),
-  73 => 
-  array (
-    'url' => 'https://easiglobal.com/',
-    'expect' => 
-    array (
-      'surface' => 'easi.order',
-    ),
-    'detector' => '7ef4dc73dfd9d6ed',
-  ),
-  74 => 
-  array (
-    'url' => 'https://eatapp.co/',
-    'expect' => 
-    array (
-      'surface' => 'eat_app.reserve',
-    ),
-    'detector' => 'ec532214474a4231',
-  ),
-  75 => 
-  array (
-    'url' => 'https://etix.com/',
-    'expect' => 
-    array (
-      'surface' => 'etix.tickets',
-    ),
-    'detector' => '212d4b87220e6de9',
-  ),
-  76 => 
-  array (
-    'url' => 'https://etsy.com/shop/aaa',
-    'expect' => 
-    array (
-      'surface' => 'etsy.shop',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '24664939a435cd2c',
-  ),
-  77 => 
-  array (
-    'url' => 'https://eventbrite.at/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'c21a1c551c74fb12',
-  ),
-  78 => 
-  array (
-    'url' => 'https://eventbrite.be/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '857e8d0ee76896d5',
-  ),
-  79 => 
-  array (
-    'url' => 'https://eventbrite.ca/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'f1207b110d8a574c',
-  ),
-  80 => 
-  array (
-    'url' => 'https://eventbrite.ch/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '78b730edddfebfcc',
-  ),
-  81 => 
-  array (
-    'url' => 'https://eventbrite.cl/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '7e4e48852de3ba18',
-  ),
-  82 => 
-  array (
-    'url' => 'https://eventbrite.co.nz/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'ccde0626098cb3aa',
-  ),
-  83 => 
-  array (
-    'url' => 'https://eventbrite.co.uk/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '06dc09c86978ce76',
-  ),
-  84 => 
-  array (
-    'url' => 'https://eventbrite.com.ar/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'e59da6a4900b6e16',
-  ),
-  85 => 
-  array (
-    'url' => 'https://eventbrite.com.au/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '99eae40c346bff77',
-  ),
-  86 => 
-  array (
-    'url' => 'https://eventbrite.com.br/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'fe173955c987fc53',
-  ),
-  87 => 
-  array (
-    'url' => 'https://eventbrite.com.mx/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '59eaf500f7099365',
-  ),
-  88 => 
-  array (
-    'url' => 'https://eventbrite.com.pe/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '8cd95891b46792e3',
-  ),
-  89 => 
-  array (
-    'url' => 'https://eventbrite.com/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '54ea502d930a97d3',
-  ),
-  90 => 
-  array (
-    'url' => 'https://eventbrite.de/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'bb9b47ca0f5aa946',
-  ),
-  91 => 
-  array (
-    'url' => 'https://eventbrite.dk/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'f4906c207c970c22',
-  ),
-  92 => 
-  array (
-    'url' => 'https://eventbrite.es/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '0ea407e59eea50da',
-  ),
-  93 => 
-  array (
-    'url' => 'https://eventbrite.fi/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '10aac11f63244067',
-  ),
-  94 => 
-  array (
-    'url' => 'https://eventbrite.fr/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '72760a96e4658694',
-  ),
-  95 => 
-  array (
-    'url' => 'https://eventbrite.hk/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'cefb850f8b65dd7b',
-  ),
-  96 => 
-  array (
-    'url' => 'https://eventbrite.ie/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '5fd51f6e27750b4c',
-  ),
-  97 => 
-  array (
-    'url' => 'https://eventbrite.it/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'd33585026ef6cec6',
-  ),
-  98 => 
-  array (
-    'url' => 'https://eventbrite.nl/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '4c8e12bdb6478eed',
-  ),
-  99 => 
-  array (
-    'url' => 'https://eventbrite.pt/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '7695e14eada2946a',
-  ),
-  100 => 
-  array (
-    'url' => 'https://eventbrite.se/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'b0328a72b0830987',
-  ),
-  101 => 
-  array (
-    'url' => 'https://eventbrite.sg/o/aaa',
-    'expect' => 
-    array (
-      'surface' => 'eventbrite.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'cfef92de2beeabc3',
-  ),
-  102 => 
-  array (
-    'url' => 'https://eventfinda.co.nz/',
-    'expect' => 
-    array (
-      'surface' => 'eventfinda.tickets',
-    ),
-    'detector' => 'e8e113cd62a6447a',
-  ),
-  103 => 
-  array (
-    'url' => 'https://eventfinda.com.au/',
-    'expect' => 
-    array (
-      'surface' => 'eventfinda.tickets',
-    ),
-    'detector' => '2c6205d5d2987788',
-  ),
-  104 => 
-  array (
-    'url' => 'https://eventfinda.com/',
-    'expect' => 
-    array (
-      'surface' => 'eventfinda.tickets',
-    ),
-    'detector' => 'def71f08fef9d791',
-  ),
-  105 => 
-  array (
-    'url' => 'https://eventim.co.uk/',
-    'expect' => 
-    array (
-      'surface' => 'eventim.tickets',
-    ),
-    'detector' => '3cfd280c5daa38cd',
-  ),
-  106 => 
-  array (
-    'url' => 'https://eventim.com/',
-    'expect' => 
-    array (
-      'surface' => 'eventim.tickets',
-    ),
-    'detector' => '139dbf6ec3077a6a',
-  ),
-  107 => 
-  array (
-    'url' => 'https://eventim.de/',
-    'expect' => 
-    array (
-      'surface' => 'eventim.tickets',
-    ),
-    'detector' => 'c01f69f5e7194db5',
-  ),
-  108 => 
-  array (
-    'url' => 'https://eventim.fr/',
-    'expect' => 
-    array (
-      'surface' => 'eventim.tickets',
-    ),
-    'detector' => 'ab1b2246077326d6',
-  ),
-  109 => 
-  array (
-    'url' => 'https://eventim.nl/',
-    'expect' => 
-    array (
-      'surface' => 'eventim.tickets',
-    ),
-    'detector' => 'ea99e46d76357b75',
-  ),
-  110 => 
-  array (
-    'url' => 'https://eventim.pl/',
-    'expect' => 
-    array (
-      'surface' => 'eventim.tickets',
-    ),
-    'detector' => '083dabdeecae488f',
-  ),
-  111 => 
-  array (
-    'url' => 'https://exploretock.com/',
-    'expect' => 
-    array (
-      'surface' => 'tock.reserve',
-    ),
-    'detector' => '239ba76ca60118b8',
-  ),
-  112 => 
-  array (
-    'url' => 'https://exploretock.com/aa',
-    'expect' => 
-    array (
-      'surface' => 'tock.reserve',
-      'identifier' => 'aa',
-    ),
-    'detector' => '9ebabc7fa2eaa514',
-  ),
-  113 => 
-  array (
-    'url' => 'https://facebook.com/a',
-    'expect' => 
-    array (
-      'surface' => 'facebook.profile',
-      'identifier' => 'a',
-    ),
-    'detector' => 'd78e03ab1ac96210',
-  ),
-  114 => 
-  array (
-    'url' => 'https://fareharbor.com/',
-    'expect' => 
-    array (
-      'surface' => 'fareharbor.book',
-    ),
-    'detector' => '675c0ed455642038',
-  ),
-  115 => 
-  array (
-    'url' => 'https://fb.com/a',
-    'expect' => 
-    array (
-      'surface' => 'facebook.profile',
-      'identifier' => 'a',
-    ),
-    'detector' => '12b9e37ba910d214',
-  ),
-  116 => 
-  array (
-    'url' => 'https://feature.fm/',
-    'expect' => 
-    array (
-      'surface' => 'feature_fm.release',
-    ),
-    'detector' => 'a64733da7f7387b4',
-  ),
-  117 => 
-  array (
-    'url' => 'https://ffm.to/',
-    'expect' => 
-    array (
-      'surface' => 'feature_fm.release',
-    ),
-    'detector' => 'fc6ca35730c06922',
-  ),
-  118 => 
-  array (
-    'url' => 'https://fiverr.com/aaa',
-    'expect' => 
-    array (
-      'surface' => 'fiverr.profile',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '233ab86edb7507a6',
-  ),
-  119 => 
-  array (
-    'url' => 'https://flickr.com/photos/aa',
-    'expect' => 
-    array (
-      'surface' => 'flickr.photos',
-      'identifier' => 'aa',
-    ),
-    'detector' => '348e8438b852aa15',
-  ),
-  120 => 
-  array (
-    'url' => 'https://fresha.com/a/aaa',
-    'expect' => 
-    array (
-      'surface' => 'fresha.book',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'cb5525db472c96a4',
-  ),
-  121 => 
-  array (
-    'url' => 'https://genbook.com/',
-    'expect' => 
-    array (
-      'surface' => 'genbook.book',
-    ),
-    'detector' => '3208a1e9edd198b2',
-  ),
-  122 => 
-  array (
-    'url' => 'https://github.com/',
-    'expect' => 
-    array (
-      'surface' => 'github.profile',
-    ),
-    'detector' => 'b6c3381b02805e19',
-  ),
-  123 => 
-  array (
-    'url' => 'https://github.com/aa',
-    'expect' => 
-    array (
-      'surface' => 'github.profile',
-      'identifier' => 'aa',
-    ),
-    'detector' => 'b19f46863fac33c6',
-  ),
-  124 => 
-  array (
-    'url' => 'https://gitlab.com/',
-    'expect' => 
-    array (
-      'surface' => 'gitlab.profile',
-    ),
-    'detector' => '183447e28bf2106c',
-  ),
-  125 => 
-  array (
-    'url' => 'https://gitlab.com/aa',
-    'expect' => 
-    array (
-      'surface' => 'gitlab.profile',
-      'identifier' => 'aa',
-    ),
-    'detector' => '3a883afeae0ffb24',
-  ),
-  126 => 
-  array (
-    'url' => 'https://glossgenius.com/',
-    'expect' => 
-    array (
-      'surface' => 'glossgenius.book',
-    ),
-    'detector' => '58b11f030ba773d9',
-  ),
-  127 => 
-  array (
-    'url' => 'https://google.com/calendar/appointments',
-    'expect' => 
-    array (
-      'surface' => 'google_appointments.book',
-    ),
-    'detector' => '5b05914c4d6e635c',
-  ),
-  128 => 
-  array (
-    'url' => 'https://grubhub.com/',
-    'expect' => 
-    array (
-      'surface' => 'grubhub.order',
-    ),
-    'detector' => 'aeb8fbf2eb83b6a6',
-  ),
-  129 => 
-  array (
-    'url' => 'https://gumroad.com/',
-    'expect' => 
-    array (
-      'surface' => 'gumroad.store',
-    ),
-    'detector' => '0b4b9a4c1636dbe4',
-  ),
-  130 => 
-  array (
-    'url' => 'https://halaxy.com/',
-    'expect' => 
-    array (
-      'surface' => 'halaxy.book',
-    ),
-    'detector' => 'f8c7c4da29c5a248',
-  ),
-  131 => 
-  array (
-    'url' => 'https://heyzine.com/',
-    'expect' => 
-    array (
-      'surface' => 'heyzine.publication',
-    ),
-    'detector' => 'cf4fe9ec6ab15298',
-  ),
-  132 => 
-  array (
-    'url' => 'https://hflip.co/',
-    'expect' => 
-    array (
-      'surface' => 'heyzine.publication',
-    ),
-    'detector' => 'bf721858f5656dfc',
-  ),
-  133 => 
-  array (
-    'url' => 'https://hotdoc.com.au/',
-    'expect' => 
-    array (
-      'surface' => 'hotdoc.book',
-    ),
-    'detector' => 'aa86373960ff3953',
-  ),
-  134 => 
-  array (
-    'url' => 'https://houzz.com.au/professionals/aaa/aaa',
-    'expect' => 
-    array (
-      'surface' => 'houzz.pro',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '796978399b9de232',
-  ),
-  135 => 
-  array (
-    'url' => 'https://houzz.com/professionals/aaa/aaa',
-    'expect' => 
-    array (
-      'surface' => 'houzz.pro',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'e3d40499f15e17c6',
-  ),
-  136 => 
-  array (
-    'url' => 'https://humanitix.com/host/aaa',
-    'expect' => 
-    array (
-      'surface' => 'humanitix.organiser',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '4956e516be3b66c5',
-  ),
-  137 => 
-  array (
-    'url' => 'https://hungrypanda.co/',
-    'expect' => 
-    array (
-      'surface' => 'hungrypanda.order',
-    ),
-    'detector' => 'd76893ba620b3281',
-  ),
-  138 => 
-  array (
-    'url' => 'https://hypeddit.com/',
-    'expect' => 
-    array (
-      'surface' => 'hypeddit.release',
-    ),
-    'detector' => '8953cbfd5e452856',
-  ),
-  139 => 
-  array (
-    'url' => 'https://instagram.com/a',
-    'expect' => 
-    array (
-      'surface' => 'instagram.profile',
-      'identifier' => 'a',
-    ),
-    'detector' => '87d16f0666ed1999',
-  ),
-  140 => 
-  array (
-    'url' => 'https://janeapp.com/',
-    'expect' => 
-    array (
-      'surface' => 'jane_app.book',
-    ),
-    'detector' => '721cf7340e7d59d5',
-  ),
-  141 => 
-  array (
-    'url' => 'https://joinblvd.com/',
-    'expect' => 
-    array (
-      'surface' => 'boulevard.book',
-    ),
-    'detector' => 'e41f09f90ecd8c99',
-  ),
-  142 => 
-  array (
-    'url' => 'https://just-eat.ch/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => 'bb58273c26e364cc',
-  ),
-  143 => 
-  array (
-    'url' => 'https://just-eat.co.uk/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => '76aa62cb03d7624d',
-  ),
-  144 => 
-  array (
-    'url' => 'https://just-eat.com/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => 'bcbc54297d5f6977',
-  ),
-  145 => 
-  array (
-    'url' => 'https://just-eat.dk/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => '6d3b32c19fc720ce',
-  ),
-  146 => 
-  array (
-    'url' => 'https://just-eat.es/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => 'ef5255bee2a2f499',
-  ),
-  147 => 
-  array (
-    'url' => 'https://just-eat.fr/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => '20d6afa5758123de',
-  ),
-  148 => 
-  array (
-    'url' => 'https://just-eat.ie/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => '3b7d53ce57615f1b',
-  ),
-  149 => 
-  array (
-    'url' => 'https://just-eat.it/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => 'e64a04db96abf0de',
-  ),
-  150 => 
-  array (
-    'url' => 'https://just-eat.lu/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => '6ea9978982cb2858',
-  ),
-  151 => 
-  array (
-    'url' => 'https://just-eat.no/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => 'c9538023314246ec',
-  ),
-  152 => 
-  array (
-    'url' => 'https://justeat.ch/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => 'b04b0380b9670bea',
-  ),
-  153 => 
-  array (
-    'url' => 'https://justeat.co.uk/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => '8528c3162eb1cf46',
-  ),
-  154 => 
-  array (
-    'url' => 'https://justeat.com/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => '8f32929b96c3e0e4',
-  ),
-  155 => 
-  array (
-    'url' => 'https://justeat.dk/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => 'b8ad6ee96fe73899',
-  ),
-  156 => 
-  array (
-    'url' => 'https://justeat.es/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => 'b08ab37da47f29df',
-  ),
-  157 => 
-  array (
-    'url' => 'https://justeat.fr/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => 'fa8d288e0dd1df23',
-  ),
-  158 => 
-  array (
-    'url' => 'https://justeat.ie/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => 'ea5ca117d0f8f11a',
-  ),
-  159 => 
-  array (
-    'url' => 'https://justeat.it/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => 'ae388a8c2eb465e5',
-  ),
-  160 => 
-  array (
-    'url' => 'https://justeat.lu/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => 'e68ee5e08f10bfee',
-  ),
-  161 => 
-  array (
-    'url' => 'https://justeat.no/',
-    'expect' => 
-    array (
-      'surface' => 'just_eat.order',
-    ),
-    'detector' => '3655b27f5b99ea79',
-  ),
-  162 => 
-  array (
-    'url' => 'https://kick.com/aaa',
-    'expect' => 
-    array (
-      'surface' => 'kick.channel',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '77ca38fc36e5401f',
-  ),
-  163 => 
-  array (
-    'url' => 'https://kitomba.com/',
-    'expect' => 
-    array (
-      'surface' => 'kitomba.book',
-    ),
-    'detector' => 'e0ffa0738483e4e5',
-  ),
-  164 => 
-  array (
-    'url' => 'https://ko-fi.com/',
-    'expect' => 
-    array (
-      'surface' => 'ko_fi.page',
-    ),
-    'detector' => 'fe90cb898c3bdfda',
-  ),
-  165 => 
-  array (
-    'url' => 'https://ko-fi.com/aa',
-    'expect' => 
-    array (
-      'surface' => 'ko_fi.page',
-      'identifier' => 'aa',
-    ),
-    'detector' => 'e99acec5f19f92f6',
-  ),
-  166 => 
-  array (
-    'url' => 'https://laylo.com/',
-    'expect' => 
-    array (
-      'surface' => 'laylo.drop',
-    ),
-    'detector' => '312ee55ab7d2d088',
-  ),
-  167 => 
-  array (
-    'url' => 'https://libro.fm/',
-    'expect' => 
-    array (
-      'surface' => 'libro_fm.store',
-    ),
-    'detector' => '69b8aceb6c6b6cc1',
-  ),
-  168 => 
-  array (
-    'url' => 'https://linkedin.com/in/aa',
-    'expect' => 
-    array (
-      'surface' => 'linkedin.profile',
-      'identifier' => 'aa',
-    ),
-    'detector' => '75556c5a19e1eba2',
-  ),
-  169 => 
-  array (
-    'url' => 'https://linkfire.com/',
-    'expect' => 
-    array (
-      'surface' => 'linkfire.release',
-    ),
-    'detector' => 'dcab1b2fbc7ade36',
-  ),
-  170 => 
-  array (
-    'url' => 'https://lnk.to/',
-    'expect' => 
-    array (
-      'surface' => 'linkfire.release',
-    ),
-    'detector' => 'e9d6bc3cda5efe0c',
-  ),
-  171 => 
-  array (
-    'url' => 'https://lu.ma/user/aa',
-    'expect' => 
-    array (
-      'surface' => 'luma.calendar',
-      'identifier' => 'aa',
-    ),
-    'detector' => '78c2099e5558ad1f',
-  ),
-  172 => 
-  array (
-    'url' => 'https://mangomint.com/',
-    'expect' => 
-    array (
-      'surface' => 'mangomint.book',
-    ),
-    'detector' => '8bcc43fde2f555f8',
-  ),
-  173 => 
-  array (
-    'url' => 'https://meandu.com/',
-    'expect' => 
-    array (
-      'surface' => 'mr_yum.order',
-    ),
-    'detector' => '57f63ca7d8e03255',
-  ),
-  174 => 
-  array (
-    'url' => 'https://medium.com/@aa',
-    'expect' => 
-    array (
-      'surface' => 'medium.profile',
-      'identifier' => 'aa',
-    ),
-    'detector' => '1e90b50adf18becf',
-  ),
-  175 => 
-  array (
-    'url' => 'https://megatix.com.au/',
-    'expect' => 
-    array (
-      'surface' => 'megatix.tickets',
-    ),
-    'detector' => 'da86f4028ebed1ed',
-  ),
-  176 => 
-  array (
-    'url' => 'https://menulog.com.au/',
-    'expect' => 
-    array (
-      'surface' => 'menulog.order',
-    ),
-    'detector' => 'b8023d95302493ed',
-  ),
-  177 => 
-  array (
-    'url' => 'https://mindbodyonline.com/',
-    'expect' => 
-    array (
-      'surface' => 'mindbody.book',
-    ),
-    'detector' => '6cca92df6cece15d',
-  ),
-  178 => 
-  array (
-    'url' => 'https://mixcloud.com/',
-    'expect' => 
-    array (
-      'surface' => 'mixcloud.player',
-    ),
-    'detector' => '5f8da8c1d727d9bf',
-  ),
-  179 => 
-  array (
-    'url' => 'https://mixcloud.com/aa',
-    'expect' => 
-    array (
-      'surface' => 'mixcloud.player',
-      'identifier' => 'aa',
-    ),
-    'detector' => '1cc4ffe453245fc6',
-  ),
-  180 => 
-  array (
-    'url' => 'https://moshtix.com.au/',
-    'expect' => 
-    array (
-      'surface' => 'moshtix.tickets',
-    ),
-    'detector' => 'e3ce25e703402b08',
-  ),
-  181 => 
-  array (
-    'url' => 'https://mryum.com/',
-    'expect' => 
-    array (
-      'surface' => 'mr_yum.order',
-    ),
-    'detector' => '06eef592c464ceaf',
-  ),
-  182 => 
-  array (
-    'url' => 'https://music.apple.com/artist/111',
-    'expect' => 
-    array (
-      'surface' => 'apple_music.artist',
-      'identifier' => '111',
-    ),
-    'detector' => 'a013bd51e02c8976',
-  ),
-  183 => 
-  array (
-    'url' => 'https://music.youtube.com/channel/UCaaaaaaaaaaaaaaaaaaaaaa',
-    'expect' => 
-    array (
-      'surface' => 'youtube_music.channel',
-      'identifier' => 'UCaaaaaaaaaaaaaaaaaaaaaa',
-    ),
-    'detector' => 'd260dead7b0768a3',
-  ),
-  184 => 
-  array (
-    'url' => 'https://noterro.com/',
-    'expect' => 
-    array (
-      'surface' => 'noterro.book',
-    ),
-    'detector' => '62486d28216a3e4c',
-  ),
-  185 => 
-  array (
-    'url' => 'https://obee.com.au/',
-    'expect' => 
-    array (
-      'surface' => 'obee.reserve',
-    ),
-    'detector' => '6d94e24c6ddaf634',
-  ),
-  186 => 
-  array (
-    'url' => 'https://obeeapp.com/',
-    'expect' => 
-    array (
-      'surface' => 'obee.reserve',
-    ),
-    'detector' => 'a4e3b4f785c4bdd3',
-  ),
-  187 => 
-  array (
-    'url' => 'https://office.com/bookwithme/',
-    'expect' => 
-    array (
-      'surface' => 'microsoft_bookings.book',
-    ),
-    'detector' => '51ab4431e808a652',
-  ),
-  188 => 
-  array (
-    'url' => 'https://office365.com/bookings/',
-    'expect' => 
-    array (
-      'surface' => 'microsoft_bookings.book',
-    ),
-    'detector' => '22b964b81d26e938',
-  ),
-  189 => 
-  array (
-    'url' => 'https://open.spotify.com/artist/aaa',
-    'expect' => 
-    array (
-      'surface' => 'spotify.player',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'c8ec1b8650ca53b2',
-  ),
-  190 => 
-  array (
-    'url' => 'https://opentable.ae/?restRef=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '8ba3a392e622986b',
-  ),
-  191 => 
-  array (
-    'url' => 'https://opentable.ae/?rid=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => 'bc4dbc0aaa7e0936',
-  ),
-  192 => 
-  array (
-    'url' => 'https://opentable.ae/restaurant/profile/111',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '111',
-    ),
-    'detector' => 'f41ad20a2e9b9d84',
-  ),
-  193 => 
-  array (
-    'url' => 'https://opentable.at/?restRef=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => 'cd5977093c8d3768',
-  ),
-  194 => 
-  array (
-    'url' => 'https://opentable.at/?rid=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '99c3fa11e0ae49b8',
-  ),
-  195 => 
-  array (
-    'url' => 'https://opentable.at/restaurant/profile/111',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '111',
-    ),
-    'detector' => '17a35e751d44af73',
-  ),
-  196 => 
-  array (
-    'url' => 'https://opentable.ca/?restRef=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => 'af430b15f77238a2',
-  ),
-  197 => 
-  array (
-    'url' => 'https://opentable.ca/?rid=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '1546dc07ab719f25',
-  ),
-  198 => 
-  array (
-    'url' => 'https://opentable.ca/restaurant/profile/111',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '111',
-    ),
-    'detector' => '5983a48e72449cd3',
-  ),
-  199 => 
-  array (
-    'url' => 'https://opentable.co.th/?restRef=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '8d1109289710ea27',
-  ),
-  200 => 
-  array (
-    'url' => 'https://opentable.co.th/?rid=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => 'e1991bead500c8ec',
-  ),
-  201 => 
-  array (
-    'url' => 'https://opentable.co.th/restaurant/profile/111',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '111',
-    ),
-    'detector' => '3d3e73d705ae78f3',
-  ),
-  202 => 
-  array (
-    'url' => 'https://opentable.co.uk/?restRef=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '50a20d159e784aec',
-  ),
-  203 => 
-  array (
-    'url' => 'https://opentable.co.uk/?rid=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => 'c7fabf59c5a481ee',
-  ),
-  204 => 
-  array (
-    'url' => 'https://opentable.co.uk/restaurant/profile/111',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '111',
-    ),
-    'detector' => 'bebbbbe2c2f6bc99',
-  ),
-  205 => 
-  array (
-    'url' => 'https://opentable.com.au/?restRef=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '0db07f6e1bc44f87',
-  ),
-  206 => 
-  array (
-    'url' => 'https://opentable.com.au/?rid=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '9e785905e6ad67d6',
-  ),
-  207 => 
-  array (
-    'url' => 'https://opentable.com.au/restaurant/profile/111',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '111',
-    ),
-    'detector' => '3f2a5d74611b25d1',
-  ),
-  208 => 
-  array (
-    'url' => 'https://opentable.com.mx/?restRef=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '89d5bc6da67eb3c6',
-  ),
-  209 => 
-  array (
-    'url' => 'https://opentable.com.mx/?rid=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '0ea9147e0bb3426a',
-  ),
-  210 => 
-  array (
-    'url' => 'https://opentable.com.mx/restaurant/profile/111',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '111',
-    ),
-    'detector' => '5d74763657eb65c4',
-  ),
-  211 => 
-  array (
-    'url' => 'https://opentable.com/?restRef=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '9eda6310b42ff63a',
-  ),
-  212 => 
-  array (
-    'url' => 'https://opentable.com/?rid=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '4649197e747236e0',
-  ),
-  213 => 
-  array (
-    'url' => 'https://opentable.com/restaurant/profile/111',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '111',
-    ),
-    'detector' => 'e2b6f3d2721b2f10',
-  ),
-  214 => 
-  array (
-    'url' => 'https://opentable.de/?restRef=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => 'af02e226ad4ae6df',
-  ),
-  215 => 
-  array (
-    'url' => 'https://opentable.de/?rid=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '788fff533be07e90',
-  ),
-  216 => 
-  array (
-    'url' => 'https://opentable.de/restaurant/profile/111',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '111',
-    ),
-    'detector' => '98525c21146dec16',
-  ),
-  217 => 
-  array (
-    'url' => 'https://opentable.es/?restRef=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => 'c2d69a6dff5f6425',
-  ),
-  218 => 
-  array (
-    'url' => 'https://opentable.es/?rid=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '1f691d33d6f225d3',
-  ),
-  219 => 
-  array (
-    'url' => 'https://opentable.es/restaurant/profile/111',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '111',
-    ),
-    'detector' => '20e93bbba530d7cd',
-  ),
-  220 => 
-  array (
-    'url' => 'https://opentable.hk/?restRef=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '7b522cf1dd385dcf',
-  ),
-  221 => 
-  array (
-    'url' => 'https://opentable.hk/?rid=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '64aba0369a8ada33',
-  ),
-  222 => 
-  array (
-    'url' => 'https://opentable.hk/restaurant/profile/111',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '111',
-    ),
-    'detector' => '3a1e7a568d1049bb',
-  ),
-  223 => 
-  array (
-    'url' => 'https://opentable.ie/?restRef=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => 'eeee30225a3ffe82',
-  ),
-  224 => 
-  array (
-    'url' => 'https://opentable.ie/?rid=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '36a8f03ebae019f8',
-  ),
-  225 => 
-  array (
-    'url' => 'https://opentable.ie/restaurant/profile/111',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '111',
-    ),
-    'detector' => '8b7dd98a090b9c4b',
-  ),
-  226 => 
-  array (
-    'url' => 'https://opentable.it/?restRef=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '43b45d158368b673',
-  ),
-  227 => 
-  array (
-    'url' => 'https://opentable.it/?rid=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '522df576e2748819',
-  ),
-  228 => 
-  array (
-    'url' => 'https://opentable.it/restaurant/profile/111',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '111',
-    ),
-    'detector' => '7d735502a86617ca',
-  ),
-  229 => 
-  array (
-    'url' => 'https://opentable.jp/?restRef=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '2fc431ee6b4aed5f',
-  ),
-  230 => 
-  array (
-    'url' => 'https://opentable.jp/?rid=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => 'c46e110a9bb757e3',
-  ),
-  231 => 
-  array (
-    'url' => 'https://opentable.jp/restaurant/profile/111',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '111',
-    ),
-    'detector' => 'd29516a29ac31d94',
-  ),
-  232 => 
-  array (
-    'url' => 'https://opentable.nl/?restRef=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '1d35d37e3a42e0fc',
-  ),
-  233 => 
-  array (
-    'url' => 'https://opentable.nl/?rid=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => 'cb7c545a50553588',
-  ),
-  234 => 
-  array (
-    'url' => 'https://opentable.nl/restaurant/profile/111',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '111',
-    ),
-    'detector' => '1f520e3af1ef3b6d',
-  ),
-  235 => 
-  array (
-    'url' => 'https://opentable.sg/?restRef=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '026b2ec99da6dc0f',
-  ),
-  236 => 
-  array (
-    'url' => 'https://opentable.sg/?rid=100000',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '100000',
-    ),
-    'detector' => '856f2c7a9f02e9e9',
-  ),
-  237 => 
-  array (
-    'url' => 'https://opentable.sg/restaurant/profile/111',
-    'expect' => 
-    array (
-      'surface' => 'opentable.reserve',
-      'identifier' => '111',
-    ),
-    'detector' => '61dc018682c89305',
-  ),
-  238 => 
-  array (
-    'url' => 'https://orcd.co/',
-    'expect' => 
-    array (
-      'surface' => 'orchard.release',
-    ),
-    'detector' => 'fe65605d40535e1d',
-  ),
-  239 => 
-  array (
-    'url' => 'https://order.online/',
-    'expect' => 
-    array (
-      'surface' => 'order_online.order',
-    ),
-    'detector' => '8f1d87a21601969d',
-  ),
-  240 => 
-  array (
-    'url' => 'https://ordermate.online/',
-    'expect' => 
-    array (
-      'surface' => 'ordermate.order',
-    ),
-    'detector' => '0b4d0eb6272930ac',
-  ),
-  241 => 
-  array (
-    'url' => 'https://ovatu.com/',
-    'expect' => 
-    array (
-      'surface' => 'ovatu.book',
-    ),
-    'detector' => '55f20100ac6643e3',
-  ),
-  242 => 
-  array (
-    'url' => 'https://oztix.com.au/',
-    'expect' => 
-    array (
-      'surface' => 'oztix.tickets',
-    ),
-    'detector' => '716b33f6e22319d8',
-  ),
-  243 => 
-  array (
-    'url' => 'https://partiful.com/u/aaa',
-    'expect' => 
-    array (
-      'surface' => 'partiful.events',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'addba2bc7a4fd21c',
-  ),
-  244 => 
-  array (
-    'url' => 'https://patreon.com/',
-    'expect' => 
-    array (
-      'surface' => 'patreon.page',
-    ),
-    'detector' => 'ac9bc8854053d831',
-  ),
-  245 => 
-  array (
-    'url' => 'https://patreon.com/aa',
-    'expect' => 
-    array (
-      'surface' => 'patreon.page',
-      'identifier' => 'aa',
-    ),
-    'detector' => '7260c9bcc514597b',
-  ),
-  246 => 
-  array (
-    'url' => 'https://paypal.com/paypalme/aa',
-    'expect' => 
-    array (
-      'surface' => 'paypal.me',
-      'identifier' => 'aa',
-    ),
-    'detector' => 'd17db85e06ed8d35',
-  ),
-  247 => 
-  array (
-    'url' => 'https://paypal.me/aa',
-    'expect' => 
-    array (
-      'surface' => 'paypal.me',
-      'identifier' => 'aa',
-    ),
-    'detector' => '6c3f9bc2fc129f91',
-  ),
-  248 => 
-  array (
-    'url' => 'https://phorest.com/',
-    'expect' => 
-    array (
-      'surface' => 'phorest.book',
-    ),
-    'detector' => '9368ab289001f37b',
-  ),
-  249 => 
-  array (
-    'url' => 'https://pinterest.com/aaa',
-    'expect' => 
-    array (
-      'surface' => 'pinterest.profile',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '7f05ebab64a5a309',
-  ),
-  250 => 
-  array (
-    'url' => 'https://podcasts.apple.com/podcast/id111',
-    'expect' => 
-    array (
-      'surface' => 'apple_podcasts.show',
-      'identifier' => '111',
-    ),
-    'detector' => '649cd477e1185e84',
-  ),
-  251 => 
-  array (
-    'url' => 'https://productreview.com.au/listings/aaa',
-    'expect' => 
-    array (
-      'surface' => 'productreview.listing',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '0c41b690787df8e7',
-  ),
-  252 => 
-  array (
-    'url' => 'https://quandoo.at/',
-    'expect' => 
-    array (
-      'surface' => 'quandoo.reserve',
-    ),
-    'detector' => 'ba97caaff5f8e45c',
-  ),
-  253 => 
-  array (
-    'url' => 'https://quandoo.ch/',
-    'expect' => 
-    array (
-      'surface' => 'quandoo.reserve',
-    ),
-    'detector' => '3b1be6a8182b8039',
-  ),
-  254 => 
-  array (
-    'url' => 'https://quandoo.co.uk/',
-    'expect' => 
-    array (
-      'surface' => 'quandoo.reserve',
-    ),
-    'detector' => 'dab1fbfb8661067d',
-  ),
-  255 => 
-  array (
-    'url' => 'https://quandoo.com.au/',
-    'expect' => 
-    array (
-      'surface' => 'quandoo.reserve',
-    ),
-    'detector' => '693412fc531e6da3',
-  ),
-  256 => 
-  array (
-    'url' => 'https://quandoo.com/',
-    'expect' => 
-    array (
-      'surface' => 'quandoo.reserve',
-    ),
-    'detector' => 'ee929d5600771559',
-  ),
-  257 => 
-  array (
-    'url' => 'https://quandoo.de/',
-    'expect' => 
-    array (
-      'surface' => 'quandoo.reserve',
-    ),
-    'detector' => '4cf12025413842a5',
-  ),
-  258 => 
-  array (
-    'url' => 'https://quandoo.fi/',
-    'expect' => 
-    array (
-      'surface' => 'quandoo.reserve',
-    ),
-    'detector' => '001fd6d5b07a7d87',
-  ),
-  259 => 
-  array (
-    'url' => 'https://quandoo.hk/',
-    'expect' => 
-    array (
-      'surface' => 'quandoo.reserve',
-    ),
-    'detector' => 'b5c3ec57575b3b7f',
-  ),
-  260 => 
-  array (
-    'url' => 'https://quandoo.it/',
-    'expect' => 
-    array (
-      'surface' => 'quandoo.reserve',
-    ),
-    'detector' => 'ebd07ebefcfb971a',
-  ),
-  261 => 
-  array (
-    'url' => 'https://quandoo.nl/',
-    'expect' => 
-    array (
-      'surface' => 'quandoo.reserve',
-    ),
-    'detector' => '105bc0d306d1a903',
-  ),
-  262 => 
-  array (
-    'url' => 'https://quandoo.sg/',
-    'expect' => 
-    array (
-      'surface' => 'quandoo.reserve',
-    ),
-    'detector' => '619e127fd887977a',
-  ),
-  263 => 
-  array (
-    'url' => 'https://ra.co/',
-    'expect' => 
-    array (
-      'surface' => 'resident_advisor.tickets',
-    ),
-    'detector' => '444ffe8a0fa8709f',
-  ),
-  264 => 
-  array (
-    'url' => 'https://ra.co/dj/aa',
-    'expect' => 
-    array (
-      'surface' => 'resident_advisor.tickets',
-      'identifier' => 'aa',
-    ),
-    'detector' => '4ef46120f0239c3b',
-  ),
-  265 => 
-  array (
-    'url' => 'https://redbubble.com/people/aa',
-    'expect' => 
-    array (
-      'surface' => 'redbubble.shop',
-      'identifier' => 'aa',
-    ),
-    'detector' => '371ce61e38a98175',
-  ),
-  266 => 
-  array (
-    'url' => 'https://reddit.com/u/aa',
-    'expect' => 
-    array (
-      'surface' => 'reddit.profile',
-      'identifier' => 'aa',
-    ),
-    'detector' => '054ffe1abb69e6bb',
-  ),
-  267 => 
-  array (
-    'url' => 'https://resdiary.com/restaurant/aaa',
-    'expect' => 
-    array (
-      'surface' => 'resdiary.reserve',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '2bd2087df3ff123a',
-  ),
-  268 => 
-  array (
-    'url' => 'https://resdiary.com/widget/aaa/aaa',
-    'expect' => 
-    array (
-      'surface' => 'resdiary.reserve',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '2e4b33528297c23b',
-  ),
-  269 => 
-  array (
-    'url' => 'https://resy.com/',
-    'expect' => 
-    array (
-      'surface' => 'resy.reserve',
-    ),
-    'detector' => 'e13599cb38227ab7',
-  ),
-  270 => 
-  array (
-    'url' => 'https://rezdy.com/',
-    'expect' => 
-    array (
-      'surface' => 'rezdy.book',
-    ),
-    'detector' => '168e2991df2480ea',
-  ),
-  271 => 
-  array (
-    'url' => 'https://rumble.com/c/aa',
-    'expect' => 
-    array (
-      'surface' => 'rumble.channel',
-      'identifier' => 'aa',
-    ),
-    'detector' => '3435affbf3f16e98',
-  ),
-  272 => 
-  array (
-    'url' => 'https://schedulicity.com/',
-    'expect' => 
-    array (
-      'surface' => 'schedulicity.book',
-    ),
-    'detector' => '3db2848fdbc3f084',
-  ),
-  273 => 
-  array (
-    'url' => 'https://seetickets.com/',
-    'expect' => 
-    array (
-      'surface' => 'see_tickets.tickets',
-    ),
-    'detector' => '6ee7ac923cc46055',
-  ),
-  274 => 
-  array (
-    'url' => 'https://sevenrooms.com/',
-    'expect' => 
-    array (
-      'surface' => 'sevenrooms.reserve',
-    ),
-    'detector' => 'c245e4096dc619cf',
-  ),
-  275 => 
-  array (
-    'url' => 'https://shortcuts.com.au/',
-    'expect' => 
-    array (
-      'surface' => 'shortcuts.book',
-    ),
-    'detector' => '6928abc0782f6312',
-  ),
-  276 => 
-  array (
-    'url' => 'https://shortcuts.net/',
-    'expect' => 
-    array (
-      'surface' => 'shortcuts.book',
-    ),
-    'detector' => 'f2a80713a0c31316',
-  ),
-  277 => 
-  array (
-    'url' => 'https://simplybook.it/',
-    'expect' => 
-    array (
-      'surface' => 'simplybook_me.book',
-    ),
-    'detector' => '0492d148a2d30722',
-  ),
-  278 => 
-  array (
-    'url' => 'https://skiddle.com/',
-    'expect' => 
-    array (
-      'surface' => 'skiddle.tickets',
-    ),
-    'detector' => '899a958137a1dda7',
-  ),
-  279 => 
-  array (
-    'url' => 'https://skipthedishes.com/',
-    'expect' => 
-    array (
-      'surface' => 'skipthedishes.order',
-    ),
-    'detector' => 'fcd0cb4f31067acd',
-  ),
-  280 => 
-  array (
-    'url' => 'https://slicelife.com/',
-    'expect' => 
-    array (
-      'surface' => 'slice.order',
-    ),
-    'detector' => '513fb3089dbc9112',
-  ),
-  281 => 
-  array (
-    'url' => 'https://snapchat.com/add/aaa',
-    'expect' => 
-    array (
-      'surface' => 'snapchat.profile',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '9cf65cb83dba2bf1',
-  ),
-  282 => 
-  array (
-    'url' => 'https://songkick.com/artists/1',
-    'expect' => 
-    array (
-      'surface' => 'songkick.artist',
-      'identifier' => '1',
-    ),
-    'detector' => '11b40990963d324f',
-  ),
-  283 => 
-  array (
-    'url' => 'https://soundcloud.com/aaa',
-    'expect' => 
-    array (
-      'surface' => 'soundcloud.player',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '5d1faaba140ed77a',
-  ),
-  284 => 
-  array (
-    'url' => 'https://square.link/aaaaaa',
-    'expect' => 
-    array (
-      'surface' => 'square.payment_link',
-    ),
-    'detector' => '72aa9a233221d1ae',
-  ),
-  285 => 
-  array (
-    'url' => 'https://squarespace.com/',
-    'expect' => 
-    array (
-      'surface' => 'squarespace.store',
-    ),
-    'detector' => 'c0e240afa37ec5e0',
-  ),
-  286 => 
-  array (
-    'url' => 'https://squareup.com/',
-    'expect' => 
-    array (
-      'surface' => 'square.book',
-    ),
-    'detector' => '8991ee8ff4aeb1d5',
-  ),
-  287 => 
-  array (
-    'url' => 'https://stan.store/aa',
-    'expect' => 
-    array (
-      'surface' => 'stan.store',
-      'identifier' => 'aa',
-    ),
-    'detector' => '5d0175832e04f6d8',
-  ),
-  288 => 
-  array (
-    'url' => 'https://strava.com/clubs/aaa',
-    'expect' => 
-    array (
-      'surface' => 'strava.club',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '448fb3d7693c9029',
-  ),
-  289 => 
-  array (
-    'url' => 'https://styleseat.com/',
-    'expect' => 
-    array (
-      'surface' => 'styleseat.book',
-    ),
-    'detector' => 'eea15ecd3aef19b1',
-  ),
-  290 => 
-  array (
-    'url' => 'https://substack.com/',
-    'expect' => 
-    array (
-      'surface' => 'substack.publication',
-    ),
-    'detector' => 'fc489321f37fbb1a',
-  ),
-  291 => 
-  array (
-    'url' => 'https://tablecheck.com/',
-    'expect' => 
-    array (
-      'surface' => 'tablecheck.reserve',
-    ),
-    'detector' => 'f13c8e2e611a42da',
-  ),
-  292 => 
-  array (
-    'url' => 'https://tablein.com/',
-    'expect' => 
-    array (
-      'surface' => 'tablein.reserve',
-    ),
-    'detector' => '4380291f0d1de922',
-  ),
-  293 => 
-  array (
-    'url' => 'https://telegram.me/aaaaa',
-    'expect' => 
-    array (
-      'surface' => 'telegram.channel',
-      'identifier' => 'aaaaa',
-    ),
-    'detector' => 'ff54ee98bd6fda4a',
-  ),
-  294 => 
-  array (
-    'url' => 'https://telegram.org/aaaaa',
-    'expect' => 
-    array (
-      'surface' => 'telegram.channel',
-      'identifier' => 'aaaaa',
-    ),
-    'detector' => 'e2bab5851bb13bf4',
-  ),
-  295 => 
-  array (
-    'url' => 'https://thefork.at/',
-    'expect' => 
-    array (
-      'surface' => 'thefork.reserve',
-    ),
-    'detector' => 'e24ebf8d39eee599',
-  ),
-  296 => 
-  array (
-    'url' => 'https://thefork.be/',
-    'expect' => 
-    array (
-      'surface' => 'thefork.reserve',
-    ),
-    'detector' => 'dcf2e811ea0b7666',
-  ),
-  297 => 
-  array (
-    'url' => 'https://thefork.ch/',
-    'expect' => 
-    array (
-      'surface' => 'thefork.reserve',
-    ),
-    'detector' => 'a287757eb0d497f9',
-  ),
-  298 => 
-  array (
-    'url' => 'https://thefork.cl/',
-    'expect' => 
-    array (
-      'surface' => 'thefork.reserve',
-    ),
-    'detector' => 'b18d73ebf7b7ef3f',
-  ),
-  299 => 
-  array (
-    'url' => 'https://thefork.co.uk/',
-    'expect' => 
-    array (
-      'surface' => 'thefork.reserve',
-    ),
-    'detector' => 'b4998c27bfc88e1a',
-  ),
-  300 => 
-  array (
-    'url' => 'https://thefork.com.ar/',
-    'expect' => 
-    array (
-      'surface' => 'thefork.reserve',
-    ),
-    'detector' => '0cf61c1e9973c404',
-  ),
-  301 => 
-  array (
-    'url' => 'https://thefork.com.au/',
-    'expect' => 
-    array (
-      'surface' => 'thefork.reserve',
-    ),
-    'detector' => '327caa46025b76fe',
-  ),
-  302 => 
-  array (
-    'url' => 'https://thefork.com.br/',
-    'expect' => 
-    array (
-      'surface' => 'thefork.reserve',
-    ),
-    'detector' => '58da97b5234b4906',
-  ),
-  303 => 
-  array (
-    'url' => 'https://thefork.com/',
-    'expect' => 
-    array (
-      'surface' => 'thefork.reserve',
-    ),
-    'detector' => 'b4d6fceb9afc8ced',
-  ),
-  304 => 
-  array (
-    'url' => 'https://thefork.de/',
-    'expect' => 
-    array (
-      'surface' => 'thefork.reserve',
-    ),
-    'detector' => '3b7376435d930976',
-  ),
-  305 => 
-  array (
-    'url' => 'https://thefork.dk/',
-    'expect' => 
-    array (
-      'surface' => 'thefork.reserve',
-    ),
-    'detector' => '6f0a93fa69e23359',
-  ),
-  306 => 
-  array (
-    'url' => 'https://thefork.es/',
-    'expect' => 
-    array (
-      'surface' => 'thefork.reserve',
-    ),
-    'detector' => '96c44cd3954ecf5e',
-  ),
-  307 => 
-  array (
-    'url' => 'https://thefork.fr/',
-    'expect' => 
-    array (
-      'surface' => 'thefork.reserve',
-    ),
-    'detector' => '3f94296aa7196a6d',
-  ),
-  308 => 
-  array (
-    'url' => 'https://thefork.it/',
-    'expect' => 
-    array (
-      'surface' => 'thefork.reserve',
-    ),
-    'detector' => 'e7c42ef121fc3634',
-  ),
-  309 => 
-  array (
-    'url' => 'https://thefork.nl/',
-    'expect' => 
-    array (
-      'surface' => 'thefork.reserve',
-    ),
-    'detector' => 'a9e60004fa6971fc',
-  ),
-  310 => 
-  array (
-    'url' => 'https://thefork.pt/',
-    'expect' => 
-    array (
-      'surface' => 'thefork.reserve',
-    ),
-    'detector' => '84c07ad427eef038',
-  ),
-  311 => 
-  array (
-    'url' => 'https://thefork.se/',
-    'expect' => 
-    array (
-      'surface' => 'thefork.reserve',
-    ),
-    'detector' => '08bfdf186659a603',
-  ),
-  312 => 
-  array (
-    'url' => 'https://threads.com/a',
-    'expect' => 
-    array (
-      'surface' => 'threads.profile',
-      'identifier' => 'a',
-    ),
-    'detector' => '830dc3cb0c059fdb',
-  ),
-  313 => 
-  array (
-    'url' => 'https://threads.net/a',
-    'expect' => 
-    array (
-      'surface' => 'threads.profile',
-      'identifier' => 'a',
-    ),
-    'detector' => 'a77924a4fbb8be6c',
-  ),
-  314 => 
-  array (
-    'url' => 'https://ticketek.co.nz/',
-    'expect' => 
-    array (
-      'surface' => 'ticketek.tickets',
-    ),
-    'detector' => '626cc44bd4c8910e',
-  ),
-  315 => 
-  array (
-    'url' => 'https://ticketek.com.ar/',
-    'expect' => 
-    array (
-      'surface' => 'ticketek.tickets',
-    ),
-    'detector' => '9951594e05c2f2e2',
-  ),
-  316 => 
-  array (
-    'url' => 'https://ticketek.com.au/',
-    'expect' => 
-    array (
-      'surface' => 'ticketek.tickets',
-    ),
-    'detector' => '92cd60a128909592',
-  ),
-  317 => 
-  array (
-    'url' => 'https://ticketek.com/',
-    'expect' => 
-    array (
-      'surface' => 'ticketek.tickets',
-    ),
-    'detector' => 'a3c230b1da461743',
-  ),
-  318 => 
-  array (
-    'url' => 'https://tickethype.com.mt/',
-    'expect' => 
-    array (
-      'surface' => 'tickethype.tickets',
-    ),
-    'detector' => '82dc332b92f3eba8',
-  ),
-  319 => 
-  array (
-    'url' => 'https://ticketmaster.ae/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => '03e13970e9d4a4fd',
-  ),
-  320 => 
-  array (
-    'url' => 'https://ticketmaster.at/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => 'fcc6469808eb7e0b',
-  ),
-  321 => 
-  array (
-    'url' => 'https://ticketmaster.be/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => 'bd90664c1684fd37',
-  ),
-  322 => 
-  array (
-    'url' => 'https://ticketmaster.ca/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => '412647742deef43c',
-  ),
-  323 => 
-  array (
-    'url' => 'https://ticketmaster.ch/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => '62f87001cd0db810',
-  ),
-  324 => 
-  array (
-    'url' => 'https://ticketmaster.co.nz/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => 'bd1326b884503e84',
-  ),
-  325 => 
-  array (
-    'url' => 'https://ticketmaster.co.uk/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => '5628190b2b39ae20',
-  ),
-  326 => 
-  array (
-    'url' => 'https://ticketmaster.com.au/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => '96c8399173bf8591',
-  ),
-  327 => 
-  array (
-    'url' => 'https://ticketmaster.com.mx/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => 'a5a39eebf99a97cc',
-  ),
-  328 => 
-  array (
-    'url' => 'https://ticketmaster.com/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => '3b513fc413e7a1eb',
-  ),
-  329 => 
-  array (
-    'url' => 'https://ticketmaster.de/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => '3b0a5d7663d86645',
-  ),
-  330 => 
-  array (
-    'url' => 'https://ticketmaster.dk/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => '81083c506d58907c',
-  ),
-  331 => 
-  array (
-    'url' => 'https://ticketmaster.es/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => 'c15db8b10abf7808',
-  ),
-  332 => 
-  array (
-    'url' => 'https://ticketmaster.fi/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => '3191e76b32cb8199',
-  ),
-  333 => 
-  array (
-    'url' => 'https://ticketmaster.fr/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => 'e2d530e723471d22',
-  ),
-  334 => 
-  array (
-    'url' => 'https://ticketmaster.ie/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => '2ca19a6fcf7ee0bd',
-  ),
-  335 => 
-  array (
-    'url' => 'https://ticketmaster.it/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => '9ef542107027b1d6',
-  ),
-  336 => 
-  array (
-    'url' => 'https://ticketmaster.nl/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => '53a1781e408e16a8',
-  ),
-  337 => 
-  array (
-    'url' => 'https://ticketmaster.no/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => 'ca514879bf136562',
-  ),
-  338 => 
-  array (
-    'url' => 'https://ticketmaster.se/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => '83a0ad68f5949589',
-  ),
-  339 => 
-  array (
-    'url' => 'https://ticketmaster.sg/',
-    'expect' => 
-    array (
-      'surface' => 'ticketmaster.tickets',
-    ),
-    'detector' => 'b2ee6b797f5e7dee',
-  ),
-  340 => 
-  array (
-    'url' => 'https://ticketweb.ca/',
-    'expect' => 
-    array (
-      'surface' => 'ticketweb.tickets',
-    ),
-    'detector' => 'b72ed5e4e6064211',
-  ),
-  341 => 
-  array (
-    'url' => 'https://ticketweb.co.uk/',
-    'expect' => 
-    array (
-      'surface' => 'ticketweb.tickets',
-    ),
-    'detector' => '1e2e8cc0a7ce827c',
-  ),
-  342 => 
-  array (
-    'url' => 'https://ticketweb.com/',
-    'expect' => 
-    array (
-      'surface' => 'ticketweb.tickets',
-    ),
-    'detector' => 'c26654f403f21eb0',
-  ),
-  343 => 
-  array (
-    'url' => 'https://tidal.com/',
-    'expect' => 
-    array (
-      'surface' => 'tidal.player',
-    ),
-    'detector' => '8e776b101d9c4d50',
-  ),
-  344 => 
-  array (
-    'url' => 'https://tidal.com/artist/111',
-    'expect' => 
-    array (
-      'surface' => 'tidal.player',
-      'identifier' => '111',
-    ),
-    'detector' => 'fb9f96042bd085e2',
-  ),
-  345 => 
-  array (
-    'url' => 'https://tiktok.com/@aaa',
-    'expect' => 
-    array (
-      'surface' => 'tiktok.profile',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'c5c2cd31010b8491',
-  ),
-  346 => 
-  array (
-    'url' => 'https://tixr.com/',
-    'expect' => 
-    array (
-      'surface' => 'tixr.tickets',
-    ),
-    'detector' => '45638c4225d3d6f4',
-  ),
-  347 => 
-  array (
-    'url' => 'https://toasttab.com/',
-    'expect' => 
-    array (
-      'surface' => 'toast.order',
-    ),
-    'detector' => '3464b536382abf14',
-  ),
-  348 => 
-  array (
-    'url' => 'https://tock.com/',
-    'expect' => 
-    array (
-      'surface' => 'tock.reserve',
-    ),
-    'detector' => '167a703875b8fb8e',
-  ),
-  349 => 
-  array (
-    'url' => 'https://treatwell.at/',
-    'expect' => 
-    array (
-      'surface' => 'treatwell.book',
-    ),
-    'detector' => 'abf318864eb6e6b5',
-  ),
-  350 => 
-  array (
-    'url' => 'https://treatwell.be/',
-    'expect' => 
-    array (
-      'surface' => 'treatwell.book',
-    ),
-    'detector' => '3c33da75f4370ff5',
-  ),
-  351 => 
-  array (
-    'url' => 'https://treatwell.ch/',
-    'expect' => 
-    array (
-      'surface' => 'treatwell.book',
-    ),
-    'detector' => '6db3db35bb01858e',
-  ),
-  352 => 
-  array (
-    'url' => 'https://treatwell.co.uk/',
-    'expect' => 
-    array (
-      'surface' => 'treatwell.book',
-    ),
-    'detector' => 'bbaf7149016c541b',
-  ),
-  353 => 
-  array (
-    'url' => 'https://treatwell.com/',
-    'expect' => 
-    array (
-      'surface' => 'treatwell.book',
-    ),
-    'detector' => 'de05b67e56298062',
-  ),
-  354 => 
-  array (
-    'url' => 'https://treatwell.de/',
-    'expect' => 
-    array (
-      'surface' => 'treatwell.book',
-    ),
-    'detector' => '6453336f16818f92',
-  ),
-  355 => 
-  array (
-    'url' => 'https://treatwell.es/',
-    'expect' => 
-    array (
-      'surface' => 'treatwell.book',
-    ),
-    'detector' => 'fb008a3f0168750c',
-  ),
-  356 => 
-  array (
-    'url' => 'https://treatwell.fr/',
-    'expect' => 
-    array (
-      'surface' => 'treatwell.book',
-    ),
-    'detector' => '11490093c19dc659',
-  ),
-  357 => 
-  array (
-    'url' => 'https://treatwell.gr/',
-    'expect' => 
-    array (
-      'surface' => 'treatwell.book',
-    ),
-    'detector' => 'e71d2c42fb86275b',
-  ),
-  358 => 
-  array (
-    'url' => 'https://treatwell.ie/',
-    'expect' => 
-    array (
-      'surface' => 'treatwell.book',
-    ),
-    'detector' => 'bae964a08c1b5495',
-  ),
-  359 => 
-  array (
-    'url' => 'https://treatwell.it/',
-    'expect' => 
-    array (
-      'surface' => 'treatwell.book',
-    ),
-    'detector' => 'a0dfa44eefda36a0',
-  ),
-  360 => 
-  array (
-    'url' => 'https://treatwell.lt/',
-    'expect' => 
-    array (
-      'surface' => 'treatwell.book',
-    ),
-    'detector' => 'dfa5c11f2f4debd8',
-  ),
-  361 => 
-  array (
-    'url' => 'https://treatwell.lv/',
-    'expect' => 
-    array (
-      'surface' => 'treatwell.book',
-    ),
-    'detector' => '931267e6e391e7b2',
-  ),
-  362 => 
-  array (
-    'url' => 'https://treatwell.nl/',
-    'expect' => 
-    array (
-      'surface' => 'treatwell.book',
-    ),
-    'detector' => 'd9e4b09d897e157f',
-  ),
-  363 => 
-  array (
-    'url' => 'https://treatwell.pt/',
-    'expect' => 
-    array (
-      'surface' => 'treatwell.book',
-    ),
-    'detector' => '60db16cba91b91ed',
-  ),
-  364 => 
-  array (
-    'url' => 'https://tripadvisor.com.au/Restaurant_Review-g111-d111-',
-    'expect' => 
-    array (
-      'surface' => 'tripadvisor.listing',
-      'identifier' => '111',
-    ),
-    'detector' => 'dd05626f17f5d3b0',
-  ),
-  365 => 
-  array (
-    'url' => 'https://tripadvisor.com/Restaurant_Review-g111-d111-',
-    'expect' => 
-    array (
-      'surface' => 'tripadvisor.listing',
-      'identifier' => '111',
-    ),
-    'detector' => '498d1ce6041c9aad',
-  ),
-  366 => 
-  array (
-    'url' => 'https://trustpilot.com/review/aaa.aa',
-    'expect' => 
-    array (
-      'surface' => 'trustpilot.listing',
-      'identifier' => 'aaa.aa',
-    ),
-    'detector' => '0edda8f51b17d39f',
-  ),
-  367 => 
-  array (
-    'url' => 'https://trybooking.com/',
-    'expect' => 
-    array (
-      'surface' => 'trybooking.tickets',
-    ),
-    'detector' => '5532909197f3730e',
-  ),
-  368 => 
-  array (
-    'url' => 'https://tumblr.com/aaa',
-    'expect' => 
-    array (
-      'surface' => 'tumblr.profile',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'cf5d0ba6c3b3e13a',
-  ),
-  369 => 
-  array (
-    'url' => 'https://twitch.tv/aaa',
-    'expect' => 
-    array (
-      'surface' => 'twitch.channel',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '08e97f225b18c135',
-  ),
-  370 => 
-  array (
-    'url' => 'https://twitter.com/a',
-    'expect' => 
-    array (
-      'surface' => 'x.profile',
-      'identifier' => 'a',
-    ),
-    'detector' => '43031574af12a099',
-  ),
-  371 => 
-  array (
-    'url' => 'https://ubereats.com/store/aaa/aaa',
-    'expect' => 
-    array (
-      'surface' => 'uber_eats.order',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '354622fd7070cb07',
-  ),
-  372 => 
-  array (
-    'url' => 'https://upwork.com/freelancers/aa',
-    'expect' => 
-    array (
-      'surface' => 'upwork.profile',
-      'identifier' => 'aa',
-    ),
-    'detector' => '760f483c285beca4',
-  ),
-  373 => 
-  array (
-    'url' => 'https://vagaro.com/',
-    'expect' => 
-    array (
-      'surface' => 'vagaro.book',
-    ),
-    'detector' => '51ca906a893af263',
-  ),
-  374 => 
-  array (
-    'url' => 'https://venmo.com/u/aaa',
-    'expect' => 
-    array (
-      'surface' => 'venmo.profile',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '3b637d8bca677f64',
-  ),
-  375 => 
-  array (
-    'url' => 'https://venue.ink/',
-    'expect' => 
-    array (
-      'surface' => 'venue_ink.book',
-    ),
-    'detector' => '010bea7a7d41534c',
-  ),
-  376 => 
-  array (
-    'url' => 'https://vimeo.com/aaa',
-    'expect' => 
-    array (
-      'surface' => 'vimeo.account',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'e7a3b337a1e70739',
-  ),
-  377 => 
-  array (
-    'url' => 'https://vimeo.com/channels/aaa',
-    'expect' => 
-    array (
-      'surface' => 'vimeo.account',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '9fe8a0d71f1d37a9',
-  ),
-  378 => 
-  array (
-    'url' => 'https://vsco.co/aaa',
-    'expect' => 
-    array (
-      'surface' => 'vsco.profile',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '34396e15d2c2c1dc',
-  ),
-  379 => 
-  array (
-    'url' => 'https://whatsapp.com/+1111111',
-    'expect' => 
-    array (
-      'surface' => 'whatsapp.chat',
-    ),
-    'detector' => '8700b19ea5e0792a',
-  ),
-  380 => 
-  array (
-    'url' => 'https://whatsapp.com/send',
-    'expect' => 
-    array (
-      'surface' => 'whatsapp.chat',
-    ),
-    'detector' => 'aa4800576662c4e0',
-  ),
-  381 => 
-  array (
-    'url' => 'https://wixapps.net/bookings/',
-    'expect' => 
-    array (
-      'surface' => 'wix_bookings.book',
-    ),
-    'detector' => '0206383166a62773',
-  ),
-  382 => 
-  array (
-    'url' => 'https://wolt.com/',
-    'expect' => 
-    array (
-      'surface' => 'wolt.order',
-    ),
-    'detector' => 'f1da696a34a98b37',
-  ),
-  383 => 
-  array (
-    'url' => 'https://woocommerce.com/',
-    'expect' => 
-    array (
-      'surface' => 'woocommerce.store',
-    ),
-    'detector' => '0bd78d1535c79d4e',
-  ),
-  384 => 
-  array (
-    'url' => 'https://x.com/a',
-    'expect' => 
-    array (
-      'surface' => 'x.profile',
-      'identifier' => 'a',
-    ),
-    'detector' => 'ba4979282ceaf778',
-  ),
-  385 => 
-  array (
-    'url' => 'https://yelp.com.au/biz/aaa',
-    'expect' => 
-    array (
-      'surface' => 'yelp.listing',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '23b767116761378f',
-  ),
-  386 => 
-  array (
-    'url' => 'https://yelp.com/biz/aaa',
-    'expect' => 
-    array (
-      'surface' => 'yelp.listing',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'f404a3e56f0f9bf9',
-  ),
-  387 => 
-  array (
-    'url' => 'https://youtube.com/@aaa',
-    'expect' => 
-    array (
-      'surface' => 'youtube.channel',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '131c12f7a0f5d323',
-  ),
-  388 => 
-  array (
-    'url' => 'https://youtube.com/c/aaa',
-    'expect' => 
-    array (
-      'surface' => 'youtube.channel',
-      'identifier' => 'aaa',
-    ),
-    'detector' => 'ed7d45efd0854383',
-  ),
-  389 => 
-  array (
-    'url' => 'https://youtube.com/channel/@aaa',
-    'expect' => 
-    array (
-      'surface' => 'youtube.channel',
-      'identifier' => 'aaa',
-    ),
-    'detector' => '64681bb6ded27076',
-  ),
-  390 => 
-  array (
-    'url' => 'https://youtube.com/channel/UCaaaaaaaaaaaaaaaaaaaaaa',
-    'expect' => 
-    array (
-      'surface' => 'youtube.channel',
-      'identifier' => 'UCaaaaaaaaaaaaaaaaaaaaaa',
-    ),
-    'detector' => '67c7aec08a3650d4',
-  ),
-  391 => 
-  array (
-    'url' => 'https://zenoti.com/',
-    'expect' => 
-    array (
-      'surface' => 'zenoti.book',
-    ),
-    'detector' => 'ea00b095d01f2467',
-  ),
-  392 => 
-  array (
-    'url' => 'https://zomato.com/',
-    'expect' => 
-    array (
-      'surface' => 'zomato.order',
-    ),
-    'detector' => '08ce3f9863cf55ac',
-  ),
-);
+return [
+    0 => [
+        'url' => 'https://aa.bigcartel.com/',
+        'expect' => [
+            'surface' => 'bigcartel.store',
+            'identifier' => 'aa',
+        ],
+        'detector' => '9f849d66cd3cfcc7',
+    ],
+    1 => [
+        'url' => 'https://aa.gumroad.com/',
+        'expect' => [
+            'surface' => 'gumroad.store',
+            'identifier' => 'aa',
+        ],
+        'detector' => 'bf6cb5dce35fa7ea',
+    ],
+    2 => [
+        'url' => 'https://aa.myshopify.com/',
+        'expect' => [
+            'surface' => 'shopify.store',
+            'identifier' => 'aa',
+        ],
+        'detector' => '76a9ccd9a8e7c53a',
+    ],
+    3 => [
+        'url' => 'https://aa.substack.com/',
+        'expect' => [
+            'surface' => 'substack.publication',
+            'identifier' => 'aa',
+        ],
+        'detector' => '3beaebd9e5c3d8b1',
+    ],
+    4 => [
+        'url' => 'https://aaa.circle.so/',
+        'expect' => [
+            'surface' => 'circle.community',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '94017fcb04da7092',
+    ],
+    5 => [
+        'url' => 'https://aaa.mykajabi.com/',
+        'expect' => [
+            'surface' => 'kajabi.courses',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '9a888e4bc937d7e5',
+    ],
+    6 => [
+        'url' => 'https://aaa.resdiary.com/',
+        'expect' => [
+            'surface' => 'resdiary.reserve',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '82d5bfefb57c17e1',
+    ],
+    7 => [
+        'url' => 'https://aaaa.bandcamp.com/',
+        'expect' => [
+            'surface' => 'bandcamp.artist',
+            'identifier' => 'aaaa',
+        ],
+        'detector' => 'eab45cdae72b22c4',
+    ],
+    8 => [
+        'url' => 'https://abacus.co/',
+        'expect' => [
+            'surface' => 'abacus.order',
+        ],
+        'detector' => '5eea26da85fc2399',
+    ],
+    9 => [
+        'url' => 'https://acmestore.as.me/',
+        'expect' => [
+            'surface' => 'acuity.book',
+        ],
+        'detector' => 'e3d1269985f44b74',
+    ],
+    10 => [
+        'url' => 'https://acmestore.gettimely.com/',
+        'expect' => [
+            'surface' => 'timely.book',
+        ],
+        'detector' => 'f521d831f543093a',
+    ],
+    11 => [
+        'url' => 'https://acmestore.nowbookit.com/?accountid=100000&venueid=100001',
+        'expect' => [
+            'surface' => 'nowbookit.reserve',
+        ],
+        'detector' => '61b7c316fdcaa81d',
+    ],
+    12 => [
+        'url' => 'https://acmestore.setmore.com/',
+        'expect' => [
+            'surface' => 'setmore.book',
+        ],
+        'detector' => 'cb254f601df38e09',
+    ],
+    13 => [
+        'url' => 'https://acmestore.simplybook.me/',
+        'expect' => [
+            'surface' => 'simplybook_me.book',
+        ],
+        'detector' => 'a102b1090efe3444',
+    ],
+    14 => [
+        'url' => 'https://acmestore.square.site/',
+        'expect' => [
+            'surface' => 'square.book',
+        ],
+        'detector' => '4a177e0bdd28c67f',
+    ],
+    15 => [
+        'url' => 'https://acmestore.square.site/s/order/',
+        'expect' => [
+            'surface' => 'square.order',
+        ],
+        'detector' => '9050e12b984132ba',
+    ],
+    16 => [
+        'url' => 'https://acmestore.youcanbook.me/',
+        'expect' => [
+            'surface' => 'youcanbookme.book',
+        ],
+        'detector' => '9e6abeeb345bb38c',
+    ],
+    17 => [
+        'url' => 'https://acuityscheduling.com/',
+        'expect' => [
+            'surface' => 'acuity.book',
+        ],
+        'detector' => '7c8853389c4e92a1',
+    ],
+    18 => [
+        'url' => 'https://admitone.com/',
+        'expect' => [
+            'surface' => 'admitone.tickets',
+        ],
+        'detector' => '1208c937fd429faf',
+    ],
+    19 => [
+        'url' => 'https://admitonelive.com/',
+        'expect' => [
+            'surface' => 'admitone.tickets',
+        ],
+        'detector' => '7033a9351e28cde9',
+    ],
+    20 => [
+        'url' => 'https://app.google/',
+        'expect' => [
+            'surface' => 'google_appointments.book',
+        ],
+        'detector' => '5644cedd176de3b3',
+    ],
+    21 => [
+        'url' => 'https://audiomack.com/aa',
+        'expect' => [
+            'surface' => 'audiomack.artist',
+            'identifier' => 'aa',
+        ],
+        'detector' => 'a6220fc75e15b1bc',
+    ],
+    22 => [
+        'url' => 'https://bandsintown.com/a/1',
+        'expect' => [
+            'surface' => 'bandsintown.artist',
+            'identifier' => '1',
+        ],
+        'detector' => '54d143c662208cab',
+    ],
+    23 => [
+        'url' => 'https://bark.com/en/aa/company/aaa',
+        'expect' => [
+            'surface' => 'bark.company',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '092a1463f2bd7e57',
+    ],
+    24 => [
+        'url' => 'https://beatport.com/artist/aaa/1',
+        'expect' => [
+            'surface' => 'beatport.artist',
+            'identifier' => '1',
+        ],
+        'detector' => 'a2e82df0265c1cf2',
+    ],
+    25 => [
+        'url' => 'https://behance.net/',
+        'expect' => [
+            'surface' => 'behance.profile',
+        ],
+        'detector' => 'd74e4646da084b67',
+    ],
+    26 => [
+        'url' => 'https://behance.net/aa',
+        'expect' => [
+            'surface' => 'behance.profile',
+            'identifier' => 'aa',
+        ],
+        'detector' => '8081071a53da2f5c',
+    ],
+    27 => [
+        'url' => 'https://bellabooking.com/',
+        'expect' => [
+            'surface' => 'bella_booking.book',
+        ],
+        'detector' => '0ec0dc6194b16602',
+    ],
+    28 => [
+        'url' => 'https://book.app/',
+        'expect' => [
+            'surface' => 'ovatu.book',
+        ],
+        'detector' => '49b8699165aa79db',
+    ],
+    29 => [
+        'url' => 'https://booksy.com/',
+        'expect' => [
+            'surface' => 'booksy.book',
+        ],
+        'detector' => '86bb8fa004146298',
+    ],
+    30 => [
+        'url' => 'https://bookwell.com.au/',
+        'expect' => [
+            'surface' => 'bookwell.book',
+        ],
+        'detector' => 'f48edcc99323a839',
+    ],
+    31 => [
+        'url' => 'https://bopple.app/',
+        'expect' => [
+            'surface' => 'bopple.order',
+        ],
+        'detector' => 'd28d552aaa1cf946',
+    ],
+    32 => [
+        'url' => 'https://bopple.com/',
+        'expect' => [
+            'surface' => 'bopple.order',
+        ],
+        'detector' => '4e3ca5bb3000384e',
+    ],
+    33 => [
+        'url' => 'https://bopple.me/',
+        'expect' => [
+            'surface' => 'bopple.order',
+        ],
+        'detector' => '3caa16e5cecbe1c3',
+    ],
+    34 => [
+        'url' => 'https://boulevard.io/',
+        'expect' => [
+            'surface' => 'boulevard.book',
+        ],
+        'detector' => '1444b9094dbe290e',
+    ],
+    35 => [
+        'url' => 'https://bsky.app/profile/a',
+        'expect' => [
+            'surface' => 'bluesky.profile',
+            'identifier' => 'a',
+        ],
+        'detector' => '91ad4e2a04b4d1b4',
+    ],
+    36 => [
+        'url' => 'https://buy.stripe.com/aaaaaaaa',
+        'expect' => [
+            'surface' => 'stripe.payment_link',
+        ],
+        'detector' => 'abdf126c7c3f9024',
+    ],
+    37 => [
+        'url' => 'https://buymeacoffee.com/',
+        'expect' => [
+            'surface' => 'buymeacoffee.page',
+        ],
+        'detector' => 'f60f728146b1ba98',
+    ],
+    38 => [
+        'url' => 'https://buymeacoffee.com/aa',
+        'expect' => [
+            'surface' => 'buymeacoffee.page',
+            'identifier' => 'aa',
+        ],
+        'detector' => '9583ecab2b38c9bf',
+    ],
+    39 => [
+        'url' => 'https://cal.com/aa',
+        'expect' => [
+            'surface' => 'cal_com.book',
+            'identifier' => 'aa',
+        ],
+        'detector' => '4b133d61c8ba4884',
+    ],
+    40 => [
+        'url' => 'https://calendly.com/aa',
+        'expect' => [
+            'surface' => 'calendly.book',
+            'identifier' => 'aa',
+        ],
+        'detector' => '0f419bcb5f7a6d86',
+    ],
+    41 => [
+        'url' => 'https://cameo.com/aa',
+        'expect' => [
+            'surface' => 'cameo.profile',
+            'identifier' => 'aa',
+        ],
+        'detector' => 'f29abc5d11e9b2a6',
+    ],
+    42 => [
+        'url' => 'https://cash.app/$a',
+        'expect' => [
+            'surface' => 'cash_app.profile',
+            'identifier' => 'a',
+        ],
+        'detector' => 'cca6b267125aa403',
+    ],
+    43 => [
+        'url' => 'https://chope.co/',
+        'expect' => [
+            'surface' => 'chope.reserve',
+        ],
+        'detector' => 'f6c548a1dd086076',
+    ],
+    44 => [
+        'url' => 'https://chownow.com/',
+        'expect' => [
+            'surface' => 'chownow.order',
+        ],
+        'detector' => '974d921f573a3c00',
+    ],
+    45 => [
+        'url' => 'https://classpass.com/studios/aaa',
+        'expect' => [
+            'surface' => 'classpass.book',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '4231517e774169bb',
+    ],
+    46 => [
+        'url' => 'https://cliniko.com/',
+        'expect' => [
+            'surface' => 'cliniko.book',
+        ],
+        'detector' => 'd39bf87ebb18a29e',
+    ],
+    47 => [
+        'url' => 'https://codepen.io/',
+        'expect' => [
+            'surface' => 'codepen.profile',
+        ],
+        'detector' => '0d7e3d213bbccec3',
+    ],
+    48 => [
+        'url' => 'https://codepen.io/aa',
+        'expect' => [
+            'surface' => 'codepen.profile',
+            'identifier' => 'aa',
+        ],
+        'detector' => '851d4090d83d957f',
+    ],
+    49 => [
+        'url' => 'https://dailymotion.com/aa',
+        'expect' => [
+            'surface' => 'dailymotion.channel',
+            'identifier' => 'aa',
+        ],
+        'detector' => '1f802cb87a6b995e',
+    ],
+    50 => [
+        'url' => 'https://deezer.com/artist/1',
+        'expect' => [
+            'surface' => 'deezer.artist',
+            'identifier' => '1',
+        ],
+        'detector' => 'b8cbb2a0298bef31',
+    ],
+    51 => [
+        'url' => 'https://deliveroo.ae/',
+        'expect' => [
+            'surface' => 'deliveroo.order',
+        ],
+        'detector' => 'ebb60595a01863b9',
+    ],
+    52 => [
+        'url' => 'https://deliveroo.be/',
+        'expect' => [
+            'surface' => 'deliveroo.order',
+        ],
+        'detector' => '70263737f68dc13f',
+    ],
+    53 => [
+        'url' => 'https://deliveroo.co.uk/',
+        'expect' => [
+            'surface' => 'deliveroo.order',
+        ],
+        'detector' => '9a48e95ab320babb',
+    ],
+    54 => [
+        'url' => 'https://deliveroo.com.kw/',
+        'expect' => [
+            'surface' => 'deliveroo.order',
+        ],
+        'detector' => 'a806daede3d53fc1',
+    ],
+    55 => [
+        'url' => 'https://deliveroo.com/',
+        'expect' => [
+            'surface' => 'deliveroo.order',
+        ],
+        'detector' => 'da9bd2a660f0c555',
+    ],
+    56 => [
+        'url' => 'https://deliveroo.fr/',
+        'expect' => [
+            'surface' => 'deliveroo.order',
+        ],
+        'detector' => 'ef85029ad161dd7c',
+    ],
+    57 => [
+        'url' => 'https://deliveroo.hk/',
+        'expect' => [
+            'surface' => 'deliveroo.order',
+        ],
+        'detector' => 'a95288728db0332f',
+    ],
+    58 => [
+        'url' => 'https://deliveroo.ie/',
+        'expect' => [
+            'surface' => 'deliveroo.order',
+        ],
+        'detector' => '3e59c38c24c3ac73',
+    ],
+    59 => [
+        'url' => 'https://deliveroo.it/',
+        'expect' => [
+            'surface' => 'deliveroo.order',
+        ],
+        'detector' => '397410c232c55c56',
+    ],
+    60 => [
+        'url' => 'https://deliveroo.nl/',
+        'expect' => [
+            'surface' => 'deliveroo.order',
+        ],
+        'detector' => 'ac30eb257f49cb7a',
+    ],
+    61 => [
+        'url' => 'https://deliveroo.qa/',
+        'expect' => [
+            'surface' => 'deliveroo.order',
+        ],
+        'detector' => '05b4e6dbfec27419',
+    ],
+    62 => [
+        'url' => 'https://deliveroo.sg/',
+        'expect' => [
+            'surface' => 'deliveroo.order',
+        ],
+        'detector' => '5002f3318cc6964c',
+    ],
+    63 => [
+        'url' => 'https://depop.com/aaa',
+        'expect' => [
+            'surface' => 'depop.shop',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '4578a9be3e0e4eeb',
+    ],
+    64 => [
+        'url' => 'https://dice.fm/artist/aaa',
+        'expect' => [
+            'surface' => 'dice.events',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '5dba8f18ed90fc88',
+    ],
+    65 => [
+        'url' => 'https://discord.com/invite/aa',
+        'expect' => [
+            'surface' => 'discord.server',
+            'identifier' => 'aa',
+        ],
+        'detector' => '4b7d5ee5547c1bee',
+    ],
+    66 => [
+        'url' => 'https://discord.gg/aa',
+        'expect' => [
+            'surface' => 'discord.server',
+            'identifier' => 'aa',
+        ],
+        'detector' => 'e6529ff88ed263ed',
+    ],
+    67 => [
+        'url' => 'https://doordash.com/',
+        'expect' => [
+            'surface' => 'doordash.order',
+        ],
+        'detector' => 'ee08e818423fce07',
+    ],
+    68 => [
+        'url' => 'https://dribbble.com/',
+        'expect' => [
+            'surface' => 'dribbble.profile',
+        ],
+        'detector' => '04d4e29145001e2d',
+    ],
+    69 => [
+        'url' => 'https://dribbble.com/aa',
+        'expect' => [
+            'surface' => 'dribbble.profile',
+            'identifier' => 'aa',
+        ],
+        'detector' => '08ecfc32ac9373c7',
+    ],
+    70 => [
+        'url' => 'https://easi.com.au/',
+        'expect' => [
+            'surface' => 'easi.order',
+        ],
+        'detector' => 'fe1768d5b84af90b',
+    ],
+    71 => [
+        'url' => 'https://easi.com/',
+        'expect' => [
+            'surface' => 'easi.order',
+        ],
+        'detector' => '35eb911b487cdeb4',
+    ],
+    72 => [
+        'url' => 'https://easiglobal.com.au/',
+        'expect' => [
+            'surface' => 'easi.order',
+        ],
+        'detector' => 'fc8f7818b7e2d8c0',
+    ],
+    73 => [
+        'url' => 'https://easiglobal.com/',
+        'expect' => [
+            'surface' => 'easi.order',
+        ],
+        'detector' => '7ef4dc73dfd9d6ed',
+    ],
+    74 => [
+        'url' => 'https://eatapp.co/',
+        'expect' => [
+            'surface' => 'eat_app.reserve',
+        ],
+        'detector' => 'ec532214474a4231',
+    ],
+    75 => [
+        'url' => 'https://etix.com/',
+        'expect' => [
+            'surface' => 'etix.tickets',
+        ],
+        'detector' => '212d4b87220e6de9',
+    ],
+    76 => [
+        'url' => 'https://etsy.com/shop/aaa',
+        'expect' => [
+            'surface' => 'etsy.shop',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '24664939a435cd2c',
+    ],
+    77 => [
+        'url' => 'https://eventbrite.at/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'c21a1c551c74fb12',
+    ],
+    78 => [
+        'url' => 'https://eventbrite.be/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '857e8d0ee76896d5',
+    ],
+    79 => [
+        'url' => 'https://eventbrite.ca/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'f1207b110d8a574c',
+    ],
+    80 => [
+        'url' => 'https://eventbrite.ch/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '78b730edddfebfcc',
+    ],
+    81 => [
+        'url' => 'https://eventbrite.cl/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '7e4e48852de3ba18',
+    ],
+    82 => [
+        'url' => 'https://eventbrite.co.nz/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'ccde0626098cb3aa',
+    ],
+    83 => [
+        'url' => 'https://eventbrite.co.uk/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '06dc09c86978ce76',
+    ],
+    84 => [
+        'url' => 'https://eventbrite.com.ar/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'e59da6a4900b6e16',
+    ],
+    85 => [
+        'url' => 'https://eventbrite.com.au/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '99eae40c346bff77',
+    ],
+    86 => [
+        'url' => 'https://eventbrite.com.br/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'fe173955c987fc53',
+    ],
+    87 => [
+        'url' => 'https://eventbrite.com.mx/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '59eaf500f7099365',
+    ],
+    88 => [
+        'url' => 'https://eventbrite.com.pe/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '8cd95891b46792e3',
+    ],
+    89 => [
+        'url' => 'https://eventbrite.com/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '54ea502d930a97d3',
+    ],
+    90 => [
+        'url' => 'https://eventbrite.de/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'bb9b47ca0f5aa946',
+    ],
+    91 => [
+        'url' => 'https://eventbrite.dk/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'f4906c207c970c22',
+    ],
+    92 => [
+        'url' => 'https://eventbrite.es/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '0ea407e59eea50da',
+    ],
+    93 => [
+        'url' => 'https://eventbrite.fi/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '10aac11f63244067',
+    ],
+    94 => [
+        'url' => 'https://eventbrite.fr/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '72760a96e4658694',
+    ],
+    95 => [
+        'url' => 'https://eventbrite.hk/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'cefb850f8b65dd7b',
+    ],
+    96 => [
+        'url' => 'https://eventbrite.ie/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '5fd51f6e27750b4c',
+    ],
+    97 => [
+        'url' => 'https://eventbrite.it/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'd33585026ef6cec6',
+    ],
+    98 => [
+        'url' => 'https://eventbrite.nl/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '4c8e12bdb6478eed',
+    ],
+    99 => [
+        'url' => 'https://eventbrite.pt/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '7695e14eada2946a',
+    ],
+    100 => [
+        'url' => 'https://eventbrite.se/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'b0328a72b0830987',
+    ],
+    101 => [
+        'url' => 'https://eventbrite.sg/o/aaa',
+        'expect' => [
+            'surface' => 'eventbrite.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'cfef92de2beeabc3',
+    ],
+    102 => [
+        'url' => 'https://eventfinda.co.nz/',
+        'expect' => [
+            'surface' => 'eventfinda.tickets',
+        ],
+        'detector' => 'e8e113cd62a6447a',
+    ],
+    103 => [
+        'url' => 'https://eventfinda.com.au/',
+        'expect' => [
+            'surface' => 'eventfinda.tickets',
+        ],
+        'detector' => '2c6205d5d2987788',
+    ],
+    104 => [
+        'url' => 'https://eventfinda.com/',
+        'expect' => [
+            'surface' => 'eventfinda.tickets',
+        ],
+        'detector' => 'def71f08fef9d791',
+    ],
+    105 => [
+        'url' => 'https://eventim.co.uk/',
+        'expect' => [
+            'surface' => 'eventim.tickets',
+        ],
+        'detector' => '3cfd280c5daa38cd',
+    ],
+    106 => [
+        'url' => 'https://eventim.com/',
+        'expect' => [
+            'surface' => 'eventim.tickets',
+        ],
+        'detector' => '139dbf6ec3077a6a',
+    ],
+    107 => [
+        'url' => 'https://eventim.de/',
+        'expect' => [
+            'surface' => 'eventim.tickets',
+        ],
+        'detector' => 'c01f69f5e7194db5',
+    ],
+    108 => [
+        'url' => 'https://eventim.fr/',
+        'expect' => [
+            'surface' => 'eventim.tickets',
+        ],
+        'detector' => 'ab1b2246077326d6',
+    ],
+    109 => [
+        'url' => 'https://eventim.nl/',
+        'expect' => [
+            'surface' => 'eventim.tickets',
+        ],
+        'detector' => 'ea99e46d76357b75',
+    ],
+    110 => [
+        'url' => 'https://eventim.pl/',
+        'expect' => [
+            'surface' => 'eventim.tickets',
+        ],
+        'detector' => '083dabdeecae488f',
+    ],
+    111 => [
+        'url' => 'https://exploretock.com/',
+        'expect' => [
+            'surface' => 'tock.reserve',
+        ],
+        'detector' => '239ba76ca60118b8',
+    ],
+    112 => [
+        'url' => 'https://exploretock.com/aa',
+        'expect' => [
+            'surface' => 'tock.reserve',
+            'identifier' => 'aa',
+        ],
+        'detector' => '9ebabc7fa2eaa514',
+    ],
+    113 => [
+        'url' => 'https://facebook.com/a',
+        'expect' => [
+            'surface' => 'facebook.profile',
+            'identifier' => 'a',
+        ],
+        'detector' => 'd78e03ab1ac96210',
+    ],
+    114 => [
+        'url' => 'https://fareharbor.com/',
+        'expect' => [
+            'surface' => 'fareharbor.book',
+        ],
+        'detector' => '675c0ed455642038',
+    ],
+    115 => [
+        'url' => 'https://fb.com/a',
+        'expect' => [
+            'surface' => 'facebook.profile',
+            'identifier' => 'a',
+        ],
+        'detector' => '12b9e37ba910d214',
+    ],
+    116 => [
+        'url' => 'https://feature.fm/',
+        'expect' => [
+            'surface' => 'feature_fm.release',
+        ],
+        'detector' => 'a64733da7f7387b4',
+    ],
+    117 => [
+        'url' => 'https://ffm.to/',
+        'expect' => [
+            'surface' => 'feature_fm.release',
+        ],
+        'detector' => 'fc6ca35730c06922',
+    ],
+    118 => [
+        'url' => 'https://fiverr.com/aaa',
+        'expect' => [
+            'surface' => 'fiverr.profile',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '233ab86edb7507a6',
+    ],
+    119 => [
+        'url' => 'https://flickr.com/photos/aa',
+        'expect' => [
+            'surface' => 'flickr.photos',
+            'identifier' => 'aa',
+        ],
+        'detector' => '348e8438b852aa15',
+    ],
+    120 => [
+        'url' => 'https://fresha.com/a/aaa',
+        'expect' => [
+            'surface' => 'fresha.book',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'cb5525db472c96a4',
+    ],
+    121 => [
+        'url' => 'https://genbook.com/',
+        'expect' => [
+            'surface' => 'genbook.book',
+        ],
+        'detector' => '3208a1e9edd198b2',
+    ],
+    122 => [
+        'url' => 'https://github.com/',
+        'expect' => [
+            'surface' => 'github.profile',
+        ],
+        'detector' => 'b6c3381b02805e19',
+    ],
+    123 => [
+        'url' => 'https://github.com/aa',
+        'expect' => [
+            'surface' => 'github.profile',
+            'identifier' => 'aa',
+        ],
+        'detector' => 'b19f46863fac33c6',
+    ],
+    124 => [
+        'url' => 'https://gitlab.com/',
+        'expect' => [
+            'surface' => 'gitlab.profile',
+        ],
+        'detector' => '183447e28bf2106c',
+    ],
+    125 => [
+        'url' => 'https://gitlab.com/aa',
+        'expect' => [
+            'surface' => 'gitlab.profile',
+            'identifier' => 'aa',
+        ],
+        'detector' => '3a883afeae0ffb24',
+    ],
+    126 => [
+        'url' => 'https://glossgenius.com/',
+        'expect' => [
+            'surface' => 'glossgenius.book',
+        ],
+        'detector' => '58b11f030ba773d9',
+    ],
+    127 => [
+        'url' => 'https://google.com/calendar/appointments',
+        'expect' => [
+            'surface' => 'google_appointments.book',
+        ],
+        'detector' => '5b05914c4d6e635c',
+    ],
+    128 => [
+        'url' => 'https://grubhub.com/',
+        'expect' => [
+            'surface' => 'grubhub.order',
+        ],
+        'detector' => 'aeb8fbf2eb83b6a6',
+    ],
+    129 => [
+        'url' => 'https://gumroad.com/',
+        'expect' => [
+            'surface' => 'gumroad.store',
+        ],
+        'detector' => '0b4b9a4c1636dbe4',
+    ],
+    130 => [
+        'url' => 'https://halaxy.com/',
+        'expect' => [
+            'surface' => 'halaxy.book',
+        ],
+        'detector' => 'f8c7c4da29c5a248',
+    ],
+    131 => [
+        'url' => 'https://heyyou.com.au/',
+        'expect' => [
+            'surface' => 'hey_you.order',
+        ],
+        'detector' => '5eb31939d6717b67',
+    ],
+    132 => [
+        'url' => 'https://heyzine.com/',
+        'expect' => [
+            'surface' => 'heyzine.publication',
+        ],
+        'detector' => 'cf4fe9ec6ab15298',
+    ],
+    133 => [
+        'url' => 'https://hflip.co/',
+        'expect' => [
+            'surface' => 'heyzine.publication',
+        ],
+        'detector' => 'bf721858f5656dfc',
+    ],
+    134 => [
+        'url' => 'https://hotdoc.com.au/',
+        'expect' => [
+            'surface' => 'hotdoc.book',
+        ],
+        'detector' => 'aa86373960ff3953',
+    ],
+    135 => [
+        'url' => 'https://houzz.com.au/professionals/aaa/aaa',
+        'expect' => [
+            'surface' => 'houzz.pro',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '796978399b9de232',
+    ],
+    136 => [
+        'url' => 'https://houzz.com/professionals/aaa/aaa',
+        'expect' => [
+            'surface' => 'houzz.pro',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'e3d40499f15e17c6',
+    ],
+    137 => [
+        'url' => 'https://humanitix.com/host/aaa',
+        'expect' => [
+            'surface' => 'humanitix.organiser',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '4956e516be3b66c5',
+    ],
+    138 => [
+        'url' => 'https://hungrypanda.co/',
+        'expect' => [
+            'surface' => 'hungrypanda.order',
+        ],
+        'detector' => 'd76893ba620b3281',
+    ],
+    139 => [
+        'url' => 'https://hypeddit.com/',
+        'expect' => [
+            'surface' => 'hypeddit.release',
+        ],
+        'detector' => '8953cbfd5e452856',
+    ],
+    140 => [
+        'url' => 'https://instagram.com/a',
+        'expect' => [
+            'surface' => 'instagram.profile',
+            'identifier' => 'a',
+        ],
+        'detector' => '87d16f0666ed1999',
+    ],
+    141 => [
+        'url' => 'https://janeapp.com/',
+        'expect' => [
+            'surface' => 'jane_app.book',
+        ],
+        'detector' => '721cf7340e7d59d5',
+    ],
+    142 => [
+        'url' => 'https://joinblvd.com/',
+        'expect' => [
+            'surface' => 'boulevard.book',
+        ],
+        'detector' => 'e41f09f90ecd8c99',
+    ],
+    143 => [
+        'url' => 'https://just-eat.ch/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => 'bb58273c26e364cc',
+    ],
+    144 => [
+        'url' => 'https://just-eat.co.uk/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => '76aa62cb03d7624d',
+    ],
+    145 => [
+        'url' => 'https://just-eat.com/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => 'bcbc54297d5f6977',
+    ],
+    146 => [
+        'url' => 'https://just-eat.dk/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => '6d3b32c19fc720ce',
+    ],
+    147 => [
+        'url' => 'https://just-eat.es/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => 'ef5255bee2a2f499',
+    ],
+    148 => [
+        'url' => 'https://just-eat.fr/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => '20d6afa5758123de',
+    ],
+    149 => [
+        'url' => 'https://just-eat.ie/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => '3b7d53ce57615f1b',
+    ],
+    150 => [
+        'url' => 'https://just-eat.it/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => 'e64a04db96abf0de',
+    ],
+    151 => [
+        'url' => 'https://just-eat.lu/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => '6ea9978982cb2858',
+    ],
+    152 => [
+        'url' => 'https://just-eat.no/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => 'c9538023314246ec',
+    ],
+    153 => [
+        'url' => 'https://justeat.ch/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => 'b04b0380b9670bea',
+    ],
+    154 => [
+        'url' => 'https://justeat.co.uk/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => '8528c3162eb1cf46',
+    ],
+    155 => [
+        'url' => 'https://justeat.com/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => '8f32929b96c3e0e4',
+    ],
+    156 => [
+        'url' => 'https://justeat.dk/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => 'b8ad6ee96fe73899',
+    ],
+    157 => [
+        'url' => 'https://justeat.es/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => 'b08ab37da47f29df',
+    ],
+    158 => [
+        'url' => 'https://justeat.fr/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => 'fa8d288e0dd1df23',
+    ],
+    159 => [
+        'url' => 'https://justeat.ie/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => 'ea5ca117d0f8f11a',
+    ],
+    160 => [
+        'url' => 'https://justeat.it/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => 'ae388a8c2eb465e5',
+    ],
+    161 => [
+        'url' => 'https://justeat.lu/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => 'e68ee5e08f10bfee',
+    ],
+    162 => [
+        'url' => 'https://justeat.no/',
+        'expect' => [
+            'surface' => 'just_eat.order',
+        ],
+        'detector' => '3655b27f5b99ea79',
+    ],
+    163 => [
+        'url' => 'https://kick.com/aaa',
+        'expect' => [
+            'surface' => 'kick.channel',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '77ca38fc36e5401f',
+    ],
+    164 => [
+        'url' => 'https://kitomba.com/',
+        'expect' => [
+            'surface' => 'kitomba.book',
+        ],
+        'detector' => 'e0ffa0738483e4e5',
+    ],
+    165 => [
+        'url' => 'https://ko-fi.com/',
+        'expect' => [
+            'surface' => 'ko_fi.page',
+        ],
+        'detector' => 'fe90cb898c3bdfda',
+    ],
+    166 => [
+        'url' => 'https://ko-fi.com/aa',
+        'expect' => [
+            'surface' => 'ko_fi.page',
+            'identifier' => 'aa',
+        ],
+        'detector' => 'e99acec5f19f92f6',
+    ],
+    167 => [
+        'url' => 'https://laylo.com/',
+        'expect' => [
+            'surface' => 'laylo.drop',
+        ],
+        'detector' => '312ee55ab7d2d088',
+    ],
+    168 => [
+        'url' => 'https://libro.fm/',
+        'expect' => [
+            'surface' => 'libro_fm.store',
+        ],
+        'detector' => '69b8aceb6c6b6cc1',
+    ],
+    169 => [
+        'url' => 'https://linkedin.com/in/aa',
+        'expect' => [
+            'surface' => 'linkedin.profile',
+            'identifier' => 'aa',
+        ],
+        'detector' => '75556c5a19e1eba2',
+    ],
+    170 => [
+        'url' => 'https://linkfire.com/',
+        'expect' => [
+            'surface' => 'linkfire.release',
+        ],
+        'detector' => 'dcab1b2fbc7ade36',
+    ],
+    171 => [
+        'url' => 'https://lnk.to/',
+        'expect' => [
+            'surface' => 'linkfire.release',
+        ],
+        'detector' => 'e9d6bc3cda5efe0c',
+    ],
+    172 => [
+        'url' => 'https://lu.ma/user/aa',
+        'expect' => [
+            'surface' => 'luma.calendar',
+            'identifier' => 'aa',
+        ],
+        'detector' => '78c2099e5558ad1f',
+    ],
+    173 => [
+        'url' => 'https://mangomint.com/',
+        'expect' => [
+            'surface' => 'mangomint.book',
+        ],
+        'detector' => '8bcc43fde2f555f8',
+    ],
+    174 => [
+        'url' => 'https://meandu.com/',
+        'expect' => [
+            'surface' => 'mr_yum.order',
+        ],
+        'detector' => '57f63ca7d8e03255',
+    ],
+    175 => [
+        'url' => 'https://medium.com/@aa',
+        'expect' => [
+            'surface' => 'medium.profile',
+            'identifier' => 'aa',
+        ],
+        'detector' => '1e90b50adf18becf',
+    ],
+    176 => [
+        'url' => 'https://megatix.com.au/',
+        'expect' => [
+            'surface' => 'megatix.tickets',
+        ],
+        'detector' => 'da86f4028ebed1ed',
+    ],
+    177 => [
+        'url' => 'https://menulog.com.au/',
+        'expect' => [
+            'surface' => 'menulog.order',
+        ],
+        'detector' => 'b8023d95302493ed',
+    ],
+    178 => [
+        'url' => 'https://mindbodyonline.com/',
+        'expect' => [
+            'surface' => 'mindbody.book',
+        ],
+        'detector' => '6cca92df6cece15d',
+    ],
+    179 => [
+        'url' => 'https://mixcloud.com/',
+        'expect' => [
+            'surface' => 'mixcloud.player',
+        ],
+        'detector' => '5f8da8c1d727d9bf',
+    ],
+    180 => [
+        'url' => 'https://mixcloud.com/aa',
+        'expect' => [
+            'surface' => 'mixcloud.player',
+            'identifier' => 'aa',
+        ],
+        'detector' => '1cc4ffe453245fc6',
+    ],
+    181 => [
+        'url' => 'https://moshtix.com.au/',
+        'expect' => [
+            'surface' => 'moshtix.tickets',
+        ],
+        'detector' => 'e3ce25e703402b08',
+    ],
+    182 => [
+        'url' => 'https://mryum.com/',
+        'expect' => [
+            'surface' => 'mr_yum.order',
+        ],
+        'detector' => '06eef592c464ceaf',
+    ],
+    183 => [
+        'url' => 'https://music.apple.com/artist/111',
+        'expect' => [
+            'surface' => 'apple_music.artist',
+            'identifier' => '111',
+        ],
+        'detector' => 'a013bd51e02c8976',
+    ],
+    184 => [
+        'url' => 'https://music.youtube.com/channel/UCaaaaaaaaaaaaaaaaaaaaaa',
+        'expect' => [
+            'surface' => 'youtube_music.channel',
+            'identifier' => 'UCaaaaaaaaaaaaaaaaaaaaaa',
+        ],
+        'detector' => 'd260dead7b0768a3',
+    ],
+    185 => [
+        'url' => 'https://noterro.com/',
+        'expect' => [
+            'surface' => 'noterro.book',
+        ],
+        'detector' => '62486d28216a3e4c',
+    ],
+    186 => [
+        'url' => 'https://obee.com.au/',
+        'expect' => [
+            'surface' => 'obee.reserve',
+        ],
+        'detector' => '6d94e24c6ddaf634',
+    ],
+    187 => [
+        'url' => 'https://obeeapp.com/',
+        'expect' => [
+            'surface' => 'obee.reserve',
+        ],
+        'detector' => 'a4e3b4f785c4bdd3',
+    ],
+    188 => [
+        'url' => 'https://office.com/bookwithme/',
+        'expect' => [
+            'surface' => 'microsoft_bookings.book',
+        ],
+        'detector' => '51ab4431e808a652',
+    ],
+    189 => [
+        'url' => 'https://office365.com/bookings/',
+        'expect' => [
+            'surface' => 'microsoft_bookings.book',
+        ],
+        'detector' => '22b964b81d26e938',
+    ],
+    190 => [
+        'url' => 'https://open.spotify.com/artist/aaa',
+        'expect' => [
+            'surface' => 'spotify.player',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'c8ec1b8650ca53b2',
+    ],
+    191 => [
+        'url' => 'https://opentable.ae/?restRef=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '8ba3a392e622986b',
+    ],
+    192 => [
+        'url' => 'https://opentable.ae/?rid=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => 'bc4dbc0aaa7e0936',
+    ],
+    193 => [
+        'url' => 'https://opentable.ae/restaurant/profile/111',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '111',
+        ],
+        'detector' => 'f41ad20a2e9b9d84',
+    ],
+    194 => [
+        'url' => 'https://opentable.at/?restRef=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => 'cd5977093c8d3768',
+    ],
+    195 => [
+        'url' => 'https://opentable.at/?rid=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '99c3fa11e0ae49b8',
+    ],
+    196 => [
+        'url' => 'https://opentable.at/restaurant/profile/111',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '111',
+        ],
+        'detector' => '17a35e751d44af73',
+    ],
+    197 => [
+        'url' => 'https://opentable.ca/?restRef=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => 'af430b15f77238a2',
+    ],
+    198 => [
+        'url' => 'https://opentable.ca/?rid=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '1546dc07ab719f25',
+    ],
+    199 => [
+        'url' => 'https://opentable.ca/restaurant/profile/111',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '111',
+        ],
+        'detector' => '5983a48e72449cd3',
+    ],
+    200 => [
+        'url' => 'https://opentable.co.th/?restRef=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '8d1109289710ea27',
+    ],
+    201 => [
+        'url' => 'https://opentable.co.th/?rid=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => 'e1991bead500c8ec',
+    ],
+    202 => [
+        'url' => 'https://opentable.co.th/restaurant/profile/111',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '111',
+        ],
+        'detector' => '3d3e73d705ae78f3',
+    ],
+    203 => [
+        'url' => 'https://opentable.co.uk/?restRef=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '50a20d159e784aec',
+    ],
+    204 => [
+        'url' => 'https://opentable.co.uk/?rid=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => 'c7fabf59c5a481ee',
+    ],
+    205 => [
+        'url' => 'https://opentable.co.uk/restaurant/profile/111',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '111',
+        ],
+        'detector' => 'bebbbbe2c2f6bc99',
+    ],
+    206 => [
+        'url' => 'https://opentable.com.au/?restRef=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '0db07f6e1bc44f87',
+    ],
+    207 => [
+        'url' => 'https://opentable.com.au/?rid=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '9e785905e6ad67d6',
+    ],
+    208 => [
+        'url' => 'https://opentable.com.au/restaurant/profile/111',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '111',
+        ],
+        'detector' => '3f2a5d74611b25d1',
+    ],
+    209 => [
+        'url' => 'https://opentable.com.mx/?restRef=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '89d5bc6da67eb3c6',
+    ],
+    210 => [
+        'url' => 'https://opentable.com.mx/?rid=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '0ea9147e0bb3426a',
+    ],
+    211 => [
+        'url' => 'https://opentable.com.mx/restaurant/profile/111',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '111',
+        ],
+        'detector' => '5d74763657eb65c4',
+    ],
+    212 => [
+        'url' => 'https://opentable.com/?restRef=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '9eda6310b42ff63a',
+    ],
+    213 => [
+        'url' => 'https://opentable.com/?rid=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '4649197e747236e0',
+    ],
+    214 => [
+        'url' => 'https://opentable.com/restaurant/profile/111',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '111',
+        ],
+        'detector' => 'e2b6f3d2721b2f10',
+    ],
+    215 => [
+        'url' => 'https://opentable.de/?restRef=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => 'af02e226ad4ae6df',
+    ],
+    216 => [
+        'url' => 'https://opentable.de/?rid=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '788fff533be07e90',
+    ],
+    217 => [
+        'url' => 'https://opentable.de/restaurant/profile/111',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '111',
+        ],
+        'detector' => '98525c21146dec16',
+    ],
+    218 => [
+        'url' => 'https://opentable.es/?restRef=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => 'c2d69a6dff5f6425',
+    ],
+    219 => [
+        'url' => 'https://opentable.es/?rid=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '1f691d33d6f225d3',
+    ],
+    220 => [
+        'url' => 'https://opentable.es/restaurant/profile/111',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '111',
+        ],
+        'detector' => '20e93bbba530d7cd',
+    ],
+    221 => [
+        'url' => 'https://opentable.hk/?restRef=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '7b522cf1dd385dcf',
+    ],
+    222 => [
+        'url' => 'https://opentable.hk/?rid=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '64aba0369a8ada33',
+    ],
+    223 => [
+        'url' => 'https://opentable.hk/restaurant/profile/111',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '111',
+        ],
+        'detector' => '3a1e7a568d1049bb',
+    ],
+    224 => [
+        'url' => 'https://opentable.ie/?restRef=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => 'eeee30225a3ffe82',
+    ],
+    225 => [
+        'url' => 'https://opentable.ie/?rid=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '36a8f03ebae019f8',
+    ],
+    226 => [
+        'url' => 'https://opentable.ie/restaurant/profile/111',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '111',
+        ],
+        'detector' => '8b7dd98a090b9c4b',
+    ],
+    227 => [
+        'url' => 'https://opentable.it/?restRef=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '43b45d158368b673',
+    ],
+    228 => [
+        'url' => 'https://opentable.it/?rid=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '522df576e2748819',
+    ],
+    229 => [
+        'url' => 'https://opentable.it/restaurant/profile/111',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '111',
+        ],
+        'detector' => '7d735502a86617ca',
+    ],
+    230 => [
+        'url' => 'https://opentable.jp/?restRef=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '2fc431ee6b4aed5f',
+    ],
+    231 => [
+        'url' => 'https://opentable.jp/?rid=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => 'c46e110a9bb757e3',
+    ],
+    232 => [
+        'url' => 'https://opentable.jp/restaurant/profile/111',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '111',
+        ],
+        'detector' => 'd29516a29ac31d94',
+    ],
+    233 => [
+        'url' => 'https://opentable.nl/?restRef=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '1d35d37e3a42e0fc',
+    ],
+    234 => [
+        'url' => 'https://opentable.nl/?rid=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => 'cb7c545a50553588',
+    ],
+    235 => [
+        'url' => 'https://opentable.nl/restaurant/profile/111',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '111',
+        ],
+        'detector' => '1f520e3af1ef3b6d',
+    ],
+    236 => [
+        'url' => 'https://opentable.sg/?restRef=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '026b2ec99da6dc0f',
+    ],
+    237 => [
+        'url' => 'https://opentable.sg/?rid=100000',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '100000',
+        ],
+        'detector' => '856f2c7a9f02e9e9',
+    ],
+    238 => [
+        'url' => 'https://opentable.sg/restaurant/profile/111',
+        'expect' => [
+            'surface' => 'opentable.reserve',
+            'identifier' => '111',
+        ],
+        'detector' => '61dc018682c89305',
+    ],
+    239 => [
+        'url' => 'https://orcd.co/',
+        'expect' => [
+            'surface' => 'orchard.release',
+        ],
+        'detector' => 'fe65605d40535e1d',
+    ],
+    240 => [
+        'url' => 'https://order.online/',
+        'expect' => [
+            'surface' => 'order_online.order',
+        ],
+        'detector' => '8f1d87a21601969d',
+    ],
+    241 => [
+        'url' => 'https://ordermate.online/',
+        'expect' => [
+            'surface' => 'ordermate.order',
+        ],
+        'detector' => '0b4d0eb6272930ac',
+    ],
+    242 => [
+        'url' => 'https://ovatu.com/',
+        'expect' => [
+            'surface' => 'ovatu.book',
+        ],
+        'detector' => '55f20100ac6643e3',
+    ],
+    243 => [
+        'url' => 'https://oztix.com.au/',
+        'expect' => [
+            'surface' => 'oztix.tickets',
+        ],
+        'detector' => '716b33f6e22319d8',
+    ],
+    244 => [
+        'url' => 'https://partiful.com/u/aaa',
+        'expect' => [
+            'surface' => 'partiful.events',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'addba2bc7a4fd21c',
+    ],
+    245 => [
+        'url' => 'https://patreon.com/',
+        'expect' => [
+            'surface' => 'patreon.page',
+        ],
+        'detector' => 'ac9bc8854053d831',
+    ],
+    246 => [
+        'url' => 'https://patreon.com/aa',
+        'expect' => [
+            'surface' => 'patreon.page',
+            'identifier' => 'aa',
+        ],
+        'detector' => '7260c9bcc514597b',
+    ],
+    247 => [
+        'url' => 'https://paypal.com/paypalme/aa',
+        'expect' => [
+            'surface' => 'paypal.me',
+            'identifier' => 'aa',
+        ],
+        'detector' => 'd17db85e06ed8d35',
+    ],
+    248 => [
+        'url' => 'https://paypal.me/aa',
+        'expect' => [
+            'surface' => 'paypal.me',
+            'identifier' => 'aa',
+        ],
+        'detector' => '6c3f9bc2fc129f91',
+    ],
+    249 => [
+        'url' => 'https://phorest.com/',
+        'expect' => [
+            'surface' => 'phorest.book',
+        ],
+        'detector' => '9368ab289001f37b',
+    ],
+    250 => [
+        'url' => 'https://pinterest.com/aaa',
+        'expect' => [
+            'surface' => 'pinterest.profile',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '7f05ebab64a5a309',
+    ],
+    251 => [
+        'url' => 'https://podcasts.apple.com/podcast/id111',
+        'expect' => [
+            'surface' => 'apple_podcasts.show',
+            'identifier' => '111',
+        ],
+        'detector' => '649cd477e1185e84',
+    ],
+    252 => [
+        'url' => 'https://postmates.com/',
+        'expect' => [
+            'surface' => 'postmates.order',
+        ],
+        'detector' => '2d87910ff1073d8a',
+    ],
+    253 => [
+        'url' => 'https://productreview.com.au/listings/aaa',
+        'expect' => [
+            'surface' => 'productreview.listing',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '0c41b690787df8e7',
+    ],
+    254 => [
+        'url' => 'https://quandoo.at/',
+        'expect' => [
+            'surface' => 'quandoo.reserve',
+        ],
+        'detector' => 'ba97caaff5f8e45c',
+    ],
+    255 => [
+        'url' => 'https://quandoo.ch/',
+        'expect' => [
+            'surface' => 'quandoo.reserve',
+        ],
+        'detector' => '3b1be6a8182b8039',
+    ],
+    256 => [
+        'url' => 'https://quandoo.co.uk/',
+        'expect' => [
+            'surface' => 'quandoo.reserve',
+        ],
+        'detector' => 'dab1fbfb8661067d',
+    ],
+    257 => [
+        'url' => 'https://quandoo.com.au/',
+        'expect' => [
+            'surface' => 'quandoo.reserve',
+        ],
+        'detector' => '693412fc531e6da3',
+    ],
+    258 => [
+        'url' => 'https://quandoo.com/',
+        'expect' => [
+            'surface' => 'quandoo.reserve',
+        ],
+        'detector' => 'ee929d5600771559',
+    ],
+    259 => [
+        'url' => 'https://quandoo.de/',
+        'expect' => [
+            'surface' => 'quandoo.reserve',
+        ],
+        'detector' => '4cf12025413842a5',
+    ],
+    260 => [
+        'url' => 'https://quandoo.fi/',
+        'expect' => [
+            'surface' => 'quandoo.reserve',
+        ],
+        'detector' => '001fd6d5b07a7d87',
+    ],
+    261 => [
+        'url' => 'https://quandoo.hk/',
+        'expect' => [
+            'surface' => 'quandoo.reserve',
+        ],
+        'detector' => 'b5c3ec57575b3b7f',
+    ],
+    262 => [
+        'url' => 'https://quandoo.it/',
+        'expect' => [
+            'surface' => 'quandoo.reserve',
+        ],
+        'detector' => 'ebd07ebefcfb971a',
+    ],
+    263 => [
+        'url' => 'https://quandoo.nl/',
+        'expect' => [
+            'surface' => 'quandoo.reserve',
+        ],
+        'detector' => '105bc0d306d1a903',
+    ],
+    264 => [
+        'url' => 'https://quandoo.sg/',
+        'expect' => [
+            'surface' => 'quandoo.reserve',
+        ],
+        'detector' => '619e127fd887977a',
+    ],
+    265 => [
+        'url' => 'https://ra.co/',
+        'expect' => [
+            'surface' => 'resident_advisor.tickets',
+        ],
+        'detector' => '444ffe8a0fa8709f',
+    ],
+    266 => [
+        'url' => 'https://ra.co/dj/aa',
+        'expect' => [
+            'surface' => 'resident_advisor.tickets',
+            'identifier' => 'aa',
+        ],
+        'detector' => '4ef46120f0239c3b',
+    ],
+    267 => [
+        'url' => 'https://redbubble.com/people/aa',
+        'expect' => [
+            'surface' => 'redbubble.shop',
+            'identifier' => 'aa',
+        ],
+        'detector' => '371ce61e38a98175',
+    ],
+    268 => [
+        'url' => 'https://reddit.com/u/aa',
+        'expect' => [
+            'surface' => 'reddit.profile',
+            'identifier' => 'aa',
+        ],
+        'detector' => '054ffe1abb69e6bb',
+    ],
+    269 => [
+        'url' => 'https://resdiary.com/restaurant/aaa',
+        'expect' => [
+            'surface' => 'resdiary.reserve',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '2bd2087df3ff123a',
+    ],
+    270 => [
+        'url' => 'https://resdiary.com/widget/aaa/aaa',
+        'expect' => [
+            'surface' => 'resdiary.reserve',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '2e4b33528297c23b',
+    ],
+    271 => [
+        'url' => 'https://resy.com/',
+        'expect' => [
+            'surface' => 'resy.reserve',
+        ],
+        'detector' => 'e13599cb38227ab7',
+    ],
+    272 => [
+        'url' => 'https://rezdy.com/',
+        'expect' => [
+            'surface' => 'rezdy.book',
+        ],
+        'detector' => '168e2991df2480ea',
+    ],
+    273 => [
+        'url' => 'https://rumble.com/c/aa',
+        'expect' => [
+            'surface' => 'rumble.channel',
+            'identifier' => 'aa',
+        ],
+        'detector' => '3435affbf3f16e98',
+    ],
+    274 => [
+        'url' => 'https://schedulicity.com/',
+        'expect' => [
+            'surface' => 'schedulicity.book',
+        ],
+        'detector' => '3db2848fdbc3f084',
+    ],
+    275 => [
+        'url' => 'https://seetickets.com/',
+        'expect' => [
+            'surface' => 'see_tickets.tickets',
+        ],
+        'detector' => '6ee7ac923cc46055',
+    ],
+    276 => [
+        'url' => 'https://sevenrooms.com/',
+        'expect' => [
+            'surface' => 'sevenrooms.reserve',
+        ],
+        'detector' => 'c245e4096dc619cf',
+    ],
+    277 => [
+        'url' => 'https://shortcuts.com.au/',
+        'expect' => [
+            'surface' => 'shortcuts.book',
+        ],
+        'detector' => '6928abc0782f6312',
+    ],
+    278 => [
+        'url' => 'https://shortcuts.net/',
+        'expect' => [
+            'surface' => 'shortcuts.book',
+        ],
+        'detector' => 'f2a80713a0c31316',
+    ],
+    279 => [
+        'url' => 'https://simplybook.it/',
+        'expect' => [
+            'surface' => 'simplybook_me.book',
+        ],
+        'detector' => '0492d148a2d30722',
+    ],
+    280 => [
+        'url' => 'https://skiddle.com/',
+        'expect' => [
+            'surface' => 'skiddle.tickets',
+        ],
+        'detector' => '899a958137a1dda7',
+    ],
+    281 => [
+        'url' => 'https://skipthedishes.com/',
+        'expect' => [
+            'surface' => 'skipthedishes.order',
+        ],
+        'detector' => 'fcd0cb4f31067acd',
+    ],
+    282 => [
+        'url' => 'https://slicelife.com/',
+        'expect' => [
+            'surface' => 'slice.order',
+        ],
+        'detector' => '513fb3089dbc9112',
+    ],
+    283 => [
+        'url' => 'https://snapchat.com/add/aaa',
+        'expect' => [
+            'surface' => 'snapchat.profile',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '9cf65cb83dba2bf1',
+    ],
+    284 => [
+        'url' => 'https://songkick.com/artists/1',
+        'expect' => [
+            'surface' => 'songkick.artist',
+            'identifier' => '1',
+        ],
+        'detector' => '11b40990963d324f',
+    ],
+    285 => [
+        'url' => 'https://soundcloud.com/aaa',
+        'expect' => [
+            'surface' => 'soundcloud.player',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '5d1faaba140ed77a',
+    ],
+    286 => [
+        'url' => 'https://square.link/aaaaaa',
+        'expect' => [
+            'surface' => 'square.payment_link',
+        ],
+        'detector' => '72aa9a233221d1ae',
+    ],
+    287 => [
+        'url' => 'https://squarespace.com/',
+        'expect' => [
+            'surface' => 'squarespace.store',
+        ],
+        'detector' => 'c0e240afa37ec5e0',
+    ],
+    288 => [
+        'url' => 'https://squareup.com/',
+        'expect' => [
+            'surface' => 'square.book',
+        ],
+        'detector' => '8991ee8ff4aeb1d5',
+    ],
+    289 => [
+        'url' => 'https://stan.store/aa',
+        'expect' => [
+            'surface' => 'stan.store',
+            'identifier' => 'aa',
+        ],
+        'detector' => '5d0175832e04f6d8',
+    ],
+    290 => [
+        'url' => 'https://strava.com/clubs/aaa',
+        'expect' => [
+            'surface' => 'strava.club',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '448fb3d7693c9029',
+    ],
+    291 => [
+        'url' => 'https://styleseat.com/',
+        'expect' => [
+            'surface' => 'styleseat.book',
+        ],
+        'detector' => 'eea15ecd3aef19b1',
+    ],
+    292 => [
+        'url' => 'https://substack.com/',
+        'expect' => [
+            'surface' => 'substack.publication',
+        ],
+        'detector' => 'fc489321f37fbb1a',
+    ],
+    293 => [
+        'url' => 'https://tablecheck.com/',
+        'expect' => [
+            'surface' => 'tablecheck.reserve',
+        ],
+        'detector' => 'f13c8e2e611a42da',
+    ],
+    294 => [
+        'url' => 'https://tablein.com/',
+        'expect' => [
+            'surface' => 'tablein.reserve',
+        ],
+        'detector' => '4380291f0d1de922',
+    ],
+    295 => [
+        'url' => 'https://telegram.me/aaaaa',
+        'expect' => [
+            'surface' => 'telegram.channel',
+            'identifier' => 'aaaaa',
+        ],
+        'detector' => 'ff54ee98bd6fda4a',
+    ],
+    296 => [
+        'url' => 'https://telegram.org/aaaaa',
+        'expect' => [
+            'surface' => 'telegram.channel',
+            'identifier' => 'aaaaa',
+        ],
+        'detector' => 'e2bab5851bb13bf4',
+    ],
+    297 => [
+        'url' => 'https://thefork.at/',
+        'expect' => [
+            'surface' => 'thefork.reserve',
+        ],
+        'detector' => 'e24ebf8d39eee599',
+    ],
+    298 => [
+        'url' => 'https://thefork.be/',
+        'expect' => [
+            'surface' => 'thefork.reserve',
+        ],
+        'detector' => 'dcf2e811ea0b7666',
+    ],
+    299 => [
+        'url' => 'https://thefork.ch/',
+        'expect' => [
+            'surface' => 'thefork.reserve',
+        ],
+        'detector' => 'a287757eb0d497f9',
+    ],
+    300 => [
+        'url' => 'https://thefork.cl/',
+        'expect' => [
+            'surface' => 'thefork.reserve',
+        ],
+        'detector' => 'b18d73ebf7b7ef3f',
+    ],
+    301 => [
+        'url' => 'https://thefork.co.uk/',
+        'expect' => [
+            'surface' => 'thefork.reserve',
+        ],
+        'detector' => 'b4998c27bfc88e1a',
+    ],
+    302 => [
+        'url' => 'https://thefork.com.ar/',
+        'expect' => [
+            'surface' => 'thefork.reserve',
+        ],
+        'detector' => '0cf61c1e9973c404',
+    ],
+    303 => [
+        'url' => 'https://thefork.com.au/',
+        'expect' => [
+            'surface' => 'thefork.reserve',
+        ],
+        'detector' => '327caa46025b76fe',
+    ],
+    304 => [
+        'url' => 'https://thefork.com.br/',
+        'expect' => [
+            'surface' => 'thefork.reserve',
+        ],
+        'detector' => '58da97b5234b4906',
+    ],
+    305 => [
+        'url' => 'https://thefork.com/',
+        'expect' => [
+            'surface' => 'thefork.reserve',
+        ],
+        'detector' => 'b4d6fceb9afc8ced',
+    ],
+    306 => [
+        'url' => 'https://thefork.de/',
+        'expect' => [
+            'surface' => 'thefork.reserve',
+        ],
+        'detector' => '3b7376435d930976',
+    ],
+    307 => [
+        'url' => 'https://thefork.dk/',
+        'expect' => [
+            'surface' => 'thefork.reserve',
+        ],
+        'detector' => '6f0a93fa69e23359',
+    ],
+    308 => [
+        'url' => 'https://thefork.es/',
+        'expect' => [
+            'surface' => 'thefork.reserve',
+        ],
+        'detector' => '96c44cd3954ecf5e',
+    ],
+    309 => [
+        'url' => 'https://thefork.fr/',
+        'expect' => [
+            'surface' => 'thefork.reserve',
+        ],
+        'detector' => '3f94296aa7196a6d',
+    ],
+    310 => [
+        'url' => 'https://thefork.it/',
+        'expect' => [
+            'surface' => 'thefork.reserve',
+        ],
+        'detector' => 'e7c42ef121fc3634',
+    ],
+    311 => [
+        'url' => 'https://thefork.nl/',
+        'expect' => [
+            'surface' => 'thefork.reserve',
+        ],
+        'detector' => 'a9e60004fa6971fc',
+    ],
+    312 => [
+        'url' => 'https://thefork.pt/',
+        'expect' => [
+            'surface' => 'thefork.reserve',
+        ],
+        'detector' => '84c07ad427eef038',
+    ],
+    313 => [
+        'url' => 'https://thefork.se/',
+        'expect' => [
+            'surface' => 'thefork.reserve',
+        ],
+        'detector' => '08bfdf186659a603',
+    ],
+    314 => [
+        'url' => 'https://threads.com/a',
+        'expect' => [
+            'surface' => 'threads.profile',
+            'identifier' => 'a',
+        ],
+        'detector' => '830dc3cb0c059fdb',
+    ],
+    315 => [
+        'url' => 'https://threads.net/a',
+        'expect' => [
+            'surface' => 'threads.profile',
+            'identifier' => 'a',
+        ],
+        'detector' => 'a77924a4fbb8be6c',
+    ],
+    316 => [
+        'url' => 'https://ticketek.co.nz/',
+        'expect' => [
+            'surface' => 'ticketek.tickets',
+        ],
+        'detector' => '626cc44bd4c8910e',
+    ],
+    317 => [
+        'url' => 'https://ticketek.com.ar/',
+        'expect' => [
+            'surface' => 'ticketek.tickets',
+        ],
+        'detector' => '9951594e05c2f2e2',
+    ],
+    318 => [
+        'url' => 'https://ticketek.com.au/',
+        'expect' => [
+            'surface' => 'ticketek.tickets',
+        ],
+        'detector' => '92cd60a128909592',
+    ],
+    319 => [
+        'url' => 'https://ticketek.com/',
+        'expect' => [
+            'surface' => 'ticketek.tickets',
+        ],
+        'detector' => 'a3c230b1da461743',
+    ],
+    320 => [
+        'url' => 'https://tickethype.com.mt/',
+        'expect' => [
+            'surface' => 'tickethype.tickets',
+        ],
+        'detector' => '82dc332b92f3eba8',
+    ],
+    321 => [
+        'url' => 'https://ticketmaster.ae/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => '03e13970e9d4a4fd',
+    ],
+    322 => [
+        'url' => 'https://ticketmaster.at/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => 'fcc6469808eb7e0b',
+    ],
+    323 => [
+        'url' => 'https://ticketmaster.be/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => 'bd90664c1684fd37',
+    ],
+    324 => [
+        'url' => 'https://ticketmaster.ca/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => '412647742deef43c',
+    ],
+    325 => [
+        'url' => 'https://ticketmaster.ch/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => '62f87001cd0db810',
+    ],
+    326 => [
+        'url' => 'https://ticketmaster.co.nz/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => 'bd1326b884503e84',
+    ],
+    327 => [
+        'url' => 'https://ticketmaster.co.uk/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => '5628190b2b39ae20',
+    ],
+    328 => [
+        'url' => 'https://ticketmaster.com.au/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => '96c8399173bf8591',
+    ],
+    329 => [
+        'url' => 'https://ticketmaster.com.mx/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => 'a5a39eebf99a97cc',
+    ],
+    330 => [
+        'url' => 'https://ticketmaster.com/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => '3b513fc413e7a1eb',
+    ],
+    331 => [
+        'url' => 'https://ticketmaster.de/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => '3b0a5d7663d86645',
+    ],
+    332 => [
+        'url' => 'https://ticketmaster.dk/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => '81083c506d58907c',
+    ],
+    333 => [
+        'url' => 'https://ticketmaster.es/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => 'c15db8b10abf7808',
+    ],
+    334 => [
+        'url' => 'https://ticketmaster.fi/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => '3191e76b32cb8199',
+    ],
+    335 => [
+        'url' => 'https://ticketmaster.fr/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => 'e2d530e723471d22',
+    ],
+    336 => [
+        'url' => 'https://ticketmaster.ie/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => '2ca19a6fcf7ee0bd',
+    ],
+    337 => [
+        'url' => 'https://ticketmaster.it/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => '9ef542107027b1d6',
+    ],
+    338 => [
+        'url' => 'https://ticketmaster.nl/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => '53a1781e408e16a8',
+    ],
+    339 => [
+        'url' => 'https://ticketmaster.no/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => 'ca514879bf136562',
+    ],
+    340 => [
+        'url' => 'https://ticketmaster.se/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => '83a0ad68f5949589',
+    ],
+    341 => [
+        'url' => 'https://ticketmaster.sg/',
+        'expect' => [
+            'surface' => 'ticketmaster.tickets',
+        ],
+        'detector' => 'b2ee6b797f5e7dee',
+    ],
+    342 => [
+        'url' => 'https://ticketweb.ca/',
+        'expect' => [
+            'surface' => 'ticketweb.tickets',
+        ],
+        'detector' => 'b72ed5e4e6064211',
+    ],
+    343 => [
+        'url' => 'https://ticketweb.co.uk/',
+        'expect' => [
+            'surface' => 'ticketweb.tickets',
+        ],
+        'detector' => '1e2e8cc0a7ce827c',
+    ],
+    344 => [
+        'url' => 'https://ticketweb.com/',
+        'expect' => [
+            'surface' => 'ticketweb.tickets',
+        ],
+        'detector' => 'c26654f403f21eb0',
+    ],
+    345 => [
+        'url' => 'https://tidal.com/',
+        'expect' => [
+            'surface' => 'tidal.player',
+        ],
+        'detector' => '8e776b101d9c4d50',
+    ],
+    346 => [
+        'url' => 'https://tidal.com/artist/111',
+        'expect' => [
+            'surface' => 'tidal.player',
+            'identifier' => '111',
+        ],
+        'detector' => 'fb9f96042bd085e2',
+    ],
+    347 => [
+        'url' => 'https://tiktok.com/@aaa',
+        'expect' => [
+            'surface' => 'tiktok.profile',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'c5c2cd31010b8491',
+    ],
+    348 => [
+        'url' => 'https://tixr.com/',
+        'expect' => [
+            'surface' => 'tixr.tickets',
+        ],
+        'detector' => '45638c4225d3d6f4',
+    ],
+    349 => [
+        'url' => 'https://toasttab.com/',
+        'expect' => [
+            'surface' => 'toast.order',
+        ],
+        'detector' => '3464b536382abf14',
+    ],
+    350 => [
+        'url' => 'https://tock.com/',
+        'expect' => [
+            'surface' => 'tock.reserve',
+        ],
+        'detector' => '167a703875b8fb8e',
+    ],
+    351 => [
+        'url' => 'https://treatwell.at/',
+        'expect' => [
+            'surface' => 'treatwell.book',
+        ],
+        'detector' => 'abf318864eb6e6b5',
+    ],
+    352 => [
+        'url' => 'https://treatwell.be/',
+        'expect' => [
+            'surface' => 'treatwell.book',
+        ],
+        'detector' => '3c33da75f4370ff5',
+    ],
+    353 => [
+        'url' => 'https://treatwell.ch/',
+        'expect' => [
+            'surface' => 'treatwell.book',
+        ],
+        'detector' => '6db3db35bb01858e',
+    ],
+    354 => [
+        'url' => 'https://treatwell.co.uk/',
+        'expect' => [
+            'surface' => 'treatwell.book',
+        ],
+        'detector' => 'bbaf7149016c541b',
+    ],
+    355 => [
+        'url' => 'https://treatwell.com/',
+        'expect' => [
+            'surface' => 'treatwell.book',
+        ],
+        'detector' => 'de05b67e56298062',
+    ],
+    356 => [
+        'url' => 'https://treatwell.de/',
+        'expect' => [
+            'surface' => 'treatwell.book',
+        ],
+        'detector' => '6453336f16818f92',
+    ],
+    357 => [
+        'url' => 'https://treatwell.es/',
+        'expect' => [
+            'surface' => 'treatwell.book',
+        ],
+        'detector' => 'fb008a3f0168750c',
+    ],
+    358 => [
+        'url' => 'https://treatwell.fr/',
+        'expect' => [
+            'surface' => 'treatwell.book',
+        ],
+        'detector' => '11490093c19dc659',
+    ],
+    359 => [
+        'url' => 'https://treatwell.gr/',
+        'expect' => [
+            'surface' => 'treatwell.book',
+        ],
+        'detector' => 'e71d2c42fb86275b',
+    ],
+    360 => [
+        'url' => 'https://treatwell.ie/',
+        'expect' => [
+            'surface' => 'treatwell.book',
+        ],
+        'detector' => 'bae964a08c1b5495',
+    ],
+    361 => [
+        'url' => 'https://treatwell.it/',
+        'expect' => [
+            'surface' => 'treatwell.book',
+        ],
+        'detector' => 'a0dfa44eefda36a0',
+    ],
+    362 => [
+        'url' => 'https://treatwell.lt/',
+        'expect' => [
+            'surface' => 'treatwell.book',
+        ],
+        'detector' => 'dfa5c11f2f4debd8',
+    ],
+    363 => [
+        'url' => 'https://treatwell.lv/',
+        'expect' => [
+            'surface' => 'treatwell.book',
+        ],
+        'detector' => '931267e6e391e7b2',
+    ],
+    364 => [
+        'url' => 'https://treatwell.nl/',
+        'expect' => [
+            'surface' => 'treatwell.book',
+        ],
+        'detector' => 'd9e4b09d897e157f',
+    ],
+    365 => [
+        'url' => 'https://treatwell.pt/',
+        'expect' => [
+            'surface' => 'treatwell.book',
+        ],
+        'detector' => '60db16cba91b91ed',
+    ],
+    366 => [
+        'url' => 'https://tripadvisor.com.au/Restaurant_Review-g111-d111-',
+        'expect' => [
+            'surface' => 'tripadvisor.listing',
+            'identifier' => '111',
+        ],
+        'detector' => 'dd05626f17f5d3b0',
+    ],
+    367 => [
+        'url' => 'https://tripadvisor.com/Restaurant_Review-g111-d111-',
+        'expect' => [
+            'surface' => 'tripadvisor.listing',
+            'identifier' => '111',
+        ],
+        'detector' => '498d1ce6041c9aad',
+    ],
+    368 => [
+        'url' => 'https://trustpilot.com/review/aaa.aa',
+        'expect' => [
+            'surface' => 'trustpilot.listing',
+            'identifier' => 'aaa.aa',
+        ],
+        'detector' => '0edda8f51b17d39f',
+    ],
+    369 => [
+        'url' => 'https://trybooking.com/',
+        'expect' => [
+            'surface' => 'trybooking.tickets',
+        ],
+        'detector' => '5532909197f3730e',
+    ],
+    370 => [
+        'url' => 'https://tumblr.com/aaa',
+        'expect' => [
+            'surface' => 'tumblr.profile',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'cf5d0ba6c3b3e13a',
+    ],
+    371 => [
+        'url' => 'https://twitch.tv/aaa',
+        'expect' => [
+            'surface' => 'twitch.channel',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '08e97f225b18c135',
+    ],
+    372 => [
+        'url' => 'https://twitter.com/a',
+        'expect' => [
+            'surface' => 'x.profile',
+            'identifier' => 'a',
+        ],
+        'detector' => '43031574af12a099',
+    ],
+    373 => [
+        'url' => 'https://ubereats.com/store/aaa/aaa',
+        'expect' => [
+            'surface' => 'uber_eats.order',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '354622fd7070cb07',
+    ],
+    374 => [
+        'url' => 'https://upwork.com/freelancers/aa',
+        'expect' => [
+            'surface' => 'upwork.profile',
+            'identifier' => 'aa',
+        ],
+        'detector' => '760f483c285beca4',
+    ],
+    375 => [
+        'url' => 'https://vagaro.com/',
+        'expect' => [
+            'surface' => 'vagaro.book',
+        ],
+        'detector' => '51ca906a893af263',
+    ],
+    376 => [
+        'url' => 'https://venmo.com/u/aaa',
+        'expect' => [
+            'surface' => 'venmo.profile',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '3b637d8bca677f64',
+    ],
+    377 => [
+        'url' => 'https://venue.ink/',
+        'expect' => [
+            'surface' => 'venue_ink.book',
+        ],
+        'detector' => '010bea7a7d41534c',
+    ],
+    378 => [
+        'url' => 'https://vimeo.com/aaa',
+        'expect' => [
+            'surface' => 'vimeo.account',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'e7a3b337a1e70739',
+    ],
+    379 => [
+        'url' => 'https://vimeo.com/channels/aaa',
+        'expect' => [
+            'surface' => 'vimeo.account',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '9fe8a0d71f1d37a9',
+    ],
+    380 => [
+        'url' => 'https://vsco.co/aaa',
+        'expect' => [
+            'surface' => 'vsco.profile',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '34396e15d2c2c1dc',
+    ],
+    381 => [
+        'url' => 'https://whatsapp.com/+1111111',
+        'expect' => [
+            'surface' => 'whatsapp.chat',
+        ],
+        'detector' => '8700b19ea5e0792a',
+    ],
+    382 => [
+        'url' => 'https://whatsapp.com/send',
+        'expect' => [
+            'surface' => 'whatsapp.chat',
+        ],
+        'detector' => 'aa4800576662c4e0',
+    ],
+    383 => [
+        'url' => 'https://wixapps.net/bookings/',
+        'expect' => [
+            'surface' => 'wix_bookings.book',
+        ],
+        'detector' => '0206383166a62773',
+    ],
+    384 => [
+        'url' => 'https://wolt.com/',
+        'expect' => [
+            'surface' => 'wolt.order',
+        ],
+        'detector' => 'f1da696a34a98b37',
+    ],
+    385 => [
+        'url' => 'https://woocommerce.com/',
+        'expect' => [
+            'surface' => 'woocommerce.store',
+        ],
+        'detector' => '0bd78d1535c79d4e',
+    ],
+    386 => [
+        'url' => 'https://x.com/a',
+        'expect' => [
+            'surface' => 'x.profile',
+            'identifier' => 'a',
+        ],
+        'detector' => 'ba4979282ceaf778',
+    ],
+    387 => [
+        'url' => 'https://yelp.com.au/biz/aaa',
+        'expect' => [
+            'surface' => 'yelp.listing',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '23b767116761378f',
+    ],
+    388 => [
+        'url' => 'https://yelp.com/biz/aaa',
+        'expect' => [
+            'surface' => 'yelp.listing',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'f404a3e56f0f9bf9',
+    ],
+    389 => [
+        'url' => 'https://youtube.com/@aaa',
+        'expect' => [
+            'surface' => 'youtube.channel',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '131c12f7a0f5d323',
+    ],
+    390 => [
+        'url' => 'https://youtube.com/c/aaa',
+        'expect' => [
+            'surface' => 'youtube.channel',
+            'identifier' => 'aaa',
+        ],
+        'detector' => 'ed7d45efd0854383',
+    ],
+    391 => [
+        'url' => 'https://youtube.com/channel/@aaa',
+        'expect' => [
+            'surface' => 'youtube.channel',
+            'identifier' => 'aaa',
+        ],
+        'detector' => '64681bb6ded27076',
+    ],
+    392 => [
+        'url' => 'https://youtube.com/channel/UCaaaaaaaaaaaaaaaaaaaaaa',
+        'expect' => [
+            'surface' => 'youtube.channel',
+            'identifier' => 'UCaaaaaaaaaaaaaaaaaaaaaa',
+        ],
+        'detector' => '67c7aec08a3650d4',
+    ],
+    393 => [
+        'url' => 'https://zenoti.com/',
+        'expect' => [
+            'surface' => 'zenoti.book',
+        ],
+        'detector' => 'ea00b095d01f2467',
+    ],
+    394 => [
+        'url' => 'https://zomato.com/',
+        'expect' => [
+            'surface' => 'zomato.order',
+        ],
+        'detector' => '08ce3f9863cf55ac',
+    ],
+];

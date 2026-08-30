@@ -43,13 +43,26 @@ class CloudflareCachePurgeJob implements ShouldBeUnique, ShouldQueue
      * exception, and a fixed count starved a burst — the 2026-08-27 bulk
      * connect run drove Cloudflare's purge API into 429 (their error 1134),
      * and three tries at 5/15/60s all landed INSIDE the same rate window, so
-     * purges died terminal and handles sat stale at the edge. Ten minutes
-     * comfortably clears any rate window while maxExceptions still kills a
-     * genuinely broken purge (revoked token) after two real failures.
+     * purges died terminal and handles sat stale at the edge.
+     *
+     * TEN minutes until 2026-08-30, when a 63-account night showed the deadline
+     * — not the rate — is what actually kills these. The failures are
+     * MaxAttemptsExceeded, never a Cloudflare 429: the job is being RELEASED by
+     * the funnel over and over and then timing out. Raising the funnel 20 → 60
+     * on its own only moved 49 failures to 38, because a burst of ~480 purges
+     * still needs ~8 minutes to drain at 60/min and the tail lands past the
+     * ten-minute mark. Thirty gives that drain room with margin.
+     *
+     * Extending it costs no safety, and this is the reason why: a genuinely
+     * broken purge (revoked token) is killed by $maxExceptions = 2 after two
+     * REAL failures, which is independent of this deadline. retryUntil only
+     * ever bounds how long a job may sit being rate-limited, and a late purge
+     * is harmless — the edge holds s-maxage=31, so the worst case is a slightly
+     * longer stale window, not a wrong one.
      */
     public function retryUntil(): \DateTime
     {
-        return now()->addMinutes(10);
+        return now()->addMinutes(30);
     }
 
     /**

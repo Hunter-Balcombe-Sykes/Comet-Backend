@@ -15,6 +15,7 @@ use App\Services\PreAccount\SourceGenerationException;
 use App\Services\Profile\BioSource;
 use App\Services\Profile\PersonNameParser;
 use App\Services\Profile\ProfileEnricher;
+use App\Support\StyledUnicodeText;
 use Illuminate\Support\Facades\Log;
 
 // Builds a provisional user's site from a typed Instagram handle by reusing the
@@ -110,9 +111,21 @@ class InstagramSourceGenerator implements SiteSourceGenerator
         // silently falls through to the storewide menu — the feature would look
         // implemented and do nothing. Under QUEUE_CONNECTION=sync that is not a race,
         // it is deterministic.
-        $fullName = trim((string) (data_get($profile, 'fullName') ?? data_get($profile, 'full_name')));
+        // Fold Instagram's "fancy font" characters before ANYTHING reads the
+        // name. Those are Mathematical Alphanumeric Symbols, not styling —
+        // "𝐓𝐡𝐞 𝐁𝐥𝐨𝐨𝐦 𝐑𝐨𝐨𝐦" is a run of MATHEMATICAL BOLD letters — so a screen
+        // reader announces them codepoint by codepoint, a font stack falls back
+        // mid-word, and PersonNameParser sees characters that are not letters.
+        // Found live 2026-08-30 on thebloomroommalvern, rendering raw math-bold
+        // as the largest text on its page.
+        //
+        // Applied HERE, at the read, because it is the only point both branches
+        // share: the AI path takes $fullName through BioSource and the
+        // deterministic path takes it through PersonNameParser, so normalising
+        // in either one alone would leave the other reading the styled text.
+        $fullName = trim(StyledUnicodeText::fold((string) (data_get($profile, 'fullName') ?? data_get($profile, 'full_name'))) ?? '');
         $biography = data_get($profile, 'biography') ?? data_get($profile, 'bio');
-        $biography = is_string($biography) ? trim($biography) : null;
+        $biography = is_string($biography) ? trim(StyledUnicodeText::fold($biography) ?? '') : null;
 
         // Structured actor business fields outrank AI-extracted bio text, so they
         // are applied FIRST and the enricher's fill-if-empty then leaves them

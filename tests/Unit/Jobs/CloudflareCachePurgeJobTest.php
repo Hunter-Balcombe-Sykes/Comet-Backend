@@ -34,9 +34,15 @@ it('has its own retry policy and queue (not the KV trait — see §28.7)', funct
 
     // Time-bounded, not count-bounded (2026-08-27 bulk-connect finding): a
     // fixed $tries burned all its attempts inside one Cloudflare 429 window.
+    //
+    // Widened to 30 minutes on 2026-08-30: a 63-account night proved the
+    // DEADLINE, not the rate, is what kills these — every failure was
+    // MaxAttemptsExceeded and none was a Cloudflare 429, so the job was being
+    // released by the funnel and then timing out. The floor stays well above a
+    // rate window; the ceiling is what moved.
     expect($job->tries ?? null)->toBeNull()
-        ->and($job->retryUntil()->getTimestamp())->toBeGreaterThan(now()->addMinutes(5)->getTimestamp())
-        ->and($job->retryUntil()->getTimestamp())->toBeLessThanOrEqual(now()->addMinutes(15)->getTimestamp())
+        ->and($job->retryUntil()->getTimestamp())->toBeGreaterThan(now()->addMinutes(20)->getTimestamp())
+        ->and($job->retryUntil()->getTimestamp())->toBeLessThanOrEqual(now()->addMinutes(35)->getTimestamp())
         ->and($job->maxExceptions)->toBe(2)
         ->and($job->backoff)->toBe([5, 15, 60])
         ->and($job->timeout)->toBe(30)

@@ -138,4 +138,7 @@ return [
     // Round 4 (2026-08-29) — real urls from kjah_dnb's bio.
     'hypeddit.release' => 'https://hypeddit.com/someartist/sometrack',
     'tickethype.tickets' => 'https://tickethype.com.mt/rubyandfriends_tortuga2026',
+    // 2026-08-30 — hosts the ordering lane reported unroutable on real venues.
+    'hey_you.order' => 'https://heyyou.com.au/store/some-cafe',
+    'postmates.order' => 'https://postmates.com/store/some-venue/abc123',
 ];

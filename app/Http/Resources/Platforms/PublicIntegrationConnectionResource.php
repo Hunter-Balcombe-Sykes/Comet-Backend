@@ -333,6 +333,8 @@ class PublicIntegrationConnectionResource extends ApiResource
         'heyzine' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'hypeddit' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'tickethype' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'hey_you' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        'postmates' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'circle' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'kajabi' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'luma' => ['url', 'name', 'favicon', 'logo', 'provider'],

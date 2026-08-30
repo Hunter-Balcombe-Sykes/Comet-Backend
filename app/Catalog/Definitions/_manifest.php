@@ -61,6 +61,7 @@ use App\Catalog\Definitions\GoogleBusiness;
 use App\Catalog\Definitions\Grubhub;
 use App\Catalog\Definitions\Gumroad;
 use App\Catalog\Definitions\Halaxy;
+use App\Catalog\Definitions\HeyYou;
 use App\Catalog\Definitions\Heyzine;
 use App\Catalog\Definitions\Hotdoc;
 use App\Catalog\Definitions\Houzz;
@@ -103,6 +104,7 @@ use App\Catalog\Definitions\Patreon;
 use App\Catalog\Definitions\Paypal;
 use App\Catalog\Definitions\Phorest;
 use App\Catalog\Definitions\Pinterest;
+use App\Catalog\Definitions\Postmates;
 use App\Catalog\Definitions\ProductReviewAu;
 use App\Catalog\Definitions\Quandoo;
 use App\Catalog\Definitions\Redbubble;
@@ -239,6 +241,7 @@ return [
     Grubhub::class,
     Gumroad::class,
     Halaxy::class,
+    HeyYou::class,
     Heyzine::class,
     Hotdoc::class,
     Houzz::class,
@@ -281,6 +284,7 @@ return [
     Paypal::class,
     Phorest::class,
     Pinterest::class,
+    Postmates::class,
     ProductReviewAu::class,
     Quandoo::class,
     Redbubble::class,

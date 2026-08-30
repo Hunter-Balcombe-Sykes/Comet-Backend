@@ -193,6 +193,10 @@ class WebsiteLinkHarvester
         // Abacus (2026-08-28): hospitality POS ordering and gift cards, found
         // on Bar Liberty as w.abacus.co/store/<id>/giftcards/…
         'Abacus' => '~(^|\.)abacus\.co$~',
+        // 2026-08-30: both surfaced as `ordering_unroutable` on real venues —
+        // the ordering lane naming hosts it could not place.
+        'Hey You' => '~(^|\.)heyyou\.com\.au$~',
+        'Postmates' => '~(^|\.)postmates\.com$~',
         // Expanded 2026-07-25
         'SkipTheDishes' => '~(^|\.)skipthedishes\.com$~',
         'Just Eat' => '~(^|\.)just-?eat\.(co\.uk|com|fr|ie|es|it|ch|dk|no|lu)$~',
@@ -240,6 +244,7 @@ class WebsiteLinkHarvester
         'Wolt' => 'wolt.order', 'Zomato' => 'zomato.order',
         'Mr Yum' => 'mr_yum.order',
         'Abacus' => 'abacus.order',
+        'Hey You' => 'hey_you.order', 'Postmates' => 'postmates.order',
         'HungryPanda' => 'hungrypanda',
     ];
 
