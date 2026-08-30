@@ -149,7 +149,7 @@ class LinkProjector
         }
 
         foreach ($detector['reject_patterns'] as $i => $reject) {
-            if ($this->matches($reject, $iri->path, $detectorId, "reject_patterns[{$i}]")) {
+            if ($this->rejects($reject, $iri->path, $detectorId, "reject_patterns[{$i}]")) {
                 return null;
             }
         }
@@ -248,6 +248,28 @@ class LinkProjector
     }
 
     /**
+     * A reject rule fails CLOSED (#W1-SEC-11). matches() collapses a preg_match()
+     * RUNTIME failure — PREG_BACKTRACK_LIMIT_ERROR, or PREG_BAD_UTF8_ERROR on a
+     * crafted path against a /u pattern — into the same `false` a clean non-match
+     * returns. Every OTHER caller already reads that `false` as "this detector
+     * does not apply" and returns null; only this loop read it as "carry on", so
+     * a subject pathological enough to break the engine skipped the very rule
+     * written to exclude it and the detector went on to score. A reject pattern
+     * that errors is at least as suspicious as one that matches, so it costs the
+     * detector its match — which is also what an uncompilable one already did
+     * everywhere else in score().
+     *
+     * Purity is untouched: the verdict still depends only on (Iri, Rulepack).
+     */
+    private function rejects(string $pattern, string $subject, string $detectorId, string $field): bool
+    {
+        $m = null;
+        $errored = false;
+
+        return $this->matches($pattern, $subject, $detectorId, $field, $m, $errored) || $errored;
+    }
+
+    /**
      * The one place a detector pattern is ever executed. `@` stays INSIDE: with
      * it removed, HandleExceptions::handleError() turns PCRE's compile warning
      * into an ErrorException that escapes score() and 500s the paste preview
@@ -256,14 +278,20 @@ class LinkProjector
      * closed — but it is now reported instead of silent.
      *
      * @param  array<int|string, string>|null  $m  populated exactly as preg_match's third argument
+     * @param  bool|null  $errored  true when preg_match itself failed, as opposed to cleanly not matching
      *
      * @param-out array<int|string, string> $m
+     * @param-out bool $errored
      */
-    private function matches(string $pattern, string $subject, string $detectorId, string $field, ?array &$m = null): bool
+    private function matches(string $pattern, string $subject, string $detectorId, string $field, ?array &$m = null, ?bool &$errored = null): bool
     {
+        $errored = false;
+
         $result = @preg_match($pattern, $subject, $m);
 
         if ($result === false) {
+            $errored = true;
+
             // preg_match leaves $matches UNTOUCHED on a compile failure (it
             // only overwrites on 0 or 1), so a caller reusing one $m across two
             // patterns could read the previous pattern's groups. No caller does

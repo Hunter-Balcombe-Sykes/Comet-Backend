@@ -115,18 +115,89 @@ it('reports a malformed pattern once per window, not once per paste', function (
 it('reports each malformed field separately, and reject patterns by index', function () {
     Exceptions::fake();
 
-    $projector = slop21Projector([
+    // Two passes rather than one detector carrying both breakages: since
+    // #W1-SEC-11 a broken reject pattern fails the detector CLOSED, so
+    // path_pattern is never reached in the same score() call and could not
+    // report. The property under test is unchanged — the throttle key is
+    // keyed per detector AND field, so the same detector id surfaces both.
+    slop21Projector([
         'reject_patterns' => ['#/ok/#', '#[unterminated#'],
+    ])->project(slop21Iri('/schedule/abc123'));
+
+    slop21Projector([
         'path_pattern' => '#^/schedule/(?<slug>[a-z0-9#',
-    ]);
+    ])->project(slop21Iri('/schedule/abc123'));
 
-    $projector->project(slop21Iri('/schedule/abc123'));
-
-    // The window is keyed per detector+field, so a detector with two broken
-    // patterns still surfaces both — one report each, not one for the detector.
     Exceptions::assertReportedCount(2);
     Exceptions::assertReported(fn (MalformedDetectorPatternException $e) => $e->field === 'reject_patterns[1]');
     Exceptions::assertReported(fn (MalformedDetectorPatternException $e) => $e->field === 'path_pattern');
+});
+
+// ── #W1-SEC-11: a reject rule that ERRORS rejects ────────────────────────────
+//
+// matches() cannot tell "did not match" from "the engine failed", and every
+// caller but the reject loop already treated the failure as fatal to the
+// detector. The loop treated it as permission to continue, so a subject
+// pathological enough to break PCRE bypassed the rule written to exclude it.
+
+it('treats a reject pattern that fails to execute as a rejection, not as a non-match', function () {
+    Exceptions::fake();
+
+    // The path_pattern alone would match and score 75. The reject pattern is
+    // uncompilable, so pre-fix it returned false, the loop carried on, and the
+    // detector matched anyway — the reject rule silently did nothing.
+    $projector = slop21Projector([
+        'path_pattern' => '#^/schedule/(?<slug>[a-z0-9]+)$#',
+        'reject_patterns' => ['#[unterminated#'],
+    ]);
+
+    $projection = $projector->project(slop21Iri('/schedule/abc123'));
+
+    expect($projection->matched())->toBeFalse();
+    expect($projection->surfaceKey)->toBeNull();
+    expect($projection->reason)->toBe('no-rule-matched');
+
+    // Still reported: failing closed replaces silence with a verdict, it does
+    // not replace the signal.
+    Exceptions::assertReported(fn (MalformedDetectorPatternException $e) => $e->field === 'reject_patterns[0]');
+});
+
+it('rejects when a reject pattern hits a PCRE runtime error on a crafted subject', function () {
+    Exceptions::fake();
+
+    // Not a malformed pattern — a well-formed /u one against a subject that is
+    // not valid UTF-8. preg_match returns false with PREG_BAD_UTF8_ERROR, which
+    // is the attacker-reachable half of this class: the catalog is guaranteed
+    // compilable (CatalogCompileCommand), the pasted URL is not guaranteed
+    // decodable.
+    $projector = slop21Projector([
+        'path_pattern' => '#^/schedule/#u',
+        'reject_patterns' => ['#/schedule/private#u'],
+    ]);
+
+    $badUtf8 = "/schedule/\xC3\x28";
+
+    // Pin the premise: this really is a RUNTIME failure, not a non-match. (Read
+    // here, not after project() — preg_last_error is global and any later preg
+    // call, inside the assertion machinery included, clears it.)
+    expect(@preg_match('#/schedule/private#u', $badUtf8))->toBeFalse();
+    expect(preg_last_error())->toBe(PREG_BAD_UTF8_ERROR);
+
+    $projection = $projector->project(slop21Iri($badUtf8));
+
+    expect($projection->matched())->toBeFalse();
+    Exceptions::assertReported(fn (MalformedDetectorPatternException $e) => $e->field === 'reject_patterns[0]');
+});
+
+it('a reject pattern that cleanly does not match still lets the detector score', function () {
+    // The counterweight: fail-closed must key on the ERROR, not on every
+    // falsey return, or every detector carrying a reject rule would go dark.
+    $projector = slop21Projector([
+        'path_pattern' => '#^/schedule/(?<slug>[a-z0-9]+)$#',
+        'reject_patterns' => ['#^/admin/#'],
+    ]);
+
+    expect($projector->project(slop21Iri('/schedule/abc123'))->matched())->toBeTrue();
 });
 
 it('claims its throttle key with a TTL, never forever', function () {
