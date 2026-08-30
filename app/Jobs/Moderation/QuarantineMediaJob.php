@@ -6,6 +6,7 @@ use App\Jobs\Moderation\Concerns\HasActionLogLifecycle;
 use App\Models\Moderation\ActionLogEntry;
 use App\Models\Moderation\ModerationCase;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -16,12 +17,16 @@ use Illuminate\Support\Facades\DB;
  * Sets site_media.processing_state to 'quarantined' for a CSAM-matched media item.
  * Scaffolded in Plan B; called by Plan C's CSAM auto-action pipeline.
  */
-class QuarantineMediaJob implements ShouldQueue
+class QuarantineMediaJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     use HasActionLogLifecycle;
 
     public int $timeout = 60;
+
+    // 5-min lock expiry so a crashed worker can't hold the lock forever — same
+    // headroom as NotifyOnCallStaffJob's uniqueFor.
+    public int $uniqueFor = 300;
 
     public function __construct(
         public readonly string $actionLogId,
@@ -32,11 +37,23 @@ class QuarantineMediaJob implements ShouldQueue
         $this->queue = ModerationQueue::HIGH;
     }
 
+    public function uniqueId(): string
+    {
+        return $this->actionLogId;
+    }
+
     public function handle(): void
     {
         DB::connection('pgsql')->transaction(function () {
             $case = ModerationCase::query()->findOrFail($this->caseId);
             $entry = ActionLogEntry::query()->findOrFail($this->actionLogId);
+
+            // Idempotency — an at-least-once redelivery after this entry already
+            // completed must not re-quarantine (or matter if the media has since
+            // been dequarantined by staff review).
+            if ($entry->status === 'completed') {
+                return;
+            }
 
             $this->markDispatched($entry);
 

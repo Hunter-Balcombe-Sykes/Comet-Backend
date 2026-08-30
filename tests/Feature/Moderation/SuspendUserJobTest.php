@@ -52,6 +52,41 @@ it('is idempotent (running twice does not error)', function () {
     expect($user->fresh()->status)->toBe('suspended');
 });
 
+// #W2-JOB-2 / #W2-LIFE-8: an at-least-once queue redelivery of a job whose action
+// log entry already completed must not re-apply the suspension. Without the
+// completed-status guard, this test fails — the second run flips the reinstated
+// user straight back to 'suspended'.
+it('does not re-suspend a user reinstated after this action log entry already completed', function () {
+    $user = User::factory()->create(['status' => 'active']);
+    $site = Site::factory()->for($user, 'user')->create();
+    $case = ModerationCase::factory()->create([
+        'reportable_type' => 'Site',
+        'reportable_id' => $site->id,
+        'reportable_owner_user_id' => $user->id,
+    ]);
+    $decision = Decision::factory()->forCase($case)->create(['decision_type' => 'suspend_user']);
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'suspend_user']);
+
+    SuspendUserJob::dispatch($entry->id, $case->id);
+
+    expect($user->fresh()->status)->toBe('suspended');
+    expect($entry->fresh()->status)->toBe('completed');
+    $attemptsAfterFirstRun = $entry->fresh()->attempts;
+
+    // Support reinstates the user in between the first delivery and the redelivery.
+    // status is deliberately NOT fillable (SEC-2) — forceFill mirrors the real
+    // reinstatement writers (AccountDeletionService, StaffUserController).
+    $user->fresh()->forceFill(['status' => 'active'])->save();
+
+    // Redelivery of the SAME action_log_id (Horizon at-least-once semantics).
+    SuspendUserJob::dispatch($entry->id, $case->id);
+
+    expect($user->fresh()->status)->toBe('active');
+    // The guard returns before markDispatched() — the attempt counter must not
+    // move either, or the audit trail claims a run that never happened.
+    expect($entry->fresh()->attempts)->toBe($attemptsAfterFirstRun);
+});
+
 // #W2-OBS-2: the three zero-row outcomes, deliberately split. None of them throws
 // — this job is a Bus::chain link and a throw would halt the takedown behind it.
 it('marks the entry failed and reports when the owner user row does not exist', function () {

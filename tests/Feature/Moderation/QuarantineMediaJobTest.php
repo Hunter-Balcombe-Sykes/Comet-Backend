@@ -120,6 +120,46 @@ it('is idempotent (running twice does not error, state stays quarantined)', func
     expect($row->processing_state)->toBe('quarantined');
 })->group('postgres');
 
+// #W2-JOB-3 / #W2-LIFE-10: an at-least-once queue redelivery of a job whose
+// action log entry already completed must not re-quarantine media staff have
+// since cleared. Without the completed-status guard, this fails — the
+// redelivery flips the cleared media straight back to 'quarantined'.
+it('does not re-quarantine media cleared after this action log entry already completed', function () {
+    $user = User::factory()->create();
+    $site = Site::factory()->for($user, 'user')->create();
+    $mediaId = Str::uuid()->toString();
+    DB::insert(
+        "INSERT INTO site.site_media (id, site_id, pool, path, processing_state) VALUES (?, ?, 'public-assets', 'p.jpg', 'scanning')",
+        [$mediaId, $site->id]
+    );
+
+    $case = ModerationCase::factory()->csamMatch()->create([
+        'reportable_type' => 'SiteMedia',
+        'reportable_id' => $mediaId,
+    ]);
+    $decision = Decision::factory()->forCase($case)->systemAutoActioned()->create();
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create([
+        'action_type' => 'quarantine_media',
+        'action_target' => ['site_media_id' => $mediaId],
+    ]);
+
+    QuarantineMediaJob::dispatch($entry->id, $case->id);
+
+    $row = DB::selectOne('SELECT processing_state FROM site.site_media WHERE id = ?', [$mediaId]);
+    expect($row->processing_state)->toBe('quarantined');
+    expect($entry->fresh()->status)->toBe('completed');
+    $attemptsAfterFirstRun = $entry->fresh()->attempts;
+
+    // Staff clear the media in between the first delivery and the redelivery.
+    DB::update("UPDATE site.site_media SET processing_state = 'active' WHERE id = ?", [$mediaId]);
+
+    QuarantineMediaJob::dispatch($entry->id, $case->id);
+
+    $row = DB::selectOne('SELECT processing_state FROM site.site_media WHERE id = ?', [$mediaId]);
+    expect($row->processing_state)->toBe('active');
+    expect($entry->fresh()->attempts)->toBe($attemptsAfterFirstRun);
+})->group('postgres');
+
 // #W2-OBS-2: a missing media row used to be marked 'completed', asserting an
 // enforcement action that never happened. It must NOT throw — this job is the
 // first link of the csam_auto_suspend Bus::chain, and a throw would strand the

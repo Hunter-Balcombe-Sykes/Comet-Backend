@@ -7,6 +7,7 @@ use App\Models\Core\User\User;
 use App\Models\Moderation\ActionLogEntry;
 use App\Models\Moderation\ModerationCase;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -14,12 +15,16 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
-class SuspendUserJob implements ShouldQueue
+class SuspendUserJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     use HasActionLogLifecycle;
 
     public int $timeout = 60;
+
+    // 5-min lock expiry so a crashed worker can't hold the lock forever — same
+    // headroom as NotifyOnCallStaffJob's uniqueFor.
+    public int $uniqueFor = 300;
 
     public function __construct(
         public readonly string $actionLogId,
@@ -27,6 +32,11 @@ class SuspendUserJob implements ShouldQueue
     ) {
         // Queueable::$queue is untyped; assign in constructor to avoid PHP 8.4 trait conflict.
         $this->queue = ModerationQueue::HIGH;
+    }
+
+    public function uniqueId(): string
+    {
+        return $this->actionLogId;
     }
 
     /**
@@ -43,6 +53,12 @@ class SuspendUserJob implements ShouldQueue
         DB::connection('pgsql')->transaction(function () {
             $case = ModerationCase::query()->findOrFail($this->caseId);
             $entry = ActionLogEntry::query()->findOrFail($this->actionLogId);
+
+            // Idempotency — an at-least-once redelivery after this entry already
+            // completed must not re-suspend a user support has since reinstated.
+            if ($entry->status === 'completed') {
+                return;
+            }
 
             // Mark as dispatched and increment the attempt counter before acting —
             // if the user update throws, the action log reflects the attempt.
