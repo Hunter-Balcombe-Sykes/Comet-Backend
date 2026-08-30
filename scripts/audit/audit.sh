@@ -108,6 +108,11 @@
 #   Claude            uses the local `claude` CLI's existing OAuth login
 #
 # Pass --keep-drafts to keep the intermediate DeepSeek drafts (in <folder>/.drafts/).
+#
+# --adj-model <alias|id> overrides the model of the ADJUDICATION tier only (the
+# scan tier is DeepSeek and is unaffected). Unset = audit-adjudicate.sh's own
+# default, sonnet. Use haiku to run a wide, cheap sweep where the drafts are
+# already high-signal; keep sonnet where the adjudicator has to arbitrate.
 
 set -euo pipefail
 
@@ -130,6 +135,10 @@ BUNDLE=""
 CATEGORY=""        # top-level folder for targeted audits (e.g. security, caching)
 NAME=""            # short run name (e.g. frontpage, shopify-integration)
 KEEP_DRAFTS=false
+# Empty = don't pass --model at all, so audit-adjudicate.sh's default stays the
+# single source of truth. Expanded with the bash-3.2-safe ${a[@]+"${a[@]}"} form:
+# /usr/bin/env bash is 3.2 on macOS, where "${empty[@]}" trips set -u.
+ADJ_MODEL_ARGS=()
 CODEBASE=false
 SCAN_JOBS=4
 ONLY_LENSES=""     # csv of lens basenames to keep from a bundle (resume after partial failure)
@@ -576,12 +585,23 @@ while [[ $# -gt 0 ]]; do
         --category)      CATEGORY="$2"; shift 2 ;;
         --name)          NAME="$2"; shift 2 ;;
         --keep-drafts)   KEEP_DRAFTS=true; shift ;;
+        --adj-model)     ADJ_MODEL_ARGS=(--model "$2"); shift 2 ;;
         -h|--help)       usage; exit 0 ;;
         *) echo "Unknown arg: $1" >&2; usage >&2; exit 2 ;;
     esac
 done
 
 # --- Validate ---
+# Checked here, not at the call site: adjudication runs AFTER every DeepSeek scan
+# has completed and been paid for, so a typo'd model would surface only once the
+# expensive half of the run was already spent. Aliases plus any full claude-* id.
+if [[ ${#ADJ_MODEL_ARGS[@]} -gt 0 ]]; then
+    case "${ADJ_MODEL_ARGS[1]}" in
+        opus|sonnet|haiku|fable|claude-*) ;;
+        *) echo "--adj-model: unknown model '${ADJ_MODEL_ARGS[1]}' (expected opus|sonnet|haiku|fable or a claude-* id)" >&2; exit 2 ;;
+    esac
+fi
+
 # --full is sugar for --bundle core
 $FULL && [[ -z "$BUNDLE" ]] && BUNDLE="core"
 $FULL && [[ -n "$BUNDLE" && "$BUNDLE" != "core" ]] && { echo "--full and --bundle <other> are mutually exclusive" >&2; exit 2; }
@@ -985,6 +1005,7 @@ if $FULL; then
 
             if "$SCRIPT_DIR/audit-adjudicate.sh" \
                 --drafts "$LENS_DRAFTS" \
+                ${ADJ_MODEL_ARGS[@]+"${ADJ_MODEL_ARGS[@]}"} \
                 --lens-file "$lf" \
                 "${ADJ_SCOPES[@]}" \
                 --no-source \
@@ -1201,6 +1222,7 @@ adjudication_failed() {
 
 if ! "$SCRIPT_DIR/audit-adjudicate.sh" \
     --drafts "$DRAFTS" \
+    ${ADJ_MODEL_ARGS[@]+"${ADJ_MODEL_ARGS[@]}"} \
     --max-budget "$ADJ_BUDGET" \
     "${LENS_PASS_ARGS[@]}" \
     "${SCOPE_ARGS[@]}" \
