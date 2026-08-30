@@ -20,6 +20,7 @@ use Closure;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 // SLOP-101: the finding-shape + write/apply plumbing that GoogleBusinessAutoSync
@@ -353,14 +354,74 @@ trait BuildsAutoSyncFindings
     }
 
     /**
-     * The remove-then-write body itself — a straight extraction of
-     * applyFinding()'s pre-U1 implementation, unchanged. Called either
-     * directly (non-slot findings, unlocked) or from inside the relevant
-     * XOR lock's closure (booking/reservations findings).
+     * The remove-then-write body — applyFinding()'s pre-U1 implementation, with
+     * the delete+write pair made atomic (#W2-LIFE-16). Called either directly
+     * (non-slot findings, unlocked) or from inside the relevant XOR lock's
+     * closure (booking/reservations findings).
+     *
+     * #W2-LIFE-16: "Change to" removed the user's existing connection and THEN
+     * wrote the replacement, with nothing between them. Any throw from write()
+     * — a constraint, an observer, a dropped DB connection — left the user with
+     * an empty slot where a live link had been, and no record that a swap had
+     * been half-done. The XOR lock the booking/reservations arms take does not
+     * help here: it stops a CONCURRENT writer observing the gap, not the gap
+     * itself. The two DB steps are now one transaction, so a failed write
+     * restores the old connection instead of losing it.
+     *
+     * The transaction is deliberately scoped to the DB span only. The
+     * applyFindingHandled() hook is NOT inside it: GoogleBusinessAutoSync
+     * overrides it to dispatch InstagramConnectJob, which under the sync driver
+     * runs INLINE and takes its own cache lock — running that inside an open
+     * transaction is the classic dispatch-before-commit trap, made worse by
+     * queue.php's `after_commit => false`. That branch has nothing to make
+     * atomic anyway: the only producer of an `apply.instagram` recipe
+     * (GoogleBusinessAutoSync's social conflict finding) carries `remove` and
+     * never `write`, so its removals are not one half of a pair.
+     *
+     * IntegrationConnectionObserver is `$afterCommit = true`, so wrapping these
+     * writes also defers the Cloudflare purge and the site touch to after the
+     * commit — the same property SourceReconciler::reconcile() already relies
+     * on, and strictly better than firing them per-row mid-swap as before.
      *
      * @param  array<string,mixed>  $apply
      */
     private function runApply(string $userId, array $apply): void
+    {
+        $write = is_array($apply['write'] ?? null) ? $apply['write'] : null;
+
+        if ($write === null) {
+            // Nothing to pair the removals with, so nothing to make atomic —
+            // and this is the branch the handled hook takes. Byte-identical to
+            // the old body, transaction and all its hazards absent.
+            $this->applyRemovals($userId, $apply);
+            $this->applyFindingHandled($userId, $apply);
+
+            return;
+        }
+
+        DB::connection('pgsql')->transaction(function () use ($userId, $apply, $write): void {
+            $this->applyRemovals($userId, $apply);
+
+            // Still consulted in its original position so the hook's contract is
+            // unchanged. A recipe carrying BOTH `instagram` and `write` would
+            // dispatch from inside the transaction — no producer emits one, and
+            // applyFinding() already report()s the neighbouring co-occurrence,
+            // so this is noted rather than defended against twice.
+            if ($this->applyFindingHandled($userId, $apply)) {
+                return;
+            }
+
+            $this->write($userId, (string) $write['platform'], (string) $write['resourceId'], (array) $write['payload']);
+        });
+    }
+
+    /**
+     * The remove half of runApply() — extracted so both branches share one
+     * body. Verbatim from the pre-#W2-LIFE-16 implementation.
+     *
+     * @param  array<string,mixed>  $apply
+     */
+    private function applyRemovals(string $userId, array $apply): void
     {
         foreach ((array) ($apply['remove'] ?? []) as $platform) {
             if (! is_string($platform)) {
@@ -386,15 +447,6 @@ trait BuildsAutoSyncFindings
             IntegrationConnection::query()
                 ->where('user_id', $userId)->where('routing_class', $removeClass)
                 ->get()->each->delete();
-        }
-
-        if ($this->applyFindingHandled($userId, $apply)) {
-            return;
-        }
-
-        if (is_array($apply['write'] ?? null)) {
-            $w = $apply['write'];
-            $this->write($userId, (string) $w['platform'], (string) $w['resourceId'], (array) $w['payload']);
         }
     }
 

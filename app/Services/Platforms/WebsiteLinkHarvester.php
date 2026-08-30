@@ -949,7 +949,13 @@ class WebsiteLinkHarvester
         $doc = new \DOMDocument;
         // Suppress libxml warnings for real-world HTML.
         $prev = libxml_use_internal_errors(true);
-        $loaded = $doc->loadHTML($html, LIBXML_NOWARNING | LIBXML_NOERROR);
+        // LIBXML_NONET (#W1-SEC-13/#W2-SEC-16): $html is a third party's page,
+        // fetched through SafeUrlFetcher — but that guard covers the FETCH, not
+        // the PARSE. NONET blocks every network access libxml would make while
+        // parsing (external entity/DTD/stylesheet), so the parser cannot become
+        // a second egress point the SSRF guard never sees. Same flag, same
+        // reasoning as MetadataParser and AboutProseExtractor.
+        $loaded = $doc->loadHTML($html, LIBXML_NOWARNING | LIBXML_NOERROR | LIBXML_NONET);
         libxml_clear_errors();
         libxml_use_internal_errors($prev);
         if (! $loaded) {

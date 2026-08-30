@@ -121,4 +121,61 @@ final class ImagePixelBudget
     {
         return self::decodable($bytes) && ! self::exceeds($bytes);
     }
+
+    // ── path lane (#W2-SEC-14) ──────────────────────────────────────────────
+    //
+    // The same two questions, asked of a FILE. InstagramConnectionSeeder streams
+    // its mirrors to a temp file precisely so a large body never becomes a PHP
+    // string (SCALE-102), so the string lane above would undo that streaming to
+    // ask its question. finfo and getimagesize both take a filename and read
+    // only a header, so the path lane costs one open and no buffer.
+    //
+    // This is a third caller of ALLOWED_MIMES, not a fourth LIST: the whole
+    // point of putting it here rather than inlining a finfo call in the seeder
+    // is that widening the accepted format set stays a one-place edit.
+
+    /**
+     * decodable(), read from a file. Same allowlist, same byte-sniff.
+     *
+     * Deliberately NO is_file()/filesize() pre-check. Both read PHP's stat
+     * cache, which is keyed by PATH — and these callers hand us a tempnam()
+     * path that a previous call may have stat-ed and then unlinked, so a cached
+     * `0` or a cached "missing" would reject a file that is on disk and fine.
+     * finfo opens the file, so it answers from the bytes: `false` for a missing
+     * file, `application/x-empty` for an empty one, and neither is in the
+     * allowlist. The check that matters is the same either way, and this one
+     * cannot be wrong.
+     */
+    public static function decodableFile(string $path): bool
+    {
+        return in_array((new finfo(FILEINFO_MIME_TYPE))->file($path), self::ALLOWED_MIMES, true);
+    }
+
+    /**
+     * exceeds(), read from a file. Fails CLOSED on an unreadable header for
+     * the same reason the string lane does — see this class's docblock, and do
+     * not soften the direction.
+     */
+    public static function exceedsFile(string $path): bool
+    {
+        $info = @getimagesize($path);
+        if ($info === false) {
+            return true;
+        }
+
+        $width = $info[0];
+        $height = $info[1];
+
+        if ($width < 1 || $height < 1) {
+            return true;
+        }
+
+        return $width * $height > self::maxPixels();
+    }
+
+    /** safeToDecode(), read from a file. Both checks, in the order that matters. */
+    public static function safeToDecodeFile(string $path): bool
+    {
+        return self::decodableFile($path) && ! self::exceedsFile($path);
+    }
 }

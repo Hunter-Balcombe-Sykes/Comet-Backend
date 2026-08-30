@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Tests\Support\Media\FakeMediaBytes;
 
 beforeEach(function () {
     setupUsersTable();
@@ -172,7 +173,7 @@ it('InstagramConnectJob mirrors images and writes the connection payload', funct
     Http::fake([
         // Apify is not called by the job directly — it goes through InstagramScraper
         // which we mock below. Http::fake here covers the image CDN calls.
-        'scontent.cdninstagram.com/*' => Http::response('img-bytes', 200, ['Content-Type' => 'image/jpeg']),
+        'scontent.cdninstagram.com/*' => Http::response(FakeMediaBytes::jpeg(), 200, ['Content-Type' => 'image/jpeg']),
     ]);
 
     $user = igAsyncUser('igasync3');
@@ -225,11 +226,16 @@ it('InstagramConnectJob mirrors both the latest photo and the latest reel (mp4 +
     $coverUrl = 'https://scontent.cdninstagram.com/cover.jpg';
     $videoUrl = 'https://scontent.cdninstagram.com/reel.mp4';
 
-    Http::fake([
-        // reel.mp4 first (specific) so the broad image rule below doesn't claim it.
-        'scontent.cdninstagram.com/reel.mp4' => Http::response('video-bytes', 200, ['Content-Type' => 'video/mp4']),
-        'scontent.cdninstagram.com/*' => Http::response('img-bytes', 200, ['Content-Type' => 'image/jpeg']),
-    ]);
+    // A CLOSURE, not a shared Http::response instance. This test fetches TWO
+    // images (the photo and the reel's poster), and one response object's body
+    // stream is consumed by the first ->sink(), so the second fetch lands ZERO
+    // bytes. That used to pass silently — an empty file was mirrored to R2 and
+    // a videoPoster URL returned for it — and #W2-SEC-14's sniff is what makes
+    // it visible: application/x-empty is not an image. A fresh response per
+    // call is the fix; the empty-body rejection is correct behaviour.
+    Http::fake(fn ($request) => str_contains($request->url(), 'reel.mp4')
+        ? Http::response(FakeMediaBytes::mp4(512), 200, ['Content-Type' => 'video/mp4'])
+        : Http::response(FakeMediaBytes::jpeg(), 200, ['Content-Type' => 'image/jpeg']));
 
     $user = igAsyncUser('igreel1');
     $connection = IntegrationConnection::create([
@@ -273,7 +279,7 @@ it('InstagramConnectJob drops a CDN image that responds with a redirect and neve
     $redirectUrl = 'https://scontent.cdninstagram.com/redirect.jpg';
 
     Http::fake([
-        'scontent.cdninstagram.com/ok.jpg' => Http::response('img-bytes', 200, ['Content-Type' => 'image/jpeg']),
+        'scontent.cdninstagram.com/ok.jpg' => Http::response(FakeMediaBytes::jpeg(), 200, ['Content-Type' => 'image/jpeg']),
         // An allow-listed CDN URL that 30x-redirects must be dropped, not followed
         // to its (here internal cloud-metadata) target.
         'scontent.cdninstagram.com/redirect.jpg' => Http::response('', 302, ['Location' => 'http://169.254.169.254/latest/meta-data/']),
@@ -326,7 +332,7 @@ it('InstagramConnectJob drops an oversized cover image and completes the job wit
             'Content-Type' => 'image/jpeg',
             'Content-Length' => 20_000_000, // 20 MB — over the 15 MB cap
         ]),
-        'scontent.cdninstagram.com/pic.jpg' => Http::response('img-bytes', 200, ['Content-Type' => 'image/jpeg']),
+        'scontent.cdninstagram.com/pic.jpg' => Http::response(FakeMediaBytes::jpeg(), 200, ['Content-Type' => 'image/jpeg']),
     ]);
 
     $user = igAsyncUser('igcap_img1');
@@ -603,7 +609,7 @@ it('reconnect reclaims stale reel files when the account now leads with a photo 
     $photoUrl = 'https://scontent.cdninstagram.com/photo_new.jpg';
 
     Http::fake([
-        'scontent.cdninstagram.com/*' => Http::response('img-bytes', 200, ['Content-Type' => 'image/jpeg']),
+        'scontent.cdninstagram.com/*' => Http::response(FakeMediaBytes::jpeg(), 200, ['Content-Type' => 'image/jpeg']),
     ]);
 
     $user = igAsyncUser('igjob2a');
@@ -649,7 +655,7 @@ it('first connect writes photo and does not delete any spurious files (JOB-2)', 
     $photoUrl = 'https://scontent.cdninstagram.com/first_photo.jpg';
 
     Http::fake([
-        'scontent.cdninstagram.com/*' => Http::response('img-bytes', 200, ['Content-Type' => 'image/jpeg']),
+        'scontent.cdninstagram.com/*' => Http::response(FakeMediaBytes::jpeg(), 200, ['Content-Type' => 'image/jpeg']),
     ]);
 
     $user = igAsyncUser('igjob2b');
@@ -690,7 +696,7 @@ it('removed profile pic is reclaimed on reconnect when scraper returns null (JOB
     $photoUrl = 'https://scontent.cdninstagram.com/pic2.jpg';
 
     Http::fake([
-        'scontent.cdninstagram.com/*' => Http::response('img-bytes', 200, ['Content-Type' => 'image/jpeg']),
+        'scontent.cdninstagram.com/*' => Http::response(FakeMediaBytes::jpeg(), 200, ['Content-Type' => 'image/jpeg']),
     ]);
 
     $user = igAsyncUser('igjob2c');

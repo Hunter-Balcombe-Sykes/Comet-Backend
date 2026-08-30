@@ -319,3 +319,29 @@ it('classifies a square.site /s/order URL as Square Online ordering, and a bare 
     $root = $harvester->classify('https://ischia-restaurant.square.site/');
     expect($root === null || $root['platform'] !== 'square.order')->toBeTrue();
 });
+
+// ── #W1-SEC-13 / #W2-SEC-16: LIBXML_NONET on an untrusted parse ──────────────
+
+it('still harvests links from a page carrying an external DOCTYPE and entity declarations', function () {
+    // LIBXML_NONET's whole risk is that it changes how a page with external
+    // references parses. SafeUrlFetcher guards the FETCH; the flag guards the
+    // PARSE, and this pins that adding it costs no links on the exact page
+    // shape that would exercise it — a real-world XHTML doctype plus an
+    // external entity a hostile page would use to make libxml fetch a URL of
+    // the attacker's choosing from inside our worker.
+    $html = <<<'HTML'
+    <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+      "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd" [
+      <!ENTITY probe SYSTEM "http://169.254.169.254/latest/meta-data/">
+    ]>
+    <html><body>
+      <a href="https://www.instagram.com/doccuts">IG</a>
+      <a href="https://www.fresha.com/a/doc-cuts">Book</a>
+    </body></html>
+    HTML;
+
+    $out = harvesterFor($html)->harvest('https://example.com.au');
+
+    expect($out['socials']['instagram'] ?? null)->toBe('https://www.instagram.com/doccuts');
+    expect($out['booking'] ?? [])->toContain('https://www.fresha.com/a/doc-cuts');
+});

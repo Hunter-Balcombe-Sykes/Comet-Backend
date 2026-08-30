@@ -14,6 +14,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Tests\Support\Media\FakeMediaBytes;
 use Tests\TestCase;
 
 uses(TestCase::class)->in(__FILE__);
@@ -97,7 +98,7 @@ it('logs an observable reason when the on-disk size is oversized (header absent/
     Log::spy();
     // No Content-Length header at all — must fall back to the on-disk check.
     Http::fake([
-        'scontent.cdninstagram.com/*' => Http::response(str_repeat('x', 100), 200, ['Content-Type' => 'video/mp4']),
+        'scontent.cdninstagram.com/*' => Http::response(FakeMediaBytes::mp4(100), 200, ['Content-Type' => 'video/mp4']),
     ]);
     // Can't realistically stream 50MB in a test — this proves the header-absent
     // path reaches the on-disk branch without erroring, covered together with
@@ -116,7 +117,7 @@ it('retries once on a transient bad status and succeeds on the second attempt', 
     Http::fake([
         'scontent.cdninstagram.com/*' => Http::sequence()
             ->push('', 403) // transient-looking failure — a momentary CDN block/expired signed URL
-            ->push(str_repeat('x', 2048), 200, ['Content-Type' => 'video/mp4', 'Content-Length' => '2048']),
+            ->push(FakeMediaBytes::mp4(2048), 200, ['Content-Type' => 'video/mp4', 'Content-Length' => '2048']),
     ]);
 
     $result = invokeMirrorVideo('https://scontent.cdninstagram.com/reel.mp4', 'platforms/instagram/test/reel-retry.mp4');
@@ -132,7 +133,7 @@ it('retries once on a connection exception and succeeds on the second attempt', 
 
         return $attempt === 1
             ? throw new ConnectionException('connection reset')
-            : Http::response(str_repeat('x', 2048), 200, ['Content-Type' => 'video/mp4', 'Content-Length' => '2048']);
+            : Http::response(FakeMediaBytes::mp4(2048), 200, ['Content-Type' => 'video/mp4', 'Content-Length' => '2048']);
     });
 
     $result = invokeMirrorVideo('https://scontent.cdninstagram.com/reel.mp4', 'platforms/instagram/test/reel-retry2.mp4');
@@ -241,4 +242,47 @@ it('never emits _mediaDiagnostics on the public/dashboard Instagram payload', fu
     expect($properties)->not->toContain('mediaDiagnostics');
     expect($properties)->not->toContain('_mediaDiagnostics');
     expect(array_keys($payload->toArray()))->not->toContain('_mediaDiagnostics');
+});
+
+// ── #W2-SEC-14: the bytes, not the label ────────────────────────────────
+
+it('drops a reel whose bytes are not a video, however the CDN labels them', function () {
+    Log::spy();
+    // A well-formed HTML document served as video/mp4 — exactly what the
+    // header check alone waves through, and what would then sit on R2 under a
+    // .mp4 path and be served publicly.
+    Http::fake(['scontent.cdninstagram.com/*' => Http::response(
+        '<html><body>not a reel</body></html>', 200, ['Content-Type' => 'video/mp4'],
+    )]);
+
+    $result = invokeMirrorVideo('https://scontent.cdninstagram.com/reel.mp4', 'platforms/instagram/test/reel-lying.mp4');
+
+    expect($result)->toBeNull();
+    expect(Storage::disk('media')->exists('platforms/instagram/test/reel-lying.mp4'))->toBeFalse();
+    Log::shouldHaveReceived('info')
+        ->withArgs(fn ($message, $context) => $message === 'instagram.mirror_video.dropped'
+            && $context['reason'] === 'bad_sniffed_type')
+        ->once();
+});
+
+it('does not retry a sniff mismatch — a non-video will not become one', function () {
+    Http::fake(['scontent.cdninstagram.com/*' => Http::response(
+        'GIF89a'.str_repeat('x', 64), 200, ['Content-Type' => 'video/mp4'],
+    )]);
+
+    $result = invokeMirrorVideo('https://scontent.cdninstagram.com/reel.mp4', 'platforms/instagram/test/reel-gif.mp4');
+
+    expect($result)->toBeNull();
+    Http::assertSentCount(1);
+});
+
+it('still mirrors a genuine mp4 whose bytes match its label', function () {
+    Http::fake(['scontent.cdninstagram.com/*' => Http::response(
+        FakeMediaBytes::mp4(4096), 200, ['Content-Type' => 'video/mp4'],
+    )]);
+
+    $result = invokeMirrorVideo('https://scontent.cdninstagram.com/reel.mp4', 'platforms/instagram/test/reel-real.mp4');
+
+    expect($result)->not->toBeNull();
+    expect(Storage::disk('media')->exists('platforms/instagram/test/reel-real.mp4'))->toBeTrue();
 });

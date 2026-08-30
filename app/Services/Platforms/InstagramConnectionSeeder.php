@@ -7,11 +7,13 @@ use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Http\SafeUrlException;
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Media\ImagePixelBudget;
 use App\Services\Media\InstagramMediaUrl;
 use App\Services\Media\MediaDiskResolver;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Profile\BioIntel;
 use App\Services\Profile\SectorTaxonomy;
+use finfo;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\Client\ConnectionException;
@@ -47,6 +49,18 @@ class InstagramConnectionSeeder
     // generous; it stops a pathological file filling the temp disk / R2, and an
     // oversized reel simply falls back to its poster (no autoplay).
     private const MAX_VIDEO_BYTES = 52428800;
+
+    /**
+     * Byte-sniffed container types we will store for a reel (#W2-SEC-14).
+     * Instagram serves mp4; quicktime is here because the same ftyp family
+     * occasionally sniffs that way and a legitimately-mirrored reel must not
+     * be dropped over a brand code. There is no ImagePixelBudget twin for
+     * video — nothing here is ever decoded by us, so the allowlist IS the
+     * whole check.
+     *
+     * @var list<string>
+     */
+    private const ALLOWED_VIDEO_MIMES = ['video/mp4', 'video/quicktime'];
 
     // Hard cap on a mirrored still image (15 MB). Instagram photos are tiny
     // (<1 MB in practice); 15 MB is deliberately generous to future-proof against
@@ -396,7 +410,11 @@ class InstagramConnectionSeeder
     //      compromised CDN hostname). Routes through SafeUrlFetcher::assertSafe(),
     //      the same guard used by every other outbound fetch in the subsystem.
     //   3. Redirects refused — a 3xx response is dropped, not followed (withoutRedirecting).
-    //   4. Content-type enforced — only image/* is stored.
+    //   4. Content-type enforced — only image/* is stored, AND the bytes that
+    //      landed are byte-sniffed against ImagePixelBudget's format allowlist
+    //      (#W2-SEC-14). The header is the CDN's claim about the file; finfo is
+    //      the file. They disagree whenever the claim is wrong, which is the
+    //      only case that matters.
     //   5. Byte cap — rejects before store if Content-Length signals an oversized
     //      file, with a check on the sunk temp file's actual on-disk size as a
     //      backstop for absent/inaccurate headers (replaces the old strlen check
@@ -483,6 +501,25 @@ class InstagramConnectionSeeder
             // or inaccurate Content-Length headers. Nothing over the limit
             // reaches R2.
             if ((int) filesize($tmp) > self::MAX_IMAGE_BYTES) {
+                return null;
+            }
+
+            // #W2-SEC-14: the Content-Type check above is the CDN's LABEL. This
+            // is the file. MediaMirror has run the same pair over its own
+            // Instagram bytes since #SEC-1; this path stored and publicly served
+            // them on the header alone. Path lane, not the string lane, so the
+            // streaming this method exists for survives the check.
+            //
+            // The size caps run FIRST on purpose: they are the cheap ones, and
+            // an oversized file should be refused for being oversized rather
+            // than have its header parsed first.
+            if (! ImagePixelBudget::safeToDecodeFile($tmp)) {
+                Log::info('instagram.mirror_image.dropped', [
+                    'reason' => 'bad_sniffed_type',
+                    'host' => parse_url($url, PHP_URL_HOST),
+                    'declared' => $contentType,
+                ]);
+
                 return null;
             }
 
@@ -615,6 +652,19 @@ class InstagramConnectionSeeder
             // absent or inaccurate Content-Length headers.
             if ((int) filesize($tmp) > self::MAX_VIDEO_BYTES) {
                 $this->logVideoMirrorDrop('oversize_actual', $url);
+
+                return null;
+            }
+
+            // #W2-SEC-14: byte-sniff what landed, not what the CDN called it.
+            // NOT transient — a file that is not a video will not become one on
+            // a retry, so this joins the other permanent drop classes rather
+            // than burning the retry budget. Logged with its own reason so a
+            // "reels stopped mirroring" report separates a sniff mismatch from
+            // a dead URL without a code read.
+            $sniffed = (string) (new finfo(FILEINFO_MIME_TYPE))->file($tmp);
+            if (! in_array($sniffed, self::ALLOWED_VIDEO_MIMES, true)) {
+                $this->logVideoMirrorDrop('bad_sniffed_type', $url);
 
                 return null;
             }

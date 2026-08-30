@@ -262,10 +262,15 @@ final class MediaMirror
             $wrote = DB::connection('pgsql')->table('content.media_assets')
                 ->where('id', $assetId)
                 // #SEC-5: keyed on id AND owner. The id alone is sufficient in
-                // practice — it came from ProjectionWriter — but this is the
-                // only write in the class, it costs nothing, and a mirror job
-                // dispatched with a mismatched pair should write nothing rather
-                // than land one user's bytes on another user's row.
+                // practice — it came from ProjectionWriter — but it costs
+                // nothing, and a mirror job dispatched with a mismatched pair
+                // should write nothing rather than land one user's bytes on
+                // another user's row. Every DB access in this class now carries
+                // the same scoping: the image branch below, mirror()'s
+                // source_url refresh, refreshedInstagramUrl()'s two joins, and
+                // both halves of fail(). (This comment used to claim it was the
+                // only write in the class; #W1-SEC-1 and #W2-SEC-11 closed the
+                // ones it had missed.)
                 ->where('user_id', $userId)
                 ->update([
                     'storage_path' => $path,
@@ -510,9 +515,20 @@ final class MediaMirror
         // Read back rather than trusting a local count: the row is the shared
         // truth, and this is the ONE line an operator gets for an asset we are
         // giving up on.
-        $attempts = (int) DB::connection('pgsql')->table('content.media_assets')
-            ->where('id', $assetId)
-            ->value('mirror_attempts');
+        //
+        // #W2-SEC-11: scoped EXACTLY as the increment above it, and for a
+        // reason beyond consistency. On a mismatched pair the increment matches
+        // no row, so an id-only read-back would return the OTHER user's counter
+        // — and if theirs already sat at the cap, this would emit a `gave_up`
+        // line and a Nightwatch escalation for an asset we never touched, about
+        // an owner we are not entitled to read. Scoped, the read misses too and
+        // $attempts falls to 0: no spurious give-up, no cross-tenant read.
+        $attemptsQuery = DB::connection('pgsql')->table('content.media_assets')
+            ->where('id', $assetId);
+        if ($userId !== null) {
+            $attemptsQuery->where('user_id', $userId);
+        }
+        $attempts = (int) $attemptsQuery->value('mirror_attempts');
 
         // `>=`, not `===`. A strict equality misses the line entirely whenever
         // the counter steps past the boundary — two in-flight jobs incrementing
