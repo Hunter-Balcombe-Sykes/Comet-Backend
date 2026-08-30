@@ -511,3 +511,54 @@ cost, and §A.2's four blockers are the entry gate it would have to clear.
   follow-up in the plan, not smuggled into this branch.
 - No change to `known-invisible.php`. The 12 storefront/payment surfaces stay
   invisible on purpose.
+
+---
+
+## 5. Re-measurement at implementation time (2026-08-30)
+
+The decision was taken on the 2026-08-28 catalog. `development` moved 46 commits
+before implementation, several of them adding brands. Re-measured on
+`96bc0b9ec` before writing any code:
+
+| | 2026-08-28 | 2026-08-30 |
+|---|---|---|
+| connectable | 96 | 100 |
+| link-only (detect-only) | 49 | **62** |
+| invisible | 13 | 14 |
+
+**The detect-only bucket grew by 13 in two days.** That is the premise of this
+whole document confirming itself while the document was being reviewed, and it
+is the reason Task 1's ratchet is the load-bearing half of the change rather
+than the bookkeeping half.
+
+The recommendation was unaffected: the promotion set
+(`routing_class ∈ {booking, reservations, ordering}` AND `is_connectable`) is
+still exactly **`easi.order`** and **`shortcuts.book`**.
+`microsoft_bookings.book` and `wix_bookings.book` remain right-class but
+non-connectable, and are held at `'link'` by the second condition.
+
+New arrivals in the detect-only bucket, all in classes this branch deliberately
+does not promote: 5 `content` release-link brands (feature_fm, hypeddit,
+linkfire, orchard, heyzine) and 8 `events` ticketing brands (admitone, etix,
+eventim, laylo, see_tickets, tickethype, ticketweb, tixr). Each now carries a
+recorded row in `tests/fixtures/catalog/known-link-only.php` instead of being
+invisible.
+
+## 6. Follow-ups this branch deliberately did not take
+
+1. **`harvest()` has no catalog fallback** (`WebsiteLinkHarvester.php`,
+   `harvestHtml()`). A catalog-only booking/ordering/reservation brand on a
+   scraped homepage is absent from the GB-shaped payload entirely — not
+   mis-categorised, missing. The Task 3 promotion does not reach this lane
+   because `harvestHtml()` never calls `classifyFromCatalog()`. Sized **M**;
+   needs its own branch and review.
+2. **`content` is a routing class with no product lane** (18 surfaces and
+   growing — it took 5 new brands in two days). Until `classify()`,
+   `LinkRouter::gateAllows()` and `LinkRouter`'s `match` all learn it, every
+   content brand is a link card, and seven content-class surfaces are `'social'`
+   only because a hand table says so. Sized **L**, and it is a product decision
+   before it is a code one.
+3. **`events` cannot express organiser vs single event.** 15 detect-only
+   ticketing brands are blocked on that, not on host coverage. Adding
+   `*.event` surfaces to the catalog would unblock them; that is a catalog
+   schema decision.
