@@ -2171,3 +2171,27 @@ design is deliberate: `$tries = 1` because "a fetch is not safely re-runnable
 by the queue — retrying a failed attempt is SourceScheduler's job via
 next_attempt_at/backoff". The scheduler owns the retry, so the source is
 picked up again on its own cadence. No action.
+
+### The logo 422s are the SVG fallback EARNING its keep — checked, no action
+
+Batch 4's other failures were 3 × ProcessLogoVariantsJob, all HTTP 422 from
+the processor: `svg rasterization failed: The SVG size is undefined` (×2) and
+`unbound prefix: line 3, column 12`. Real-world scraped SVGs — one with no
+width/height/viewBox, one with a namespace prefix it never declares.
+
+This is a DIFFERENT variant from the #172 case fixed in session 3 (that was
+HTTP 500, the processor container down). The `failed()` SVG fallback written
+for that one catches this too, because it keys on "the original is an SVG"
+rather than on why the processor said no. Verified rather than assumed:
+
+- all three `site_media` rows are `processing_state = ready`
+- supernormal's wire carries `brand.logoFull` with url + urlHd + **urlSvg**
+  (the vector variant the fallback publishes), and the url loads HTTP 200,
+  image/webp, 11.6KB
+- what IS lost is only the square/icon variant — `logoSquare: null`,
+  `urlIcon: null`
+- and that degrades cleanly too: the favicon falls back to a generated
+  initial-letter mark on the brand colour, and og:image to a real photo
+
+So the exception is correct signal (a malformed scraped SVG is worth knowing
+about) and costs the owner nothing visible. No action.
