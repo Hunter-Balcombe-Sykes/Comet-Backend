@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Platforms;
 
+use App\Services\Platforms\MenuAiExtractor;
 use Illuminate\Foundation\Http\FormRequest;
 
 // POST /api/platforms/menu/scan/apply — a reviewed batch of AI-extracted
@@ -25,17 +26,25 @@ class ApplyMenuScanRequest extends FormRequest
             'items' => ['present', 'array', 'max:200'],
             // required() already fails on a whitespace-only string (Laravel
             // trims before checking), so no separate non-empty rule is needed.
-            'items.*.name' => ['required', 'string', 'max:160'],
+            // Bound MUST match MenuAiExtractor::NAME_MAX — that extractor is the
+            // upstream producer for scanned items and truncates name/category to
+            // exactly that length, so a tighter cap here would 422 a scan the
+            // pipeline already told the user was accepted (#W1-SEC-9).
+            'items.*.name' => ['required', 'string', 'max:'.MenuAiExtractor::NAME_MAX],
             // #W1-SEC-9: bounded like a real menu-item description — generous
             // enough for any real dish blurb, tight enough that 200 items/request
-            // can't smuggle in an unbounded text payload.
+            // can't smuggle in an unbounded text payload. No upstream producer
+            // truncates description (MenuAiExtractor::cleanString() only trims),
+            // so this ceiling isn't contradicted by a shorter producer bound.
             'items.*.description' => ['nullable', 'string', 'max:1000'],
             // Bounded like a real menu price — min:0 rejects a scan misread as
             // negative, max:100000 catches a decimal-point misread (e.g. $1400.00
             // scanned as 140000) without constraining any real-world price.
             'items.*.price' => ['nullable', 'numeric', 'min:0', 'max:100000'],
-            // #W1-SEC-9: category is a short label ("Mains", "Sides"), not free text.
-            'items.*.category' => ['nullable', 'string', 'max:100'],
+            // #W1-SEC-9: category is a short label ("Mains", "Sides"), not free
+            // text, but must accept whatever MenuAiExtractor legitimately emits
+            // (same NAME_MAX truncation bound as name — see above).
+            'items.*.category' => ['nullable', 'string', 'max:'.MenuAiExtractor::NAME_MAX],
             // Dietary markers (GF/V/VG…) — MenuScanApplier normalizes against
             // its canonical label vocabulary and drops anything unknown, so a
             // loose string rule here is enough; without ANY rule, validated()

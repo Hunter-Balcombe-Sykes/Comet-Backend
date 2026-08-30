@@ -1423,7 +1423,7 @@ it('422s scan apply for a category over the sane upper bound', function () {
     $user = menuUser('scan8f');
 
     actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
-        'items' => [['name' => 'Item', 'description' => null, 'price' => null, 'category' => str_repeat('a', 101)]],
+        'items' => [['name' => 'Item', 'description' => null, 'price' => null, 'category' => str_repeat('a', 161)]],
     ])->assertStatus(422);
 });
 
@@ -1431,7 +1431,19 @@ it('scan apply accepts description/category at exactly the cap', function () {
     $user = menuUser('scan8g');
 
     actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
-        'items' => [['name' => 'Item', 'description' => str_repeat('a', 1000), 'price' => null, 'category' => str_repeat('b', 100)]],
+        'items' => [['name' => 'Item', 'description' => str_repeat('a', 1000), 'price' => null, 'category' => str_repeat('b', 160)]],
+    ])->assertOk();
+});
+
+// review round 2, #W1-SEC-9: the category cap must match
+// MenuAiExtractor::NAME_MAX (160), not an independently-invented 100 — the
+// extractor legitimately truncates+emits categories up to 160 chars, so a
+// tighter validator cap stranded an accepted scan on /scan/apply.
+it('accepts a scanned category between 101 and 160 characters (matches MenuAiExtractor::NAME_MAX)', function () {
+    $user = menuUser('scan8h');
+
+    actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [['name' => 'Item', 'description' => null, 'price' => null, 'category' => str_repeat('c', 140)]],
     ])->assertOk();
 });
 
