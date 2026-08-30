@@ -1874,3 +1874,100 @@ and the occasional dead scraped Instagram handle (#467, degrades correctly).
 the corrected entry above — with the important caveat that the cheap answer
 (add the host to WebsiteLinkHarvester's tables) fixed every case found this
 run without touching any threshold.
+
+## SESSION 5 (2026-08-30 overnight): audit the merged work, then 63 more cold builds
+
+Opened by auditing the 20 commits another lane pushed while session 4 ran —
+including its generalisation of the two-classifier seam session 4 found.
+Verified first that nothing of ours was lost: all 18 catalog surfaces added
+across sessions 4–5 present, all 18 kit entries present, Juno correctly
+absent, and the new `known-link-only.php` ratchet classifies each of ours
+correctly (the four commercial ones absent from it, the link-class ones in).
+Both lanes compose: 9,828 passing on the merge.
+
+### The pushed policy overstated its own escape hatch (19177c3e4)
+
+`classifyFromCatalog()` now promotes booking/reservations/ordering — but only
+when `is_connectable`. The new policy block says a brand in those classes
+"needs NO row here", which is false for a DETECT-ONLY one. Measured: 7 of 72
+commercial surfaces are excluded by that gate. Three exclusions are correct
+(`direct.book` is any domain at all; microsoft_bookings and wix_bookings are
+path-identified on shared registrable domains). The other four are ours —
+venue.ink, youcanbook.me, obeeapp.com, abacus.co — dedicated hosts excluded
+only as collateral, and carried by hand-table rows.
+
+Verified the trap is caught rather than shipped: deleting the venue.ink row
+fails CatalogClassificationSweepTest *by name*. So the code was right and only
+the prose was wrong. Corrected in both places, and recorded that
+`is_connectable` is a PROXY for the real hazard ("this host does not uniquely
+name the brand"), so a future catalog field could replace it.
+
+### A failed build was serving a public page with the person's name (6cc96ce0f)
+
+**The biggest find of the run.** Three Instagram scrapes failed in one batch
+(all `profile_unavailable` — genuinely restricted accounts) and all three
+subdomains answered **HTTP 200**. The page carried the person's real name,
+twice, and nothing else: no bio, no images, no links, just "Claim and finish
+site setup". 44KB of shell against 64KB for a built site.
+
+Root cause, two halves: `SiteObserver` publishes the subdomain when the site
+ROW is created — before the build runs — and `GeneratePreAccountSiteJob`'s
+failure arms `return` before the KV sync at the end of the success path, so
+nothing ever took the route down. Fixed both: all three failure arms now
+dispatch the sync (including `failed()`, where `$user` was never in scope),
+and `SyncSubdomainToKvJob` no longer treats "unclaimed" alone as routable.
+
+Scoped to FAILED, not "not yet ready" — a build in flight resolves in seconds
+and re-syncs on success; a failed one is permanent. The buildless case needed
+nothing: the branch above already retires an expired-or-buildless unclaimed
+account, and a test now pins that so the two rules stay visibly distinct.
+Safe for claiming — the claim link is `{frontend_url}/claim/{subdomain}`, on
+the app frontend, and never depended on the subdomain resolving.
+
+LIVE GATE with controls: the three failed builds now 404; savinktattoo,
+yogawithbriohny, milligram and chuan-spa still 200. Fleet swept — those three
+were the only failed builds with a live user row.
+
+### wa.me/<phone> had no rule at all (0fd60b26b)
+
+Found by doing what the owner asked — fetching the accounts' own Linktrees and
+bio.sites and diffing them against what the build produced.
+finderseekerphotography's bio.site carries a WhatsApp link that noted as
+no-rule-matched, while linhnguyenphotos and yogawithbriohny connected
+identically-shaped links fine.
+
+The catalog only covered `/send` and `/message` — not the bare phone path,
+which is what WhatsApp's own click-to-chat produces AND what this surface's
+own `canonicalUrl` emits. It survived because the OTHER lane hides it: a wa.me
+link straight from an Instagram bio is seeded by the harvester and never
+reaches the catalog, so only a link unrolled from an AGGREGATOR exposes it.
+LIVE GATE: rebuilt finderseekerphotography → `whatsapp.chat`, placed,
+connection created.
+
+Writing that detector exposed a second bug in our own tooling: `routing:corpus`
+called it unsatisfiable, having synthesised `whatsapp.com/+1` — it sampled
+`\d` once and threw `{7,15}` away. The `[class]` branch already honoured
+minimums; the escape branch never got the same treatment. Fixed, and the
+corpus now covers all 393 detectors.
+
+### Purge ceiling raised 20 → 60, with the measurement that earned it
+
+The other lane's 15s purge debounce was exactly the right first fix — cut the
+amplification before raising a ceiling — and it was NOT sufficient: 49
+CloudflareCachePurgeJob failures in 90 minutes tonight, after it, all
+MaxAttemptsExceeded, all clustered in the minutes a batch was building. At
+20/min the funnel cannot drain a 39-account burst inside the job's own
+`retryUntil(10 min)`. 60 drains it in under two and stays far under
+Cloudflare's own ~240/min. Owner authorised raising limits for this run.
+
+### Recorded, NOT changed: failure_code flattens a permanent failure
+
+`InstagramSourceGenerator` maps `ProfileNotFound` → `source_not_found` and
+everything else → `scrape_failed`, keeping the real reason only in the log
+text. So `profile_unavailable` (a restricted/private account — permanent, like
+not-found) is indistinguishable in the queryable column from a transient actor
+or transport failure. Checked the actual cost before reaching for it: nothing
+auto-retries a failed build, so no Apify credit is burned; the only loss is
+that ops cannot count "how many cold builds fail because the account is
+private". Deliberate design, no live harm, owner asleep — recorded as a small
+improvement rather than a vocabulary change made unattended.
