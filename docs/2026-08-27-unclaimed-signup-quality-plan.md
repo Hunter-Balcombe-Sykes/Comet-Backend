@@ -2067,3 +2067,41 @@ matches the aggregate — the mismatch is the actual defect; (2) show the
 aggregate more prominently than any single review; (3) leave it, on the
 grounds that recency is the honest order. My read is (1): 5 of 44 is a
 sampling problem, and fixing it needs no editorial judgement at all.
+
+### An early-access invite pointed at a subdomain that did not resolve (c6ba7f8e1)
+
+Found by a FLEET SWEEP rather than by looking for it — worth repeating as a
+technique. All 161 unclaimed sites checked against their build state:
+
+| build | HTTP | count |
+|---|---|---|
+| ready | 200 | 156 |
+| failed | 404 | 3 (the fix from earlier tonight, holding) |
+| **ready** | **404** | **2 — anomalies** |
+
+Both anomalies were `built_via=early_access` with a null `expires_at`.
+
+Two deliberate designs disagreeing. The early-access lane passes
+`expiresDays: null` ON PURPOSE so an unapproved build is never pruned;
+`SyncSubdomainToKvJob` reads that same null as gone and retires the handle.
+Every sync before approval therefore took the route down, and nothing put it
+back — `ApproveEarlyAccessBuildJob` never referenced the KV job at all and
+`PreAccountBuild` has no observer. So the claim window opened, the invite went
+out, and it pointed at a site the person could not load.
+
+Fixed where the contradiction resolves: the moment the claim window opens is
+the moment the route should exist. The KV job's null-expiry rule is left alone
+— it is right, and it is what protects against routable orphans.
+
+### Unicode fold GATED end to end
+
+thebloomroommalvern rebuilt: `display_name` is now `The Bloom Room Flowers`,
+the live page carries **zero** styled-unicode characters, and the 🌸 in the bio
+survives. A bonus the fix was not aimed at: with real letters to work on, the
+existing PersonNameParser could finally parse the name and trimmed the
+pipe-separated keyword stuffing ("… | Melbourne Florist | Malvern") down to
+the actual business name.
+
+Note its FIRST rebuild attempt failed `scrape_failed` — and that failure
+independently re-gated the earlier fix: the route went to 404 on its own,
+with no intervention, on a failure nobody pointed the fix at.
