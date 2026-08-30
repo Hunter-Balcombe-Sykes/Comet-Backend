@@ -5,6 +5,7 @@ namespace App\Services\Site;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -29,6 +30,34 @@ class UpdateSiteAction
      * @var list<string>
      */
     public const LIST_SETTINGS_KEYS = ['manual_page_order', 'actions', 'pool_locks'];
+
+    /**
+     * #W2-SEC-6: every settings.* key a client is allowed to write, at either
+     * endpoint. Both UpdateSiteRequest and StaffUpdateSiteRequest only assert
+     * `'settings' => ['sometimes', 'array']` at the top level — Laravel's
+     * validated() hands back the WHOLE incoming array for a key that has a
+     * top-level rule, including any sibling key that carries no rule of its
+     * own. Closing the container here (not with a 422-on-unknown-key rule at
+     * the request layer) keeps the existing "unknown key accepted, silently
+     * dropped" contract that skeleton_id already relies on — an old or buggy
+     * client sending a since-retired key must not start getting 422s.
+     * `design` is deliberately absent: it is REJECTED (422, 'prohibited'),
+     * not merely dropped — theme-picker machinery must never come back.
+     * Keep in lockstep with SiteOrderingValidationRules::orderingRules() and
+     * the settings.* rules on both Form Requests.
+     *
+     * @var list<string>
+     */
+    public const KNOWN_SETTINGS_KEYS = [
+        ...Site::PROMOTED_SETTINGS_KEYS,
+        'display_gallery_page',
+        'privacy',
+        'smart_page_order',
+        'manual_page_order',
+        'actions',
+        'pool_order',
+        'pool_locks',
+    ];
 
     public function __construct(private readonly RenameSubdomainAction $renameSubdomain) {}
 
@@ -73,11 +102,16 @@ class UpdateSiteAction
         $incomingSettings = [];
         if ($hasSettings) {
             $incomingSettings = is_array($data['settings']) ? $data['settings'] : [];
-            // Affiliate/product-selection feature was removed with the commerce schema; strip any
-            // legacy key so it can't reappear in site settings JSON.
-            unset($incomingSettings['selected_products']);
-            // Skeleton-system cleanup: settings.design.* is dead. Any
-            // incoming `design` sub-key gets dropped on the floor.
+            // #W2-SEC-6: close the container to known keys only. Both retired
+            // keys (selected_products — commerce schema removal) and any
+            // never-validated key a client tacks on are silently dropped
+            // here, the same "accepted, ignored" contract as skeleton_id —
+            // NOT a 422, unlike settings.design (blocked earlier, at the
+            // request layer, by the 'prohibited' rule).
+            $incomingSettings = Arr::only($incomingSettings, self::KNOWN_SETTINGS_KEYS);
+            // Belt-and-suspenders: design must never reach the merge even if
+            // a direct (non-FormRequest) caller — e.g. ReclaimHandleAction —
+            // ever passed one through unvalidated.
             unset($incomingSettings['design']);
         }
         // Never let the raw incoming settings reach fill() — the merged value

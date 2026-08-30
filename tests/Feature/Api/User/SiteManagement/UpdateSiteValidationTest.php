@@ -204,3 +204,31 @@ it('rejects retired legacy architecture ids, still ignores the dropped skeleton_
     expect(DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('architecture_id'))
         ->toBe('scroll');
 });
+
+// #W2-SEC-6: 'settings' only asserted it was an array — an unrecognized
+// settings.* key had no rule of its own but rode along in validated() and
+// persisted verbatim. UpdateSiteAction::KNOWN_SETTINGS_KEYS now closes that
+// container. Same "accepted, silently dropped, no 422" contract as
+// skeleton_id above — an old/buggy client sending a since-retired key must
+// not start getting rejected.
+it('silently drops an unrecognized settings key rather than persisting or 422ing it', function () {
+    $pro = createTenant('unknown-settings-pro');
+
+    actingAsUser($pro)
+        ->patchJson('/api/site', [
+            'settings' => [
+                'booking_mode' => 'manual',
+                'totally_made_up_key' => str_repeat('x', 5000),
+            ],
+        ])
+        ->assertOk();
+
+    $row = DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->first();
+    $settings = json_decode((string) $row->settings, true);
+
+    // booking_mode is a PROMOTED_SETTINGS_KEY — hoisted to its own column,
+    // never mirrored into the settings JSONB (FOUND-16) — so the real proof
+    // that a KNOWN key still writes is the column, not the JSONB blob.
+    expect($settings)->not->toHaveKey('totally_made_up_key')
+        ->and($row->booking_mode)->toBe('manual');
+});

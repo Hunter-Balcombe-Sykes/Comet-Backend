@@ -341,6 +341,25 @@ class AppServiceProvider extends ServiceProvider
             Log::warning($botMisconfig);
         }
 
+        // #W1-SEC-8 / #W2-SEC-3 — the guard above only catches the ENFORCE-
+        // without-a-driver half-flip; it says nothing about the more basic
+        // failure mode of a deploy that never configures bot protection at
+        // all, which resolves to the code default mode=off and boots with
+        // bot protection fully inert on every public mutation endpoint
+        // (enquiries, leads, subscriptions, early-access, reports) — with no
+        // operator signal. Unlike the case above, 'off' is also a legitimate
+        // DELIBERATE posture (e.g. an incident-response killswitch while a
+        // verifier is down), so this does not refuse to boot — it logs
+        // loudly, every production boot, until BOT_PROTECTION_MODE is set to
+        // something other than the default. This is NOT a decision to flip
+        // the default on — that's a product call, not a boot guard's job.
+        // EnvCheckService::generate()['bot_protection']['effective'] reports
+        // the identical fact on demand; this makes it unmissable on deploy
+        // instead of something someone has to remember to query.
+        if (app()->isProduction() && config('partna.bot_protection.mode') === 'off') {
+            Log::warning('BOT_PROTECTION_MODE=off in production — bot protection is fully inert on every public mutation endpoint (enquiries, leads, subscriptions, early-access, reports). Set BOT_PROTECTION_MODE=shadow or enforce, or confirm this is a deliberate killswitch.');
+        }
+
         // F2 AUTH-1 — JWT issuer/audience must be configured outside local/testing.
         // VerifySupabaseJwt::claimsMatchConfig() fails closed on a blank issuer or
         // audience (a blank value would otherwise let cross-project tokens pass),

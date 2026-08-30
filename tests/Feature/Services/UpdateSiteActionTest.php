@@ -221,7 +221,11 @@ it('publishes via a truthy non-bool is_published value when a display name is pr
     expect((bool) DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->value('is_published'))->toBeTrue();
 });
 
-it('merges settings PATCH-style, preserving unknown keys and stripping the dead design path', function () {
+it('merges settings PATCH-style: pre-existing unknown keys survive untouched, a NEW unknown key is dropped, and the dead design path is stripped', function () {
+    // #W2-SEC-6: KNOWN_SETTINGS_KEYS only filters the INCOMING side of the
+    // merge — it does not retroactively scrub whatever was already on disk
+    // (out of scope for this fix), which is why 'keep_me' here is expected
+    // to survive while 'extra' — arriving fresh in THIS request — is not.
     $pro = makeSiteOwner(siteOverrides: [
         'settings' => json_encode(['keep_me' => 'yes', 'booking_mode' => 'manual']),
     ]);
@@ -229,7 +233,7 @@ it('merges settings PATCH-style, preserving unknown keys and stripping the dead 
     app(UpdateSiteAction::class)->execute($pro, [
         'settings' => [
             'booking_mode' => 'none', // promoted key — goes to column, stripped from JSONB
-            'extra' => 'z',            // unknown key — must survive in JSONB
+            'extra' => 'z',            // unknown key on THIS request — must be dropped, not persisted
             'design' => ['accent' => '#fff'], // dead path — must be stripped
         ],
     ]);
@@ -237,11 +241,12 @@ it('merges settings PATCH-style, preserving unknown keys and stripping the dead 
     $row = DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->first();
     $settings = json_decode($row->settings, true) ?? [];
 
-    // Non-promoted keys survive in the JSONB; design path is stripped.
+    // Pre-existing on-disk key survives; design path and the new unknown
+    // incoming key are both stripped.
     expect($settings)->toMatchArray([
         'keep_me' => 'yes',
-        'extra' => 'z',
-    ])->and($settings)->not->toHaveKey('design');
+    ])->and($settings)->not->toHaveKey('design')
+        ->and($settings)->not->toHaveKey('extra');
 
     // Phase 2 strip: booking_mode is a promoted key → column only, not in JSONB.
     expect($settings)->not->toHaveKey('booking_mode');

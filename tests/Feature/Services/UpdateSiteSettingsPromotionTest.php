@@ -95,9 +95,10 @@ it('does not let a stale promoted key in the settings JSONB overwrite a newer ty
         'booking_mode' => 'none',
     ]);
 
-    // PATCH an unrelated key — booking_mode is never mentioned by this request.
+    // PATCH an unrelated (but KNOWN, non-promoted — #W2-SEC-6 now drops
+    // anything else) key — booking_mode is never mentioned by this request.
     app(UpdateSiteAction::class)->execute($pro->fresh()->load('site'), [
-        'settings' => ['unrelated_key' => 'z'],
+        'settings' => ['display_gallery_page' => false],
     ]);
 
     $row = DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->first();
@@ -106,8 +107,9 @@ it('does not let a stale promoted key in the settings JSONB overwrite a newer ty
     expect($row->booking_mode)->toBe('none');
 
     // The stale key is stripped from the JSONB mirror regardless (Phase 2:
-    // the column is the sole write target), and unrelated keys survive.
+    // the column is the sole write target), and both the pre-existing
+    // unknown key and the new known key survive.
     $settings = json_decode($row->settings, true) ?? [];
     expect($settings)->not->toHaveKey('booking_mode')
-        ->and($settings)->toMatchArray(['keep_me' => 'yes', 'unrelated_key' => 'z']);
+        ->and($settings)->toMatchArray(['keep_me' => 'yes', 'display_gallery_page' => false]);
 });
