@@ -82,3 +82,21 @@ it('returns an empty list for a page with no images', function () {
 it('returns an empty list for empty html', function () {
     expect(wgceExtract(''))->toBe([]);
 });
+
+// ── #FU-1: LIBXML_NONET on an untrusted parse ────────────────────────────────
+
+it('still extracts a content image from a page carrying an external DOCTYPE and entity declarations', function () {
+    // LIBXML_NONET's whole risk is that it changes how a page with external
+    // references parses. Pins that adding it costs no candidates on the exact
+    // page shape that would exercise it — same DOCTYPE+entity fixture as
+    // WebsiteLinkHarvesterTest's #W1-SEC-13 regression test.
+    $html = <<<'HTML'
+    <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+      "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd" [
+      <!ENTITY probe SYSTEM "http://169.254.169.254/latest/meta-data/">
+    ]>
+    <html><body><img src="/photos/dining-room.jpg"></body></html>
+    HTML;
+
+    expect(wgceExtract($html))->toBe(['https://example.com/photos/dining-room.jpg']);
+});

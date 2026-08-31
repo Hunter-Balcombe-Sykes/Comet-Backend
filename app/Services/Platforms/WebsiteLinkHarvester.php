@@ -954,15 +954,11 @@ class WebsiteLinkHarvester
         // the PARSE. NONET blocks every network access libxml would make while
         // parsing (external entity/DTD/stylesheet), so the parser cannot become
         // a second egress point the SSRF guard never sees. Same flag, same
-        // reasoning as MetadataParser and AboutProseExtractor.
-        //
-        // SEVEN callers still parse third-party HTML without it, all in
-        // app/Services/WebsiteScan/ and all `loadHTML($html, LIBXML_NOERROR |
-        // LIBXML_NOWARNING)`: VisibleTextExtractor:33, PdfLinkDetector:21,
-        // FaviconFetcher:45, SquarespaceMenuExtractor:25,
-        // WebsiteLogoCandidateExtractor:32, ContactEmailExtractor:39,
-        // WebsiteGalleryCandidateExtractor:35. Counted 2026-08-31 — out of
-        // this unit's scope, listed so the next pass does not re-derive it.
+        // reasoning as MetadataParser and AboutProseExtractor. The seven other
+        // app/Services/WebsiteScan/ callers noted here 2026-08-31 got the same
+        // fix under #FU-1 (VisibleTextExtractor, PdfLinkDetector,
+        // FaviconFetcher, SquarespaceMenuExtractor, WebsiteLogoCandidateExtractor,
+        // ContactEmailExtractor, WebsiteGalleryCandidateExtractor).
         $loaded = $doc->loadHTML($html, LIBXML_NOWARNING | LIBXML_NOERROR | LIBXML_NONET);
         libxml_clear_errors();
         libxml_use_internal_errors($prev);
