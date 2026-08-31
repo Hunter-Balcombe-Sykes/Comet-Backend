@@ -489,6 +489,38 @@ class AnalyticsController extends ApiController
      * caller can set it as freely as any other header, so it authenticated nothing. A
      * genuine server-to-server caller must be gated by a shared secret or signed
      * request, never by public identifiers.
+     *
+     * #W2-SEC-8 — ACCEPTED RESIDUAL, decided 2026-08-30, recorded here so the next
+     * sweep re-finds the decision rather than the gap. Origin is a browser-integrity
+     * signal, not authentication: it is unforgeable from page JS, which is what makes
+     * it worth checking, and trivially settable by a scripted client, which is what
+     * it will never fix. What that residual costs is analytics pollution under a
+     * known site_id — no data leakage, no tenant crossing, no authorization decision.
+     *
+     * What actually BOUNDS the volume, stated exactly: withinSiteBurstCap() — keyed
+     * on $site->id, 2000/min, and the only control here an attacker cannot rotate
+     * — and it covers PAGEVIEWS ONLY. The other seven originAllowed() routes (click,
+     * section-seen, section-dwell, item-seen, action-seen, action-tap, ping) have no
+     * unforgeable bound at all: the `analytics` / `analytics-click` limiters key on
+     * x-visitor-ip with a CF-Connecting-IP "backstop", and NEITHER is verified.
+     * AppServiceProvider reads CF-Connecting-IP raw, in preference to
+     * $request->ip(), with no TrustProxies involvement — so as far as this codebase
+     * is concerned one header pair rotates both buckets. What is NOT established is
+     * whether something upstream overwrites CF-Connecting-IP before it reaches the
+     * origin: api.partna.au is a dns-only CNAME to Laravel Cloud (corroborated), but
+     * Laravel Cloud's own edge is Cloudflare and whether it stamps the header toward
+     * the origin is UNVERIFIED. If it does, the header is harder to forge than this
+     * paragraph assumes — the error would be in the conservative direction. Until
+     * someone checks, do not cite that backstop as a bound; if one is wanted for the
+     * other seven, it is a per-site cap like the pageview one, not another header.
+     *
+     * The proposed close, an HMAC beacon token minted into the page payload, does not
+     * hold: the payload is PUBLIC, so the same attacker fetches the page and replays
+     * the token. It would cost every caller one extra request and change nothing.
+     * A real close needs a per-visitor, short-lived, server-issued credential the
+     * sitepage cannot simply hand out — a product decision with a partna-pages wire
+     * change, not an audit fix. Until someone wants that, this check stays as it is:
+     * do not weaken it, and do not bolt a second forgeable header onto it.
      */
     private function originAllowed(Request $request, Site $site): bool
     {
@@ -607,12 +639,48 @@ class AnalyticsController extends ApiController
      * connecting IP as x-visitor-ip (the subrequest's own is often a shared
      * Cloudflare colo IP — 2026-08-27); direct hits fall through to the
      * request IP.
+     *
+     * #W2-SEC-10 — the header is VALIDATED, not authenticated, and the two are
+     * different claims:
+     *
+     * Validated: it must parse as an IP address. A direct caller could put any
+     * string here, and it flowed unchecked into hashIp() and from there into
+     * the stored ip_hash and the dedup identifier — so "the IP" on an event
+     * could be a sentence. Anything that is not an IP now falls through to
+     * $request->ip() rather than being believed.
+     *
+     * Not authenticated: nothing here proves the request transited the proxy,
+     * and nothing can — api.partna.au is a dns-only CNAME to Laravel Cloud, so
+     * a direct scripted POST and the pages Worker's subrequest arrive over the
+     * same edge and isFromTrustedProxy() cannot separate them. Closing that
+     * needs a secret only the proxy holds, which is a partna-pages change, not
+     * a backend one. The residual is bounded and small: the value is never used
+     * for authorization, is stored only as an HMAC, and reaches dedup solely as
+     * a FALLBACK for a beacon carrying neither visitor_id nor session_id — both
+     * of which the same caller sets freely in the body. So a forged
+     * x-visitor-ip buys an attacker who has already forged Origin nothing the
+     * request body did not already give them.
+     *
+     * The `analytics` throttle keys read the same header, and its CF-Connecting-IP
+     * "backstop" cannot be relied on as a second, harder bound: AppServiceProvider
+     * reads that header raw in preference to $request->ip(), with no TrustProxies
+     * involvement, so nothing in this codebase separates a stamped value from a
+     * forged one. Whether Laravel Cloud's own Cloudflare edge overwrites it before
+     * the origin sees it is UNVERIFIED (api.partna.au is a dns-only CNAME to Laravel
+     * Cloud, which is corroborated; the stamping behaviour is not) — if it does, the
+     * header is harder to forge than assumed here. The only bound on this controller
+     * that needs no such assumption is withinSiteBurstCap(), and it covers pageviews
+     * alone.
      */
     private function visitorIp(Request $request): ?string
     {
         $forwarded = $request->header('x-visitor-ip');
 
-        return is_string($forwarded) && $forwarded !== '' ? $forwarded : $request->ip();
+        if (is_string($forwarded) && filter_var(trim($forwarded), FILTER_VALIDATE_IP) !== false) {
+            return trim($forwarded);
+        }
+
+        return $request->ip();
     }
 
     // Front-loads every request-derived field into the DTO (occurred_at, geo, device,

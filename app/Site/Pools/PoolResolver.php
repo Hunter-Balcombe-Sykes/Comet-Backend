@@ -176,7 +176,7 @@ class PoolResolver
             return false;
         }
 
-        $suppressed = $this->reviewsSuppressedByOwner($candidates)
+        $suppressed = $this->reviewsSuppressedByOwner($site, $candidates)
             + $this->reviewsOutsidePersonScope($site, $candidates);
 
         foreach ($candidates as $itemId) {
@@ -454,7 +454,7 @@ class PoolResolver
                 ? $this->latestItemId($selection)
                 : null,
             'collections' => $collections,
-            'stats' => $this->statsFor($pool, $selection),
+            'stats' => $this->statsFor($pool, $site, $selection),
             'diningModes' => $this->diningModesFor($pool, $site),
             // W8: the platforms a manual link may be added for on this pool —
             // ItemLinkRules::ROSTER, so the dashboard stops hand-copying it.
@@ -513,7 +513,7 @@ class PoolResolver
      * @param  list<array<string, mixed>>  $selection
      * @return array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string}|null
      */
-    private function statsFor(string $pool, array $selection): ?array
+    private function statsFor(string $pool, Site $site, array $selection): ?array
     {
         if (! PoolRegistry::carriesSourceStats($pool) || $selection === []) {
             return null;
@@ -530,6 +530,18 @@ class PoolResolver
             ->join('content.sources as stats_src', 'stats_src.id', '=', 'ss.source_id')
             ->leftJoin('site.platform_connections as stats_conn', 'stats_conn.id', '=', 'stats_src.connection_id')
             ->whereIn('si.item_id', array_column($selection, 'id'))
+            // #W1-SEC-10: state tenancy on the source rather than inheriting it
+            // from the selection's ids. The badge summarises a SOURCE, and this
+            // query reaches sources through source_items, which carries no
+            // user_id — one mislinked source_id and the page publishes another
+            // account's star rating.
+            //
+            // NOT pinned, same residual itemPayloads()'s docblock records under
+            // "DELIBERATELY EXCLUDED": the stats_conn leftJoin still travels
+            // stats_src.connection_id with no tenancy of its own. This read only
+            // uses the connection for liveness, but do not read the predicate
+            // above as covering that hop.
+            ->where('stats_src.user_id', $site->user_id)
             // A source_item retired by absence folding does not carry the badge
             // either — the same reading LiveSourceScope takes for the items.
             ->whereNull('si.removed_at')
@@ -598,6 +610,33 @@ class PoolResolver
      *                                         default: both call sites state which audience
      *                                         they are building for.
      * @return array{array<string, array<string, mixed>>, Collection<string, object>}
+     *
+     * #W1-SEC-10: the $ids list is owner-scoped by the content.items read
+     * directly below, but the link tables it travels through — source_items,
+     * collection_items, item_media, offers, the facet tables — carry no user_id
+     * of their own, so without an explicit predicate the one tenancy check in
+     * this method is the FIRST query, and a single mislinked source_id,
+     * collection_id or asset_id anywhere upstream (a writer bug, a hand-run SQL
+     * fix) publishes another account's row on this page. Every join below onto a
+     * table that OWNS a user_id therefore states it: content.sources (f_catalog,
+     * f_link, offers, source_items), content.collections, content.storefronts
+     * (in the ON clause — a where would collapse the left join) and
+     * content.media_assets. All four columns are NOT NULL. Three lead a real
+     * index — idx_content_sources_user, idx_collections_user, and
+     * media_assets_fingerprint_unique (user_id, fingerprint); storefronts'
+     * (user_id, provider, external_ref) index is PARTIAL, but that join arrives
+     * on storefronts' PRIMARY KEY, so the predicate filters the single row
+     * already fetched. Nothing here changes a plan. Same posture the
+     * identity_candidates read already takes.
+     *
+     * DELIBERATELY EXCLUDED, and still open: content.sources.connection_id. It
+     * is NULLABLE, so pinning site.platform_connections.user_id is an ON-clause
+     * job on four left joins, and it also implicates the two connection reads
+     * below ($payloadByConnection on site.platform_connections, and the
+     * ingest.sources read keyed by the same ids) which are plain whereIn lookups
+     * with no tenancy of their own. A mislinked connection_id would leak another
+     * account's platform label, display_settings and sync cadence. Bigger than
+     * this fix; not closed here — do not read the list above as covering it.
      */
     private function itemPayloads(Site $site, array $ids, bool $withDuplicateCandidates): array
     {
@@ -654,8 +693,23 @@ class PoolResolver
             // collections, and a dish only in menu_category / order_platform.
             $links = DB::connection('pgsql')->table('content.collection_items as ci')
                 ->join('content.collections as c', 'c.id', '=', 'ci.collection_id')
-                ->leftJoin('content.storefronts as s', 's.collection_id', '=', 'c.id')
+                // #W1-SEC-10: the storefront's OWN tenancy, stated in the ON
+                // clause and not as a where — a where on a left-joined column
+                // silently converts this back to an inner join, and a menu
+                // category (no sidecar) would stop grouping. collection_id is
+                // storefronts' PRIMARY KEY and user_id is NOT NULL since
+                // 20260819000100, so this filters the one row already fetched.
+                // What it protects is a checkout URL and a DISCOUNT CODE.
+                ->leftJoin('content.storefronts as s', fn ($j) => $j
+                    ->on('s.collection_id', '=', 'c.id')
+                    ->where('s.user_id', '=', $site->user_id))
                 ->whereIn('ci.item_id', $ids)
+                // #W1-SEC-10: content.collection_items has no user_id, so the
+                // collection's own tenancy is stated here rather than inferred
+                // from the members. A group header carries a LABEL onto the
+                // public wire — the one thing in this query that would be
+                // read as the owner's own words.
+                ->where('c.user_id', $site->user_id)
                 // An owner-deleted collection must not reappear as a group
                 // header just because its members are still selected.
                 ->whereNull('c.removed_at')
@@ -687,6 +741,7 @@ class PoolResolver
             $music = DB::connection('pgsql')->table('content.f_catalog as c')
                 ->join('content.sources as cs', 'cs.id', '=', 'c.source_id')
                 ->whereIn('c.item_id', $ids)
+                ->where('cs.user_id', $site->user_id)
                 ->orderByDesc('cs.priority')
                 ->get(['c.item_id', 'c.release_type', 'c.collection_title', 'c.track_number', 'c.disc_number'])
                 ->groupBy('item_id')
@@ -752,6 +807,7 @@ class PoolResolver
             ->join('content.sources', 'content.sources.id', '=', 'content.f_link.source_id')
             ->leftJoin('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
             ->whereIn('content.f_link.item_id', $ids)
+            ->where('content.sources.user_id', $site->user_id)
             ->orderByDesc('content.sources.priority');
 
         LiveSourceScope::constrainToLiveSource($sourceLinksQuery);
@@ -782,6 +838,7 @@ class PoolResolver
             ->join('content.sources', 'content.sources.id', '=', 'content.offers.source_id')
             ->leftJoin('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
             ->whereIn('content.offers.item_id', $ids)
+            ->where('content.sources.user_id', $site->user_id)
             ->where(function ($w) {
                 $w->whereNotNull('content.offers.item_url')
                     ->orWhereNotNull('content.offers.url');
@@ -828,6 +885,7 @@ class PoolResolver
             ->join('content.sources', 'content.sources.id', '=', 'content.source_items.source_id')
             ->leftJoin('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
             ->whereIn('content.source_items.item_id', $ids)
+            ->where('content.sources.user_id', $site->user_id)
             ->whereNull('content.source_items.removed_at')
             ->where(function ($w) {
                 $w->where('content.sources.kind', 'manual')
@@ -1096,7 +1154,7 @@ class PoolResolver
                 ->get(['item_id', 'author_name', 'author_photo_url', 'author_uri', 'rating', 'text', 'reviewed_at'])
                 ->keyBy('item_id');
 
-            $suppressedReviews = $this->reviewsSuppressedByOwner($reviewIds)
+            $suppressedReviews = $this->reviewsSuppressedByOwner($site, $reviewIds)
                 + $this->reviewsOutsidePersonScope($site, $reviewIds);
         }
 
@@ -1121,6 +1179,14 @@ class PoolResolver
         $coverRows = DB::connection('pgsql')->table('content.item_media')
             ->join('content.media_assets', 'content.media_assets.id', '=', 'content.item_media.asset_id')
             ->whereIn('content.item_media.item_id', $ids)
+            // #W1-SEC-10: content.item_media carries no user_id, so asset_id is a
+            // SECOND FK hop out of the owner-scoped id list. media_assets.user_id
+            // is NOT NULL and indexed via UNIQUE (user_id, fingerprint), and what
+            // this query hands MediaUrlResolver — source_url, storage_path,
+            // site_media_id — goes straight onto the public wire. Without the
+            // predicate one mislinked asset_id publishes another account's image
+            // URL and its R2 storage path.
+            ->where('content.media_assets.user_id', $site->user_id)
             // `logo` joins the set (2026-08-17): a link's favicon rides the
             // logo role and reads back as `favicon` below. cover()/frames()
             // still see only their own roles.
@@ -1409,15 +1475,42 @@ class PoolResolver
      * filtered out — a source the owner silenced should keep counting as
      * silenced while its rows linger.
      *
+     * #W1-SEC-10: `cs.user_id` is pinned explicitly rather than inherited from
+     * the fact that $reviewIds was owner-scoped upstream. content.source_items
+     * carries no user_id of its own, so without this the query's ONLY tenancy
+     * is the id list handed in — and a mislinked source_id (a writer bug, a
+     * hand-run SQL fix) would have this page read another owner's connection
+     * settings to decide what to publish. Same predicate the
+     * identity_candidates read already states structurally; NOT NULL on
+     * content.sources, so it can never silently match nothing.
+     *
+     * ⚠️ Alone among the pinned reads, this predicate is fail-OPEN on corrupt
+     * data: suppression needs EVERY source row of an item to hide reviews, so
+     * dropping rows drops suppressions and MORE reviews publish. That is the
+     * right direction for the cross-tenant case this pins (a foreign row must
+     * not un-suppress, and must not suppress either), but it means a bug that
+     * made this query return too little would silently republish content an
+     * owner switched off, rather than blanking the pool. The other nine
+     * #W1-SEC-10 predicates fail closed. Change this one with that asymmetry
+     * in mind.
+     *
+     * ⚠️ The `pc` leftJoin below is the connection_id residual itemPayloads()'s
+     * docblock records under "DELIBERATELY EXCLUDED", and this is the read where
+     * it bites hardest: cs.connection_id is unpinned, and pc.platform /
+     * pc.display_settings are then READ to decide what this page publishes. A
+     * mislinked connection_id therefore lets another owner's toggle govern this
+     * owner's reviews. The cs.user_id predicate above does NOT cover that hop.
+     *
      * @param  list<string>  $reviewIds
      * @return array<string, true>
      */
-    private function reviewsSuppressedByOwner(array $reviewIds): array
+    private function reviewsSuppressedByOwner(Site $site, array $reviewIds): array
     {
         $rows = DB::connection('pgsql')->table('content.source_items as si')
             ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
             ->leftJoin('site.platform_connections as pc', 'pc.id', '=', 'cs.connection_id')
             ->whereIn('si.item_id', $reviewIds)
+            ->where('cs.user_id', $site->user_id)
             ->get(['si.item_id', 'pc.platform', 'pc.display_settings']);
 
         $suppressed = [];
@@ -1490,6 +1583,10 @@ class PoolResolver
             ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
             ->join('ingest.sources as ing', 'ing.connection_id', '=', 'cs.connection_id')
             ->whereIn('si.item_id', $reviewIds)
+            // #W1-SEC-10: this join is a GATE — a selection_ref naming a team
+            // member is what lets a venue review through the person scope — so
+            // it states its own tenancy rather than borrowing the id list's.
+            ->where('cs.user_id', $site->user_id)
             ->whereNotNull('ing.selection_ref')
             ->whereNotIn('ing.selection_ref', ['', 'storewide'])
             ->get(['si.item_id']);

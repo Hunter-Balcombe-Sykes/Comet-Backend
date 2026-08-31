@@ -160,6 +160,12 @@ if (! function_exists('shopStore')) {
             'position' => $overrides['position'] ?? 0, 'created_at' => now(), 'updated_at' => now(),
         ]);
         DB::table('content.storefronts')->insert(array_merge([
+            // NOT NULL in production since 20260819000100, and the pool payload
+            // now pins it on the join (#W1-SEC-10) — a fixture that omits it
+            // models a row the schema cannot hold and silently drops the store
+            // card. The SQLite stand-in leaves the column nullable, so only
+            // this line keeps the fixture production-shaped.
+            'user_id' => $userId,
             'collection_id' => $collectionId, 'external_ref' => 'ext-'.Str::random(6),
             'provider' => 'shopify', 'url' => 'https://store.example.com',
             'currency' => 'AUD', 'discount_code' => null, 'referral_query' => '',

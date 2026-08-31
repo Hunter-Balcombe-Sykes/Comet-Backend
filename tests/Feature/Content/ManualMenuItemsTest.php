@@ -286,6 +286,12 @@ function mmiStorefront(User $user, string $platform, string $storeUrl): void
 
     DB::connection('pgsql')->table('content.storefronts')->insert([
         'collection_id' => $collectionId,
+        // NOT NULL in production (20260819000100). No test in this file reads
+        // the sidecar through the pool payload today, so omitting it changed
+        // nothing — but the pool join pins s.user_id since #W1-SEC-10, and a
+        // fixture modelling a row the schema cannot hold would drop the store
+        // card the moment one did.
+        'user_id' => $user->id,
         'provider' => $platform,
         'url' => $storeUrl,
         'external_ref' => $platform,

@@ -255,3 +255,71 @@ it('hashes the rum beacon handle instead of logging it raw', function () {
     $this->postJson('/api/public/analytics/rum', ['handle' => 'PRIV3-Handle-Case'])
         ->assertStatus(200);
 });
+
+// --- #W2-SEC-10: x-visitor-ip is validated as an IP before it is believed -------
+//
+// The /t/* proxy forwards the ORIGINAL visitor's connecting IP under this header
+// because the Worker subrequest's own is a shared Cloudflare colo IP. Nothing
+// proves a given request came through that proxy — api.partna.au is a dns-only
+// CNAME to Laravel Cloud, so a direct POST and the Worker's subrequest arrive
+// over the same edge — so the header is treated as a HINT that must at least be
+// well-formed, never as an authenticated claim. See visitorIp()'s docblock for
+// the residual and what closing it would take.
+
+/** The ip_hash the ingest job would carry for one beacon. */
+function w2sec10IpHash(string $subdomain, array $headers): ?string
+{
+    $tenant = createTenant($subdomain);
+
+    test()->withHeaders([
+        'Origin' => 'https://'.$subdomain.'.'.config('partna.public_domain'),
+        ...$headers,
+    ])->postJson('/api/public/analytics/pageviews', [
+        'site_id' => $tenant->site->id,
+        // Deliberately no visitor_id / session_id: that is the ONLY shape in
+        // which the IP hash also becomes the dedup identifier.
+    ])->assertStatus(201);
+
+    $hash = null;
+    Queue::assertPushed(RecordAnalyticsEventJob::class, function ($job) use (&$hash) {
+        $hash = $job->payload['ip_hash'] ?? null;
+
+        return true;
+    });
+
+    return $hash;
+}
+
+describe('W2-SEC-10: x-visitor-ip is validated, not trusted blindly', function () {
+    beforeEach(function () {
+        app()->bind(AnalyticsIngestor::class, QueuedIngestor::class);
+        Queue::fake();
+    });
+
+    it('honours a well-formed forwarded IP', function () {
+        $forwarded = w2sec10IpHash('sec10-good', ['x-visitor-ip' => '203.0.113.7']);
+
+        expect($forwarded)->toBe(hash_hmac('sha256', '203.0.113.7', config('app.key')));
+    });
+
+    it('honours a well-formed forwarded IPv6 address', function () {
+        $forwarded = w2sec10IpHash('sec10-v6', ['x-visitor-ip' => '2001:db8::1']);
+
+        expect($forwarded)->toBe(hash_hmac('sha256', '2001:db8::1', config('app.key')));
+    });
+
+    it('ignores a forwarded value that is not an IP address at all', function () {
+        // Pre-fix this string WAS the "IP": it reached hashIp() verbatim and the
+        // resulting hash became both the stored ip_hash and the dedup identifier.
+        $hash = w2sec10IpHash('sec10-junk', ['x-visitor-ip' => 'not-an-ip; DROP TABLE']);
+
+        expect($hash)->not->toBe(hash_hmac('sha256', 'not-an-ip; DROP TABLE', config('app.key')));
+        // Falls through to the connecting IP, exactly as an absent header does.
+        expect($hash)->toBe(w2sec10IpHash('sec10-none', []));
+    });
+
+    it('ignores an empty or whitespace-only forwarded value', function () {
+        expect(w2sec10IpHash('sec10-blank', ['x-visitor-ip' => '   ']))
+            ->toBe(w2sec10IpHash('sec10-blank2', []));
+    });
+});
