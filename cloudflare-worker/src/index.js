@@ -499,12 +499,20 @@ function unclaimedHtml(subdomain) {
     const eyebrow = safe ? "Unclaimed address" : "Not found";
     const headline = address || "No site at this address";
     const lead = safe
-        ? "No one is here yet. This address is unclaimed — it could be your site."
+        ? "No one is here yet. This address is free — it could be your site."
         : `The address you followed doesn’t belong to a Partna site. It may have moved, or the link may be mistyped.`;
-    const primaryHref = safe ? `${appUrl}/claim/${safe}` : `${appUrl}/sign-up`;
-    const primaryLabel = safe ? "Claim this address" : "Create your site";
-    const secondaryHref = safe ? `${appUrl}/sign-up` : `https://${PARTNA_DOMAIN}`;
-    const secondaryLabel = safe ? "Create your own site" : "What is Partna?";
+    // Ordinary signup, NOT /claim/<handle>. Claiming is for a site that already
+    // EXISTS but has no owner yet — those serve normally (they carry the claim
+    // ribbon), so they never reach this page. Getting here means the KV lookup
+    // missed, i.e. there is no site and nothing to claim: sign-up-flow.tsx's
+    // claim mode assumes "the site already exists", and its final claimSite()
+    // would throw — after the visitor had already handed over an email and a
+    // code. A dead end at the worst possible moment. Ordinary signup is the
+    // honest destination, so the label says create, not claim.
+    const primaryHref = `${appUrl}/sign-up`;
+    const primaryLabel = "Create your site";
+    const secondaryHref = `https://${PARTNA_DOMAIN}`;
+    const secondaryLabel = "What is Partna?";
 
     return `<!doctype html>
 <html lang="en">
