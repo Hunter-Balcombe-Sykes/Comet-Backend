@@ -35,7 +35,7 @@ class ItemLinkController extends ApiController
             return $this->error('That platform cannot carry a link for this item.', 422);
         }
 
-        if (in_array($platform, ItemLinkRules::syncedPlatformsFor((string) $item->id), true)) {
+        if (in_array($platform, ItemLinkRules::syncedPlatformsFor((string) $user->id, (string) $item->id), true)) {
             return $this->error('That platform already syncs this item — its link follows the sync.', 422);
         }
 

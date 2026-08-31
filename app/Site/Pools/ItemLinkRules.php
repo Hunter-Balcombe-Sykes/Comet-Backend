@@ -123,14 +123,29 @@ class ItemLinkRules
      * anyway rather than hand-copying the deleted_at/is_active pair, because a
      * fourth private copy of that predicate is how #LIFE-2 and #LIFE-4 happened.
      *
+     * #FU-2: $userId is REQUIRED, not optional. This query has no outer items
+     * row to correlate to (LiveSourceScope::apply()'s answer to the same
+     * problem), and an optional pin is one a caller forgets — so the tenancy
+     * value is a parameter PHP will not let a call site omit. It travels the
+     * same two FK hops as the pool reads: f_link.source_id -> content.sources,
+     * then the NULLABLE sources.connection_id -> site.platform_connections.
+     * Both joins here are INNER by construction, so a plain `where` is correct
+     * — unlike PoolResolver's LEFT joins, where a `where` would collapse the
+     * join and drop the manual lane. A manual source (connection_id NULL) never
+     * reaches this query at all, which is the behaviour it already had.
+     *
+     * @param  string  $userId  the item's owner; the caller has already proved
+     *                          ownership of $itemId to obtain it
      * @return list<string>
      */
-    public static function syncedPlatformsFor(string $itemId): array
+    public static function syncedPlatformsFor(string $userId, string $itemId): array
     {
         $query = DB::connection('pgsql')->table('content.f_link')
             ->join('content.sources', 'content.sources.id', '=', 'content.f_link.source_id')
             ->join('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
-            ->where('content.f_link.item_id', $itemId);
+            ->where('content.f_link.item_id', $itemId)
+            ->where('content.sources.user_id', $userId)
+            ->where('site.platform_connections.user_id', $userId);
 
         LiveSourceScope::constrainToLiveSource($query);
 

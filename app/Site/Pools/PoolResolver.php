@@ -266,11 +266,11 @@ class PoolResolver
             ->whereIn('kind', PoolRegistry::kinds($pool))
             ->whereNull('removed_at');
         // Disconnect = hide (W2): the library lists only items with a live
-        // source (manual, or a present + active connection). #FU-2: the user id
-        // is passed so the subquery's own source/connection hops are tenanted
-        // too — without it, plan()'s liveness verdict and itemPayloads()'s would
+        // source (manual, or a present + active connection). #FU-2: the scope
+        // pins its own source/connection hops by correlating to the outer items
+        // row, so plan()'s liveness verdict and itemPayloads()'s can no longer
         // disagree about the same mislinked item.
-        LiveSourceScope::apply($libraryQuery, 'content.items', (string) $site->user_id);
+        LiveSourceScope::apply($libraryQuery, 'content.items');
         $libraryIds = $libraryQuery
             ->orderByDesc('last_seen_at')
             ->limit(self::LIBRARY_LIMIT)
@@ -280,8 +280,16 @@ class PoolResolver
         // Pins from a removed connection hide too — the pin row stays (a
         // reconnect brings it back), but it does not publish.
         if ($pinned !== []) {
-            $livePinsQuery = DB::connection('pgsql')->table('content.items')->whereIn('id', $pinned);
-            LiveSourceScope::apply($livePinsQuery, 'content.items', (string) $site->user_id);
+            // #FU-2: owner-scoped, because LiveSourceScope::apply() now pins its
+            // own hops by CORRELATING to this row's user_id — a correlation is
+            // only as strong as the outer query's own tenancy, and a pin row
+            // (site.section_items) carries none. It also matches itemPayloads(),
+            // which drops a foreign pin anyway; here it stops one occupying a
+            // slot on the way.
+            $livePinsQuery = DB::connection('pgsql')->table('content.items')
+                ->whereIn('id', $pinned)
+                ->where('user_id', $site->user_id);
+            LiveSourceScope::apply($livePinsQuery, 'content.items');
             $livePinned = $livePinsQuery->pluck('id')->flip()->all();
             $pinned = array_values(array_filter($pinned, fn ($id) => isset($livePinned[$id])));
             $selectionIds = [];
@@ -663,15 +671,27 @@ class PoolResolver
      * reviewsSuppressedByOwner() needed a SECOND predicate on top of the pin —
      * see its own docblock: a NULL row there VOTES rather than disappearing.
      *
-     * STILL UNPINNED, named so the next sweep does not have to rediscover it:
-     * ItemLinkRules::syncedPlatformsFor() travels the same hop on an INNER join
-     * but is static, takes only $itemId and has no user in hand; it is
-     * dashboard-only (it decides which platforms the manual link control
-     * refuses), so nothing reaches a public wire through it. LiveSourceScope's
-     * whereExists arm carries its own copy of both hops and now takes an optional
-     * $userId — PoolResolver's two call sites pass it; SectionCandidates does
-     * not, and what a mislink buys there is a wrong LIVENESS verdict on the
-     * owner's own item, never a foreign field on a wire.
+     * NOTHING ON THIS HOP IS NOW UNPINNED — the two residuals this paragraph
+     * used to name were closed the same day (#FU-2 residuals), and how they are
+     * pinned differs from here because their shapes do:
+     *
+     *  - ItemLinkRules::syncedPlatformsFor() takes a REQUIRED $userId and states
+     *    both hops as plain `where`s. Its joins are INNER by construction, so a
+     *    `where` cannot collapse anything; there is no manual lane to lose,
+     *    because a manual source's NULL connection_id never survives that inner
+     *    join in the first place. It is dashboard-only, but a foreign
+     *    connection reaching it VETOED the owner's own manual link.
+     *  - LiveSourceScope::apply() carries its own copy of both hops and pins
+     *    them by CORRELATION to the outer items row (lpc.user_id / lsrc.user_id
+     *    = the item's user_id), so a caller with no user VALUE in hand —
+     *    SectionCandidates — is pinned too and a future one cannot forget. That
+     *    correlation is only as strong as the outer query's own tenancy, so all
+     *    three call sites now scope their items: the library and the pins
+     *    re-check here, and the site join in SectionCandidates.
+     *
+     * Its "no source_items at all" arm stays deliberately UNPINNED — see the
+     * comment there: pinning it would make an item whose only source_items are
+     * foreign read as "no sources -> live", which fails open.
      */
     private function itemPayloads(Site $site, array $ids, bool $withDuplicateCandidates): array
     {
