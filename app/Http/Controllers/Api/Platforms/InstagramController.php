@@ -66,6 +66,17 @@ class InstagramController extends ApiController
         // dispatch() runs InstagramConnectJob's ~110s Apify scrape inline, and
         // holding a 10s lock across that would make every concurrent request
         // (including unrelated reads that take the same lock) queue behind it.
+        //
+        // #FU-4b: guardApifyBudget() above already turned this into a spend
+        // reservation. $connection stays null on every exit that spent nothing
+        // — a lock timeout (caught below, $connection never assigned) or an
+        // AuthorizationException from either authorizeForUser() call (not
+        // caught here, so it propagates past this whole block after the
+        // finally runs) — so the sentinel-and-finally shape mirrors
+        // GoogleBusinessAutoSync::dispatchInstagram() (2d0795983) exactly. A
+        // successful claim through to a written $connection must NEVER
+        // release: doing so would make the 600/day cap unbounded.
+        $connection = null;
         try {
             $connection = Cache::lock(CacheKeyGenerator::platformConnectionLock($this->platform(), $user->id), 10)->block(5, function () use ($user) {
                 // Gate the placeholder write: determine create vs. update so the correct
@@ -105,6 +116,17 @@ class InstagramController extends ApiController
                 );
             });
         } catch (LockTimeoutException) {
+            // Handled below, after the finally releases — same $connection === null
+            // sentinel as an AuthorizationException, which this catch does NOT
+            // intercept (it isn't a LockTimeoutException) so that path still gets
+            // exactly one release from the finally before it keeps propagating.
+        } finally {
+            if ($connection === null) {
+                app(ApifyBudget::class)->release('instagram');
+            }
+        }
+
+        if ($connection === null) {
             return $this->error('Another change is still saving — please retry in a moment.', 423);
         }
 
