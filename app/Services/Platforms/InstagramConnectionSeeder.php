@@ -85,9 +85,38 @@ class InstagramConnectionSeeder
     // for on this build, threaded through to InstagramIdentitySync so the same
     // handle/fullName/biography is not analysed (and billed) a second time. Null
     // on the dashboard connect and refresh paths, which analysed nothing first.
+    /**
+     * The R2 prefix every mirrored asset for this connection lands under.
+     *
+     * Keyed on the CONNECTION, not on a wall-clock second. It used to be
+     * `'platforms/instagram/'.$connection->created_at->timestamp` — a bare unix
+     * second with no account component — so any two Instagram connections created
+     * inside the same second shared a prefix. Two harms rode on that:
+     *
+     *   1. The second connection to mirror OVERWROTE the first's profile.jpg, so
+     *      one account published another person's face. Found live 2026-09-01 on
+     *      two pairs — aerial-studio/mr-bap under folder 1787835720, and
+     *      melbourne-acupuncture/the-cobblers-last under 1788085840 — each pair
+     *      serving a byte-identical profilePicUrl.
+     *   2. DeleteMirroredMediaJob is dispatched with the payload's folder
+     *      (IntegrationConnectionObserver:551 and :638), so disconnecting one
+     *      account deleted the other account's mirrored media.
+     *
+     * A batch build is exactly the condition that produced it: a fleet run creates
+     * several connections per second, so the collision rate ROSE with throughput —
+     * the opposite of what an identity path should do.
+     *
+     * A method rather than an inline expression so the rule can be named and pinned:
+     * the defect was invisible partly because it was one anonymous string concat.
+     */
+    public static function mirrorFolder(IntegrationConnection $connection): string
+    {
+        return 'platforms/instagram/'.$connection->getKey();
+    }
+
     public function seed(IntegrationConnection $connection, string $username, string $userId, array $profile, bool $autoConnectBooking = false, ?BioIntel $intel = null): array
     {
-        $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
+        $folder = self::mirrorFolder($connection);
 
         // The most-recent photo AND the most-recent reel, picked independently. The
         // photo mirrors as the image; the reel mirrors its mp4 plus its own poster.
