@@ -535,6 +535,12 @@ class PoolResolver
             // query reaches sources through source_items, which carries no
             // user_id — one mislinked source_id and the page publishes another
             // account's star rating.
+            //
+            // NOT pinned, same residual itemPayloads()'s docblock records under
+            // "DELIBERATELY EXCLUDED": the stats_conn leftJoin still travels
+            // stats_src.connection_id with no tenancy of its own. This read only
+            // uses the connection for liveness, but do not read the predicate
+            // above as covering that hop.
             ->where('stats_src.user_id', $site->user_id)
             // A source_item retired by absence folding does not carry the badge
             // either — the same reading LiveSourceScope takes for the items.
@@ -1487,6 +1493,13 @@ class PoolResolver
      * owner switched off, rather than blanking the pool. The other nine
      * #W1-SEC-10 predicates fail closed. Change this one with that asymmetry
      * in mind.
+     *
+     * ⚠️ The `pc` leftJoin below is the connection_id residual itemPayloads()'s
+     * docblock records under "DELIBERATELY EXCLUDED", and this is the read where
+     * it bites hardest: cs.connection_id is unpinned, and pc.platform /
+     * pc.display_settings are then READ to decide what this page publishes. A
+     * mislinked connection_id therefore lets another owner's toggle govern this
+     * owner's reviews. The cs.user_id predicate above does NOT cover that hop.
      *
      * @param  list<string>  $reviewIds
      * @return array<string, true>

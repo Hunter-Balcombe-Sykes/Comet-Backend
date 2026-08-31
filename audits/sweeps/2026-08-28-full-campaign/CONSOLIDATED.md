@@ -301,7 +301,7 @@
         'items.*.category' => ['nullable', 'string'],
         ```
 
-- [ ] **#W1-SEC-10** · P2 — PoolResolver's public-payload joins on tenant-owned tables rely on prior item-id scoping rather than an explicit `user_id` predicate
+- [x] **#W1-SEC-10** · P2 — PoolResolver's public-payload joins on tenant-owned tables rely on prior item-id scoping rather than an explicit `user_id` predicate
     - **Where:** app/Site/Pools/PoolResolver.php (`reviewsSuppressedByOwner()`, `statsFor()`, the collections/storefronts join)
     - **Affects:** Public sitepage pool payloads (reviews, stats badges, collection groupings) — only if a writer bug or malformed row ever links another tenant's `content.sources`/`content.collections` row to this user's item.
     - **Effort:** M (~2–4h)
@@ -324,8 +324,9 @@
             ->leftJoin('site.platform_connections as stats_conn', 'stats_conn.id', '=', 'stats_src.connection_id')
             ->whereIn('si.item_id', array_column($selection, 'id'))
         ```
+    - Resolution (2026-08-30): FIXED, and the finding under-counted. It named three joins; TEN user_id predicates are now in place. The two it never named are the real finds, because both publish a value rather than a grouping: `content.media_assets` (the query hands MediaUrlResolver source_url, storage_path and site_media_id, so a mislinked asset_id publishes another tenant's image URL and its R2 storage path onto the public wire) and `content.storefronts` (s.url, s.discount_code, s.referral_query, s.logo_url — a checkout URL and a DISCOUNT CODE). The rule that finds them, and the one to reuse next sweep: $ids is re-derived from an owner-scoped content.items read, so any table keyed only by item_id is already safe — ONLY A SECOND FK HOP CAN CROSS TENANTS (asset_id, source_id, collection_id, connection_id). storefronts had to be pinned in the ON clause, not as a where: a where on a left-joined column silently converts it to an inner join and every sidecar-less collection — every menu and service category — stops grouping; a mutation of exactly that form kills 9 tests, two of which predate this unit. reviewsSuppressedByOwner()'s predicate is the ONE fail-OPEN member of the ten (suppression needs every source row to hide reviews, so dropping rows publishes MORE), documented as such in its docblock. STILL OPEN, deliberately excluded and recorded in itemPayloads()'s docblock plus cross-referenced from statsFor() and reviewsSuppressedByOwner(): content.sources.connection_id is unpinned on four left joins and on the two whereIn connection reads — it is nullable, so it is an ON-clause job, and reviewsSuppressedByOwner() actually READS pc.platform/pc.display_settings through it to decide what publishes. Four predicates (f_catalog, f_link, offers, source_items) plus reviewsOutsidePersonScope are untested BY DESIGN: identical predicate, identical shape, already proven discriminating twice — near-identical fixtures would be gold-plating, not coverage.
 
-- [ ] **#W1-SEC-11** · P2 — LinkProjector treats a PCRE runtime failure on a reject pattern as "not rejected" (fail-open)
+- [x] **#W1-SEC-11** · P2 — LinkProjector treats a PCRE runtime failure on a reject pattern as "not rejected" (fail-open)
     - **Where:** app/Routing/LinkProjector.php `matches()`; reject-pattern loop in `score()`
     - **Affects:** Link-routing auto-connect decisions — a crafted or pathological pasted URL that triggers a PCRE backtrack/UTF-8 error against a detector's reject pattern would bypass that reject rule instead of being blocked by it.
     - **Effort:** S (~0.5–1h)
@@ -351,6 +352,7 @@
         }
         return $result === 1;
         ```
+    - Resolution (2026-08-30): FIXED. A rejects() wrapper reads a preg_match execution error as a rejection instead of as "passed the reject check", so a pathological subject can no longer skip the rule written to exclude it; project() stays pure (the verdict still depends only on (Iri, Rulepack), no I/O added). It changes compile failure here too, not only the runtime case named — broader than prescribed and in the same direction. THE ORIGINAL TEST WAS VACUOUS and that is the substantive part of this round: its path_pattern carried /u, so the same bad-UTF-8 subject errored the PATH match as well, score() returned null through the pre-existing path, and the test passed identically on pre-fix code. Dropping the /u from the path pattern only (verified: @preg_match('#^/schedule/#u', "/schedule/\xC3\x28") is false/Malformed UTF-8, without /u it is 1/No error) makes the detector score 40+35=75, clear of FLOOR 25, so pre-fix it matches and only the fix fails it — mutation-confirmed, rejects( → matches( fails both #W1-SEC-11 tests. This matters because the compile-failure case is separately covered and CatalogCompileCommand guarantees the shipped catalog cannot carry an uncompilable pattern: the RUNTIME error is the only reachable form of this finding in production, so that one test was the whole of its coverage.
 
 - [ ] **#W1-SEC-12** · P2 — Staff profile update / soft-delete / restore skip the fresh-AAL2 gate applied to status changes and force-destroy
     - **Where:** app/Http/Controllers/Api/Staff/UserSiteManagement/StaffUserController.php `update()`, `destroy()`, `restore()`
@@ -5084,7 +5086,7 @@ None.
         'opening_hours' => ['nullable', 'array'],
         ```
 
-- [ ] **#W2-SEC-8** · P2 — Public analytics ingest's Origin check is unforgeable only for browser callers; a scripted client can still forge cross-tenant events
+- [x] **#W2-SEC-8** · P2 — Public analytics ingest's Origin check is unforgeable only for browser callers; a scripted client can still forge cross-tenant events
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php:456-480
     - **Affects:** Every public site's analytics integrity against a non-browser caller — a scripted client can POST fabricated pageview/click/session events attributed to any known `site_id`.
     - **Effort:** M (~2–4h)
@@ -5103,6 +5105,7 @@ None.
         // genuine server-to-server caller must be gated by a shared secret or signed
         // request, never by public identifiers.
         ```
+    - Resolution (2026-08-30): WONTFIX, earned — no code change, decision recorded in originAllowed()'s docblock so the next sweep re-finds the ruling rather than the gap. The prescribed HMAC beacon token does not hold: it would be minted into the page payload, which is PUBLIC, so the same attacker fetches the page and replays the token — one extra GET, no change in posture. A real close needs a per-visitor, short-lived, server-issued credential the sitepage cannot hand out: a product decision with a partna-pages wire change, not an audit fix. The bound was also stated WRONGLY in the first pass and is now corrected in-code: the only unforgeable limit is withinSiteBurstCap() (keyed on $site->id, 2000/min, config partna.analytics.pageview_site_cap_per_minute) and it covers PAGEVIEWS ONLY — the other seven originAllowed() routes (click, section-seen, section-dwell, item-seen, action-seen, action-tap, ping) have no unforgeable bound at all. The earlier "per-true-IP backstop is the real bound" claim was false: AppServiceProvider:615,635 reads CF-Connecting-IP raw and in preference to $request->ip(), with no TrustProxies involvement, so one header pair rotates both limiter buckets. Origin stays exactly as it is — Referer is not reinstated (#SEC-3) and no second forgeable header gets bolted on.
 
 - [ ] **#W2-SEC-9** · P2 — Public analytics resolution distinguishes "invalid site_id" (422) from "unpublished site" (404), a minor existence side-channel
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php:404-432
@@ -5122,7 +5125,7 @@ None.
         }
         ```
 
-- [ ] **#W2-SEC-10** · P2 — Analytics `x-visitor-ip` header is trusted from any direct caller, not only the intended Cloudflare proxy
+- [x] **#W2-SEC-10** · P2 — Analytics `x-visitor-ip` header is trusted from any direct caller, not only the intended Cloudflare proxy
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php:523-528
     - **Affects:** IP-hash generation, dedup-identifier fallback, and geo detection on analytics events for every public site.
     - **Effort:** S (~0.5–1h)
@@ -5139,6 +5142,7 @@ None.
             return is_string($forwarded) && $forwarded !== '' ? $forwarded : $request->ip();
         }
         ```
+    - Resolution (2026-08-30): FIXED as VALIDATED, deliberately NOT authenticated, and the distinction is written down at the call site. x-visitor-ip must now parse as an IP (FILTER_VALIDATE_IP) or the connecting IP is used instead — previously any string flowed into hashIp() and the stored ip_hash, so "the IP" on an event could be a sentence. Authentication is not achievable from this repo: api.partna.au is a dns-only CNAME to Laravel Cloud (independently corroborated against live DNS — partna-production-uovh3z.laravel.cloud, A records 103.133.1.1/.2), so the pages Worker's /t/* subrequest and a direct scripted POST arrive over the same edge and isFromTrustedProxy() cannot separate them; closing it needs a secret only the proxy holds, which is a partna-pages change. Whether Laravel Cloud's own Cloudflare edge stamps CF-Connecting-IP toward the origin is UNVERIFIED and the docblocks say so rather than asserting it — if it does, the header is harder to forge than assumed, an error in the conservative direction. Residual is bounded and stated: the value is never used for authorization, is stored only as an HMAC, and reaches dedup solely as a fallback for a beacon carrying neither visitor_id nor session_id — both of which the same caller sets freely in the body. The other four X-Visitor-* headers were already shape-validated in DetectsClientInfo; leaving them is correct.
 
 - [ ] **#W2-SEC-11** · P2 — `MediaMirror` leaves three id-only DB accesses unscoped by `user_id` while its own success paths deliberately scope every write
     - **Where:** app/Services/Media/MediaMirror.php:99-101, 122-149, 469-484

@@ -502,12 +502,17 @@ class AnalyticsController extends ApiController
      * — and it covers PAGEVIEWS ONLY. The other seven originAllowed() routes (click,
      * section-seen, section-dwell, item-seen, action-seen, action-tap, ping) have no
      * unforgeable bound at all: the `analytics` / `analytics-click` limiters key on
-     * x-visitor-ip with a CF-Connecting-IP "backstop", and NEITHER is authenticated —
-     * api.partna.au is a dns-only CNAME to Laravel Cloud, so no proxy sets
-     * CF-Connecting-IP and AppServiceProvider reads it raw, in preference to
-     * $request->ip(). One header pair rotates both buckets. Do not cite that backstop
-     * as a bound; if one is wanted for the other seven, it is a per-site cap like the
-     * pageview one, not another header.
+     * x-visitor-ip with a CF-Connecting-IP "backstop", and NEITHER is verified.
+     * AppServiceProvider reads CF-Connecting-IP raw, in preference to
+     * $request->ip(), with no TrustProxies involvement — so as far as this codebase
+     * is concerned one header pair rotates both buckets. What is NOT established is
+     * whether something upstream overwrites CF-Connecting-IP before it reaches the
+     * origin: api.partna.au is a dns-only CNAME to Laravel Cloud (corroborated), but
+     * Laravel Cloud's own edge is Cloudflare and whether it stamps the header toward
+     * the origin is UNVERIFIED. If it does, the header is harder to forge than this
+     * paragraph assumes — the error would be in the conservative direction. Until
+     * someone checks, do not cite that backstop as a bound; if one is wanted for the
+     * other seven, it is a per-site cap like the pageview one, not another header.
      *
      * The proposed close, an HMAC beacon token minted into the page payload, does not
      * hold: the payload is PUBLIC, so the same attacker fetches the page and replays
@@ -657,11 +662,15 @@ class AnalyticsController extends ApiController
      * request body did not already give them.
      *
      * The `analytics` throttle keys read the same header, and its CF-Connecting-IP
-     * "backstop" is NOT a second, harder bound: nothing proxies api.partna.au (a
-     * dns-only CNAME to Laravel Cloud), and AppServiceProvider reads that header
-     * raw in preference to $request->ip(), so one header pair rotates both buckets.
-     * The only unforgeable bound on this controller is withinSiteBurstCap(), and it
-     * covers pageviews alone.
+     * "backstop" cannot be relied on as a second, harder bound: AppServiceProvider
+     * reads that header raw in preference to $request->ip(), with no TrustProxies
+     * involvement, so nothing in this codebase separates a stamped value from a
+     * forged one. Whether Laravel Cloud's own Cloudflare edge overwrites it before
+     * the origin sees it is UNVERIFIED (api.partna.au is a dns-only CNAME to Laravel
+     * Cloud, which is corroborated; the stamping behaviour is not) — if it does, the
+     * header is harder to forge than assumed here. The only bound on this controller
+     * that needs no such assumption is withinSiteBurstCap(), and it covers pageviews
+     * alone.
      */
     private function visitorIp(Request $request): ?string
     {
