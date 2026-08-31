@@ -793,3 +793,50 @@ it('does not clear an existing failure state when the disk rejects the write', f
         ->and($row->mirror_last_reason)->toBe('store_failed')
         ->and($row->storage_path)->toBeNull();
 });
+
+// ── #W2-SEC-11: the read-back is scoped too, not just the write ──────────────
+
+it('reads the attempt counter back under the same owner scope as the increment it follows (#W2-SEC-11)', function () {
+    $owner = createTenant('rbo-'.Str::lower(Str::random(6)));
+    $other = createTenant('rbs-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($owner->id, 'url-'.sha1('instagram:RB:0'));
+
+    // The victim's asset already sits AT the give-up cap. #SEC-5 already stops
+    // the mismatched pair incrementing it — but the read-back that decides
+    // whether to emit `gave_up` keyed on id alone, so it read THEIR counter and
+    // escalated on it: a Nightwatch page about an asset we never touched, from
+    // a row we are not entitled to read.
+    DB::table('content.media_assets')->where('id', $assetId)
+        ->update(['mirror_attempts' => 99]);
+
+    Log::spy();
+    Http::fake(['*' => Http::response('', 500)]);
+
+    $ok = app(MediaMirror::class)->mirror($other->id, $assetId, 'https://scontent.cdninstagram.com/v/x.jpg');
+
+    expect($ok)->toBeFalse();
+    // Untouched, as #SEC-5 guarantees.
+    expect((int) DB::table('content.media_assets')->where('id', $assetId)->value('mirror_attempts'))->toBe(99);
+    // And NOT reported as given up — the scoped read matched no row, so the
+    // counter this caller sees is 0, which is the honest answer for a pair it
+    // owns nothing of.
+    Log::shouldNotHaveReceived('warning', ['media_mirror.gave_up', Mockery::any()]);
+});
+
+it('still emits gave_up for the legitimate owner once the scoped read-back crosses the cap', function () {
+    $owner = createTenant('rbl-'.Str::lower(Str::random(6)));
+    $assetId = mirrorProjectedAsset($owner->id, 'url-'.sha1('instagram:RBL:0'));
+    DB::table('content.media_assets')->where('id', $assetId)
+        ->update(['mirror_attempts' => MediaMirror::maxAttempts() - 1]);
+
+    Log::spy();
+    Http::fake(['*' => Http::response('', 500)]);
+
+    expect(app(MediaMirror::class)->mirror($owner->id, $assetId, 'https://scontent.cdninstagram.com/v/x.jpg'))->toBeFalse();
+
+    // The scope is not a silencer: the owner's own crossing still reports.
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn ($message, $context) => $message === 'media_mirror.gave_up'
+            && $context['asset_id'] === $assetId)
+        ->once();
+});

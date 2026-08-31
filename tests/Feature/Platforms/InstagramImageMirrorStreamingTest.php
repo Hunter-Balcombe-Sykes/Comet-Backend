@@ -9,6 +9,7 @@ use App\Services\Platforms\InstagramScraper;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Tests\Support\Media\FakeMediaBytes;
 
 // SCALE-102: InstagramConnectionSeeder::mirrorOne() used to buffer the whole
 // image response into a PHP string (`$response->body()`) before the size cap
@@ -63,10 +64,13 @@ it('rejects an oversized image via the on-disk size backstop when Content-Length
     // fast-path already covered by InstagramAsyncConnectTest's "drops an
     // oversized cover image" test. This is the path a naive streaming
     // refactor is most likely to drop.
-    $oversized = str_repeat('a', 15_728_640 + 10); // MAX_IMAGE_BYTES + 10 bytes
+    // A REAL jpeg, padded past the cap: since #W2-SEC-14 the mirror byte-sniffs
+    // what landed, so an oversized blob of 'a's would now be dropped for the
+    // wrong reason and this test would pass while proving nothing about the cap.
+    $oversized = FakeMediaBytes::jpeg().str_repeat('a', 15_728_640 + 10);
     Http::fake([
         'scontent.cdninstagram.com/huge.jpg' => Http::response($oversized, 200, ['Content-Type' => 'image/jpeg']),
-        'scontent.cdninstagram.com/pic.jpg' => Http::response('small-pic-bytes', 200, ['Content-Type' => 'image/jpeg']),
+        'scontent.cdninstagram.com/pic.jpg' => Http::response(FakeMediaBytes::jpeg(), 200, ['Content-Type' => 'image/jpeg']),
     ]);
 
     $user = igMirrorUser('igstream_cap');
@@ -105,7 +109,7 @@ it('mirrors a normal image end-to-end with the exact bytes landing at the expect
     Storage::fake('media');
 
     $picUrl = 'https://scontent.cdninstagram.com/profile-exact.jpg';
-    $exactBytes = 'jpeg-bytes-'.str_repeat('x', 500); // arbitrary but fixed content
+    $exactBytes = FakeMediaBytes::jpeg(16, 16); // real jpeg (#W2-SEC-14 sniffs it), fixed content
 
     Http::fake([
         'scontent.cdninstagram.com/profile-exact.jpg' => Http::response($exactBytes, 200, ['Content-Type' => 'image/jpeg']),
@@ -153,7 +157,7 @@ it('streams to a temp file before the request completes, and cleans it up after 
         'scontent.cdninstagram.com/tempfile-proof.jpg' => function () use (&$tempFileExistedDuringRequest) {
             $tempFileExistedDuringRequest = (bool) glob(sys_get_temp_dir().'/igimg*');
 
-            return Http::response('pic-bytes', 200, ['Content-Type' => 'image/jpeg']);
+            return Http::response(FakeMediaBytes::jpeg(), 200, ['Content-Type' => 'image/jpeg']);
         },
     ]);
 
@@ -214,4 +218,79 @@ it('streams to a temp file before the request completes, and cleans it up when t
     // The mirror failure is swallowed per-image — the job still completes.
     expect($connection->last_refresh_status)->toBe('ok');
     expect($connection->payload['profilePicUrl'])->toBeNull();
+});
+
+// ── #W2-SEC-14: the bytes decide, not the CDN's Content-Type header ──────────
+//
+// The fetch is host-allowlisted to the real Instagram/Facebook CDNs, so this is
+// not a fully open upload path — but the CONTENT is third-party user media, it
+// is stored on R2 and served publicly, and until now the only thing consulted
+// about what it was was a header the origin wrote. MediaMirror has run
+// ImagePixelBudget over its own Instagram bytes since #SEC-1; this path had not.
+
+it('drops a mirrored image whose bytes are not an accepted image format, whatever the CDN calls them', function () {
+    Storage::fake('media');
+
+    $picUrl = 'https://scontent.cdninstagram.com/lying.jpg';
+    Http::fake([
+        // Served as image/jpeg. It is an HTML document — the shape that, stored
+        // under a .jpg on a public media origin, is worth catching.
+        'scontent.cdninstagram.com/lying.jpg' => Http::response(
+            '<html><body><script>alert(1)</script></body></html>', 200, ['Content-Type' => 'image/jpeg'],
+        ),
+    ]);
+
+    $user = igMirrorUser('igstream_lie');
+    $connection = igMirrorConnection($user);
+
+    $scraper = Mockery::mock(InstagramScraper::class);
+    $scraper->shouldReceive('fetchProfile')->once()->andReturn(['fullName' => 'Lie User']);
+    $scraper->shouldReceive('latestMedia')->once()->andReturn(['photo' => null, 'video' => null]);
+    $scraper->shouldReceive('profilePicUrl')->once()->andReturn($picUrl);
+    $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
+    app()->instance(InstagramScraper::class, $scraper);
+
+    (new InstagramConnectJob($user->id, 'testuser', $connection->id))
+        ->handle($scraper, app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
+
+    $connection->refresh();
+    $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
+
+    // Nothing reached R2, and no URL was published for it. The connect itself
+    // still succeeds — a failed mirror has always degraded, never thrown.
+    expect(Storage::disk('media')->exists("{$folder}/profile.jpg"))->toBeFalse();
+    expect($connection->payload['profilePicUrl'] ?? null)->toBeNull();
+    expect($connection->last_refresh_status)->toBe('ok');
+});
+
+it('drops a GIF — an image, but not one of the three formats the house allowlist accepts', function () {
+    Storage::fake('media');
+
+    $picUrl = 'https://scontent.cdninstagram.com/anim.jpg';
+    // A real 1x1 GIF. The point is that "is an image" is NOT the test:
+    // ImagePixelBudget accepts jpeg/png/webp and nothing else, matching
+    // ImageVariantService::ALLOWED_IMAGE_MIMES.
+    $gif = base64_decode('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7');
+    Http::fake([
+        'scontent.cdninstagram.com/anim.jpg' => Http::response($gif, 200, ['Content-Type' => 'image/gif']),
+    ]);
+
+    $user = igMirrorUser('igstream_gif');
+    $connection = igMirrorConnection($user);
+
+    $scraper = Mockery::mock(InstagramScraper::class);
+    $scraper->shouldReceive('fetchProfile')->once()->andReturn(['fullName' => 'Gif User']);
+    $scraper->shouldReceive('latestMedia')->once()->andReturn(['photo' => null, 'video' => null]);
+    $scraper->shouldReceive('profilePicUrl')->once()->andReturn($picUrl);
+    $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
+    app()->instance(InstagramScraper::class, $scraper);
+
+    (new InstagramConnectJob($user->id, 'testuser', $connection->id))
+        ->handle($scraper, app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
+
+    $connection->refresh();
+    $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
+
+    expect(Storage::disk('media')->exists("{$folder}/profile.jpg"))->toBeFalse();
+    expect($connection->payload['profilePicUrl'] ?? null)->toBeNull();
 });

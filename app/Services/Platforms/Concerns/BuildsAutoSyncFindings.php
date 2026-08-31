@@ -20,6 +20,7 @@ use Closure;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 // SLOP-101: the finding-shape + write/apply plumbing that GoogleBusinessAutoSync
@@ -275,9 +276,7 @@ trait BuildsAutoSyncFindings
             // no new edge that could complete a cycle against it.
             return $this->withBookingXorLock($userId, function () use ($userId, $apply): bool {
                 return $this->withReservationsXorLock($userId, function () use ($userId, $apply): bool {
-                    $this->runApply($userId, $apply);
-
-                    return true;
+                    return $this->runApply($userId, $apply);
                 }, false);
             }, false); // $default=false => "contended, nothing applied"
         }
@@ -288,9 +287,7 @@ trait BuildsAutoSyncFindings
             // applyFindingHandled() step is a proven no-op here (see the
             // escape hatch above) — no vendor call, no dispatch, DB only.
             return $this->withBookingXorLock($userId, function () use ($userId, $apply): bool {
-                $this->runApply($userId, $apply);
-
-                return true;
+                return $this->runApply($userId, $apply);
             }, false); // $default=false => "contended, nothing applied"
         }
 
@@ -301,15 +298,11 @@ trait BuildsAutoSyncFindings
             // — closing one arm while leaving its twin open would read as an
             // oversight to the next reviewer.
             return $this->withReservationsXorLock($userId, function () use ($userId, $apply): bool {
-                $this->runApply($userId, $apply);
-
-                return true;
+                return $this->runApply($userId, $apply);
             }, false);
         }
 
-        $this->runApply($userId, $apply); // today's body, verbatim, unlocked
-
-        return true;
+        return $this->runApply($userId, $apply); // unlocked path
     }
 
     /**
@@ -353,14 +346,97 @@ trait BuildsAutoSyncFindings
     }
 
     /**
-     * The remove-then-write body itself — a straight extraction of
-     * applyFinding()'s pre-U1 implementation, unchanged. Called either
-     * directly (non-slot findings, unlocked) or from inside the relevant
-     * XOR lock's closure (booking/reservations findings).
+     * The remove-then-write body — applyFinding()'s pre-U1 implementation, with
+     * the delete+write pair made atomic (#W2-LIFE-16). Called either directly
+     * (non-slot findings, unlocked) or from inside the relevant XOR lock's
+     * closure (booking/reservations findings).
+     *
+     * #W2-LIFE-16: "Change to" removed the user's existing connection and THEN
+     * wrote the replacement, with nothing between them. Any throw from write()
+     * — a constraint, an observer, a dropped DB connection — left the user with
+     * an empty slot where a live link had been, and no record that a swap had
+     * been half-done. The XOR lock the booking/reservations arms take does not
+     * help here: it stops a CONCURRENT writer observing the gap, not the gap
+     * itself. The two DB steps are now one transaction, so a failed write
+     * restores the old connection instead of losing it.
+     *
+     * The transaction is deliberately scoped to the DB span only, and the
+     * applyFindingHandled() hook runs BEFORE it, never inside it:
+     * GoogleBusinessAutoSync overrides the hook to dispatch InstagramConnectJob,
+     * and `config/queue.php` sets `after_commit => false` — so on `redis` (both
+     * envs since 2026-08-25, see SuggestionsController::acceptPayloadFinding)
+     * the job is PUSHED BEFORE THE COMMIT and a worker can pick it up before the
+     * placeholder row it is meant to fill in exists. (The older reason — the job
+     * running INLINE under the `sync` driver and taking its own cache lock — no
+     * longer applies to either environment; the `after_commit => false` one does
+     * and survives a driver change.)
+     *
+     * The hook branch is NOT the "nothing to make atomic" branch it was once
+     * documented as. Its removals ARE one half of a pair: the other half is the
+     * re-dispatched Instagram scrape. It is made whole in the hook instead of
+     * here — the hook takes the platform seed lock and performs the removals
+     * inside it, only once its dispatch cannot fail — and a hook that declines
+     * (no Apify token, daily budget cap, contended lock) returns false, which
+     * this method propagates so the caller does not settle the finding.
+     *
+     * IntegrationConnectionObserver is `$afterCommit = true`, so wrapping these
+     * writes also defers the Cloudflare purge and the site touch to after the
+     * commit — the same property SourceReconciler::reconcile() already relies
+     * on, and strictly better than firing them per-row mid-swap as before.
+     *
+     * @param  array<string,mixed>  $apply
+     * @return bool false = nothing was applied and nothing changed; the caller
+     *              must NOT settle the finding
+     */
+    private function runApply(string $userId, array $apply): bool
+    {
+        $write = is_array($apply['write'] ?? null) ? $apply['write'] : null;
+
+        // Asked first, and outside the transaction below. A non-null answer
+        // means the concrete sync owns this recipe end to end — removals
+        // included — so nothing else here runs.
+        $handled = $this->applyFindingHandled($userId, $apply);
+        if ($handled !== null) {
+            if ($write !== null) {
+                // Canary: a hybrid recipe. The hook has always swallowed the
+                // `write` half of one (it claimed and returned early), and no
+                // producer emits both keys — applyFinding()'s existing canary
+                // only covers booking/reservations-slot recipes, so a `social`
+                // one would otherwise reach here silently.
+                report(new \RuntimeException(
+                    'runApply: apply recipe carried BOTH `instagram` and `write` (write.platform='.
+                    var_export($write['platform'] ?? null, true).') — the hook claims it and the write is dropped.'
+                ));
+            }
+
+            return $handled;
+        }
+
+        if ($write === null) {
+            // Removals with no replacement to pair them with — nothing to make
+            // atomic. Byte-identical to the old body.
+            $this->applyRemovals($userId, $apply);
+
+            return true;
+        }
+
+        DB::connection('pgsql')->transaction(function () use ($userId, $apply, $write): void {
+            $this->applyRemovals($userId, $apply);
+            $this->write($userId, (string) $write['platform'], (string) $write['resourceId'], (array) $write['payload']);
+        });
+
+        return true;
+    }
+
+    /**
+     * The remove half of runApply() — extracted so both branches share one
+     * body. Verbatim from the pre-#W2-LIFE-16 implementation. Protected, not
+     * private, because it is part of the applyFindingHandled() contract: a
+     * consumer that claims a recipe owns its removals too (#W2-LIFE-16).
      *
      * @param  array<string,mixed>  $apply
      */
-    private function runApply(string $userId, array $apply): void
+    protected function applyRemovals(string $userId, array $apply): void
     {
         foreach ((array) ($apply['remove'] ?? []) as $platform) {
             if (! is_string($platform)) {
@@ -387,28 +463,28 @@ trait BuildsAutoSyncFindings
                 ->where('user_id', $userId)->where('routing_class', $removeClass)
                 ->get()->each->delete();
         }
-
-        if ($this->applyFindingHandled($userId, $apply)) {
-            return;
-        }
-
-        if (is_array($apply['write'] ?? null)) {
-            $w = $apply['write'];
-            $this->write($userId, (string) $w['platform'], (string) $w['resourceId'], (array) $w['payload']);
-        }
     }
 
     /**
      * Hook for a consumer to claim the `apply` recipe instead of the default
      * `write` branch — GoogleBusinessAutoSync overrides this to re-dispatch
      * the Instagram scrape (and skip the write) when `apply.instagram` is
-     * present. Returning false (the default) falls through to the write.
+     * present.
+     *
+     * Tri-state since #W2-LIFE-16: a claimer owns the WHOLE recipe, removals
+     * included, so "not mine" and "mine, but I could not run it" can no longer
+     * share one `false`. null (the default) falls through to runApply()'s own
+     * removals + write.
      *
      * @param  array<string,mixed>  $apply
+     * @return bool|null null = not claimed; true = claimed and applied;
+     *                   false = claimed but NOT applied — the implementation
+     *                   guarantees it changed nothing, so the caller must leave
+     *                   the finding unsettled
      */
-    protected function applyFindingHandled(string $userId, array $apply): bool
+    protected function applyFindingHandled(string $userId, array $apply): ?bool
     {
-        return false;
+        return null;
     }
 
     // ── LIFE-105 / LIFE-106: booking XOR lock ───────────────────────────────

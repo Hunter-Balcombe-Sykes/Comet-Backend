@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Tests\Support\Media\FakeMediaBytes;
 
 beforeEach(function () {
     setupUsersTable();
@@ -198,7 +199,7 @@ it('never exposes the internal _folder on the instagram status or selection endp
 it('the async connect job stores the R2 _folder in the payload', function () {
     Queue::fake();
     Storage::fake('media');
-    Http::fake(['scontent.cdninstagram.com/*' => Http::response('bytes', 200, ['Content-Type' => 'image/jpeg'])]);
+    Http::fake(['scontent.cdninstagram.com/*' => Http::response(FakeMediaBytes::jpeg(), 200, ['Content-Type' => 'image/jpeg'])]);
 
     $user = r2CleanupUser('r2async');
     $conn = IntegrationConnection::create([

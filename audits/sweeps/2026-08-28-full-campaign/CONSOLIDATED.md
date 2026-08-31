@@ -373,7 +373,7 @@
         ```
     - Resolution (2026-08-30): FIXED, and the finding undersold the route topology. It implied one route group; there are three. `update()` sits in the `staff.admin` group (admin-only), but `destroy()` and `restore()` are in the lower-privileged group reachable by any staff role, with only `UserSelfPolicy::staffManage()` (`return $actor->isAdmin();`) between a support staffer and the action. `require.aal2` was already on all three, so the missing half was specifically freshness — Supabase keeps `aal` sticky at `aal2` for the session lifetime and never downgrades on refresh, so that middleware proves "MFA happened once", never "recently". Added the identical `requiresFreshAal2()` gate block (byte-for-byte, gate-before-authorize) to all three methods, matching `updateStatus()`, `bulkUpdateStatus()`, `forceDestroy()`, and `releaseClaim()`. Accepted consequence, owner-approved: a support-role staffer with stale MFA now gets `401 mfa_fresh_required` on `destroy`/`restore` where they previously got `403` — pinned deliberately by an explicit ordering test rather than left as an unexplained behaviour change.
 
-- [ ] **#W1-SEC-13** · P2 — WebsiteLinkHarvester parses untrusted third-party HTML without `LIBXML_NONET`
+- [x] **#W1-SEC-13** · P2 — WebsiteLinkHarvester parses untrusted third-party HTML without `LIBXML_NONET`
     - **Where:** app/Services/Platforms/WebsiteLinkHarvester.php:747-750
     - **Affects:** Link-harvesting from a user-connected website; hardening against a hostile page's HTML triggering parser-level network activity.
     - **Effort:** S (~0.5–1h)
@@ -385,6 +385,7 @@
         ```php
         $loaded = $doc->loadHTML($html, LIBXML_NOWARNING | LIBXML_NOERROR);
         ```
+    - Resolution (2026-08-30): FIXED. `LIBXML_NONET` added to `WebsiteLinkHarvester::extractLinks()` — `SafeUrlFetcher` guards the FETCH, this guards the PARSE, so libxml cannot become a second egress point the SSRF guard never sees; the same flag `MetadataParser` and `AboutProseExtractor` already carry. Coverage stated honestly: the new test does NOT pin the flag — nothing in-process can observe libxml declining a network fetch — it pins that the flag costs no links on a page carrying an external DOCTYPE, which is the actual regression risk (a stricter parse silently dropping hrefs). The flag itself is a one-token review item, not a tested property. FOLLOW-UP, not fixed here: SEVEN call sites in `app/Services/WebsiteScan/` still parse third-party HTML without it, all as `loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING)` — `VisibleTextExtractor:33`, `PdfLinkDetector:21`, `FaviconFetcher:45`, `SquarespaceMenuExtractor:25`, `WebsiteLogoCandidateExtractor:32`, `ContactEmailExtractor:39`, `WebsiteGalleryCandidateExtractor:35`. The round-1 handoff reported EIGHT; the count is seven — `AboutProseExtractor:37` already carries the flag. The list is recorded in a comment at `extractLinks()` so it is not re-derived.
 
 - [x] **#W1-SEC-14** · P2 — GDPR export discloses another professional's internal `user_id` on cross-tenant email-subscription rows
     - **Where:** app/Services/User/DataExport/DataExportPayloadBuilder.php streamEmailSubscriptions()
@@ -5150,7 +5151,7 @@ None.
         }
         ```
 
-- [ ] **#W2-SEC-11** · P2 — `MediaMirror` leaves three id-only DB accesses unscoped by `user_id` while its own success paths deliberately scope every write
+- [x] **#W2-SEC-11** · P2 — `MediaMirror` leaves three id-only DB accesses unscoped by `user_id` while its own success paths deliberately scope every write
     - **Where:** app/Services/Media/MediaMirror.php:99-101, 122-149, 469-484
     - **Affects:** `content.media_assets` refresh writes and cross-referenced `content.item_media`/`content.source_items` reads during Instagram media mirroring — only reachable if some future/other caller dispatches `mirror()` with a mismatched `($userId, $assetId)` pair.
     - **Effort:** S (~0.5–1h)
@@ -5178,6 +5179,7 @@ None.
         // practice — it came from ProjectionWriter — but this is the
         // only write in the class, it costs nothing, ...
         ```
+    - Resolution (2026-08-30): PARTIALLY STALE — one of the three cited accesses was genuinely open, and its real impact is worse than the finding stated. The `content.media_assets` `source_url` UPDATE and the `refreshedInstagramUrl()` joins were already closed by `48c1d1a85` (#W1-SEC-1), verified an ancestor of this branch's base. The third was not: `fail()` INCREMENTED `mirror_attempts` under `user_id` but READ THE COUNTER BACK on `id` alone, so a mismatched `($userId, $assetId)` pair read the VICTIM's counter — and could therefore emit `gave_up` plus a Nightwatch escalation for an asset it never touched, on another user's row. Scoped. All six DB accesses in `MediaMirror` are now user-scoped; there is no fourth. Also corrected the stale comment claiming the video-branch write was "the only write in the class" — the one claim the finding was right about.
 
 - [x] **#W2-SEC-12** · P2 — `SuggestionApplier::apply()` mutates `routing.source_intents` by ID alone, relying entirely on the caller having already tenant-scoped the intent
     - **Where:** app/Routing/SuggestionApplier.php:82-91, 201-207
@@ -5215,7 +5217,7 @@ None.
         $resourceId = DB::table('site.platform_connections')->where('id', $connectionId)->value('resource_id');
         ```
 
-- [ ] **#W2-SEC-14** · P2 — Mirrored Instagram media trusts the CDN's declared `Content-Type` header instead of byte-sniffing the fetched file
+- [x] **#W2-SEC-14** · P2 — Mirrored Instagram media trusts the CDN's declared `Content-Type` header instead of byte-sniffing the fetched file
     - **Where:** app/Services/Platforms/InstagramConnectionSeeder.php:466-469, 592-597
     - **Affects:** R2 media storage and public sitepages serving mirrored Instagram photos/reels.
     - **Effort:** M (~2–4h)
@@ -5238,6 +5240,7 @@ None.
             return null;
         }
         ```
+    - Resolution (2026-08-30): FIXED. Both Instagram mirror paths now sniff the bytes that landed instead of trusting the CDN's `Content-Type`. Images go through a new PATH lane on `ImagePixelBudget`, `safeToDecodeFile()`: the gate is a **finfo allowlist** (one more caller of `ALLOWED_MIMES`, not a fourth copy of the list), and `getimagesize()` is explicitly NOT the decode gate — `exceedsFile()` only supplies the pixel ceiling once the allowlist has already admitted the format, and it fails closed on an unreadable header. Ordering is deliberate: size caps first (cheap), then the allowlist, then the ceiling. The path lane exists because these fetches `->sink()` to a temp file precisely so a large body never becomes a PHP string. Reels: at review round 2 the owner replaced the two-item `video/mp4` + `video/quicktime` allowlist with a `video/` PREFIX check. Measured against this machine's libmagic: `isom`/`mp42`/`mp41`/`iso2`/`iso4`/`iso5`/`iso6`/`dash`/`avc1`/`mmp4` -> `video/mp4`, `qt` -> `video/quicktime`, `M4V` -> `video/x-m4v`, `3gp4` -> `video/3gpp`, while `cmfc` and `msnv` -> `application/octet-stream`. A brand list would drift with the libmagic version between macOS and the Cloud image and silently stop mirroring reels; the prefix still rejects the actual threat — `text/html`, `image/gif`, an empty file and an unreadable one all fail closed, as does `application/octet-stream`, which is what both an unknown brand and a hostile payload sniff as. The `bad_sniffed_type` drop-log is kept and is non-transient (a non-video will not become one on a retry, so it does not burn the retry budget). NO recorded reel fixture was added, deliberately: `tests/fixtures/recorded/` holds no video payload at all, so one would mean live-capturing a signed, expiring CDN URL that rots by design — the tests synthesise `ftyp` boxes instead (`Tests\Support\Media\FakeMediaBytes`). Incidental PRODUCTION fix: a genuine empty-body CDN response (200 with zero bytes) was previously mirrored to R2 and published as a URL; `safeToDecodeFile()` now rejects it as `application/x-empty`.
 
 - [ ] **#W2-SEC-15** · P2 — Uber Eats menu driver forwards an unvalidated store URL directly into third-party Apify actor input
     - **Where:** app/Services/Platforms/UberEatsMenuDriver.php:19-22
@@ -5255,7 +5258,7 @@ None.
         }
         ```
 
-- [ ] **#W2-SEC-16** · P2 — Website link-harvester parses fetched HTML with `DOMDocument` without `LIBXML_NONET`
+- [x] **#W2-SEC-16** · P2 — Website link-harvester parses fetched HTML with `DOMDocument` without `LIBXML_NONET`
     - **Where:** app/Services/Platforms/WebsiteLinkHarvester.php:805
     - **Affects:** Link-harvest paths parsing user-supplied website HTML fetched via `SafeUrlFetcher`.
     - **Effort:** S (~0.5–1h)
@@ -5267,6 +5270,7 @@ None.
         ```php
         $loaded = $doc->loadHTML($html, LIBXML_NOWARNING | LIBXML_NOERROR);
         ```
+    - Resolution (2026-08-30): FIXED — this is the SAME finding as #W1-SEC-13 (same file, same call, found independently by two lenses). One fix, two ticks. See #W1-SEC-13 for the reasoning, including why the test pins "the flag costs no links on a page with an external DOCTYPE" rather than the flag itself. Follow-up carried there too: SEVEN `app/Services/WebsiteScan/` files still lack the flag (`VisibleTextExtractor:33`, `PdfLinkDetector:21`, `FaviconFetcher:45`, `SquarespaceMenuExtractor:25`, `WebsiteLogoCandidateExtractor:32`, `ContactEmailExtractor:39`, `WebsiteGalleryCandidateExtractor:35`) — seven, not the eight first reported.
 
 - [x] **#W2-SEC-17** · P2 — `ShortLinkExpander` logs the full user-supplied URL, including any query-string secrets, on expansion failure
     - **Where:** app/Routing/ShortLinkExpander.php:147-150
@@ -5749,7 +5753,7 @@ None.
         $user->save();
         ```
 
-- [ ] **#W2-LIFE-16** · P2 — `BuildsAutoSyncFindings::runApply()` deletes existing connections before writing the replacement, with no surrounding transaction on the social-platform path
+- [x] **#W2-LIFE-16** · P2 — `BuildsAutoSyncFindings::runApply()` deletes existing connections before writing the replacement, with no surrounding transaction on the social-platform path
     - **Where:** app/Services/Platforms/Concerns/BuildsAutoSyncFindings.php (`runApply()`)
     - **Affects:** Users applying a "Change to" auto-sync finding on a social platform — if the write step throws after the delete loop, the user is left with no connection at all where they previously had one.
     - **Effort:** M (~2–4h)
@@ -5771,6 +5775,7 @@ None.
             $this->write($userId, (string) $w['platform'], (string) $w['resourceId'], (array) $w['payload']);
         }
         ```
+    - Resolution (2026-08-30): FIXED, and the finding's premise was wrong about where the data loss came from. The prescribed transaction IS in place — `runApply()`'s removals + `write()` are one `DB::connection('pgsql')->transaction()`, so a throw from `write()` no longer leaves an empty slot — and `applyFindingHandled()` is deliberately EXCLUDED from it, but NOT for the reason first written down ("that branch has nothing to make atomic"), which was false: its removals ARE one half of a pair, the other half being the re-dispatched scrape. It is excluded because `config/queue.php` sets `after_commit => false`: the hook dispatches `InstagramConnectJob`, so on `redis` (both envs since 2026-08-25) the job is PUSHED BEFORE THE COMMIT and a worker can start before the placeholder row exists. (The older "runs INLINE under the sync driver" framing is dead; the `after_commit` argument survives a driver change.) The real data-loss path was separate, and reached by a RETURN rather than a throw, which is exactly why the transaction never touched it: `applyFindingHandled()` SWALLOWED `dispatchInstagram()`'s `false` and returned `true` unconditionally, so a missing `services.apify.token`, a denied `ApifyBudget::tryClaim('instagram')` (the daily spend cap — a NORMAL operating state, not an error) or a `withPlatformSeedLock` timeout deleted the user's Instagram connection, replaced it with nothing, and let `SuggestionsController::acceptPayloadFinding` settle the finding as `'seeded'`. Fixed by owner decision at review round 2, in two parts: (1) the hook is now `?bool` — `null` = not mine, `true` = applied, `false` = claimed but declined — propagated through `runApply()` and `applyFinding()`, so a decline surfaces as the EXISTING 423 with the finding unsettled and re-appliable; no exception storm, no retry loop, and the budget check is neither weakened nor bypassed; (2) the removals moved INSIDE `dispatchInstagram()` as a `$before` callback run under the platform seed lock immediately before the placeholder write, so all three decline paths precede every write and a declined apply now removes nothing at all. `restore()` was considered and REJECTED: `IntegrationConnectionObserver::deleted` fires `cleanupMirroredMedia` -> `DeleteMirroredMediaJob` (R2 reclaim, CONS-21) and `restored()` undoes none of it, so a reinstatement would have handed back the row minus its mirrored media. The lock-hold extension is tens of milliseconds against a 10s TTL — `disconnectListingSourcedConnections` and `clearListingSourcedWorkplaceFields` both early-return unless `surface_key === 'google_business.listing'`, so neither runs when the recipe removes `instagram`. A retried 423 costs no budget: `tryClaim` releases the global counter when the actor cap denies. Also added a `report()` canary for a recipe carrying BOTH `instagram` and `write` — `applyFinding()`'s existing canary covers booking/reservations-slot recipes only, so a `social` hybrid passed unremarked while its `write` half was silently dropped. Tests run SQLite (`tests/TestCase.php` remaps `DB::connection('pgsql')`), so this proves the ordering, the propagated bool and rollback-on-throw, and proves nothing Postgres-specific.
 
 - [ ] **#W2-LIFE-17** · P2 — `MenuScanApplier::resolveMenu()` races on first-menu creation; no lock, no typed unique-catch
     - **Where:** app/Services/Platforms/MenuScanApplier.php:640-655 (`resolveMenu()`)
