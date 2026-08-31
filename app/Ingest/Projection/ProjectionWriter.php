@@ -80,7 +80,12 @@ class ProjectionWriter
         'f_playable' => ['stream_url', 'preview_url'],
         'f_authored' => ['creator_url'],
         'f_file' => ['file_url'],
-        'f_review' => ['author_photo_url'],
+        // author_uri is the reviewer's permanent Google contributor-profile
+        // link — the same class of permanent identifier as author_photo_url,
+        // and withheld from DSAR export for exactly that reason
+        // (DataExportPayloadBuilder::streamContentFReview). No dev row carries
+        // a query string today; this is the guard for the day one does.
+        'f_review' => ['author_photo_url', 'author_uri'],
         'f_channel' => ['avatar_url'],
     ];
 
@@ -174,7 +179,7 @@ class ProjectionWriter
 
         $userId = (string) $source['user_id'];
         $contentSourceId = $this->ensureContentSource($userId, (string) $connectionId, $sourceKey);
-        $accountRef = $this->accountRef((string) $connectionId, (string) $source['identifier']);
+        $accountRef = $this->accountRef($userId, (string) $connectionId, (string) $source['identifier']);
 
         // SCALE-6: ->cursor() does not bound memory under pdo_pgsql (libpq
         // buffers the whole result set client-side regardless of PHP-level
@@ -379,7 +384,14 @@ class ProjectionWriter
      */
     private function ensureContentSource(string $userId, string $connectionId, string $label): string
     {
-        $existing = DB::table('content.sources')->where('connection_id', $connectionId)->value('id');
+        // #W2-SEC-13: user_id is redundant with idx_content_sources_connection
+        // (globally UNIQUE on connection_id) and $connectionId is never
+        // request-sourced — scoped anyway, so a wrong-tenant row is a loud
+        // RuntimeException below rather than a silently adopted source.
+        $existing = DB::table('content.sources')
+            ->where('connection_id', $connectionId)
+            ->where('user_id', $userId)
+            ->value('id');
         if ($existing !== null) {
             return (string) $existing;
         }
@@ -406,7 +418,13 @@ class ProjectionWriter
             'updated_at' => now(),
         ]);
 
-        $id = DB::table('content.sources')->where('connection_id', $connectionId)->value('id');
+        // Scoped for the same reason as the read above, and mandatorily so:
+        // this is the loser-of-the-race path, and an unscoped re-read would
+        // hand back the very row the first read just refused.
+        $id = DB::table('content.sources')
+            ->where('connection_id', $connectionId)
+            ->where('user_id', $userId)
+            ->value('id');
 
         if ($id === null) {
             throw new \RuntimeException("Could not resolve a content source for connection {$connectionId}.");
@@ -581,10 +599,23 @@ class ProjectionWriter
      * flows already carry the deterministic sha16 in resource_id; legacy rows
      * derive the same shape from the identifier, which survives reconnect for
      * the same remote account by construction.
+     *
+     * #W2-SEC-13: the connection read is tenant-scoped. Note the asymmetry with
+     * ensureContentSource(), which throws on a scope miss — here a miss falls
+     * through to the sha1(identifier) derivation, the intended path for legacy
+     * connections with no `acct-` resource_id, so a wrong-tenant row and a
+     * legacy row are indistinguishable and both mint a derived ref. Accepted
+     * knowingly: a mismatch means ingest.sources.user_id and
+     * site.platform_connections.user_id already disagree (both FK core.users
+     * and are set together at provision), i.e. the data is already broken. No
+     * warning log and no second unscoped probe — this is a hot path.
      */
-    private function accountRef(string $connectionId, string $identifier): string
+    private function accountRef(string $userId, string $connectionId, string $identifier): string
     {
-        $resourceId = DB::table('site.platform_connections')->where('id', $connectionId)->value('resource_id');
+        $resourceId = DB::table('site.platform_connections')
+            ->where('id', $connectionId)
+            ->where('user_id', $userId)
+            ->value('resource_id');
 
         if (is_string($resourceId) && preg_match('/^acct-[0-9a-f]{16}$/', $resourceId)) {
             return $resourceId;
@@ -2391,7 +2422,12 @@ class ProjectionWriter
                     // Additive, exactly like sku: a projection that omits the
                     // key writes null, so no existing projector changes
                     // behaviour (migration 20260813100003).
-                    'image_url' => $entry['image_url'] ?? null,
+                    // #W1-DINT-5: same treatment as 'url'/'item_url' twenty
+                    // lines up — the column was added later (20260813100003)
+                    // and missed the denylist. minimiseUrl() redacts values in
+                    // place, so a Shopify ?v=<epoch> cache-buster (every
+                    // populated dev row) survives untouched.
+                    'image_url' => SecretParams::minimiseUrl($entry['image_url'] ?? null),
                     'position' => $position,
                 ];
             }
