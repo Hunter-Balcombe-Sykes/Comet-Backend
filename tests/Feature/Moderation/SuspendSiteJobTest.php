@@ -69,6 +69,38 @@ it('is idempotent (running twice does not error)', function () {
     expect($site->fresh()->moderation_state)->toBe('hidden');
 });
 
+// #W2-JOB-1 / #W2-LIFE-9: an at-least-once queue redelivery of a job whose action
+// log entry already completed must not re-hide a site staff has since restored.
+// Without the completed-status guard, this fails — the redelivery flips the
+// restored site straight back to 'hidden'.
+it('does not re-hide a site restored after this action log entry already completed', function () {
+    $user = User::factory()->create();
+    $site = Site::factory()->for($user, 'user')->create(['moderation_state' => 'active']);
+    $case = ModerationCase::factory()->create([
+        'reportable_type' => 'Site',
+        'reportable_id' => $site->id,
+        'reportable_owner_user_id' => $user->id,
+    ]);
+    $decision = Decision::factory()->forCase($case)->create(['decision_type' => 'hide_site']);
+    $entry = ActionLogEntry::factory()->forDecision($decision)->create(['action_type' => 'suspend_site']);
+
+    SuspendSiteJob::dispatch($entry->id, $case->id);
+
+    expect($site->fresh()->moderation_state)->toBe('hidden');
+    expect($entry->fresh()->status)->toBe('completed');
+    $attemptsAfterFirstRun = $entry->fresh()->attempts;
+
+    // Staff restore the site in between the first delivery and the redelivery.
+    // moderation_state is deliberately NOT fillable — forceFill mirrors real
+    // moderation writers (which use ->update() query-builder, not mass-assignment).
+    $site->fresh()->forceFill(['moderation_state' => 'active'])->save();
+
+    SuspendSiteJob::dispatch($entry->id, $case->id);
+
+    expect($site->fresh()->moderation_state)->toBe('active');
+    expect($entry->fresh()->attempts)->toBe($attemptsAfterFirstRun);
+});
+
 it('resolves the owning site for SiteMedia (CSAM) cases and hides it', function () {
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create(['moderation_state' => 'active']);

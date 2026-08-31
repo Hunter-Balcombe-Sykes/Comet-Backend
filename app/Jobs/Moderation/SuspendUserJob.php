@@ -7,6 +7,7 @@ use App\Models\Core\User\User;
 use App\Models\Moderation\ActionLogEntry;
 use App\Models\Moderation\ModerationCase;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -14,12 +15,34 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
-class SuspendUserJob implements ShouldQueue
+class SuspendUserJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     use HasActionLogLifecycle;
 
     public int $timeout = 60;
+
+    // Honest scope of this lock (round-2 review correction — do not restate the
+    // old "prevents a crashed worker from holding a stale redelivery" framing):
+    // ModerationActionDispatcher dispatches this job as the OPENING link of the
+    // suspend_user/ban_user Bus::chain, and Bus::chain(...)->dispatch() calls
+    // Dispatcher::dispatch() directly for the first link — no PendingDispatch is
+    // built, so UniqueLock::acquire() (which lives only in
+    // PendingDispatch::shouldDispatch(), run from its __destruct()) is NEVER
+    // invoked there. (For csam_auto_suspend the chain instead opens with
+    // QuarantineMediaJob, so this job is the SECOND link there and the lock IS
+    // acquired via dispatchNextJobInChain()'s global dispatch() call — but that
+    // still buys nothing: a Horizon at-least-once redelivery re-enters
+    // CallQueuedHandler::call() directly and never touches UniqueLock::acquire()
+    // regardless of chain position.) The `status === 'completed'` check below
+    // does 100% of the work that stops a stale redelivery re-suspending a user
+    // support has reinstated. ShouldBeUnique only debounces a genuinely
+    // concurrent duplicate DISPATCH of the same actionLogId, and no path
+    // currently produces one (actionLogId is a fresh Str::uuid() per
+    // dispatchFor() call — ModerationActionDispatcher is the only dispatcher).
+    // Kept as harmless insurance for a possible future manual-retry endpoint;
+    // re-verify this reasoning if one is ever added.
+    public int $uniqueFor = 300;
 
     public function __construct(
         public readonly string $actionLogId,
@@ -27,6 +50,11 @@ class SuspendUserJob implements ShouldQueue
     ) {
         // Queueable::$queue is untyped; assign in constructor to avoid PHP 8.4 trait conflict.
         $this->queue = ModerationQueue::HIGH;
+    }
+
+    public function uniqueId(): string
+    {
+        return $this->actionLogId;
     }
 
     /**
@@ -43,6 +71,12 @@ class SuspendUserJob implements ShouldQueue
         DB::connection('pgsql')->transaction(function () {
             $case = ModerationCase::query()->findOrFail($this->caseId);
             $entry = ActionLogEntry::query()->findOrFail($this->actionLogId);
+
+            // Idempotency — an at-least-once redelivery after this entry already
+            // completed must not re-suspend a user support has since reinstated.
+            if ($entry->status === 'completed') {
+                return;
+            }
 
             // Mark as dispatched and increment the attempt counter before acting —
             // if the user update throws, the action log reflects the attempt.
