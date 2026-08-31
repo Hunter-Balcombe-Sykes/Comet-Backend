@@ -6,7 +6,27 @@ use App\Models\BaseModel;
 use Database\Factories\Moderation\ActionLogEntryFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
+/**
+ * Column list mirrors moderation.action_log in the 2026-07-26 baseline.
+ * status is CHECK-constrained to pending|dispatched|completed|failed|cancelled;
+ * the completed-state guards in the SuspendUser, SuspendSite and
+ * QuarantineMedia jobs re-read it before acting.
+ *
+ * @property string $id
+ * @property string $decision_id
+ * @property string $action_type
+ * @property array $action_target
+ * @property string|null $job_uuid
+ * @property string $status
+ * @property int $attempts
+ * @property string|null $failure_reason
+ * @property Carbon|null $dispatched_at
+ * @property Carbon|null $completed_at
+ * @property Carbon $created_at
+ * @property Carbon $updated_at
+ */
 class ActionLogEntry extends BaseModel
 {
     use HasFactory;

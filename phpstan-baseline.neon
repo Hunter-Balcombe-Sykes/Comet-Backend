@@ -1267,66 +1267,6 @@ parameters:
 			path: app/Jobs/Gdpr/ExportUserDataJob.php
 
 		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$attempts\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/NotifyOnCallStaffJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/NotifyOnCallStaffJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$attempts\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/NotifyReportedUserJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/NotifyReportedUserJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$attempts\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/NotifyReporterJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$status\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/NotifyReporterJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$attempts\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/PurgeModerationCacheJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$attempts\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/QuarantineMediaJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$attempts\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/SuspendSiteJob.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$attempts\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Jobs/Moderation/SuspendUserJob.php
-
-		-
 			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$primary_email\.$#'
 			identifier: property.notFound
 			count: 1
@@ -1625,12 +1565,6 @@ parameters:
 			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Services/Moderation/EvidenceSnapshotService.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Moderation\\ActionLogEntry\:\:\$action_type\.$#'
-			identifier: property.notFound
-			count: 3
-			path: app/Services/Moderation/ModerationActionDispatcher.php
 
 		-
 			message: '#^Offset ''body'' on array\{userId\: string, frontendType\: string, category\: string, title\: string, body\: string, dedupeKey\: string, ctaUrl\?\: string\|null, primaryActionLabel\?\: string\|null, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
