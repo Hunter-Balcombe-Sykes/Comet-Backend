@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\Api\Staff\UserSiteManagement\StaffUserController;
 use App\Http\Requests\Api\Staff\UserSite\StaffUpdateUserRequest;
 use App\Http\Resources\UserDashboardResource;
 use App\Http\Resources\UserStaffResource;
@@ -12,10 +11,10 @@ use Illuminate\Validation\ValidationException;
 
 beforeEach(function () {
     $conn = DB::connection('pgsql');
-    try {
-        $conn->statement("ATTACH DATABASE ':memory:' AS core");
-    } catch (Throwable) {
-    }
+    // #FU-9: attachTestSchemas() also attaches `audit` — the real HTTP path
+    // below runs the staff.audit middleware (RecordStaffAuditEntry), which
+    // needs it, on top of the `core`/`site` this lane already attached by hand.
+    attachTestSchemas();
 
     // UserDashboardResource reads core.user_handle_aliases on every
     // serialization (reclaimable_handles) — this lane builds its own tables
@@ -37,10 +36,6 @@ beforeEach(function () {
 
     // UserDashboardResource (the self-service /me resource) reads the `site`
     // relationship, so the table must exist for its query to run (returns null here).
-    try {
-        $conn->statement("ATTACH DATABASE ':memory:' AS site");
-    } catch (Throwable) {
-    }
     $conn->statement('CREATE TABLE IF NOT EXISTS site.sites (
         id TEXT PRIMARY KEY,
         user_id TEXT NULL,
@@ -49,6 +44,27 @@ beforeEach(function () {
         custom_domain_status TEXT NULL,
         custom_domain_primary INTEGER NULL,
         deleted_at TEXT NULL
+    )');
+
+    // The staff.audit middleware (RecordStaffAuditEntry) runs after the
+    // response and writes to audit.staff_audit_log — set up the table so
+    // terminate() records for real instead of silently swallowing the insert.
+    // Mirrors StaffBulkUpdateStatusValidationTest.php's beforeEach exactly.
+    $conn->statement('CREATE TABLE IF NOT EXISTS audit.staff_audit_log (
+        id TEXT PRIMARY KEY,
+        staff_id TEXT,
+        staff_email_snapshot TEXT,
+        impersonator_staff_id TEXT,
+        impersonator_email_snapshot TEXT,
+        user_id TEXT,
+        professional_handle_snapshot TEXT,
+        route TEXT NOT NULL DEFAULT \'\',
+        http_method TEXT NOT NULL DEFAULT \'\',
+        status_code INTEGER NOT NULL DEFAULT 0,
+        payload_summary TEXT NOT NULL DEFAULT \'{}\',
+        ip_hash TEXT,
+        user_agent TEXT,
+        created_at TEXT
     )');
 });
 
@@ -72,30 +88,26 @@ it('persists admin_notes when staff PATCHes the professional', function () {
         'status' => 'active',
     ]);
 
-    $professional = User::query()->findOrFail($id);
-
-    $request = StaffUpdateUserRequest::create('/', 'PATCH', [
-        'admin_notes' => 'DMCA pending — flag any takedown requests',
-    ]);
-    $request->setContainer(app())->setRedirector(app('redirect'));
-    $request->validateResolved();
-
-    // The write methods now enforce UserSelfPolicy::staffManage (admin-only, #P2-03).
-    // This direct controller call bypasses the staff middleware that normally sets
-    // the attribute, so inject an admin actor the same way the middleware would.
+    // The write methods enforce UserSelfPolicy::staffManage (admin-only,
+    // #P2-03) via the `staff.admin` route middleware — an admin-role staff
+    // actor. actingAsStaff() defaults to fresh-totp AAL2 claims, satisfying
+    // both `require.aal2` and update()'s own fresh-AAL2 gate (#W1-SEC-12).
     $staff = new PartnaStaff;
     $staff->id = (string) Str::uuid();
     $staff->role = PartnaStaff::ROLE_ADMIN;
-    $request->attributes->set('partna_staff', $staff);
 
-    // update() also runs the fresh-AAL2 gate first (#W1-SEC-12) — bypassing the
-    // middleware means supabase_amr is never set, so without this the gate
-    // would 401 before the fill/save ever runs. Stand in the same fresh totp
-    // entry VerifySupabaseJwt/actingAsStaff would set.
-    $request->attributes->set('supabase_amr', [['method' => 'totp', 'timestamp' => time()]]);
-
-    $controller = app(StaffUserController::class);
-    $controller->update($request, $professional);
+    // #FU-9: real HTTP request through the full staff middleware stack
+    // (supabase.jwt, staff, require.aal2, staff.admin, revocation.strict,
+    // staff.audit) rather than calling the controller method directly — a
+    // direct-controller call 401s internally on a missing gate and still
+    // "passes" because nothing asserts a status, which is exactly the blind
+    // spot this test used to have.
+    actingAsStaff($staff)
+        ->patchJson("/api/staff/professionals/{$id}", [
+            'admin_notes' => 'DMCA pending — flag any takedown requests',
+        ])
+        ->assertStatus(200)
+        ->assertJsonPath('professional.admin_notes', 'DMCA pending — flag any takedown requests');
 
     $fresh = User::query()->findOrFail($id);
     expect($fresh->admin_notes)->toBe('DMCA pending — flag any takedown requests');

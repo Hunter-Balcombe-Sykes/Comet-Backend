@@ -22,6 +22,7 @@ use App\Services\Platforms\InstagramAutoSync;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -158,6 +159,11 @@ it('a concurrent holder of the booking-XOR lock makes GoogleBusinessAutoSync::se
 // behaviours, not a bug being fixed now. ─────────────────────────────────────
 
 it('GoogleBusinessAutoSync::applyFinding claims an apply.instagram recipe via the hook — dispatches the scrape and does NOT run the generic write', function () {
+    // #FU-8: this finding is hybrid (carries BOTH `instagram` and `write`),
+    // which trips BuildsAutoSyncFindings::runApply()'s canary report() call
+    // (see its docblock) — fake Exceptions so that canary reports through the
+    // test double instead of the real handler on every run.
+    Exceptions::fake();
     config(['services.apify.token' => 'apify-token']);
     Bus::fake([InstagramConnectJob::class]);
     $user = bxUser('bxslop1');

@@ -127,6 +127,11 @@ it('counts only real storefronts as candidates, not every storefronts sidecar ro
         'collection_id' => $collectionId, 'provider' => 'uber_eats',
         'url' => 'https://example.com', 'source_url' => 'https://example.com/',
         'referral_query' => '', 'is_individual' => false,
+        // #FU-7: real content.storefronts.user_id is NOT NULL (migration
+        // 20260819000100) and denormalises the owner off the parent
+        // collection — must match content.collections.user_id above, or a
+        // from-zero PG apply would reject this row outright.
+        'user_id' => $pro->id,
         'created_at' => now(), 'updated_at' => now(),
     ]);
 
