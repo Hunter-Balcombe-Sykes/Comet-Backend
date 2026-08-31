@@ -984,36 +984,83 @@ class GoogleBusinessAutoSync
      */
     private function dispatchInstagram(string $userId, string $username, bool $autoConnectBooking = false, ?callable $before = null): bool
     {
+        // #FU-5 — WONTFIX (owner decision, 2026-08-31). All three declines below
+        // collapse to one `false`, so SuggestionsController::acceptPayloadFinding
+        // (:414) answers the same 423 — "Another change is still saving — please
+        // retry in a moment." — whether the cause was a contended seed lock or the
+        // daily Apify spend cap. The copy is wrong for the cap case, and it stays.
+        // Correctness already holds without a message change: nothing is removed
+        // (the removals are handed to the seed-lock closure below and never run on a
+        // decline), the finding is left unsettled and re-appliable, and a retried
+        // 423 costs no budget — ApifyBudget::tryClaim releases the global counter on
+        // an actor-cap denial, and #FU-4's release() hands back a slot claimed by an
+        // exit that never scraped. Threading a third state (declined-for-budget)
+        // through applyFindingHandled() -> runApply() -> applyFinding()'s `bool` and
+        // out to a distinct 429 is more machinery than a message earns on a
+        // money-gated path. Do not re-open; change the CALLER's copy if the wording
+        // ever matters more than the plumbing.
         if (! config('services.apify.token') || ! $this->apifyBudget->tryClaim('instagram')) {
             return false;
         }
 
-        // PWL-9: only the placeholder write is locked. InstagramConnectJob —
-        // dispatched below, OUTSIDE the lock — takes the SAME platformConnectionLock
-        // key (InstagramConnectionSeeder::seed) and runs INLINE under the sync
-        // queue driver; dispatching it while still holding this lock would
-        // self-deadlock (or time itself out against its own holder).
-        $connection = $this->withPlatformSeedLock($userId, Platform::Instagram->value, function () use ($userId, $before) {
-            // The swap's destructive half, if the caller has one — inside the
-            // lock, immediately before the row that replaces what it removes.
-            if ($before !== null) {
-                $before();
-            }
+        $connection = null;
 
-            // Pending placeholder tagged source so the synced step + undo can find it;
-            // InstagramConnectJob preserves that tag when it writes the scrape result.
-            return IntegrationConnection::updateOrCreate(
-                ['user_id' => $userId, 'platform' => Platform::Instagram->value, 'resource_id' => Platform::Instagram->value],
-                [
-                    'payload' => ['source' => 'google-business'],
-                    'is_active' => false,
-                    'last_refreshed_at' => null,
-                    'last_refresh_status' => 'pending',
-                    'last_refresh_error' => null,
-                    'consecutive_failures' => 0,
-                ],
-            );
-        }, null);
+        try {
+            // PWL-9: only the placeholder write is locked. InstagramConnectJob —
+            // dispatched below, OUTSIDE the lock — takes the SAME platformConnectionLock
+            // key (InstagramConnectionSeeder::seed) and runs INLINE under the sync
+            // queue driver; dispatching it while still holding this lock would
+            // self-deadlock (or time itself out against its own holder).
+            $connection = $this->withPlatformSeedLock($userId, Platform::Instagram->value, function () use ($userId, $before) {
+                // #FU-3: the swap's two halves are ONE transaction — the caller's
+                // removals and the placeholder that replaces them. A throw from the
+                // placeholder write used to leave the removal standing with nothing
+                // in its place. Inside the seed lock (the lock is what serialises
+                // concurrent writers; the transaction is what makes THIS writer's
+                // pair all-or-nothing) and, deliberately, entirely BEFORE the
+                // dispatch below — a job dispatched inside this transaction would
+                // reach Redis before commit (every queue connection in
+                // config/queue.php sets after_commit => false), so the dispatch MUST
+                // stay outside. The #FU-4 `finally` below depends on this: it is only
+                // safe to hand the budget slot back on a throw here because this
+                // transaction guarantees the throw left nothing written and nothing
+                // dispatched — if this transaction is ever removed, that finally's
+                // "nothing was spent" premise goes with it.
+                return DB::connection('pgsql')->transaction(function () use ($userId, $before) {
+                    // The swap's destructive half, if the caller has one — inside the
+                    // lock, immediately before the row that replaces what it removes.
+                    if ($before !== null) {
+                        $before();
+                    }
+
+                    // Pending placeholder tagged source so the synced step + undo can find it;
+                    // InstagramConnectJob preserves that tag when it writes the scrape result.
+                    return IntegrationConnection::updateOrCreate(
+                        ['user_id' => $userId, 'platform' => Platform::Instagram->value, 'resource_id' => Platform::Instagram->value],
+                        [
+                            'payload' => ['source' => 'google-business'],
+                            'is_active' => false,
+                            'last_refreshed_at' => null,
+                            'last_refresh_status' => 'pending',
+                            'last_refresh_error' => null,
+                            'consecutive_failures' => 0,
+                        ],
+                    );
+                });
+            }, null);
+        } finally {
+            // #FU-4: the claim above is a SPEND RESERVATION, and this method has two
+            // exits that spend nothing — a contended seed lock (null below) and a throw
+            // from the removals or the placeholder write (rolled back by the transaction
+            // above, so nothing was written and nothing was scraped). Both used to burn
+            // one of the 600/day instagram slots for no scrape. Handing it back is the
+            // whole fix; the CLAIM itself is untouched — a denied claim still declines
+            // cleanly, and tryClaim still releases the global counter on an actor-cap
+            // denial, which is what makes a retried 423 cost nothing.
+            if ($connection === null) {
+                $this->apifyBudget->release('instagram');
+            }
+        }
 
         if ($connection === null) {
             return false;   // lock timeout — skip: no card, no dispatch
