@@ -102,7 +102,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 5 of 5 complete
-- P2 Medium: 0 of 9 complete
+- P2 Medium: 7 of 9 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -512,7 +512,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 5 of 5 complete
-- P2 Medium: 1 of 20 complete
+- P2 Medium: 2 of 20 complete
 - P3 Low: 0 of 12 complete
 
 ---
@@ -2626,7 +2626,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 8 complete
+- P2 Medium: 3 of 8 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -3764,7 +3764,7 @@ None.
 
 - P0 Blockers: 1 of 1 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -4946,7 +4946,7 @@ None.
 
 - P0 Blockers: 0 of 1 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 0 of 15 complete
+- P2 Medium: 11 of 15 complete
 - P3 Low: 0 of 1 complete
 
 ---
@@ -5393,7 +5393,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 0 of 20 complete
+- P2 Medium: 5 of 20 complete
 - P3 Low: 0 of 26 complete
 
 ---
@@ -7676,7 +7676,7 @@ None — every surviving finding requires a `supabase/migrations/` change (a new
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 8 complete
+- P2 Medium: 3 of 8 complete
 - P3 Low: 0 of 0 complete
 
 ---
