@@ -1224,8 +1224,8 @@ Staff routes are for internal staff tooling. They require a staff JWT (user must
 - GET /api/staff/sites/{subdomain}
 - GET /api/staff/professionals?q=...&status=...&per_page=...&page=... — `status=unclaimed` filters to provisional (never-claimed) pre-account users
 - GET /api/staff/professionals/{professional} — for an unclaimed user, the response includes a `pre_account_build` block (absent entirely for normal users) — see below
-- DELETE /api/staff/professionals/{professional} (soft delete)
-- POST /api/staff/professionals/{professional}/restore
+- DELETE /api/staff/professionals/{professional} (soft delete; requires a fresh AAL2 verification, same `partna.mfa.fresh_window_seconds` window as `/force` — `401 mfa_fresh_required` if stale/missing)
+- POST /api/staff/professionals/{professional}/restore (requires a fresh AAL2 verification, same window — `401 mfa_fresh_required` if stale/missing)
 - GET /api/staff/professionals/{professional}/customers
 - GET /api/staff/professionals/{professional}/customers/{customer}
 - POST /api/staff/professionals/{professional}/customers/{customer}/restore
@@ -1241,7 +1241,7 @@ Staff routes are for internal staff tooling. They require a staff JWT (user must
 - GET /api/staff/professionals/{professional}/sections
 - GET /api/staff/feedback?type=error|good|bad_ui|idea&area=<string>&from=YYYY-MM-DD&to=YYYY-MM-DD&per_page=&page= (OV-D — triage list across ALL users, not scoped to one professional; unrecognised `type` values are ignored rather than erroring; invalid `from`/`to` → 422; response envelope: `{ "feedback": [StaffFeedbackRow], "meta": {...} }`, `StaffFeedbackRow` adds `user: {id,handle,display_name,email}|null`, `reply_email`, `request_id`, `tags`, `internal_notes`, `ip_hash`, `updated_at` on top of the owner-facing shape) Staff-admin routes (requires core.sidest_staff.is_admin = true)
 - PATCH /api/staff/professionals/{professional}/status
-- PATCH /api/staff/professionals/{professional}
+- PATCH /api/staff/professionals/{professional} (requires a fresh AAL2 verification, same `partna.mfa.fresh_window_seconds` window as `/force` — `401 mfa_fresh_required` if stale/missing)
 - DELETE /api/staff/professionals/{professional}/force (full immediate purge — see below)
 - POST /api/staff/professionals/{professional}/release-claim (non-destructive claim release — see below)
 - PATCH /api/staff/professionals/{professional}/customers/{customer}

@@ -261,6 +261,14 @@ class StaffUserController extends ApiController
         StaffUpdateUserRequest $request,
         User $professional,
     ) {
+        $gate = $this->requiresFreshAal2($request);
+        if (! $gate->allowed()) {
+            return response()->json([
+                'message' => $gate->message() ?: 'Recent MFA verification required',
+                'code' => 'mfa_fresh_required',
+            ], $gate->status() ?? 401);
+        }
+
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffManage', $professional);
 
@@ -290,6 +298,14 @@ class StaffUserController extends ApiController
      */
     public function destroy(Request $request, User $professional): JsonResponse
     {
+        $gate = $this->requiresFreshAal2($request);
+        if (! $gate->allowed()) {
+            return response()->json([
+                'message' => $gate->message() ?: 'Recent MFA verification required',
+                'code' => 'mfa_fresh_required',
+            ], $gate->status() ?? 401);
+        }
+
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffManage', $professional);
 
@@ -306,6 +322,14 @@ class StaffUserController extends ApiController
 
     public function restore(Request $request, User $professional): JsonResponse
     {
+        $gate = $this->requiresFreshAal2($request);
+        if (! $gate->allowed()) {
+            return response()->json([
+                'message' => $gate->message() ?: 'Recent MFA verification required',
+                'code' => 'mfa_fresh_required',
+            ], $gate->status() ?? 401);
+        }
+
         $staff = $request->attributes->get('partna_staff');
         $this->authorizeForUser($staff, 'staffManage', $professional);
 
@@ -322,11 +346,12 @@ class StaffUserController extends ApiController
 
     /**
      * Fresh-AAL2 gate for high-risk staff actions (updateStatus / bulkUpdateStatus
-     * / forceDestroy). Local wrapper (not a policy) following MfaController's
-     * convention: these actions have no model to authorize against and a controller
-     * cannot call a protected policy method. Uses the staff fresh window
-     * (config('partna.mfa.fresh_window_seconds', 300)); the scan is the shared
-     * Aal2FreshnessGate so this path can no longer drift from BasePolicy.
+     * / update / destroy / restore / forceDestroy / releaseClaim). Local wrapper
+     * (not a policy) following MfaController's convention: these actions have no
+     * model to authorize against and a controller cannot call a protected policy
+     * method. Uses the staff fresh window (config('partna.mfa.fresh_window_seconds',
+     * 300)); the scan is the shared Aal2FreshnessGate so this path can no longer
+     * drift from BasePolicy.
      */
     private function requiresFreshAal2(Request $request, ?int $maxAgeSeconds = null): GateResponse
     {

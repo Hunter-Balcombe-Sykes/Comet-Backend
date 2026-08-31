@@ -3,11 +3,14 @@
 /**
  * Bundle B17 — #P2-02: Fresh-AAL2 gate on StaffUserController high-risk actions.
  *
- * Covers three endpoints that require a FRESH MFA verify within the staff window
+ * Covers endpoints that require a FRESH MFA verify within the staff window
  * (config partna.mfa.fresh_window_seconds, default 300s):
  *   PATCH  /api/staff/professionals/{id}/status  (updateStatus)
  *   POST   /api/staff/professionals/bulk-status  (bulkUpdateStatus)
  *   DELETE /api/staff/professionals/{id}/force   (forceDestroy)
+ *   PATCH  /api/staff/professionals/{id}         (update)          — #W1-SEC-12
+ *   DELETE /api/staff/professionals/{id}         (destroy)         — #W1-SEC-12
+ *   POST   /api/staff/professionals/{id}/restore (restore)         — #W1-SEC-12
  *
  * Also covers #P2-01: a verified JWT with no session_id emits Log::warning
  * with message 'jwt.missing_session_id'.
@@ -241,6 +244,147 @@ describe('forceDestroy — fresh-AAL2 gate', function () {
             ->deleteJson("/api/staff/professionals/{$pro->id}/force", ['reason' => 'Force delete — ticket #123']);
 
         expect($response->status())->not->toBe(401);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// #W1-SEC-12 — update gate tests
+// ---------------------------------------------------------------------------
+
+describe('update — fresh-AAL2 gate', function () {
+    it('rejects with 401 + mfa_fresh_required when MFA is stale (3600s)', function () {
+        $staff = makeStaff();
+        $pro = makeProfessional();
+
+        actingAsStaff($staff, aal2ClaimsWithFreshTotp(3600))
+            ->patchJson("/api/staff/professionals/{$pro->id}", ['display_name' => 'New Name'])
+            ->assertStatus(401)
+            ->assertJsonFragment(['code' => 'mfa_fresh_required']);
+    });
+
+    it('rejects with 401 + mfa_fresh_required when there is no MFA amr entry at all', function () {
+        $staff = makeStaff();
+        $pro = makeProfessional();
+
+        actingAsStaff($staff, ['aal' => 'aal2', 'amr' => []])
+            ->patchJson("/api/staff/professionals/{$pro->id}", ['display_name' => 'New Name'])
+            ->assertStatus(401)
+            ->assertJsonFragment(['code' => 'mfa_fresh_required']);
+    });
+
+    it('allows the request when MFA is fresh (just verified)', function () {
+        $staff = makeStaff();
+        $pro = makeProfessional();
+
+        actingAsStaff($staff)
+            ->patchJson("/api/staff/professionals/{$pro->id}", ['display_name' => 'New Name'])
+            ->assertStatus(200);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// #W1-SEC-12 — destroy gate tests
+// ---------------------------------------------------------------------------
+
+describe('destroy — fresh-AAL2 gate', function () {
+    it('rejects with 401 + mfa_fresh_required when MFA is stale (3600s)', function () {
+        $staff = makeStaff();
+        $pro = makeProfessional();
+
+        actingAsStaff($staff, aal2ClaimsWithFreshTotp(3600))
+            ->deleteJson("/api/staff/professionals/{$pro->id}")
+            ->assertStatus(401)
+            ->assertJsonFragment(['code' => 'mfa_fresh_required']);
+    });
+
+    it('rejects with 401 + mfa_fresh_required when there is no MFA amr entry at all', function () {
+        $staff = makeStaff();
+        $pro = makeProfessional();
+
+        actingAsStaff($staff, ['aal' => 'aal2', 'amr' => []])
+            ->deleteJson("/api/staff/professionals/{$pro->id}")
+            ->assertStatus(401)
+            ->assertJsonFragment(['code' => 'mfa_fresh_required']);
+    });
+
+    it('allows the request when MFA is fresh (just verified)', function () {
+        $staff = makeStaff();
+        $pro = makeProfessional();
+
+        actingAsStaff($staff)
+            ->deleteJson("/api/staff/professionals/{$pro->id}")
+            ->assertStatus(200);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// #W1-SEC-12 — restore gate tests
+// ---------------------------------------------------------------------------
+
+describe('restore — fresh-AAL2 gate', function () {
+    it('rejects with 401 + mfa_fresh_required when MFA is stale (3600s)', function () {
+        $staff = makeStaff();
+        $pro = makeProfessional();
+        DB::connection('pgsql')->table('core.users')->where('id', $pro->id)
+            ->update(['deleted_at' => now()->toDateTimeString()]);
+
+        actingAsStaff($staff, aal2ClaimsWithFreshTotp(3600))
+            ->postJson("/api/staff/professionals/{$pro->id}/restore")
+            ->assertStatus(401)
+            ->assertJsonFragment(['code' => 'mfa_fresh_required']);
+    });
+
+    it('rejects with 401 + mfa_fresh_required when there is no MFA amr entry at all', function () {
+        $staff = makeStaff();
+        $pro = makeProfessional();
+        DB::connection('pgsql')->table('core.users')->where('id', $pro->id)
+            ->update(['deleted_at' => now()->toDateTimeString()]);
+
+        actingAsStaff($staff, ['aal' => 'aal2', 'amr' => []])
+            ->postJson("/api/staff/professionals/{$pro->id}/restore")
+            ->assertStatus(401)
+            ->assertJsonFragment(['code' => 'mfa_fresh_required']);
+    });
+
+    it('allows the request when MFA is fresh (just verified)', function () {
+        $staff = makeStaff();
+        $pro = makeProfessional();
+        DB::connection('pgsql')->table('core.users')->where('id', $pro->id)
+            ->update(['deleted_at' => now()->toDateTimeString()]);
+
+        actingAsStaff($staff)
+            ->postJson("/api/staff/professionals/{$pro->id}/restore")
+            ->assertStatus(200);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// #W1-SEC-12 — ordering: step-up gate precedes the role gate (deliberate)
+// ---------------------------------------------------------------------------
+
+describe('destroy — gate ordering vs role (deliberate, owner-approved)', function () {
+    it('a support-role staffer with stale MFA gets 401, not 403, on DELETE /professionals/{id}', function () {
+        // destroy() lives in the lower-privileged staff route group, reachable by
+        // both roles — only the staffManage policy (admin-only) normally denies
+        // support staff (403). The fresh-AAL2 gate is checked FIRST in the method
+        // body, so a support staffer whose MFA is stale is rejected by the
+        // step-up gate (401) before the role check ever runs. This is the
+        // owner-approved ordering (gate-before-authorize, uniform with the other
+        // three gated methods in this controller) — a support staffer with FRESH
+        // MFA still gets 403 from the policy, as covered by
+        // StaffUserControllerDestroyRestoreAuthTest.
+        $staff = new PartnaStaff;
+        $staff->id = (string) Str::uuid();
+        $staff->auth_user_id = (string) Str::uuid();
+        $staff->role = PartnaStaff::ROLE_SUPPORT;
+        $staff->primary_email = 'support@partna.au';
+
+        $pro = makeProfessional();
+
+        actingAsStaff($staff, aal2ClaimsWithFreshTotp(3600))
+            ->deleteJson("/api/staff/professionals/{$pro->id}")
+            ->assertStatus(401)
+            ->assertJsonFragment(['code' => 'mfa_fresh_required']);
     });
 });
 

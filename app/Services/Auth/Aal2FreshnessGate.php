@@ -16,12 +16,13 @@ use Illuminate\Http\Request;
  * order-independent — correct whether Supabase emits amr oldest- or newest-first.
  *
  * SECURITY-SENSITIVE: this gate decides whether high-risk actions proceed — MFA
- * unenroll (MfaController), staff suspend / bulk-suspend / force-delete
- * (StaffUserController), and the flag-gated profile self-mutation (UserSelfPolicy
- * via BasePolicy). Those four call sites previously each carried a byte-identical
- * copy of this logic; they now all delegate here so the MFA-method allowlist can
- * never drift between them. Changing the allowlist or the comparison changes the
- * security posture of ALL consumers at once — by design.
+ * unenroll (MfaController), staff suspend / bulk-suspend / update / archive /
+ * restore / force-delete / release-claim (StaffUserController), and the
+ * flag-gated profile self-mutation (UserSelfPolicy via BasePolicy). These call
+ * sites previously each carried a byte-identical copy of this logic; they now
+ * all delegate here so the MFA-method allowlist can never drift between them.
+ * Changing the allowlist or the comparison changes the security posture of ALL
+ * consumers at once — by design.
  */
 class Aal2FreshnessGate
 {
