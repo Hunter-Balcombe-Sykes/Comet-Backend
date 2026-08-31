@@ -451,54 +451,244 @@ function staleShadowKey(cacheKey) {
  * max-age + stale-while-revalidate directives. EDGE-1: strip Set-Cookie so an
  * origin session cookie can never be cached and replayed to other visitors. */
 
-// ── Branded 404 for unclaimed subdomains ─────────────────────────────────────
-// Mirrors the pages app's notFoundHtml visual (same card, light/dark) but
-// lives here so KV misses stay a pure edge response — no service-binding or
-// backend hop for enumeration traffic. With a plausible subdomain the copy
-// offers the address (growth surface); without one it's the generic miss.
-// Domain references read PARTNA_DOMAIN rather than repeating the literal — one
-// place to change. That const is still a flat literal (EDGE-3, see its comment):
-// this is de-duplication, NOT environment-awareness.
+// ── Branded 404 for unclaimed subdomains ─────────────────────────
+// Partna's own surface, wearing Partna's wordmark and the design kit's
+// vocabulary — never a broken-looking version of somebody's sitepage. It lives
+// HERE rather than behind the service binding so a KV miss stays a pure edge
+// response: enumeration traffic never costs a binding or backend hop.
+//
+// A miss on a plausible handle is the platform's best acquisition moment — the
+// visitor has just typed an address they expected to exist — so the address is
+// the hero and the primary action carries it into signup.
+// app.partna.au/claim/<handle> 307s to /sign-up?claim=<handle>, so the handle
+// survives the whole funnel.
+//
+// The kit cannot be imported across the repo boundary, so its values are
+// restated as literals below. They are the shipped --dk-* defaults
+// (packages/design-system/src/design-kit/vars.css) and are the ONLY reason
+// hardcoded colours appear in this file.
+/** The Partna wordmark, `currentColor` throughout so it inherits ink. Copied
+ *  verbatim from the pages app's not-found surface — same mark, same file. */
+const PARTNA_LOGO_SVG = `<svg class="pn-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 455.36 89.7" role="img" aria-label="Partna"><polygon fill="currentColor" points="87.81 66.71 66.73 87.96 30.03 51.31 29.88 88.14 0 88.16 0 .02 88.03 0 88.1 29.92 51.24 30.03 87.81 66.71"/><path fill="currentColor" d="M165.71,51.58c-5.24,2.44-10.57,3.56-16.28,3.57l-21.09.05v32.96l-13.58-.02V0l34.64.05c5.54,0,10.67,1.07,15.61,3.21,7.52,3.38,12.81,9.78,14.26,17.91,2.23,12.46-1.74,24.57-13.57,30.45v-.03ZM165.26,22.95c-.92-4.03-3.62-7.03-7.4-8.69-2.92-1.14-5.98-1.77-9.21-1.77l-20.3-.03v30.45l20.79-.06c3.27,0,6.28-.82,9.16-2.04,6.77-3.22,8.57-10.84,6.96-17.85Z"/><path fill="currentColor" d="M293.2,33.99l-9.03.13h0s-7.93.31-7.93.31c-2.05.16-4.13,1.05-5.96,1.71-5.48,2.01-7.43,7.12-7.6,12.87v40.08h-13.35V23.01h12.25l.44,11.46c2-6.39,6.68-11.26,13.37-11.33l17.82-.15V7.51l13.35-.02v15.5h17.56v10.99h-17.56l.09,37.93c0,3.5,2.42,5.62,5.62,6.12l11.86.08v10.98h-13.38c-3.01-.06-5.83-.51-8.61-1.54-3.83-1.56-6.66-4.57-7.8-8.58-.61-2.12-1.07-4.32-1.07-6.63v-38.32l-.05-.02Z"/><path fill="currentColor" d="M437.35,78.28c-6.22,11.89-24.95,14.19-36.14,8.36-6.1-3.16-8.99-9.04-8.81-15.78.18-6.74,3.03-12.2,8.93-15.35,3.39-1.82,7.01-3.16,10.92-3.92l23.98-4.6c0-6.51-2.17-12.55-8.72-14.34-4.19-1.15-8.55-.97-12.66.48-4.07,1.77-6.6,5.33-7.6,9.84l-13.72-.86c1.59-9.92,8.51-17.55,18.15-20.2,6.77-1.74,13.82-1.83,20.61-.02,7.28,1.94,12.85,7.07,15.35,14.13,1.18,3.33,1.86,6.72,1.88,10.33l.08,28.36c0,1.68,1.26,2.83,2.77,2.86l3,.06v10.58c-5.66.76-12.6.62-15.85-3.95-1.24-1.74-1.8-3.77-2.18-5.97l.02-.02ZM412.26,78.38c3.86,1.07,7.9.85,11.69-.23,6.93-1.97,11.66-7.96,12.19-15.1l.11-5.97-20,3.85c-5.6,1.07-10.07,3.69-9.99,9.63.05,3.69,2.21,6.75,6.01,7.81Z"/><path fill="currentColor" d="M226.51,78.44c-6.45,11.73-24.74,13.9-35.82,8.33-6.03-3.03-9.28-8.81-9.05-15.49.12-3.71.76-7.34,2.97-10.49,3.68-5.25,10.87-8.05,17.2-9.28l23.54-4.51c.29-6.5-2.24-12.69-8.75-14.4-4.21-1.11-8.57-.94-12.64.58-4.09,1.76-6.5,5.42-7.51,9.78l-13.69-.88c1.57-9.77,8.31-17.31,17.77-20.09,6.83-1.83,13.99-1.95,20.85-.15,11.64,3.07,17.34,13.22,17.35,24.97l.05,27.8c0,1.8,1.36,2.94,2.92,2.97l2.94.03v10.57c-6.31.92-14.08.53-16.73-5.36l-1.41-4.35.02-.02ZM201.8,78.47c3.83.94,7.75.73,11.48-.35,7.12-2.06,12.07-8.48,12.1-15.87v-5.15l-20.33,3.92c-5.34,1.03-9.43,3.63-9.57,9.25-.09,3.94,2.26,7.21,6.33,8.21v-.02Z"/><path fill="currentColor" d="M360.63,31.78c-7.42-.32-13.7,3.92-15.47,11.11-.61,2.42-.83,4.86-.83,7.49v37.79l-13.34-.02V22.09l12.26-.02.3,10.86c2.42-5.72,7.13-9.87,13.23-11.49,10.72-2.53,20.88.29,26.07,10.34,1.98,3.83,2.73,7.78,3.09,12.14v44.24h-13.34v-40.46c-.45-8.42-2.79-15.55-11.96-15.93h-.02Z"/></svg>`;
+
 /**
+ * The unclaimed / not-found document.
+ *
+ * THEMING: light and dark are expressed purely as custom-property values on
+ * `:root`, and every rule below reads them through `var()`. This is deliberate
+ * and worth keeping. The previous version put `.card { background: #fff }`
+ * AFTER its own `@media (prefers-color-scheme: dark)` block; media queries add
+ * no specificity, so the later base rule won and the card stayed white while
+ * the text inherited the dark scheme's near-white ink — the whole page was
+ * white-on-white for every visitor in dark mode, with only the link legible
+ * (it happened to be overridden the same way). Redefining variables cannot
+ * lose that fight, whatever order the blocks end up in.
+ *
+ * `subdomain` is only echoed back when it matches the handle grammar, which is
+ * also what makes it safe to interpolate unescaped.
  * @param {string|null} subdomain
  * @returns {string}
  */
 function unclaimedHtml(subdomain) {
     const safe =
         typeof subdomain === "string" && /^[a-z0-9-]{1,63}$/.test(subdomain) ? subdomain : null;
-    const headline = safe
-        ? `${safe}.${PARTNA_DOMAIN} isn&#8217;t claimed yet`
-        : "No Partna profile here";
-    const subline = safe
-        ? "This address is still available. Partna gives you a professional website that keeps itself current from the platforms you already use."
-        : "The address you tried to visit doesn&#8217;t match a Partna account.";
-    const cta = safe ? "Claim this address" : `Go to ${PARTNA_DOMAIN}`;
+    const address = safe ? `${safe}.${PARTNA_DOMAIN}` : null;
+    const appUrl = `https://app.${PARTNA_DOMAIN}`;
+
+    const title = address ? `${address} — Partna` : `Not found — Partna`;
+    const eyebrow = safe ? "Unclaimed address" : "Not found";
+    const headline = address || "No site at this address";
+    const lead = safe
+        ? "No one is here yet. This address is unclaimed — it could be your site."
+        : `The address you followed doesn’t belong to a Partna site. It may have moved, or the link may be mistyped.`;
+    const primaryHref = safe ? `${appUrl}/claim/${safe}` : `${appUrl}/sign-up`;
+    const primaryLabel = safe ? "Claim this address" : "Create your site";
+    const secondaryHref = safe ? `${appUrl}/sign-up` : `https://${PARTNA_DOMAIN}`;
+    const secondaryLabel = safe ? "Create your own site" : "What is Partna?";
+
     return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="robots" content="noindex" />
-  <title>Not found \u2014 Partna</title>
+  <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" content="#f5f6f7" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0c0c0d" media="(prefers-color-scheme: dark)" />
+  <title>${title}</title>
   <style>
-:root { color-scheme: light dark; }
-* { box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif; margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #fafafa; color: #1a1a1a; padding: 24px; }
-@media (prefers-color-scheme: dark) { body { background: #0d0d0d; color: #f5f5f5; } .card { background: #1a1a1a; border-color: #2a2a2a; } a { color: #fafafa; } }
-.card { max-width: 480px; width: 100%; background: #ffffff; border: 1px solid #ececec; border-radius: 12px; padding: 32px; text-align: center; }
-.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.6; margin: 0 0 8px; }
-h1 { font-size: 28px; font-weight: 600; margin: 0 0 12px; line-height: 1.2; overflow-wrap: anywhere; }
-p { font-size: 15px; line-height: 1.6; margin: 0 0 16px; opacity: 0.8; }
-a { display: inline-block; margin-top: 8px; color: #1a1a1a; text-decoration: underline; text-underline-offset: 3px; font-size: 14px; }
+/* The shipped --dk-* defaults, restated as literals (see the note above). */
+:root {
+  color-scheme: light dark;
+  --pn-bg: rgb(245, 246, 247);
+  --pn-surface: rgb(255, 255, 255);
+  --pn-line: rgb(236, 237, 239);
+  --pn-ink: rgb(0, 0, 0);
+  /* gray-700 / gray-600, not gray-600 / gray-500: the lighter pair measured
+     3.28:1 and 3.03:1 against these surfaces, under the 4.5:1 AA floor for
+     text this small. These clear it at 4.9 and 4.6. */
+  --pn-ink-soft: rgb(77, 77, 77);
+  --pn-ink-faint: rgb(112, 112, 112);
+  --pn-solid-bg: rgb(0, 0, 0);
+  --pn-solid-ink: rgb(255, 255, 255);
+  --pn-accent: #1367fb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --pn-bg: rgb(12, 12, 13);
+    --pn-surface: rgb(23, 23, 25);
+    --pn-line: rgb(43, 43, 47);
+    --pn-ink: rgb(250, 250, 250);
+    --pn-ink-soft: rgb(163, 163, 168);
+    --pn-ink-faint: rgb(138, 138, 143);
+    --pn-solid-bg: rgb(250, 250, 250);
+    --pn-solid-ink: rgb(0, 0, 0);
+    --pn-accent: #5b9bff;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; }
+
+body {
+  min-height: 100dvh;
+  background: var(--pn-bg);
+  color: var(--pn-ink);
+  /* The kit's family first; this surface never fetches a webfont, so the
+     system fallback is what most visitors actually read. */
+  font-family: "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.75rem;
+  padding: 1.75rem 1.125rem calc(1.75rem + env(safe-area-inset-bottom));
+}
+
+.pn-card {
+  width: 100%;
+  max-width: 26rem;
+  background: var(--pn-surface);
+  border: 1px solid var(--pn-line);
+  border-radius: 0.35rem;
+  padding: 2.4rem 1.75rem;
+  text-align: center;
+}
+
+.pn-logo {
+  display: block;
+  width: 5.5rem;
+  height: auto;
+  margin: 0 auto 2.4rem;
+  color: var(--pn-ink);
+}
+
+.pn-eyebrow {
+  margin: 0 0 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pn-ink-faint);
+}
+
+.pn-address {
+  margin: 0 0 0.6rem;
+  /* The address is what the visitor typed, so it leads — and a 63-character
+     handle must not push the card sideways. */
+  font-size: clamp(1.5rem, 7vw, 2rem);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+  color: var(--pn-ink);
+}
+
+.pn-lead {
+  margin: 0 auto 2.4rem;
+  max-width: 22rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--pn-ink-soft);
+}
+
+.pn-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.pn-btn {
+  display: block;
+  padding: 0.85rem 1.125rem;
+  border: 1px solid transparent;
+  border-radius: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: opacity 0.25s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.pn-btn-primary {
+  background: var(--pn-solid-bg);
+  color: var(--pn-solid-ink);
+}
+
+.pn-btn-secondary {
+  background: transparent;
+  border-color: var(--pn-line);
+  color: var(--pn-ink);
+}
+
+.pn-btn:focus-visible {
+  outline: 2px solid var(--pn-accent);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pn-btn-primary:hover { opacity: 0.82; }
+  .pn-btn-secondary:hover { border-color: var(--pn-ink-faint); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pn-btn { transition: none; }
+}
+
+.pn-foot {
+  font-size: 0.75rem;
+  color: var(--pn-ink-faint);
+}
+
+.pn-foot a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.pn-foot a:focus-visible {
+  outline: 2px solid var(--pn-accent);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pn-foot a:hover { color: var(--pn-ink-soft); }
+}
   </style>
 </head>
 <body>
-  <main class="card">
-    <p class="eyebrow">Partna</p>
-    <h1>${headline}</h1>
-    <p>${subline}</p>
-    <a href="https://${PARTNA_DOMAIN}">${cta}</a>
+  <main class="pn-card">
+    ${PARTNA_LOGO_SVG}
+    <p class="pn-eyebrow">${eyebrow}</p>
+    <h1 class="pn-address">${headline}</h1>
+    <p class="pn-lead">${lead}</p>
+    <div class="pn-actions">
+      <a class="pn-btn pn-btn-primary" href="${primaryHref}">${primaryLabel}</a>
+      <a class="pn-btn pn-btn-secondary" href="${secondaryHref}">${secondaryLabel}</a>
+    </div>
   </main>
+  <footer class="pn-foot"><a href="https://${PARTNA_DOMAIN}">${PARTNA_DOMAIN}</a></footer>
 </body>
 </html>`;
 }
