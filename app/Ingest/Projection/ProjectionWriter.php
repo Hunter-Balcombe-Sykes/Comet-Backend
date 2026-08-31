@@ -2089,6 +2089,19 @@ class ProjectionWriter
      * is the design constraint (a recovery path, not a new lookup on every write). Pinned by
      * ProjectionWriterIdentityRaceTest's 'adds no query to the happy path'.
      *
+     * WHY NOT EXTEND THE LOCK. The other way to close the gap is to hold withIdentityLock()'s
+     * transaction over writeFacets() as well. IDENTITY_LOCK_TIMEOUT_MS bounds that lock at 5s,
+     * sized — like AdvisoryLock::SERVICES_LOCK_TIMEOUT_MS it matches — for an interactive
+     * dashboard write. On projectStream() writeFacets() is not one row but the WHOLE run's batch
+     * write, the accumulated $projections for every record the lazy(500) loop touched, so
+     * extending the lock over it would trade this rare 23503 for a routine 423 on every hand-add
+     * landing on the same (user, kind) while a sync is in flight. It would also nest
+     * replaceCollections()' per-chunk DB::transaction(), which states it is the outermost one and
+     * is chunked precisely to keep lock duration bounded — nesting demotes it to a SAVEPOINT and
+     * that bound disappears. And it would hold a user-scoped advisory lock across
+     * replaceCollections()' deliberately unwrapped resolveMediaAssets() call, whose
+     * dispatchMirrors() queues a MirrorMediaAssetJob per owned asset.
+     *
      * WHY THE LEDGER CAN BE TRUSTED HERE. mergeInto() inserts into content.item_merges and
      * deletes content.items with NO transaction boundary between them, inside resolveItemsLocked()
      * — which is the whole body of withIdentityLock()'s single transaction. ItemMerger::merge() has
