@@ -44,10 +44,13 @@
 // and site.section_items. pmcr never merges, so it never reaches mergeInto()'s moveLinks() /
 // moveSlugs() / curation check; every test here does, and without them the lane fails 42P01.
 
+use App\Exceptions\Ingest\FacetTargetLineageLostException;
+use App\Exceptions\Ingest\FacetTargetMergedAwayException;
 use App\Ingest\Projection\ProjectionWriter;
 use App\Services\Site\AdvisoryLockTimeoutException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Str;
 use Tests\PostgresTestCase;
 
@@ -1175,4 +1178,450 @@ it('refuses to resolve inside a caller\'s transaction, where the lock would sile
 
     // And nothing landed — the caller's rollback took the source item with it.
     expect($pg->table('content.source_items')->where('coord', $coord)->exists())->toBeFalse();
+});
+
+// ── #W1-DINT-8 / #W2-LIFE-5: the FACET write escapes the lock ─────────────────────────────────
+//
+// Everything above proves the RESOLVE is serialised. This half proves what happens after it
+// commits. withIdentityLock() holds pg_advisory_xact_lock for exactly one transaction and
+// releases it at COMMIT, and writeFacets() is the NEXT statement at both call sites — so a
+// concurrent resolve can mergeInto() the item this caller just resolved and hard-delete it before
+// the facets land. Every facet table FKs content.items(id) ON DELETE CASCADE, so that is an
+// unattributable 23503 and a lost save.
+//
+// writeFacetsRetargeting() catches it, walks content.item_merges to the survivor and replays
+// once. content.item_merges is the ONLY usable lineage: mergeInto() sets
+// item_anchors.superseded_by but never repoints item_anchors.item_id, which cascades — so the
+// delete takes those anchor rows with it (see the note at ProjectionWriter's mergeInto(), and
+// ProjectionWriterMergeAnchorTest). The ledger row and the delete commit together, with no
+// transaction boundary between them, so a reader never sees one without the other.
+
+/**
+ * The predicate for the FACET hook, lowercased.
+ *
+ * The first statement writeFacets() issues is replaceCollections()' source-kind probe. Hooking
+ * there is materially different from the hook the tests above use: it fires AFTER the identity
+ * transaction committed and the advisory lock released, which is precisely the window under test.
+ * Hooking anywhere inside resolveItemsLocked() would re-test the existing lock instead — the same
+ * hook-placement lesson this file's header records for the other half.
+ *
+ * ensureManualSource()'s own content.sources read selects "id", "priority" by (user_id, kind), so
+ * this predicate cannot match it; ProjectionWriter issues `select "kind" ... where "id" = ?`
+ * exactly once, in replaceCollections().
+ */
+function pgirFacetHookSql(): string
+{
+    return 'select "kind" from "content"."sources" where "id" =';
+}
+
+/** A live content.items row with no source item and no anchor — invisible to the resolver, real to an FK. */
+function pgirMintItem(string $userId): string
+{
+    $id = (string) Str::uuid();
+    DB::connection('pgsql')->table('content.items')->insert([
+        'id' => $id, 'user_id' => $userId, 'kind' => 'link',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    return $id;
+}
+
+/** A user and their site, with no pre-existing pool — the injection tests need nothing else. */
+function pgirSoloUser(): string
+{
+    $pg = DB::connection('pgsql');
+    $userId = (string) Str::uuid();
+    $pg->table('core.users')->insert(['id' => $userId]);
+    $pg->table('site.sites')->insert(['id' => (string) Str::uuid(), 'user_id' => $userId]);
+
+    return $userId;
+}
+
+/** A merge-ledger row written by hand, in the shape mergeInto() writes. */
+function pgirLedgerRow(string $userId, string $keptItemId, string $discardedItemId): array
+{
+    return [
+        'user_id' => $userId,
+        'kept_item_id' => $keptItemId,
+        'discarded_item_id' => $discardedItemId,
+        'reason' => 'identity_union',
+        'detail' => json_encode([]),
+        'merged_at' => now(),
+    ];
+}
+
+/** Child B's side of the GATE: bounded, and false rather than a hang if child A never arrived. */
+function pgirAwaitGate(int $timeoutMs = 5000): bool
+{
+    $deadline = microtime(true) + ($timeoutMs / 1000);
+
+    while (microtime(true) < $deadline) {
+        $open = DB::connection('pgsql')->table('core.pgir_fork_probe')
+            ->where('child_idx', 0)->where('outcome', 'gated')->exists();
+
+        if ($open) {
+            return true;
+        }
+
+        usleep(15_000);
+    }
+
+    return false;
+}
+
+/**
+ * Fork child A (held open inside writeFacets(), i.e. AFTER its lock released) and child B (the
+ * "these two are the same" decision plus its own re-add, which merges A's freshly minted item
+ * away and hard-deletes it).
+ *
+ * A GATE, not a fixed usleep. This race has a TWO-SIDED timing constraint — B must land after A's
+ * resolve has COMMITTED (or the decision's coords are not both live and nothing merges) and
+ * before A's facet write (or there is no race at all). A one-sided delay like PGIR_B_DELAY_US
+ * cannot guarantee both, so child A records `gated` on its own connection the moment its hook
+ * fires and child B polls for that row. The write is outside any transaction at that point —
+ * replaceCollections() opens its DB::transaction() well after the source-kind probe — so the row
+ * is immediately visible to B.
+ *
+ * The decision unites A's own coord with pgirScenario()'s HOUR-older $unboundCoord, so
+ * oldest-binding-wins makes A's item the loser, and with no site.section_items or
+ * content.manual_overrides row on it mergeInto()'s $hasCuration is false and it is hard-deleted.
+ * $unboundCoord rather than the day-older connector coord because it also binds that scenario's
+ * deliberately item_id-NULL row, which keeps pgirAssertConsistent() meaningful afterwards.
+ *
+ * @return array{0: Collection, 1: string} [probes, child A's coord]
+ */
+function pgirRunFacetRace(string $userId, string $unboundCoord): array
+{
+    pgirResetProbe();
+
+    $aCoord = 'manual:'.sha1('pgir-facet-a-'.Str::random(10));
+    $bCoord = 'manual:'.sha1('pgir-facet-b-'.Str::random(10));
+
+    $startAt = microtime(true) + 0.25;
+
+    $pids = [];
+    for ($i = 0; $i < 2; $i++) {
+        $pid = pcntl_fork();
+        if ($pid === -1) {
+            throw new RuntimeException('pcntl_fork failed');
+        }
+
+        if ($pid !== 0) {
+            $pids[] = $pid;
+
+            continue;
+        }
+
+        pgirChildConnection();
+        usleep((int) max(0, ($startAt - microtime(true)) * 1_000_000));
+
+        $hooked = false;
+
+        try {
+            if ($i === 0) {
+                DB::listen(function ($query) use (&$hooked) {
+                    if ($hooked) {
+                        return; // fire-once: the gate insert and the pg_sleep re-enter this listener.
+                    }
+                    if (! str_contains(strtolower($query->sql), pgirFacetHookSql())) {
+                        return;
+                    }
+                    $hooked = true;
+
+                    // Open the gate BEFORE sleeping — this is the whole point of the gate.
+                    pgirRecordProbe(0, 'gated', 0, true);
+                    DB::connection('pgsql')->select('select pg_sleep('.PGIR_HOLD_SECONDS.')');
+                });
+
+                $returned = app(ProjectionWriter::class)->writeManualItem($userId, $aCoord, pgirLinkProjection($aCoord));
+                pgirRecordProbe($i, 'ok:'.$returned, 0, $hooked);
+                exit(0);
+            }
+
+            if (! pgirAwaitGate()) {
+                pgirRecordProbe($i, 'GATE_TIMEOUT', 0, false);
+                exit(0);
+            }
+
+            DB::connection('pgsql')->table('content.identity_decisions')->insert([
+                'id' => (string) Str::uuid(), 'user_id' => $userId, 'verdict' => 'same',
+                'left_coord' => $aCoord, 'right_coord' => $unboundCoord, 'decided_at' => now(),
+            ]);
+
+            $began = microtime(true);
+            app(ProjectionWriter::class)->writeManualItem($userId, $bCoord, pgirLinkProjection($bCoord));
+            pgirRecordProbe($i, 'ok', (int) round((microtime(true) - $began) * 1000), false);
+            exit(0);
+        } catch (Throwable $e) {
+            pgirRecordProbe(
+                $i,
+                'THROWN:'.get_class($e).':'.((string) $e->getCode()).':'.substr($e->getMessage(), 0, 240),
+                0,
+                $hooked,
+            );
+            exit(0);
+        }
+    }
+
+    foreach ($pids as $pid) {
+        pcntl_waitpid($pid, $status);
+    }
+
+    return [DB::connection('pgsql')->table('core.pgir_fork_probe')->orderBy('id')->get(), $aCoord];
+}
+
+/**
+ * Both children finished, the gate opened, and child B's merge actually hard-deleted A's item.
+ *
+ * The premise checks are not ceremony: without the merge there is no 23503, and every assertion
+ * about the retarget would pass against a run in which nothing happened.
+ *
+ * @return array{0: object, 1: object} [child A's final probe row, the merge ledger row]
+ */
+function pgirAssertFacetRaceHappened(Collection $probes, string $userId, string $survivorItemId): array
+{
+    $pg = DB::connection('pgsql');
+    $outcomes = $probes->pluck('outcome')->implode(' | ');
+
+    expect($probes->firstWhere('outcome', 'gated'))->not->toBeNull(
+        "child A never reached the facet write, so the window never opened and every assertion here is vacuous. Outcomes: {$outcomes}",
+    );
+
+    $a = $probes->first(fn ($p) => (int) $p->child_idx === 0 && $p->outcome !== 'gated');
+    expect($a)->not->toBeNull("child A recorded no final outcome. Outcomes: {$outcomes}");
+
+    $b = $probes->first(fn ($p) => (int) $p->child_idx === 1);
+    expect($b?->outcome)->toBe('ok', "child B did not complete its merge. Outcomes: {$outcomes}");
+
+    $merge = $pg->table('content.item_merges')->where('user_id', $userId)
+        ->where('kept_item_id', $survivorItemId)->first();
+    expect($merge)->not->toBeNull(
+        'nothing merged, so no facet target was ever deleted and this test proves nothing.'."\n  ".pgirState($userId),
+    );
+    expect($pg->table('content.items')->where('id', $merge->discarded_item_id)->exists())->toBeFalse(
+        'the merge loser was not hard-deleted, so a 23503 was never possible.'."\n  ".pgirState($userId),
+    );
+
+    return [$a, $merge];
+}
+
+it('writes the facets onto the merge survivor when the resolved item is deleted between the resolve and the facet write', function () {
+    if (! function_exists('pcntl_fork')) {
+        $this->markTestSkipped('pcntl_fork is not available in this runtime');
+    }
+
+    $pg = DB::connection('pgsql');
+    [$userId, , , $unboundCoord, $unboundItemId] = pgirScenario();
+
+    [$probes, $aCoord] = pgirRunFacetRace($userId, $unboundCoord);
+    [$a] = pgirAssertFacetRaceHappened($probes, $userId, $unboundItemId);
+
+    // On the probe STRING, not merely on row counts: a child that died inside its facet write
+    // would leave no bad row either, and a count-only assertion would read that as a pass.
+    expect(str_starts_with($a->outcome, 'ok:'))->toBeTrue(
+        "child A's facet write did not recover: {$a->outcome}"."\n  ".pgirState($userId),
+    );
+
+    $rows = $pg->table('content.f_link')->where('url', 'https://example.test/pgir-'.sha1($aCoord))->get();
+    expect($rows)->toHaveCount(1, "child A's facet row is missing or duplicated.\n  ".pgirState($userId));
+    expect((string) $rows->first()->item_id)->toBe(
+        $unboundItemId,
+        "the facets landed on the item the merge discarded, not on the survivor.\n  ".pgirState($userId),
+    );
+
+    pgirAssertConsistent($userId);
+});
+
+it('returns the surviving item id, not the one a concurrent merge deleted', function () {
+    if (! function_exists('pcntl_fork')) {
+        $this->markTestSkipped('pcntl_fork is not available in this runtime');
+    }
+
+    // writeManualItem()'s return value is an id callers PIN on — PoolItemCreateController::pin()
+    // writes it into site.section_items. Returning a hard-deleted id there is a second, separate
+    // bug that the retarget closes in passing.
+    [$userId, , , $unboundCoord, $unboundItemId] = pgirScenario();
+
+    [$probes] = pgirRunFacetRace($userId, $unboundCoord);
+    [$a] = pgirAssertFacetRaceHappened($probes, $userId, $unboundItemId);
+
+    expect($a->outcome)->toBe(
+        'ok:'.$unboundItemId,
+        "writeManualItem() returned the pre-merge item id.\n  ".pgirState($userId),
+    );
+});
+
+it('fails loudly rather than silently dropping the facets when no merge lineage explains the missing item', function () {
+    config(['database.connections.pgsql_second' => config('database.connections.pgsql')]);
+
+    $pg = DB::connection('pgsql');
+    $userId = pgirSoloUser();
+    $coord = 'manual:'.sha1('pgir-nolineage-'.Str::random(8));
+
+    // No fork needed: the deleting writer here is NOT another resolveItems(), so a synchronous
+    // second connection can stand in for it without self-deadlocking.
+    $fired = false;
+    DB::listen(function ($query) use (&$fired, $coord) {
+        if ($fired) {
+            return;
+        }
+        if (! str_contains(strtolower($query->sql), pgirFacetHookSql())) {
+            return;
+        }
+        $fired = true;
+
+        // StaffServiceManagementController::forceDestroy()'s shape: a hard delete that writes NO
+        // content.item_merges row, so the lineage walk has nothing to follow.
+        $second = DB::connection('pgsql_second');
+        $itemId = $second->table('content.source_items')->where('coord', $coord)->value('item_id');
+        $second->table('content.items')->where('id', $itemId)->delete();
+    });
+
+    try {
+        $thrown = null;
+        try {
+            app(ProjectionWriter::class)->writeManualItem($userId, $coord, pgirLinkProjection($coord));
+        } catch (Throwable $e) {
+            $thrown = $e;
+        }
+
+        expect($fired)->toBeTrue('the injection never fired — no item was deleted and this test proves nothing');
+        // NOT expect(...)->toThrow(): Pest's toThrow() asserts nothing at all when the callable
+        // does NOT throw, so a silent-skip regression would pass it. Concrete class AND message.
+        expect($thrown)->toBeInstanceOf(FacetTargetLineageLostException::class);
+        expect($thrown->getMessage())->toContain('no content.item_merges row');
+
+        expect($pg->table('content.f_link')->where('url', 'https://example.test/pgir-'.sha1($coord))->exists())
+            ->toBeFalse('facets were written despite the loud failure');
+    } finally {
+        DB::purge('pgsql_second');
+    }
+});
+
+it('follows a multi-hop merge chain to the surviving item', function () {
+    config(['database.connections.pgsql_second' => config('database.connections.pgsql')]);
+    Exceptions::fake();
+
+    $pg = DB::connection('pgsql');
+    $userId = pgirSoloUser();
+
+    // X -> Y -> Z. Chaining is real: mergeInto(kept: Y, discarded: X) leaves Y an ordinary item a
+    // later pass can itself discard into Z, and a reader holding X must walk both hops.
+    $y = pgirMintItem($userId);
+    $z = pgirMintItem($userId);
+    $coord = 'manual:'.sha1('pgir-chain-'.Str::random(8));
+
+    $fired = false;
+    DB::listen(function ($query) use (&$fired, $coord, $userId, $y, $z) {
+        if ($fired) {
+            return;
+        }
+        if (! str_contains(strtolower($query->sql), pgirFacetHookSql())) {
+            return;
+        }
+        $fired = true;
+
+        $second = DB::connection('pgsql_second');
+        $x = (string) $second->table('content.source_items')->where('coord', $coord)->value('item_id');
+        $second->table('content.item_merges')->insert([
+            pgirLedgerRow($userId, $y, $x),
+            pgirLedgerRow($userId, $z, $y),
+        ]);
+        $second->table('content.items')->whereIn('id', [$x, $y])->delete();
+    });
+
+    try {
+        $returned = app(ProjectionWriter::class)->writeManualItem($userId, $coord, pgirLinkProjection($coord));
+
+        expect($fired)->toBeTrue('the injection never fired — nothing was deleted and this test proves nothing');
+        expect($returned)->toBe($z, 'the walk stopped short of the live survivor');
+
+        $row = $pg->table('content.f_link')->where('url', 'https://example.test/pgir-'.sha1($coord))->first();
+        expect($row)->not->toBeNull('the facets were not written at all');
+        expect((string) $row->item_id)->toBe($z, 'the facets landed on a dead link in the chain');
+
+        // The recovery is REPORTED, not swallowed — a race this class cannot prevent must at
+        // least be visible in Nightwatch.
+        Exceptions::assertReported(fn (FacetTargetMergedAwayException $e) => $e->userId === $userId);
+    } finally {
+        DB::purge('pgsql_second');
+    }
+});
+
+it('throws rather than looping when the merge ledger names a cycle', function () {
+    config(['database.connections.pgsql_second' => config('database.connections.pgsql')]);
+
+    $userId = pgirSoloUser();
+    $y = pgirMintItem($userId);
+    $coord = 'manual:'.sha1('pgir-cycle-'.Str::random(8));
+
+    // content.item_merges carries no FK and no uniqueness, and ItemMerger writes into it
+    // independently, so a cycle is not reachable through mergeInto() alone but is writable.
+    $fired = false;
+    DB::listen(function ($query) use (&$fired, $coord, $userId, $y) {
+        if ($fired) {
+            return;
+        }
+        if (! str_contains(strtolower($query->sql), pgirFacetHookSql())) {
+            return;
+        }
+        $fired = true;
+
+        $second = DB::connection('pgsql_second');
+        $x = (string) $second->table('content.source_items')->where('coord', $coord)->value('item_id');
+        $second->table('content.item_merges')->insert([
+            pgirLedgerRow($userId, $y, $x),
+            pgirLedgerRow($userId, $x, $y),
+        ]);
+        $second->table('content.items')->whereIn('id', [$x, $y])->delete();
+    });
+
+    try {
+        $began = microtime(true);
+        $thrown = null;
+        try {
+            app(ProjectionWriter::class)->writeManualItem($userId, $coord, pgirLinkProjection($coord));
+        } catch (Throwable $e) {
+            $thrown = $e;
+        }
+        $elapsed = microtime(true) - $began;
+
+        expect($fired)->toBeTrue('the injection never fired — no cycle was written and this test proves nothing');
+        expect($thrown)->toBeInstanceOf(FacetTargetLineageLostException::class);
+        // 'cycles at', not merely the class: without the visited set the hop bound still stops the
+        // walk, so only the REASON distinguishes a cycle guard from a bound.
+        expect($thrown->getMessage())->toContain('cycles at');
+        // A wall clock, so an unterminating walk fails rather than wedging the lane.
+        expect($elapsed)->toBeLessThan(20.0, "the lineage walk took {$elapsed}s — it did not terminate promptly");
+    } finally {
+        DB::purge('pgsql_second');
+    }
+});
+
+it('adds no query to the happy path', function () {
+    // THE detector for the design constraint: this is a recovery path, not a new lookup on every
+    // write. A pre-check would be TOCTOU anyway (it commits and releases before the write, so it
+    // cannot see the delete that follows), but it would ALSO cost a query per save forever, and
+    // nothing else here would notice.
+    $userId = pgirSoloUser();
+    $coord = 'manual:'.sha1('pgir-happy-'.Str::random(8));
+
+    $seen = [];
+    DB::listen(function ($query) use (&$seen) {
+        $seen[] = strtolower($query->sql);
+    });
+
+    app(ProjectionWriter::class)->writeManualItem($userId, $coord, pgirLinkProjection($coord));
+
+    expect(count($seen))->toBeGreaterThan(0, 'no statements were captured — the listener never fired and this test proves nothing');
+
+    $ledger = array_values(array_filter($seen, fn (string $sql): bool => str_contains($sql, 'item_merges')));
+    expect($ledger)->toBe([], 'the happy path read the merge ledger: '.implode(' | ', $ledger));
+
+    $probe = array_values(array_filter(
+        $seen,
+        fn (string $sql): bool => str_contains($sql, 'from "content"."items" where "user_id" = ? and "id" in'),
+    ));
+    expect($probe)->toBe([], 'the happy path issued the retarget liveness probe: '.implode(' | ', $probe));
 });

@@ -11,6 +11,8 @@ use App\Content\Identity\Resolver;
 use App\Content\Identity\SourceItem;
 use App\Content\Values\Contribution;
 use App\Content\Values\ValueResolver;
+use App\Exceptions\Ingest\FacetTargetLineageLostException;
+use App\Exceptions\Ingest\FacetTargetMergedAwayException;
 use App\Exceptions\Ingest\MergeFoldMediaDroppedException;
 use App\Jobs\Media\MirrorMediaAssetJob;
 use App\Routing\SecretParams;
@@ -128,6 +130,21 @@ class ProjectionWriter
      * suppressing the page would hide genuine contention on the identity spine.
      */
     private const IDENTITY_LOCK_TIMEOUT_MS = 5000;
+
+    /**
+     * Postgres foreign_key_violation. The retarget path below is Postgres-ONLY by construction:
+     * SQLite reports 23000/HY000 for the same violation and has neither advisory locks nor the
+     * concurrency to reach the race, so a green `composer test` says nothing about any of it.
+     * tests/Postgres/ProjectionWriterIdentityRaceTest.php is where it is proven.
+     */
+    private const FK_VIOLATION_SQLSTATE = '23503';
+
+    /**
+     * Merge lineage hop bound. Chains are real — mergeInto(kept: Y, discarded: X) leaves Y an
+     * ordinary item a later pass may itself discard into Z — but they are short. Past this,
+     * something wrote the ledger that should not have.
+     */
+    private const MERGE_LINEAGE_MAX_HOPS = 8;
 
     /**
      * #SCALE-8: the ONLY keys writeFacets()/replaceCollections() ever read off a
@@ -344,7 +361,10 @@ class ProjectionWriter
         $itemByCoord = [];
         if ($projections !== []) {
             $itemByCoord = $this->resolveItems($userId, $projector::kind(), $touchedCoords);
-            $this->writeFacets($contentSourceId, $userId, $projections, $itemByCoord);
+            // Reassigned, not discarded: the lock released at the resolve's COMMIT, so a
+            // concurrent merge can have deleted a target before the facets land. The retarget
+            // corrects the map, and $touchedItemIds below must refresh the SURVIVORS.
+            $itemByCoord = $this->writeFacetsRetargeting($contentSourceId, $userId, $projections, $itemByCoord);
 
             // Touched items only (#CACHE-4). $itemByCoord is now the component,
             // but even within it only the coords this run wrote can have new
@@ -585,7 +605,10 @@ class ProjectionWriter
             throw new \RuntimeException("Manual coord {$coord} did not resolve to an item.");
         }
 
-        $this->writeFacets($contentSourceId, $userId, [$coord => $projection], $itemByCoord);
+        // Reassigned: this method's RETURN value is an item id a caller pins on
+        // (PoolItemCreateController), and before the retarget it could be an id a concurrent
+        // merge had already deleted.
+        $itemByCoord = $this->writeFacetsRetargeting($contentSourceId, $userId, [$coord => $projection], $itemByCoord);
 
         // The one item the caller wrote, not every item of the kind (#CACHE-2).
         $this->refreshItemCaches($userId, [$itemByCoord[$coord]]);
@@ -854,8 +877,16 @@ class ProjectionWriter
      *
      * WHAT THIS DOES NOT COVER. An advisory lock only serialises writers that take it, and four
      * identity mutators still do not:
-     *   - writeFacets() and refreshItemCaches() run AFTER this commits, against item ids a later
-     *     resolve may already have merged away (pre-existing, unchanged here);
+     *   - writeFacets() and refreshItemCaches() still run AFTER this commits, against item ids a
+     *     later resolve may already have merged away. That gap is no longer silent: the facet
+     *     write goes through writeFacetsRetargeting(), which catches the 23503, walks
+     *     content.item_merges to the survivor and replays once, and hands the CORRECTED map back
+     *     — so refreshItemCaches() and writeManualItem()'s return value inherit it too. What the
+     *     retarget does NOT do is close the window: the write still leaves the lock, it just no
+     *     longer loses the owner's save when it does. Only a merge that wrote a ledger row can be
+     *     followed, which covers mergeInto() and ItemMerger::merge() (both insert into
+     *     content.item_merges in the SAME transaction as their delete, so a reader never sees one
+     *     without the other) but NOT the two writers below;
      *   - ItemMerger::merge() repoints source_items, rewrites anchors and hard-deletes an item in
      *     a plain transaction — currently unreachable, nothing in app/ or routes/ constructs it;
      *   - StaffServiceManagementController::forceDestroy() (routed:
@@ -865,7 +896,10 @@ class ProjectionWriter
      *   - ContentRetireChannelKindCommand hard-deletes source_items and items for kind='channel'
      *     in a plain transaction — inert in practice (dry-run by default, one-shot, and nothing
      *     emits that kind any more), listed for completeness.
-     * The last three are hard-delete paths and belong in their own unit under fix-flow.md's
+     * ItemMerger::merge() is covered by the retarget above for free. The last two write NO ledger
+     * row at all, so racing either surfaces as FacetTargetLineageLostException('no
+     * content.item_merges row explains it') — the correct loud failure, but a report rather than a
+     * recovery. They belong in their own unit under fix-flow.md's
      * "Standalone — do NOT bundle" rule, not in this one. That list of four is the complete set
      * of unlocked writers that can leave a DANGLING reference — every hard delete of, or repoint
      * across, content.{source_items,items,item_anchors} in app/. Several others (FreshaController,
@@ -2037,6 +2071,188 @@ class ProjectionWriter
     public function peakProjectionEntryBytes(): ?int
     {
         return $this->peakProjectionEntryBytes;
+    }
+
+    /**
+     * writeFacets(), plus the recovery for the one thing the identity lock cannot cover.
+     *
+     * THE GAP. withIdentityLock() holds pg_advisory_xact_lock for exactly one transaction and
+     * releases it at COMMIT, so this call — the next statement at both call sites — runs
+     * unprotected. A concurrent resolve of the same (user, kind) can mergeInto() the item this
+     * one just resolved, and mergeInto() HARD-DELETEs an uncurated loser. Every facet table FKs
+     * content.items(id) ON DELETE CASCADE, so the write then takes a 23503 and the owner loses
+     * their save to an unattributable foreign-key violation.
+     *
+     * WHY REACTIVE, NOT A PRE-CHECK. A pre-check is TOCTOU by construction: it commits and
+     * releases before the write, so it cannot see the delete that happens after it. The 23503 IS
+     * the check, taken by the database at write time — and it costs the happy path nothing, which
+     * is the design constraint (a recovery path, not a new lookup on every write). Pinned by
+     * ProjectionWriterIdentityRaceTest's 'adds no query to the happy path'.
+     *
+     * WHY THE LEDGER CAN BE TRUSTED HERE. mergeInto() inserts into content.item_merges and
+     * deletes content.items with NO transaction boundary between them, inside resolveItemsLocked()
+     * — which is the whole body of withIdentityLock()'s single transaction. ItemMerger::merge() has
+     * the same shape. So a later reader sees BOTH the delete and the ledger row, or neither; there
+     * is no window in which the parent is gone and the lineage is not yet visible. That is what
+     * separates this from the pre-check. content.item_merges is also deliberately FK-free and
+     * append-only (migration 20260729150019, audit DINT-3: "may name a row that no longer exists —
+     * that is the point"), which is why it, and NOT item_anchors.superseded_by, is the lineage:
+     * mergeInto() sets superseded_by but never repoints item_id, so the delete cascades those
+     * anchor rows away with the item.
+     *
+     * WHY THE CATCH CANNOT POISON A TRANSACTION (25P02). Recovering inside an open transaction is
+     * a hazard this repo has shipped three times. It does not apply here, for three reasons:
+     * withIdentityLock() throws if any caller has a transaction open; it returns only after its own
+     * has committed; and the only transaction inside writeFacets() is replaceCollections()' per-
+     * chunk DB::transaction(), which rolls back and rethrows before the exception reaches us. The
+     * catch re-asserts transactionLevel() === 0 anyway, as code rather than as a comment.
+     *
+     * WHY THE REPLAY IS SAFE. replaceCollections() is delete-then-insert scoped by
+     * (item_id IN batch, source_id[, origin]) and flushSingletonFacets() upserts on
+     * (item_id, source_id) — replaying rewrites the same rows. A chunk that committed before the
+     * failing one is simply re-written.
+     *
+     * @param  array<string, array<string, mixed>>  $projections  coord => projection
+     * @param  array<string, string>  $itemByCoord
+     * @return array<string, string> the map actually written — retargeted where a concurrent merge
+     *                               deleted a parent between the resolve and here
+     */
+    private function writeFacetsRetargeting(string $contentSourceId, string $userId, array $projections, array $itemByCoord): array
+    {
+        try {
+            $this->writeFacets($contentSourceId, $userId, $projections, $itemByCoord);
+
+            return $itemByCoord;
+        } catch (QueryException $e) {
+            // The 25P02 argument above, stated as code so a future caller that breaks the
+            // no-open-transaction invariant rethrows instead of recovering into a poisoned one.
+            if (DB::connection()->transactionLevel() > 0 || (string) $e->getCode() !== self::FK_VIOLATION_SQLSTATE) {
+                throw $e;
+            }
+
+            $retargeted = $this->retargetToMergeSurvivors($userId, $itemByCoord, $e);
+
+            try {
+                $this->writeFacets($contentSourceId, $userId, $projections, $retargeted);
+            } catch (QueryException $retry) {
+                throw new FacetTargetLineageLostException(
+                    $userId,
+                    implode(',', array_values(array_diff($itemByCoord, $retargeted))),
+                    'the replay onto the merge survivor still violated a foreign key',
+                    $retry,
+                );
+            }
+
+            // report(), not throw: the facets DID land, on the survivor content.source_items was
+            // already repointed at. Same escalation idiom as MergeFoldMediaDroppedException — a
+            // Log::warning would not reach Nightwatch, and a race this class cannot prevent must
+            // at least be visible.
+            report(new FacetTargetMergedAwayException($userId, $itemByCoord, $retargeted));
+
+            return $retargeted;
+        }
+    }
+
+    /**
+     * Rewrite a coord => item map so every target that no longer exists points at the item its
+     * merge kept instead.
+     *
+     * @param  array<string, string>  $itemByCoord
+     * @return array<string, string>
+     */
+    private function retargetToMergeSurvivors(string $userId, array $itemByCoord, QueryException $cause): array
+    {
+        $targets = array_values(array_unique(array_map(strval(...), $itemByCoord)));
+
+        /** @var list<string> $live */
+        $live = DB::table('content.items')
+            ->where('user_id', $userId)
+            ->whereIn('id', $targets)
+            ->pluck('id')
+            ->map(strval(...))
+            ->all();
+
+        $alive = array_flip($live);
+        $missing = array_values(array_filter($targets, fn (string $id): bool => ! isset($alive[$id])));
+
+        if ($missing === []) {
+            // A 23503 that is NOT a missing item parent — a bad source_id, a bad asset_id, a
+            // source row deleted underneath us. Not ours to recover: rethrowing keeps the real
+            // violation visible instead of masking it behind a replay that would fail the same way.
+            throw $cause;
+        }
+
+        $winnerFor = [];
+        foreach ($missing as $dead) {
+            $winnerFor[$dead] = $this->mergeSurvivorOf($userId, $dead, $cause);
+        }
+
+        // Two coords may now name ONE item (a dead X and a live Y both landing on Y). That is the
+        // same-source-merge shape writeFacets() is already built for — it groups per item and
+        // folds per column, so one upsert payload never carries two rows with the same conflict
+        // target. Pinned by ProjectionWriterBatchingTest's 'folds two records for one (item,
+        // source) into a single row rather than raising 21000'.
+        return array_map(fn (string $id): string => $winnerFor[$id] ?? $id, $itemByCoord);
+    }
+
+    /**
+     * Walk content.item_merges from a deleted item to the live item that absorbed it.
+     *
+     * Iterative, not a single SELECT: mergeInto(kept: Y, discarded: X) leaves Y an ordinary item,
+     * and nothing stops a later pass discarding Y into Z — a reader holding X must walk X -> Y -> Z.
+     * bindGroup() calls mergeInto() twice per pass (once with the arguments swapped) and
+     * ItemMerger::merge() writes the same ledger from the dashboard, so chains have three sources.
+     *
+     * Bounded and cycle-guarded. A cycle is not reachable through mergeInto() alone (a hard-deleted
+     * uuid is never re-minted), but content.item_merges carries no FK and no uniqueness and a
+     * repair script could write anything — the visited set costs one array and turns a hang into a
+     * named exception.
+     */
+    private function mergeSurvivorOf(string $userId, string $deadItemId, QueryException $cause): string
+    {
+        $seen = [$deadItemId => true];
+        $current = $deadItemId;
+
+        for ($hop = 1; $hop <= self::MERGE_LINEAGE_MAX_HOPS; $hop++) {
+            // user-scoped on both the ledger read and the liveness re-check below: item ids are
+            // user-scoped, and this is what makes a cross-tenant retarget impossible even if a
+            // repair script wrote a bogus row. Newest first because the ledger has no uniqueness.
+            //
+            // follow-up: content.item_merges has no index beyond its bigserial PK, so this is a
+            // seq scan. An index on (user_id, discarded_item_id) would serve it — deliberately NOT
+            // shipped with this change: the lookup only runs on the rare recovery path, and the
+            // table is effectively empty at pilot scale.
+            $kept = DB::table('content.item_merges')
+                ->where('user_id', $userId)
+                ->where('discarded_item_id', $current)
+                ->orderByDesc('merged_at')
+                ->orderByDesc('id')
+                ->value('kept_item_id');
+
+            if ($kept === null) {
+                throw new FacetTargetLineageLostException($userId, $deadItemId, 'no content.item_merges row explains it', $cause);
+            }
+
+            $kept = (string) $kept;
+
+            if (isset($seen[$kept])) {
+                throw new FacetTargetLineageLostException($userId, $deadItemId, "the merge lineage cycles at {$kept}", $cause);
+            }
+            $seen[$kept] = true;
+
+            if (DB::table('content.items')->where('user_id', $userId)->where('id', $kept)->exists()) {
+                return $kept;
+            }
+
+            $current = $kept;
+        }
+
+        throw new FacetTargetLineageLostException(
+            $userId,
+            $deadItemId,
+            'the merge lineage exceeded '.self::MERGE_LINEAGE_MAX_HOPS.' hops',
+            $cause,
+        );
     }
 
     /**
