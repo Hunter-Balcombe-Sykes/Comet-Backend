@@ -1666,8 +1666,9 @@ class PoolResolver
      * THEM: Fresha's structured staff attribution (f_review.staff_name), a
      * mention of their name in the review text, or a source that is already
      * employee-scoped at the vendor (ingest selection_ref names a team
-     * member, so every review it lands is theirs even when the text never
-     * says a name). Empty for business accounts — the venue's reviews ARE
+     * member, so an UNATTRIBUTED review it lands is theirs even when the text
+     * never says a name — see the 2026-09-01 note below for why an attributed
+     * one is not). Empty for business accounts — the venue's reviews ARE
      * its reviews — and applied identically in hasSelection() and
      * itemPayloads() so the advertised page and the served pool agree.
      *
@@ -1680,6 +1681,23 @@ class PoolResolver
      * ing.connection_id. Fail direction is closed — fewer gate passes means more
      * venue reviews excluded, which is the direction the paragraph above demands.
      *
+     * 2026-09-01, after we published other people's reviews on real people's
+     * pages, this method fails closed in the two places it used to fail open:
+     *
+     *   - An UNRESOLVABLE user returned the empty map, which means "suppress
+     *     nothing" — the paragraph above says the opposite, and the code said
+     *     it for a year. A site whose owner row cannot be loaded now suppresses
+     *     every review. Only a resolvable account that is genuinely
+     *     venue-scoped (business, reviews_scoped_to_person false) gets the
+     *     empty map.
+     *   - An employee-scoped source used to `continue` BEFORE the f_review
+     *     facet was read, so a review whose own structured attribution names
+     *     somebody else could not veto itself. ollies carries a Fresha source
+     *     with selection_ref 5035183 and published "Ciel was amazing" on Raff
+     *     McGuiness's page through exactly that hole. Structured attribution
+     *     naming a different person is now the FIRST thing checked and it
+     *     vetoes: a review that says it is about Ciel is not about Raff.
+     *
      * @param  list<string>  $reviewIds
      * @return array<string, true>
      */
@@ -1690,7 +1708,10 @@ class PoolResolver
         }
 
         $pro = $site->user;
-        if ($pro === null || ! AccountCapabilities::for($pro)->reviews_scoped_to_person) {
+        if ($pro === null) {
+            return array_fill_keys($reviewIds, true);
+        }
+        if (! AccountCapabilities::for($pro)->reviews_scoped_to_person) {
             return [];
         }
 
@@ -1731,12 +1752,31 @@ class PoolResolver
         $outside = [];
         foreach ($reviewIds as $itemId) {
             $itemId = (string) $itemId;
+            $facet = $facets[$itemId] ?? null;
+
+            // The veto, and it outranks every admission below including the
+            // employee-scoped source. staff_name is the vendor stating WHICH
+            // team member the review is about; when it names someone who is
+            // not this account holder — or when we hold no name to check it
+            // against — no other signal can overturn that.
+            $staffName = trim((string) ($facet->staff_name ?? ''));
+            if ($staffName !== '') {
+                if (PersonNameMatch::matchesStaffName($staffName, $names)) {
+                    continue;
+                }
+
+                $outside[$itemId] = true;
+
+                continue;
+            }
+
             if (isset($employeeScoped[$itemId])) {
                 continue;
             }
 
-            $facet = $facets[$itemId] ?? null;
-            if ($facet !== null && $names !== null && $this->reviewMentionsPerson($facet, $names)) {
+            // No facet row at all, or no text in it, is an uncertainty: it
+            // cannot mention anyone by name, so it stays with the venue.
+            if ($facet !== null && $names !== null && PersonNameMatch::matchesText($facet->text ?? null, $names)) {
                 continue;
             }
 
@@ -1763,29 +1803,6 @@ class PoolResolver
             $pro->display_name ?? null,
             $pro->first_name ?? null,
         );
-    }
-
-    /** @param array{full: list<string>, first: list<string>} $names */
-    private function reviewMentionsPerson(object $facet, array $names): bool
-    {
-        // Structured staff attribution — shared with the DSAR lane.
-        if (PersonNameMatch::matchesStaffName((string) ($facet->staff_name ?? ''), $names)) {
-            return true;
-        }
-
-        $text = (string) ($facet->text ?? '');
-        if ($text === '') {
-            return false;
-        }
-
-        foreach ([...$names['full'], ...$names['first']] as $needle) {
-            // Word-boundary by letters/digits, not \b — names are unicode.
-            if (preg_match('/(?<![\p{L}\p{N}])'.preg_quote($needle, '/').'(?![\p{L}\p{N}])/iu', $text) === 1) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**

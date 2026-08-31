@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Models\Core\User\User;
+use App\Site\Pools\PersonNameMatch;
 
 /**
  * Fuzzy-matches a user's own name against a scraped Fresha team so the
@@ -187,13 +188,17 @@ final class FreshaStaffMatcher
      * The vanity display_name broken into lowercase word tokens — pipes,
      * bullets, emoji and punctuation all become separators.
      *
+     * Delegated to PersonNameMatch (2026-09-01) rather than kept here: the
+     * review person-scope asks the same question of the same kind of string
+     * ("does this person's name appear in this free text"), and it drifted
+     * into a weaker second answer that published strangers' reviews on named
+     * individuals' pages. One tokenizer, one 3-character signal floor.
+     *
      * @return list<string>
      */
     private function vanityTokens(string $displayName): array
     {
-        $tokens = preg_split('/[^\\p{L}\\p{N}]+/u', mb_strtolower($displayName)) ?: [];
-
-        return array_values(array_filter($tokens, static fn (string $t) => $t !== ''));
+        return PersonNameMatch::words($displayName);
     }
 
     /**
