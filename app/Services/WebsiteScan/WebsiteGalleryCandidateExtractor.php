@@ -32,7 +32,11 @@ class WebsiteGalleryCandidateExtractor
 
         $doc = new \DOMDocument;
         $prev = libxml_use_internal_errors(true);
-        $doc->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING);
+        // LIBXML_NONET (#FU-1): $html is a third party's scraped page — this
+        // blocks any network access libxml would make while parsing (external
+        // entity/DTD/stylesheet), same flag and reasoning as MetadataParser,
+        // AboutProseExtractor and WebsiteLinkHarvester::extractLinks().
+        $doc->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_NONET);
         libxml_clear_errors();
         libxml_use_internal_errors($prev);
 

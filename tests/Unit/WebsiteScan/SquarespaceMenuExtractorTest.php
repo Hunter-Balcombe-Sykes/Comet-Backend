@@ -65,3 +65,27 @@ it('handles an item with no description or category gracefully', function () {
         'dietary' => null,
     ]]);
 });
+
+// ── #FU-1: LIBXML_NONET on an untrusted parse ────────────────────────────────
+
+it('still extracts a menu item from a page carrying an external DOCTYPE and entity declarations', function () {
+    // LIBXML_NONET's whole risk is that it changes how a page with external
+    // references parses. Pins that adding it costs no items on the exact
+    // page shape that would exercise it — same DOCTYPE+entity fixture as
+    // WebsiteLinkHarvesterTest's #W1-SEC-13 regression test.
+    $html = <<<'HTML'
+    <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+      "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd" [
+      <!ENTITY probe SYSTEM "http://169.254.169.254/latest/meta-data/">
+    ]>
+    <html><body><div class="menu-item"><div class="menu-item-title">Mystery dish</div></div></body></html>
+    HTML;
+
+    expect(app(SquarespaceMenuExtractor::class)->extract($html))->toBe([[
+        'name' => 'Mystery dish',
+        'description' => null,
+        'price' => null,
+        'category' => null,
+        'dietary' => null,
+    ]]);
+});

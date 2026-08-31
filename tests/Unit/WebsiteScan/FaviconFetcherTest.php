@@ -87,3 +87,24 @@ it('rejects an empty favicon body', function () {
 
     expect((new FaviconFetcher($fetcher))->fetch('<html></html>', 'https://venue.example'))->toBeNull();
 });
+
+// ── #FU-1: LIBXML_NONET on an untrusted parse ────────────────────────────────
+
+it('still finds an icon link on a page carrying an external DOCTYPE and entity declarations', function () {
+    // LIBXML_NONET's whole risk is that it changes how a page with external
+    // references parses. Pins that adding it costs no icon lookup on the
+    // exact page shape that would exercise it — same DOCTYPE+entity fixture
+    // as WebsiteLinkHarvesterTest's #W1-SEC-13 regression test.
+    $html = <<<'HTML'
+    <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+      "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd" [
+      <!ENTITY probe SYSTEM "http://169.254.169.254/latest/meta-data/">
+    ]>
+    <html><head><link rel="apple-touch-icon" href="/apple-touch.png"></head><body></body></html>
+    HTML;
+    $fetcher = faviconFetcherReturning('https://venue.example/apple-touch.png', 'fake-png-bytes');
+
+    $result = $fetcher->fetch($html, 'https://venue.example');
+
+    expect($result['url'])->toBe('https://venue.example/apple-touch.png');
+});

@@ -54,3 +54,21 @@ it('truncates to the shared OCR text size cap', function () {
     $text = app(VisibleTextExtractor::class)->extract($html);
     expect(mb_strlen($text))->toBeLessThanOrEqual(60000);
 });
+
+// ── #FU-1: LIBXML_NONET on an untrusted parse ────────────────────────────────
+
+it('still extracts visible text from a page carrying an external DOCTYPE and entity declarations', function () {
+    // LIBXML_NONET's whole risk is that it changes how a page with external
+    // references parses. Pins that adding it costs no text on the exact page
+    // shape that would exercise it — same DOCTYPE+entity fixture as
+    // WebsiteLinkHarvesterTest's #W1-SEC-13 regression test.
+    $html = <<<'HTML'
+    <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+      "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd" [
+      <!ENTITY probe SYSTEM "http://169.254.169.254/latest/meta-data/">
+    ]>
+    <html><body><p>Welcome to our restaurant.</p></body></html>
+    HTML;
+
+    expect(app(VisibleTextExtractor::class)->extract($html))->toContain('Welcome to our restaurant.');
+});

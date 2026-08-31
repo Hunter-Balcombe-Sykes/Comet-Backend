@@ -74,3 +74,21 @@ it('returns null when neither mailto: nor JSON-LD carries an email', function ()
 it('returns null for empty html', function () {
     expect(ceeExtract(''))->toBeNull();
 });
+
+// ── #FU-1: LIBXML_NONET on an untrusted parse ────────────────────────────────
+
+it('still extracts a mailto: link from a page carrying an external DOCTYPE and entity declarations', function () {
+    // LIBXML_NONET's whole risk is that it changes how a page with external
+    // references parses. Pins that adding it costs no email extraction on
+    // the exact page shape that would exercise it — same DOCTYPE+entity
+    // fixture as WebsiteLinkHarvesterTest's #W1-SEC-13 regression test.
+    $html = <<<'HTML'
+    <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+      "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd" [
+      <!ENTITY probe SYSTEM "http://169.254.169.254/latest/meta-data/">
+    ]>
+    <html><body><a href="mailto:hello@example.com">Email us</a></body></html>
+    HTML;
+
+    expect(ceeExtract($html))->toBe('hello@example.com');
+});
