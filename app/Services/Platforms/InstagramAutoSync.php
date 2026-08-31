@@ -218,15 +218,16 @@ class InstagramAutoSync
     }
 
     /** Override — adds Facebook normalizer support to the trait's implementation. */
-    protected function socialUsername(string $platform, string $url): string
+    protected function socialUsername(string $platform, string $url): ?string
     {
         if ($platform === 'facebook') {
             // Delegate to the same parser the manual connect form uses (G4-4) —
             // a standalone regex here shares its blind spot for reserved path
             // segments (pages/people/etc.).
             $parsed = ($this->facebookNormalizer)($url);
+            $username = (string) ($parsed['username'] ?? '');
 
-            return $parsed['username'] ?? '';
+            return $username !== '' ? $username : null;
         }
 
         return $this->traitSocialUsername($platform, $url);

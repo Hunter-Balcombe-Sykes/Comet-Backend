@@ -16,6 +16,7 @@ use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
+use App\Services\Platforms\YoutubeScraper;
 use Closure;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -698,9 +699,18 @@ trait BuildsAutoSyncFindings
             ]];
         }
 
-        return ['platform' => $platform, 'resourceId' => $platform, 'payload' => [
-            'username' => $this->socialUsername($platform, $url), 'url' => $url, 'source' => 'instagram',
-        ]];
+        // The key is OMITTED, not written empty, when no identity parses. A
+        // stored `username: ''` is the worst outcome available: the row reads
+        // as connected, and YoutubeFetch throws missing_key: handle on every
+        // scheduled refresh of it forever (F6, 2026-08-31 — two live channels,
+        // 20 exceptions in two days, Nightwatch #476). An absent key is the
+        // same loud failure the reader already handles, minus the permanence.
+        $username = $this->socialUsername($platform, $url);
+        $payload = $username !== null
+            ? ['username' => $username, 'url' => $url, 'source' => 'instagram']
+            : ['url' => $url, 'source' => 'instagram'];
+
+        return ['platform' => $platform, 'resourceId' => $platform, 'payload' => $payload];
     }
 
     /**
@@ -784,7 +794,11 @@ trait BuildsAutoSyncFindings
     }
 
     /**
-     * Best-effort handle from a canonical social profile URL ('' when none).
+     * Best-effort handle from a canonical social profile URL (null when none).
+     *
+     * NULL, never '': the caller must not write the key at all when there is no
+     * identity — see resolveWrite() for the incident that forced the
+     * distinction.
      *
      * Facebook is delegated to FacebookNormalizer — the same parser the manual
      * connect form uses (G4-4). It is resolved from the container rather than
@@ -794,7 +808,7 @@ trait BuildsAutoSyncFindings
      * override — silently wrote `username: ''` for every routed Facebook link.
      * Handling it here is what makes the two paths agree.
      */
-    protected function socialUsername(string $platform, string $url): string
+    protected function socialUsername(string $platform, string $url): ?string
     {
         // The platform's own catalog-wired normalizer is the authority
         // (UrlConnect wraps exactly the URL/handle parser each link platform
@@ -819,8 +833,27 @@ trait BuildsAutoSyncFindings
             // A standalone regex here would share the blind spot for reserved
             // path segments (pages/people/…) that G4-4 fixed.
             $parsed = app(FacebookNormalizer::class)($url);
+            $username = (string) ($parsed['username'] ?? '');
 
-            return $parsed['username'] ?? '';
+            return $username !== '' ? $username : null;
+        }
+
+        if ($platform === 'youtube') {
+            // YoutubeScraper::normalizeHandle is the parser that already gets
+            // every channel shape right — @handle (dots and all), /c/, /user/,
+            // a bare vanity, and the UC… id from a /channel/ share URL — and it
+            // is the SAME identity YoutubeFetch replays on refresh. The pattern
+            // list below never knew youtube at all, so both live rows fell
+            // straight through it to a stored '' (F6). Delegating rather than
+            // adding a fifth regex is what keeps the write side and the read
+            // side parsing one URL the same way. Its connect strategy is
+            // DeferredConnect, not UrlConnect, so the branch above cannot reach
+            // it. Guards mirror YoutubeFetch's own handle test — non-empty, no
+            // slash — because normalizeHandle's last resort is the raw token,
+            // which for "youtube.com/" is the whole URL.
+            $handle = app(YoutubeScraper::class)->normalizeHandle($url);
+
+            return $handle !== '' && ! str_contains($handle, '/') ? $handle : null;
         }
 
         $patterns = [
@@ -843,10 +876,10 @@ trait BuildsAutoSyncFindings
                 'share', 'tv',
             ];
 
-            return in_array(strtolower($m[1]), $reserved, true) ? '' : $m[1];
+            return in_array(strtolower($m[1]), $reserved, true) ? null : $m[1];
         }
 
-        return '';
+        return null;
     }
 
     /**
