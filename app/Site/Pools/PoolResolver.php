@@ -521,6 +521,22 @@ class PoolResolver
      * rating. Serving a 4.8 for someone who hid their reviews would republish
      * the thing they hid, in summary form.
      *
+     * A VENUE aggregate, and therefore only ever a venue's to publish. The
+     * person scope (2026-09-01) reached the review cards and stopped at the
+     * badge above them, which is the same disclosure with the numbers left in:
+     * ollies is one barista's page carrying a hair salon's Fresha listing, and
+     * because the only review that survived the scope came off that listing,
+     * this query reached its stats row and the coffee shop published
+     * "5/5 — Based on 174 reviews". The venue's OWN 4.2 from 3,925 would have
+     * been no better — an aggregate over reviews that are not this person's is
+     * not this person's aggregate, whichever venue it is right about, and a
+     * count of 3,925 is meaningless beside one shown review.
+     *
+     * So a person-scoped page publishes no venue aggregate at all, and the one
+     * number it may show is computed over the reviews it ACTUALLY published —
+     * a claim the reader can check by counting the cards under it, which is
+     * exactly the property the listing's aggregate lacked.
+     *
      * @param  list<array<string, mixed>>  $selection
      * @return array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string}|null
      */
@@ -528,6 +544,10 @@ class PoolResolver
     {
         if (! PoolRegistry::carriesSourceStats($pool) || $selection === []) {
             return null;
+        }
+
+        if ($this->pageIsPersonScoped($site)) {
+            return self::statsOverPublishedReviews($selection);
         }
 
         // #LIFE-2: the aggregates are SOURCE-level, and this query had no
@@ -563,10 +583,41 @@ class PoolResolver
             // A source_item retired by absence folding does not carry the badge
             // either — the same reading LiveSourceScope takes for the items.
             ->whereNull('si.removed_at')
-            // Two connected places would be unusual, but the busiest listing is
-            // the defensible one to show and ordering makes that a decision
-            // rather than whatever row Postgres returned first.
-            ->orderByDesc('ss.rating_count');
+            // A row with no average cannot BE a badge — the sitepage renders
+            // nothing when rating is null — so it must not win the ordering and
+            // shadow a row that can. ProjectionWriter writes every source_stats
+            // column on every run rather than only the ones the run carried, so
+            // a Google response with place_rating_count and no place_rating
+            // leaves exactly this row: a countable blank. Ordered on count
+            // alone it outranked a live 4.2 and took the badge off the page.
+            ->whereNotNull('ss.rating_avg');
+
+        // The tie-break, settled 2026-09-01 and now TOTAL. ollies holds two
+        // google-business connections for one place_id (the 02:40:59 one
+        // retired 91 seconds later) and so two stats rows for one coffee shop;
+        // on any day the venue's count has not moved they differ only in
+        // updated_at, and `orderByDesc(rating_count)` alone left the winner to
+        // whatever row the engine handed back — a badge that could differ
+        // between two requests for the same page.
+        //
+        //   count   — first, and NULLS LAST. Across DIFFERENT places the
+        //             busier listing is still the defensible one, and a quiet
+        //             venue's nightly refresh must not outrank a busy one's
+        //             weekly. Postgres sorts DESC as NULLS FIRST, so a row with
+        //             an average but no count led the order there while SQLite
+        //             (NULLS LAST) put it where we want it — a disagreement the
+        //             test suite could not have shown us. Spelled as a portable
+        //             is-null key rather than `NULLS LAST` for that reason.
+        //   updated — between two rows for the SAME place the fresher is the
+        //             current truth about it (4.2/3925 read 08-29 over 4.2/3919
+        //             read 08-26). Counts only move when the venue's do, so
+        //             this is the criterion that actually separates duplicates.
+        //   source  — arbitrary, and that is the point: a total order means one
+        //             answer forever rather than a stable-looking one.
+        $query->orderByRaw('case when ss.rating_count is null then 1 else 0 end')
+            ->orderByDesc('ss.rating_count')
+            ->orderByDesc('ss.updated_at')
+            ->orderBy('ss.source_id');
 
         LiveSourceScope::constrainToLiveSource($query, 'stats_src', 'stats_conn');
 
@@ -583,6 +634,68 @@ class PoolResolver
             'ratingCount' => $row->rating_count === null ? null : (int) $row->rating_count,
             'summaryText' => $row->summary_text,
         ];
+    }
+
+    /**
+     * The badge a PERSON's page may carry: the average and the count of the
+     * reviews this page actually published, and no prose.
+     *
+     * $selection is post-suppression by construction — the owner's display
+     * toggle, LiveSourceScope and reviewsOutsidePersonScope() have all already
+     * run — so this aggregates exactly the cards the visitor is looking at and
+     * cannot drift from them. Nothing is queried: itemPayloads() already put
+     * every rating on the wire.
+     *
+     * summaryText is null and stays null. summary_text is Google's own prose
+     * about the BUSINESS, written over the whole review corpus; there is no
+     * person-scoped version of it to compute and no honest way to re-scope the
+     * one we hold.
+     *
+     * Null rather than a zero when no published review carries a rating —
+     * f_review.rating's bare-cast trap in aggregate form: 0/0 is not a
+     * zero-star person, it is no badge. Rounded to the vendors' own precision
+     * so the wire value is the rendered one (the sitepage prints toFixed(1)).
+     *
+     * @param  list<array<string, mixed>>  $selection
+     * @return array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string}|null
+     */
+    private static function statsOverPublishedReviews(array $selection): ?array
+    {
+        $ratings = [];
+        foreach ($selection as $item) {
+            $rating = $item['review']['rating'] ?? null;
+            if ($rating === null) {
+                continue;
+            }
+            $ratings[] = (float) $rating;
+        }
+
+        if ($ratings === []) {
+            return null;
+        }
+
+        return [
+            'ratingAvg' => round(array_sum($ratings) / count($ratings), 1),
+            'ratingCount' => count($ratings),
+            'summaryText' => null,
+        ];
+    }
+
+    /**
+     * Whether this page is one person's rather than a venue's — the same
+     * judgement reviewsOutsidePersonScope() makes about the review CARDS,
+     * asked from one place so the badge above them cannot disagree with them.
+     *
+     * An unresolvable owner is person-scoped: fail closed. The cards already
+     * read it that way (a site whose owner row cannot be loaded suppresses
+     * every review), and a venue aggregate published over a suppressed pool
+     * would be the whole incident again with the cards missing.
+     */
+    private function pageIsPersonScoped(Site $site): bool
+    {
+        $pro = $site->user;
+
+        return $pro === null || AccountCapabilities::for($pro)->reviews_scoped_to_person;
     }
 
     /**
@@ -1707,12 +1820,17 @@ class PoolResolver
             return [];
         }
 
+        // One predicate for the cards and the badge above them (2026-09-01):
+        // statsFor() asks the same question, and two spellings of "is this a
+        // person's page" is how the badge came to publish a venue over a pool
+        // the cards had already been scoped out of.
+        if (! $this->pageIsPersonScoped($site)) {
+            return [];
+        }
+
         $pro = $site->user;
         if ($pro === null) {
             return array_fill_keys($reviewIds, true);
-        }
-        if (! AccountCapabilities::for($pro)->reviews_scoped_to_person) {
-            return [];
         }
 
         // Vendor-scoped sources: a selection_ref naming a specific team
