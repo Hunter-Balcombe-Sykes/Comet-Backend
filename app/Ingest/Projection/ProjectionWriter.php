@@ -2218,10 +2218,8 @@ class ProjectionWriter
             // user-scoped, and this is what makes a cross-tenant retarget impossible even if a
             // repair script wrote a bogus row. Newest first because the ledger has no uniqueness.
             //
-            // follow-up: content.item_merges has no index beyond its bigserial PK, so this is a
-            // seq scan. An index on (user_id, discarded_item_id) would serve it — deliberately NOT
-            // shipped with this change: the lookup only runs on the rare recovery path, and the
-            // table is effectively empty at pilot scale.
+            // Served by idx_item_merges_user_discarded (user_id, discarded_item_id, merged_at, id)
+            // — 20260831120000_item_merges_discarded_idx.sql — instead of the bigserial PK seq scan.
             $kept = DB::table('content.item_merges')
                 ->where('user_id', $userId)
                 ->where('discarded_item_id', $current)

@@ -1,0 +1,22 @@
+-- Serves ProjectionWriter::mergeSurvivorOf()'s merge-lineage walk (shipped
+-- c90ada09c, follow-up flagged at ProjectionWriter.php:2221-2224): a facet
+-- write targeting a hard-deleted item re-derives the surviving item by
+-- walking content.item_merges with
+--   WHERE user_id = ? AND discarded_item_id = ?
+--   ORDER BY merged_at DESC, id DESC
+--   LIMIT 1  (Builder::value() applies first()'s implicit limit)
+-- per hop, up to MERGE_LINEAGE_MAX_HOPS times. Without an index beyond the
+-- bigserial PK this is a sequential scan per hop.
+--
+-- Column order mirrors the predicate: (user_id, discarded_item_id) match the
+-- two equality clauses in selectivity/appearance order, and the trailing
+-- (merged_at, id) let the planner serve the ORDER BY ... LIMIT 1 as an
+-- Index Scan Backward instead of a separate sort step — a backward scan over
+-- an ascending composite index yields DESC, DESC on the trailing columns for
+-- free, so no explicit DESC markers are needed on the index itself.
+--
+-- ONE statement, alone in its file, on purpose. CONCURRENTLY cannot run in a
+-- libpq pipeline, and the CLI pipelines any file with more than one statement
+-- (SQLSTATE 25001) — CONVENTIONS.md §1, guard-no-unsafe-migrations check 6.
+-- ROLLBACK: DROP INDEX CONCURRENTLY IF EXISTS "content"."idx_item_merges_user_discarded";
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_item_merges_user_discarded" ON "content"."item_merges" ("user_id", "discarded_item_id", "merged_at", "id");
