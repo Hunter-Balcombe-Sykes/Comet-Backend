@@ -84,10 +84,38 @@ synthesis") suggests the frontend guard was lifted, so the gap may be upstream i
 are built from Instagram, so usually none), a booking platform such as Fresha, or the Google listing of
 the workplace they are linked to.
 
-### B2 — DECISION: should a workplace's reviews appear on an employee's personal page? · `DECISION`
+### B2 — RULED (owner, 2026-08-31): only reviews that name the person · `TODO` · high
 
-A barber linked to a Google-listed salon: the salon's reviews are not the barber's. Showing them is
-arguably misattribution; hiding them leaves an empty page. This is a product judgement, not a bug.
+> "no only ones mentioning their name should"
+
+A workplace's reviews are the workplace's. A review that says *"Emma was fantastic"* on the salon's
+listing genuinely is a review of Emma, and is the only kind that belongs on her page. Everything else
+stays with the salon.
+
+So the partna reviews pool is the workplace's review set filtered by **name containment against the
+person**, not the whole set and not nothing.
+
+Consequences to design around:
+
+- **Hard dependency on F3.** Name matching is only as good as the stored name, and 37 of 84 partna
+  accounts currently hold a descriptor, an emoji or a raw handle where the name should be. Filtering
+  reviews by `first_name = "Melbourne"` would surface everything and by `last_name = "✨"` nothing.
+  **B2 must land after F3, and its acceptance must be measured on re-gated names.**
+- **Reuse the matcher we already trust.** `FreshaStaffMatcher`'s vanity-name tier already solves
+  "does this person's name appear in this free text", with ambiguity and short-token guards learned
+  from real failures. A second, weaker implementation of the same idea is how these things drift.
+- **A short or common given name is the hazard.** "Em", "Jo", "Lily" will false-positive on ordinary
+  prose. The guard has to be at least as strict as the Fresha one, and it is better to show no review
+  than to attribute a stranger's words to someone who did not earn them.
+- **Attribution must stay visible.** A review shown on Emma's page came from Star Barber's listing;
+  the surface should say so rather than implying she was reviewed directly.
+
+### B3 — Where the reviews come from for an individual · `TODO` · medium
+
+B2 defines the filter; this is the source. Enumerate what is actually reachable for a partna account:
+the linked workplace's Google listing (the main one — `LinkFreshaVenueToGoogleJob` already establishes
+that link), a booking platform that carries reviews, or their own listing where one exists. Plumb the
+ones that are real.
 
 ---
 
@@ -99,11 +127,30 @@ Owner request. Needs: a way to tell a reel from a photo in what we store, the cu
 the media pool, and the right insertion point so the rule composes with `newest|smart|manual` rather
 than fighting them.
 
-### C2 — Interaction: the lander uses `media.deck[0]` as its backdrop · `TODO` · medium
+### C2 — RULED (owner, 2026-08-31): the lander follows the media order, and is never set separately · `TODO` · medium
 
-`apps/pages` renders `content.media.deck[0]` as the lander backdrop and `.slice(1)` as the gallery. If
-the newest reel leads the pool it becomes the BACKDROP, not the first gallery tile. That may be exactly
-right — a video lander is striking — or may not be. Resolve before shipping C1.
+> "make it so the lander uses the same order that is given from the media […] so the consumer, whatever
+> isn't set separately, it gets the down-the-road fix related to the actual media fix"
+
+The rule is architectural, and wider than the reel question: **the media pool's order is the single
+source of truth, and every consumer of it derives.** The lander takes whatever the pool puts first. So
+when C1 promotes the newest reel, the lander follows automatically — with no second setting to keep in
+step, and no chance of the two disagreeing.
+
+That makes the reel decision moot by construction: a video lander is simply what happens when the newest
+item is a reel, which is the honest answer.
+
+Work this implies:
+
+- **Verify the derivation is real, not incidental.** `apps/pages` reads `content.media.deck[0]` for the
+  backdrop and `.slice(1)` for the gallery, which already looks derived. Confirm nothing upstream pins a
+  separate lander image — a `design`-pool hero, a stored backdrop column, or a hand-set sort order — and
+  if anything does, remove it rather than syncing it.
+- **Audit every other media consumer for the same pattern.** Anywhere a surface picks a specific image
+  instead of taking position 0, it will drift the same way. Find them all now while the rule is fresh.
+- **The lander must handle a video first item properly** — poster frame, autoplay/loop behaviour, and a
+  graceful still where autoplay is refused. The gallery already does this; the lander needs to be at
+  least as good, since it is the first thing a visitor sees.
 
 ---
 
