@@ -57,8 +57,8 @@
 
 ## Progress
 
-- P0 Before pilot: 8 of 9 complete
-- P1 Important spines: 3 of 4 complete
+- P0 Before pilot: 9 of 9 complete
+- P1 Important spines: 4 of 4 complete
 - P2 Roadmap extensibility: 0 of 14 complete
 - P3 Opportunistic: 0 of 23 complete
 

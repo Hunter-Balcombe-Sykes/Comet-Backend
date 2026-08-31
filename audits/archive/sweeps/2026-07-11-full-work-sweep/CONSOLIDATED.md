@@ -4839,7 +4839,7 @@ None — the two surviving findings touch unrelated subsystems (menu-scraper syn
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 2 of 2 complete
-- P3 Low: 1 of 2 complete
+- P3 Low: 2 of 2 complete
 
 ---
 

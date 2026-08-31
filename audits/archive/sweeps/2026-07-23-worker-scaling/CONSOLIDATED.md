@@ -74,7 +74,7 @@ _Reconciled 2026-07-25 from `audits/archive/workers/2026-07-23-worker-async-revi
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 5 of 5 complete
-- P2 Medium: 8 of 9 complete + 1 relocated (`SCALE-1`)
+- P2 Medium: 8 of 8 complete + 1 relocated (`SCALE-1`)
 - P3 Low: 3 of 3 complete
 
 ---

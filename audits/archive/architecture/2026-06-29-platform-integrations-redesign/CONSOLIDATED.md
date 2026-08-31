@@ -35,7 +35,7 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 2 of 2 complete
+- P1 High: 3 of 3 complete
 - P2 Medium: 3 of 3 complete
 - P3 Low: 8 of 8 complete
 

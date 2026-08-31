@@ -87,9 +87,9 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 2 complete
-- P2 Medium: 0 of 5 complete
-- P3 Low: 0 of 1 complete
+- P1 High: 2 of 2 complete
+- P2 Medium: 5 of 5 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
@@ -331,9 +331,9 @@
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 6 complete
-- P2 Medium: 0 of 11 complete
-- P3 Low: 0 of 2 complete
+- P1 High: 6 of 6 complete
+- P2 Medium: 11 of 11 complete
+- P3 Low: 2 of 2 complete
 
 ---
 
@@ -776,8 +776,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 4 complete
-- P3 Low: 0 of 4 complete
+- P2 Medium: 4 of 4 complete
+- P3 Low: 4 of 4 complete
 
 ---
 
@@ -1055,9 +1055,9 @@ None.
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 6 complete
-- P2 Medium: 0 of 16 complete
-- P3 Low: 0 of 7 complete
+- P1 High: 6 of 6 complete
+- P2 Medium: 16 of 16 complete
+- P3 Low: 7 of 7 complete
 
 ---
 
@@ -1752,7 +1752,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 3 complete
+- P2 Medium: 3 of 3 complete
 - P3 Low: 0 of 0 complete
 
 ---
@@ -1872,7 +1872,7 @@ None — no P0, auth, money, migration/schema, or L/XL-effort findings survived 
 ## Progress
 
 - P0 Blockers: 0 of 0 complete
-- P1 High: 0 of 1 complete
+- P1 High: 1 of 1 complete
 - P2 Medium: 0 of 0 complete
 - P3 Low: 0 of 0 complete
 
