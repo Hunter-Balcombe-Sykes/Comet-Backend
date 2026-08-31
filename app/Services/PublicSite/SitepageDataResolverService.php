@@ -345,10 +345,23 @@ class SitepageDataResolverService
             }
         }
 
-        // Business-gate: drop Business-only pages for accounts without the capability.
-        if (! $caps->can_use_multipage_site) {
-            foreach (SitepageId::BUSINESS_ONLY as $bizPage) {
-                unset($present[$bizPage]);
+        // Capability-gate: drop a present page whose named capability the
+        // account lacks — per page, on the capability that describes THAT page.
+        // Until 2026-09-01 this was one blanket `! $caps->can_use_multipage_site`
+        // over SitepageId::BUSINESS_ONLY, i.e. the Menu page's fate decided by a
+        // flag about atlas-skeleton selection. ollies (a Google-sourced cafe
+        // filed account_type=partna) lost its Menu page here, with 105 ingested
+        // menu items still in the payload, because of a capability that has
+        // nothing to do with menus. Never reintroduce an account_type-shaped
+        // page list: if a page needs a gate, it needs a capability of its own.
+        //
+        // The dynamic read needs no runtime guard: PAGE_CAPABILITY is a closed
+        // const of literal strings, so PHPStan proves every value names a real
+        // bool on AccountCapabilitySet and a map that outlives its capability
+        // fails analysis rather than the public render path.
+        foreach (SitepageId::PAGE_CAPABILITY as $gatedPage => $capability) {
+            if (! $caps->{$capability}) {
+                unset($present[$gatedPage]);
             }
         }
 

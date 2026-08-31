@@ -304,15 +304,20 @@ it('suppresses placeId and streetView from the dashboard selection when location
     expect($selection['rating'] ?? null)->toBe(4.5);
 });
 
-// ── WS-B2.2 (I1): display toggles also gate public multipage page PRESENCE ────
+// ── WS-B2.2 (I1): display toggles also gate public page PRESENCE ─────────────
 // so a toggled-off GB section doesn't advertise an empty page in nav/pageOrder.
-// menu is a Business-only page, so a business tenant is required. Reviews is no
-// longer presented as a page at all (2026-07-13) — see the two tests below.
+// The tenant below carries sector='cafe' because the Menu page is gated on
+// can_use_menu (food-derived) since 2026-09-01, not on the account type: an
+// account with no sector reads as not-food and has no Menu page to toggle, so
+// a null-sector fixture would exercise the capability gate instead of the
+// toggle these tests are about. Reviews is no longer presented as a page at
+// all (2026-07-13) — see the two tests below.
 
 function dsBusinessTenant(string $handle): User
 {
     $pro = createTenant($handle);
-    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)->update(['account_type' => 'business']);
+    DB::connection('pgsql')->table('core.users')->where('id', $pro->id)
+        ->update(['account_type' => 'business', 'sector' => 'cafe']);
     AccountCapabilities::flushCache();
 
     return User::query()->with('site')->findOrFail($pro->id);

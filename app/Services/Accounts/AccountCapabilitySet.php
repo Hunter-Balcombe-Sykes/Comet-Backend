@@ -72,11 +72,12 @@ final readonly class AccountCapabilitySet
         // type directly. Shop is deliberately NOT covered — business accounts
         // keep Shop, managed via the dedicated Products page.
         public bool $can_use_lifestyle_pages,
-        // Sector-derived (2026-07-15 industry/sector gating). "Food" = business
-        // AND SectorTaxonomy::isFood(sector) — a business with no sector yet
-        // reads as not-food (booking-only) until an industry is picked/synced.
-        // A standard (partna) account is never food-gated at all: Menu stays
-        // hidden for partna exactly as it was before this flag existed.
+        // Sector-derived (2026-07-15 industry/sector gating), amended
+        // 2026-09-01: "food" = SectorTaxonomy::isFood(sector), for EITHER
+        // account type. The account_type half was dropped because a cafe is a
+        // food account whatever enum it was filed under — see the clause in
+        // AccountCapabilities for the accounts that proved it. An account with
+        // no sector yet still reads as not-food until one is picked/synced.
         public bool $can_use_menu,
         // Food businesses take table reservations instead of appointment
         // booking; every other account (including every partna account,

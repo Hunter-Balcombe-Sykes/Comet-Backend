@@ -431,10 +431,11 @@ it('LIFE-1 end-to-end: a services-probe fault degrades /api/public/profiles/{han
 // through to "shown".
 
 it('suppresses the GB-derived Menu page on a display-settings probe fault, even when a real fetched Menu exists', function () {
-    // Menu is Business-only (SitepageId::BUSINESS_ONLY) — a Standard partna
-    // account would never show it regardless of the fault, which would make
-    // this assertion pass for the wrong reason.
-    $pro = createTenant('gb-fault-suppress-menu', ['account_type' => 'business']);
+    // The Menu page is gated on can_use_menu (SitepageId::PAGE_CAPABILITY),
+    // which is food-derived — an account with no sector would never show Menu
+    // regardless of the fault, which would make this assertion pass for the
+    // wrong reason. sector='cafe' is what keeps the fault the only variable.
+    $pro = createTenant('gb-fault-suppress-menu', ['account_type' => 'business', 'sector' => 'cafe']);
     setupContentTables(); // pool presence probes (P4) need the pool tables
 
     // A REAL fetched menu exists — absent the fault below, the Menu page
@@ -461,7 +462,10 @@ it('suppresses the GB-derived Menu page on a display-settings probe fault, even 
 });
 
 it('still shows the Menu page on a legitimate (non-faulting) absent display_settings row — the fault sentinel does not leak into the normal path', function () {
-    $pro = createTenant('gb-no-fault-menu-shown', ['account_type' => 'business']);
+    // sector='cafe' for the same reason as the fault test above: the Menu
+    // page is capability-gated on food-ness, so a sector-less fixture would
+    // withhold the page for a reason this test is not about.
+    $pro = createTenant('gb-no-fault-menu-shown', ['account_type' => 'business', 'sector' => 'cafe']);
     setupContentTables(); // pool presence probes (P4) need the pool tables
 
     DB::connection('pgsql')->table('site.platform_connections')->insert([

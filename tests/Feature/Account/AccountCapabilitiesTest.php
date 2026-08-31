@@ -111,13 +111,19 @@ describe('AccountCapabilities — lifestyle pages (standard only)', function () 
 });
 
 describe('AccountCapabilities — sector-derived (2026-07-15 industry/sector gating)', function () {
-    // Contract is LAW (docs/superpowers/plans/2026-07-15-industry-sector-gating.md):
-    //   can_use_menu            = business && food
+    // Contract is LAW (docs/superpowers/plans/2026-07-15-industry-sector-gating.md),
+    // amended 2026-09-01 in the can_use_menu clause ONLY:
+    //   can_use_menu            = food                    (was: business && food)
     //   can_use_reservations    = business ? food : true
     //   can_use_booking         = business ? !food : true
     //   can_use_online_ordering = business && food
-    // partna is unconditional on all four regardless of sector; a business with
-    // a null sector reads as not-food (same row as an explicit non-food sector).
+    // The booking half stays type-branched — a venue books tables XOR
+    // appointments, a person does both. Menu no longer is: a cafe is a food
+    // account whatever enum it was filed under, and reading account_type there
+    // is what stripped the Menu page off ollies while its 105 ingested menu
+    // items shipped in the payload. A null sector still reads as not-food on
+    // every clause (same row as an explicit non-food sector), so an account
+    // whose industry is unknown gains nothing.
     it('gives the full matrix for every account-type × sector combination', function (
         string $accountType,
         ?string $sector,
@@ -133,7 +139,7 @@ describe('AccountCapabilities — sector-derived (2026-07-15 industry/sector gat
         expect($caps->can_use_booking)->toBe($booking);
         expect($caps->can_use_online_ordering)->toBe($onlineOrdering);
     })->with([
-        'partna × food (restaurant)' => ['partna', 'restaurant', false, true, true, false],
+        'partna × food (restaurant)' => ['partna', 'restaurant', true, true, true, false],
         'partna × non-food (barber)' => ['partna', 'barber', false, true, true, false],
         'partna × null sector' => ['partna', null, false, true, true, false],
         'business × food (restaurant)' => ['business', 'restaurant', true, true, false, true],

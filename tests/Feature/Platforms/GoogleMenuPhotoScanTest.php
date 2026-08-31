@@ -224,7 +224,9 @@ it('spends nothing for accounts without the menu capability', function () {
     config()->set('services.mistral.key', 'k1');
     config()->set('services.deepseek.key', 'k2');
 
-    $user = scanUser('nocap', 'partna'); // partna accounts never have can_use_menu
+    // can_use_menu is food-derived for EITHER account type since 2026-09-01 —
+    // a non-food sector is what withholds it now, not the account_type enum.
+    $user = scanUser('nocap', 'partna', 'barber');
 
     (new GoogleMenuPhotoScanJob((string) $user->id, 'place-x'))->handle(
         app(MenuAiExtractor::class),

@@ -42,7 +42,12 @@ function gateUser(string $h, string $accountType, ?string $sector = null): User
     ]);
 }
 
-// ── Menu (can_use_menu = business && food) ──────────────────────────────────
+// ── Menu (can_use_menu = food, either account type since 2026-09-01) ────────
+// The `business &&` half of this clause was dropped: a cafe is a food account
+// whatever enum it was filed under, and reading the enum here is what left
+// ollies (Google-sourced cafe, account_type=partna) shipping 105 menu items
+// with no page to render them. Sector — not type — is what withholds Menu now,
+// which is why the two 403 rows below are both non-food.
 
 it('403s menu refresh for a non-food (barbershop) business', function () {
     $user = gateUser('gate-menu-1', 'business', 'barber');
@@ -52,10 +57,22 @@ it('403s menu refresh for a non-food (barbershop) business', function () {
         ->assertJsonPath('message', 'Menu is not available for your account.');
 });
 
-it('403s menu refresh for partna (menu is never available to partna)', function () {
-    $user = gateUser('gate-menu-2', 'partna', 'restaurant');
+it('403s menu refresh for a non-food partna account', function () {
+    $user = gateUser('gate-menu-2', 'partna', 'barber');
 
     actingAsUser($user)->postJson('/api/platforms/menu/refresh')->assertStatus(403);
+});
+
+it('allows menu refresh for a food (cafe) partna account — the ollies row', function () {
+    Queue::fake();
+    $user = gateUser('gate-menu-2b', 'partna', 'cafe');
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'uber_eats.order', 'resource_id' => 'order-2b',
+        'payload' => ['url' => 'https://www.ubereats.com/store/x', 'provider' => 'custom', 'source' => 'manual'],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+
+    actingAsUser($user)->postJson('/api/platforms/menu/refresh')->assertOk();
 });
 
 it('allows menu refresh for a food (restaurant) business', function () {

@@ -7,8 +7,8 @@ namespace App\Enums;
  *
  * The 12 cases below, IN THIS ORDER, are the canonical default page order — the
  * order pages appear before any popularity re-ranking is applied. Every page is
- * presence-gated per site (shown only when the site has content for it); two
- * are additionally Business-only (see BUSINESS_ONLY).
+ * presence-gated per site (shown only when the site has content for it); some
+ * are additionally capability-gated (see PAGE_CAPABILITY).
  *
  * 2026-08-27 (smart-scoring plan): `reservations`, `strava` and `skool` left
  * the taxonomy. The PLATFORMS stay — a reservation widget, a Strava club or a
@@ -37,12 +37,31 @@ enum SitepageId: string
     case Links = 'links';
 
     /**
-     * Pages available only to Business Partna accounts. Gate on the derived
-     * capability (AccountCapabilities), never on account_type directly.
+     * Capability-gated pages: page-id => the AccountCapabilitySet property that
+     * grants it. SitepageDataResolverService::presentPageIds drops a present
+     * page whose named capability the account lacks.
      *
-     * @var list<string>
+     * Replaces BUSINESS_ONLY = ['menu', 'reviews'] (2026-09-01), which the
+     * resolver gated on can_use_multipage_site. That capability was minted by
+     * #30 to answer exactly one question — "may this account select the atlas
+     * multi-page skeleton?" — and the resolver borrowed it to answer a
+     * different one. Asking about skeleton selection and hearing "then you may
+     * not have a Menu page" is a non-sequitur, and it is how ollies (a
+     * Google-Business-sourced cafe filed account_type=partna) shipped 105
+     * ingested menu items that rendered nowhere while can_use_menu — the
+     * capability actually named for the job — sat unread one file away. A page
+     * is gated on the capability that describes THAT page, or it is not gated.
+     *
+     * `reviews` is dropped rather than remapped: presence has not set it since
+     * Reviews stopped being its own page (2026-07-13), so the entry stripped a
+     * page nothing granted. Whoever restores Reviews presence gates it on the
+     * account's own review data — PoolResolver already computes which reviews
+     * are in scope for a person (reviews_scoped_to_person), so a partna DOES
+     * have reviews — not on the account type.
+     *
+     * @var array<string, string>
      */
-    public const BUSINESS_ONLY = ['menu', 'reviews'];
+    public const PAGE_CAPABILITY = ['menu' => 'can_use_menu'];
 
     /**
      * Pages available only to standard (partna) accounts — the lifestyle/creator
@@ -173,11 +192,5 @@ enum SitepageId: string
     public static function canonicalOrder(): array
     {
         return array_map(static fn (self $case): string => $case->value, self::cases());
-    }
-
-    /** Is this page gated to Business Partna accounts? */
-    public function isBusinessOnly(): bool
-    {
-        return in_array($this->value, self::BUSINESS_ONLY, true);
     }
 }

@@ -43,10 +43,10 @@ final class AccountCapabilities
     {
         $status = (string) ($pro->status ?? '');
         $isBusiness = $pro->isBusiness();
-        // NULL sector reads as not-food (booking-only default) for a business
-        // until an industry is picked (Settings) or synced (Google) — see
-        // SectorTaxonomy::isFood(). Irrelevant for partna: none of the four
-        // food-derived flags below branch on it for a partna account.
+        // NULL sector reads as not-food — for a business that means the
+        // booking-only default until an industry is picked (Settings) or
+        // synced (Google); for a partna it means no Menu until the same
+        // happens. See SectorTaxonomy::isFood().
         $isFood = SectorTaxonomy::isFood($pro->sector);
 
         return new AccountCapabilitySet(
@@ -62,10 +62,35 @@ final class AccountCapabilities
             can_use_multipage_site: $isBusiness,
             can_use_lifestyle_pages: ! $isBusiness,
             // Sector-derived (2026-07-15 industry/sector gating contract — LAW,
-            // do not rederive): partna is never gated by sector, only business is.
-            can_use_menu: $isBusiness && $isFood,
+            // do not rederive): "partna is never gated by sector, only business
+            // is." Amended 2026-09-01 in ONE clause — can_use_menu — and the
+            // amendment is deliberate, not a workaround.
+            //
+            // The law's booking half is untouched and stays type-branched,
+            // because that half is genuinely about type: a venue books either
+            // tables or appointments (never both — see BookingXorLockTest), a
+            // person does both. Menu was never that. `$isBusiness && $isFood`
+            // was written when `sector` was in practice a business-only field,
+            // so the `$isBusiness &&` half was a guard against reading a column
+            // partna accounts never filled. IdentitySync and
+            // InstagramIdentitySync have stamped `sector` for BOTH types since;
+            // the guard stopped being a no-op and started asking "is this a food
+            // account that was ALSO filed under the right enum?" — a question
+            // about the enum, not about the account. ollies is a
+            // Google-Business-sourced CAFE filed account_type=partna: it shipped
+            // 105 ingested menu items in its public payload with no page to
+            // render them, as did broken-oven (171) and fred-sarson (69). Menu
+            // now follows the sector, which is evidence of what the account is.
+            // ra33rty — the fourth partna account with a Google-sourced sector —
+            // is a gym, and still gets no Menu, which is the point: the gate got
+            // narrower in what it reads, not looser in what it grants.
+            can_use_menu: $isFood,
             can_use_reservations: $isBusiness ? $isFood : true,
             can_use_booking: $isBusiness ? ! $isFood : true,
+            // Online ordering deliberately did NOT move with Menu: it is a
+            // transactional surface the owner scoped to businesses outright
+            // (AccountCapabilitySet), not a food-ness question wearing an enum.
+            // A partna cafe gets its menu and no order button — intended.
             can_use_online_ordering: $isBusiness && $isFood,
             // Pre-account auto-sync gate (2026-07-25): previously gated on
             // !isUnclaimed() (DISC-7 consent). Removed — unclaimed users now
