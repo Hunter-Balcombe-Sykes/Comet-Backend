@@ -2934,6 +2934,11 @@ function setupContentTables(): void
             \'product\', \'event\', \'link\', \'media\', \'review\', \'document\', \'article\'
         )),
         projector_version INTEGER NOT NULL DEFAULT 1,
+        -- The vendor-side selection in force when this row was ingested
+        -- (supabase/migrations/20260901120000_source_items_ingest_selection_ref
+        -- .sql). NULL = unknown, which the reviews person-scope reads as NOT
+        -- employee-scoped.
+        ingest_selection_ref TEXT NULL,
         first_seen_at TEXT NOT NULL,
         last_seen_at TEXT NOT NULL,
         removed_at TEXT NULL,

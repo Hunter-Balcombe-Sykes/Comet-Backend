@@ -553,6 +553,12 @@ class DataExportPayloadBuilder
                     'content.source_items.id', 'content.source_items.source_id', 'content.source_items.coord',
                     'content.source_items.stream_id', 'content.source_items.record_key', 'content.source_items.item_id',
                     'content.source_items.kind', 'content.source_items.projector_version',
+                    // The vendor selection this row was ingested under. The
+                    // subject's OWN configuration, never a third party's, and
+                    // it is what decides whether a review the connector landed
+                    // is publishable on their page — so an export that omitted
+                    // it would not explain the page it is an export of.
+                    'content.source_items.ingest_selection_ref',
                     'content.source_items.first_seen_at', 'content.source_items.last_seen_at', 'content.source_items.removed_at',
                 ])
         );

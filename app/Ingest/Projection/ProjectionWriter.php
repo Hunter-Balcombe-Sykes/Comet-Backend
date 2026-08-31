@@ -178,10 +178,24 @@ class ProjectionWriter
     /**
      * Project one stream's current records end to end.
      *
+     * $recordsFetchedThisRun says whether the caller ALSO fetched these
+     * records, under the selection `$source` is currently carrying. Only
+     * RunExecutor can say yes: it lands a stream and projects it in the same
+     * pass, so the source's selection_ref is the one the records arrived
+     * under. `ingest:project` re-derives content from the landed record log
+     * without fetching a byte, so it says no and the ingest scope recorded on
+     * each source item is left exactly as the run that DID fetch it wrote it.
+     *
+     * That distinction is the blocker (2026-09-01): re-stamping a repair run's
+     * rows with the source's present-tense selection is how a whole salon's
+     * storewide corpus would be re-labelled as one employee's without a single
+     * new record arriving — the same retroactive re-scoping the person-scope
+     * gate itself used to perform on every read. See upsertSourceItem().
+     *
      * @param  array<string, mixed>  $source  row from ingest.sources
      * @return array{status: string, projected?: int, removed?: int, items?: int, reason?: string}
      */
-    public function projectStream(array $source, string $streamId, string $streamName): array
+    public function projectStream(array $source, string $streamId, string $streamName, bool $recordsFetchedThisRun = false): array
     {
         $sourceKey = (string) $source['source_key'];
         $projector = ProjectorRegistry::for($sourceKey, $streamName);
@@ -195,6 +209,12 @@ class ProjectionWriter
         }
 
         $userId = (string) $source['user_id'];
+        // Read ONCE, here, from the source row this run was dispatched with —
+        // and written to each source item only when this run actually FETCHED
+        // what it is projecting ($recordsFetchedThisRun below). That way "what
+        // was this source scoped to when it landed that review" stops being a
+        // question anyone has to answer from the source's current state.
+        $selectionRef = isset($source['selection_ref']) ? (string) $source['selection_ref'] : null;
         $contentSourceId = $this->ensureContentSource($userId, (string) $connectionId, $sourceKey);
         $accountRef = $this->accountRef($userId, (string) $connectionId, (string) $source['identifier']);
 
@@ -281,7 +301,7 @@ class ProjectionWriter
             // ($attempts defaults to 1), but each transaction locks a single
             // source item and its keys in a fixed order, so a cycle needs two
             // writers on the SAME row — accepted, not retried.
-            $sourceItemId = DB::transaction(function () use ($contentSourceId, $coord, $streamId, $record, $projection, $projector) {
+            $sourceItemId = DB::transaction(function () use ($contentSourceId, $coord, $streamId, $record, $projection, $projector, $recordsFetchedThisRun, $selectionRef) {
                 $id = $this->upsertSourceItem(
                     contentSourceId: $contentSourceId,
                     coord: $coord,
@@ -289,6 +309,11 @@ class ProjectionWriter
                     recordKey: (string) $record->key,
                     kind: (string) $projection['kind'],
                     projectorVersion: $projector::version(),
+                    // Stamped from THIS run's source row, and only when this
+                    // run fetched what it is projecting — never read back later
+                    // from the source's present tense. See upsertSourceItem().
+                    stampIngestScope: $recordsFetchedThisRun,
+                    ingestSelectionRef: $selectionRef,
                 );
                 $this->writeIdentityKeys($id, $coord, $projection);
 
@@ -587,6 +612,13 @@ class ProjectionWriter
                 // value (its only reader is the DSAR export), and a real
                 // version number would imply a rebuild could re-derive it.
                 projectorVersion: 0,
+                // A real ingestion (the owner added this by hand) that had no
+                // vendor selection, because the manual lane has no vendor.
+                // Null is not employee scope, so a hand-added review is
+                // admitted to a person's page on its own name evidence like
+                // any other.
+                stampIngestScope: true,
+                ingestSelectionRef: null,
             );
             $this->writeIdentityKeys($sourceItemId, $coord, $projection);
 
@@ -647,6 +679,34 @@ class ProjectionWriter
         return 'acct-'.substr(sha1(strtolower(trim($identifier))), 0, 16);
     }
 
+    /**
+     * $stampIngestScope says whether this call is an INGESTION at all, and
+     * $ingestSelectionRef is the vendor-side selection that ingestion ran under
+     * — Fresha's employee id, 'storewide', or null for a lane that has no
+     * vendor selection whatsoever (the manual path, every connector without a
+     * picker). The two are separate because "no ingestion happened, leave the
+     * stored answer alone" and "an ingestion happened and it had no selection"
+     * are different facts, and collapsing them into one nullable string lets a
+     * repair run silently inherit a stale employee id.
+     *
+     * BLOCKER it closes (2026-09-01). The reviews person-scope has an
+     * employee-scoped tier: a source the vendor already narrowed to one team
+     * member may publish an UNATTRIBUTED review on that person's page, on the
+     * vendor's word alone. That gate read `ingest.sources.selection_ref` — the
+     * source's CURRENT selection — while the reviews themselves carried no
+     * record of the selection they arrived under. So a Fresha connection that
+     * harvested a whole salon STOREWIDE and was later narrowed to one employee
+     * retroactively re-labelled the entire storewide corpus as that employee's,
+     * and published all of it on their page forever. Scope is a fact about an
+     * ingestion, so it is stamped here, on the row the ingestion writes, and
+     * never re-derived from the source's present tense.
+     *
+     * Rewritten on every pass, like kind and projector_version: a connection
+     * genuinely narrowed to an employee re-harvests under that selection and
+     * its rows say so from then on. It is the reviews that never come back
+     * under the new selection which must keep saying 'storewide' — and they do,
+     * because a row nobody re-landed is a row nobody rewrote.
+     */
     private function upsertSourceItem(
         string $contentSourceId,
         string $coord,
@@ -654,6 +714,8 @@ class ProjectionWriter
         ?string $recordKey,
         string $kind,
         int $projectorVersion,
+        bool $stampIngestScope = false,
+        ?string $ingestSelectionRef = null,
     ): string {
         $existing = DB::table('content.source_items')
             ->where('source_id', $contentSourceId)
@@ -670,6 +732,15 @@ class ProjectionWriter
                 // Reappearance clears PROJECTION-level absence. The user-level
                 // delete lives on items.removed_at and is never touched here.
                 'removed_at' => null,
+                // Only a run that FETCHED may restate the scope of a row that
+                // already exists — and when it does it writes the answer
+                // WHOLE, null included, so a source whose picker was cleared
+                // stops claiming the employee scope it used to have. A
+                // re-projection ingested nothing and so says nothing: erasing
+                // the stored answer with its silence would destroy the only
+                // record of what the source was scoped to when the review
+                // actually arrived, which is the whole point of the column.
+                ...($stampIngestScope ? ['ingest_selection_ref' => $ingestSelectionRef] : []),
             ]);
 
             return (string) $existing->id;
@@ -691,6 +762,10 @@ class ProjectionWriter
             'record_key' => $recordKey,
             'kind' => $kind,
             'projector_version' => $projectorVersion,
+            // A first-sight row from a re-projection records NULL: it is a row
+            // we have no ingestion for, and unknown scope is not employee
+            // scope.
+            'ingest_selection_ref' => $stampIngestScope ? $ingestSelectionRef : null,
             'first_seen_at' => now(),
             'last_seen_at' => now(),
         ]);

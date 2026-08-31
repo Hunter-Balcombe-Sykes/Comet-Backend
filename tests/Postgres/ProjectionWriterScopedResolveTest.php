@@ -180,6 +180,7 @@ beforeEach(function () {
         item_id uuid REFERENCES content.items(id) ON DELETE SET NULL,
         kind text NOT NULL,
         projector_version integer NOT NULL DEFAULT 1,
+        ingest_selection_ref text,
         first_seen_at timestamptz NOT NULL DEFAULT now(),
         last_seen_at timestamptz NOT NULL DEFAULT now(),
         removed_at timestamptz,

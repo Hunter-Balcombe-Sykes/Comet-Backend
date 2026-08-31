@@ -81,17 +81,34 @@ function personScopeFixture(?string $displayName, ?string $firstName, array $rev
     return [$pro, $siteId, $itemIds, $connectionId];
 }
 
-/** Marks $connectionId as scoped to a single team member at the vendor. */
-function personScopeEmployeeSource(string $userId, string $connectionId, string $selectionRef = '5035183'): void
-{
+/**
+ * Marks $connectionId as scoped to a single team member at the vendor.
+ *
+ * TWO selections, because they are two different facts and conflating them is
+ * the blocker (2026-09-01): $ingestedUnder is what was in force when the
+ * connector landed these reviews — stamped on content.source_items by
+ * ProjectionWriter — and $currentlySetTo is what ingest.sources says the
+ * source is scoped to NOW. They diverge for real whenever an owner narrows or
+ * widens a Fresha connection, and the person-scope gate must read the first.
+ */
+function personScopeEmployeeSource(
+    string $userId,
+    string $connectionId,
+    string $ingestedUnder = '5035183',
+    ?string $currentlySetTo = null,
+): void {
     DB::table('ingest.sources')->insert([
         'id' => (string) Str::uuid(), 'user_id' => $userId,
         'connection_id' => $connectionId, 'source_key' => 'fresha',
         'surface_key' => 'fresha.book', 'identifier' => 'vision-hair-studio-melbourne-tzo6gxk0',
-        'selection_ref' => $selectionRef, 'cost_units' => 1,
+        'selection_ref' => $currentlySetTo ?? $ingestedUnder, 'cost_units' => 1,
         'min_interval_secs' => 3600, 'max_interval_secs' => 604800,
         'auto_sync' => 1, 'created_at' => now(), 'updated_at' => now(),
     ]);
+
+    DB::table('content.source_items')
+        ->whereIn('source_id', DB::table('content.sources')->where('connection_id', $connectionId)->pluck('id'))
+        ->update(['ingest_selection_ref' => $ingestedUnder]);
 }
 
 /**
@@ -129,6 +146,19 @@ function personScopePublished(string $siteId): array
     $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
 
     return array_map(static fn (array $item): string => (string) $item['id'], $resolved['selection']);
+}
+
+/**
+ * The review CARDS the pool would publish — the prose a visitor actually
+ * reads, which is the half every earlier pin was blind to.
+ *
+ * @return list<?string>
+ */
+function personScopeCards(string $siteId): array
+{
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
+
+    return array_map(static fn (array $item): ?string => $item['review']['text'] ?? null, $resolved['selection']);
 }
 
 // ── Hole 1: the name match meant nothing ────────────────────────────────────
@@ -305,4 +335,164 @@ it('leaves a business account\'s venue reviews alone', function () {
     AccountCapabilities::flushCache();
 
     expect(personScopePublished($siteId))->toBe($itemIds);
+});
+
+// ── THE ROOT CAUSE: admission and publication read different rows ───────────
+//
+// Three waves of guards produced three more blockers because every one of them
+// reasoned about a row the visitor was not looking at.
+// reviewsOutsidePersonScope() read content.f_review orderBy(updated_at) and
+// admitted on the FIRST row whose prose named the owner; itemPayloads() read
+// the same rows orderBy(updated_at)->keyBy(item_id), which keeps the LAST. The
+// PK is (item_id, source_id), so a deduped review has two rows and the two
+// readings were about different ones.
+//
+// These pin the PROPERTY — the row that justifies admission is the row that
+// publishes — rather than pinning two call sites that happen to agree today.
+
+it('decides a deduped review on the copy that will actually be published', function (bool $namingCopyPublishes) {
+    // The divergence, in the shape it really has: one review, two vendors, two
+    // wordings. The Google copy names Raff; the Fresha copy — the same visit,
+    // as Fresha renders it — names nobody. Under the split reading the naming
+    // copy admitted the item and the OTHER one went on the page: a venue
+    // review published on a named person's page, admitted by a sentence no
+    // visitor could see.
+    [$pro, $siteId, $itemIds] = personScopeFixture('Raff McGuiness', 'Raff', [
+        ['text' => 'Raff was wonderful, best cut in Melbourne.'],
+    ]);
+    personScopeSecondSource($pro->id, $itemIds[0], [
+        'text' => 'Great service today, thanks!',
+    ], (string) ($namingCopyPublishes ? now()->subDay() : now()->addDay()));
+
+    if ($namingCopyPublishes) {
+        // Admitted, and admitted on the words that are on the card.
+        expect(personScopePublished($siteId))->toBe($itemIds)
+            ->and(personScopeCards($siteId))->toBe(['Raff was wonderful, best cut in Melbourne.']);
+    } else {
+        // The card would have said "Great service today, thanks!" — which
+        // claims nothing about Raff — so there is no admission to make.
+        expect(personScopePublished($siteId))->toBe([])
+            ->and(app(PoolResolver::class)->hasSelection(Site::query()->findOrFail($siteId), 'reviews'))->toBeFalse();
+    }
+})->with([
+    'the naming copy is the one that renders' => true,
+    'the silent copy is the one that renders' => false,
+]);
+
+it('reads content.f_review once per pool read, so the two answers are about the same rows', function () {
+    // The structural half, and the one that survives a rewrite: as long as
+    // there is exactly ONE read, admission and publication have nothing left
+    // to disagree about. A second query here is the regression — it is how the
+    // last three fixes each shipped a guard over rows the payload never saw.
+    [, $siteId] = personScopeFixture('Raff McGuiness', 'Raff', [
+        ['text' => 'Raff was wonderful.'],
+        ['text' => 'The salon is lovely.'],
+    ]);
+
+    $reads = 0;
+    DB::listen(function ($query) use (&$reads): void {
+        if (str_contains($query->sql, 'f_review')) {
+            $reads++;
+        }
+    });
+
+    app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
+    expect($reads)->toBe(1);
+
+    // And the nav probe, which decides the same question without rendering.
+    $reads = 0;
+    app(PoolResolver::class)->hasSelection(Site::query()->findOrFail($siteId), 'reviews');
+    expect($reads)->toBe(1);
+});
+
+it('publishes the freshest copy of a deduped review whichever order it is written in', function (bool $freshIsSecond) {
+    // Which row is authoritative must be an ANSWER, not a coin toss: the same
+    // two rows in either write order publish the same card. Both copies
+    // attribute the review to Raff, so admission is not in question here —
+    // only which wording lands on the page.
+    [$pro, $siteId, $itemIds] = personScopeFixture('Raff McGuiness', 'Raff', [
+        ['staff_name' => 'Raff', 'text' => $freshIsSecond ? 'Older copy: Raff was great.' : 'Newer copy: Raff was great.'],
+    ]);
+    personScopeSecondSource($pro->id, $itemIds[0], [
+        'staff_name' => 'Raff',
+        'text' => $freshIsSecond ? 'Newer copy: Raff was great.' : 'Older copy: Raff was great.',
+    ], (string) ($freshIsSecond ? now()->addDay() : now()->subDay()));
+
+    expect(personScopePublished($siteId))->toBe($itemIds)
+        ->and(personScopeCards($siteId))->toBe(['Newer copy: Raff was great.']);
+})->with([
+    'the fresher row is written second' => true,
+    'the fresher row is written first' => false,
+]);
+
+// ── SURVIVING MUTANT: the veto looked at one staff name ─────────────────────
+
+it('lets ANY of several staff attributions veto a review, not just the first', function (bool $ownerNamedFirst) {
+    // `foreach ($staffNames as $staffName)` mutated to `foreach
+    // ([$staffNames[0]] as $staffName)` survived all 146 tests across the five
+    // review suites. It is reachable on a live shape: ollies' deduped reviews
+    // carry Fresha's "Ciel" on one row and can carry the salon's own team
+    // spelling on the other, and stopping at the first match admits exactly
+    // the review the second name disowns.
+    //
+    // Both orders, so the veto cannot be "fixed" by looking at the last name
+    // instead of the first.
+    [$pro, $siteId, $itemIds] = personScopeFixture('Raff McGuiness', 'Raff', [
+        ['staff_name' => $ownerNamedFirst ? 'Raff' : 'Ciel', 'text' => 'Lovely visit, thank you.'],
+    ]);
+    personScopeSecondSource($pro->id, $itemIds[0], [
+        'staff_name' => $ownerNamedFirst ? 'Ciel' : 'Raff',
+        'text' => 'Lovely visit, thank you.',
+    ], (string) now()->addDay());
+
+    expect(personScopePublished($siteId))->toBe([])
+        ->and(app(PoolResolver::class)->hasSelection(Site::query()->findOrFail($siteId), 'reviews'))->toBeFalse();
+})->with([
+    'the owner is the first name read' => true,
+    'the colleague is the first name read' => false,
+]);
+
+// ── BLOCKER: a storewide corpus re-labelled by a later narrowing ────────────
+
+it('keeps a review ingested storewide out of the pool after the connection is narrowed to one employee', function () {
+    // Proved and permanent before this fix. The employee-scope tier publishes
+    // a review carrying NO name evidence at all, purely on the vendor's word
+    // that the feed was already narrowed to this person — and it read the
+    // source's CURRENT selection_ref. So harvesting
+    // vision-hair-studio-melbourne-tzo6gxk0 storewide and then picking
+    // employee 5035183 republished the whole salon's corpus as Raff's, with
+    // nothing in those rows ever saying otherwise.
+    [$pro, $siteId, , $connectionId] = personScopeFixture('Raff McGuiness', 'Raff', [
+        ['text' => 'Best cut in Melbourne, could not be happier.'],
+    ]);
+    personScopeEmployeeSource($pro->id, $connectionId, ingestedUnder: 'storewide', currentlySetTo: '5035183');
+
+    expect(personScopePublished($siteId))->toBe([])
+        ->and(app(PoolResolver::class)->hasSelection(Site::query()->findOrFail($siteId), 'reviews'))->toBeFalse();
+});
+
+it('keeps publishing a review ingested under an employee selection after the connection is widened to storewide', function () {
+    // The other direction, or the fix above is just "never trust the gate".
+    // These reviews DID arrive from a feed narrowed to this person; widening
+    // the connection afterwards changes what the NEXT harvest brings, not what
+    // the last one meant.
+    [$pro, $siteId, $itemIds, $connectionId] = personScopeFixture('Raff McGuiness', 'Raff', [
+        ['text' => 'Best cut in Melbourne, could not be happier.'],
+    ]);
+    personScopeEmployeeSource($pro->id, $connectionId, ingestedUnder: '5035183', currentlySetTo: 'storewide');
+
+    expect(personScopePublished($siteId))->toBe($itemIds);
+});
+
+it('does not read employee scope off a review with no record of what it was ingested under', function () {
+    // Every row that existed before content.source_items.ingest_selection_ref
+    // did. NULL is "we do not know", and the one tier that publishes on no
+    // name evidence at all must never open on an unknown.
+    [$pro, $siteId, , $connectionId] = personScopeFixture('Raff McGuiness', 'Raff', [
+        ['text' => 'Best cut in Melbourne, could not be happier.'],
+    ]);
+    personScopeEmployeeSource($pro->id, $connectionId);
+    DB::table('content.source_items')->update(['ingest_selection_ref' => null]);
+
+    expect(personScopePublished($siteId))->toBe([]);
 });

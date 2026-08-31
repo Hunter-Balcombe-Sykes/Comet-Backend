@@ -573,6 +573,12 @@ it('keeps every review from a vendor employee-scoped source regardless of names'
         'min_interval_secs' => 3600, 'max_interval_secs' => 604800,
         'auto_sync' => 1, 'created_at' => now(), 'updated_at' => now(),
     ]);
+    // The review LANDED under that selection — the fact the scope reads
+    // (2026-09-01). ProjectionWriter stamps this at ingest time; a source's
+    // present-tense selection says nothing about what it harvested before.
+    DB::table('content.source_items')
+        ->whereIn('source_id', DB::table('content.sources')->where('connection_id', $connectionId)->pluck('id'))
+        ->update(['ingest_selection_ref' => '5182247']);
 
     $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
 

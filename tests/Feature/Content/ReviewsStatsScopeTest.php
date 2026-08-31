@@ -61,6 +61,22 @@ function rsPerson(?string $displayName, ?string $firstName): array
     return [$pro, $siteId];
 }
 
+/**
+ * The vendor selection $sourceId's connection is scoped to, which is what a
+ * landing under it stamps on content.source_items (2026-09-01). Fixtures call
+ * this so a source item records the scope it arrived under rather than
+ * borrowing the source's present tense at read time — the blocker.
+ */
+function rsIngestSelection(string $sourceId): ?string
+{
+    $ref = DB::table('content.sources')
+        ->join('ingest.sources', 'ingest.sources.connection_id', '=', 'content.sources.connection_id')
+        ->where('content.sources.id', $sourceId)
+        ->value('ingest.sources.selection_ref');
+
+    return $ref === null ? null : (string) $ref;
+}
+
 /** One landed review item on $sourceId. $facet overrides the f_review row. */
 function rsReview(string $userId, string $sourceId, array $facet = []): string
 {
@@ -74,6 +90,7 @@ function rsReview(string $userId, string $sourceId, array $facet = []): string
     DB::table('content.source_items')->insert([
         'id' => (string) Str::uuid(), 'source_id' => $sourceId,
         'coord' => 'review:'.Str::random(10), 'item_id' => $itemId, 'kind' => 'review',
+        'ingest_selection_ref' => rsIngestSelection($sourceId),
         'first_seen_at' => now(), 'last_seen_at' => now(),
     ]);
     DB::table('content.f_review')->insert([
@@ -93,6 +110,7 @@ function rsAlsoCarriedBy(string $itemId, string $sourceId): void
     DB::table('content.source_items')->insert([
         'id' => (string) Str::uuid(), 'source_id' => $sourceId,
         'coord' => 'review:'.Str::random(10), 'item_id' => $itemId, 'kind' => 'review',
+        'ingest_selection_ref' => rsIngestSelection($sourceId),
         'first_seen_at' => now(), 'last_seen_at' => now(),
     ]);
 }
@@ -106,7 +124,13 @@ function rsStats(string $sourceId, ?float $avg, ?int $count, ?string $summary, ?
     ]);
 }
 
-/** Marks $connectionId as scoped to a single team member at the vendor. */
+/**
+ * Marks $connectionId as scoped to a single team member at the vendor — and
+ * marks the rows it already landed as having been INGESTED under that
+ * selection, which is where the person scope reads it from (2026-09-01): the
+ * source's current selection says nothing about reviews harvested before it
+ * was set.
+ */
 function rsEmployeeScoped(string $userId, string $connectionId): void
 {
     DB::table('ingest.sources')->insert([
@@ -117,6 +141,10 @@ function rsEmployeeScoped(string $userId, string $connectionId): void
         'min_interval_secs' => 3600, 'max_interval_secs' => 604800,
         'auto_sync' => 1, 'created_at' => now(), 'updated_at' => now(),
     ]);
+
+    DB::table('content.source_items')
+        ->whereIn('source_id', DB::table('content.sources')->where('connection_id', $connectionId)->pluck('id'))
+        ->update(['ingest_selection_ref' => '5035183']);
 }
 
 /** @return array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string}|null */

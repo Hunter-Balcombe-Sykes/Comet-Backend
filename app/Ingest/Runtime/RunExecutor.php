@@ -242,7 +242,13 @@ class RunExecutor
             if (($landed['changed'] > 0 || $landed['tombstoned'] > 0 || $forceProject)
                 && ProjectorRegistry::has((string) $source['source_key'], $streamName)) {
                 try {
-                    $this->projections->projectStream($source, $streamId, $streamName);
+                    // recordsFetchedThisRun: THIS is the lane that fetched —
+                    // the stream above was pulled seconds ago under $source's
+                    // current selection, so the scope stamped on each source
+                    // item is the scope the records actually arrived under.
+                    // `ingest:project` re-derives without fetching and passes
+                    // false; see ProjectionWriter::projectStream().
+                    $this->projections->projectStream($source, $streamId, $streamName, recordsFetchedThisRun: true);
                 } catch (\Throwable $e) {
                     report($e);
                     // JOB-4: a projection failure must move the run outcome off 'ok' —

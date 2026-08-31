@@ -176,8 +176,12 @@ class PoolResolver
             return false;
         }
 
+        // The same canonical facet read itemPayloads() publishes from. This
+        // probe only asks "would anything survive?", so it never renders a row
+        // — but it must decide over the SAME rows resolve() will, or nav
+        // advertises a page whose pool is empty behind it.
         $suppressed = $this->reviewsSuppressedByOwner($site, $candidates)
-            + $this->reviewsOutsidePersonScope($site, $candidates);
+            + $this->reviewsOutsidePersonScope($site, $candidates, ReviewFacets::forItems($candidates));
 
         foreach ($candidates as $itemId) {
             if (! isset($suppressed[$itemId])) {
@@ -1426,25 +1430,25 @@ class PoolResolver
 
         // Slice 6 §4.2: the review itself. Gated on the resolved set actually
         // containing one, so watch / listen / media / events / shop add no
-        // query — this sits behind the 60s payload cache on the public path.
+        // query (ReviewFacets::forItems([]) short-circuits without touching the
+        // database) — this sits behind the 60s payload cache on the public path.
         //
-        // Ordered for the same reason $places is: f_review is PK (item_id,
-        // source_id), so an item carried by two sources has TWO rows and keyBy
-        // keeps the LAST. Unordered that is arbitrary scan order, which flips
-        // the published attribution between reads. Freshest wins.
+        // ONE read, shared with the scope below, and that sharing is the fix
+        // (2026-09-01, fourth pass). This lane used to read content.f_review
+        // twice — here with keyBy(), which keeps the LAST row of a
+        // two-source review, and inside reviewsOutsidePersonScope(), which
+        // scanned them all and admitted on the FIRST that named the owner. The
+        // row that justified admission was deterministically not the row that
+        // published. Passing the resolution in rather than letting the scope
+        // fetch its own is what makes those two answers structurally the same
+        // rows; see ReviewFacets.
         $reviewIds = $items->filter(fn (object $i): bool => $i->kind === 'review')->keys()->all();
 
-        $reviews = collect();
+        $reviewFacets = ReviewFacets::forItems($reviewIds);
         $suppressedReviews = [];
         if ($reviewIds !== []) {
-            $reviews = DB::connection('pgsql')->table('content.f_review')
-                ->whereIn('item_id', $reviewIds)
-                ->orderBy('updated_at')
-                ->get(['item_id', 'author_name', 'author_photo_url', 'author_uri', 'rating', 'text', 'reviewed_at'])
-                ->keyBy('item_id');
-
             $suppressedReviews = $this->reviewsSuppressedByOwner($site, $reviewIds)
-                + $this->reviewsOutsidePersonScope($site, $reviewIds);
+                + $this->reviewsOutsidePersonScope($site, $reviewIds, $reviewFacets);
         }
 
         // Public URL slugs. The legacy events lane served these off
@@ -1606,6 +1610,11 @@ class PoolResolver
             // value degrading to null is not the same event as the drop decision above.
             $emittedUrl = UrlSafety::safeHref($ov('f_link.url', $outboundUrl));
 
+            // THE row this item's review card is built from — the one the
+            // person scope above was applied through, read off the same
+            // resolution rather than a second keyBy() of its own.
+            $review = $reviewFacets->for((string) $itemId)->published();
+
             $out[$itemId] = [
                 'id' => (string) $itemId,
                 'kind' => $item->kind,
@@ -1724,14 +1733,19 @@ class PoolResolver
                 )),
                 'sources' => $sourcesByItem[$itemId] ?? [],
                 'duplicateCandidates' => $candidatesByItem[(string) $itemId] ?? [],
-                'review' => isset($reviews[$itemId]) ? [
-                    'rating' => $reviews[$itemId]->rating === null ? null : (float) $reviews[$itemId]->rating,
-                    'text' => $reviews[$itemId]->text,
-                    'authorName' => $reviews[$itemId]->author_name,
+                // published(), not a second keyBy(): THE row, chosen by the one
+                // resolution the person scope was applied through. An item that
+                // survived suppression did so on evidence read off this exact
+                // row, so the card and the admission can no longer describe
+                // different reviews.
+                'review' => $review === null ? null : [
+                    'rating' => $review->rating === null ? null : (float) $review->rating,
+                    'text' => $review->text,
+                    'authorName' => $review->author_name,
                     // #SEC-2: authorUri IS an href (the reviewer's Google profile) and is
                     // third-party-sourced, so it belongs on the same gate as `url`.
-                    'authorPhotoUrl' => UrlSafety::safeHref($reviews[$itemId]->author_photo_url),
-                    'authorUri' => UrlSafety::safeHref($reviews[$itemId]->author_uri),
+                    'authorPhotoUrl' => UrlSafety::safeHref($review->author_photo_url),
+                    'authorUri' => UrlSafety::safeHref($review->author_uri),
                     // #API-1 applies here too — content.f_review.reviewed_at is
                     // timestamptz, `review` is a PUBLIC wire field (ITEM_KEYS,
                     // and not dashboard-only), and pdo_pgsql hands it back as
@@ -1740,8 +1754,8 @@ class PoolResolver
                     // audit named only the three top-level fields and the
                     // existing assertion passes on SQLite, which returns the
                     // seeded string verbatim and cannot see the difference.
-                    'reviewedAt' => self::iso($reviews[$itemId]->reviewed_at),
-                ] : null,
+                    'reviewedAt' => self::iso($review->reviewed_at),
+                ],
             ];
         }
 
@@ -1864,22 +1878,41 @@ class PoolResolver
      * (Google listing, Booksy/Treatwell page, storewide Fresha) reviews the
      * WORKPLACE — an individual's page keeps only the reviews attributable to
      * THEM: Fresha's structured staff attribution (f_review.staff_name), a
-     * mention of their name in the review text, or a source that is already
-     * employee-scoped at the vendor (ingest selection_ref names a team
-     * member, so an UNATTRIBUTED review it lands is theirs even when the text
-     * never says a name — see the 2026-09-01 note below for why an attributed
-     * one is not). Empty for business accounts — the venue's reviews ARE
-     * its reviews — and applied identically in hasSelection() and
-     * itemPayloads() so the advertised page and the served pool agree.
+     * mention of their name in the prose the card will actually carry, or a
+     * source that was employee-scoped at the vendor WHEN THE REVIEW LANDED (so
+     * an UNATTRIBUTED review it landed is theirs even when the text never says
+     * a name — see the storewide note below for why "when" is load-bearing).
+     * Empty for business accounts — the venue's reviews ARE its reviews — and
+     * applied identically in hasSelection() and itemPayloads(), so the page nav
+     * advertises cannot be a page with an empty pool behind it.
      *
      * With no usable name on file, venue reviews stay excluded (fail closed):
      * publishing a co-worker's praise on the wrong person's page is the harm
      * this scope exists to prevent, and employee-scoped sources still pass.
      *
-     * The employee-scoped GATE below is pinned on BOTH its hops (#FU-2):
-     * cs.user_id for source_id, ing.user_id for cs.connection_id ->
-     * ing.connection_id. Fail direction is closed — fewer gate passes means more
-     * venue reviews excluded, which is the direction the paragraph above demands.
+     * $facets is HANDED IN, never fetched here, and that is the fix this
+     * method's fourth pass consists of. It used to run its own
+     * `content.f_review` read while itemPayloads() ran another, and the two
+     * disagreed about which row of a two-source review was authoritative: this
+     * one admitted on the first row whose prose named the owner, that one
+     * rendered the last row by updated_at. "Raff was wonderful" on the Google
+     * copy admitted an item the Fresha copy then published as "Great service
+     * today, thanks!" — a venue review on a named person's page, admitted by a
+     * sentence nobody could see. Three waves of guards each reasoned about a
+     * row that was not the row the visitor saw, which is why each produced
+     * another blocker. There is now ONE resolution (ReviewFacets) and both
+     * callers read it, so the two answers cannot be about different rows.
+     *
+     * The two attribution questions are asked at different scopes ON PURPOSE:
+     *
+     *   - staffNames() spans EVERY row. The vendor's structured answer is a
+     *     claim about the REVIEW, one review however many vendors retell it,
+     *     and two vendors disagreeing about whose it is is an uncertainty
+     *     rather than a tie for updated_at to break.
+     *   - publishedTextNames() reads the PUBLISHED row alone. Prose is a claim
+     *     about the words on the card, and only one vendor's wording is ever
+     *     on the card. Where the copies differ, the quieter one wins and the
+     *     review stays with the venue.
      *
      * 2026-09-01, after we published other people's reviews on real people's
      * pages, this method fails closed in the two places it used to fail open:
@@ -1895,20 +1928,13 @@ class PoolResolver
      *     somebody else could not veto itself. ollies carries a Fresha source
      *     with selection_ref 5035183 and published "Ciel was amazing" on Raff
      *     McGuiness's page through exactly that hole. Structured attribution
-     *     naming a different person is now the FIRST thing checked and it
-     *     vetoes: a review that says it is about Ciel is not about Raff.
-     *
-     * Second pass the same day, because that veto still had a way through: it
-     * read ONE f_review row per item. The facet is keyed (item_id, source_id),
-     * a deduped review carried by two sources has two rows, and keyBy() kept
-     * one of them — so an item whose Fresha row said "Ciel" published anyway
-     * whenever the Google row happened to win the ordering. Every row is read
-     * now, and any row naming someone else vetoes.
+     *     naming a different person is the FIRST thing checked and it vetoes:
+     *     a review that says it is about Ciel is not about Raff.
      *
      * @param  list<string>  $reviewIds
      * @return array<string, true>
      */
-    private function reviewsOutsidePersonScope(Site $site, array $reviewIds): array
+    private function reviewsOutsidePersonScope(Site $site, array $reviewIds, ReviewFacets $facets): array
     {
         if ($reviewIds === []) {
             return [];
@@ -1927,76 +1953,14 @@ class PoolResolver
             return array_fill_keys($reviewIds, true);
         }
 
-        // Vendor-scoped sources: a selection_ref naming a specific team
-        // member means the connector already filtered to this person — those
-        // reviews pass even when spelled differently from our display name.
-        $employeeScoped = [];
-        $rows = DB::connection('pgsql')->table('content.source_items as si')
-            ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
-            ->join('ingest.sources as ing', 'ing.connection_id', '=', 'cs.connection_id')
-            ->whereIn('si.item_id', $reviewIds)
-            // #W1-SEC-10 / #FU-2: this join is a GATE — a selection_ref naming a
-            // team member is what lets a venue review through the person scope —
-            // so BOTH its hops state their own tenancy rather than borrowing the
-            // id list's. cs.user_id covers source_id; ing.user_id covers the
-            // second hop, cs.connection_id -> ing.connection_id, which the
-            // #W1-SEC-10 pass missed: ingest.sources is written by its own lane,
-            // and a foreign row carrying a staff selection_ref would open this
-            // gate for a co-worker's venue review. WHERE, not ON: these are INNER
-            // joins, so a where drops exactly the rows an ON clause would.
-            ->where('cs.user_id', $site->user_id)
-            ->where('ing.user_id', $site->user_id)
-            ->whereNotNull('ing.selection_ref')
-            // 'storewide' belongs in this list as firmly as the empty string,
-            // and this is the line to be paranoid about: employee-scoped is
-            // the ONE tier that admits a review carrying no name evidence at
-            // all — no staff attribution, no mention in the prose — purely on
-            // the vendor's word that the feed was already filtered to this
-            // person. A storewide Fresha connection is the opposite claim.
-            // ollies' is vision-hair-studio-melbourne-tzo6gxk0, the whole
-            // salon; drop 'storewide' here and every unattributed review of
-            // that venue publishes on Raff McGuiness's page with nothing but a
-            // venue-level feed behind it. Pinned by "does not treat a
-            // storewide Fresha connection as employee-scoped", whose sibling
-            // ("keeps an unattributed review from an employee-scoped source",
-            // selection_ref 5035183) pins the other direction so this cannot
-            // be "fixed" by closing the gate entirely.
-            ->whereNotIn('ing.selection_ref', ['', 'storewide'])
-            ->get(['si.item_id']);
-        foreach ($rows as $row) {
-            $employeeScoped[(string) $row->item_id] = true;
-        }
-
+        $employeeScoped = $this->reviewsIngestedUnderEmployeeScope($site, $reviewIds);
         $names = $this->personNameTokens($pro);
-
-        // groupBy, NOT keyBy (2026-09-01, second pass). content.f_review is
-        // keyed (item_id, source_id): one review carried by two sources — the
-        // venue's Google listing and the Fresha page, deduped to a single item
-        // upstream — has TWO rows, and keyBy('item_id') kept whichever the
-        // ordering left last and threw the other away. That made the veto
-        // below a coin toss on a real ollies shape: the Fresha row carries
-        // staff_name "Ciel", the Google row carries none, and the run that
-        // kept the Google row published Ciel's review on Raff McGuiness's page
-        // again. There is no "the" facet row for an item, so the loop reads
-        // every row it has.
-        $facets = DB::connection('pgsql')->table('content.f_review')
-            ->whereIn('item_id', $reviewIds)
-            ->orderBy('updated_at')
-            ->get(['item_id', 'staff_name', 'text'])
-            ->groupBy('item_id');
 
         $outside = [];
         foreach ($reviewIds as $itemId) {
             $itemId = (string) $itemId;
-            $rows = $facets->get($itemId, collect());
-
-            $staffNames = [];
-            foreach ($rows as $row) {
-                $staffName = trim((string) ($row->staff_name ?? ''));
-                if ($staffName !== '') {
-                    $staffNames[] = $staffName;
-                }
-            }
+            $set = $facets->for($itemId);
+            $staffNames = $set->staffNames();
 
             // The veto, and it outranks every admission below including the
             // employee-scoped source. staff_name is the vendor stating WHICH
@@ -2004,19 +1968,30 @@ class PoolResolver
             // not this account holder — or when we hold no name to check it
             // against — no other signal can overturn that.
             //
-            // ANY row naming someone else vetoes: two sources disagreeing
-            // about who a review is about is not a tie to be broken by
-            // updated_at, it is an uncertainty, and this scope resolves
-            // uncertainty by leaving the review with the venue.
-            if ($staffNames !== []) {
-                foreach ($staffNames as $staffName) {
-                    if (! PersonNameMatch::matchesStaffName($staffName, $names)) {
-                        $outside[$itemId] = true;
+            // EVERY name, not the first: a deduped review's Google row can
+            // carry "Raff" while its Fresha row carries "Ciel", and stopping
+            // at the first match would admit exactly the review the second
+            // name disowns. Two sources disagreeing about who a review is
+            // about is not a tie to be broken, it is an uncertainty, and this
+            // scope resolves uncertainty by leaving the review with the venue.
+            $disowned = false;
+            foreach ($staffNames as $staffName) {
+                if (! PersonNameMatch::matchesStaffName($staffName, $names)) {
+                    $disowned = true;
 
-                        break;
-                    }
+                    break;
                 }
+            }
+            if ($disowned) {
+                $outside[$itemId] = true;
 
+                continue;
+            }
+
+            // Survived the veto with at least one attribution: every vendor
+            // that named anybody named this account holder, which is the
+            // strongest admission there is.
+            if ($staffNames !== []) {
                 continue;
             }
 
@@ -2024,22 +1999,10 @@ class PoolResolver
                 continue;
             }
 
-            // No facet row at all, or no text in any of them, is an
-            // uncertainty: it cannot mention anyone by name, so it stays with
-            // the venue. One row's text naming this person is enough — the
-            // rows are the same review as told by different vendors, and the
-            // one that kept the prose is the one that can answer.
-            $mentioned = false;
-            if ($names !== null) {
-                foreach ($rows as $row) {
-                    if (PersonNameMatch::matchesText($row->text ?? null, $names)) {
-                        $mentioned = true;
-
-                        break;
-                    }
-                }
-            }
-            if ($mentioned) {
+            // No facet row at all, or no name in the prose that will be
+            // rendered, is an uncertainty: the card cannot claim this person,
+            // so it stays with the venue.
+            if ($set->publishedTextNames($names)) {
                 continue;
             }
 
@@ -2047,6 +2010,66 @@ class PoolResolver
         }
 
         return $outside;
+    }
+
+    /**
+     * Review items landed by a source that was scoped to ONE team member at
+     * the vendor AT THE TIME IT LANDED THEM, keyed by item id.
+     *
+     * "At the time" is the whole method (BLOCKER, 2026-09-01). This gate used
+     * to read `ingest.sources.selection_ref` — the source's CURRENT selection —
+     * and the reviews already sitting in `content` carried no record of the
+     * selection in force when they were ingested. So a Fresha connection that
+     * harvested vision-hair-studio-melbourne-tzo6gxk0 STOREWIDE and was later
+     * narrowed to employee 5035183 retroactively re-labelled the entire salon's
+     * corpus as that employee's, and published all of it on their page —
+     * permanently, since nothing in the storewide rows ever said otherwise and
+     * no later run could tell them apart. The scope of a review is a fact about
+     * its ingestion, so `content.source_items.ingest_selection_ref` records it
+     * at write time (ProjectionWriter::upsertSourceItem) and this reads that.
+     *
+     * NULL means "landed before we recorded this, or by a lane that has no
+     * vendor selection at all" and is NOT employee scope. That is the fail
+     * direction the whole method needs: this is the ONE tier that admits a
+     * review carrying no name evidence whatsoever — no staff attribution, no
+     * mention in the prose — purely on the vendor's word that the feed was
+     * already filtered to this person, so an unknown answer must never open it.
+     * The empty string and 'storewide' are excluded for the same reason and
+     * with the same force: storewide is the vendor stating the opposite claim.
+     *
+     * #W1-SEC-10 / #FU-2: `cs.user_id` is pinned explicitly. This join is a
+     * GATE — passing it is what lets a review with no name evidence onto a
+     * person's page — and `content.source_items` carries no user_id of its own,
+     * so without the predicate the query's only tenancy would be the id list
+     * handed in, and a mislinked source_id (a writer bug, a hand-run SQL fix)
+     * would open the gate on another account's ingest selection. The second hop
+     * the #FU-2 pass had to pin, `cs.connection_id -> ing.connection_id`, is
+     * GONE: the selection now travels on the row the review landed on, so
+     * `ingest.sources` — written by its own lane, and the table whose
+     * present-tense value caused the blocker above — is no longer consulted at
+     * all. WHERE, not ON: this is an INNER join, so a where drops exactly the
+     * rows an ON clause would. Fail direction is closed — fewer gate passes
+     * means more venue reviews excluded.
+     *
+     * @param  list<string>  $reviewIds
+     * @return array<string, true>
+     */
+    private function reviewsIngestedUnderEmployeeScope(Site $site, array $reviewIds): array
+    {
+        $rows = DB::connection('pgsql')->table('content.source_items as si')
+            ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+            ->whereIn('si.item_id', $reviewIds)
+            ->where('cs.user_id', $site->user_id)
+            ->whereNotNull('si.ingest_selection_ref')
+            ->whereNotIn('si.ingest_selection_ref', ['', 'storewide'])
+            ->get(['si.item_id']);
+
+        $employeeScoped = [];
+        foreach ($rows as $row) {
+            $employeeScoped[(string) $row->item_id] = true;
+        }
+
+        return $employeeScoped;
     }
 
     /**

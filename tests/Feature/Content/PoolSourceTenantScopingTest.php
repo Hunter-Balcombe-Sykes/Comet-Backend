@@ -605,20 +605,31 @@ it('still badges an item with this owner own ingest sync cadence', function () {
 });
 
 it('does not let another owner staff selection open the person scope gate', function () {
-    // reviewsOutsidePersonScope()'s ingest join is a GATE, and it travels
-    // cs.connection_id -> ing.connection_id — a second hop the #W1-SEC-10 pass
-    // did not state. A foreign ingest row carrying a staff selection_ref opens
-    // it for a co-worker's venue review on an individual's page.
+    // The employee-scope gate is what publishes a venue review carrying no name
+    // evidence at all, so a foreign row must never be able to open it. The hop
+    // it travels moved on 2026-09-01: the selection is now recorded on
+    // content.source_items at ingest time rather than read live off
+    // ingest.sources, which retired the cs.connection_id -> ing.connection_id
+    // hop entirely. What remains is one join and one pin — content.source_items
+    // carries no user_id of its own, so cs.user_id is the ONLY thing standing
+    // between a mislinked source_id and a co-worker's venue review on an
+    // individual's page.
+    //
+    // Not vacuous: the item is a live candidate through A's OWN source row,
+    // which records no selection. The employee stamp sits only on the row that
+    // hangs off B's content source, and that is the row the gate must refuse.
     [$proA, $siteAId] = poolTenant();      // partna, so person-scoping is ON
     [$proB] = poolTenant();
 
-    $connB = poolConnection($proB->id, 'fresha.book');
-    $itemA = crossTenantReview($proA->id, poolSource($proA->id, $connB), 'Great work by someone else entirely');
+    $sourceA = poolSource($proA->id, poolConnection($proA->id, 'fresha.book'));
+    $itemA = crossTenantReview($proA->id, $sourceA, 'Great work by someone else entirely');
 
-    DB::table('ingest.sources')->insert([
-        'id' => (string) Str::uuid(), 'user_id' => $proB->id, 'connection_id' => $connB,
-        'source_key' => 'fresha', 'surface_key' => 'fresha.book', 'identifier' => 'x',
-        'selection_ref' => 'staff-12345', 'created_at' => now(), 'updated_at' => now(),
+    $sourceB = poolSource($proB->id, poolConnection($proB->id, 'fresha.book'));
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $sourceB,
+        'coord' => 'review:'.Str::random(8), 'item_id' => $itemA, 'kind' => 'review',
+        'ingest_selection_ref' => 'staff-12345',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
     ]);
 
     $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteAId), 'reviews');
@@ -632,16 +643,18 @@ it('still opens the person scope gate on this owner own staff selection', functi
     // reason: person-scoping IS on for a partna account (otherwise
     // reviewsOutsidePersonScope early-returns and both halves are vacuous), so
     // the ONLY thing publishing this venue review is the employee-scoped gate.
+    //
+    // The identical stamp as above, on a row that hangs off THIS owner's
+    // content source. One join, one pin, two answers.
     [$pro, $siteId] = poolTenant();
 
     $conn = poolConnection($pro->id, 'fresha.book');
-    $itemId = crossTenantReview($pro->id, poolSource($pro->id, $conn), 'Great work by a nameless stranger');
+    $sourceId = poolSource($pro->id, $conn);
+    $itemId = crossTenantReview($pro->id, $sourceId, 'Great work by a nameless stranger');
 
-    DB::table('ingest.sources')->insert([
-        'id' => (string) Str::uuid(), 'user_id' => $pro->id, 'connection_id' => $conn,
-        'source_key' => 'fresha', 'surface_key' => 'fresha.book', 'identifier' => 'x',
-        'selection_ref' => 'staff-12345', 'created_at' => now(), 'updated_at' => now(),
-    ]);
+    DB::table('content.source_items')
+        ->where('source_id', $sourceId)
+        ->update(['ingest_selection_ref' => 'staff-12345']);
 
     $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
 

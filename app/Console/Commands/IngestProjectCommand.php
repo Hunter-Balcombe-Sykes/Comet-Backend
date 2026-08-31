@@ -90,6 +90,13 @@ class IngestProjectCommand extends Command
                         }
 
                         try {
+                            // No recordsFetchedThisRun: this command re-derives
+                            // from the landed log without fetching a byte, so it
+                            // has no ingestion to report and must not restate
+                            // any source item's ingest scope. Restamping here
+                            // with the source's PRESENT selection is how a
+                            // storewide corpus would silently become one
+                            // employee's — see ProjectionWriter::projectStream().
                             $result = $writer->projectStream((array) $source, (string) $stream->id, (string) $stream->stream_name);
                         } catch (Throwable $e) {
                             report($e);
