@@ -144,8 +144,21 @@ class ShortLinkExpander
             // nothing reaching Nightwatch. Breadcrumb every time; only a
             // SUSTAINED run escalates (EscalatesRepeatedFaults, same as
             // ContentPopularityReader). The TTLs are deliberate — do not touch.
+            // #W2-SEC-17: $url is user-pasted, and for THIS class's target
+            // hosts (bit.ly-style shorteners, on.soundcloud.com, spotify.link)
+            // the path IS the opaque short-code — the whole identifying secret,
+            // not an incidental slug — so it gets dropped entirely, matching
+            // MediaMirror's host-only log-hygiene convention (host, never path,
+            // e.g. app/Services/Media/MediaMirror.php ~:479-483). Logging
+            // host+path would reconstruct the pasted short URL verbatim, which
+            // is the same leak one segment over. Path length is logged instead
+            // of the path itself, as a coarse diagnostic signal that carries no
+            // identifying content. This is strictly about what gets LOGGED: the
+            // routing lane still stores the URL verbatim in
+            // routing.link_observations by design.
             Log::warning('routing.shortlink_expand_failed', [
-                'url' => $url,
+                'host' => parse_url($url, PHP_URL_HOST),
+                'path_length' => strlen((string) parse_url($url, PHP_URL_PATH)),
                 'error' => $e->getMessage(),
             ]);
             self::escalateIfSustained($e, 'shortlink_expand');

@@ -51,7 +51,11 @@ class FleetVerifyCommand extends Command
                     ->where('block_type', 'contact')->first();
                 if ($block) {
                     $email = (string) data_get($block->settings, 'notification_email', '');
-                    $contact = ($block->is_enabled ? 'on' : 'off').($email !== '' ? ':'.$email : '');
+                    // #W1-PRIV-4: this diagnostic only needs to confirm contact
+                    // routing is ON, not surface the account holder's address to
+                    // whoever's terminal/screen-share/cloud command:run capture
+                    // this lands in — mask the local part.
+                    $contact = ($block->is_enabled ? 'on' : 'off').($email !== '' ? ':'.self::maskEmail($email) : '');
                 }
             }
 
@@ -79,5 +83,16 @@ class FleetVerifyCommand extends Command
         $this->table(['handle', 'status', 'build', 'failure', 'headshot', 'workplace', 'contact', 'http'], $rows);
 
         return self::SUCCESS;
+    }
+
+    /** Mask an email's local part, keeping enough to spot-check without exposing it in full: `jane@example.com` -> `j***@example.com`. */
+    private static function maskEmail(string $email): string
+    {
+        $at = strpos($email, '@');
+        if ($at === false || $at === 0) {
+            return '***';
+        }
+
+        return $email[0].'***'.substr($email, $at);
     }
 }

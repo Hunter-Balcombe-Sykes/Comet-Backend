@@ -1,9 +1,11 @@
 <?php
 
+use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -64,6 +66,29 @@ it('fleet:verify prints one row per handle including missing accounts', function
         ->expectsOutputToContain('fv-one')
         ->expectsOutputToContain('MISSING')
         ->assertSuccessful();
+});
+
+// #W1-PRIV-4: contact routing diagnostics only need on/off, not the address.
+it('fleet:verify masks the contact email instead of printing it in full', function () {
+    [$user, $site] = fleetTenant('fv-contact');
+
+    DB::table('site.blocks')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $user->id,
+        'site_id' => $site->id,
+        'block_group' => Block::GROUP_SECTIONS,
+        'block_type' => 'contact',
+        'is_enabled' => 1,
+        'settings' => json_encode(['notification_email' => 'jane@example.com']),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    $output = $this->artisan('fleet:verify', ['handles' => ['fv-contact']])
+        ->assertSuccessful();
+
+    $output->expectsOutputToContain('j***@example.com');
+    $output->doesntExpectOutputToContain('jane@example.com');
 });
 
 // ── fleet:rebuild ────────────────────────────────────────────────────────────

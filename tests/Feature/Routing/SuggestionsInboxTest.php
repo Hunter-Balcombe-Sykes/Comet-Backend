@@ -1,8 +1,10 @@
 <?php
 
+use App\Catalog\CompiledCatalog;
 use App\Jobs\Platforms\CommerceProbeJob;
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Routing\SuggestionApplier;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -688,4 +690,37 @@ it('does not let a dropped already-connected intent unmask the legacy card for i
     $rows = collect(actingAsUser($pro)->getJson('/api/routing/suggestions')->assertOk()->json('suggestions'));
 
     expect($rows->pluck('surfaceKey'))->not->toContain('opentable.reserve');
+});
+
+// #W2-SEC-12 regression (review round 2): SuggestionsController::findIntent()
+// pre-scopes by owner before apply() is ever reached, so this bypasses the
+// controller and calls SuggestionApplier::apply() directly with a foreign
+// user's intent — the shape a future caller without that pre-scoping would
+// produce. Before the fix, this committed a connection under $attacker built
+// from $owner's intent data while the final settle-update silently matched 0
+// rows (wrong owner in the WHERE), leaving owner's intent 'proposed' and
+// re-appliable. Asserts the whole transaction rolls back, not just that it
+// throws.
+it('rolls back the whole apply() transaction when the intent belongs to a different user', function () {
+    $owner = createTenant('sec12-owner');
+    $attacker = createTenant('sec12-attacker');
+
+    $intentId = seedIntent($owner->id, [
+        'surface_key' => 'instagram.profile', 'routing_class' => 'social',
+        'identifier' => 'owner-handle', 'canonical_url' => 'https://www.instagram.com/owner-handle',
+    ]);
+    $intent = DB::table('routing.source_intents')->where('id', $intentId)->first();
+    $surface = CompiledCatalog::surface('instagram.profile');
+    expect($surface)->not->toBeNull();
+
+    expect(fn () => app(SuggestionApplier::class)->apply($attacker, $intent, $surface))
+        ->toThrow(RuntimeException::class);
+
+    // No connection was minted under the caller who wasn't the intent's owner.
+    expect(IntegrationConnection::query()->where('user_id', $attacker->id)->exists())->toBeFalse();
+
+    // And the real owner's intent is untouched — still open, not silently settled.
+    $settled = DB::table('routing.source_intents')->where('id', $intentId)->first();
+    expect($settled->state)->toBe('proposed')
+        ->and($settled->connection_id)->toBeNull();
 });

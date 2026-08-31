@@ -267,3 +267,37 @@ it('logs a breadcrumb when short-link expansion throws, instead of failing silen
         ->with('routing.shortlink_expand_failed', Mockery::type('array'))
         ->once();
 });
+
+// #W2-SEC-17 (review round 2): Mockery::type('array') above would pass
+// identically whether the payload carries the raw url, host+path, or nothing
+// at all — vacuous. For this class's target hosts the path IS the opaque
+// short-code (the whole identifying secret), so the failure log must not
+// reconstruct it: no 'path' key, and no substring of the pasted path or query
+// string anywhere in the logged values.
+it('does not log the short link path or query string on expansion failure', function () {
+    Log::spy();
+
+    $fetcher = Mockery::mock(SafeUrlFetcher::class);
+    $fetcher->shouldReceive('tryResolveFinalUrl')->once()->andThrow(new RuntimeException('fetch budget exhausted'));
+
+    $expander = new ShortLinkExpander($fetcher, app(CacheLockService::class));
+
+    $expander->expandIfShort('https://on.soundcloud.com/fh433tMk6lU9xgP3TM?sig=topsecret');
+
+    Log::shouldHaveReceived('warning')
+        ->with('routing.shortlink_expand_failed', Mockery::on(function (array $payload) {
+            expect($payload)->not->toHaveKey('path')
+                ->and($payload)->not->toHaveKey('url');
+
+            foreach ($payload as $value) {
+                if (is_string($value)) {
+                    expect($value)->not->toContain('fh433tMk6lU9xgP3TM')
+                        ->and($value)->not->toContain('topsecret')
+                        ->and($value)->not->toContain('?');
+                }
+            }
+
+            return true;
+        }))
+        ->once();
+});
