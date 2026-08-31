@@ -31,12 +31,14 @@ class ApplyMenuScanRequest extends FormRequest
             // exactly that length, so a tighter cap here would 422 a scan the
             // pipeline already told the user was accepted (#W1-SEC-9).
             'items.*.name' => ['required', 'string', 'max:'.MenuAiExtractor::NAME_MAX],
-            // #W1-SEC-9: bounded like a real menu-item description — generous
-            // enough for any real dish blurb, tight enough that 200 items/request
-            // can't smuggle in an unbounded text payload. No upstream producer
-            // truncates description (MenuAiExtractor::cleanString() only trims),
-            // so this ceiling isn't contradicted by a shorter producer bound.
-            'items.*.description' => ['nullable', 'string', 'max:1000'],
+            // #W1-SEC-9 / #FU-11: bounded like a real menu-item description —
+            // generous enough for any real dish blurb, tight enough that 200
+            // items/request can't smuggle in an unbounded text payload. Bound
+            // MUST match MenuAiExtractor::DESCRIPTION_MAX — that extractor is
+            // the upstream producer for scanned items and truncates
+            // description to exactly that length, so a tighter cap here would
+            // 422 a scan the pipeline already told the user was accepted.
+            'items.*.description' => ['nullable', 'string', 'max:'.MenuAiExtractor::DESCRIPTION_MAX],
             // Bounded like a real menu price — min:0 rejects a scan misread as
             // negative, max:100000 catches a decimal-point misread (e.g. $1400.00
             // scanned as 140000) without constraining any real-world price.

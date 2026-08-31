@@ -95,6 +95,21 @@ it('salvages a max_tokens-truncated items array', function () {
         ->and($items[0]['name'])->toBe('Garlic Bread');
 });
 
+it('truncates a description over DESCRIPTION_MAX rather than emitting it unbounded (#FU-11)', function () {
+    // Producer/validator asymmetry: ApplyMenuScanRequest bounds
+    // items.*.description at MenuAiExtractor::DESCRIPTION_MAX, so the
+    // extractor must never emit a longer string or a legitimately-scanned
+    // item gets 422'd on apply.
+    $raw = json_encode(['items' => [
+        ['name' => 'Long Description Dish', 'description' => str_repeat('a', MenuAiExtractor::DESCRIPTION_MAX + 500), 'price' => 10, 'category' => null, 'dietary' => null],
+    ]]);
+
+    $items = app(MenuAiExtractor::class)->parseItems($raw);
+
+    expect($items)->toHaveCount(1)
+        ->and(mb_strlen($items[0]['description']))->toBe(MenuAiExtractor::DESCRIPTION_MAX);
+});
+
 it('returns no items for non-menu output', function () {
     expect(app(MenuAiExtractor::class)->parseItems('{"items":[]}'))->toBe([])
         ->and(app(MenuAiExtractor::class)->parseItems('total garbage'))->toBe([]);
