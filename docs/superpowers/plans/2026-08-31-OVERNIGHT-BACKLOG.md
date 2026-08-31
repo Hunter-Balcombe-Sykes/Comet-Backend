@@ -336,9 +336,65 @@ pages worker deployed (version `1fdc7499`). Verified live after a manual purge:
 
 Still an Instagram post photo for `og:image` — that is Wave 2, in flight.
 
+### E13 — One account was publishing another person's face · `DONE` · `4feced1b6` · was: critical
+
+The most serious finding of the night, and it had been live for as long as batch builds have existed.
+
+`InstagramConnectionSeeder.php:90` derived the R2 mirror prefix as
+`'platforms/instagram/' . $connection->created_at->timestamp` — **a bare unix second, with no account
+component**, while `$userId` sat in scope. Any two Instagram connections created inside the same second
+shared a folder, and the second to mirror overwrote the first's `profile.jpg`.
+
+Live on dev when found, two pairs serving byte-identical pictures:
+
+```
+aerial-studio          profilePicUrl: …/platforms/instagram/1787835720/profile.jpg
+mr-bap                 profilePicUrl: …/platforms/instagram/1787835720/profile.jpg
+melbourne-acupuncture  profilePicUrl: …/platforms/instagram/1788085840/profile.jpg
+the-cobblers-last      profilePicUrl: …/platforms/instagram/1788085840/profile.jpg
+```
+
+Three things make it worse than the line looks:
+
+- **A batch build is the condition that causes it.** A fleet run creates several connections per second,
+  so the collision rate *rises with throughput* — exactly backwards for an identity path.
+- **We amplified it hours earlier.** `profilePicUrl` went from a wire field nothing read to the og:image
+  fallback tier, turning a latent collision into a published share image.
+- **A second harm on the same line:** `DeleteMirroredMediaJob` is dispatched with the payload's folder
+  (`IntegrationConnectionObserver:551` and `:638`), so disconnecting one account deletes another
+  account's mirrored media.
+
+Fixed by keying the prefix on the connection uuid, and by making the rule a named method rather than an
+anonymous string concat — being one inline expression is part of why it survived so long. Mutation gate:
+restoring the old scheme kills all three tests. **The four existing rows still share their folder until
+re-mirrored** — that backfill is in Wave 4, not folded silently into the fix.
+
+**Look for this class elsewhere.** Any storage prefix keyed on a clock rather than an identity has the
+same defect. Wave 4 is auditing the other mirror lanes.
+
 ---
 
-## G. Still running
+## G. Deploy log, second pass
+
+**2026-09-01 ~07:45 UTC.** Schema first, deliberately: `content.source_items.ingest_selection_ref`
+applied to dev before the code that reads it, because the person-scope gate selects that column and code
+ahead of schema 500s the reviews pool on every person's page. Then backend `development` (4 commits) and
+monorepo `main` (4), then the pages worker (`9b70ba24`).
+
+Verified live after purge:
+
+| | before | after |
+|---|---|---|
+| `broken-oven` reviews | 7 strangers', incl. a 1★ venue review and praise for two other people | **0** |
+| `ollies` review badge | a hair salon's "5/5 · Based on 174 reviews" on a coffee shop | **null** |
+| `jjsavani` og:image | a random Instagram post | the headshot |
+| `emdinonhair` og:image | a random Instagram post | the Instagram profile picture |
+
+Suites: backend **10,123 passing**, pages **205 passing** (94 at the start of the night).
+
+---
+
+## H. Still running
 
 - Nightwatch: a verdict on all 50 open issues (fixed-stale / live / infra / by-design-noise).
 - The wide hunt for anything nobody has named.
