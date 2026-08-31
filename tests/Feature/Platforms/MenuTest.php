@@ -13,6 +13,7 @@ use App\Services\Accounts\AccountCapabilities;
 use App\Services\Content\ManualMenuItems;
 use App\Services\Content\ManualMenuWriter;
 use App\Services\Platforms\LinkCardScraper;
+use App\Services\Platforms\MenuAiExtractor;
 use App\Services\Platforms\MenuApifyScraper;
 use App\Services\Platforms\MenuMerger;
 use App\Services\Platforms\MenuProjectionMapper;
@@ -1415,7 +1416,7 @@ it('422s scan apply for a description over the sane upper bound', function () {
     $user = menuUser('scan8e');
 
     actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
-        'items' => [['name' => 'Item', 'description' => str_repeat('a', 1001), 'price' => null, 'category' => null]],
+        'items' => [['name' => 'Item', 'description' => str_repeat('a', MenuAiExtractor::DESCRIPTION_MAX + 1), 'price' => null, 'category' => null]],
     ])->assertStatus(422);
 });
 
@@ -1431,7 +1432,7 @@ it('scan apply accepts description/category at exactly the cap', function () {
     $user = menuUser('scan8g');
 
     actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
-        'items' => [['name' => 'Item', 'description' => str_repeat('a', 1000), 'price' => null, 'category' => str_repeat('b', 160)]],
+        'items' => [['name' => 'Item', 'description' => str_repeat('a', MenuAiExtractor::DESCRIPTION_MAX), 'price' => null, 'category' => str_repeat('b', 160)]],
     ])->assertOk();
 });
 

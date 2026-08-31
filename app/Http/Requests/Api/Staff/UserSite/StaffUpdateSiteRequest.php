@@ -60,6 +60,16 @@ class StaffUpdateSiteRequest extends BaseFormRequest
             ],
             'settings.manual_booking_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
 
+            // Site policies (Privacy / Terms) — mirrors UpdateSiteRequest
+            // (#FU-10: staff previously had no rules here at all, so an
+            // arbitrary opaque blob passed through untyped). Generated texts
+            // are never stored; SitePolicyResolver derives them at read time.
+            'settings.privacy' => ['sometimes', 'array'],
+            'settings.privacy.automated_privacy' => ['sometimes', 'boolean'],
+            'settings.privacy.automated_terms' => ['sometimes', 'boolean'],
+            'settings.privacy.privacy_manual_text' => ['sometimes', 'nullable', 'string', 'max:30000'],
+            'settings.privacy.terms_manual_text' => ['sometimes', 'nullable', 'string', 'max:30000'],
+
             // Ordering preferences (OV-I actions system) — shared with the user
             // endpoint via SiteOrderingValidationRules so a staff edit can't write a
             // malformed/hostile ordering payload the user endpoint would reject (esp.

@@ -56,6 +56,15 @@ class MenuAiExtractor
     // rather than duplicate a literal that can drift out of sync again.
     public const NAME_MAX = 160;
 
+    // Public: ApplyMenuScanRequest's description length cap references this
+    // directly (#FU-11) — the opposite asymmetry to NAME_MAX above: this
+    // extractor used to emit an untruncated description while the validator
+    // capped it at a literal 1000, so a long-but-legitimate scan could 422
+    // instead of landing trimmed. Truncating here (not loosening the
+    // validator) matches how NAME_MAX/category were handled — a scraped
+    // producer trims, it doesn't get a wider cap to dodge truncation.
+    public const DESCRIPTION_MAX = 1000;
+
     private const PRICE_MAX = 100000;
 
     private const MAX_OCR_TEXT_CHARS = 60000;
@@ -324,7 +333,9 @@ PROMPT;
 
             $items[] = [
                 'name' => mb_substr($name, 0, self::NAME_MAX),
-                'description' => $this->cleanString($entry['description'] ?? null),
+                'description' => ($desc = $this->cleanString($entry['description'] ?? null)) !== null
+                    ? mb_substr($desc, 0, self::DESCRIPTION_MAX)
+                    : null,
                 'price' => $this->cleanPrice($entry['price'] ?? null),
                 'category' => ($cat = $this->cleanString($entry['category'] ?? null)) !== null
                     ? mb_substr($cat, 0, self::NAME_MAX)

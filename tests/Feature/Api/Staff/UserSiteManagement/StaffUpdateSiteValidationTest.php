@@ -90,6 +90,84 @@ it('accepts settings (negative tests are not over-rejecting)', function () {
         ->toBe('scroll');
 });
 
+// #FU-10: StaffUpdateSiteRequest carried no rules at all for settings.privacy.*
+// (unlike its owner-facing sibling UpdateSiteRequest), so a staff write let an
+// arbitrary opaque blob through untyped. These mirror UpdateSiteRequest's own
+// rules and additionally assert PERSISTENCE — a rule that validates a key
+// UpdateSiteAction::KNOWN_SETTINGS_KEYS then drops would pass a 200-only check
+// while still losing the write.
+
+it('accepts and persists a well-formed settings.privacy.* payload from staff', function () {
+    $staff = PartnaStaff::factory()->admin()->create();
+    $pro = createTenant('staff-privacy-ok');
+
+    patchStaffSite($staff, $pro, [
+        'settings' => [
+            'privacy' => [
+                'automated_privacy' => false,
+                'automated_terms' => true,
+                'privacy_manual_text' => 'Our custom privacy policy text.',
+                'terms_manual_text' => null,
+            ],
+        ],
+    ])->assertOk();
+
+    $row = DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->first();
+    $settings = json_decode((string) $row->settings, true);
+
+    expect($settings['privacy'])->toBe([
+        'automated_privacy' => false,
+        'automated_terms' => true,
+        'privacy_manual_text' => 'Our custom privacy policy text.',
+        'terms_manual_text' => null,
+    ]);
+});
+
+it('rejects a malformed settings.privacy.* payload from staff', function () {
+    $staff = PartnaStaff::factory()->admin()->create();
+    $pro = createTenant('staff-privacy-bad');
+
+    patchStaffSite($staff, $pro, [
+        'settings' => [
+            'privacy' => [
+                // automated_privacy must be boolean, not a string.
+                'automated_privacy' => 'not-a-bool',
+            ],
+        ],
+    ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['settings.privacy.automated_privacy']);
+});
+
+it('rejects a settings.privacy.* manual text over the 30000-char bound from staff', function () {
+    $staff = PartnaStaff::factory()->admin()->create();
+    $pro = createTenant('staff-privacy-long');
+
+    patchStaffSite($staff, $pro, [
+        'settings' => ['privacy' => ['privacy_manual_text' => str_repeat('a', 30001)]],
+    ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['settings.privacy.privacy_manual_text']);
+});
+
+it('silently drops an unrecognized settings key from a staff write rather than persisting or 422ing it', function () {
+    $staff = PartnaStaff::factory()->admin()->create();
+    $pro = createTenant('staff-unknown-settings');
+
+    patchStaffSite($staff, $pro, [
+        'settings' => [
+            'booking_mode' => 'manual',
+            'totally_made_up_key' => str_repeat('x', 5000),
+        ],
+    ])->assertOk();
+
+    $row = DB::connection('pgsql')->table('site.sites')->where('id', $pro->site->id)->first();
+    $settings = json_decode((string) $row->settings, true);
+
+    expect($settings)->not->toHaveKey('totally_made_up_key')
+        ->and($row->booking_mode)->toBe('manual');
+});
+
 it('ignores retired legacy ids and the dropped skeleton_id field', function () {
     // The skeleton_id alias + LEGACY_ARCHITECTURE_IDS collapse were removed
     // 2026-08-05; architecture_id itself left the wire 2026-08-20. Both are now
