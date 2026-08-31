@@ -1242,13 +1242,55 @@ class DataExportPayloadBuilder
         //      via that professional's public site form — the row contains the
         //      user's email/consent/subscribed_at and must surface in their DSAR.
         //
-        // Note on email-recycle: writers upsert by (list_key, email_lc), so when
-        // an email is recycled (rare today) the row CONTENT is overwritten with
-        // the new user's data; only created_at and id are preserved from the
-        // prior occupant. Bounded leak, mostly metadata. Schema-level fix is to
-        // add an owner FK; that's a follow-up.
+        // #W1-DINT-3 / #W1-LIFE-7 (re-checked 2026-08-30, WONTFIX-stale): a
+        // prior version of this note claimed writers upsert globally by bare
+        // (list_key, email_lc) with no owner FK and no unique constraint
+        // backing the key. Both claims are false against the current schema —
+        // `email_subscriptions_user_fk` (user_id -> core.users, baseline since
+        // 2026-07-26) and the two partial unique indexes
+        // (`..._unique_pro_list_email_lc` on (user_id, list_key, email_lc) and
+        // `..._unique_global_list_email_lc` on (list_key, email_lc) WHERE
+        // user_id IS NULL) already exist, and BOTH recycle-capable writers —
+        // PublicEmailSubscriptionController::subscribe() and
+        // PublicCustomerLeadController::upsertMarketingSubscription() — already
+        // scope their upsert lookup by (user_id, list_key, email_lc), not by
+        // email_lc alone. `user_id` here is the site-OWNER (professional)
+        // attribution FK, not a subscriber-identity FK — a subscriber to
+        // another professional's newsletter need not hold a Partna account at
+        // all, so there is no stronger subscriber identity to key on.
+        //
+        // #W1-PRIV-3 (re-checked 2026-08-30, residual risk accepted, not
+        // fixed): because the per-(user_id, list_key, email_lc) row is keyed
+        // on email alone within that scope, a genuinely recycled email address
+        // (rare — a mailbox provider reassigns it to a new person, who then
+        // subscribes to the SAME professional's SAME list) overwrites the row
+        // CONTENT with the new subscriber's data but leaves `id`/`created_at`
+        // from the prior occupant. Unlike #PRIV-1's early_access_signups
+        // case, there is no reliable ownership signal to bucket on here — the
+        // system cannot distinguish "the same subscriber returning" from "a
+        // different person who inherited this address" from email alone, so
+        // building a withholding rule would be guessing, not verifying. A
+        // live `id`/`created_at` refresh on a detected recycle is also not
+        // cheap to add: `broadcast_email_receipts.subscription_id` FKs
+        // `email_subscriptions.id` ON DELETE CASCADE with no ON UPDATE
+        // CASCADE, and in-flight SendSubscriptionConfirmationJob /
+        // SendStaffBroadcastEmailToSubscriberJob hold the old subscription id
+        // across the queue boundary and ->find() it on the worker side —
+        // rotating `id` under either job would silently orphan it. The
+        // residual disclosure is two non-identifying fields (a UUID and a
+        // timestamp, no name/email/status/consent from the prior occupant) —
+        // bounded enough that a detection heuristic isn't worth the false
+        // positives it would create. Documented here per the finding's own
+        // stated alternative; revisit if subscriber-level identity is ever
+        // added to this table.
         $emailLc = $this->normaliseEmail($email);
 
+        // #W1-SEC-14: `user_id` in this table is the LIST OWNER (professional),
+        // never the subscriber. On the caller's own list (bucket 1 below) it
+        // equals their own id and is safe to show; on a cross-tenant row
+        // (bucket 3 — the subject subscribed to a DIFFERENT professional's
+        // list) it is a third party's internal primary key, not necessary to
+        // satisfy the subject's own Article 15 request, so it is nulled out.
         return $this->lazyRows(
             DB::connection('pgsql')
                 ->table('notifications.email_subscriptions')
@@ -1264,7 +1306,16 @@ class DataExportPayloadBuilder
                                 });
                         });
                     }
-                })
+                }),
+            transform: function (object $row) use ($userId): array {
+                $row = (array) $row;
+
+                if ($row['user_id'] !== $userId) {
+                    $row['user_id'] = null;
+                }
+
+                return $row;
+            },
         );
     }
 
