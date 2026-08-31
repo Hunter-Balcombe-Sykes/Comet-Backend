@@ -87,3 +87,59 @@ it('is idempotent — applying referrer() twice matches applying it once', funct
     'null' => null,
     'empty string' => '',
 ]);
+
+// --- clickUrl(): the click destination contract -----------------------------
+//
+// A tel: tap and a mailto: tap ARE conversions, so both are accepted
+// destinations. What they are not is free-form text: a phone number has as
+// many spellings as a visitor's keyboard allows, and a mailto: carries a
+// prefilled subject/body that is template copy (and a PII surface), not a
+// destination. clickUrl() reduces each contact point to exactly one string so
+// the url column stays a countable dimension instead of a bag of variants.
+
+it('passes an http/https destination through unchanged', function () {
+    expect(AnalyticsEventSanitizer::clickUrl('https://shop.example.com/products/tee?variant=1'))
+        ->toBe('https://shop.example.com/products/tee?variant=1');
+});
+
+it('strips visual formatting from a tel: number so one line is one destination', function (string $raw, string $expected) {
+    expect(AnalyticsEventSanitizer::clickUrl($raw))->toBe($expected);
+})->with([
+    'spaces' => ['tel:+61 400 000 000', 'tel:+61400000000'],
+    'parens and dashes' => ['tel:+61 (400) 000-000', 'tel:+61400000000'],
+    'dots' => ['tel:0400.000.000', 'tel:0400000000'],
+    'uppercase scheme' => ['TEL:+61400000000', 'tel:+61400000000'],
+    'RFC 3966 extension' => ['tel:+61 3 9000 0000;ext=12', 'tel:+61390000000;ext=12'],
+]);
+
+it('lowercases a mailto: address and drops its prefilled subject/body', function (string $raw, string $expected) {
+    expect(AnalyticsEventSanitizer::clickUrl($raw))->toBe($expected);
+})->with([
+    'subject + body' => ['mailto:Hello@Example.COM?subject=Hi&body=There', 'mailto:hello@example.com'],
+    'uppercase scheme' => ['MAILTO:Hello@Example.com', 'mailto:hello@example.com'],
+    'already clean' => ['mailto:hello@example.com', 'mailto:hello@example.com'],
+]);
+
+it('returns null for anything that is not a destination a visitor navigated to', function (?string $raw) {
+    expect(AnalyticsEventSanitizer::clickUrl($raw))->toBeNull();
+})->with([
+    'javascript scheme' => 'javascript:alert(1)',
+    'data scheme' => 'data:text/html,<script>x</script>',
+    'schemeless' => 'not-a-url',
+    'empty mailto' => 'mailto:',
+    'mailto without a domain' => 'mailto:nobody',
+    'empty tel' => 'tel:',
+    'tel that is only punctuation' => 'tel:---',
+    'tel too short to dial' => 'tel:12',
+    'null' => null,
+    'empty string' => '',
+]);
+
+it('is idempotent — re-normalising a normalised destination changes nothing', function (string $raw) {
+    $once = AnalyticsEventSanitizer::clickUrl($raw);
+    expect(AnalyticsEventSanitizer::clickUrl($once))->toBe($once);
+})->with([
+    'tel' => 'tel:+61 (400) 000-000',
+    'mailto' => 'mailto:Hello@Example.COM?subject=Hi',
+    'https' => 'https://a.com/x?y=1',
+]);

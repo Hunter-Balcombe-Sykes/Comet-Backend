@@ -4,6 +4,8 @@ namespace App\Http\Requests\Api\PublicSite\Analytics;
 
 use App\Http\Requests\BaseFormRequest;
 use App\Http\Requests\Concerns\ResolvesPublicSiteSubdomain;
+use App\Services\Analytics\AnalyticsEventSanitizer;
+use Closure;
 use Illuminate\Validation\Rule;
 
 // Analytics v2: validates public click-tracking events. Skeleton sitepages have no
@@ -17,6 +19,17 @@ class ClickRequest extends BaseFormRequest
     protected function prepareForValidation(): void
     {
         $this->mergeSubdomainFromRoute('X-Site-Subdomain');
+
+        // Normalise BEFORE the rules run, so the ONE normalised spelling is what
+        // the dedup target hashes (AnalyticsController::click) and what the row
+        // stores. Normalising later would leave 'tel:+61 400 000 000' and
+        // 'tel:0400000000' minting separate dedup keys for the same tap.
+        // Unrecognised values are left raw so the rule below reports the value
+        // the visitor's browser actually sent.
+        $url = $this->input('url');
+        if (is_string($url)) {
+            $this->merge(['url' => AnalyticsEventSanitizer::clickUrl($url) ?? $url]);
+        }
     }
 
     public function rules(): array
@@ -25,8 +38,20 @@ class ClickRequest extends BaseFormRequest
             // Legacy path — existence/ownership/trackability validated in
             // PostgresEventWriter (worker side) so the beacon never blocks on a DB read.
             'block_id' => ['nullable', 'uuid'],
-            // v2 path — destination URL of the outbound anchor.
-            'url' => ['required_without:block_id', 'nullable', 'string', 'max:2048', 'url:http,https'],
+            // v2 path — destination URL of the outbound anchor. `url:http,https`
+            // (the rule until 2026-09-01) rejected mailto: and tel:, which the
+            // tracker has always sent — both parse to origin "null", so every
+            // contact tap looked outbound, fired, and 422'd. A tel: tap IS the
+            // conversion, so the schemes are accepted and AnalyticsEventSanitizer
+            // is the single definition of an acceptable destination.
+            'url' => [
+                'required_without:block_id', 'nullable', 'string', 'max:2048',
+                function (string $attribute, mixed $value, Closure $fail): void {
+                    if (! is_string($value) || AnalyticsEventSanitizer::clickUrl($value) === null) {
+                        $fail('The :attribute field must be an http, https, mailto or tel destination.');
+                    }
+                },
+            ],
             // Platform slug the anchor belongs to (instagram, fresha, shopify, ...).
             'platform' => ['nullable', 'string', 'max:64', 'regex:/^[a-z0-9_-]+$/i'],
             'product_id' => ['nullable', 'string', 'max:128'],

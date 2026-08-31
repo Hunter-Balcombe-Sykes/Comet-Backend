@@ -101,9 +101,6 @@ class EnvCheckService
             'services.google_maps.api_key' => 'GOOGLE_MAPS_API_KEY',
             'services.google_maps.server_api_key' => 'GOOGLE_MAPS_SERVER_API_KEY',
         ],
-        'Analytics' => [
-            'partna.public_profile.analytics_endpoint' => 'PARTNA_PUBLIC_ANALYTICS_ENDPOINT',
-        ],
         'Media' => [
             // Drift between this config value and the $_ENV superglobal probe in
             // MediaDiskResolver emits a Log::info breadcrumb but still works — listed

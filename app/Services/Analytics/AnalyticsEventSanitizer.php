@@ -89,6 +89,97 @@ class AnalyticsEventSanitizer
     }
 
     /**
+     * Normalise an outbound click destination, or null when the value is not a
+     * destination a visitor could have navigated to.
+     *
+     * Accepts http, https, mailto and tel. mailto:/tel: are here because the
+     * tracker has always fired on them — it fires on any anchor whose origin
+     * differs from the page's, and both schemes parse to the opaque origin
+     * "null" — while the request validated `url:http,https`, which rejects
+     * both. Every contact link-out 422'd, so the highest-intent signal a
+     * professional page emits recorded zero rows from launch to 2026-09-01.
+     *
+     * Accepting them means normalising them, because neither is a stable
+     * string as typed:
+     *   - tel: one number has as many spellings as the owner's keyboard
+     *     allowed (+61 400 000 000 / +61 (400) 000-000 / 0400.000.000). Left
+     *     raw, each spelling is its own url value AND its own dedup key, so a
+     *     double-tap counts twice and the dashboard shows one contact point as
+     *     three. Visual separators go; the RFC 3966 ;params tail stays.
+     *   - mailto: the ?subject=/?body= tail is template copy the owner wrote,
+     *     not part of the destination, and body text is a free-form PII
+     *     surface this table has no business holding (same reasoning as
+     *     referrer()'s query-string strip). It goes; the address is lowercased.
+     *
+     * Length is deliberately NOT capped here — ClickRequest's `max:2048` owns
+     * that so an over-long URL reports as over-long rather than as a bad scheme.
+     */
+    public static function clickUrl(?string $url): ?string
+    {
+        if ($url === null) {
+            return null;
+        }
+
+        $url = trim($url);
+        $scheme = strstr($url, ':', true);
+        if ($scheme === false) {
+            return null;
+        }
+
+        $scheme = strtolower($scheme);
+        $rest = substr($url, strlen($scheme) + 1);
+
+        return match ($scheme) {
+            'http', 'https' => filter_var($scheme.':'.$rest, FILTER_VALIDATE_URL) !== false
+                && parse_url($scheme.':'.$rest, PHP_URL_HOST) !== null
+                    ? $scheme.':'.$rest
+                    : null,
+            'tel' => self::telDestination($rest),
+            'mailto' => self::mailtoDestination($rest),
+            default => null,
+        };
+    }
+
+    /** tel: subscriber number stripped of visual separators; ;params preserved. */
+    private static function telDestination(string $rest): ?string
+    {
+        [$number, $params] = array_pad(explode(';', strtolower($rest), 2), 2, null);
+
+        $number = (string) preg_replace('/[\s().\-]/', '', (string) $number);
+        // 3 digits is the shortest dialable thing (000, 911); 20 is E.164's ceiling.
+        if (preg_match('/^\+?[0-9]{3,20}$/', $number) !== 1) {
+            return null;
+        }
+
+        if ($params === null || $params === '') {
+            return 'tel:'.$number;
+        }
+
+        // ;ext=12, ;phone-context=+61 — an allowlist, not a passthrough, so the
+        // tail can't smuggle arbitrary text into the url column.
+        return preg_match('/^[a-z0-9=;+.\-]{1,64}$/', $params) === 1
+            ? 'tel:'.$number.';'.$params
+            : null;
+    }
+
+    /** mailto: address only — lowercased, ?subject=/?body= discarded. */
+    private static function mailtoDestination(string $rest): ?string
+    {
+        $address = strstr($rest, '?', true);
+        if ($address === false) {
+            $address = $rest;
+        }
+
+        $address = strtolower(trim($address));
+
+        // Deliberately looser than a full RFC 5322 check and stricter than
+        // EMAIL_LIKE_PATTERN: one recipient, one @, one dot in the domain.
+        return preg_match('/^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/', $address) === 1
+            ? 'mailto:'.$address
+            : null;
+    }
+
+    /**
      * PGR-18: cap a UTM query param and drop it entirely if it carries an
      * email-like substring — mirrors referrer()'s drop-on-suspicion behaviour
      * rather than trying to excise just the matched substring. Returns null for

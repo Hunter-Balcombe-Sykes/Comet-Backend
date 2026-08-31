@@ -49,7 +49,7 @@ use Illuminate\Support\Facades\Log;
  *     },
  *     designKit: { colors: {...}, typography: {...}, ... },
  *     architectureId: 'scroll',
- *     publicConfig: { analyticsEndpoint, ... },
+ *     publicConfig: { shopLinkMode, displayGalleryPage, ... },
  *   }
  *
  * Slice 7 unit E deleted `profile.gallery`, `profile.curatedGallery`,
@@ -83,7 +83,7 @@ class IndividualProfilePayloadBuilder
      *   - the user's content sections via SitepageDataResolverService
      *   - the per-user design_kit row (partial — only stored non-null cols)
      *   - the site's architecture_id (TEXT enum)
-     *   - platform-wide publicConfig fields (analytics endpoint, etc.)
+     *   - platform-wide publicConfig fields (shop link mode, etc.)
      *
      * @return array<string, mixed>
      */
@@ -651,9 +651,13 @@ class IndividualProfilePayloadBuilder
      */
     private function buildPublicConfig(User $pro): array
     {
-        $config = [
-            'analyticsEndpoint' => config('partna.public_profile.analytics_endpoint'),
-        ];
+        // analyticsEndpoint left the wire 2026-09-01. It advertised
+        // <app.url>/api/analytics — a route that has never been registered; the
+        // real ones are /api/public/analytics/* — and no consumer ever read it:
+        // apps/pages beacons same-origin to /t/*, which its middleware proxies.
+        // A dead field is survivable; a dead field that names a wrong URL is a
+        // trap for the next reader, so it goes rather than gets corrected.
+        $config = [];
 
         // shopLinkMode (2026-08-24): 'checkout' | 'product' — the owner's
         // Shop → link-mode choice, site-wide. The COMPOSED url already bakes

@@ -35,7 +35,7 @@ it('emits exactly the documented top-level and profile-nested key set', function
         'site_id' => 'site-1',
         'design_kit' => ['color_accent' => '#ffffff'],
         'architecture_id' => 'staple',
-        'public_config' => ['analyticsEndpoint' => 'https://analytics.example'],
+        'public_config' => ['shopLinkMode' => 'checkout'],
         'page_order' => ['about'],
         'actions' => ['mode' => 'newest', 'entries' => []],
         'document' => ['title' => 'doc'],

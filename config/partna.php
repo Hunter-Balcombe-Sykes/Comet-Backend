@@ -1693,14 +1693,6 @@ return [
         // keeps orphan bytes negligible against the 250MB Valkey the queue shares.
         // Raise it only after redoing that arithmetic at the then-current edit rate.
         'cache_ttl_ceiling_seconds' => 300,
-        // Analytics endpoint exposed to the architecture via data.publicConfig.
-        // partna-pages reads this and uses it for client-side beacons.
-        // Defaults to the current APP_URL so the fallback is always environment-correct.
-        'analytics_endpoint' => env(
-            'PARTNA_PUBLIC_ANALYTICS_ENDPOINT',
-            rtrim(config('app.url'), '/').'/api/analytics'
-        ),
-
         // CFG-2 (public-surface audit): QrCodeController's SVG generation
         // params — the QR points at the professional's public partna_url, so
         // this lives alongside the rest of the public-profile surface. Values

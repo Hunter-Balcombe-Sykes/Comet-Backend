@@ -769,8 +769,28 @@ class AnalyticsController extends ApiController
         }
 
         $payload = $request->json()->all();
-        $handle = isset($payload['handle']) ? (string) $payload['handle'] : null;
+        // Two senders, two key names for the same value: the inline script in
+        // apps/pages' [...path].astro sends `handle`, while the analytics module
+        // (tracker.ts) goes through beacon.ts, which attaches `subdomain` and
+        // never a handle. A site's subdomain IS its handle. Reading only
+        // `handle` discarded 100% of the module's beacons — and because this
+        // endpoint answers 200 to everything, LCP (the only metric the module
+        // measures and the inline script cannot) never reached a log line.
+        $identity = $payload['handle'] ?? $payload['subdomain'] ?? null;
+        $handle = is_string($identity) ? $identity : null;
         if (! $handle || ! preg_match('/^[a-z0-9-]{1,63}$/i', $handle)) {
+            // The fake-200 stays — a visitor's browser must learn nothing from an
+            // analytics response — but the drop is no longer invisible to US.
+            // Silence on this branch is exactly what hid a dead beacon for weeks.
+            Log::warning('analytics.rum_unidentified', [
+                'ua' => AnalyticsEventSanitizer::userAgent($request->userAgent()),
+                // Bounded: payload keys are visitor-controlled.
+                'keys' => array_map(
+                    static fn ($key) => substr((string) $key, 0, 32),
+                    array_slice(array_keys($payload), 0, 12)
+                ),
+            ]);
+
             return $this->success(['message' => 'ok'], 200);
         }
 
@@ -785,6 +805,9 @@ class AnalyticsController extends ApiController
                 'dom_ms' => isset($payload['dom']) ? (int) $payload['dom'] : null,
                 'load_ms' => isset($payload['load']) ? (int) $payload['load'] : null,
                 'fcp_ms' => isset($payload['fcp']) ? (int) $payload['fcp'] : null,
+                // Module-beacon only (the inline script has no PerformanceObserver
+                // for it) — and the field metric the sitepage is actually judged on.
+                'lcp_ms' => isset($payload['lcp']) ? (int) $payload['lcp'] : null,
                 'lkg' => isset($payload['lkg']) ? (bool) $payload['lkg'] : false,
                 // PRIV-1: shared cap, not an inline substr — AnalyticsEventSanitizer::userAgent()
                 // passes '' as Str::limit's $end, so there's no truncation-marker mismatch versus

@@ -25,12 +25,15 @@ dataset('pairing_matrix', function () {
     // Pest evaluates dataset() closures while building the test suite, BEFORE
     // any test's setUp() boots the app — config()/app() throw "Target class
     // [config] does not exist" here (no container instance exists yet). A
-    // bare include() of config/partna.php still crashes the same way even
-    // though 'pre_account' itself is config()-free: an unrelated top-level
-    // entry ('analytics_endpoint') calls config('app.url') at array-literal
-    // build time, and PHP evaluates every argument in the file regardless of
-    // which key we actually want. Register a throwaway config repository
-    // just so that one call resolves; the real Application replaces this
+    // bare include() of config/partna.php can still crash the same way even
+    // though 'pre_account' itself is config()-free: PHP evaluates every
+    // argument in the file regardless of which key we actually want, so ONE
+    // top-level entry whose default calls config() takes the whole include
+    // down. The last such entry ('analytics_endpoint', which defaulted to
+    // config('app.url').'/api/analytics') was deleted 2026-09-01, but the
+    // file is 3,000 lines and the next env-with-a-config-default reintroduces
+    // it — so the shim stays. Register a throwaway config repository just so
+    // such a call resolves; the real Application replaces this
     // container wholesale in the first test's setUp()
     // (Illuminate\Foundation\Application::__construct() calls
     // static::setInstance($this) unconditionally), so none of this survives

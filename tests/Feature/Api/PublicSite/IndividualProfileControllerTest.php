@@ -146,11 +146,14 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     // {} from [] post-decode; the wire byte-level check happens below.
     expect($data['designKit'])->toEqual([]);
 
-    // publicConfig is always emitted (object on the wire). analyticsEndpoint
-    // is the only field for now; tested with a partial-shape check so future
-    // additions don't break this test.
+    // publicConfig is always emitted (object on the wire); partial-shape check
+    // so future additions don't break this test. analyticsEndpoint left the
+    // wire 2026-09-01 — it advertised <app.url>/api/analytics, a route that has
+    // never been registered (the real ones are /api/public/analytics/*), and no
+    // consumer ever read it: the pages app beacons same-origin to /t/*.
     expect($data['publicConfig'])->toBeArray();
-    expect($data['publicConfig'])->toHaveKey('analyticsEndpoint');
+    expect($data['publicConfig'])->toHaveKey('shopLinkMode');
+    expect($data['publicConfig'])->not->toHaveKey('analyticsEndpoint');
 
     $profile = $data['profile'];
     // Phase 8 engine fields — booking is now a link category, not a separate
@@ -185,8 +188,8 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     // arrays, so the Resource casts to stdClass when there's nothing to emit.
     $raw = $res->getContent();
     expect($raw)->toContain('"designKit":{}');
-    // publicConfig has analyticsEndpoint, so it's never `{}` in this assertion
-    // — but we still confirm it serialises as an object.
+    // publicConfig always carries shopLinkMode, so it's never `{}` in this
+    // assertion — but we still confirm it serialises as an object.
     expect($raw)->toContain('"publicConfig":{');
 
     // Legacy link BLOCKS no longer reach the wire at all (2026-08-23): not as
@@ -866,7 +869,7 @@ it('single-flights concurrent requests so only one payload is built', function (
             'profile' => ['handle' => 'singleflight-pro'],
             'designKit' => new stdClass,
             'architectureId' => 'staple',
-            'publicConfig' => ['analyticsEndpoint' => '/api/analytics'],
+            'publicConfig' => ['shopLinkMode' => 'checkout'],
         ]);
 
     // First request — resolve cache miss → DB lookup; payload cache miss → builder called once.

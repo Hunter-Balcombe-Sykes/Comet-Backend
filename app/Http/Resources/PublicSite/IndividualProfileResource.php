@@ -15,7 +15,7 @@ use stdClass;
  *   - `profile` — content (engine fields + base profile)
  *   - `designKit` — per-user design vars (nested camelCase), partial
  *   - `architectureId` — picks which code-side architecture renders
- *   - `publicConfig` — analytics endpoint + platform-wide keys
+ *   - `publicConfig` — platform-wide + site-level render knobs
  *
  * partna-pages does the read-time merge of the partial `designKit` with
  * code-side defaults before passing to the skeleton.
