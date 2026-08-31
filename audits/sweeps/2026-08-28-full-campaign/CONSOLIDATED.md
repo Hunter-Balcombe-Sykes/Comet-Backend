@@ -270,7 +270,7 @@
         $this->maxRedirects = (int) config('partna.http_fetch.max_redirects', self::MAX_REDIRECTS);
         ```
 
-- [ ] **#W1-SEC-8** · P2 — Bot protection ships fully off by default, and the production boot guard only catches the half-flip, not "never enabled"
+- [x] **#W1-SEC-8** · P2 — Bot protection ships fully off by default, and the production boot guard only catches the half-flip, not "never enabled"
     - **Where:** config/partna.php:2802-2806; app/Providers/AppServiceProvider.php:329-340
     - **Affects:** Public unauthenticated mutation endpoints (enquiries, leads, subscriptions, early-access, reports) in any environment that never explicitly sets `BOT_PROTECTION_MODE`.
     - **Effort:** S (~0.5–1h)
@@ -285,8 +285,9 @@
         'driver' => env('BOT_PROTECTION_DRIVER', 'null'),       // null | turnstile | hcaptcha | fake
         'mode' => env('BOT_PROTECTION_MODE', 'off'),          // off | shadow | enforce
         ```
+    - Resolution (2026-08-30): FIXED with a boot-time `Log::warning` in production when `bot_protection.mode === 'off'`, deliberately not a throw because `off` is also a legitimate incident killswitch. The guard catches both explicit-off and never-configured (the config default is itself `'off'`), and the warning reaches Nightwatch because `config/nightwatch.php`'s `filtering.log_level` defaults to `warning`. The default was NOT flipped — turning bot protection on is a product decision, not this unit's.
 
-- [ ] **#W1-SEC-9** · P2 — `ApplyMenuScanRequest` leaves per-item `description`/`category` fields unbounded
+- [x] **#W1-SEC-9** · P2 — `ApplyMenuScanRequest` leaves per-item `description`/`category` fields unbounded
     - **Where:** app/Http/Requests/Platforms/ApplyMenuScanRequest.php:29, 34
     - **Affects:** `site.menus.scan_items` JSONB storage; up to 200 items per request each carrying unbounded text fields.
     - **Effort:** S (~0.5–1h)
@@ -300,6 +301,7 @@
         'items.*.description' => ['nullable', 'string'],
         'items.*.category' => ['nullable', 'string'],
         ```
+    - Resolution (2026-08-30): FIXED, review round 2. Round 1 capped `items.*.category` at 100, but `MenuAiExtractor::NAME_MAX` is 160 and the extractor truncates a category to exactly that length before ever emitting it — so a 101-160 char category was accepted by the extractor, shown to the user for review, then 422'd on `/scan/apply`, stranding a legitimate scan. The identical shape written through `GoogleMenuPhotoScanJob` / `WebsiteMenuHtmlScanJob` / `WebsiteMenuPdfScanJob` / `MenuFetchJob` bypasses this FormRequest via `MenuScanApplier::apply()` directly, so the same payload succeeded on one path and failed on the other. `items.*.name` and `items.*.category` now both reference `MenuAiExtractor::NAME_MAX` (made public for this) instead of a duplicated literal, so the two bounds cannot drift apart again. `description`'s `max:1000` was checked against `cleanString()`, which only trims and never truncates — no upstream producer ceiling contradicts it, so it was left as-is.
 
 - [ ] **#W1-SEC-10** · P2 — PoolResolver's public-payload joins on tenant-owned tables rely on prior item-id scoping rather than an explicit `user_id` predicate
     - **Where:** app/Site/Pools/PoolResolver.php (`reviewsSuppressedByOwner()`, `statsFor()`, the collections/storefronts join)
@@ -4993,7 +4995,7 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#W2-SEC-3** · P2 — Bot-protection defaults ship off/null with no boot-time guard outside the `mode=enforce` case
+- [x] **#W2-SEC-3** · P2 — Bot-protection defaults ship off/null with no boot-time guard outside the `mode=enforce` case
     - **Where:** config/partna.php:2843-2846; app/Providers/AppServiceProvider.php:330-342
     - **Affects:** All public unauthenticated mutation endpoints (enquiry, lead, early-access, report-signal) that rely on the bot-protection layer as their anti-automation defense.
     - **Effort:** S (~0.5–1h)
@@ -5015,6 +5017,7 @@ None.
                 throw new \RuntimeException($botMisconfig);
             }
         ```
+    - Resolution (2026-08-30): FIXED with a boot-time `Log::warning` in production when `bot_protection.mode === 'off'`, deliberately not a throw because `off` is also a legitimate incident killswitch. The guard catches both explicit-off and never-configured (the config default is itself `'off'`), and the warning reaches Nightwatch because `config/nightwatch.php`'s `filtering.log_level` defaults to `warning`. The default was NOT flipped — turning bot protection on is a product decision, not this unit's.
 
 - [ ] **#W2-SEC-4** · P2 — Public newsletter-subscribe rate limiter keys on the raw plaintext email
     - **Where:** app/Providers/AppServiceProvider.php:777-793
@@ -5058,7 +5061,7 @@ None.
         ];
         ```
 
-- [ ] **#W2-SEC-6** · P2 — `UpdateSiteRequest.settings` accepts unknown nested keys with no closed allowlist
+- [x] **#W2-SEC-6** · P2 — `UpdateSiteRequest.settings` accepts unknown nested keys with no closed allowlist
     - **Where:** app/Http/Requests/Api/User/Site/UpdateSiteRequest.php:29
     - **Affects:** Authenticated site-update path (`PATCH /api/professional/site`) — a client can submit arbitrary extra `settings.*` keys alongside the validated ones.
     - **Effort:** S (~0.5–1h)
@@ -5070,8 +5073,9 @@ None.
         ```php
         'settings' => ['sometimes', 'array'],
         ```
+    - Resolution (2026-08-30): FIXED at a different seam than the finding proposed. `UpdateSiteAction::KNOWN_SETTINGS_KEYS` filters the incoming side of the PATCH-merge with `Arr::only()`, so an unrecognized key is silently dropped, never 422'd — preserving the existing accepted-and-dropped contract (e.g. `skeleton_id`). `settings.design.*` stays a hard 422 via `prohibited`, unchanged. The allowlist was independently verified complete — 12 keys, 1:1 with what `UpdateSiteRequest`, `StaffUpdateSiteRequest` and `SiteOrderingValidationRules::orderingRules()` validate — and no writer of `sites.settings` bypasses `UpdateSiteAction`.
 
-- [ ] **#W2-SEC-7** · P2 — `UpsertWorkplaceRequest.opening_hours` accepts an unbounded, unvalidated array shape
+- [x] **#W2-SEC-7** · P2 — `UpsertWorkplaceRequest.opening_hours` accepts an unbounded, unvalidated array shape
     - **Where:** app/Http/Requests/Api/User/Site/UpsertWorkplaceRequest.php:62-65
     - **Affects:** Authenticated workplace-upsert path — the structured hours field can carry arbitrarily large or malformed content before persistence.
     - **Effort:** S (~0.5–1h)
@@ -5086,6 +5090,7 @@ None.
         // editor + the Google hours mapper — validated loosely here.
         'opening_hours' => ['nullable', 'array'],
         ```
+    - Resolution (2026-08-30): FIXED with a concrete shape rule on `opening_hours` (weekday-slug keys only plus exceptions, max 8 `{open,close}` HHMM entries per day, max 50 exceptions). Verified compatible with `IdentitySync::deriveOpeningHours()`, which writes the Eloquent model directly and always emits exact `DAY_SLUGS` with `hhmm()`-clamped times, so that write path can never be rejected by this rule.
 
 - [ ] **#W2-SEC-8** · P2 — Public analytics ingest's Origin check is unforgeable only for browser callers; a scripted client can still forge cross-tenant events
     - **Where:** app/Http/Controllers/Api/PublicSite/AnalyticsController.php:456-480

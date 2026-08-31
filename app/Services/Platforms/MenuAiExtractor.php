@@ -50,7 +50,11 @@ class MenuAiExtractor
 
     private const MAX_ITEMS = 180;
 
-    private const NAME_MAX = 160;
+    // Public: ApplyMenuScanRequest's item/category length caps reference this
+    // directly (#W1-SEC-9) — the extractor legitimately truncates to this
+    // bound and emits it, so the validator's ceiling must match it exactly
+    // rather than duplicate a literal that can drift out of sync again.
+    public const NAME_MAX = 160;
 
     private const PRICE_MAX = 100000;
 

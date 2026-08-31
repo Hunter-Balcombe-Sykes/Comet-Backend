@@ -38,6 +38,21 @@ it('AppServiceProvider::boot() carries the enforce-without-a-driver guard', func
     expect($count)->toBeGreaterThanOrEqual(4, 'Expected ≥4 isProduction()-gated guards (throttle, public_domain, jwks_fail_closed, bot_protection)');
 });
 
+it('#W1-SEC-8 / #W2-SEC-3: also warns loudly on the never-configured (mode=off) case', function () {
+    $source = (string) file_get_contents(base_path('app/Providers/AppServiceProvider.php'));
+
+    // The enforce+no-driver guard above is a hard failure (a broken half-flip);
+    // this one is a log, not a throw, because mode=off is also a legitimate
+    // deliberate posture (an incident killswitch) — see the finding's own
+    // instruction not to flip the default on.
+    expect($source)
+        ->toContain("config('partna.bot_protection.mode') === 'off'")
+        ->toContain('BOT_PROTECTION_MODE=off in production');
+
+    $count = substr_count($source, 'app()->isProduction()');
+    expect($count)->toBeGreaterThanOrEqual(5, 'Expected ≥5 isProduction()-gated guards now that the mode=off warning joined the other four');
+});
+
 it('the guard cannot fire on either environment as configured today', function () {
     // dev/CI resolve to driver=null, mode=off. The guard needs enforce+null, so
     // the test env itself is the dev proof. Production is turnstile/shadow — also

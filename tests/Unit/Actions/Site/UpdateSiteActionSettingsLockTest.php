@@ -82,8 +82,11 @@ it('merges settings against a locked re-read of the on-disk value, not the stale
     // "concurrent" write committed.
     $pro->site->settings = ['gallery' => true];
 
+    // A real KNOWN, non-promoted settings key — #W2-SEC-6 now drops anything
+    // else from the INCOMING side of the merge, but that's orthogonal to what
+    // this test is proving (the locked re-read vs. the stale snapshot).
     app(UpdateSiteAction::class)->execute($pro, [
-        'settings' => ['some_other' => 'x'],
+        'settings' => ['display_gallery_page' => false],
     ]);
 
     $row = DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->first();
@@ -96,7 +99,7 @@ it('merges settings against a locked re-read of the on-disk value, not the stale
     expect($settings)->toMatchArray([
         'gallery' => true,
         'booking_note' => 'from-db',
-        'some_other' => 'x',
+        'display_gallery_page' => false,
     ]);
 });
 

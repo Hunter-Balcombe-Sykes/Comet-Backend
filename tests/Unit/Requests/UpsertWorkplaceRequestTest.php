@@ -126,6 +126,65 @@ it('rejects an invalid previous_website URL', function () {
     expect($errors)->toHaveKey('previous_website');
 });
 
+// #W2-SEC-7: opening_hours used to be a bare 'array' rule with no shape check.
+it('accepts a well-formed opening_hours payload', function () {
+    $errors = validateWorkplacePayload([
+        'name' => 'Studio',
+        'opening_hours' => [
+            'mon' => [['open' => '0900', 'close' => '1700']],
+            'sat' => [['open' => '1000', 'close' => '1300'], ['open' => '1400', 'close' => '1800']],
+            'exceptions' => [],
+        ],
+    ]);
+
+    expect($errors)->toBe([]);
+});
+
+it('rejects an opening_hours key that is not a recognized weekday', function () {
+    $errors = validateWorkplacePayload([
+        'name' => 'Studio',
+        'opening_hours' => ['monday' => [['open' => '0900', 'close' => '1700']]],
+    ]);
+
+    expect($errors)->toHaveKey('opening_hours');
+});
+
+it('rejects an opening_hours entry missing the open/close shape', function () {
+    $errors = validateWorkplacePayload([
+        'name' => 'Studio',
+        'opening_hours' => ['mon' => ['not-a-shift']],
+    ]);
+
+    expect($errors)->toHaveKey('opening_hours');
+});
+
+it('rejects an opening_hours entry with a malformed HHMM time', function () {
+    $errors = validateWorkplacePayload([
+        'name' => 'Studio',
+        'opening_hours' => ['mon' => [['open' => '9am', 'close' => '1700']]],
+    ]);
+
+    expect($errors)->toHaveKey('opening_hours');
+});
+
+it('rejects more than the per-day entry cap', function () {
+    $errors = validateWorkplacePayload([
+        'name' => 'Studio',
+        'opening_hours' => ['mon' => array_fill(0, 9, ['open' => '0900', 'close' => '1000'])],
+    ]);
+
+    expect($errors)->toHaveKey('opening_hours');
+});
+
+it('rejects an unbounded opening_hours.exceptions list', function () {
+    $errors = validateWorkplacePayload([
+        'name' => 'Studio',
+        'opening_hours' => ['exceptions' => array_fill(0, 51, 'x')],
+    ]);
+
+    expect($errors)->toHaveKey('opening_hours');
+});
+
 it('trims whitespace and treats blank strings as null', function () {
     $request = new UpsertWorkplaceRequest;
     $request->merge([

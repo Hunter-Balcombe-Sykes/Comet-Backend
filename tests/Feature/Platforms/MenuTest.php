@@ -1409,6 +1409,44 @@ it('scan apply accepts boundary-legal prices — zero and just under the cap', f
     expect((float) $rows['Banquet Buyout']->base_price)->toBe(99999.99);
 });
 
+// #W1-SEC-9: description/category were nullable|string with no cap — up to
+// 200 items/request, each carrying an unbounded text field.
+it('422s scan apply for a description over the sane upper bound', function () {
+    $user = menuUser('scan8e');
+
+    actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [['name' => 'Item', 'description' => str_repeat('a', 1001), 'price' => null, 'category' => null]],
+    ])->assertStatus(422);
+});
+
+it('422s scan apply for a category over the sane upper bound', function () {
+    $user = menuUser('scan8f');
+
+    actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [['name' => 'Item', 'description' => null, 'price' => null, 'category' => str_repeat('a', 161)]],
+    ])->assertStatus(422);
+});
+
+it('scan apply accepts description/category at exactly the cap', function () {
+    $user = menuUser('scan8g');
+
+    actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [['name' => 'Item', 'description' => str_repeat('a', 1000), 'price' => null, 'category' => str_repeat('b', 160)]],
+    ])->assertOk();
+});
+
+// review round 2, #W1-SEC-9: the category cap must match
+// MenuAiExtractor::NAME_MAX (160), not an independently-invented 100 — the
+// extractor legitimately truncates+emits categories up to 160 chars, so a
+// tighter validator cap stranded an accepted scan on /scan/apply.
+it('accepts a scanned category between 101 and 160 characters (matches MenuAiExtractor::NAME_MAX)', function () {
+    $user = menuUser('scan8h');
+
+    actingAsUser($user)->postJson('/api/platforms/menu/scan/apply', [
+        'items' => [['name' => 'Item', 'description' => null, 'price' => null, 'category' => str_repeat('c', 140)]],
+    ])->assertOk();
+});
+
 // ── BE3: refresh-survival — scan content must outlive a scraper rebuild ──
 // MenuFetchJob wholesale-deletes+reinserts menu_categories/menu_items on
 // every real scrape (persist()) and on losing the last ordering link
