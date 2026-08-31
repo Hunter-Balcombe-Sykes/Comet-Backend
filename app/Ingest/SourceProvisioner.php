@@ -617,6 +617,17 @@ class SourceProvisioner
         if ($value === null) {
             return null;
         }
+        // profile.php is an ID-CARRYING endpoint, not a slug: the identity is
+        // the ?id= that the slug branch below truncates away, leaving
+        // "facebook.com/profile.php" — a source that can only ever be
+        // unavailable (bondi-junction-dental, 2026-08-31). The scraper has no
+        // rule for the shape either: Catalog/Definitions/Facebook.php reserves
+        // profile.php rather than mis-capture it, and
+        // GoogleBusinessAutoSync.php:1055 already returns '' for it. This
+        // normaliser is the one arm that did not get the same treatment.
+        if (preg_match('~^https?://(?:www\.|m\.)?(?:facebook|fb)\.com/profile\.php(?:[/?#]|$)~i', $value)) {
+            return null;
+        }
         if (preg_match('~^https?://(?:www\.|m\.)?(?:facebook|fb)\.com/pages/[^/?#]+/(\d{5,20})/?(?:[?#]|$)~i', $value, $m)) {
             return 'https://www.facebook.com/'.$m[1];
         }
