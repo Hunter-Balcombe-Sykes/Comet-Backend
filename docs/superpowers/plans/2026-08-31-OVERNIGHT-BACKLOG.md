@@ -194,12 +194,96 @@ Full report: the Cold Build Audit artifact. Plan: `2026-08-31-cold-build-defect-
 
 ---
 
-## E. Areas under investigation
+## E. Discovery findings (2026-08-31, six of eight investigations reported)
 
-`golden-standard-discovery` is sweeping these read-only; findings merge in when it reports.
+Every row below carries a file:line, a live curl, or a SQL result. High severity only in this pass;
+the medium and low rows live in the workflow journal and merge in at consolidation.
 
-- Frontend/backend contract drift — every field either side sends, reads, or silently drops.
-- `ollies.partna.au` — the only claimed account, and the closest thing to a real customer site.
-- Every open Nightwatch issue, classified fixed-stale / live / infra / noise.
-- The dashboard against the backend.
-- A wide hunt for anything nobody has named.
+### E1 — The share image on 18 partna sites is a 404 · `TODO` · high
+
+`head-builder.ts:198` falls back to `new URL('/og.png', canonicalUrl)`, and the comment above it claims
+the route "always exists, so og:image is never omitted". **That route was deleted** — added in `a595652`,
+removed by `575dfee` ("The reset: pages torn to the document…"). Any site with no media item publishes a
+404 as its Open Graph image.
+
+### E2 — SVG-only square logos never reach the wire — including Sepia, from the owner's screenshot · `TODO` · high
+
+`SitepageDataResolverService.php:711-715` reads `variantUrls()`, takes `optimized ?? original ?? ''`, and
+**returns `[]` for the whole singleton when there is no raster variant** — so `url_svg` and `url_icon` are
+discarded with it. 18 business sites have a ready `logo_square` that the page never sees. This is why
+Sepia shows a generated "S": it *has* a logo.
+
+### E3 — Reviews are already live for partna accounts, and the person-scoping is broken · `TODO` · high
+
+A surprise: 14 partna users already hold 140 review items and four sites render a Reviews rail today.
+The owner's "only ones mentioning their name" rule **already exists** — and does not work:
+
+- `PersonNameMatch.php:47-51` takes the **first word** of the display name and accepts any token ≥3 chars,
+  with no stopword or name check. A display name starting "The" or "Kebab" admits the venue's entire
+  review set. Live on dev — including a negative review of the venue and praise for other staff.
+- The employee-scoped bypass (`PoolResolver.php:1734-1737`) `continue`s before the review facet is read,
+  so a review whose own attribution names a *different person* cannot be vetoed.
+- The **aggregate** rating, count and Google summary publish unscoped, which `fcab35c` never covered.
+
+This makes B2 a repair, not a build — and F3 (name derivation) is its hard dependency, as expected.
+
+### E4 — ollies publishes another business's rating badge · `TODO` · high
+
+`https://ollies.partna.au/reviews` renders **"5/5 · Based on 174 reviews"** beside a single review card,
+while the account's own 6 live reviews and true 4.2/3925 Google rating are suppressed. Two competing
+`google_business` connections for one place id leave two rating aggregates, and the wrong one wins.
+
+### E5 — A claimed cafe cannot have a menu, because capability is a rename of account_type · `TODO` · high
+
+`can_use_multipage_site: $isBusiness` and `BUSINESS_ONLY = ['menu','reviews']`. ollies is a Google-Business
+cafe filed as `account_type='partna'`, so its **105 ingested menu items ship in the payload and render
+nowhere**, while unclaimed `sepia` renders the identical page. Four accounts are in this state
+(`account_type='partna'` with `sector_source='google-business'`). Capability should follow what the
+account *is*, not the enum it was filed under.
+
+### E6 — Section analytics and scroll-synced URLs are dead on every scroll site · `TODO` · high
+
+`init-behaviors.ts:23` passes `document.body` as the observer root and `behaviors.ts:59` reads
+`root.children` — but scroll's panels sit one level deeper. So page impressions and dwell observe nothing
+on the entire live architecture.
+
+### E7 — Three analytics beacons are silently discarded · `TODO` · high
+
+- **Every `mailto:`/`tel:` click 422s.** `tracker.ts:64-95` fires for any cross-origin href — and
+  `mailto:`/`tel:` have origin `"null"` — then `ClickRequest.php:29` validates `url:http,https`.
+  Directly relevant: Task 1.2 just added `tel:` links, so those clicks would never record.
+- **The RUM beacon is 100% discarded.** The tracker sends `subdomain`; `AnalyticsController.php:770-774`
+  reads `handle`.
+- `publicConfig.analyticsEndpoint` points at `/api/analytics`, a route that does not exist.
+
+### E8 — Two dashboard controls are broken outright · `TODO` · high
+
+- The **"Display a workplace page?" toggle double-encodes its body and writes nothing** —
+  `workplace-visibility.tsx:70-73` calls `JSON.stringify` on a body that `api()` already stringifies.
+- The **video upload cap is 500 MB client-side against a 200 MB server limit**, so the whole file
+  uploads and then 422s.
+
+### E9 — The headshot is seeded at build time only · `TODO` · high
+
+`HeadshotAutoSeeder` has exactly two references: the class, and `GeneratePreAccountSiteJob.php:200`.
+No claim-time hook, no refresh hook, no backfill command. 35 partna sites will never get one — 20 of
+them **despite the source image already sitting on our CDN**. And `surfaces.instagram.profilePicUrl` is
+on the wire, typed on the frontend, and read by nothing: a free fallback nobody wired up.
+
+### E10 — A reel is not a stored concept · `TODO` · medium (blocks C1)
+
+`InstagramConnector.php:196` captures `type` ∈ {Video, Image, Sidecar} into `record_versions.doc`, and
+`InstagramMediaProjector.php:60-70` never projects it. The right home for the promotion rule is a pass in
+`PoolResolver::assemble()` between `order()` and `applyLocks()` — not a write-time boost, not a pin.
+
+Two live facts that shape C1: **`deck[0]` is the full-bleed autoplaying backdrop on every scroll site**, so
+this rule flips 78 sites from a still to a muted looping reel — which is exactly what the owner's C2 ruling
+asks for. And the audit's `.slice(1)` gallery concern was **against dead code**: that branch is staple, and
+zero sites use staple.
+
+---
+
+## F. Still running
+
+- Nightwatch: a verdict on all 50 open issues (fixed-stale / live / infra / by-design-noise).
+- The wide hunt for anything nobody has named.
