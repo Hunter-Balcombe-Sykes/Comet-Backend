@@ -281,9 +281,64 @@ this rule flips 78 sites from a still to a muted looping reel — which is exact
 asks for. And the audit's `.slice(1)` gallery concern was **against dead code**: that branch is staple, and
 zero sites use staple.
 
+### E11 — The edge holds pages for 24 hours while the app asks for 30 seconds · `TODO` · high
+
+Found by deploying. After pushing both repos and deploying the pages worker, **none of the fixes were
+visible** — `sepia` still emitted `data-item-type="platform"`, `amano` still had the boilerplate
+description. Not a failed deploy; a 24-hour edge cache:
+
+```
+cache-control: public, max-age=15, stale-while-revalidate=30, s-maxage=86400
+cf-cache-status: HIT   age: 7918
+```
+
+`max-age=15` and `stale-while-revalidate=30` match `PAGE_CACHE` in `apps/pages/src/lib/launch.ts:18`
+exactly. **`edgeTtl` there is 30. The edge is serving 86400** — 2,880× what the application asked for.
+Something between the Worker and the visitor is rewriting `s-maxage`; the router worker or a zone cache
+rule are the candidates.
+
+Two consequences, and the second is the serious one:
+
+1. A deploy or a content edit is invisible for up to a day unless a purge succeeds. I had to purge by
+   hand to verify my own deploy — after which all four fixes appeared immediately.
+2. **It makes the purge lane load-bearing, and the purge job does not know that.**
+   `CloudflareCachePurgeJob.php:60` justifies its whole retry policy with *"a late purge is harmless —
+   the edge holds s-maxage=31, so the worst case is a slightly longer stale window"*. The real window is
+   24 hours, and there have been **299 terminal purge failures in three days** with no Nightwatch issue
+   and no APM. That is the user-visible consequence of the purge failures nobody had connected.
+
+Fix: find what rewrites `s-maxage` and make the served value the one the app asks for; then correct the
+purge job's stated risk model, which is load-bearing reasoning built on a wrong number.
+
+### E12 — GYG's brand URL bills Apify every 15 minutes, forever · `DONE` · `d829bf6a8`
+
+The Wave 1.5 recon found the loop: `menu:retry-unavailable` re-forces `MenuFetchJob` every 15 minutes,
+`RetryUnavailableMenusCommand.php:36-41` selects on `last_fetched_at >= now()-6h`, and
+`MenuFetchJob.php:209` **advances `last_fetched_at` on every failed attempt** — so a permanently dead
+URL never ages out of its own retry window. Each pass burns `FALLBACK_ATTEMPTS` billed Apify runs,
+because `responseRetryable()` cannot tell "this is not a store page" from "we were bot-blocked".
+
+Fixed with the scrape guard in `MenuSource::entries()` plus the retry-window correction.
+
 ---
 
-## F. Still running
+## F. Deploy log
+
+**2026-09-01 ~04:00 UTC** — backend `development` pushed (11 commits), monorepo `main` pushed (6),
+pages worker deployed (version `1fdc7499`). Verified live after a manual purge:
+
+| fix | evidence |
+|---|---|
+| F1 platform beacon | sepia: `data-item-type="platform"` × 0, `data-action="platform:"` × 5 |
+| F4 reach-me pair | ultra-tune: `href="tel:0399582100"`; sweetcakesofmine: `href="mailto:natasha@…"` |
+| F9 structured data | amano: `telephone "+64 98736654"`, address carries `addressLocality`/`postalCode`/`addressCountry` |
+| F10 meta description | amano: "Hip, bohemian, wood-&-brick restaurant & bakery serving locally sourced Italian cuisine." |
+
+Still an Instagram post photo for `og:image` — that is Wave 2, in flight.
+
+---
+
+## G. Still running
 
 - Nightwatch: a verdict on all 50 open issues (fixed-stale / live / infra / by-design-noise).
 - The wide hunt for anything nobody has named.
