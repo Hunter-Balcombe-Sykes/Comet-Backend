@@ -178,24 +178,29 @@ class ProjectionWriter
     /**
      * Project one stream's current records end to end.
      *
-     * $recordsFetchedThisRun says whether the caller ALSO fetched these
-     * records, under the selection `$source` is currently carrying. Only
-     * RunExecutor can say yes: it lands a stream and projects it in the same
-     * pass, so the source's selection_ref is the one the records arrived
-     * under. `ingest:project` re-derives content from the landed record log
-     * without fetching a byte, so it says no and the ingest scope recorded on
-     * each source item is left exactly as the run that DID fetch it wrote it.
+     * $fetchedInRunId is the ingest run whose FETCH produced what is being
+     * projected, or null when this pass fetched nothing. RunExecutor is the
+     * only caller that can name one: it lands a stream and projects it in the
+     * same pass, so `$source`'s selection_ref is the selection that run's
+     * records arrived under. `ingest:project` re-derives content from the
+     * landed record log without fetching a byte and passes null.
      *
-     * That distinction is the blocker (2026-09-01): re-stamping a repair run's
-     * rows with the source's present-tense selection is how a whole salon's
-     * storewide corpus would be re-labelled as one employee's without a single
-     * new record arriving — the same retroactive re-scoping the person-scope
-     * gate itself used to perform on every read. See upsertSourceItem().
+     * A RUN ID, not a boolean, and that is the whole repair (2026-09-01,
+     * second pass). This method projects the stream's ENTIRE live record log,
+     * not the slice a run just landed — absence is never deletion here, so
+     * every record the narrowed feed stopped returning is still live and still
+     * swept. A per-RUN "yes, this run fetched" therefore restamped the whole
+     * salon's storewide corpus with the employee selection the moment ONE new
+     * review arrived under it: the blocker's exact effect, reached through the
+     * guard that was supposed to close it. Provenance is per RECORD, so the
+     * question has to be asked per record — `ingest.record_state.last_seen_run`
+     * already answers it, because Lander writes this run's id onto exactly the
+     * keys this run's fetch returned and leaves every other key's alone.
      *
      * @param  array<string, mixed>  $source  row from ingest.sources
      * @return array{status: string, projected?: int, removed?: int, items?: int, reason?: string}
      */
-    public function projectStream(array $source, string $streamId, string $streamName, bool $recordsFetchedThisRun = false): array
+    public function projectStream(array $source, string $streamId, string $streamName, ?string $fetchedInRunId = null): array
     {
         $sourceKey = (string) $source['source_key'];
         $projector = ProjectorRegistry::for($sourceKey, $streamName);
@@ -210,10 +215,11 @@ class ProjectionWriter
 
         $userId = (string) $source['user_id'];
         // Read ONCE, here, from the source row this run was dispatched with —
-        // and written to each source item only when this run actually FETCHED
-        // what it is projecting ($recordsFetchedThisRun below). That way "what
-        // was this source scoped to when it landed that review" stops being a
-        // question anyone has to answer from the source's current state.
+        // and written only onto the source items whose RECORD this run's fetch
+        // actually returned (the last_seen_run comparison below). That way
+        // "what was this source scoped to when it landed that review" stops
+        // being a question anyone has to answer from the source's current
+        // state.
         $selectionRef = isset($source['selection_ref']) ? (string) $source['selection_ref'] : null;
         $contentSourceId = $this->ensureContentSource($userId, (string) $connectionId, $sourceKey);
         $accountRef = $this->accountRef($userId, (string) $connectionId, (string) $source['identifier']);
@@ -239,7 +245,11 @@ class ProjectionWriter
             })
             ->where('rs.stream_id', $streamId)
             ->whereNull('rs.tombstoned_at')
-            ->select(['rs.key', 'rv.doc', 'rv.first_seen_at'])
+            // rs.last_seen_run is this stream's per-record provenance: the run
+            // whose fetch last RETURNED this key. It is what makes the ingest
+            // scope stamped below a fact about one record's ingestion rather
+            // than about whatever the sweeping run happened to be doing.
+            ->select(['rs.key', 'rs.last_seen_run', 'rv.doc', 'rv.first_seen_at'])
             ->orderBy('rv.first_seen_at')
             ->orderBy('rs.key')
             ->lazy(500);
@@ -265,6 +275,24 @@ class ProjectionWriter
             }
 
             $coord = "{$sourceKey}:{$accountRef}:{$record->key}";
+
+            // Did THIS run's fetch return THIS record? Only then may its
+            // stored ingest scope be restated. The loop above walks every live
+            // record in the stream, including the ones a narrowed feed stopped
+            // returning months ago — those keys still carry an older
+            // last_seen_run, so they fall out here and keep the selection they
+            // genuinely arrived under.
+            //
+            // The null check is not redundant with the comparison and must not
+            // be folded into a (string) cast: a record whose provenance was
+            // never recorded carries last_seen_run NULL, a pass that fetched
+            // nothing carries $fetchedInRunId null, and `null === null` is the
+            // one way a re-projection could stamp a row it knows nothing about
+            // with the source's present-tense selection — the blocker, once
+            // more, through the last door left open. Casting would answer that
+            // case by accident ('' never equals a run id) and hide the reason.
+            $recordFetchedThisRun = $fetchedInRunId !== null
+                && $record->last_seen_run === $fetchedInRunId;
 
             // ONE transaction per record, spanning the source-item upsert AND
             // its identity-key replace-set (#CACHE-3 brief, 2026-07-31).
@@ -301,7 +329,7 @@ class ProjectionWriter
             // ($attempts defaults to 1), but each transaction locks a single
             // source item and its keys in a fixed order, so a cycle needs two
             // writers on the SAME row — accepted, not retried.
-            $sourceItemId = DB::transaction(function () use ($contentSourceId, $coord, $streamId, $record, $projection, $projector, $recordsFetchedThisRun, $selectionRef) {
+            $sourceItemId = DB::transaction(function () use ($contentSourceId, $coord, $streamId, $record, $projection, $projector, $recordFetchedThisRun, $selectionRef) {
                 $id = $this->upsertSourceItem(
                     contentSourceId: $contentSourceId,
                     coord: $coord,
@@ -309,10 +337,12 @@ class ProjectionWriter
                     recordKey: (string) $record->key,
                     kind: (string) $projection['kind'],
                     projectorVersion: $projector::version(),
-                    // Stamped from THIS run's source row, and only when this
-                    // run fetched what it is projecting — never read back later
-                    // from the source's present tense. See upsertSourceItem().
-                    stampIngestScope: $recordsFetchedThisRun,
+                    // Stamped from THIS run's source row, and only onto a
+                    // record THIS run's fetch returned — never read back later
+                    // from the source's present tense, and never spread from
+                    // one fetched record to the rest of the sweep. See
+                    // upsertSourceItem().
+                    stampIngestScope: $recordFetchedThisRun,
                     ingestSelectionRef: $selectionRef,
                 );
                 $this->writeIdentityKeys($id, $coord, $projection);
@@ -680,7 +710,10 @@ class ProjectionWriter
     }
 
     /**
-     * $stampIngestScope says whether this call is an INGESTION at all, and
+     * $stampIngestScope says whether THIS RECORD was ingested by the run
+     * making this call (projectStream() decides it per record, from
+     * ingest.record_state.last_seen_run — a sweeping run is not an ingestion
+     * of everything it sweeps), and
      * $ingestSelectionRef is the vendor-side selection that ingestion ran under
      * — Fresha's employee id, 'storewide', or null for a lane that has no
      * vendor selection whatsoever (the manual path, every connector without a
@@ -701,11 +734,19 @@ class ProjectionWriter
      * ingestion, so it is stamped here, on the row the ingestion writes, and
      * never re-derived from the source's present tense.
      *
-     * Rewritten on every pass, like kind and projector_version: a connection
-     * genuinely narrowed to an employee re-harvests under that selection and
-     * its rows say so from then on. It is the reviews that never come back
-     * under the new selection which must keep saying 'storewide' — and they do,
-     * because a row nobody re-landed is a row nobody rewrote.
+     * Restated whenever a fetch RE-LANDS the record: a connection genuinely
+     * narrowed to an employee re-harvests, the reviews that come back come back
+     * under the new selection, and their rows say so from then on. The reviews
+     * that do NOT come back keep saying 'storewide'.
+     *
+     * "A row nobody re-landed is a row nobody rewrote" is what this docblock
+     * used to claim, and it was false — which is how the blocker above
+     * survived its own fix. projectStream() sweeps the stream's whole live
+     * record log, so with a per-RUN stamp flag every storewide row was rewritten
+     * by the first narrowed harvest that returned a single new review. The
+     * claim is true now because the caller checks each record's
+     * last_seen_run before setting $stampIngestScope, which is a per-record
+     * fact and not a property of the run.
      */
     private function upsertSourceItem(
         string $contentSourceId,

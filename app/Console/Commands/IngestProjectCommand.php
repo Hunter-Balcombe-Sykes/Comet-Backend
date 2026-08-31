@@ -90,7 +90,7 @@ class IngestProjectCommand extends Command
                         }
 
                         try {
-                            // No recordsFetchedThisRun: this command re-derives
+                            // No fetchedInRunId: this command re-derives
                             // from the landed log without fetching a byte, so it
                             // has no ingestion to report and must not restate
                             // any source item's ingest scope. Restamping here

@@ -171,3 +171,47 @@ it('closes an abandoned previous run and re-projects even when nothing changed (
     $executor->execute($source, new BandcampConnector, BandcampConnector::manifest(), 'manual');
     expect(DB::table('content.f_link')->count())->toBe(0);
 });
+
+it('credits its own run for what it fetched, so the ingest scope lands on the records it landed', function () {
+    // Pins the WIRING, which nothing else did (2026-09-01, second pass): the
+    // executor is the only caller that can name a fetching run, and
+    // ProjectionWriter now stamps a source item's ingest_selection_ref only
+    // onto records whose record_state.last_seen_run matches the run id it was
+    // handed. Hand it nothing — or hand it the wrong id — and the stamp goes
+    // silently dark: no review is ever recorded as employee-scoped again, and
+    // PoolResolver's employee tier suppresses a whole salon forever with no
+    // error anywhere. Fail-closed, and invisible, which is exactly the kind of
+    // regression a passing suite hides.
+    //
+    // Bandcamp carries no vendor picker, so selection_ref is set by hand here.
+    // What is under test is that a run's own id reaches the projection and the
+    // stamp follows the records that run landed — that is source-agnostic; the
+    // Fresha semantics of the value live in ReviewIngestScopeStampTest.
+    $userId = createTenant('creds-'.Str::lower(Str::random(6)))->id;
+    $connection = IntegrationConnection::create([
+        'user_id' => $userId,
+        'platform' => 'bandcamp',
+        'resource_id' => 'acct-'.substr(sha1('creds'), 0, 16),
+        'payload' => ['url' => 'https://credits.bandcamp.com'],
+        'is_active' => true,
+    ]);
+    DB::table('ingest.sources')->where('connection_id', $connection->id)->update(['selection_ref' => '5035183']);
+    $source = (array) DB::table('ingest.sources')->where('connection_id', $connection->id)->first();
+
+    Http::fake([
+        'https://credits.bandcamp.com/music' => Http::response(bandcampMusicPage([
+            ['path' => '/album/alpha', 'title' => 'Alpha', 'date' => '01 Jan 2025 00:00:00 GMT'],
+        ]), 200),
+    ]);
+
+    expect(app(RunExecutor::class)->execute($source, new BandcampConnector, BandcampConnector::manifest(), 'manual')['outcome'])->toBe('ok');
+
+    $runId = DB::table('ingest.runs')->where('source_id', $source['id'])->value('id');
+    $stream = DB::table('ingest.streams')->where('source_id', $source['id'])->first();
+
+    // Lander credited this run with the record...
+    expect(DB::table('ingest.record_state')->where('stream_id', $stream->id)->value('last_seen_run'))->toBe($runId)
+        // ...and the projection in the same pass recognised that credit as its
+        // own and stamped the selection the fetch ran under.
+        ->and(DB::table('content.source_items')->where('stream_id', $stream->id)->value('ingest_selection_ref'))->toBe('5035183');
+});

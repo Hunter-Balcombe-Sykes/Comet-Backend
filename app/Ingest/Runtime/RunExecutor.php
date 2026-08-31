@@ -242,13 +242,16 @@ class RunExecutor
             if (($landed['changed'] > 0 || $landed['tombstoned'] > 0 || $forceProject)
                 && ProjectorRegistry::has((string) $source['source_key'], $streamName)) {
                 try {
-                    // recordsFetchedThisRun: THIS is the lane that fetched —
-                    // the stream above was pulled seconds ago under $source's
-                    // current selection, so the scope stamped on each source
-                    // item is the scope the records actually arrived under.
+                    // fetchedInRunId: THIS is the lane that fetched — the
+                    // stream above was pulled seconds ago under $source's
+                    // current selection. Handing over the RUN ID rather than a
+                    // bare "yes" is what keeps the stamp on the records this
+                    // run's fetch actually returned: projectStream() sweeps the
+                    // whole live record log, and $runId is the same id Lander
+                    // just wrote onto exactly those keys' record_state rows.
                     // `ingest:project` re-derives without fetching and passes
-                    // false; see ProjectionWriter::projectStream().
-                    $this->projections->projectStream($source, $streamId, $streamName, recordsFetchedThisRun: true);
+                    // nothing; see ProjectionWriter::projectStream().
+                    $this->projections->projectStream($source, $streamId, $streamName, fetchedInRunId: $runId);
                 } catch (\Throwable $e) {
                     report($e);
                     // JOB-4: a projection failure must move the run outcome off 'ok' —
