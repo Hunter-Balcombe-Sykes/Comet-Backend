@@ -151,19 +151,25 @@ class SitePolicyResolver
 
     /**
      * The retention sentence, read from the window the purge actually runs on
-     * (partna.analytics_raw_event_retention_days, the same key
-     * PurgeRawAnalyticsEvents::retentionDays() reads) rather than a number
-     * typed into the prose — a hardcoded "90 days" becomes a false statement
-     * the day someone sets the env var.
+     * (PurgeRawAnalyticsEvents::configuredRawRetentionDays() — the command's
+     * own accessor for the key it purges on) rather than a number typed into
+     * the prose: a hardcoded "90 days" becomes a false statement the day
+     * someone sets the env var.
      *
-     * Below PurgeRawAnalyticsEvents::MINIMUM_RETENTION_DAYS the command aborts
-     * with FAILURE and deletes nothing, so in that configuration there is no
-     * deletion window to name; saying "10 days" there would trade one untrue
-     * claim for a more flattering one. The policy says so plainly instead.
+     * Naming a window at all is gated on the command's OWN answer to "would a
+     * scheduled run delete anything" (scheduledPurgeWouldDelete()), not on the
+     * raw window alone. This file used to re-derive that answer from the raw
+     * window and got it wrong: handle() aborts with FAILURE before the first
+     * DELETE when EITHER window is below the floor, so a sub-floor
+     * content_popularity_scores window leaves the raw events immortal while
+     * this sentence still promised automatic deletion after 90 days — a claim
+     * published under the OWNER'S business name about their own site. When
+     * nothing is purged the policy says exactly that instead; a shorter untrue
+     * claim is not an improvement on a longer one.
      */
     private function analyticsRetentionLine(): string
     {
-        $days = (int) config('partna.analytics_raw_event_retention_days', 90);
+        $days = PurgeRawAnalyticsEvents::configuredRawRetentionDays();
 
         $records = 'Individual usage records — each page you open, link you tap, section you view and visit you make, '
             .'with the browser identifiers and location estimate attached';
@@ -171,7 +177,7 @@ class SitePolicyResolver
         $direct = 'Anything you send us directly, such as an enquiry or a mailing-list subscription, is kept until you '
             .'ask us to delete it or we no longer need it, and then deleted.';
 
-        if ($days < PurgeRawAnalyticsEvents::MINIMUM_RETENTION_DAYS) {
+        if (! PurgeRawAnalyticsEvents::scheduledPurgeWouldDelete()) {
             return "{$records} — are currently kept with no fixed deletion date. {$direct}";
         }
 

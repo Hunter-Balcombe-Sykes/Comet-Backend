@@ -19,11 +19,13 @@ class PurgeRawAnalyticsEvents extends Command
         .'rows older than their retention windows. Runs in batches to avoid long-running transactions.';
 
     /**
-     * Floor on the raw-event retention window. Below it handle() aborts and
-     * deletes NOTHING, so this is not a tunable — it is the line between "rows
-     * are purged on a schedule" and "rows live forever". SitePolicyResolver
-     * reads it for exactly that reason: the generated privacy policy may only
-     * name a deletion window when the purge would actually run.
+     * Floor on BOTH retention windows — raw events and the derived scores
+     * table. Below it on either one, handle() aborts and deletes NOTHING
+     * (not just the offending table), so this is not a tunable: it is the
+     * line between "rows are purged on a schedule" and "rows live forever".
+     * The generated privacy policy may only name a deletion window when the
+     * purge would actually run, which is what scheduledPurgeWouldDelete()
+     * below is for — callers ask that, not this constant.
      */
     public const MINIMUM_RETENTION_DAYS = 30;
 
@@ -119,10 +121,39 @@ class PurgeRawAnalyticsEvents extends Command
         return self::SUCCESS;
     }
 
+    /**
+     * The two configured windows, and the one question anybody outside this
+     * command actually needs answered: would a scheduled run delete anything?
+     *
+     * handle() calls retentionDays() AND scoresRetentionDays(), and either
+     * returning null aborts with FAILURE before the first DELETE — so a
+     * sub-floor scores window makes the RAW tables immortal too, not just the
+     * scores table. SitePolicyResolver used to check only the raw window and
+     * therefore published "deleted automatically after 90 days", under the
+     * owner's own business name, on a configuration that deleted nothing.
+     * Both guards are mirrored here, once, so the policy can never again
+     * promise a deletion this command would not perform.
+     */
+    public static function scheduledPurgeWouldDelete(): bool
+    {
+        return self::configuredRawRetentionDays() >= self::MINIMUM_RETENTION_DAYS
+            && self::configuredScoresRetentionDays() >= self::MINIMUM_RETENTION_DAYS;
+    }
+
+    public static function configuredRawRetentionDays(): int
+    {
+        return (int) config('partna.analytics_raw_event_retention_days', 90);
+    }
+
+    public static function configuredScoresRetentionDays(): int
+    {
+        return (int) config('partna.analytics.content_popularity_scores_retention_days', 180);
+    }
+
     private function retentionDays(): ?int
     {
-        $raw = $this->option('days') ?? config('partna.analytics_raw_event_retention_days', 90);
-        $days = (int) $raw;
+        $raw = $this->option('days');
+        $days = $raw !== null ? (int) $raw : self::configuredRawRetentionDays();
 
         if ($days < self::MINIMUM_RETENTION_DAYS) {
             $this->error(sprintf(
@@ -142,7 +173,7 @@ class PurgeRawAnalyticsEvents extends Command
     // which only overrides the raw-event tables above.
     private function scoresRetentionDays(): ?int
     {
-        $days = (int) config('partna.analytics.content_popularity_scores_retention_days', 180);
+        $days = self::configuredScoresRetentionDays();
 
         if ($days < self::MINIMUM_RETENTION_DAYS) {
             $this->error(sprintf(

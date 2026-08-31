@@ -1,5 +1,6 @@
 <?php
 
+use App\Console\Commands\PurgeRawAnalyticsEvents;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Site\SitePolicyResolver;
@@ -165,6 +166,58 @@ it('promises no automatic deletion window when the purge floor means nothing is 
 
     expect($text)->not->toContain('10 days')
         ->and($text)->toContain('no fixed deletion date');
+});
+
+// The threshold that picks which of the two sentences a real business
+// publishes had never been exercised AT the floor, only well below it, so
+// `< MINIMUM` and `<= MINIMUM` were indistinguishable. Both sides are pinned
+// here: exactly the floor is the configuration where the purge DOES run, and
+// one day under is the configuration where it aborts.
+it('names the window at exactly the retention floor, where the purge still runs', function () {
+    config()->set('partna.analytics_raw_event_retention_days', PurgeRawAnalyticsEvents::MINIMUM_RETENTION_DAYS);
+    $text = app(SitePolicyResolver::class)->resolve(policyUser(), policySite())['privacy']['text'];
+
+    expect($text)->toContain('deleted automatically 30 days after they are recorded')
+        ->and($text)->not->toContain('no fixed deletion date');
+});
+
+it('drops the window one day under the floor, where the purge aborts', function () {
+    config()->set('partna.analytics_raw_event_retention_days', PurgeRawAnalyticsEvents::MINIMUM_RETENTION_DAYS - 1);
+    $text = app(SitePolicyResolver::class)->resolve(policyUser(), policySite())['privacy']['text'];
+
+    expect($text)->toContain('no fixed deletion date')
+        ->and($text)->not->toContain('29 days');
+});
+
+// handle() calls retentionDays() AND scoresRetentionDays(), and either one
+// below the floor returns FAILURE before the first DELETE — so a sub-floor
+// scores window leaves the RAW events undeleted too. The policy checked only
+// the raw window and kept promising automatic deletion in that configuration.
+it('promises no automatic deletion when the scores window alone puts the purge below its floor', function () {
+    config()->set('partna.analytics_raw_event_retention_days', 90);
+    config()->set(
+        'partna.analytics.content_popularity_scores_retention_days',
+        PurgeRawAnalyticsEvents::MINIMUM_RETENTION_DAYS - 1,
+    );
+
+    $text = app(SitePolicyResolver::class)->resolve(policyUser(), policySite())['privacy']['text'];
+
+    expect($text)->toContain('no fixed deletion date')
+        ->and($text)->not->toContain('90 days')
+        ->and($text)->not->toContain('deleted automatically');
+});
+
+it('keeps the window when the scores retention sits exactly on the floor', function () {
+    config()->set('partna.analytics_raw_event_retention_days', 90);
+    config()->set(
+        'partna.analytics.content_popularity_scores_retention_days',
+        PurgeRawAnalyticsEvents::MINIMUM_RETENTION_DAYS,
+    );
+
+    $text = app(SitePolicyResolver::class)->resolve(policyUser(), policySite())['privacy']['text'];
+
+    expect($text)->toContain('deleted automatically 90 days after they are recorded')
+        ->and($text)->not->toContain('no fixed deletion date');
 });
 
 it('carries the same corrections into the dashboard preview text', function () {
