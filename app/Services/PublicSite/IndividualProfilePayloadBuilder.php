@@ -9,6 +9,7 @@ use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Accounts\AccountCapabilitySet;
@@ -117,6 +118,17 @@ class IndividualProfilePayloadBuilder
             // gated, popularity-ranked (or the owner's manual order when
             // smart_page_order is off), canonical fallback. Top-level key.
             'page_order' => $pageOrder,
+            // The live build's state, so apps/pages can show an honest
+            // "being prepared" surface instead of the person's name over an
+            // empty site (2026-08-31 audit, F2 — pending builds sat 8-10
+            // minutes under a batch while their subdomains served a 44KB
+            // named shell). Keyed off $pro, not $site: the site row can be
+            // null here and the user never is, and the build belongs to the
+            // user either way.
+            'build_state' => PreAccountBuild::query()
+                ->where('user_id', $pro->id)
+                ->orderByDesc('created_at')
+                ->value('build_state'),
             // The unified action list (spec §3): top-N of pages + destination
             // platforms + served items + categories, in the owner's mode with
             // their locks applied. Always present; entries [] when nothing

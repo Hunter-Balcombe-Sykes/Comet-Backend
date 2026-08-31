@@ -130,6 +130,11 @@ class IndividualProfileResource extends ApiResource
             // render-time concern, not profile content). Always an array.
             'pageOrder' => $this->sections['page_order'] ?? [],
 
+            // Whether a pre-account build is still running for this account —
+            // null once claimed, or for an account that never had one. The
+            // sitepage's isPreparing() reads it (F2, 2026-08-31).
+            'buildState' => $this->sections['build_state'] ?? null,
+
             // Unified action list (2026-08-23) — always present, entries may be [].
             'actions' => $this->sections['actions'] ?? ['mode' => 'newest', 'entries' => []],
 
