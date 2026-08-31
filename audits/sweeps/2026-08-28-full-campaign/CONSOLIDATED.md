@@ -512,7 +512,7 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 5 of 5 complete
-- P2 Medium: 2 of 20 complete
+- P2 Medium: 2 of 21 complete
 - P3 Low: 0 of 12 complete
 
 ---
@@ -2626,7 +2626,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 1 of 1 complete
-- P2 Medium: 3 of 8 complete
+- P2 Medium: 4 of 8 complete
 - P3 Low: 0 of 2 complete
 
 ---
@@ -4059,10 +4059,10 @@ The audit contains 39 raw findings. After deduplication and confidence-based fil
 
 ## Progress
 
-- P0 Blockers: 0 of N complete
+- P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 3 of 3 complete
-- P3 Low: 15 of 15 complete
+- P2 Medium: 0 of 3 complete
+- P3 Low: 0 of 20 complete
 
 ---
 
@@ -5394,7 +5394,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 3 of 3 complete
-- P2 Medium: 5 of 20 complete
+- P2 Medium: 6 of 21 complete
 - P3 Low: 0 of 26 complete
 
 ---
