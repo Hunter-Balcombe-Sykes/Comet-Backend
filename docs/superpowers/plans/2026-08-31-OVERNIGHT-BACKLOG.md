@@ -394,7 +394,73 @@ Suites: backend **10,123 passing**, pages **205 passing** (94 at the start of th
 
 ---
 
-## H. Still running
+## H. Waves 5 & 7 — high-severity findings (read-only, ~55 investigations total)
+
+Every row proven against live HTTP, a SQL result or a file:line. The heavy ones:
+
+### Serving-plane / security
+- **Three "not public" controls do not bind on the public read path** — the owner publish toggle, a
+  moderation takedown, and the pre-account claim gate. Two proved live against dev-api. An unpublished or
+  taken-down site is still readable by URL.
+- **The public API 500s at ~20 concurrent** — Supabase pooler in session mode. Serving-plane fragility.
+- **RLS is not evaluated on the serving path at all** — `app_backend` has `rolbypassrls=true`, and 36
+  RLS-enabled tables (incl. `core.users`, `site.sites`) have no `app_backend` policy and work only by the
+  bypass. So the 115 RLS advisories are noise; the real wins are unindexed FKs on the account-deletion
+  cascade and 8 duplicate-index pairs.
+
+### Prod promotion is an outage waiting to happen
+- **Prod is frozen at the 2026-07-26 baseline: 4 migrations applied, dev has 156.** Prod is missing four
+  entire schemas — `catalog`, `content`, `ingest`, `routing` = 66 tables — plus 7 `site.*` tables. Its
+  code is equally frozen (`origin/production` is 2,270 commits behind), so today it is self-consistent.
+  **The danger is the promotion**: `production` is the default branch, the push IS the deploy, there is no
+  CI gate, and a fast-forward ships 2,270 commits querying 66 non-existent tables. Prod DB is empty
+  (`core.users` = 0), so the right move is a **from-zero re-baseline**, not a 153-file replay. Ordered
+  plan is in the Wave 7 report. **Do not promote to production without it.**
+
+### Claim flow
+- **Issue 22's migration backfill is wrong**: all 9 claimed dev builds are `published_by_claim=false` with
+  `is_published=true`, so releasing any of them reproduces the exact issue-22 exposure.
+- **The claim token is unreachable end to end** — no frontend reads `?t=`, the `/claim` redirect drops the
+  query string. **196 outreach builds on dev are permanently unclaimable.**
+- `release()` is a partial inverse of `claim()` — leaves contact-routing email, early-access link, expiry
+  and invite stamp behind, so a released site can hand a stranger's enquiries to the next claimer.
+
+### Accessibility — the sitepage is unusable without a mouse
+- **Every card and nav row is a `<div>` with a click listener** — 115 on ollies. No keyboard user can open
+  anything; assistive tech is never told they are interactive. No `<main>`, `<nav>`, `<h1>` or skip link on
+  any live site. Page changes update only the URL — title, headings and live regions stay silent.
+- **A contrast bug is live**: `emit-kit-css.ts:117` puts near-white ink on mid-luminance accents — sepia is
+  at 1.85:1 right now.
+- **Notch handling is absent**: `viewport-fit=cover` is set but `env(safe-area-inset-*)` appears zero times,
+  so the nav renders inside the Dynamic Island on every notched iPhone.
+
+### Empty states — a thin site renders as literally nothing
+- **The home page never renders content on scroll** (`p.id === 'home' ? null`); its only substance is
+  `media.deck[0]` as a background. Five live accounts serve HTTP 200, `robots: index`, and a **blank white
+  viewport**. A section whose presence gate and render derivation disagree falls through to `<p>{p.id}</p>`
+  — the raw page id as unstyled text.
+
+### Cost
+- **The pre-account build lane spends Apify without touching ApifyBudget**; the legacy `integrations:refresh`
+  Places lane re-bills ~700 Place Photos/day because its carry-forward key can never match; the same 146
+  Google listings are billed twice within seconds by two lanes blind to each other.
+
+### Test suite
+- No coverage driver, no coverage gate, no mutation run anywhere in CI. **Four production fail-closed boot
+  guards are "tested" by grepping their own source** — one was inverted and all ten tests stayed green. The
+  schema-drift CI check compares against a snapshot predating all 156 migrations, with the staleness test
+  that would say so switched off.
+
+### Doctrine
+- **18 stale/wrong claims across the five doctrine files**, four load-bearing — incl. `partna.au` served by
+  an undocumented `apps/marketing` workspace while the hub attributes it to the frozen Partna-Frontend, and
+  the edge-TTL claim (30s not 86400) that misled work all night.
+
+Full detail (11–18 findings each, incl. medium/low) is in the Wave 5 and Wave 7 task outputs.
+
+---
+
+## I. Still running
 
 - Nightwatch: a verdict on all 50 open issues (fixed-stale / live / infra / by-design-noise).
 - The wide hunt for anything nobody has named.
