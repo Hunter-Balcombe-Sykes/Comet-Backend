@@ -123,3 +123,17 @@ dataset('poolCandidateSortIndexes', [
 it('has an item-leading covering index on each pool candidate sort facet', function (string $table, string $index) {
     assertIndexExists('content', $table, $index);
 })->with('poolCandidateSortIndexes');
+
+// ─── merge-lineage walk: discarded-item lookup index (FU2-A) ────────────────
+//
+// ProjectionWriter::mergeSurvivorOf() walks content.item_merges with
+// `WHERE user_id = ? AND discarded_item_id = ? ORDER BY merged_at DESC, id
+// DESC LIMIT 1` to re-derive the surviving item after a concurrent merge
+// hard-deletes the one a facet write was targeting (shipped c90ada09c). The
+// table carried nothing beyond its bigserial PK, so every hop was a
+// sequential scan — deliberately deferred out of that unit as a follow-up
+// (a schema change) and shipped here by 20260831120000_item_merges_discarded_idx.sql.
+
+it('has a user+discarded-item index serving the merge-lineage walk', function () {
+    assertIndexExists('content', 'item_merges', 'idx_item_merges_user_discarded');
+});
