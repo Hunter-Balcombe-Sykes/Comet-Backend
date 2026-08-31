@@ -499,8 +499,9 @@ class AnalyticsController extends ApiController
      *
      * What actually BOUNDS the volume, stated exactly: withinSiteBurstCap() — keyed
      * on $site->id, 2000/min, and the only control here an attacker cannot rotate
-     * — and it covers PAGEVIEWS ONLY. The other seven originAllowed() routes (click,
-     * section-seen, section-dwell, item-seen, action-seen, action-tap, ping) have no
+     * — and it covers PAGEVIEWS ONLY. The other eight originAllowed() routes (click,
+     * section-seen, section-dwell, item-seen, action-seen, action-tap, ping, and rum
+     * since #W3-SEC-1 brought it under this gate) have no
      * unforgeable bound at all: the `analytics` / `analytics-click` limiters key on
      * x-visitor-ip with a CF-Connecting-IP "backstop", and NEITHER is verified.
      * AppServiceProvider reads CF-Connecting-IP raw, in preference to
@@ -512,7 +513,7 @@ class AnalyticsController extends ApiController
      * the origin is UNVERIFIED. If it does, the header is harder to forge than this
      * paragraph assumes — the error would be in the conservative direction. Until
      * someone checks, do not cite that backstop as a bound; if one is wanted for the
-     * other seven, it is a per-site cap like the pageview one, not another header.
+     * other eight, it is a per-site cap like the pageview one, not another header.
      *
      * The proposed close, an HMAC beacon token minted into the page payload, does not
      * hold: the payload is PUBLIC, so the same attacker fetches the page and replays
@@ -558,7 +559,7 @@ class AnalyticsController extends ApiController
      * sets either header freely, and a site's subdomain is public, so accepting
      * Referer reopened the exact forgery the 2026-07-24 SEC-1 fix closed on the
      * site_id vector. Every legitimate caller is the sitepage's own beacon, and
-     * all eight ingest routes are POST, on which a browser always sends Origin.
+     * all nine ingest routes are POST, on which a browser always sends Origin.
      */
     private function parseOriginHost(Request $request): ?string
     {
@@ -761,6 +762,19 @@ class AnalyticsController extends ApiController
     /**
      * Real-user monitoring beacon. Logs first-paint / load timings to a structured
      * channel for offline percentile analysis. No DB writes.
+     *
+     * #W3-SEC-1 (2026-09-01): this was the ONE public ingest route that took its
+     * site identity from the request BODY and never checked it. click(), pageview(),
+     * sectionSeen(), sectionDwell(), itemSeen(), actionSeen(), actionTap() and ping()
+     * all run resolvePublishedSite() + originAllowed(); rum() ran neither, so any
+     * caller could POST performance rows attributed to any handle they could guess —
+     * and a handle IS a guess away, it's the public subdomain. "No DB writes" was
+     * never the reason it was safe to skip the gates: the log line is what an
+     * operator reads to decide whether a site is slow, and it was visitor-authored.
+     * rum() now runs the same two gates as its siblings. What deliberately differs
+     * is the RESPONSE: the siblings 404, rum() keeps its fake-200 on every reject
+     * path (bot, unidentified, unverified) because a browser must learn nothing
+     * from an analytics response — the drop is loud in OUR logs instead.
      */
     public function rum(Request $request): JsonResponse
     {
@@ -778,10 +792,18 @@ class AnalyticsController extends ApiController
         // measures and the inline script cannot) never reached a log line.
         $identity = $payload['handle'] ?? $payload['subdomain'] ?? null;
         $handle = is_string($identity) ? $identity : null;
+        // Shape gate, and it runs BEFORE the lookup on purpose. Both keys are raw
+        // body fields, so without this every string a caller cares to send becomes
+        // a database predicate — 63 chars is the DNS label ceiling a real subdomain
+        // cannot exceed, and [a-z0-9-] is the only alphabet one can contain, so
+        // anything else is garbage that has no business reaching site.sites.
+        // Keeping the two rejects on separate labels also keeps them diagnosable:
+        // rum_unidentified is a SENDER bug (that's what hid a dead beacon for
+        // weeks), rum_unverified below is a well-formed beacon for somebody else's
+        // site. Collapse them and the second incident reads like the first.
         if (! $handle || ! preg_match('/^[a-z0-9-]{1,63}$/i', $handle)) {
             // The fake-200 stays — a visitor's browser must learn nothing from an
             // analytics response — but the drop is no longer invisible to US.
-            // Silence on this branch is exactly what hid a dead beacon for weeks.
             Log::warning('analytics.rum_unidentified', [
                 'ua' => AnalyticsEventSanitizer::userAgent($request->userAgent()),
                 // Bounded: payload keys are visitor-controlled.
@@ -794,13 +816,42 @@ class AnalyticsController extends ApiController
             return $this->success(['message' => 'ok'], 200);
         }
 
+        // The body has now said which site this is; nothing has yet checked that
+        // the site exists, is publicly renderable, or is the page the beacon was
+        // fired from. Same two gates as click()/pageview(), same order, same
+        // helpers — resolvePublishedSite() carries the unclaimed-site carve-out
+        // and the no-existence-leak status choice, so reuse it rather than
+        // re-deriving a second publication rule that can drift from the first.
+        // Its $error response is deliberately discarded: rum() answers 200 to
+        // everything (see the docblock), so the rejection is a log line, not a body.
+        $rejection = null;
+        $site = $this->resolvePublishedSite(['subdomain' => $handle], $rejection);
+        if (! $site || ! $this->originAllowed($request, $site)) {
+            Log::warning('analytics.rum_unverified', [
+                'ua' => AnalyticsEventSanitizer::userAgent($request->userAgent()),
+                // Which gate refused, without echoing the caller's handle: a
+                // resolved site with a bad Origin is somebody spoofing a real
+                // tenant; an unresolved one is a stale subdomain or a fishing
+                // sweep. Different remedies, so they must be told apart here.
+                'resolved' => $site !== null,
+            ]);
+
+            return $this->success(['message' => 'ok'], 200);
+        }
+
         try {
             Log::info('rum', [
                 // PRIV-3: non-reversible — the raw handle is public (it's the
                 // subdomain), but hashing keeps this log line consistent with the
                 // rest of the codebase's hash-before-log convention and avoids a
                 // trivially greppable per-site RUM timing history.
-                'handle' => hash('sha256', strtolower($handle)),
+                //
+                // Hashed from the RESOLVED row's subdomain, not the body's handle:
+                // resolveSiteFromData() also accepts an active alias and a user
+                // handle, so two beacons for one site can arrive spelled three
+                // ways. The canonical subdomain makes them one bucket — and it is
+                // the value the gate above actually vouched for.
+                'handle' => hash('sha256', strtolower($site->subdomain)),
                 'ttfb_ms' => isset($payload['ttfb']) ? (int) $payload['ttfb'] : null,
                 'dom_ms' => isset($payload['dom']) ? (int) $payload['dom'] : null,
                 'load_ms' => isset($payload['load']) ? (int) $payload['load'] : null,

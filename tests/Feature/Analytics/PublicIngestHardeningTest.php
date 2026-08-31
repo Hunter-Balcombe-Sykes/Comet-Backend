@@ -227,6 +227,11 @@ it('reduces the rum beacon UA to family/major-version via the shared sanitiser (
     $chromeUa = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
         .'(KHTML, like Gecko) Chrome/141.0.7390.54 Safari/537.36';
 
+    // Since #W3-SEC-1 rum() runs the same site + Origin gates as every other
+    // ingest route, so a beacon has to come from a real site's own page before
+    // it reaches the log line this test is about.
+    createTenant('priv2-ua-case');
+
     Log::shouldReceive('info')
         ->once()
         ->with('rum', Mockery::on(function (array $context) {
@@ -235,14 +240,19 @@ it('reduces the rum beacon UA to family/major-version via the shared sanitiser (
             return true;
         }));
 
-    $this->withHeaders(['User-Agent' => $chromeUa])
-        ->postJson('/api/public/analytics/rum', ['handle' => 'sem1-platform-case'])
+    $this->withHeaders([
+        'User-Agent' => $chromeUa,
+        'Origin' => 'https://priv2-ua-case.'.config('partna.public_domain'),
+    ])
+        ->postJson('/api/public/analytics/rum', ['handle' => 'priv2-ua-case'])
         ->assertStatus(200);
 });
 
 // --- B7/PRIV-3: rum() handle is hashed, not logged in the clear -------------------
 
 it('hashes the rum beacon handle instead of logging it raw', function () {
+    createTenant('priv3-handle-case');
+
     Log::shouldReceive('info')
         ->once()
         ->with('rum', Mockery::on(function (array $context) {
@@ -252,7 +262,8 @@ it('hashes the rum beacon handle instead of logging it raw', function () {
             return true;
         }));
 
-    $this->postJson('/api/public/analytics/rum', ['handle' => 'PRIV3-Handle-Case'])
+    $this->withHeader('Origin', 'https://priv3-handle-case.'.config('partna.public_domain'))
+        ->postJson('/api/public/analytics/rum', ['handle' => 'PRIV3-Handle-Case'])
         ->assertStatus(200);
 });
 

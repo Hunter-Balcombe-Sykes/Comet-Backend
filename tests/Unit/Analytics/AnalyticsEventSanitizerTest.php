@@ -133,6 +133,16 @@ it('returns null for anything that is not a destination a visitor navigated to',
     'tel too short to dial' => 'tel:12',
     'null' => null,
     'empty string' => '',
+    // Every case above is refused by the SCHEME arm of the match. Until these
+    // four, nothing exercised the guard INSIDE the http/https arm: replacing that
+    // whole guard with an unconditional `$scheme.':'.$rest` passed the suite, so
+    // 'http://' — a scheme and nothing else — was a destination as far as the
+    // tests were concerned, and the url column is a dimension the dashboard
+    // groups by and a value something downstream renders as a link.
+    'http scheme and nothing else' => 'http://',
+    'https with no authority at all' => 'https:not-a-url',
+    'http with a space inside the host' => 'http://exa mple.com',
+    'https with an empty host before the path' => 'https:///path',
 ]);
 
 it('is idempotent — re-normalising a normalised destination changes nothing', function (string $raw) {

@@ -144,9 +144,13 @@ it('B7/PRIV-1: AuthFactorEventRepository does not store a raw ip/user_agent on i
 it('B7/PRIV-3: AnalyticsController rum() hashes the handle instead of logging it raw', function () {
     $src = readSource('app/Http/Controllers/Api/PublicSite/AnalyticsController.php');
 
+    // Hashed from the RESOLVED site's subdomain since #W3-SEC-1 — the body's
+    // handle is no longer trusted far enough to be the log's identity, let alone
+    // its raw one.
     expect($src)
         ->not->toContain("'handle' => strtolower(\$handle),")
-        ->and($src)->toContain("'handle' => hash('sha256', strtolower(\$handle)),");
+        ->and($src)->not->toContain("'handle' => strtolower(\$site->subdomain),")
+        ->and($src)->toContain("'handle' => hash('sha256', strtolower(\$site->subdomain)),");
     // Behavioural coverage: tests/Feature/Analytics/PublicIngestHardeningTest.php's
     // "hashes the rum beacon handle instead of logging it raw" case drives the
     // rum() endpoint and asserts on the captured Log::info context.
