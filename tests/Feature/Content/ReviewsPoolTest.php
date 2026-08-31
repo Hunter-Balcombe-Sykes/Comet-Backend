@@ -293,6 +293,12 @@ it('ships the place aggregates as pool stats', function () {
         'ratingAvg' => 4.8,
         'ratingCount' => 127,
         'summaryText' => 'Customers praise the friendly staff.',
+        // #LABEL-1: the aggregates arrive WITH their provenance, because a
+        // number the consumer cannot attribute is a number it will attribute
+        // to whatever surface it is folding onto.
+        'scope' => 'listing',
+        'platform' => 'google-business',
+        'placeId' => null,
     ]);
 });
 
@@ -365,6 +371,9 @@ it('publishes the aggregates on the public profile payload', function () {
             'ratingAvg' => 4.83,
             'ratingCount' => 12719,
             'summaryText' => 'Punters rave about the razor fades.',
+            'scope' => 'listing',
+            'platform' => 'google-business',
+            'placeId' => null,
         ]);
 });
 

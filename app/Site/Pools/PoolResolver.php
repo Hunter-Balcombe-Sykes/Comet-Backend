@@ -194,7 +194,7 @@ class PoolResolver
      *   library: list<array<string, mixed>>,
      *   latestItemId: string|null,
      *   collections: array<string, array<string, mixed>>,
-     *   stats: array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string}|null,
+     *   stats: array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string, scope: 'listing'|'published', platform: ?string, placeId: ?string}|null,
      *   diningModes: list<string>|null,
      *   unavailablePoolLocks: list<string>,
      * }
@@ -388,7 +388,7 @@ class PoolResolver
      *   library: list<array<string, mixed>>,
      *   latestItemId: string|null,
      *   collections: array<string, array<string, mixed>>,
-     *   stats: array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string}|null,
+     *   stats: array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string, scope: 'listing'|'published', platform: ?string, placeId: ?string}|null,
      *   diningModes: list<string>|null,
      *   unavailablePoolLocks: list<string>,
      * }
@@ -537,8 +537,15 @@ class PoolResolver
      * a claim the reader can check by counting the cards under it, which is
      * exactly the property the listing's aggregate lacked.
      *
+     * #LABEL-1, the half that scoping cannot reach: WHOSE number this is.
+     * Both branches now state their own provenance — scope, platform, and the
+     * place where a vendor gives us one — because the consumer folds this
+     * block onto its Google surface without asking, and a Fresha average
+     * published under Google's name is a false attribution on a page of any
+     * account type, not only a business's.
+     *
      * @param  list<array<string, mixed>>  $selection
-     * @return array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string}|null
+     * @return array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string, scope: 'listing'|'published', platform: ?string, placeId: ?string}|null
      */
     private function statsFor(string $pool, Site $site, array $selection): ?array
     {
@@ -621,7 +628,13 @@ class PoolResolver
 
         LiveSourceScope::constrainToLiveSource($query, 'stats_src', 'stats_conn');
 
-        $row = $query->first(['ss.rating_avg', 'ss.rating_count', 'ss.summary_text']);
+        // #LABEL-1: the connection the winning row hangs off, so the wire can
+        // NAME the platform it is quoting. Free — stats_conn is already joined
+        // (and already tenancy-pinned) for the liveness check below.
+        $row = $query->first([
+            'ss.rating_avg', 'ss.rating_count', 'ss.summary_text',
+            'stats_conn.platform as platform', 'stats_conn.place_id as place_id',
+        ]);
 
         if ($row === null) {
             return null;
@@ -633,6 +646,37 @@ class PoolResolver
             'ratingAvg' => $row->rating_avg === null ? null : (float) $row->rating_avg,
             'ratingCount' => $row->rating_count === null ? null : (int) $row->rating_count,
             'summaryText' => $row->summary_text,
+            // #LABEL-1 (2026-09-01). The badge fix stopped a hair salon's 5.0
+            // publishing on a barista's page; it did not stop a Fresha 5.0
+            // publishing as a GOOGLE rating, because the wire never said whose
+            // number this was. resolve-site-content.ts folds whatever `stats`
+            // holds onto googleBusinessSurface unconditionally, so the salon's
+            // Fresha average came out under the Google listing's name — on a
+            // person's page and a venue's alike, which is the half the
+            // 103626f17 residual note called business-only and got wrong.
+            //
+            // `scope` first, because it is the claim being made and it changes
+            // what the other two mean: 'listing' is the connected place's OWN
+            // published aggregate, over a corpus we did not choose; 'published'
+            // is ours, computed over the cards on the page. Rendering the
+            // second as the first is the mislabelling even when the platform
+            // happens to match.
+            'scope' => 'listing',
+            // The vendor slug in the wire's own spelling (google-business,
+            // fresha), NULL for a manual source, which has no connection and
+            // therefore no platform to name. Never a fallback guess: an
+            // unnamed platform must read as "we do not know", because the
+            // consumer's only safe response to that is to attribute nothing.
+            'platform' => self::wirePlatform($row->platform === null ? null : (string) $row->platform),
+            // Which PLACE at that vendor, where the vendor gives us one.
+            // place_id is the Google Place ID mirror (FOUND-18) and no other
+            // connector fills it, so this is null off google-business — the
+            // literal "where known". It matters because ollies holds two
+            // google-business connections for one place_id: a consumer that
+            // wants to check the badge belongs to the listing it is drawn
+            // beside needs the place, not the connection row that won a
+            // tie-break.
+            'placeId' => $row->place_id === null || $row->place_id === '' ? null : (string) $row->place_id,
         ];
     }
 
@@ -656,18 +700,46 @@ class PoolResolver
      * zero-star person, it is no badge. Rounded to the vendors' own precision
      * so the wire value is the rendered one (the sitepage prints toFixed(1)).
      *
+     * #LABEL-1: `scope` is 'published' here and that is the whole point — this
+     * number is OURS, an average over the cards on the page, and it must never
+     * be rendered as a platform's rating for a listing. `platform` names the
+     * vendor the RATED reviews came from only when they all came from one, and
+     * `placeId` is null unconditionally: an average over a person's reviews is
+     * not any place's aggregate, so handing the consumer a place identity here
+     * would re-open the exact door this field was added to close.
+     *
      * @param  list<array<string, mixed>>  $selection
-     * @return array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string}|null
+     * @return array{ratingAvg: ?float, ratingCount: ?int, summaryText: ?string, scope: 'listing'|'published', platform: ?string, placeId: ?string}|null
      */
     private static function statsOverPublishedReviews(array $selection): ?array
     {
         $ratings = [];
+        $platforms = [];
         foreach ($selection as $item) {
             $rating = $item['review']['rating'] ?? null;
             if ($rating === null) {
                 continue;
             }
             $ratings[] = (float) $rating;
+            // Only the platforms behind the reviews that COUNTED. An unrated
+            // review is not in the average and so has no claim on its label:
+            // a Fresha card with no score must not make a Google-only average
+            // read "Google and Fresha". Read off the payload's own sources
+            // list — itemPayloads() already built it, so this method keeps its
+            // no-extra-query property.
+            //
+            // #LIFE-3 again: that list deliberately KEEPS a paused connection
+            // so the item sheet can badge it `active: false`, and a paused
+            // connection is not publishing anything. A review still on the
+            // page while one of its sources is paused is there because another
+            // source is live; naming the paused one would credit a platform
+            // the owner switched off.
+            foreach (is_array($item['sources'] ?? null) ? $item['sources'] : [] as $source) {
+                $platform = $source['platform'] ?? null;
+                if (is_string($platform) && $platform !== '' && ($source['active'] ?? false) === true) {
+                    $platforms[$platform] = true;
+                }
+            }
         }
 
         if ($ratings === []) {
@@ -676,8 +748,23 @@ class PoolResolver
 
         return [
             'ratingAvg' => round(array_sum($ratings) / count($ratings), 1),
+            // count($ratings), NOT count($selection). The two are equal only
+            // while every published review carries a score, and an
+            // employee-scoped Fresha source publishes unrated reviews as
+            // readily as rated ones — that is the shape ollies actually has.
+            // Counting the selection would advertise "2 reviews" over a
+            // one-review average: a count the reader can no longer check by
+            // counting the cards, which is the ONE property this badge was
+            // rebuilt to have.
             'ratingCount' => count($ratings),
             'summaryText' => null,
+            'scope' => 'published',
+            // One platform or none. Two vendors behind one average is not a
+            // platform's rating in any sense a reader would recognise, and
+            // naming either would be picking a winner; null is the honest
+            // answer and the consumer's cue to attribute nothing.
+            'platform' => count($platforms) === 1 ? self::wirePlatform((string) array_key_first($platforms)) : null,
+            'placeId' => null,
         ];
     }
 

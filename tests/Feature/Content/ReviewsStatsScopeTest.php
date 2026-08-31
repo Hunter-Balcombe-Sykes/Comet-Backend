@@ -156,6 +156,13 @@ it('stops a coffee shop publishing the hair salon\'s five-star badge', function 
         'ratingAvg' => 5.0,
         'ratingCount' => 1,
         'summaryText' => null,
+        // #LABEL-1: and it says so. 'published' is the badge naming its own
+        // basis — our average over the cards, not a listing's aggregate — and
+        // the platform is the salon's Fresha, which is what the reader would
+        // otherwise have read as a Google rating.
+        'scope' => 'published',
+        'platform' => 'fresha',
+        'placeId' => null,
     ]);
 });
 
@@ -177,6 +184,11 @@ it('averages the reviews it published, not the ones it suppressed', function () 
         'ratingAvg' => 4.0,
         'ratingCount' => 3,
         'summaryText' => null,
+        // Google-sourced reviews, but still not Google's rating: the scope is
+        // what stops the consumer publishing 4.0 as the listing's own.
+        'scope' => 'published',
+        'platform' => 'google-business',
+        'placeId' => null,
     ]);
 });
 
@@ -220,6 +232,9 @@ it('leaves a business account\'s venue aggregate exactly as it was', function ()
         'ratingAvg' => 4.2,
         'ratingCount' => 3925,
         'summaryText' => 'People mention the coffee and the pastries.',
+        'scope' => 'listing',
+        'platform' => 'google-business',
+        'placeId' => null,
     ]);
 });
 
@@ -249,6 +264,9 @@ it('does not let a countable row with no average shadow the real listing', funct
         'ratingAvg' => 4.2,
         'ratingCount' => 3925,
         'summaryText' => 'People mention the coffee and the pastries.',
+        'scope' => 'listing',
+        'platform' => 'google-business',
+        'placeId' => null,
     ]);
 });
 
@@ -303,5 +321,158 @@ it('keeps the retired half of a duplicated listing out of the badge', function (
         'ratingAvg' => 4.2,
         'ratingCount' => 3925,
         'summaryText' => 'People mention the coffee and the pastries.',
+        'scope' => 'listing',
+        'platform' => 'google-business',
+        'placeId' => null,
     ]);
+});
+
+// ── The count, and whose number it is (2026-09-01, #LABEL-1) ────────────────
+
+it('counts the reviews it has a rating for, not the cards on the page', function () {
+    // The badge's one claim is that the reader can check it by counting the
+    // cards. count($selection) breaks that quietly in the direction nobody
+    // looks: it publishes "Based on 2 reviews" over an average computed from
+    // one, so the number goes UP while the evidence for it does not.
+    //
+    // Reachable on the shape ollies already has. An employee-scoped Fresha
+    // source is the one tier that admits a review carrying no name evidence
+    // at all, and Fresha lands unrated reviews as readily as rated ones — so
+    // two cards, one score, on a person's page, with nothing exotic in the
+    // fixture.
+    [$pro, $siteId] = rsPerson('ST. ALi Coffee', 'Raff');
+
+    $fresha = poolConnection($pro->id, 'fresha.book');
+    $freshaSource = poolSource($pro->id, $fresha);
+    rsEmployeeScoped($pro->id, $fresha);
+
+    $rated = rsReview($pro->id, $freshaSource, ['rating' => 4.0, 'text' => 'Lovely cut.']);
+    $unrated = rsReview($pro->id, $freshaSource, ['rating' => null, 'text' => 'Booked again already.']);
+
+    $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'reviews');
+
+    // BOTH cards publish — this is not a suppression test. The count must
+    // disagree with the card count, and be right to.
+    expect(array_column($resolved['selection'], 'id'))->toHaveCount(2)
+        ->and(array_column($resolved['selection'], 'id'))->toContain($rated, $unrated);
+
+    expect($resolved['stats'])->toBe([
+        'ratingAvg' => 4.0,
+        'ratingCount' => 1,
+        'summaryText' => null,
+        'scope' => 'published',
+        'platform' => 'fresha',
+        'placeId' => null,
+    ]);
+});
+
+it('names neither platform when two of them are behind one average', function () {
+    // A deduped review — one item, the venue's Google listing and the salon's
+    // Fresha page both listing it — is the ordinary case, not a corner. Two
+    // vendors behind one number is not a platform's rating in any sense a
+    // reader would recognise, and naming either would be picking a winner, so
+    // the wire says it does not know and the consumer attributes nothing.
+    [$pro, $siteId] = rsPerson('ST. ALi Coffee', 'Raff');
+
+    $fresha = poolConnection($pro->id, 'fresha.book');
+    $freshaSource = poolSource($pro->id, $fresha);
+    rsEmployeeScoped($pro->id, $fresha);
+    $googleSource = poolSource($pro->id, poolConnection($pro->id, 'google_business.listing'));
+
+    $review = rsReview($pro->id, $freshaSource, ['rating' => 5.0, 'text' => 'Best cut in Melbourne.']);
+    rsAlsoCarriedBy($review, $googleSource);
+
+    expect(rsBadge($siteId))->toBe([
+        'ratingAvg' => 5.0,
+        'ratingCount' => 1,
+        'summaryText' => null,
+        'scope' => 'published',
+        'platform' => null,
+        'placeId' => null,
+    ]);
+});
+
+it('does not credit a platform the owner switched off', function () {
+    // The item's sources list deliberately KEEPS a paused connection so the
+    // dashboard can badge it `active: false` (#LIFE-3). A paused connection
+    // publishes nothing, so it has no claim on the label either: this review
+    // is on the page because Fresha is live, and calling the average Google's
+    // would credit a listing the owner has switched off.
+    [$pro, $siteId] = rsPerson('ST. ALi Coffee', 'Raff');
+
+    $fresha = poolConnection($pro->id, 'fresha.book');
+    $freshaSource = poolSource($pro->id, $fresha);
+    rsEmployeeScoped($pro->id, $fresha);
+
+    $pausedConn = poolConnection($pro->id, 'google_business.listing');
+    DB::table('site.platform_connections')->where('id', $pausedConn)->update(['is_active' => 0]);
+    $pausedSource = poolSource($pro->id, $pausedConn);
+
+    $review = rsReview($pro->id, $freshaSource, ['rating' => 5.0, 'text' => 'Best cut in Melbourne.']);
+    rsAlsoCarriedBy($review, $pausedSource);
+
+    expect(rsBadge($siteId)['platform'])->toBe('fresha');
+});
+
+it('says which listing and which place a venue badge is quoting', function () {
+    // The venue branch's half of #LABEL-1. ollies holds TWO google-business
+    // connections for place_id ChIJJ5bS6P9n1moRx76U3LjtN1A, so the connection
+    // row that won the tie-break is not an identity a consumer can check the
+    // badge against — the place is. place_id is the Google Place ID mirror and
+    // no other connector fills it, which is what "where known" means here.
+    [$pro, $siteId] = rsPerson('ST. ALi Coffee', 'Raff');
+    DB::table('core.users')->where('id', $pro->id)->update(['account_type' => 'business']);
+    AccountCapabilities::flushCache();
+
+    $conn = poolConnection($pro->id, 'google_business.listing');
+    DB::table('site.platform_connections')->where('id', $conn)
+        ->update(['place_id' => 'ChIJJ5bS6P9n1moRx76U3LjtN1A']);
+    $source = poolSource($pro->id, $conn);
+
+    rsStats($source, 4.2, 3925, 'People mention the coffee and the pastries.');
+    rsReview($pro->id, $source, ['rating' => 1.0, 'text' => 'Bad capuchino , no taste of coffee at all .']);
+
+    expect(rsBadge($siteId))->toBe([
+        'ratingAvg' => 4.2,
+        'ratingCount' => 3925,
+        'summaryText' => 'People mention the coffee and the pastries.',
+        'scope' => 'listing',
+        'platform' => 'google-business',
+        'placeId' => 'ChIJJ5bS6P9n1moRx76U3LjtN1A',
+    ]);
+});
+
+it('publishes a Fresha average under Fresha, never under the Google listing', function () {
+    // The residual note on 103626f17 called the platform mislabelling a
+    // BUSINESS-account exposure. It is not: resolve-site-content.ts:357 passes
+    // reviewsStats(pools.reviews) into googleBusinessSurface() unconditionally,
+    // so a page carrying a live google-business connection renders whatever
+    // aggregate the backend returns as that listing's rating — on a PERSON's
+    // page too, where the aggregate is a Fresha one computed over one salon
+    // review. Both facts the consumer needs are on the wire now: the number is
+    // not the listing's ('published'), and the reviews behind it are Fresha's.
+    [$pro, $siteId] = rsPerson('ST. ALi Coffee', 'Raff');
+
+    $fresha = poolConnection($pro->id, 'fresha.book');
+    $freshaSource = poolSource($pro->id, $fresha);
+    rsEmployeeScoped($pro->id, $fresha);
+    rsStats($freshaSource, 5.0, 174, 'Guests love the colour work.');
+
+    // The google-business connection is live and connected — this is exactly
+    // the page whose head renders a Google listing surface.
+    $googleSource = poolSource($pro->id, poolConnection($pro->id, 'google_business.listing'));
+    rsStats($googleSource, 4.2, 3925, 'People mention the coffee and the pastries.');
+    rsReview($pro->id, $googleSource, ['rating' => 1.0, 'text' => 'Bad capuchino , no taste of coffee at all .']);
+
+    rsReview($pro->id, $freshaSource, ['rating' => 5.0, 'text' => 'Best cut in Melbourne.']);
+
+    $badge = rsBadge($siteId);
+
+    expect($badge['ratingAvg'])->toBe(5.0)
+        ->and($badge['scope'])->toBe('published')
+        ->and($badge['platform'])->toBe('fresha')
+        // Not the salon's place either: an average over a person's reviews is
+        // not any place's aggregate, and handing over a place identity here is
+        // the invitation to re-attach it to a listing.
+        ->and($badge['placeId'])->toBeNull();
 });
