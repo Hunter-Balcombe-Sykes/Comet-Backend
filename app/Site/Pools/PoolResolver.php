@@ -266,8 +266,11 @@ class PoolResolver
             ->whereIn('kind', PoolRegistry::kinds($pool))
             ->whereNull('removed_at');
         // Disconnect = hide (W2): the library lists only items with a live
-        // source (manual, or a present + active connection).
-        LiveSourceScope::apply($libraryQuery);
+        // source (manual, or a present + active connection). #FU-2: the user id
+        // is passed so the subquery's own source/connection hops are tenanted
+        // too — without it, plan()'s liveness verdict and itemPayloads()'s would
+        // disagree about the same mislinked item.
+        LiveSourceScope::apply($libraryQuery, 'content.items', (string) $site->user_id);
         $libraryIds = $libraryQuery
             ->orderByDesc('last_seen_at')
             ->limit(self::LIBRARY_LIMIT)
@@ -278,7 +281,7 @@ class PoolResolver
         // reconnect brings it back), but it does not publish.
         if ($pinned !== []) {
             $livePinsQuery = DB::connection('pgsql')->table('content.items')->whereIn('id', $pinned);
-            LiveSourceScope::apply($livePinsQuery);
+            LiveSourceScope::apply($livePinsQuery, 'content.items', (string) $site->user_id);
             $livePinned = $livePinsQuery->pluck('id')->flip()->all();
             $pinned = array_values(array_filter($pinned, fn ($id) => isset($livePinned[$id])));
             $selectionIds = [];
@@ -528,7 +531,13 @@ class PoolResolver
         $query = DB::connection('pgsql')->table('content.source_stats as ss')
             ->join('content.source_items as si', 'si.source_id', '=', 'ss.source_id')
             ->join('content.sources as stats_src', 'stats_src.id', '=', 'ss.source_id')
-            ->leftJoin('site.platform_connections as stats_conn', 'stats_conn.id', '=', 'stats_src.connection_id')
+            // #FU-2: the connection's OWN tenancy, stated in the ON clause.
+            // `where` here would collapse the left join and drop every
+            // manual-source stat — connection_id is NULLABLE.
+            ->leftJoin('site.platform_connections as stats_conn', function ($j) use ($site) {
+                $j->on('stats_conn.id', '=', 'stats_src.connection_id')
+                    ->where('stats_conn.user_id', '=', (string) $site->user_id);
+            })
             ->whereIn('si.item_id', array_column($selection, 'id'))
             // #W1-SEC-10: state tenancy on the source rather than inheriting it
             // from the selection's ids. The badge summarises a SOURCE, and this
@@ -536,11 +545,12 @@ class PoolResolver
             // user_id — one mislinked source_id and the page publishes another
             // account's star rating.
             //
-            // NOT pinned, same residual itemPayloads()'s docblock records under
-            // "DELIBERATELY EXCLUDED": the stats_conn leftJoin still travels
-            // stats_src.connection_id with no tenancy of its own. This read only
-            // uses the connection for liveness, but do not read the predicate
-            // above as covering that hop.
+            // #FU-2 (2026-08-31): the stats_conn hop — stats_src.connection_id,
+            // the second FK out of this source — is pinned in the ON clause
+            // above, not here. A foreign connection now joins as NULL, which
+            // constrainToLiveSource() reads as "not live": fail-closed, so a
+            // mislinked source loses its badge rather than keeping a
+            // disconnected listing's rating alive.
             ->where('stats_src.user_id', $site->user_id)
             // A source_item retired by absence folding does not carry the badge
             // either — the same reading LiveSourceScope takes for the items.
@@ -629,14 +639,39 @@ class PoolResolver
      * already fetched. Nothing here changes a plan. Same posture the
      * identity_candidates read already takes.
      *
-     * DELIBERATELY EXCLUDED, and still open: content.sources.connection_id. It
-     * is NULLABLE, so pinning site.platform_connections.user_id is an ON-clause
-     * job on four left joins, and it also implicates the two connection reads
-     * below ($payloadByConnection on site.platform_connections, and the
-     * ingest.sources read keyed by the same ids) which are plain whereIn lookups
-     * with no tenancy of their own. A mislinked connection_id would leak another
-     * account's platform label, display_settings and sync cadence. Bigger than
-     * this fix; not closed here — do not read the list above as covering it.
+     * CLOSED 2026-08-31 (#FU-2), and stated here because it was open long
+     * enough that its absence was itself documented: content.sources.connection_id,
+     * the second FK hop out of the pinned sources. It is NULLABLE
+     * (20260727140000 L30) — a kind='manual' source always carries NULL — so the
+     * predicate lives in the ON CLAUSE of each left join, never in a `where`: a
+     * `where` on a left-joined column silently converts the join to an INNER one
+     * and every manual-lane item vanishes from the public wire. Four joins carry
+     * it (f_link, offers, source_items here; source_stats in statsFor()), and the
+     * two plain connection reads below carry a `where` of their own —
+     * $payloadByConnection is defence-in-depth (it reads a PK list a pinned join
+     * produced), but the ingest.sources read is NOT: ingest.sources.connection_id
+     * is a SEPARATE FK with a SEPARATE writer, so a foreign ingest row naming
+     * this owner's connection would badge an item with another account's sync
+     * cadence with nothing else to stop it. site.platform_connections.user_id and
+     * ingest.sources.user_id are both NOT NULL, so neither predicate can silently
+     * match nothing, and both joins arrive on a PRIMARY KEY — no plan changes.
+     *
+     * A foreign connection now joins as NULL, which every consumer here already
+     * reads as "not live" (LiveSourceScope::constrainToLiveSource, or the inline
+     * kind/deleted_at predicate on $sourceRows), so the row is dropped rather
+     * than publishing a foreign platform label, display name or fallback url.
+     * reviewsSuppressedByOwner() needed a SECOND predicate on top of the pin —
+     * see its own docblock: a NULL row there VOTES rather than disappearing.
+     *
+     * STILL UNPINNED, named so the next sweep does not have to rediscover it:
+     * ItemLinkRules::syncedPlatformsFor() travels the same hop on an INNER join
+     * but is static, takes only $itemId and has no user in hand; it is
+     * dashboard-only (it decides which platforms the manual link control
+     * refuses), so nothing reaches a public wire through it. LiveSourceScope's
+     * whereExists arm carries its own copy of both hops and now takes an optional
+     * $userId — PoolResolver's two call sites pass it; SectionCandidates does
+     * not, and what a mislink buys there is a wrong LIVENESS verdict on the
+     * owner's own item, never a foreign field on a wire.
      */
     private function itemPayloads(Site $site, array $ids, bool $withDuplicateCandidates): array
     {
@@ -805,7 +840,13 @@ class PoolResolver
         // legitimately, and then this query hands it the dead platform's url.
         $sourceLinksQuery = DB::connection('pgsql')->table('content.f_link')
             ->join('content.sources', 'content.sources.id', '=', 'content.f_link.source_id')
-            ->leftJoin('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
+            // #FU-2: ON clause, never a `where` — connection_id is NULLABLE.
+            // This query SELECTS platform_connections.platform, so an unpinned
+            // hop published another account's platform label.
+            ->leftJoin('site.platform_connections', function ($j) use ($site) {
+                $j->on('site.platform_connections.id', '=', 'content.sources.connection_id')
+                    ->where('site.platform_connections.user_id', '=', (string) $site->user_id);
+            })
             ->whereIn('content.f_link.item_id', $ids)
             ->where('content.sources.user_id', $site->user_id)
             ->orderByDesc('content.sources.priority');
@@ -836,7 +877,13 @@ class PoolResolver
         // there was nothing to filter on. Same helper, so the two cannot drift.
         $offerLinksQuery = DB::connection('pgsql')->table('content.offers')
             ->join('content.sources', 'content.sources.id', '=', 'content.offers.source_id')
-            ->leftJoin('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
+            // #FU-2, same shape as the f_link read above. Liveness-only consumer
+            // here (no pc column is selected), so what an unpinned hop bought was
+            // a foreign LIVE verdict resurrecting a dead per-dish deep link.
+            ->leftJoin('site.platform_connections', function ($j) use ($site) {
+                $j->on('site.platform_connections.id', '=', 'content.sources.connection_id')
+                    ->where('site.platform_connections.user_id', '=', (string) $site->user_id);
+            })
             ->whereIn('content.offers.item_id', $ids)
             ->where('content.sources.user_id', $site->user_id)
             ->where(function ($w) {
@@ -883,7 +930,16 @@ class PoolResolver
         // connection's platform + display name + last sync time ride along.
         $sourceRows = DB::connection('pgsql')->table('content.source_items')
             ->join('content.sources', 'content.sources.id', '=', 'content.source_items.source_id')
-            ->leftJoin('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
+            // #FU-2, and this is the load-bearing one: pc.id keys
+            // $payloadByConnection (-> ConnectionDisplayName) and $sourcePlatforms
+            // (-> the connection's OWN url as this item's fallback link), so an
+            // unpinned hop put another account's display name and URL on a
+            // CDN-cached public page. ON clause: the inline where below already
+            // keeps every manual row, and a `where` here would not.
+            ->leftJoin('site.platform_connections', function ($j) use ($site) {
+                $j->on('site.platform_connections.id', '=', 'content.sources.connection_id')
+                    ->where('site.platform_connections.user_id', '=', (string) $site->user_id);
+            })
             ->whereIn('content.source_items.item_id', $ids)
             ->where('content.sources.user_id', $site->user_id)
             ->whereNull('content.source_items.removed_at')
@@ -917,6 +973,12 @@ class PoolResolver
         // fetched once — same shape as the $ingestByConnection read below.
         $payloadByConnection = $connectionIds === [] ? [] : DB::connection('pgsql')->table('site.platform_connections')
             ->whereIn('id', $connectionIds)
+            // #FU-2: defence-in-depth. $connectionIds now comes from a pinned
+            // join and `id` is the PK, so nothing foreign can be in the list —
+            // but this read hands `payload` (the account name and the fallback
+            // url) to the wire and must be safe read on its own. Not a join, so
+            // a plain `where` is correct and carries no null-collapse risk.
+            ->where('user_id', $site->user_id)
             ->pluck('payload', 'id')
             ->all();
         $ingestByConnection = [];
@@ -924,6 +986,13 @@ class PoolResolver
             try {
                 $ingestByConnection = DB::connection('pgsql')->table('ingest.sources')
                     ->whereIn('connection_id', $connectionIds)
+                    // #FU-2, and NOT defence-in-depth: ingest.sources.connection_id
+                    // is a SECOND FK with a SEPARATE writer, so a foreign ingest
+                    // row naming this owner's connection would badge this item with
+                    // another account's last sync and auto-sync flag whatever the
+                    // join above does. ingest.sources.user_id is NOT NULL
+                    // (20260727130000), so this can never silently match nothing.
+                    ->where('user_id', $site->user_id)
                     ->orderByDesc('last_run_at')
                     ->get(['connection_id', 'last_run_at', 'auto_sync'])
                     ->unique('connection_id')
@@ -1494,12 +1563,21 @@ class PoolResolver
      * #W1-SEC-10 predicates fail closed. Change this one with that asymmetry
      * in mind.
      *
-     * ⚠️ The `pc` leftJoin below is the connection_id residual itemPayloads()'s
-     * docblock records under "DELIBERATELY EXCLUDED", and this is the read where
-     * it bites hardest: cs.connection_id is unpinned, and pc.platform /
-     * pc.display_settings are then READ to decide what this page publishes. A
-     * mislinked connection_id therefore lets another owner's toggle govern this
-     * owner's reviews. The cs.user_id predicate above does NOT cover that hop.
+     * ⚠️ #FU-2 (2026-08-31): the `pc` leftJoin below is where the connection_id
+     * hop bit hardest — pc.platform and pc.display_settings are READ to decide
+     * what this page publishes, and cs.user_id does not cover that hop. It is now
+     * pinned in the ON clause (never a `where`: connection_id is NULLABLE and a
+     * `where` would drop the manual lane). The pin ALONE was not enough. A
+     * foreign connection joins as NULL, and connectionHidesReviews() reads NULL
+     * settings as "does not hide" — so the foreign row kept voting, and one such
+     * vote defeats the every() below and UN-suppresses what the owner switched
+     * off. The second predicate therefore DROPS a connection-kind source whose
+     * connection did not resolve: unknown votes neither way. That drop is a drop
+     * from the VOTE, not from the payload — an item whose only source row is
+     * dropped here simply gains no suppression and still publishes. Manual
+     * sources have no connection and are untouched, and a SOFT-deleted connection
+     * still has a non-null pc.id, so a silenced source stays silenced while its
+     * rows linger — which is the behaviour the paragraph above depends on.
      *
      * @param  list<string>  $reviewIds
      * @return array<string, true>
@@ -1508,9 +1586,25 @@ class PoolResolver
     {
         $rows = DB::connection('pgsql')->table('content.source_items as si')
             ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
-            ->leftJoin('site.platform_connections as pc', 'pc.id', '=', 'cs.connection_id')
+            ->leftJoin('site.platform_connections as pc', function ($j) use ($site) {
+                $j->on('pc.id', '=', 'cs.connection_id')
+                    ->where('pc.user_id', '=', (string) $site->user_id);
+            })
             ->whereIn('si.item_id', $reviewIds)
             ->where('cs.user_id', $site->user_id)
+            // #FU-2, the second half — the pin alone is NOT enough HERE. A
+            // foreign connection joins as NULL, and connectionHidesReviews()
+            // reads NULL settings as "does not hide", so the foreign row would
+            // keep VOTING, just differently — and one such vote defeats the
+            // every() below and UN-suppresses what the owner switched off. A
+            // connection-kind source whose connection did not resolve to this
+            // owner is UNKNOWN, so it votes neither way: drop it from the vote.
+            // Manual sources have no connection and keep voting exactly as
+            // before. This drops the row from the SUPPRESSION VOTE only — the
+            // item itself still publishes; nothing here touches the payload.
+            ->where(function ($w) {
+                $w->where('cs.kind', 'manual')->orWhereNotNull('pc.id');
+            })
             ->get(['si.item_id', 'pc.platform', 'pc.display_settings']);
 
         $suppressed = [];
@@ -1561,6 +1655,11 @@ class PoolResolver
      * publishing a co-worker's praise on the wrong person's page is the harm
      * this scope exists to prevent, and employee-scoped sources still pass.
      *
+     * The employee-scoped GATE below is pinned on BOTH its hops (#FU-2):
+     * cs.user_id for source_id, ing.user_id for cs.connection_id ->
+     * ing.connection_id. Fail direction is closed — fewer gate passes means more
+     * venue reviews excluded, which is the direction the paragraph above demands.
+     *
      * @param  list<string>  $reviewIds
      * @return array<string, true>
      */
@@ -1583,10 +1682,17 @@ class PoolResolver
             ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
             ->join('ingest.sources as ing', 'ing.connection_id', '=', 'cs.connection_id')
             ->whereIn('si.item_id', $reviewIds)
-            // #W1-SEC-10: this join is a GATE — a selection_ref naming a team
-            // member is what lets a venue review through the person scope — so
-            // it states its own tenancy rather than borrowing the id list's.
+            // #W1-SEC-10 / #FU-2: this join is a GATE — a selection_ref naming a
+            // team member is what lets a venue review through the person scope —
+            // so BOTH its hops state their own tenancy rather than borrowing the
+            // id list's. cs.user_id covers source_id; ing.user_id covers the
+            // second hop, cs.connection_id -> ing.connection_id, which the
+            // #W1-SEC-10 pass missed: ingest.sources is written by its own lane,
+            // and a foreign row carrying a staff selection_ref would open this
+            // gate for a co-worker's venue review. WHERE, not ON: these are INNER
+            // joins, so a where drops exactly the rows an ON clause would.
             ->where('cs.user_id', $site->user_id)
+            ->where('ing.user_id', $site->user_id)
             ->whereNotNull('ing.selection_ref')
             ->whereNotIn('ing.selection_ref', ['', 'storewide'])
             ->get(['si.item_id']);
