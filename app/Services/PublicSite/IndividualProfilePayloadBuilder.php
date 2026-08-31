@@ -125,10 +125,7 @@ class IndividualProfilePayloadBuilder
             // named shell). Keyed off $pro, not $site: the site row can be
             // null here and the user never is, and the build belongs to the
             // user either way.
-            'build_state' => PreAccountBuild::query()
-                ->where('user_id', $pro->id)
-                ->orderByDesc('created_at')
-                ->value('build_state'),
+            'build_state' => $this->latestBuildState($pro),
             // The unified action list (spec §3): top-N of pages + destination
             // platforms + served items + categories, in the owner's mode with
             // their locks applied. Always present; entries [] when nothing
@@ -745,5 +742,26 @@ class IndividualProfilePayloadBuilder
     public function degradedCacheTtl(): int
     {
         return max(1, (int) config('partna.public_profile.degraded_cache_ttl_seconds', 10));
+    }
+    /**
+     * The latest pre-account build's state, or null.
+     *
+     * Wrapped so it degrades to null rather than 500ing the WHOLE public page:
+     * a professional's site must render even if this one probe faults (a
+     * missing table in a partial test env, a transient DB error), the same
+     * contract SitepageDataResolverService::safeQuery() carries for the
+     * presence probes. A null here just means the preparing surface does not
+     * arm — the safe direction.
+     */
+    private function latestBuildState(User $pro): ?string
+    {
+        try {
+            return PreAccountBuild::query()
+                ->where('user_id', $pro->id)
+                ->orderByDesc('created_at')
+                ->value('build_state');
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 }
