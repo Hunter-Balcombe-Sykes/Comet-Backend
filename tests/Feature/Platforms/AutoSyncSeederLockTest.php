@@ -31,6 +31,7 @@ use App\Jobs\Platforms\InstagramConnectJob;
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Cache\ApifyBudget;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
@@ -187,6 +188,13 @@ it('seedOrdering still dispatches MenuFetchJob when the lock is free (contention
 
 it('a concurrent holder of the instagram platform lock makes the GB instagram seed skip (no row, no InstagramConnectJob) and log a timeout warning', function () {
     config(['services.apify.token' => 'apify-token']);
+    // #FU-4: cap the budget low enough to observe the slot come back after the
+    // lock-timeout skip below.
+    config()->set('partna.limits.apify.global_daily_cap', 5);
+    config()->set('partna.limits.apify.actors.instagram', 2);
+    $budget = app(ApifyBudget::class);
+    expect($budget->remaining('instagram'))->toBe(2);
+
     Log::spy();
     Bus::fake([InstagramConnectJob::class]);
     $user = pwl9User('pwlig1', 'business', null); // sector irrelevant to socials — google_business_full_sync only needs isBusiness
@@ -212,6 +220,67 @@ it('a concurrent holder of the instagram platform lock makes the GB instagram se
         ->withArgs(fn (string $message, array $context) => $message === 'platforms.auto_sync.platform_lock_timeout'
             && ($context['user_id'] ?? null) === (string) $user->id
             && ($context['platform'] ?? null) === 'instagram');
+
+    // #FU-4: the lock timed out, nothing was scraped — the slot must come back.
+    expect($budget->remaining('instagram'))->toBe(2);
+});
+
+it('a throw from the placeholder write also hands the Apify budget slot back', function () {
+    // Goes through applyFinding()'s hook path (applyFindingHandled ->
+    // dispatchInstagram), NOT seed() — seedSocials() wraps seedInstagram()'s
+    // call to dispatchInstagram in a try/catch that report()s and swallows,
+    // so a throw from that call site never reaches the caller to observe.
+    // The hook path (applyFindingHandled, GoogleBusinessAutoSync.php:183-192)
+    // is deliberately unguarded — that is what AutoSyncApplyAtomicityTest's
+    // hook-branch tests already pin.
+    config(['services.apify.token' => 'apify-token']);
+    config()->set('partna.limits.apify.global_daily_cap', 5);
+    config()->set('partna.limits.apify.actors.instagram', 2);
+    $budget = app(ApifyBudget::class);
+    expect($budget->remaining('instagram'))->toBe(2);
+
+    Bus::fake([InstagramConnectJob::class]);
+    $user = pwl9User('pwlig3', 'business', null);
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'instagram',
+        'payload' => ['name' => 'The incumbent'],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+
+    // Same "break the placeholder write" technique as AutoSyncApplyAtomicityTest —
+    // throws only for the placeholder shape, not any other IntegrationConnection write.
+    IntegrationConnection::saving(function (IntegrationConnection $c) {
+        if ($c->last_refresh_status === 'pending' && ($c->payload['source'] ?? null) === 'google-business') {
+            throw new RuntimeException('the placeholder write failed');
+        }
+    });
+
+    $finding = [
+        'category' => 'social',
+        'apply' => ['remove' => ['instagram'], 'instagram' => ['username' => 'fadelab']],
+    ];
+
+    try {
+        expect(fn () => app(GoogleBusinessAutoSync::class)->applyFinding((string) $user->id, $finding))
+            ->toThrow(RuntimeException::class, 'the placeholder write failed');
+    } finally {
+        IntegrationConnection::flushEventListeners();
+    }
+
+    Bus::assertNotDispatched(InstagramConnectJob::class);
+    // #FU-3: the transaction rolled the removal back too — the incumbent still stands.
+    $rows = IntegrationConnection::query()->where('user_id', $user->id)->get();
+    expect($rows)->toHaveCount(1);
+    expect($rows->first()->payload['name'])->toBe('The incumbent');
+    // #FU-4's finally: nothing was scraped, so the slot must come back — this
+    // assertion is only sound because #FU-3's transaction guarantees the throw
+    // above left nothing written (SQLite proves the rollback ordering, not
+    // Postgres transaction semantics — see the header note in
+    // AutoSyncApplyAtomicityTest.php).
+    expect($budget->remaining('instagram'))->toBe(2);
 });
 
 it('seeds the Instagram placeholder and dispatches the scrape when the lock is free', function () {

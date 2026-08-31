@@ -52,6 +52,32 @@ class ApifyBudget
     }
 
     /**
+     * Hand back a slot claimed by a SUCCESSFUL tryClaim() that then did not spend —
+     * an abandoned dispatch, not a denied one (#FU-4). Mirrors tryClaim()'s success
+     * path exactly: that path incremented BOTH counters, so both are given back,
+     * once each.
+     *
+     * Call this ONLY on a claim tryClaim() returned true for. A denied claim has
+     * already released whatever it took (see tryClaim above) and releasing again
+     * would credit a slot that was never consumed.
+     *
+     * The date is re-derived here rather than threaded through from the claim, so
+     * a release that straddles midnight decrements the FOLLOWING day's counters
+     * instead of the day that was actually spent — bounded at one slot in ~600
+     * per occurrence, and only when a lock timeout or a rolled-back write happens
+     * to land in the few seconds either side of midnight. Not fixed: doing so
+     * would mean threading a claim token/date through every caller for a
+     * once-in-a-blue-moon single-slot drift.
+     */
+    public function release(string $actor): void
+    {
+        $date = now()->format('Y-m-d');
+
+        DailyCounterClaim::release(CacheKeyGenerator::apifyActorDailyLimit($actor, $date));
+        DailyCounterClaim::release(CacheKeyGenerator::apifyGlobalDailyLimit($date));
+    }
+
+    /**
      * Advisory remaining headroom for $actor today = min(actor remaining, global
      * remaining), floored at 0. Racy vs concurrent claims — for coarse "should I
      * keep dispatching?" decisions (SCALE-4), not as a hard gate. tryClaim() is the

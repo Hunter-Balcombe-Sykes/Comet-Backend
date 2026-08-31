@@ -10,14 +10,22 @@
 // These pin (1) a failed write leaves the ORIGINAL connection in place, on both
 // the locked and the unlocked arm; (2) the successful swap still works; and
 // (3) the handled-hook branch — GB re-dispatching the Instagram scrape — whose
-// removals are also one half of a pair, the other half being the scrape. That
-// half is NOT made whole by a transaction (the hook dispatches
-// InstagramConnectJob and `config/queue.php` sets `after_commit => false`, so
-// on redis the job is pushed before the commit and a worker can beat the
-// placeholder row into existence). It is made whole by ORDER instead: the hook
-// runs the removals inside the platform seed lock, only once its dispatch can
-// no longer decline, and a declined dispatch propagates false so the caller
-// leaves the finding unsettled (#W2-LIFE-16, review round 2).
+// removals are also one half of a pair, the other half being the scrape.
+//
+// #FU-3 (2026-08-31): the hook's OWN pair — its removals + the placeholder
+// write that replaces them (GoogleBusinessAutoSync::dispatchInstagram) — is now
+// made atomic by a `DB::connection('pgsql')->transaction()` wrapping both,
+// inside the platform seed lock. A throw from the placeholder write rolls the
+// removals back too (see the test below). That transaction does NOT cover the
+// scrape dispatch itself, which stays made whole by ORDER as before: the hook
+// dispatches InstagramConnectJob OUTSIDE both the transaction and the lock,
+// because `config/queue.php` sets `after_commit => false` on every queue
+// connection — on redis the job is pushed before the commit, so dispatching it
+// INSIDE the transaction would let a worker beat the placeholder row into
+// existence (and self-deadlock against this same lock). The hook runs the
+// removals inside the platform seed lock, only once its dispatch can no longer
+// decline, and a declined dispatch propagates false so the caller leaves the
+// finding unsettled (#W2-LIFE-16, review round 2).
 
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
@@ -225,6 +233,42 @@ it('removes the incumbent and leaves a pending placeholder when the scrape IS di
     expect($rows->first()->last_refresh_status)->toBe('pending');
     expect($rows->first()->payload['source'])->toBe('google-business');
     expect(IntegrationConnection::withTrashed()->where('user_id', $user->id)->whereNotNull('deleted_at')->count())->toBe(1);
+});
+
+it("the hook's removals roll back when the placeholder write throws", function () {
+    $user = atomUser('atomhookthrow');
+    atomConnection($user, 'instagram', 'instagram'); // payload.name = 'The incumbent'
+    config()->set('services.apify.token', 'apify-token');
+    Bus::fake([InstagramConnectJob::class]);
+
+    // Key on the PLACEHOLDER's own shape (last_refresh_status pending + source
+    // google-business), not resource_id — the incumbent shares 'instagram' as
+    // its resource_id, so keying on that would also break the removal's own
+    // (soft-)delete-triggered writes.
+    IntegrationConnection::saving(function (IntegrationConnection $c) {
+        if ($c->last_refresh_status === 'pending' && ($c->payload['source'] ?? null) === 'google-business') {
+            throw new RuntimeException('the placeholder write failed');
+        }
+    });
+
+    $finding = [
+        'category' => 'social',
+        'apply' => ['remove' => ['instagram'], 'instagram' => ['username' => 'doccuts']],
+    ];
+
+    expect(fn () => app(GoogleBusinessAutoSync::class)->applyFinding((string) $user->id, $finding))
+        ->toThrow(RuntimeException::class, 'the placeholder write failed');
+
+    // #FU-3: before the transaction, this incumbent would already be
+    // soft-deleted with nothing standing in its place. Each assertion its own
+    // expect() — a chain would abort on the first failure and hide the rest.
+    $incumbent = IntegrationConnection::query()->where('user_id', $user->id)->where('resource_id', 'instagram')->first();
+    expect($incumbent)->not->toBeNull();
+    expect($incumbent->deleted_at)->toBeNull();
+    expect($incumbent->payload['name'])->toBe('The incumbent');
+    expect(IntegrationConnection::withTrashed()->where('user_id', $user->id)->whereNotNull('deleted_at')->count())->toBe(0);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('last_refresh_status', 'pending')->count())->toBe(0);
+    Bus::assertNotDispatched(InstagramConnectJob::class);
 });
 
 it('canaries a social recipe that carries BOTH instagram and write — the hook claims it and the write is silently dropped', function () {
