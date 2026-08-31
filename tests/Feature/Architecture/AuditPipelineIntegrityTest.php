@@ -35,6 +35,28 @@
 // $coverageExempt.
 
 /**
+ * Split file contents into lines. Every parser in this file goes through here.
+ *
+ * `/u` is load-bearing: without it PCRE matches \R BYTEWISE, and \R covers the raw
+ * byte 0x85 (NEL). 0x85 is also the last byte of ✅ (U+2705, E2 9C 85) and ★ (U+2605,
+ * E2 98 85), so a bytewise split severs those characters and invents extra lines. The
+ * Gate A audit file alone split into 814 lines instead of 781: every reported file:line
+ * after its first ✅ pointed at the wrong line, and findings whose checkbox got severed
+ * from their `· P<n>` marker went uncounted. Every file parsed here is human-authored,
+ * so assume an emoji can land in any of them.
+ *
+ * The `?: []` is the other half of the flag, not decoration: in UTF mode preg_split
+ * returns FALSE on malformed UTF-8 instead of splitting, which would TypeError the
+ * callers' foreach. An undecodable file reads as empty rather than aborting the guard.
+ *
+ * @return list<string>
+ */
+function auditSplitLines(string $contents): array
+{
+    return preg_split('/\R/u', $contents) ?: [];
+}
+
+/**
  * Scope-map paths from codebase_chunks() in audit.sh, keyed by LENS name.
  * The function is a shell `case`; each arm looks like:
  *     lens-name) cat <<'EOF'
@@ -57,7 +79,7 @@ function auditScopePathsByLens(): array
 
     $byLens = [];
     $lens = null;
-    foreach (preg_split('/\R/', $m[1]) as $line) {
+    foreach (auditSplitLines($m[1]) as $line) {
         $line = trim($line);
 
         // Case arm opener: `lens-name) cat <<'EOF'` — switches the active lens.
@@ -201,7 +223,7 @@ function auditLensDeclaredScopes(): array
     foreach (glob(base_path('scripts/audit/lenses/*.md')) ?: [] as $file) {
         $lens = basename($file, '.md');
         $paths = [];
-        foreach (preg_split('/\R/', (string) file_get_contents($file)) as $line) {
+        foreach (auditSplitLines((string) file_get_contents($file)) as $line) {
             if (preg_match('/^\s*--scope\s+(\S+)\s*$/', $line, $m) === 1) {
                 $paths[rtrim($m[1], '/')] = true;
             }
@@ -454,12 +476,7 @@ function auditCountFindingsByMarker(array $lines, int $start, int $end): array
 function auditProgressMismatches(string $relPath): array
 {
     $raw = (string) file_get_contents(base_path($relPath));
-    // `/u` is load-bearing: without it PCRE matches \R bytewise, and \R covers the
-    // raw byte 0x85 (NEL) — which is the third byte of ✅ (U+2705, E2 9C 85). The
-    // Gate A file alone was split into 814 lines instead of 781, so every reported
-    // file:line after its first ✅ pointed at the wrong line and findings whose
-    // checkbox got severed from their `· P<n>` marker went uncounted.
-    $rawLines = preg_split('/\R/u', $raw) ?: [];
+    $rawLines = auditSplitLines($raw);
     $lines = auditBlankFencedBlocks($rawLines);
 
     $violations = [];
@@ -526,6 +543,19 @@ function auditProgressMismatches(string $relPath): array
 
     return $violations;
 }
+
+// Regression guard for auditSplitLines(): a bytewise `\R` split severs ✅ and ★
+// mid-character, which silently corrupted every parser in this file.
+it('splits lines without severing multi-byte characters', function () {
+    expect(auditSplitLines("- [x] done ✅ · P1\nnext"))
+        ->toBe(['- [x] done ✅ · P1', 'next']);
+
+    expect(auditSplitLines("★ insight\r\nsecond\rthird\nfourth"))
+        ->toBe(['★ insight', 'second', 'third', 'fourth']);
+
+    // Undecodable input reads as empty, never the `false` that would TypeError a foreach.
+    expect(auditSplitLines("bad \xC3\x28 byte"))->toBe([]);
+});
 
 it('audit scope maps reference no dead paths', function () {
     $dead = array_values(array_filter(
