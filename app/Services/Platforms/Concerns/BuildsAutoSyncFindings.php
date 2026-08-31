@@ -849,8 +849,9 @@ trait BuildsAutoSyncFindings
             // side parsing one URL the same way. Its connect strategy is
             // DeferredConnect, not UrlConnect, so the branch above cannot reach
             // it. Guards mirror YoutubeFetch's own handle test — non-empty, no
-            // slash — because normalizeHandle's last resort is the raw token,
-            // which for "youtube.com/" is the whole URL.
+            // slash. normalizeHandle answers '' for a slash-bearing token
+            // itself now, so these are belt-and-braces rather than the only
+            // thing standing between a URL and the identity column.
             $handle = app(YoutubeScraper::class)->normalizeHandle($url);
 
             return $handle !== '' && ! str_contains($handle, '/') ? $handle : null;
@@ -903,6 +904,14 @@ trait BuildsAutoSyncFindings
      */
     protected function resolveSocialLink(string $userId, string $platform, string $url, array $write, array $classified): array
     {
+        // BEFORE the existing-row lookup, deliberately: this has to bind the
+        // conflict arm too. A dead write offered as a Swap is the same dead row
+        // one accepted click later, and it would land on top of a connection
+        // that currently works.
+        if ($this->writeCannotPublish($platform, $write)) {
+            return ['findings' => [], 'unmatched' => [['url' => $url, 'label' => $classified['label']]], 'consumed' => true];
+        }
+
         $existing = IntegrationConnection::query()
             ->where('user_id', $userId)->where('platform', $platform)
             ->first();
@@ -934,6 +943,50 @@ trait BuildsAutoSyncFindings
             'unmatched' => [],
             'consumed' => true,
         ];
+    }
+
+    /**
+     * True when the row this write would create could never serve any surface,
+     * so NOT creating it beats creating it.
+     *
+     * F6 (2026-08-31) narrowed youtube's unresolvable identity from a stored
+     * `username: ''` to an omitted key, and stopped there — resolveSocialLink()
+     * calls write() with whatever resolveWrite() returns, so omitting the key
+     * skips nothing. A /channel/ URL carrying an @handle instead of a UC… id
+     * still seeds a connection, and YoutubeFetch still throws
+     * `missing_key: handle` on it every 12h (YoutubeBinding::refreshEvery)
+     * forever. F6's own gate — zero connections carrying last_refresh_error
+     * `missing_key: handle` — stayed reachable through it. The fixture is in
+     * tests/Feature/Platforms/YoutubeAutoSyncDeadConnectionTest.php.
+     *
+     * Youtube is the only platform that qualifies, and it qualifies twice over.
+     * Its public contract is handle/name/description/link/thumbnail/latest
+     * (PublicIntegrationConnectionResource::ALLOWLIST) — `url` and `username`
+     * are NOT on it, unlike every link-only social, which carries
+     * ['username','url']. So the row publishes {} to the sitepage: the link
+     * card cannot want it, because the card is built entirely out of fetched
+     * fields. And the fetch that would fill them takes the identity we just
+     * failed to parse as its only input. Invisible in public, unfetchable
+     * forever — the two halves of "a connection that can never fetch".
+     *
+     * Rule for whoever adds the second entry: a platform belongs here when its
+     * public card is built ENTIRELY by a fetch AND that fetch's only input is
+     * the identity resolveWrite() could not parse. A link-only social does NOT
+     * belong — url alone still renders its card, so a missing handle degrades
+     * that row rather than killing it.
+     *
+     * The caller answers with the tombstone branch's shape (unmatched +
+     * consumed), which outcomeFrom() turns into RouteResult::custom(handled:
+     * true): the user's link still reaches their site as a plain custom card
+     * carrying the real URL, which is strictly more than the empty youtube row
+     * ever published.
+     *
+     * @param  array{platform:string,resourceId:string,payload:array<string,mixed>}  $write
+     */
+    protected function writeCannotPublish(string $platform, array $write): bool
+    {
+        // Both shapes, not just the absent key: rows predating F6 wrote ''.
+        return $platform === 'youtube' && ($write['payload']['username'] ?? '') === '';
     }
 
     /**

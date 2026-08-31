@@ -27,6 +27,57 @@ class YoutubeScraper extends PlatformScraper
     // handle "channel".
     private const NON_CHANNEL_PATH = '~youtu\.be/|youtube\.com/(?:watch|shorts/|live/|embed/|playlist|results|feed/|channel/(?!UC[A-Za-z0-9_-]{22}))~i';
 
+    // YouTube's own pages, which the bare-vanity branch below reads as channels
+    // because it matches ANY first path segment. That cost nothing until F6
+    // (2026-08-31) pointed the WRITE side at this parser: socialUsername()
+    // used to answer '' for youtube whatever the URL, so /about, /t/terms,
+    // /creators, /gaming and /premium all landed on the same no-identity road.
+    // Since the delegation they parse as 'about', 't', 'creators', … and get
+    // STORED as the channel identity — the commit made this class worse, not
+    // better. It is the same class the instagram arm's own $reserved list
+    // exists to close (BuildsAutoSyncFindings::socialUsername — "developer/
+    // about/legal/directory leaked as fake usernames"), and a superset is safe
+    // here for exactly the reason a subset is the bug.
+    //
+    // Only the BARE branch consults this. The prefixed forms are deliberately
+    // exempt: @about is a handle a real person can own, and /c/gaming is a
+    // legacy vanity someone may hold — a reserved word is only evidence of a
+    // YouTube page when YouTube's own routing would claim that path.
+    private const RESERVED_SEGMENTS = [
+        // Legal + corporate hubs. '/t/…' is where terms/privacy/creators-
+        // policy live, so the segment 't' is never a vanity.
+        't', 'about', 'howyoutubeworks', 'jobs', 'press', 'ads', 'creators',
+        'creatorresearch', 'intl', 'dev', 'howto', 'new', 'oops', 'error',
+        // Product surfaces. Each is a destination page, not a channel.
+        'gaming', 'premium', 'music', 'movies', 'moviesandshows', 'learning',
+        'sports', 'news', 'trends', 'podcasts', 'shopping', 'kids', 'select_site',
+        // Signed-in surfaces and utility routes.
+        'account', 'reporthistory', 'upload', 'studio', 'analytics', 'redeem',
+        'purchases', 'paid_memberships', 'subscription_center', 'my_videos',
+        'timeline', 'audiolibrary', 'features', 'verify_age', 'signin',
+        'logout', 'redirect', 'source', 'hashtag', 'supported_browsers',
+        // The prefixes NON_CHANNEL_PATH only recognises WITH a trailing slash
+        // or argument — bare "youtube.com/shorts" reaches the vanity branch.
+        'watch', 'shorts', 'live', 'embed', 'playlist', 'results', 'feed',
+        'channel', 'c', 'user',
+    ];
+
+    // The characters a channel identity is actually made of. \p{L}/\p{N}/\p{M}
+    // rather than [A-Za-z0-9] because YouTube handles are NOT ASCII-only:
+    // the old class stopped dead at the first non-ASCII byte and handed back
+    // the prefix it had eaten, so "youtube.com/@José" resolved to 'Jos' — a
+    // WRONG identity, which points at somebody else's channel or at nothing
+    // and does it silently. That is strictly worse than no identity at all.
+    private const HANDLE_CHARS = '[\p{L}\p{M}\p{N}._-]+';
+
+    // Refuse a match that stopped mid-identity. After the greedy class above
+    // only '%' can still be an identity character (a percent-encoded handle,
+    // "@Jos%C3%A9"), and consuming the 'Jos' in front of it would re-introduce
+    // the truncation this pair exists to stop. Punctuation that genuinely ENDS
+    // a link — '/', '?', '#', a comma or bracket from scraped bio text — is
+    // not listed, so a trailing character still yields the whole handle.
+    private const NOT_MID_IDENTITY = '(?![\p{L}\p{M}\p{N}%])';
+
     /**
      * Reduce any channel reference — bare handle, @handle, or full URL (scheme
      * optional) — to the identity persisted as payload.handle: either a bare
@@ -51,17 +102,28 @@ class YoutubeScraper extends PlatformScraper
             return $m[1];
         }
 
-        if (preg_match('~youtube\.com/(?:@|c/|user/)([A-Za-z0-9._-]+)~i', $s, $m)) {
+        if (preg_match('~youtube\.com/(?:@|c/|user/)('.self::HANDLE_CHARS.')'.self::NOT_MID_IDENTITY.'~iu', $s, $m) === 1) {
             return $m[1];
         }
 
         // Legacy bare vanity ("youtube.com/MrBeast") — pre-@ custom URLs still
         // circulate and still resolve. Last, so every prefixed form above wins.
-        if (preg_match('~youtube\.com/([A-Za-z0-9._-]+)~i', $s, $m)) {
-            return $m[1];
+        if (preg_match('~youtube\.com/('.self::HANDLE_CHARS.')'.self::NOT_MID_IDENTITY.'~iu', $s, $m) === 1) {
+            // This branch, and only this one, is where YouTube's own pages
+            // masquerade as vanities — see RESERVED_SEGMENTS.
+            return in_array(mb_strtolower($m[1]), self::RESERVED_SEGMENTS, true) ? '' : $m[1];
         }
 
-        return PlatformInput::token($s);
+        // Last resort: a bare handle typed with no host at all ("mrbeast",
+        // "@MrBeast"). A token still carrying a path separator means nothing
+        // above recognised the URL, and returning it invents an identity out of
+        // a link. Both callers already discard a slash-bearing answer
+        // (socialUsername, channelIdFrom); saying '' here makes every path give
+        // that same answer, including YoutubeConnect::resolve(), which
+        // otherwise spent a live channel-page fetch to learn it.
+        $token = PlatformInput::token($s);
+
+        return str_contains($token, '/') ? '' : $token;
     }
 
     /**

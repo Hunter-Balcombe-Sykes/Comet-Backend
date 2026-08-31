@@ -129,6 +129,80 @@ it('refuses to read a video link as a channel', function (string $input) {
     'live URL' => ['https://www.youtube.com/live/LgbyEFILLJI'],
 ]);
 
+// F6 follow-up, 2026-08-31. The bare-vanity branch matches ANY first path
+// segment, so YouTube's own pages parsed as channels. Harmless while
+// socialUsername() answered '' for youtube regardless; once F6 delegated the
+// WRITE side to this parser each of these became a STORED identity pointing at
+// nobody — the commit made the class worse than it found it. Same class the
+// instagram arm's $reserved list closes.
+it('refuses to read one of YouTube\'s own pages as a vanity channel', function (string $input) {
+    $scraper = youtubeScraperWith(Mockery::mock(SafeUrlFetcher::class));
+
+    expect($scraper->normalizeHandle($input))->toBe('');
+})->with([
+    'about' => ['https://www.youtube.com/about'],
+    'the /t/ legal hub' => ['https://www.youtube.com/t/terms'],
+    'creators' => ['https://www.youtube.com/creators'],
+    'gaming' => ['https://www.youtube.com/gaming'],
+    'premium' => ['https://www.youtube.com/premium'],
+    // NON_CHANNEL_PATH only catches these WITH a trailing slash.
+    'bare shorts' => ['https://www.youtube.com/shorts'],
+    // The list is consulted case-insensitively — a capitalised paste is the
+    // same page.
+    'capitalised' => ['https://www.youtube.com/About'],
+]);
+
+// A reserved word is only evidence of a YouTube page where YouTube's own
+// routing claims the path. @about is a handle a real person can own, so the
+// guard above must not reach the prefixed forms.
+it('still resolves a prefixed handle that happens to spell a reserved word', function () {
+    $scraper = youtubeScraperWith(Mockery::mock(SafeUrlFetcher::class));
+
+    expect($scraper->normalizeHandle('https://www.youtube.com/@about'))->toBe('about')
+        ->and($scraper->normalizeHandle('https://www.youtube.com/c/gaming'))->toBe('gaming');
+});
+
+// F6 follow-up, 2026-08-31. The handle class was [A-Za-z0-9._-], which stopped
+// dead at the first non-ASCII byte and returned the prefix it had already
+// eaten: "@José" resolved to 'Jos'. F6's own governing rule is that no identity
+// is safe and a WRONG one is not — 'Jos' resolves to somebody else's channel or
+// to nothing, silently, and the write side now persists it.
+it('resolves a non-ASCII handle whole instead of truncating it to a different channel', function () {
+    $scraper = youtubeScraperWith(Mockery::mock(SafeUrlFetcher::class));
+
+    expect($scraper->normalizeHandle('https://www.youtube.com/@José'))->toBe('José');
+});
+
+it('answers nothing rather than a truncated prefix when the handle is percent-encoded', function () {
+    // The same handle as above off a share sheet that encoded it. '%' cannot
+    // join the identity, and eating the 'Jos' in front of it is the exact
+    // truncation the widened class exists to stop — so this one has no answer,
+    // which is the safe half of the rule.
+    $scraper = youtubeScraperWith(Mockery::mock(SafeUrlFetcher::class));
+
+    expect($scraper->normalizeHandle('https://www.youtube.com/@Jos%C3%A9'))->toBe('');
+});
+
+// Punctuation that ENDS a link (a comma or bracket trailing a URL in scraped
+// bio text) is not an identity character, so it must not trip the guard above.
+it('keeps the whole handle when a link is followed by sentence punctuation', function () {
+    $scraper = youtubeScraperWith(Mockery::mock(SafeUrlFetcher::class));
+
+    expect($scraper->normalizeHandle('https://www.youtube.com/@MrBeast,'))->toBe('MrBeast')
+        ->and($scraper->normalizeHandle('https://www.youtube.com/@MrBeast)'))->toBe('MrBeast');
+});
+
+// normalizeHandle's last resort is PlatformInput::token(), which for an
+// unrecognised youtube URL is the WHOLE URL. Both callers already discard a
+// slash-bearing answer; returning '' makes every path agree, and stops
+// YoutubeConnect::resolve() spending a live channel-page fetch to learn it.
+it('does not hand back a URL as though it were a handle', function () {
+    $scraper = youtubeScraperWith(Mockery::mock(SafeUrlFetcher::class));
+
+    expect($scraper->normalizeHandle('https://youtube.com/'))->toBe('')
+        ->and($scraper->normalizeHandle('https://youtube.com/@'))->toBe('');
+});
+
 // The seam that caused this: fetchRecentVideos() called the private,
 // handle-only resolver directly, bypassing channelIdFrom()'s format tolerance
 // (which YoutubeMusicConnect was already using). A raw id must short-circuit
