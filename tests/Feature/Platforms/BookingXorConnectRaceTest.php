@@ -436,6 +436,11 @@ it('a social "Change to" is unaffected by a held booking-XOR lock', function () 
 
 it('applyFinding never holds the XOR lock across an Instagram dispatch — a hybrid recipe degrades to the unlocked path and canaries', function () {
     Exceptions::fake();
+    // #W2-LIFE-16 round 2: applyFinding() now reports the hook's OUTCOME, so a
+    // token-less run would answer false for a second, unrelated reason. Let the
+    // dispatch actually succeed — a fast `true` then means only "unlocked path".
+    config(['services.apify.token' => 'apify-token']);
+    Queue::fake();
     $user = bxRaceUser('bxr11');
 
     // Structurally should never happen — GB's Instagram recipe is ALWAYS

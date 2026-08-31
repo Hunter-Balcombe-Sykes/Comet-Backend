@@ -50,18 +50,6 @@ class InstagramConnectionSeeder
     // oversized reel simply falls back to its poster (no autoplay).
     private const MAX_VIDEO_BYTES = 52428800;
 
-    /**
-     * Byte-sniffed container types we will store for a reel (#W2-SEC-14).
-     * Instagram serves mp4; quicktime is here because the same ftyp family
-     * occasionally sniffs that way and a legitimately-mirrored reel must not
-     * be dropped over a brand code. There is no ImagePixelBudget twin for
-     * video — nothing here is ever decoded by us, so the allowlist IS the
-     * whole check.
-     *
-     * @var list<string>
-     */
-    private const ALLOWED_VIDEO_MIMES = ['video/mp4', 'video/quicktime'];
-
     // Hard cap on a mirrored still image (15 MB). Instagram photos are tiny
     // (<1 MB in practice); 15 MB is deliberately generous to future-proof against
     // high-res uploads while still preventing a pathological response from
@@ -657,13 +645,25 @@ class InstagramConnectionSeeder
             }
 
             // #W2-SEC-14: byte-sniff what landed, not what the CDN called it.
+            // A `video/` PREFIX, not a two-item brand allowlist (owner decision,
+            // review round 2). libmagic maps the ftyp brands Instagram actually
+            // serves across several types — isom/mp42/mp41/iso2/iso4/iso5/iso6/
+            // dash/avc1/mmp4 -> video/mp4, qt -> video/quicktime, M4V ->
+            // video/x-m4v, 3gp4 -> video/3gpp — and does not know msnv or cmfc
+            // at all (application/octet-stream). Naming brands would make this
+            // check drift with the libmagic version between macOS and the Cloud
+            // image, silently stopping reel mirroring; the prefix still rejects
+            // what the finding was about (HTML/GIF/script under a .mp4 name) and
+            // still rejects application/octet-stream, which is what an unknown
+            // brand and a hostile payload both sniff as.
+            //
             // NOT transient — a file that is not a video will not become one on
             // a retry, so this joins the other permanent drop classes rather
             // than burning the retry budget. Logged with its own reason so a
             // "reels stopped mirroring" report separates a sniff mismatch from
             // a dead URL without a code read.
-            $sniffed = (string) (new finfo(FILEINFO_MIME_TYPE))->file($tmp);
-            if (! in_array($sniffed, self::ALLOWED_VIDEO_MIMES, true)) {
+            $sniffed = strtolower((string) (new finfo(FILEINFO_MIME_TYPE))->file($tmp));
+            if (! str_starts_with($sniffed, 'video/')) {
                 $this->logVideoMirrorDrop('bad_sniffed_type', $url);
 
                 return null;

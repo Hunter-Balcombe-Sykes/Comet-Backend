@@ -163,17 +163,34 @@ class GoogleBusinessAutoSync
      * dispatchInstagram()). Claiming the finding here also preserves the
      * original early-return: an Instagram dispatch never ALSO runs the write.
      *
+     * #W2-LIFE-16 (review round 2): the hook owns BOTH halves of the swap.
+     * The recipe's `remove` half is the removal of the user's existing
+     * Instagram connection; its replacement half is the re-dispatched scrape.
+     * dispatchInstagram() declines for three ROUTINE reasons — no Apify token,
+     * the daily spend cap (ApifyBudget::tryClaim), a contended platform seed
+     * lock — and every one of them returns before it writes anything. So the
+     * removals are handed to it as $before and run only once it is committed
+     * to dispatching, inside the same seed lock that guards the placeholder
+     * write. A declined apply therefore changes nothing at all, and the false
+     * travels back through runApply() -> applyFinding() so the caller leaves
+     * the finding unsettled and the user can apply it again later.
+     *
      * @param  array<string,mixed>  $apply
+     * @return bool|null null = not this sync's recipe (fall through to `write`);
+     *                   true = dispatched; false = claimed but NOT applied,
+     *                   nothing removed, nothing written
      */
-    protected function applyFindingHandled(string $userId, array $apply): bool
+    protected function applyFindingHandled(string $userId, array $apply): ?bool
     {
         if (is_array($apply['instagram'] ?? null) && is_string($apply['instagram']['username'] ?? null)) {
-            $this->dispatchInstagram($userId, $apply['instagram']['username']);
-
-            return true;
+            return $this->dispatchInstagram(
+                $userId,
+                $apply['instagram']['username'],
+                before: fn () => $this->applyRemovals($userId, $apply),
+            );
         }
 
-        return false;
+        return null;
     }
 
     // ── reservation ──────────────────────────────────────────────
@@ -924,11 +941,6 @@ class GoogleBusinessAutoSync
     }
 
     /**
-     * Write the pending Instagram placeholder + dispatch the budgeted scrape.
-     * Returns false when there's no token, the daily budget is spent, or the
-     * platform seed lock timed out (skip: no card, no dispatch).
-     */
-    /**
      * Catalog projection with one retry for profile SUB-TAB share links
      * (/<handle>/reels/, /<handle>/tagged/ — Instagram's own "share this
      * tab" URLs): the profile detector matches the bare profile path only,
@@ -957,7 +969,20 @@ class GoogleBusinessAutoSync
         ));
     }
 
-    private function dispatchInstagram(string $userId, string $username, bool $autoConnectBooking = false): bool
+    /**
+     * Write the pending Instagram placeholder + dispatch the budgeted scrape.
+     * Returns false when there's no token, the daily budget is spent, or the
+     * platform seed lock timed out (skip: no card, no dispatch).
+     *
+     * $before is a caller-supplied step that must run only once this method is
+     * committed to dispatching, and inside the seed lock — #W2-LIFE-16's "Change
+     * to" apply passes the recipe's connection removals there. Every early
+     * `return false` below is reached BEFORE $before could have run, which is
+     * what makes a declined dispatch a true no-op rather than a half-done swap.
+     *
+     * @param  (callable(): void)|null  $before
+     */
+    private function dispatchInstagram(string $userId, string $username, bool $autoConnectBooking = false, ?callable $before = null): bool
     {
         if (! config('services.apify.token') || ! $this->apifyBudget->tryClaim('instagram')) {
             return false;
@@ -968,7 +993,13 @@ class GoogleBusinessAutoSync
         // key (InstagramConnectionSeeder::seed) and runs INLINE under the sync
         // queue driver; dispatching it while still holding this lock would
         // self-deadlock (or time itself out against its own holder).
-        $connection = $this->withPlatformSeedLock($userId, Platform::Instagram->value, function () use ($userId) {
+        $connection = $this->withPlatformSeedLock($userId, Platform::Instagram->value, function () use ($userId, $before) {
+            // The swap's destructive half, if the caller has one — inside the
+            // lock, immediately before the row that replaces what it removes.
+            if ($before !== null) {
+                $before();
+            }
+
             // Pending placeholder tagged source so the synced step + undo can find it;
             // InstagramConnectJob preserves that tag when it writes the scrape result.
             return IntegrationConnection::updateOrCreate(

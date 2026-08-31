@@ -9,15 +9,23 @@
 //
 // These pin (1) a failed write leaves the ORIGINAL connection in place, on both
 // the locked and the unlocked arm; (2) the successful swap still works; and
-// (3) the handled-hook branch (GB re-dispatching the Instagram scrape) stays
-// OUTSIDE the transaction — that hook dispatches InstagramConnectJob, which
-// under the sync driver runs inline and takes its own cache lock, so wrapping
-// it would be the dispatch-before-commit trap with `after_commit => false`.
+// (3) the handled-hook branch — GB re-dispatching the Instagram scrape — whose
+// removals are also one half of a pair, the other half being the scrape. That
+// half is NOT made whole by a transaction (the hook dispatches
+// InstagramConnectJob and `config/queue.php` sets `after_commit => false`, so
+// on redis the job is pushed before the commit and a worker can beat the
+// placeholder row into existence). It is made whole by ORDER instead: the hook
+// runs the removals inside the platform seed lock, only once its dispatch can
+// no longer decline, and a declined dispatch propagates false so the caller
+// leaves the finding unsettled (#W2-LIFE-16, review round 2).
 
+use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\InstagramAutoSync;
+use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -135,25 +143,110 @@ it('still performs the swap when the write succeeds', function () {
     expect($rows->first()->resource_id)->toBe('newhandle');
 });
 
-it('runs the handled hook OUTSIDE any transaction — its recipe carries no write to pair with', function () {
+// ── the handled-hook branch: dispatchInstagram()'s three routine declines ────
+// Each of them returns BEFORE the hook has removed anything, so the correct
+// outcome is "nothing changed, finding not settled" — not "connection deleted,
+// finding marked seeded", which is what discarding the bool used to produce.
+
+it('does not remove the incumbent Instagram connection when the apply cannot dispatch — no Apify token', function () {
     $user = atomUser('atomhook');
     atomConnection($user, 'instagram', 'instagram');
+    Bus::fake([InstagramConnectJob::class]);
 
-    // The only producer of an `apply.instagram` recipe (GoogleBusinessAutoSync's
-    // social conflict finding) carries `remove` and never `write`. If that ever
-    // changes, the hook's inline job dispatch would land inside the transaction
-    // — this asserts the shape the fix depends on.
     $finding = [
         'category' => 'social',
         'apply' => ['remove' => ['instagram'], 'instagram' => ['username' => 'doccuts']],
     ];
 
-    // No apify token configured => dispatchInstagram() short-circuits before
-    // touching the queue, so this exercises the branch without a real scrape.
     config()->set('services.apify.token', null);
 
+    // False, so SuggestionsController::acceptPayloadFinding answers 423 and
+    // never settles the finding as 'seeded' — the user can apply it again.
+    expect(app(GoogleBusinessAutoSync::class)->applyFinding((string) $user->id, $finding))->toBeFalse();
+
+    Bus::assertNotDispatched(InstagramConnectJob::class);
+
+    // And the link they already had is untouched: not soft-deleted, not
+    // replaced by a pending placeholder.
+    $rows = IntegrationConnection::query()->where('user_id', $user->id)->get();
+    expect($rows)->toHaveCount(1);
+    expect($rows->first()->resource_id)->toBe('instagram');
+    expect($rows->first()->payload['name'])->toBe('The incumbent');
+    expect(IntegrationConnection::withTrashed()->where('user_id', $user->id)->whereNotNull('deleted_at')->count())->toBe(0);
+});
+
+it('does not remove the incumbent Instagram connection when the daily Apify budget denies the claim', function () {
+    $user = atomUser('atombudget');
+    atomConnection($user, 'instagram', 'instagram');
+    Bus::fake([InstagramConnectJob::class]);
+
+    // Budget denial is a NORMAL operating state, not an error — a cap of 0
+    // makes ApifyBudget::tryClaim('instagram') refuse without touching the
+    // money path itself.
+    config()->set('services.apify.token', 'apify-token');
+    config()->set('partna.limits.apify.actors.instagram', 0);
+
+    $finding = [
+        'category' => 'social',
+        'apply' => ['remove' => ['instagram'], 'instagram' => ['username' => 'doccuts']],
+    ];
+
+    expect(app(GoogleBusinessAutoSync::class)->applyFinding((string) $user->id, $finding))->toBeFalse();
+
+    Bus::assertNotDispatched(InstagramConnectJob::class);
+
+    $rows = IntegrationConnection::query()->where('user_id', $user->id)->get();
+    expect($rows)->toHaveCount(1);
+    expect($rows->first()->resource_id)->toBe('instagram');
+    expect($rows->first()->payload['name'])->toBe('The incumbent');
+    expect(IntegrationConnection::withTrashed()->where('user_id', $user->id)->whereNotNull('deleted_at')->count())->toBe(0);
+});
+
+it('removes the incumbent and leaves a pending placeholder when the scrape IS dispatched', function () {
+    $user = atomUser('atomhookok');
+    atomConnection($user, 'instagram', 'instagram');
+    Bus::fake([InstagramConnectJob::class]);
+
+    config()->set('services.apify.token', 'apify-token');
+
+    $finding = [
+        'category' => 'social',
+        'apply' => ['remove' => ['instagram'], 'instagram' => ['username' => 'doccuts']],
+    ];
+
     expect(app(GoogleBusinessAutoSync::class)->applyFinding((string) $user->id, $finding))->toBeTrue();
-    expect(array_key_exists('write', $finding['apply']))->toBeFalse();
-    // The removal still happened — the hook branch is byte-identical to before.
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->count())->toBe(0);
+
+    Bus::assertDispatched(InstagramConnectJob::class, fn ($job) => $job->username === 'doccuts');
+
+    // The incumbent is gone and something stands in its place — the pair the
+    // decline path above refuses to half-perform.
+    $rows = IntegrationConnection::query()->where('user_id', $user->id)->get();
+    expect($rows)->toHaveCount(1);
+    expect($rows->first()->last_refresh_status)->toBe('pending');
+    expect($rows->first()->payload['source'])->toBe('google-business');
+    expect(IntegrationConnection::withTrashed()->where('user_id', $user->id)->whereNotNull('deleted_at')->count())->toBe(1);
+});
+
+it('canaries a social recipe that carries BOTH instagram and write — the hook claims it and the write is silently dropped', function () {
+    Exceptions::fake();
+    $user = atomUser('atomhybrid');
+    Bus::fake([InstagramConnectJob::class]);
+    config()->set('services.apify.token', 'apify-token');
+
+    // applyFinding()'s own canary only fires for booking/reservations-slot
+    // recipes; a `social` one reaches runApply() unremarked, and its `write`
+    // half has always been swallowed by the claiming hook.
+    $finding = [
+        'category' => 'social',
+        'apply' => [
+            'remove' => ['instagram'],
+            'instagram' => ['username' => 'doccuts'],
+            'write' => ['platform' => 'square', 'resourceId' => 'sq', 'payload' => ['name' => 'New']],
+        ],
+    ];
+
+    expect(app(GoogleBusinessAutoSync::class)->applyFinding((string) $user->id, $finding))->toBeTrue();
+
+    Exceptions::assertReported(fn (RuntimeException $e) => str_contains($e->getMessage(), 'BOTH `instagram` and `write`'));
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'square')->exists())->toBeFalse();
 });

@@ -47,7 +47,19 @@ final class FakeMediaBytes
      */
     public static function mp4(int $bytes = 0): string
     {
-        $ftyp = pack('N', 24).'ftyp'.'isom'.pack('N', 512).'isomiso2mp41';
+        return self::ftyp('isom', $bytes);
+    }
+
+    /**
+     * The same box under an arbitrary 4-character major brand, so a test can
+     * pick what libmagic will answer. Measured on this machine (libmagic 5.x):
+     * isom/mp42/mp41/iso2/iso4/iso5/iso6/dash/avc1/mmp4 -> video/mp4,
+     * 'qt  ' -> video/quicktime, 'M4V ' -> video/x-m4v, 3gp4 -> video/3gpp,
+     * and msnv / cmfc -> application/octet-stream (libmagic knows neither).
+     */
+    public static function ftyp(string $brand, int $bytes = 0): string
+    {
+        $ftyp = pack('N', 24).'ftyp'.substr(str_pad($brand, 4), 0, 4).pack('N', 512).'isomiso2mp41';
         if ($bytes > strlen($ftyp)) {
             // `free` box: legal filler, so the result stays a well-formed mp4.
             $ftyp .= pack('N', $bytes - strlen($ftyp)).'free'.str_repeat("\0", $bytes - strlen($ftyp) - 8);

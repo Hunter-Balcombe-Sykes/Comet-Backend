@@ -286,3 +286,35 @@ it('still mirrors a genuine mp4 whose bytes match its label', function () {
     expect($result)->not->toBeNull();
     expect(Storage::disk('media')->exists('platforms/instagram/test/reel-real.mp4'))->toBeTrue();
 });
+
+// The check is a `video/` PREFIX, not a brand allowlist (owner decision, review
+// round 2). These two are the pair that justifies it: a container libmagic
+// names but the old two-item list did not is mirrored, and one libmagic cannot
+// name at all is still dropped.
+
+it('mirrors a reel whose container sniffs as a video type outside the old mp4/quicktime pair', function () {
+    Http::fake(['scontent.cdninstagram.com/*' => Http::response(
+        FakeMediaBytes::ftyp('3gp4', 4096), 200, ['Content-Type' => 'video/mp4'],
+    )]);
+
+    $result = invokeMirrorVideo('https://scontent.cdninstagram.com/reel.mp4', 'platforms/instagram/test/reel-3gp.mp4');
+
+    expect($result)->not->toBeNull();
+    expect(Storage::disk('media')->exists('platforms/instagram/test/reel-3gp.mp4'))->toBeTrue();
+});
+
+it('still drops a container libmagic cannot name — application/octet-stream is not video/', function () {
+    Log::spy();
+    Http::fake(['scontent.cdninstagram.com/*' => Http::response(
+        FakeMediaBytes::ftyp('cmfc', 4096), 200, ['Content-Type' => 'video/mp4'],
+    )]);
+
+    $result = invokeMirrorVideo('https://scontent.cdninstagram.com/reel.mp4', 'platforms/instagram/test/reel-unknown.mp4');
+
+    expect($result)->toBeNull();
+    expect(Storage::disk('media')->exists('platforms/instagram/test/reel-unknown.mp4'))->toBeFalse();
+    Log::shouldHaveReceived('info')
+        ->withArgs(fn ($message, $context) => $message === 'instagram.mirror_video.dropped'
+            && $context['reason'] === 'bad_sniffed_type')
+        ->once();
+});
