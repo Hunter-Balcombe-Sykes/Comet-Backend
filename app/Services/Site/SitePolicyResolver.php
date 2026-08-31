@@ -5,6 +5,7 @@ namespace App\Services\Site;
 use App\Console\Commands\PurgeRawAnalyticsEvents;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Analytics\Writers\PostgresEventWriter;
 
 /**
  * Resolves a sitepage's Privacy Policy + Terms & Conditions — the single
@@ -38,6 +39,11 @@ use App\Models\Core\User\User;
  * under the OWNER'S business name, so an inaccuracy here is a claim THEY are
  * making about their own site. When the analytics lane changes what it
  * collects or how long it keeps it, this file changes in the same commit.
+ *
+ * Which is why no sentence here states behaviour on its own authority any
+ * more: every behavioural claim is gated on the lane that performs it saying
+ * it will. See behaviouralGuarantees() for the list and for what chasing this
+ * one env var at a time cost before the inversion.
  */
 class SitePolicyResolver
 {
@@ -150,6 +156,38 @@ class SitePolicyResolver
     }
 
     /**
+     * EVERY sentence in the generated policy that asserts platform BEHAVIOUR,
+     * paired with the lane that decides whether it is currently true. The key
+     * is the phrase that appears in the text ONLY when the claim is being made;
+     * the value is that lane's own answer to "will you actually do this".
+     *
+     * This is the contract, and it is deliberately an inversion of how the
+     * file used to work. The prose used to state behaviour and the code used to
+     * hope it matched, so each new knob was a new way to make a real business
+     * assert, on its own sitepage, something the platform was not doing: first
+     * the raw retention floor, then the derived-scores floor, then a batch size
+     * of zero, then a location precision that rounds nothing. None of those was
+     * a crash. Every one of them was a sentence.
+     *
+     * A new claim belongs here on the same commit as the sentence that makes it,
+     * and its guarantee must be ASKED of the lane that performs it — never
+     * re-derived here, because a second copy of a rule is how all four of the
+     * above happened. PublishedPolicyMatchesBehaviourTest sweeps the reachable
+     * configurations and, for each one, checks both halves: that a false
+     * guarantee keeps its phrase out of the text, and that a true guarantee is
+     * backed by the lane actually doing the thing.
+     *
+     * @return array<string, bool> phrase published only when true => lane's own answer
+     */
+    public static function behaviouralGuarantees(): array
+    {
+        return [
+            'deleted automatically' => PurgeRawAnalyticsEvents::scheduledPurgeWouldDelete(),
+            'rounded down in precision' => PostgresEventWriter::coordinatesAreCoarsened(),
+        ];
+    }
+
+    /**
      * The retention sentence, read from the window the purge actually runs on
      * (PurgeRawAnalyticsEvents::configuredRawRetentionDays() — the command's
      * own accessor for the key it purges on) rather than a number typed into
@@ -157,15 +195,10 @@ class SitePolicyResolver
      * someone sets the env var.
      *
      * Naming a window at all is gated on the command's OWN answer to "would a
-     * scheduled run delete anything" (scheduledPurgeWouldDelete()), not on the
-     * raw window alone. This file used to re-derive that answer from the raw
-     * window and got it wrong: handle() aborts with FAILURE before the first
-     * DELETE when EITHER window is below the floor, so a sub-floor
-     * content_popularity_scores window leaves the raw events immortal while
-     * this sentence still promised automatic deletion after 90 days — a claim
-     * published under the OWNER'S business name about their own site. When
-     * nothing is purged the policy says exactly that instead; a shorter untrue
-     * claim is not an improvement on a longer one.
+     * scheduled run delete anything" (scheduledPurgeWouldDelete(), derived from
+     * its single guard set) — never on a rule re-derived here. When nothing is
+     * purged the policy says exactly that instead; a shorter untrue claim is not
+     * an improvement on a longer one.
      */
     private function analyticsRetentionLine(): string
     {
@@ -183,6 +216,33 @@ class SitePolicyResolver
 
         return "{$records} — are deleted automatically {$days} days after they are recorded. Counts and rankings "
             ."worked out from them may be kept longer, but those no longer single out a browser. {$direct}";
+    }
+
+    /**
+     * The location sentence. Everything up to the coordinates is unconditional —
+     * the country/region/city estimate is stored on every event regardless of
+     * configuration. The coarsening clause is not: PostgresEventWriter rounds to
+     * a configured number of decimals with no floor under it, and at 4dp or more
+     * it rounds nothing at all, because DetectsClientInfo::parseCoordinate()
+     * already handed it 4dp. So the clause is published only when that lane says
+     * it is coarsening (coordinatesAreCoarsened()), and the honest alternative —
+     * we store what our network provider gave us — is published when it is not.
+     */
+    private function locationLine(): string
+    {
+        $lead = 'Your device\'s IP address reaches our servers with every request. We do not keep the address itself '
+            .'— it is put through a one-way hash before anything is stored, which we use to spot abuse and to avoid '
+            .'counting the same action twice. The IP address is used first to estimate where you are, and that '
+            .'estimate IS stored with each record: your country, your state or region, your city, and ';
+
+        $tail = ' It is an estimate from your network connection, not your device\'s GPS, and it is sometimes wrong.';
+
+        if (! PostgresEventWriter::coordinatesAreCoarsened()) {
+            return $lead.'the coordinates our network provider reports for your connection, stored at the precision '
+                .'we receive them.'.$tail;
+        }
+
+        return $lead.'approximate coordinates for that area, rounded down in precision before they are saved.'.$tail;
     }
 
     /** @return list<array{heading: string, body: string}> */
@@ -205,7 +265,7 @@ class SitePolicyResolver
             ],
             [
                 'heading' => 'Location and your IP address',
-                'body' => 'Your device\'s IP address reaches our servers with every request. We do not keep the address itself — it is put through a one-way hash before anything is stored, which we use to spot abuse and to avoid counting the same action twice. The IP address is used first to estimate where you are, and that estimate IS stored with each record: your country, your state or region, your city, and approximate coordinates for that area, rounded down in precision before they are saved. It is an estimate from your network connection, not your device\'s GPS, and it is sometimes wrong.',
+                'body' => $this->locationLine(),
             ],
             [
                 'heading' => 'How we use your information',

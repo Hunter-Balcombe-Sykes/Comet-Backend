@@ -26,6 +26,48 @@ use Illuminate\Support\Facades\Log;
 // analytics.site_sessions with GREATEST() merges (idempotent under retries).
 class PostgresEventWriter implements AnalyticsEventWriter
 {
+    /**
+     * PRIV-9: the precision this lane is HANDED. DetectsClientInfo::parseCoordinate()
+     * rounds every inbound coordinate to 4dp (~11m) before an AnalyticsEvent is
+     * ever built, so roundCoordinate() below can only ever coarsen a value when
+     * it is configured finer than this. At 4 or more decimals round() returns its
+     * input unchanged for every value that can reach it: not "less rounding",
+     * NO rounding. Kept as a named constant because coordinatesAreCoarsened()
+     * is the sentence a real business publishes about its own site.
+     */
+    public const INGEST_PRECISION_DECIMALS = 4;
+
+    /**
+     * The coarsest stored precision the privacy policy may still describe as an
+     * area rather than a place. 3dp is ~110m — a block. Anything finer stops
+     * being "approximate coordinates for that area" and starts being a doorstep,
+     * and at INGEST_PRECISION_DECIMALS it is provably a no-op (above).
+     */
+    public const MAXIMUM_AREA_PRECISION_DECIMALS = 3;
+
+    public static function configuredLocationPrecisionDecimals(): int
+    {
+        return (int) config('partna.analytics.location_precision_decimals', 2);
+    }
+
+    /**
+     * Whether stored coordinates are genuinely coarsened — the question
+     * SitePolicyResolver asks this lane before publishing "rounded down in
+     * precision before they are saved".
+     *
+     * That sentence used to be unconditional prose while the rounding behind it
+     * hung off a knob with no floor, so PARTNA_ANALYTICS_LOCATION_PRECISION_DECIMALS=6
+     * stored exactly what arrived and left a real business asserting, on its own
+     * sitepage, a privacy measure its platform was not performing. The knob is
+     * deliberately NOT clamped: an operator choosing finer geo data is making a
+     * legitimate choice, and the fix for a false sentence is a true sentence,
+     * not a config value silently overruled.
+     */
+    public static function coordinatesAreCoarsened(): bool
+    {
+        return self::configuredLocationPrecisionDecimals() <= self::MAXIMUM_AREA_PRECISION_DECIMALS;
+    }
+
     public function write(AnalyticsEvent $event): void
     {
         $this->writeMany([$event]);
@@ -137,7 +179,7 @@ class PostgresEventWriter implements AnalyticsEventWriter
     }
 
     /**
-     * PRIV-1: round a visitor coordinate to config('partna.analytics.location_precision_decimals')
+     * PRIV-1: round a visitor coordinate to configuredLocationPrecisionDecimals()
      * (default 2dp, ≈1.1km) — enough for city/region analytics, not enough to locate a
      * person. Null passes through unchanged (never coerced to 0.0).
      */
@@ -147,7 +189,7 @@ class PostgresEventWriter implements AnalyticsEventWriter
             return null;
         }
 
-        return round($value, (int) config('partna.analytics.location_precision_decimals', 2));
+        return round($value, self::configuredLocationPrecisionDecimals());
     }
 
     /** @param  array<string, Block>  $blocks */
