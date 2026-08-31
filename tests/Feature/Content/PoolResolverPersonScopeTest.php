@@ -94,6 +94,35 @@ function personScopeEmployeeSource(string $userId, string $connectionId, string 
     ]);
 }
 
+/**
+ * A SECOND vendor carrying the same review item, the way a deduped review
+ * really sits in the database: its own content.sources row on its own
+ * connection, its own source_items link, and — because content.f_review is
+ * keyed (item_id, source_id) — its own f_review row. $updatedAt decides which
+ * row an `orderBy(updated_at)` leaves last.
+ *
+ * @param  array<string, mixed>  $review
+ */
+function personScopeSecondSource(string $userId, string $itemId, array $review, string $updatedAt): string
+{
+    $connectionId = poolConnection($userId, 'fresha.book');
+    $sourceId = poolSource($userId, $connectionId);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => $sourceId,
+        'coord' => 'review:'.Str::random(10), 'item_id' => $itemId, 'kind' => 'review',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+    DB::table('content.f_review')->insert([
+        'item_id' => $itemId, 'source_id' => $sourceId,
+        'author_name' => null, 'author_photo_url' => null, 'author_uri' => null,
+        'rating' => 5.0, 'text' => null, 'reviewed_at' => null, 'staff_name' => null,
+        ...$review,
+        'updated_at' => $updatedAt,
+    ]);
+
+    return $connectionId;
+}
+
 /** @return list<string> the ids the reviews pool would publish */
 function personScopePublished(string $siteId): array
 {
@@ -160,6 +189,23 @@ it('keeps an unattributed review from an employee-scoped source', function () {
     expect(personScopePublished($siteId))->toBe($itemIds);
 });
 
+it('does not treat a storewide Fresha connection as employee-scoped', function () {
+    // The employee-scope gate is the ONE tier that admits a review carrying no
+    // name evidence whatsoever — no staff attribution, no mention in the prose
+    // — purely on the vendor's word that the feed was already narrowed to this
+    // person. So 'storewide' has to be excluded from selection_ref as firmly
+    // as the empty string is: vision-hair-studio-melbourne-tzo6gxk0 storewide
+    // is the WHOLE salon, which is the venue-level case this scope exists to
+    // suppress. Its sibling above (selection_ref 5035183, the same review,
+    // published) pins the other direction so the gate cannot be "fixed" shut.
+    [$pro, $siteId, , $connectionId] = personScopeFixture('Raff McGuiness', 'Raff', [
+        ['text' => 'Best cut in Melbourne, could not be happier.'],
+    ]);
+    personScopeEmployeeSource($pro->id, $connectionId, 'storewide');
+
+    expect(personScopePublished($siteId))->toBe([]);
+});
+
 it('lets a staff attribution naming someone else veto a text mention too', function () {
     // "Raff made the coffee while Ciel did my hair" with staff_name Ciel is
     // Ciel's review. The vendor's structured answer outranks our text guess.
@@ -168,6 +214,56 @@ it('lets a staff attribution naming someone else veto a text mention too', funct
     ]);
 
     expect(personScopePublished($siteId))->toBe([]);
+});
+
+// ── Hole 2b: the veto saw ONE facet row per item ────────────────────────────
+
+it('lets a staff attribution on ANY facet row veto a deduped review', function (bool $attributionIsNewer) {
+    // BLOCKER (2026-09-01, second pass). content.f_review is keyed
+    // (item_id, source_id). ollies' hair reviews arrive from TWO vendors — the
+    // Google listing and the Fresha page vision-hair-studio-melbourne-tzo6gxk0
+    // — and dedupe to one content.items row, so the item carries two facet
+    // rows. reviewsOutsidePersonScope() read them with keyBy('item_id'), which
+    // keeps whichever row the ordering left last and discards the other. The
+    // Fresha row is the one carrying staff_name "Ciel"; on every run where the
+    // Google row won, the veto never saw the attribution and "Ciel" published
+    // on Raff McGuiness's page exactly as before.
+    //
+    // Two orderings, because "which row wins" must stop being a question the
+    // answer depends on. Both must suppress.
+    [$pro, $siteId, $itemIds, $googleConnectionId] = personScopeFixture('ST. ALi Coffee', 'Raff', [
+        ['text' => 'Raff made the coffee while Ciel did my hair, both were lovely.'],
+    ]);
+    $freshaConnectionId = personScopeSecondSource($pro->id, $itemIds[0], [
+        'staff_name' => 'Ciel',
+        'text' => 'Raff made the coffee while Ciel did my hair, both were lovely.',
+    ], (string) ($attributionIsNewer ? now()->addDay() : now()->subDay()));
+
+    // Both live admissions are open under it: the text names Raff, and the
+    // Fresha source is employee-scoped at the vendor. The veto has to outrank
+    // both, from whichever row happens to carry it.
+    personScopeEmployeeSource($pro->id, $freshaConnectionId);
+
+    expect(personScopePublished($siteId))->toBe([])
+        ->and($googleConnectionId)->not->toBe($freshaConnectionId)
+        ->and(app(PoolResolver::class)->hasSelection(Site::query()->findOrFail($siteId), 'reviews'))->toBeFalse();
+})->with([
+    'attribution on the row orderBy discards' => false,
+    'attribution on the row orderBy keeps' => true,
+]);
+
+it('still publishes a deduped review both facet rows attribute to the owner', function () {
+    // The other direction, or the fix above is just "suppress anything with
+    // two sources". Same two-row shape, and Fresha names Raff.
+    [$pro, $siteId, $itemIds] = personScopeFixture('Raff McGuiness', 'Raff', [
+        ['text' => 'Best cut in Melbourne, could not be happier.'],
+    ]);
+    personScopeSecondSource($pro->id, $itemIds[0], [
+        'staff_name' => 'Raff',
+        'text' => 'Best cut in Melbourne, could not be happier.',
+    ], (string) now()->subDay());
+
+    expect(personScopePublished($siteId))->toBe($itemIds);
 });
 
 // ── Hole 3: fail open on an unresolvable owner ──────────────────────────────

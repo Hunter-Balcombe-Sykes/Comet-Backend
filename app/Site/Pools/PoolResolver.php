@@ -1811,6 +1811,13 @@ class PoolResolver
      *     naming a different person is now the FIRST thing checked and it
      *     vetoes: a review that says it is about Ciel is not about Raff.
      *
+     * Second pass the same day, because that veto still had a way through: it
+     * read ONE f_review row per item. The facet is keyed (item_id, source_id),
+     * a deduped review carried by two sources has two rows, and keyBy() kept
+     * one of them — so an item whose Fresha row said "Ciel" published anyway
+     * whenever the Google row happened to win the ordering. Every row is read
+     * now, and any row naming someone else vetoes.
+     *
      * @param  list<string>  $reviewIds
      * @return array<string, true>
      */
@@ -1853,6 +1860,20 @@ class PoolResolver
             ->where('cs.user_id', $site->user_id)
             ->where('ing.user_id', $site->user_id)
             ->whereNotNull('ing.selection_ref')
+            // 'storewide' belongs in this list as firmly as the empty string,
+            // and this is the line to be paranoid about: employee-scoped is
+            // the ONE tier that admits a review carrying no name evidence at
+            // all — no staff attribution, no mention in the prose — purely on
+            // the vendor's word that the feed was already filtered to this
+            // person. A storewide Fresha connection is the opposite claim.
+            // ollies' is vision-hair-studio-melbourne-tzo6gxk0, the whole
+            // salon; drop 'storewide' here and every unattributed review of
+            // that venue publishes on Raff McGuiness's page with nothing but a
+            // venue-level feed behind it. Pinned by "does not treat a
+            // storewide Fresha connection as employee-scoped", whose sibling
+            // ("keeps an unattributed review from an employee-scoped source",
+            // selection_ref 5035183) pins the other direction so this cannot
+            // be "fixed" by closing the gate entirely.
             ->whereNotIn('ing.selection_ref', ['', 'storewide'])
             ->get(['si.item_id']);
         foreach ($rows as $row) {
@@ -1861,29 +1882,53 @@ class PoolResolver
 
         $names = $this->personNameTokens($pro);
 
+        // groupBy, NOT keyBy (2026-09-01, second pass). content.f_review is
+        // keyed (item_id, source_id): one review carried by two sources — the
+        // venue's Google listing and the Fresha page, deduped to a single item
+        // upstream — has TWO rows, and keyBy('item_id') kept whichever the
+        // ordering left last and threw the other away. That made the veto
+        // below a coin toss on a real ollies shape: the Fresha row carries
+        // staff_name "Ciel", the Google row carries none, and the run that
+        // kept the Google row published Ciel's review on Raff McGuiness's page
+        // again. There is no "the" facet row for an item, so the loop reads
+        // every row it has.
         $facets = DB::connection('pgsql')->table('content.f_review')
             ->whereIn('item_id', $reviewIds)
             ->orderBy('updated_at')
             ->get(['item_id', 'staff_name', 'text'])
-            ->keyBy('item_id');
+            ->groupBy('item_id');
 
         $outside = [];
         foreach ($reviewIds as $itemId) {
             $itemId = (string) $itemId;
-            $facet = $facets[$itemId] ?? null;
+            $rows = $facets->get($itemId, collect());
+
+            $staffNames = [];
+            foreach ($rows as $row) {
+                $staffName = trim((string) ($row->staff_name ?? ''));
+                if ($staffName !== '') {
+                    $staffNames[] = $staffName;
+                }
+            }
 
             // The veto, and it outranks every admission below including the
             // employee-scoped source. staff_name is the vendor stating WHICH
             // team member the review is about; when it names someone who is
             // not this account holder — or when we hold no name to check it
             // against — no other signal can overturn that.
-            $staffName = trim((string) ($facet->staff_name ?? ''));
-            if ($staffName !== '') {
-                if (PersonNameMatch::matchesStaffName($staffName, $names)) {
-                    continue;
-                }
+            //
+            // ANY row naming someone else vetoes: two sources disagreeing
+            // about who a review is about is not a tie to be broken by
+            // updated_at, it is an uncertainty, and this scope resolves
+            // uncertainty by leaving the review with the venue.
+            if ($staffNames !== []) {
+                foreach ($staffNames as $staffName) {
+                    if (! PersonNameMatch::matchesStaffName($staffName, $names)) {
+                        $outside[$itemId] = true;
 
-                $outside[$itemId] = true;
+                        break;
+                    }
+                }
 
                 continue;
             }
@@ -1892,9 +1937,22 @@ class PoolResolver
                 continue;
             }
 
-            // No facet row at all, or no text in it, is an uncertainty: it
-            // cannot mention anyone by name, so it stays with the venue.
-            if ($facet !== null && $names !== null && PersonNameMatch::matchesText($facet->text ?? null, $names)) {
+            // No facet row at all, or no text in any of them, is an
+            // uncertainty: it cannot mention anyone by name, so it stays with
+            // the venue. One row's text naming this person is enough — the
+            // rows are the same review as told by different vendors, and the
+            // one that kept the prose is the one that can answer.
+            $mentioned = false;
+            if ($names !== null) {
+                foreach ($rows as $row) {
+                    if (PersonNameMatch::matchesText($row->text ?? null, $names)) {
+                        $mentioned = true;
+
+                        break;
+                    }
+                }
+            }
+            if ($mentioned) {
                 continue;
             }
 

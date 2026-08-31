@@ -34,8 +34,26 @@ namespace App\Site\Pools;
  * how this drifted in the first place:
  *   - matchesStaffName(): the vendor's own structured attribution.
  *   - matchesText() full: a multi-token name appearing as a sequence.
- *   - matchesText() first: a LONE name token, which must additionally appear
- *     capitalised, because a person's name in prose is a proper noun.
+ *   - matchesText() first: a LONE name token.
+ *
+ * Both matchesText() tiers require the needle to appear as a PROPER NOUN.
+ * The 2026-09-01 fix put that guard on the lone-token tier only, and its
+ * residual note then claimed the guard bounded the whole class of descriptors
+ * the lexicon misses — "limits it to sentence-start collisions rather than
+ * every review". That was true of a one-word needle and FALSE of a two-word
+ * one: the full tier matched case-insensitively anywhere, so a display name
+ * like "Lime Tree" published every review saying "under the lime tree". The
+ * note pointed the next reader at the safe half of a half-guarded rule, which
+ * is worse than no note. Corrected 2026-09-01 (second pass): the guard is on
+ * both tiers, EVERY word of the match must be capitalised, and the residual
+ * that actually survives is narrower — a descriptor the lexicon misses can
+ * still be reached by prose that capitalises all of it, i.e. sentence-start
+ * for a lone token and a Title Case run for a full name.
+ *
+ * The cost is stated plainly because it is chosen: a review typed entirely in
+ * lower case, and a name in a caseless script, cannot clear the guard and so
+ * fail closed. Publishing a stranger's words under someone's name is the harm
+ * this class exists to prevent; withholding a review is not.
  *
  * words() is shared with FreshaStaffMatcher, whose vanity-name tier already
  * solved "does this person's name appear in this free text" against real
@@ -134,6 +152,13 @@ class PersonNameMatch
             // Only a MULTI-word display name is a "full name" — a lone token
             // (and the first_name column, which is one by construction) is a
             // first-token match and rides the length floor below.
+            //
+            // `> 1`, not `>= 1`, and the difference is the whole tier system:
+            // a one-token `full` entry is a one-word needle wearing the strong
+            // tier's name, and it would ALSO skip the 3-character floor two
+            // lines down (array_diff() then deletes it from `first`, so "K"
+            // would become a matchable name). Pinned by "keeps a single-token
+            // display name out of the full tier".
             if ($isFull && count($words) > 1) {
                 $full[] = $name;
             }
@@ -190,15 +215,20 @@ class PersonNameMatch
     /**
      * Does the review's own prose name this person?
      *
-     * A multi-token full name is a strong claim on its own and matches
-     * case-insensitively. A LONE token is not: it is one ordinary word away
-     * from matching every review a venue has, which is the incident. So a
-     * single-token needle must appear capitalised — a name in prose is a
-     * proper noun, and a needle that only ever shows up lower-case ("fresh
-     * lime cordial" on an account whose first_name is "Lime") is prose
-     * colliding with the column, not an attribution. The cost is a review
-     * typed entirely in lower case, which fails closed; the benefit is that
-     * the next descriptor NOT_A_NAME fails to recognise cannot repeat this.
+     * A needle — lone token or full sequence — counts only where it appears
+     * as a PROPER NOUN, because that is what a person's name is in prose. A
+     * needle that only ever shows up lower-case ("fresh lime cordial" on an
+     * account whose first_name is "Lime", "sat under the lime tree" on one
+     * whose display_name is "Lime Tree") is prose colliding with the column,
+     * not an attribution.
+     *
+     * The 2026-09-01 fix guarded only the lone-token tier, on the reasoning
+     * that a multi-token sequence is a strong claim by itself. It is not
+     * strong enough: NOT_A_NAME is a list of the failure classes we have SEEN,
+     * so the tier that admits an unrecognised descriptor unguarded is the tier
+     * that repeats the incident — and it repeats it with the stronger claim.
+     * Both tiers now go through named(), so there is no half of this rule left
+     * to drift.
      *
      * @param  array{full: list<string>, first: list<string>}|null  $names
      */
@@ -214,19 +244,36 @@ class PersonNameMatch
                 static fn (string $word): string => preg_quote($word, '/'),
                 explode(' ', $name),
             ));
-            if (preg_match(self::boundary($sequence), $text) === 1) {
+            if (self::named(self::boundary($sequence), $text)) {
                 return true;
             }
         }
 
         foreach ($names['first'] as $name) {
-            if (preg_match_all(self::boundary(preg_quote($name, '/')), $text, $hits) < 1) {
-                continue;
+            if (self::named(self::boundary(preg_quote($name, '/')), $text)) {
+                return true;
             }
-            foreach ($hits[0] as $hit) {
-                if (self::startsCapitalised($hit)) {
-                    return true;
-                }
+        }
+
+        return false;
+    }
+
+    /**
+     * Does $pattern occur in $text at least once written as a proper noun?
+     *
+     * Every occurrence is examined, not the first: "the lime cordial, poured
+     * by Lime" is an attribution and "poured under the lime tree" is not, and
+     * only reading them all can tell the two apart.
+     */
+    private static function named(string $pattern, string $text): bool
+    {
+        if (preg_match_all($pattern, $text, $hits) < 1) {
+            return false;
+        }
+
+        foreach ($hits[0] as $hit) {
+            if (self::isProperNoun($hit)) {
+                return true;
             }
         }
 
@@ -312,10 +359,40 @@ class PersonNameMatch
         return '/(?<![\p{L}\p{N}])'.$pattern.'(?![\p{L}\p{N}])/iu';
     }
 
-    private static function startsCapitalised(string $hit): bool
+    /**
+     * Is EVERY word of a matched run capitalised?
+     *
+     * Every word, not just the first: "Sunny days at the beach" would clear a
+     * first-word-only check for a display_name of "Sunny Days" purely because
+     * the sentence started there, which is the sentence-start collision the
+     * lone-token tier already has to live with — and a two-word name has no
+     * reason to inherit it, since a real mention writes both words.
+     *
+     * Split on the separators the needle itself is joined by (whitespace and
+     * hyphens) so an apostrophe stays inside its word: "O'Brien" is one word
+     * with one capital, not "O" plus a lower-case "brien".
+     *
+     * A caseless script answers false — mb_strtoupper() and mb_strtolower()
+     * agree there, so "is this capitalised" has no answer, and no answer is
+     * suppression.
+     */
+    private static function isProperNoun(string $hit): bool
     {
-        $head = mb_substr($hit, 0, 1);
+        $words = array_filter(
+            preg_split('/[\s\-]+/u', $hit) ?: [],
+            static fn (string $word): bool => $word !== '',
+        );
+        if ($words === []) {
+            return false;
+        }
 
-        return mb_strtoupper($head) === $head && mb_strtolower($head) !== $head;
+        foreach ($words as $word) {
+            $head = mb_substr($word, 0, 1);
+            if (mb_strtoupper($head) !== $head || mb_strtolower($head) === $head) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

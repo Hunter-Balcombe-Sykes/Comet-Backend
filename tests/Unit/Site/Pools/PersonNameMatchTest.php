@@ -79,6 +79,19 @@ it('keeps a unicode surname intact', function () {
     expect(PersonNameMatch::tokens('Ben Böhmer', 'Ben')['full'])->toBe(['ben böhmer']);
 });
 
+it('keeps a single-token display name out of the full tier', function () {
+    // The tier boundary, pinned: tokens() promotes to `full` on
+    // `count($words) > 1`, and `>= 1` there is invisible to every other
+    // assertion in this file because no other case has a one-word
+    // display_name that survives the lexicon. Under that mutant a lone token
+    // becomes a "full name" — it skips the 3-character floor (array_diff then
+    // strikes it out of `first`, so "K" alone would be a matchable name) and
+    // it claims the strong tier's authority on one ordinary word, which is the
+    // exact shape that published seven strangers' reviews.
+    expect(PersonNameMatch::tokens('Raff', 'Raff'))->toBe(['full' => [], 'first' => ['raff']])
+        ->and(PersonNameMatch::tokens('Jo', null))->toBeNull();
+});
+
 it('still refuses a one- or two-letter lead token', function () {
     // Pre-existing floor, kept: initials match half the dictionary. The full
     // name survives — two tokens in sequence is a strong enough claim.
@@ -145,10 +158,40 @@ it('accepts a shouted name and rejects a substring', function () {
         ->and(PersonNameMatch::matchesText('The Simonsen brothers run it now.', $names))->toBeFalse();
 });
 
-it('matches a full name across any run of whitespace, case-insensitively', function () {
-    $names = PersonNameMatch::tokens('Simon Doyle', 'Simon');
+it('requires a full name to appear as a proper noun too', function () {
+    // BLOCKER (2026-09-01, second pass). The first pass put the capitalisation
+    // guard on the LONE-token tier only and then declared, in its residual
+    // note, that the guard bounded the descriptors NOT_A_NAME misses. It did
+    // not bound them at all above one word: the full tier matched
+    // case-insensitively anywhere in the prose. "Lime Tree Bower" clears the
+    // lexicon — none of its three words is in it — so every review of the
+    // venue that mentioned the lime tree bower published on that person's
+    // page, with the STRONGER tier's authority behind it.
+    //
+    // `first` here is ['lime'], and 'lime' is lower-case in the first string,
+    // so only the full tier can decide it — which is what makes this
+    // assertion die when the guard comes off that tier.
+    $names = PersonNameMatch::tokens('Lime Tree Bower', 'Lime');
 
-    expect(PersonNameMatch::matchesText("booked with simon\n  doyle again", $names))->toBeTrue();
+    expect($names['full'])->toBe(['lime tree bower'])
+        ->and(PersonNameMatch::matchesText('We sat in the lime tree bower out the back all afternoon.', $names))->toBeFalse()
+        ->and(PersonNameMatch::matchesText('Lime Tree Bower looked after us all afternoon.', $names))->toBeTrue();
+});
+
+it('matches a full name across any run of whitespace, and only as a proper noun', function () {
+    // A 2-letter lead token empties `first` (the pre-existing floor), so this
+    // reads the full tier alone: the sequence still spans any run of
+    // whitespace or hyphens, and shouting still counts, but every word of it
+    // has to be capitalised. The all-lower-case review is the chosen cost —
+    // it fails closed, and withholding a review is not the harm this class
+    // exists to prevent.
+    $names = PersonNameMatch::tokens('Jo Malone', 'Jo');
+
+    expect($names['first'])->toBe([])
+        ->and(PersonNameMatch::matchesText("booked with Jo\n  Malone again", $names))->toBeTrue()
+        ->and(PersonNameMatch::matchesText('JO MALONE IS THE BEST', $names))->toBeTrue()
+        ->and(PersonNameMatch::matchesText('booked with jo malone again', $names))->toBeFalse()
+        ->and(PersonNameMatch::matchesText('Jo malone did my colour.', $names))->toBeFalse();
 });
 
 // ── The staff-attribution tier ──────────────────────────────────────────────
