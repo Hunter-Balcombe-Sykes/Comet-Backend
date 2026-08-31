@@ -73,6 +73,27 @@ class SourceProvisioner
 
         $identifier = $this->identifierFor($sourceKey, $connection);
         if ($identifier === null) {
+            // An EXISTING row is not the same case as a missing one, and this
+            // check sits in FRONT of both the retirement path above and the
+            // identifier update below — so skipping both left the row that
+            // provoked the profile.php fix (identifier
+            // "https://www.facebook.com/profile.php") holding a dead
+            // identifier and its auto_sync untouched, indefinitely: for a
+            // schedulable connector that is cost_units spent every tick on a
+            // fetch that can only report unavailable.
+            //
+            // Retire, not delete: the row owns the streams and records already
+            // landed under it, and the stale identifier is the only evidence
+            // of what the connection used to claim. Nor is it a one-way door —
+            // the update path below turns auto_sync back on and re-dates
+            // next_attempt_at the moment a resolvable identifier appears, so a
+            // payload that is merely mid-write costs one unscheduled tick.
+            if ($this->existingRow($connection->id, $sourceKey) !== null) {
+                $this->setAutoSync($connection->id, $sourceKey, false);
+
+                return ['status' => 'retired', 'reason' => 'no_identifier', 'source_key' => $sourceKey];
+            }
+
             return ['status' => 'skipped', 'reason' => 'no_identifier', 'source_key' => $sourceKey];
         }
 
@@ -286,7 +307,15 @@ class SourceProvisioner
             'tiktok' => $this->tiktokUsername($payload['username'] ?? null)
                 ?? $this->tiktokUsername($this->bareSlug($resource, 'tiktok')),
             // T27c: the canonical page URL off a facebook.com handle connect.
-            'facebook' => $this->facebookPageUrl($payload['url'] ?? $payload['username'] ?? null)
+            // Per-candidate fall-through, not one call over `url ?? username`:
+            // ?? short-circuits on the PRESENT key, so a url that normalises
+            // to nothing took the username's answer down with it. profile.php
+            // is exactly that pair — GoogleBusinessAutoSync seeds {username:
+            // <id>, url: profile.php?id=<id>} for it (bondi-junction-dental,
+            // 2026-08-31) — and the id alone resolves, so the arm below is a
+            // working identifier the old shape discarded.
+            'facebook' => $this->facebookPageUrl($payload['url'] ?? null)
+                ?? $this->facebookPageUrl($payload['username'] ?? null)
                 ?? $this->facebookPageUrl($this->bareSlug($resource, 'facebook')),
             // Wave 2: the artist slug off a dice.fm/artist/<slug> URL.
             'dice' => $this->diceSlug($payload['url'] ?? $payload['link'] ?? null)
@@ -633,11 +662,16 @@ class SourceProvisioner
         // profile.php is an ID-CARRYING endpoint, not a slug: the identity is
         // the ?id= that the slug branch below truncates away, leaving
         // "facebook.com/profile.php" — a source that can only ever be
-        // unavailable (bondi-junction-dental, 2026-08-31). The scraper has no
-        // rule for the shape either: Catalog/Definitions/Facebook.php reserves
-        // profile.php rather than mis-capture it, and
-        // GoogleBusinessAutoSync.php:1055 already returns '' for it. This
-        // normaliser is the one arm that did not get the same treatment.
+        // unavailable (bondi-junction-dental, 2026-08-31). Refusing the URL is
+        // not refusing the account: FacebookNormalizer lifts that ?id= into
+        // the payload's `username`, and identifierFor()'s facebook arm asks
+        // this method again with it, where the bare-value branch resolves it
+        // to facebook.com/<id>. Nothing upstream drops the shape on our
+        // behalf — Catalog/Definitions/Facebook.php reserves profile.php
+        // rather than mis-capture it, and GoogleBusinessAutoSync's own
+        // profile.php guard lives in socialUsername()'s regex table, which
+        // facebook never reaches because that method short-circuits to the
+        // normalizer first.
         if (preg_match('~^https?://(?:www\.|m\.)?(?:facebook|fb)\.com/profile\.php(?:[/?#]|$)~i', $value)) {
             return null;
         }
@@ -647,8 +681,14 @@ class SourceProvisioner
         if (preg_match('~^https?://(?:www\.|m\.)?(?:facebook|fb)\.com/(?!pages(?:/|$))([A-Za-z0-9.-]{1,100})/?(?:[?#]|$)~i', $value, $m)) {
             return 'https://www.facebook.com/'.$m[1];
         }
-        if (preg_match('/^@?([A-Za-z0-9.]{1,100})$/', $value)) {
-            return 'https://www.facebook.com/'.ltrim($value, '@');
+        // The bare-value branch, and the guard above does not cover it: a dot
+        // is in this charset, so the literal 'profile.php' (or '@profile.php')
+        // matched here and rebuilt the exact dead URL the guard exists to
+        // refuse — the one door left open after that fix shipped. Excluded by
+        // literal rather than by charset: dots are load-bearing in real page
+        // handles, and no page owns facebook.com/profile.php.
+        if (preg_match('/^@?([A-Za-z0-9.]{1,100})$/', $value, $m) && strcasecmp($m[1], 'profile.php') !== 0) {
+            return 'https://www.facebook.com/'.$m[1];
         }
 
         return null;

@@ -89,7 +89,12 @@ class IngestBackfillSourcesCommand extends Command
 
             $tally[$result['status']] = ($tally[$result['status']] ?? 0) + 1;
 
-            if ($result['status'] === 'skipped') {
+            // A no_identifier RETIREMENT reports the same operator-visible
+            // fact as a no_identifier skip — this connection does not sync —
+            // and it is the arm that quietly unschedules a row that WAS
+            // running, so keying the table on status alone would have hidden
+            // the louder of the two.
+            if ($result['status'] === 'skipped' || ($result['reason'] ?? null) === 'no_identifier') {
                 $skips[] = [$sourceKey, $connection->id, $result['reason'] ?? '?'];
             }
         }
@@ -98,7 +103,7 @@ class IngestBackfillSourcesCommand extends Command
         $this->table(['outcome', 'count'], array_map(null, array_keys($tally), array_values($tally)));
 
         if ($skips !== []) {
-            $this->warn('Skipped connections (no usable identifier — these never sync until repaired):');
+            $this->warn('Connections that do not sync (no usable identifier — repaired ones re-schedule themselves):');
             $this->table(['source', 'connection', 'reason'], $skips);
         }
 

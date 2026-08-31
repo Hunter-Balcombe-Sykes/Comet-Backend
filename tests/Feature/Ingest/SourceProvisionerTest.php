@@ -811,3 +811,84 @@ it('retires rather than re-provisioning when a connection is force-deleted', fun
     expect($result['status'])->toBe('retired')
         ->and((bool) DB::table('ingest.sources')->where('connection_id', $connection->id)->value('auto_sync'))->toBeFalse();
 });
+
+it('provisions the id a facebook profile.php link carries, rather than nothing', function () {
+    // Bondi Junction Dental, 2026-08-31. GoogleBusinessAutoSync seeds this
+    // exact pair: FacebookNormalizer lifts the ?id= into `username` precisely
+    // so the identity survives a URL with no vanity handle in it. Reading the
+    // payload as `url ?? username` threw that away — ?? short-circuits on the
+    // key that IS present, so the url's refusal became the whole answer and a
+    // reachable page provisioned nothing.
+    $connection = makeConnection(provisionerUser(), [
+        'platform' => 'facebook',
+        'payload' => [
+            'username' => '100068321000028',
+            'url' => 'https://www.facebook.com/profile.php?id=100068321000028',
+            'source' => 'google-business',
+        ],
+    ]);
+
+    expect(ingestSourceFor($connection)?->identifier)->toBe('https://www.facebook.com/100068321000028');
+});
+
+it('retires an existing source whose identifier has stopped resolving, instead of skipping past it', function () {
+    // The hole the profile.php fix left: no_identifier returned BEFORE both
+    // the retirement path and the identifier update, so the live row kept its
+    // dead identifier and its schedule. Bandcamp rather than facebook because
+    // a Free connector's row is auto_sync = true from birth — the flip is only
+    // observable where there was something to switch off.
+    $connection = makeConnection(provisionerUser(), [
+        'platform' => 'bandcamp',
+        'payload' => ['url' => 'https://kinggizzard.bandcamp.com'],
+    ]);
+
+    expect((bool) ingestSourceFor($connection)->auto_sync)->toBeTrue();
+
+    $connection->payload = [];
+    $connection->save();
+
+    $result = app(SourceProvisioner::class)->sync($connection);
+
+    expect($result)->toBe(['status' => 'retired', 'reason' => 'no_identifier', 'source_key' => 'bandcamp'])
+        ->and((bool) ingestSourceFor($connection)->auto_sync)->toBeFalse()
+        // Retired, not erased: the row still owns its streams and records, and
+        // the identifier it used to claim is the only trace of what broke.
+        ->and(ingestSourceFor($connection)->identifier)->toBe('https://kinggizzard.bandcamp.com');
+});
+
+it('re-schedules the retired source the moment a resolvable identifier comes back', function () {
+    // What makes retirement defensible rather than destructive: a payload that
+    // was merely mid-write costs one unscheduled tick, not a dead row.
+    $connection = makeConnection(provisionerUser(), [
+        'platform' => 'bandcamp',
+        'payload' => ['url' => 'https://kinggizzard.bandcamp.com'],
+    ]);
+
+    $connection->payload = [];
+    $connection->save();
+    expect((bool) ingestSourceFor($connection)->auto_sync)->toBeFalse();
+
+    $connection->payload = ['url' => 'https://mildhighclub.bandcamp.com'];
+    $connection->save();
+
+    $row = ingestSourceFor($connection);
+    expect((bool) $row->auto_sync)->toBeTrue()
+        ->and($row->identifier)->toBe('https://mildhighclub.bandcamp.com');
+});
+
+it('lists a retired-for-no-identifier connection in the backfill report, not just a skipped one', function () {
+    // The report keys on "does this connection sync", not on the status word.
+    // A retirement is the arm that unschedules a row that WAS running, so
+    // dropping it from the table would hide the louder of the two outcomes
+    // behind the quieter one.
+    $userId = provisionerUser();
+    $broken = makeConnection($userId, ['platform' => 'bandcamp', 'payload' => ['url' => 'https://artist.bandcamp.com']]);
+    $broken->payload = [];
+    $broken->save();
+
+    expect(ingestSourceFor($broken))->not->toBeNull();
+
+    $this->artisan('ingest:backfill-sources', ['--user' => $userId])
+        ->expectsOutputToContain('no_identifier')
+        ->assertSuccessful();
+});

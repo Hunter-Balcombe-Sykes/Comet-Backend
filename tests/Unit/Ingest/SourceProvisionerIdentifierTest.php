@@ -34,6 +34,23 @@ it('refuses a profile.php link instead of truncating its id away', function () {
         ->and(fbUrl('https://fb.com/profile.php?id=123456789012'))->toBeNull();
 });
 
+it('refuses profile.php as a bare handle too, dot in the charset and all', function () {
+    // The URL guard above only sees URLs. The bare-value branch's charset
+    // includes a dot, so the literal reached it and rebuilt the very string
+    // that guard exists to refuse — the identifier arrives here bare whenever
+    // a payload carries `username` rather than `url`.
+    expect(fbUrl('profile.php'))->toBeNull()
+        ->and(fbUrl('@profile.php'))->toBeNull()
+        ->and(fbUrl('PROFILE.PHP'))->toBeNull();
+});
+
+it('resolves the numeric id a profile.php link carries, which is why refusing the url loses nothing', function () {
+    // Bondi Junction Dental's payload holds this id in `username` beside the
+    // profile.php `url`. facebook.com/<id> is a page Facebook serves, so the
+    // account is reachable — the connection was never identifier-less.
+    expect(fbUrl('100068321000028'))->toBe('https://www.facebook.com/100068321000028');
+});
+
 it('still resolves the shapes it always did', function () {
     expect(fbUrl('https://www.facebook.com/RayWhiteDoubleBay'))
         ->toBe('https://www.facebook.com/RayWhiteDoubleBay')
