@@ -131,19 +131,62 @@ it('caches maxres verdicts with the long CACHE_DAYS TTL', function () {
 // pool rounds and returns the partial batch — never throws, matching
 // bestForMany()'s "never throws, a failed probe is a fallback" contract.
 
+/**
+ * FetchBudget on a clock the test drives, so exhaustion timing never depends
+ * on how long real work takes.
+ *
+ * #FU-6: the previous version of these three tests opened a real 50ms budget
+ * (app(FetchBudget::class)->open(0.05, …)) and burned it with a real
+ * usleep(60_000) inside Http::fake. That asserts that a real 60ms sleep plus
+ * the surrounding PHP scheduling overhead reliably exceeds 50ms of REAL wall
+ * time — true in isolation, but false roughly half the time under
+ * `--parallel` on a 10-core box running 10 worker processes: CPU contention
+ * between workers can delay this process for more than 50ms BEFORE
+ * pooledHead()'s very first remaining() check ever runs, so round 1 never
+ * fires at all (0 probes instead of 1), or can stretch the gap between
+ * FetchBudget::open() and Http::fake's closure enough that the whole 3-id
+ * loop completes inside the (real, elapsed) budget with no exhaustion at all
+ * (0 log calls instead of 1). Both failure shapes were observed reproducing
+ * this locally. Driving the clock explicitly (same pattern as
+ * ConnectResolverYoutubeTest.php's ytFakeBudget()) keeps the property under
+ * test — the budget cuts pooledHead()'s loop short after round 1 — and drops
+ * the property that was never intended (the machine keeps up with a 50ms
+ * deadline under 10-way contention).
+ */
+function youtubeThumbFakeBudget(): FetchBudget
+{
+    return new class extends FetchBudget
+    {
+        public float $clock = 0.0;
+
+        public function advance(float $seconds): void
+        {
+            $this->clock += $seconds;
+        }
+
+        protected function nowSeconds(): float
+        {
+            return $this->clock;
+        }
+    };
+}
+
 it('degrades un-probed ids to hqdefault instead of throwing when the budget runs out mid-pool', function () {
     // Against code with no FetchBudget wired into pooledHead(), every id
     // gets probed regardless of any open budget — all three i.ytimg.com
     // requests fire, and the assertSentCount(1) below fails (3, not 1).
     config()->set('partna.refresh.host_limits.youtube_thumbnails.pool_concurrency', 1);
 
-    Http::fake(function () {
-        usleep(60_000); // burns the 50ms budget below, before round 2 fires
+    $budget = youtubeThumbFakeBudget();
+    app()->instance(FetchBudget::class, $budget);
+
+    Http::fake(function () use ($budget) {
+        $budget->advance(1.0); // deterministically burns the budget opened below before round 2 fires
 
         return Http::response('', 404); // genuinely probed, no maxres
     });
 
-    $out = app(FetchBudget::class)->open(0.05, fn () => app(YoutubeThumbnailResolver::class)
+    $out = $budget->open(0.05, fn () => app(YoutubeThumbnailResolver::class)
         ->bestForMany(['probed-aJJJ', 'skipped-bKK', 'skipped-cLL']));
 
     // Every id still gets a usable (hqdefault) URL — never null, never throws.
@@ -164,13 +207,16 @@ it('caches a genuinely-probed non-200 verdict but NOT an id the budget skipped e
     // cache entry fails.
     config()->set('partna.refresh.host_limits.youtube_thumbnails.pool_concurrency', 1);
 
-    Http::fake(function () {
-        usleep(60_000);
+    $budget = youtubeThumbFakeBudget();
+    app()->instance(FetchBudget::class, $budget);
+
+    Http::fake(function () use ($budget) {
+        $budget->advance(1.0);
 
         return Http::response('', 404);
     });
 
-    app(FetchBudget::class)->open(0.05, fn () => app(YoutubeThumbnailResolver::class)
+    $budget->open(0.05, fn () => app(YoutubeThumbnailResolver::class)
         ->bestForMany(['probed-aJJJ', 'skipped-bKK', 'skipped-cLL']));
 
     expect(Cache::get(CacheKeyGenerator::youtubeThumbnailVerdict('probed-aJJJ')))->toBe('hq')
@@ -182,13 +228,16 @@ it('logs once (not per skipped id) when the budget runs out mid-pool', function 
     config()->set('partna.refresh.host_limits.youtube_thumbnails.pool_concurrency', 1);
     Log::spy();
 
-    Http::fake(function () {
-        usleep(60_000);
+    $budget = youtubeThumbFakeBudget();
+    app()->instance(FetchBudget::class, $budget);
+
+    Http::fake(function () use ($budget) {
+        $budget->advance(1.0);
 
         return Http::response('', 404);
     });
 
-    app(FetchBudget::class)->open(0.05, fn () => app(YoutubeThumbnailResolver::class)
+    $budget->open(0.05, fn () => app(YoutubeThumbnailResolver::class)
         ->bestForMany(['probed-aJJJ', 'skipped-bKK', 'skipped-cLL']));
 
     Log::shouldHaveReceived('warning')
