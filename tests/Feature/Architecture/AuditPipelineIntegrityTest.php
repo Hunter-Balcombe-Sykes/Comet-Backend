@@ -272,6 +272,230 @@ function auditPromptPathRefs(): array
     return array_map(fn (array $v): array => array_keys($v), $refs);
 }
 
+/**
+ * PROBLEM 3 — a Progress block that disagrees with its own findings. Shipped for
+ * real on 2026-08-27/28 (#FU-12, fixed 08a27acd7d): the generator emitted
+ * `## Progress` counters that disagreed with the `- [ ]`/`- [x]` findings it wrote
+ * in the SAME file, same pass — a false-green ("3 of 3 complete" over three
+ * unticked boxes), a wrong total ("15 of 15" over 20 findings), and a literal
+ * unsubstituted template var ("0 of N complete"). Nothing stopped it recurring.
+ *
+ * Scope: tracked `audits/**\/CONSOLIDATED.md`, excluding `audits/archive/**`.
+ *   - CONSOLIDATED.md is the one artefact every run always produces (targeted or
+ *     bundle) — checking it also catches the defect at its origin, because the
+ *     generator concatenates each lens's raw output into it verbatim (the four
+ *     #FU-12 counters were byte-identical between the per-lens source and the
+ *     merged file). The per-lens `audit-*.md` sources are NOT scanned separately:
+ *     most sweep runs never commit them (e.g. the full-campaign run's 31 per-lens
+ *     files are untracked in the working copy), so gating on them would depend on
+ *     whether a session happened to `git add` scratch output.
+ *   - `audits/archive/**` is excluded deliberately, not an oversight: archiving
+ *     happens only once every checkbox is ticked (CLAUDE.md "Auto-archive"), but
+ *     nothing re-syncs the `## Progress` line at that point, so an archived file's
+ *     original "0 of N complete" (correct AT SCAN TIME, before any fix landed)
+ *     reads as "0 of N" against N/N now-ticked boxes forever after. Verified by
+ *     running this file's parser with archive included: 27 such mismatches across
+ *     9 archived files, none sharing the #FU-12 defect shape (born wrong at scan
+ *     time) — all are the archive's own after-the-fact ticking, which this guard
+ *     is not the place to relitigate. Rewriting settled history is not the point;
+ *     see CLAUDE.md "Audits > Auto-archive".
+ *   - Run against every tracked CONSOLIDATED.md before this guard was written:
+ *     56 Progress blocks, 216 per-priority lines, ZERO mismatches — the guard
+ *     starts green and only #FU-12-shaped drift going forward will trip it.
+ *
+ * @return list<string> repo-relative paths to non-archived CONSOLIDATED.md files
+ */
+function auditProgressConsolidatedFiles(): array
+{
+    $files = [];
+    $root = base_path('audits');
+    if (! is_dir($root)) {
+        return [];
+    }
+    $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
+    foreach ($it as $f) {
+        if (! $f->isFile() || $f->getFilename() !== 'CONSOLIDATED.md') {
+            continue;
+        }
+        $rel = str_replace('\\', '/', str_replace(base_path().'/', '', $f->getPathname()));
+        if (str_starts_with($rel, 'audits/archive/')) {
+            continue;
+        }
+        $files[] = $rel;
+    }
+    sort($files);
+
+    return $files;
+}
+
+/**
+ * Blank out the CONTENT of fenced ```...``` code blocks, keeping line count and
+ * numbering intact. Some CONSOLIDATED.md files quote shell/grep output that
+ * itself contains lines starting with `#` (e.g. a bash comment inside a
+ * reconciliation grep) — those must never be mistaken for lens headings or
+ * finding checkboxes.
+ *
+ * @param  list<string>  $lines
+ * @return list<string>
+ */
+function auditBlankFencedBlocks(array $lines): array
+{
+    $out = [];
+    $inFence = false;
+    foreach ($lines as $line) {
+        if (preg_match('/^\s*```/', $line) === 1) {
+            $inFence = ! $inFence;
+            $out[] = '';
+
+            continue;
+        }
+        $out[] = $inFence ? '' : $line;
+    }
+
+    return $out;
+}
+
+/**
+ * Split a CONSOLIDATED.md into per-lens segments on its top-level `# ` headings
+ * (`# <Lens name> Audit — <date>`), EXCLUDING the file's own title line (index 0)
+ * and the `# ═══ W<n> — wave <n> …` merge-banner lines a multi-wave campaign file
+ * inserts between runs. A file with no further top-level heading (a single-lens
+ * or hand-written review doc) yields exactly one segment covering the whole body.
+ *
+ * @param  list<string>  $lines  fence-blanked lines
+ * @return list<array{label: string, start: int, end: int}> half-open [start, end)
+ */
+function auditSegmentByLensHeading(array $lines): array
+{
+    $starts = [0];
+    $labels = [trim((string) preg_replace('/^#\s*/', '', $lines[0] ?? ''))];
+
+    foreach ($lines as $i => $line) {
+        if ($i === 0 || preg_match('/^#(?!#)\s+(.*)$/', $line, $m) !== 1) {
+            continue;
+        }
+        if (preg_match('/^#\s*═/u', $line) === 1) {
+            continue; // wave merge banner, not a lens heading
+        }
+        $starts[] = $i;
+        $labels[] = trim($m[1]);
+    }
+    $starts[] = count($lines);
+
+    $segments = [];
+    for ($i = 0; $i < count($starts) - 1; $i++) {
+        $segments[] = ['label' => $labels[$i], 'start' => $starts[$i], 'end' => $starts[$i + 1]];
+    }
+
+    return $segments;
+}
+
+/**
+ * Every `## Progress` mismatch in one CONSOLIDATED.md, as ready-to-print lines.
+ *
+ * Per lens segment: parse each `- P<n> <label>: <done>[ of <total>] complete`
+ * bullet under `## Progress` (the `of <total>` half is optional — "0 complete" is
+ * the generator's own shorthand for "0 of 0", the only value ever seen written
+ * that way), then compare against the ACTUAL `- [ ]`/`- [x]` count inside that
+ * same segment's `## P<n>` section (bounded by the next `## ` heading, the next
+ * lens, or EOF). A priority with a Progress line but no matching section means
+ * 0 done of 0 total, per the task's own stated rule.
+ *
+ * @return list<string>
+ */
+function auditProgressMismatches(string $relPath): array
+{
+    $raw = (string) file_get_contents(base_path($relPath));
+    $rawLines = preg_split('/\R/', $raw) ?: [];
+    $lines = auditBlankFencedBlocks($rawLines);
+
+    $violations = [];
+    foreach (auditSegmentByLensHeading($lines) as $seg) {
+        [$start, $end, $label] = [$seg['start'], $seg['end'], $seg['label']];
+
+        $progressLine = null;
+        for ($i = $start; $i < $end; $i++) {
+            if (preg_match('/^##\s+Progress\s*$/', $lines[$i]) === 1) {
+                $progressLine = $i;
+                break;
+            }
+        }
+        if ($progressLine === null) {
+            continue;
+        }
+
+        // Bullets directly under the Progress heading, stopping at the next `#`.
+        $stated = [];
+        for ($i = $progressLine + 1; $i < $end; $i++) {
+            if (preg_match('/^#/', $lines[$i]) === 1) {
+                break;
+            }
+            if (preg_match('/^-\s*(P[0-3])\b[^:]*:\s*(\d+)(?:\s+of\s+(\S+))?\s+complete\b/i', $lines[$i], $m) !== 1) {
+                continue;
+            }
+            $stated[strtoupper($m[1])] = [
+                'done' => (int) $m[2],
+                'rawTotal' => $m[3] ?? $m[2],
+                'line' => $i + 1,
+            ];
+        }
+        if ($stated === []) {
+            continue; // not the generator's standard Progress format — nothing to check
+        }
+
+        foreach ($stated as $priority => $info) {
+            $sectionStart = null;
+            $sectionEnd = $end;
+            for ($i = $start; $i < $end; $i++) {
+                if ($sectionStart === null && preg_match('/^##\s+'.$priority.'\b/', $lines[$i]) === 1) {
+                    $sectionStart = $i;
+
+                    continue;
+                }
+                if ($sectionStart !== null && $i > $sectionStart && preg_match('/^##\s+/', $lines[$i]) === 1) {
+                    $sectionEnd = $i;
+                    break;
+                }
+            }
+
+            $actualDone = 0;
+            $actualTotal = 0;
+            if ($sectionStart !== null) {
+                for ($i = $sectionStart + 1; $i < $sectionEnd; $i++) {
+                    if (preg_match('/^-\s\[( |x)\]/', $lines[$i], $cm) === 1) {
+                        $actualTotal++;
+                        if ($cm[1] === 'x') {
+                            $actualDone++;
+                        }
+                    }
+                }
+            }
+
+            $rawTotal = $info['rawTotal'];
+            $statedTotal = ctype_digit($rawTotal) ? (int) $rawTotal : null;
+
+            if ($info['done'] === $actualDone && $statedTotal === $actualTotal) {
+                continue;
+            }
+
+            $violations[] = sprintf(
+                '%s:%d — [%s] %s: Progress says "%d of %s complete", the %s section actually has %d done of %d total',
+                $relPath,
+                $info['line'],
+                $label,
+                $priority,
+                $info['done'],
+                $rawTotal,
+                $sectionStart === null ? 'section (none found)' : "## $priority",
+                $actualDone,
+                $actualTotal,
+            );
+        }
+    }
+
+    return $violations;
+}
+
 it('audit scope maps reference no dead paths', function () {
     $dead = array_values(array_filter(
         auditScopePaths(),
@@ -663,5 +887,21 @@ it('audit lenses reference no stale file paths', function () {
         'Audit lens/prompt prose names file paths that no longer exist — the lens is stale and '
         ."audits code that's been moved or removed. Fix or drop each reference:\n - "
         .implode("\n - ", $stale),
+    );
+});
+
+it('every audit Progress block agrees with the findings in its own sections', function () {
+    $violations = [];
+    foreach (auditProgressConsolidatedFiles() as $relPath) {
+        $violations = array_merge($violations, auditProgressMismatches($relPath));
+    }
+    sort($violations);
+
+    expect($violations)->toBeEmpty(
+        "A CONSOLIDATED.md's \"## Progress\" counters disagree with the \"- [ ]\"/\"- [x]\" findings \n".
+        "written in that same lens's own section, in the same file. This is #FU-12 (08a27acd7d): the \n".
+        "generator wrote a Progress line that didn't match what it wrote two paragraphs later — a \n".
+        "false-green done count, a wrong total, or an unsubstituted 'of N'. Fix the Progress line (or, \n".
+        "if the checkboxes are wrong instead, fix those) so both agree:\n - ".implode("\n - ", $violations),
     );
 });
