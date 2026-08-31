@@ -453,14 +453,24 @@ it('drops an unresolved connection from the suppression vote without dropping th
     // The two behaviours the second predicate has to keep APART, side by side in
     // ONE resolve() with identical toggles — only the connection's OWNER differs.
     //
-    //   $mislinkedItem: its one source is A's, pointing at B's connection, whose
-    //                   toggle says HIDE. That connection cannot express A's
-    //                   intent, so it casts NO vote — and the item, which is A's,
-    //                   still PUBLISHES. Dropping it from the payload would be
-    //                   the wrong fix, and this is what catches that.
+    //   $mislinkedItem: one of its sources is A's, pointing at B's connection,
+    //                   whose toggle says HIDE. That connection cannot express
+    //                   A's intent, so it casts NO vote — and the item, which is
+    //                   A's, still PUBLISHES. Dropping it from the PAYLOAD would
+    //                   be the wrong fix, and this is what catches that.
     //   $ownItem:       same toggle on A's OWN connection. Still suppressed —
     //                   which is what makes the assertion above non-vacuous
     //                   (the toggle is demonstrably able to suppress).
+    //
+    // #FU-2 residual 2 (2026-08-31) is why $mislinkedItem now carries a SECOND,
+    // manual source. LiveSourceScope::apply() pins its connection hop too, so an
+    // item whose ONLY source points at a connection this owner does not own is
+    // no longer live and leaves the pool entirely — deliberately, fail-closed,
+    // and consistently with the library read, which had already dropped it. That
+    // is a liveness verdict, not a vote, and it would mask what this case is
+    // about. The manual source makes the item live on its own account so the
+    // vote is once again the only thing under test; it votes "does not hide"
+    // exactly as it did before.
     [$proA, $siteAId] = poolBusinessTenant();
     [$proB] = poolBusinessTenant();
 
@@ -468,6 +478,7 @@ it('drops an unresolved connection from the suppression vote without dropping th
     $connA = poolConnection($proA->id, 'google_business.listing', ['reviews' => false]);
 
     $mislinkedItem = crossTenantReview($proA->id, poolSource($proA->id, $connB), 'Owner A wants this published');
+    extraSourceItem($mislinkedItem, poolSource($proA->id, null));
     $ownItem = crossTenantReview($proA->id, poolSource($proA->id, $connA), 'Owner A switched this one off');
 
     $siteA = Site::query()->findOrFail($siteAId);
@@ -716,4 +727,33 @@ it('still publishes a source link kept live by this owner own connection', funct
     $resolved = app(PoolResolver::class)->resolve(Site::query()->findOrFail($siteId), 'watch');
 
     expect(json_encode($resolved, JSON_UNESCAPED_SLASHES))->toContain('kept-live-by-its-owner.example.test');
+});
+
+it('drops an item whose only source rides another owner connection out of the pool (FU-2 residual 2)', function () {
+    // The liveness half of the same hop, at the resolve() level. LiveSourceScope
+    // decides "does this item still have a live source"; a connection belonging
+    // to somebody else cannot answer that for this owner, so it resolves to NULL
+    // and the item fails closed. Before #FU-2 the two halves of resolve()
+    // DISAGREED about this exact row — the library read excluded it while
+    // SectionCandidates' rule half still published it.
+    [$proA, $siteAId] = poolTenant();
+    [$proB] = poolTenant();
+
+    $connB = poolConnection($proB->id, 'youtube.channel');
+    $mislinkedSource = poolSource($proA->id, $connB);
+    $item = poolItem($proA->id, $mislinkedSource, 'video', 'A video of mine', '2026-08-01T00:00:00Z');
+
+    $siteA = Site::query()->findOrFail($siteAId);
+    $resolved = app(PoolResolver::class)->resolve($siteA, 'watch');
+
+    expect(collect($resolved['library'])->pluck('id')->all())->not->toContain($item);
+    expect(collect($resolved['selection'])->pluck('id')->all())->not->toContain($item);
+
+    // The control: the same item, given a source of the owner's own, comes
+    // straight back. Without this the assertions above could hold because the
+    // fixture never produced a pool item at all.
+    extraSourceItem($item, poolSource($proA->id, null));
+    $resolved = app(PoolResolver::class)->resolve($siteA, 'watch');
+
+    expect(collect($resolved['library'])->pluck('id')->all())->toContain($item);
 });

@@ -206,3 +206,126 @@ it('excludes already-pinned items from the candidate set', function () {
 
     expect($got)->toBe([$free]);
 });
+
+// ── #FU-2 residual 2: LiveSourceScope's own two FK hops ─────────────────────
+//
+// ruleCandidates() calls LiveSourceScope::apply(), whose whereExists arm walks
+// source_items.source_id -> content.sources -> sources.connection_id ->
+// site.platform_connections to decide whether an item still has a live source.
+// Neither hop was tenanted, so a mislink (a writer bug, an identity merge, a
+// hand-run SQL fix) let a STRANGER'S live connection vouch for this owner's
+// item. The symptom is not a leak — the subquery selects no column — it is a
+// wrong verdict on the owner's own row: an item whose real connection the owner
+// disconnected keeps rendering in an automatic section, and "disconnect = hide"
+// silently stops meaning anything for that item.
+//
+// The pin is by COLUMN (lpc.user_id / lsrc.user_id = content.items.user_id),
+// which is why this call site is covered without holding a user id: the join to
+// site.sites above is what makes content.items.user_id the site owner.
+
+/** A live youtube connection for $userId, with no content.sources row of its own. */
+function candOrderConnection(string $userId): string
+{
+    $connectionId = (string) Str::uuid();
+    DB::table('site.platform_connections')->insert([
+        'id' => $connectionId, 'user_id' => $userId, 'surface_key' => 'youtube.channel',
+        'routing_class' => 'content', 'resource_id' => 'res-'.Str::random(8),
+        'payload' => json_encode([]), 'is_active' => 1,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    return $connectionId;
+}
+
+/** A content.sources row for $userId landing through $connectionId. */
+function candOrderSourceOn(string $userId, string $connectionId): string
+{
+    $id = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $id, 'user_id' => $userId, 'kind' => 'connection', 'connection_id' => $connectionId,
+        'priority' => 100, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    return $id;
+}
+
+it('does not let another owner connection keep a candidate live (FU-2)', function () {
+    [$userId, $siteId, $pageId] = candOrderSite();
+    $source = candOrderSource($userId);
+    $item = candOrderItem($userId, 'video', 'A video', [$source], '2026-01-01 00:00:00');
+    $section = candOrderSection($siteId, $pageId, 'recency');
+
+    // Control: with the owner's own live connection the item IS a candidate.
+    // Without this the assertion below could pass for any reason at all.
+    expect((new SectionCandidates)->ruleCandidates($section, []))->toBe([$item]);
+
+    // The mislink. content.sources.connection_id is UNIQUE, so the stranger's
+    // connection carries no source row of its own to collide with.
+    $stranger = createTenant('cfg-'.Str::lower(Str::random(6)));
+    DB::table('content.sources')->where('id', $source)
+        ->update(['connection_id' => candOrderConnection((string) $stranger->id)]);
+
+    expect((new SectionCandidates)->ruleCandidates($section, []))->toBe([]);
+});
+
+it('does not let another owner source keep a candidate live (FU-2, first hop)', function () {
+    // Deliberately shaped so ONLY the lsrc.user_id predicate can catch it: the
+    // stranger's source lands through THIS OWNER'S live connection, so the
+    // connection hop's own pin passes and votes the source live. A fixture
+    // where both hops are foreign would pass with the source pin deleted.
+    [$userId, $siteId, $pageId] = candOrderSite();
+    $ownConnection = candOrderConnection($userId);
+    $stranger = createTenant('cfs-'.Str::lower(Str::random(6)));
+    $foreignSource = candOrderSourceOn((string) $stranger->id, $ownConnection);
+
+    $item = candOrderItem($userId, 'video', 'A video', [$foreignSource], '2026-01-01 00:00:00');
+    $section = candOrderSection($siteId, $pageId, 'recency');
+
+    expect((new SectionCandidates)->ruleCandidates($section, []))->toBe([]);
+
+    // Control: the same item, additionally landed by the owner's own live
+    // source, is a candidate again — so the assertion above is about tenancy,
+    // not about the fixture failing to produce a candidate at all.
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(), 'source_id' => candOrderSource($userId), 'item_id' => $item,
+        'coord' => 'coord-'.Str::random(10), 'kind' => 'video',
+        'first_seen_at' => now(), 'last_seen_at' => now(),
+    ]);
+
+    expect((new SectionCandidates)->ruleCandidates($section, []))->toBe([$item]);
+});
+
+it('keeps a manual-lane candidate whose source carries a NULL connection_id (FU-2 null-safety)', function () {
+    // The trap the pin has to avoid: connection_id is NULLABLE and a
+    // kind='manual' source always carries NULL, so the predicate lives in the
+    // ON clause of the LEFT join. A bare where() there would collapse the join
+    // to an INNER one and take every manual-lane item with it.
+    [$userId, $siteId, $pageId] = candOrderSite();
+    $manualSource = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $manualSource, 'user_id' => $userId, 'kind' => 'manual',
+        'connection_id' => null, 'priority' => 100,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $item = candOrderItem($userId, 'video', 'Hand-added', [$manualSource], '2026-01-01 00:00:00');
+    $section = candOrderSection($siteId, $pageId, 'recency');
+
+    expect((new SectionCandidates)->ruleCandidates($section, []))->toBe([$item]);
+});
+
+it('still drops a candidate whose own connection the owner disconnected', function () {
+    // The dead-side control for the pair above: the verdict this scope exists
+    // to deliver must still be delivered.
+    [$userId, $siteId, $pageId] = candOrderSite();
+    $source = candOrderSource($userId);
+    $item = candOrderItem($userId, 'video', 'A video', [$source], '2026-01-01 00:00:00');
+    $section = candOrderSection($siteId, $pageId, 'recency');
+
+    expect((new SectionCandidates)->ruleCandidates($section, []))->toBe([$item]);
+
+    $connectionId = (string) DB::table('content.sources')->where('id', $source)->value('connection_id');
+    DB::table('site.platform_connections')->where('id', $connectionId)->update(['deleted_at' => now()]);
+
+    expect((new SectionCandidates)->ruleCandidates($section, []))->toBe([]);
+});

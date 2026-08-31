@@ -100,7 +100,10 @@ class SectionCandidates
             ->where('site.sites.id', $section->site_id)
             ->whereNull('content.items.removed_at');
         // Disconnect = hide: an item whose every source is a removed/inactive
-        // connection leaves the auto half (overnight 2026-08-18, W2).
+        // connection leaves the auto half (overnight 2026-08-18, W2). #FU-2: the
+        // scope pins its own source/connection hops against content.items.user_id
+        // by correlation, and the site join above is what makes that the site
+        // owner — so this call site is tenanted without holding a user value.
         LiveSourceScope::apply($query);
 
         foreach ($predicates as $predicate) {
