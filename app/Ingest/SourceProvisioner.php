@@ -554,6 +554,19 @@ class SourceProvisioner
             return null;
         }
 
+        // The host says WHOSE marketplace; only the path says whether this is
+        // a store. ubereats.com/au/brand/<chain> is a landing page with no
+        // menu behind it, and provisioning from one books a source that can
+        // never run (guzman-y-gomez, 2026-08-31) — the same failure the
+        // `dice` arm below refuses a bare slug to avoid. A brand whose store
+        // has no distinguishing path segment (square: the storefront IS the
+        // host root) registers no pattern, and keeps the host-only rule.
+        $pathPattern = (string) config("partna.menu.platforms.{$platform}.store_path_pattern");
+        $path = (string) parse_url($value, PHP_URL_PATH);
+        if ($pathPattern !== '' && ! preg_match($pathPattern, $path === '' ? '/' : $path)) {
+            return null;
+        }
+
         return rtrim((string) strtok($value, '?#'), '/');
     }
 

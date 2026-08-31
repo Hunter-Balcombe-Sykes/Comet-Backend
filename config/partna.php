@@ -1063,16 +1063,36 @@ return [
                 // surface-key stamp instead; MenuSource trusts the stamp, so this
                 // host_pattern is only the fallback for square.site hosts.)
                 'host_pattern' => '~(^|\.)square\.site$|(^|\.)square\.com$~',
+                // NO store_path_pattern, deliberately — do not "complete the
+                // set". Uber Eats and DoorDash below carry one because their
+                // stores live under /store/; a Square Online store is served
+                // at the BARE square.site root (and at /s/order — see
+                // Catalog/Definitions/Square.php), so any path rule here would
+                // reject every real square store instead of a landing page.
                 'driver' => SquareMenuDriver::class,
             ],
             'uber-eats' => [
                 'actor' => 'memo23~uber-eats-scraper',
                 'host_pattern' => '~(^|\.)ubereats\.com$~',
+                // Matched against the PATH (SourceProvisioner::menuStoreUrl).
+                // Host alone is not identity: ubereats.com also serves /brand/
+                // chain landing pages, a bare locale root and /feed, none of
+                // which has a menu behind it. guzman-y-gomez, 2026-08-31,
+                // connected https://www.ubereats.com/au/brand/guzman-y-gomez
+                // and got a menu source that has never run and never can —
+                // exactly the hazard the `dice` arm of identifierFor() spells
+                // out. Locale segment is optional and may be either form Uber
+                // serves (/au/store/…, /store/…).
+                'store_path_pattern' => '~^/(?:[a-z]{2}(?:-[a-z]{2})?/)?store/~i',
                 'driver' => UberEatsMenuDriver::class,
             ],
             'doordash' => [
                 'actor' => 'dz_omar~doordash-scraper',
                 'host_pattern' => '~(^|\.)doordash\.com$~',
+                // Same rule, same reason: doordash.com's root and its
+                // /food-delivery/<city>/ discovery pages are not stores.
+                // The locale segment here is the /en-CA/store/… form.
+                'store_path_pattern' => '~^/(?:[a-z]{2}(?:-[a-z]{2})?/)?store/~i',
                 'driver' => DoorDashMenuDriver::class,
             ],
         ],
