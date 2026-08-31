@@ -1074,15 +1074,27 @@ return [
             'uber-eats' => [
                 'actor' => 'memo23~uber-eats-scraper',
                 'host_pattern' => '~(^|\.)ubereats\.com$~',
-                // Matched against the PATH (SourceProvisioner::menuStoreUrl).
-                // Host alone is not identity: ubereats.com also serves /brand/
-                // chain landing pages, a bare locale root and /feed, none of
-                // which has a menu behind it. guzman-y-gomez, 2026-08-31,
-                // connected https://www.ubereats.com/au/brand/guzman-y-gomez
-                // and got a menu source that has never run and never can —
-                // exactly the hazard the `dice` arm of identifierFor() spells
-                // out. Locale segment is optional and may be either form Uber
-                // serves (/au/store/…, /store/…).
+                // Matched against the PATH by MenuSource::scrapableSlug() — the
+                // guard on the lane that actually bills Apify — and by
+                // SourceProvisioner::menuStoreUrl(). Host alone is not identity:
+                // ubereats.com also serves /brand/ chain landing pages, a bare
+                // locale root and /feed, none of which has a menu behind it.
+                // guzman-y-gomez, 2026-08-31, connected
+                // https://www.ubereats.com/au/brand/guzman-y-gomez and got a
+                // live Order button over a permanently empty menu, re-scraped
+                // every 15 minutes forever — exactly the hazard the `dice` arm
+                // of identifierFor() spells out.
+                //
+                // The locale alternation is written to agree, character for
+                // character, with Catalog/Definitions/UberEats.php's detector —
+                // they are two spellings of "is this a store" and a URL must
+                // never pass one and fail the other on locale grammar
+                // (UberEatsStorePathAgreementTest pins this). The detector is
+                // additionally stricter, requiring /<slug>/<id> after /store/,
+                // and that difference IS deliberate: it must CAPTURE a store id
+                // to mint a connection, while this key only has to reject pages
+                // with no menu behind them. Directional, and tested: everything
+                // the detector accepts, this accepts.
                 'store_path_pattern' => '~^/(?:[a-z]{2}(?:-[a-z]{2})?/)?store/~i',
                 'driver' => UberEatsMenuDriver::class,
             ],

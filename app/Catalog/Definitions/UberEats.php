@@ -54,9 +54,28 @@ class UberEats
                 // multiAccount() — owner ruling 2026-08-16: a second Uber Eats
                 // store for one user becomes a links-pool item rather than
                 // widening the `order:{platform}` collection natural key.
+                // Locale alternation widened and the `i` flag added 2026-09-01,
+                // so this agrees with config('partna.menu.platforms.uber-eats
+                // .store_path_pattern') — the OTHER place that decides whether
+                // an Uber Eats URL is a store. They disagreed twice over, on
+                // form AND on case: `[a-z]{2}` case-sensitive matched neither
+                // half of `en-AU`, the exact locale shape the sibling DoorDash
+                // link uses (`/en-CA/store/…`). So /en-AU/store/<slug>/<id> was
+                // a store to the scrape guard and an unrecognised link here,
+                // scoring host-only, landing under RoutingPolicy's 55-point
+                // ordering bar, and returning Verdict::Note instead of a
+                // connection. A lost store, not a safety margin — and the
+                // guzman-y-gomez failure reached from the other end, where the
+                // two spellings' disagreement is the bug either way.
+                // Widening is the safe direction here: a locale form Uber never
+                // serves simply never arrives, whereas rejecting one it does
+                // serve costs a menu. UberEatsStorePathAgreementTest fails if
+                // they drift apart again, and pins the ONE difference that may
+                // remain (the <slug>/<id> pair, which this detector needs to
+                // capture an identifier and the config key does not).
                 ->detect(
                     Detector::url('ubereats.com')
-                        ->path('#^/(?:[a-z]{2}/)?store/(?<slug>[^/?]+)/(?<id>[^/?]+)#')
+                        ->path('#^/(?:[a-z]{2}(?:-[a-z]{2})?/)?store/(?<slug>[^/?]+)/(?<id>[^/?]+)#i')
                         ->captures('id')
                         ->from(IdentifierSource::Path)
                         ->strength(EvidenceStrength::DeepLinkWithSlug),

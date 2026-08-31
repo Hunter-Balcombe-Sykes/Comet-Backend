@@ -35,9 +35,23 @@ class RetryUnavailableMenusCommand extends Command
         $menus = Menu::query()
             ->whereHas('platformLinks', fn ($q) => $q->where('status', 'unavailable'))
             // Bound the retry window so a permanently-dead store isn't re-billed
-            // forever — last_fetched_at advances on every attempt, so a menu that
-            // keeps failing eventually crosses the window and stops.
-            ->where('last_fetched_at', '>=', $since)
+            // forever. This used to read last_fetched_at, which was the one
+            // column that CANNOT expire: MenuFetchJob advances it on every
+            // FAILED attempt too, so each retry pushed the row back inside its
+            // own window and the "eventually crosses it and stops" comment
+            // described something that never happened (guzman-y-gomez,
+            // 2026-08-31: ~3 billed Apify runs per quarter hour, indefinitely).
+            // last_successful_fetch_at has exactly one writer — the
+            // fetch_status='ok' branch — so "how long since this menu last
+            // worked" is the question actually being asked. A menu that has
+            // never succeeded falls back to its own age, so a brand-new
+            // connection whose first scrape was genuinely bot-blocked still gets
+            // its window of retries.
+            ->where(fn ($q) => $q
+                ->where('last_successful_fetch_at', '>=', $since)
+                ->orWhere(fn ($q) => $q
+                    ->whereNull('last_successful_fetch_at')
+                    ->where('created_at', '>=', $since)))
             ->orderByRaw('last_fetched_at ASC NULLS FIRST')
             ->limit($limit)
             ->get();

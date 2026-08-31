@@ -47,3 +47,61 @@ it('stops dispatching once the menu apify budget is exhausted', function () {
 
     Queue::assertNothingPushed();
 });
+
+// The window bound was inverted against its own stated intent. It read
+// last_fetched_at, and MenuFetchJob advances last_fetched_at on every FAILED
+// attempt (MenuFetchJob.php's 'unavailable' branch) — so each retry pushed the
+// row back inside its own window and "eventually crosses the window and stops"
+// never happened for the one case it existed to stop. guzman-y-gomez's brand
+// URL was re-forced every 15 minutes for as long as it stayed connected.
+// The bound now reads last_successful_fetch_at, whose single writer is the
+// fetch_status='ok' branch.
+
+it('stops retrying a menu that has not succeeded inside the window', function () {
+    $menu = retryMenuFor('dead');
+    // The permanently-dead shape: attempted a minute ago (as it has been all
+    // day), last actually worked well outside the 6h window.
+    $menu->forceFill([
+        'last_fetched_at' => now()->subMinute(),
+        'last_successful_fetch_at' => now()->subDays(2),
+    ])->save();
+
+    $this->artisan('menu:retry-unavailable')->assertSuccessful();
+
+    Queue::assertNothingPushed();
+});
+
+it('still retries a working store that just went flaky', function () {
+    $menu = retryMenuFor('flaky');
+    $menu->forceFill([
+        'last_fetched_at' => now()->subMinute(),
+        'last_successful_fetch_at' => now()->subHours(2),
+    ])->save();
+
+    $this->artisan('menu:retry-unavailable')->assertSuccessful();
+
+    Queue::assertPushed(MenuFetchJob::class, 1);
+});
+
+it('still retries a fresh connection whose first scrape was blocked', function () {
+    // Never succeeded, so there is no last_successful_fetch_at to bound on —
+    // falls back to the menu's own age, which is what keeps a genuine
+    // first-scrape bot-block recoverable instead of dead on arrival.
+    $menu = retryMenuFor('newborn');
+    $menu->forceFill(['last_fetched_at' => now()->subMinute(), 'last_successful_fetch_at' => null])->save();
+
+    $this->artisan('menu:retry-unavailable')->assertSuccessful();
+
+    Queue::assertPushed(MenuFetchJob::class, 1);
+});
+
+it('stops retrying an old connection that never once succeeded', function () {
+    $menu = retryMenuFor('stillborn');
+    $menu->forceFill(['last_fetched_at' => now()->subMinute(), 'last_successful_fetch_at' => null])->save();
+    // created_at is not fillable on the way in; age it directly.
+    Menu::query()->whereKey($menu->id)->update(['created_at' => now()->subDays(2)]);
+
+    $this->artisan('menu:retry-unavailable')->assertSuccessful();
+
+    Queue::assertNothingPushed();
+});

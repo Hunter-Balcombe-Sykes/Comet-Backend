@@ -932,8 +932,16 @@ it('menu:retry-unavailable re-dispatches forced fetches only for recently-unavai
     MenuPlatformLink::create(['menu_id' => $freshMenu->id, 'platform' => 'uber-eats', 'status' => 'unavailable']);
     MenuPlatformLink::create(['menu_id' => $freshMenu->id, 'platform' => 'doordash', 'status' => 'ok']);
     // Out-of-window: failed long ago — aged out, must NOT be retried forever.
+    // created_at has to be aged too, now that the window bound no longer reads
+    // last_fetched_at: that column advances on every FAILED attempt, so it can
+    // never expire and the "aged out" this fixture asserts never happened in
+    // production (see RetryUnavailableMenusCommand). The bound is
+    // last_successful_fetch_at, falling back to the menu's own age when a menu
+    // has never once succeeded — and a menu whose last attempt was 12h ago was
+    // not created a millisecond ago, so the fixture owed itself this line.
     $stale = menuUser('m18');
     $staleMenu = Menu::create(['user_id' => $stale->id, 'content_source' => 'doordash', 'last_fetched_at' => now()->subHours(12)]);
+    Menu::query()->whereKey($staleMenu->id)->update(['created_at' => now()->subHours(12)]);
     MenuPlatformLink::create(['menu_id' => $staleMenu->id, 'platform' => 'uber-eats', 'status' => 'unavailable']);
     // Healthy: both platforms ok — never selected.
     $ok = menuUser('m19');

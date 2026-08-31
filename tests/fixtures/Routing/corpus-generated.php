@@ -2776,7 +2776,7 @@ return [
             'surface' => 'uber_eats.order',
             'identifier' => 'aaa',
         ],
-        'detector' => '354622fd7070cb07',
+        'detector' => '231fd6d1313fd398',
     ],
     374 => [
         'url' => 'https://upwork.com/freelancers/aa',

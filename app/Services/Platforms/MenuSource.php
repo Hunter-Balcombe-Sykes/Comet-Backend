@@ -9,6 +9,7 @@ use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 // Resolves, from a user's online-ordering links, BOTH:
 //  (a) which platform's menu to scrape + the store URL (the content source), and
@@ -248,7 +249,7 @@ class MenuSource
                 ->orderByDesc('created_at')
                 ->orderByDesc('id')
                 ->get()
-                ->map(function (IntegrationConnection $r) {
+                ->map(function (IntegrationConnection $r) use ($userId) {
                     $entry = CardPayload::fromArray($r->payload)->toArray();
                     // D7 (2026-08-26): the connection's surface IS the
                     // platform — stamped at connect time with real routing
@@ -258,8 +259,11 @@ class MenuSource
                     // rows), and is the ONLY path that can never work for
                     // custom-domain Square stores (#SEC-3 removed their
                     // host rule on purpose).
-                    $entry['menuPlatform'] = $this->surfaceSlug($r->surface_key)
-                        ?? $this->platformOf($entry['url'] ?? null);
+                    $entry['menuPlatform'] = $this->scrapableSlug(
+                        $this->surfaceSlug($r->surface_key) ?? $this->platformOf($entry['url'] ?? null),
+                        $entry['url'] ?? null,
+                        $userId,
+                    );
 
                     return $entry;
                 })
@@ -332,6 +336,67 @@ class MenuSource
         $slug = str_replace('_', '-', $brand);
 
         return array_key_exists($slug, $this->hostPatterns()) ? $slug : null;
+    }
+
+    /**
+     * The registry slug, but ONLY when this url is a page a scraper can find a
+     * menu behind — otherwise null.
+     *
+     * Neither the surface stamp nor the host is identity here: both answer
+     * "whose marketplace", and only the PATH answers "is there a store". Uber
+     * Eats serves /au/brand/<chain> chain landing pages, a bare locale root and
+     * /feed off the same host under the same `uber_eats.order` surface, and none
+     * of them has a menu. Handing one to the actor is not a clean failure: it
+     * answers 201 with an empty dataset, mapResponse() returns null,
+     * responseRetryable() cannot distinguish that from the bot-wall it was
+     * written for, so the target burns FALLBACK_ATTEMPTS more billed runs, gets
+     * negative-cached as 'blocked', and menu:retry-unavailable force-dispatches
+     * the whole job again 15 minutes later — forever (guzman-y-gomez, 2026-08-31:
+     * ACTIVE connection, live Order button, 0 menu_item rows an hour later, ~3
+     * Apify runs per quarter hour with no possible end state).
+     *
+     * This is the one choke point both scrape readers pass through — resolveAll()
+     * and storeLinks() each select on menuPlatform — so nulling it here means no
+     * plan, no target, and no bill, from a single edit. links() deliberately does
+     * NOT consult menuPlatform, and that is the point: a brand page is a
+     * perfectly good customer-facing order link. It is useless only as a SCRAPE
+     * target, so the sitepage keeps its Order button and only the empty menu goes
+     * away. Refusing the write further upstream would have thrown the working
+     * link away to fix a scraping problem.
+     *
+     * A brand whose store has no distinguishing path segment registers no
+     * pattern and keeps the host-only rule — Square Online serves its storefront
+     * at the BARE host root, so any path rule for square would retire every real
+     * square store (see config/partna.php, and Catalog/Definitions/Square.php
+     * reaching the same conclusion for its detector).
+     */
+    private function scrapableSlug(?string $slug, mixed $url, string $userId): ?string
+    {
+        if ($slug === null || ! is_string($url)) {
+            return $slug;
+        }
+
+        $pathPattern = (string) config("partna.menu.platforms.{$slug}.store_path_pattern");
+        if ($pathPattern === '') {
+            return $slug;
+        }
+
+        $path = (string) parse_url($url, PHP_URL_PATH);
+        $path = $path === '' ? '/' : $path;
+        if (preg_match($pathPattern, $path) === 1) {
+            return $slug;
+        }
+
+        // The ONLY signal that separates "not a store" from "bot-blocked" — the
+        // scraper's own 'unavailable' status and menu.apify.empty log cannot,
+        // which is why the incident ran an hour before anyone could name it.
+        Log::info('menu.source.not_a_store', [
+            'user_id' => $userId,
+            'platform' => $slug,
+            'path' => $path,
+        ]);
+
+        return null;
     }
 
     private function platformOf(mixed $url): ?string

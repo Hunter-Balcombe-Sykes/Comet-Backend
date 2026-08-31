@@ -582,6 +582,16 @@ class IntegrationConnectionObserver
         if ($host === '') {
             return;
         }
+        // Host-only ON PURPOSE, and it must stay that way. Adding the
+        // store_path_pattern check here (the obvious "defence in depth" after
+        // MenuSource::scrapableSlug) would be a regression: editing a
+        // connection from a real /store/ url to a /brand/ one is exactly when
+        // the job MUST run, because that is the dispatch that notices the plan
+        // went null and clears the now-orphaned scraped dishes. Waking the job
+        // for a brand page is already free — MenuSource nulls the slug, so no
+        // plan is built and no Apify target is billed — so the only thing a
+        // path check here could buy is a skipped queue job, at the price of a
+        // stale menu that outlives its link.
         foreach ((array) config('partna.menu.platforms', []) as $slug => $spec) {
             $pattern = $spec['host_pattern'] ?? null;
             if (is_string($pattern) && $pattern !== '' && preg_match($pattern, $host)) {
