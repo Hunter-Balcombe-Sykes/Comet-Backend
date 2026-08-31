@@ -58,17 +58,39 @@ final class LiveSourceScope
         });
     }
 
-    /** @param string $itemsTable the alias/table the outer query selects items from (has `id`) */
-    public static function apply(Builder $query, string $itemsTable = 'content.items'): Builder
+    /**
+     * @param  string  $itemsTable  the alias/table the outer query selects items from (has `id`)
+     * @param  ?string  $userId  #FU-2: when given, this subquery's OWN two FK hops
+     *                           (lss.source_id -> lsrc, lsrc.connection_id -> lpc)
+     *                           state their tenancy instead of borrowing the outer
+     *                           query's. Omitting it leaves the subquery byte-for-byte
+     *                           as it was, which is what SectionCandidates does — it
+     *                           has no user in hand, and nothing foreign reaches a
+     *                           wire through here anyway (the subquery selects no
+     *                           column): a mislink buys a wrong LIVENESS verdict on
+     *                           the owner's own item, not a leak.
+     */
+    public static function apply(Builder $query, string $itemsTable = 'content.items', ?string $userId = null): Builder
     {
-        return $query->where(function (Builder $w) use ($itemsTable) {
+        return $query->where(function (Builder $w) use ($itemsTable, $userId) {
+            // Deliberately NOT pinned: the "no source_items at all" arm. Pinning
+            // it would make an item whose ONLY source_items are foreign read as
+            // "no sources -> live" — fail-OPEN. Left as is, such an item fails
+            // the live arm below and is hidden, which is the right direction.
             $w->whereNotExists(function (Builder $none) use ($itemsTable) {
                 $none->from('content.source_items as lss_any')
                     ->whereColumn('lss_any.item_id', $itemsTable.'.id');
-            })->orWhereExists(function (Builder $live) use ($itemsTable) {
+            })->orWhereExists(function (Builder $live) use ($itemsTable, $userId) {
                 $live->from('content.source_items as lss')
                     ->join('content.sources as lsrc', 'lsrc.id', '=', 'lss.source_id')
-                    ->leftJoin('site.platform_connections as lpc', 'lpc.id', '=', 'lsrc.connection_id')
+                    // ON clause, never a `where`: lsrc.connection_id is NULLABLE
+                    // and a manual source always carries NULL.
+                    ->leftJoin('site.platform_connections as lpc', function ($j) use ($userId) {
+                        $j->on('lpc.id', '=', 'lsrc.connection_id');
+                        if ($userId !== null) {
+                            $j->where('lpc.user_id', '=', $userId);
+                        }
+                    })
                     ->whereColumn('lss.item_id', $itemsTable.'.id')
                     // A retired source_item (absence folding: the source's
                     // exhaustive run no longer lists it — a Fresha service
@@ -79,6 +101,10 @@ final class LiveSourceScope
                     // and the pool; ProjectionWriter clears removed_at on
                     // reappearance, so this is hide, never delete.
                     ->whereNull('lss.removed_at');
+                if ($userId !== null) {
+                    // INNER join onto content.sources, so a `where` is correct here.
+                    $live->where('lsrc.user_id', $userId);
+                }
                 self::constrainToLiveSource($live, 'lsrc', 'lpc');
             });
         });
