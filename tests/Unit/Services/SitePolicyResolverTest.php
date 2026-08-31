@@ -99,3 +99,78 @@ it('emits flat auto texts (heading + body blocks) for the dashboard preview', fu
         ->and($texts['terms'])->toContain('Governing law')
         ->and($texts['terms'])->toContain('Australian Consumer Law');
 });
+
+// ── Truthfulness of the generated privacy policy ────────────────────────────
+// The generated text is published on every sitepage under the OWNER'S OWN
+// business name, so a claim in it is a claim that business is making. Until
+// 2026-09-01 it made three the platform does not honour: that usage data "is
+// aggregated and is not used to personally identify you", that the Site uses
+// "only the minimal cookies and similar technologies needed for it to
+// function", and that location is only "your approximate region". The
+// analytics lane in fact mints a PERSISTENT per-visitor id in localStorage
+// (pv_vid, apps/pages/src/analytics/beacon.ts) plus a per-tab sessionStorage
+// id (pv_sid), attaches both to every beacon, and stores them alongside a
+// city and rounded lat/lon derived from the visitor's IP
+// (DetectsClientInfo::detectCity/detectLatitude/detectLongitude). These
+// assertions pin the corrected text to that reality — they are content tests
+// on purpose: the defect was never a crash, it was a sentence.
+
+it('names the persistent browser identifier the beacon actually mints', function () {
+    $text = app(SitePolicyResolver::class)->resolve(policyUser(), policySite())['privacy']['text'];
+
+    expect($text)->toContain('pv_vid')
+        ->and($text)->toContain('pv_sid')
+        ->and($text)->toContain('local storage')
+        ->and($text)->toContain('session storage')
+        // The claim the identifier falsifies. Its survival is the whole bug.
+        ->and($text)->not->toContain('not used to personally identify you')
+        ->and($text)->not->toContain('This usage information is aggregated');
+});
+
+it('says approximate location is derived from the IP address, and names what is kept', function () {
+    $text = app(SitePolicyResolver::class)->resolve(policyUser(), policySite())['privacy']['text'];
+
+    expect($text)->toContain('IP address')
+        ->and($text)->toContain('country')
+        ->and($text)->toContain('city')
+        ->and($text)->toContain('coordinates');
+});
+
+it('no longer claims cookie minimality, since the analytics storage is not functional', function () {
+    $text = app(SitePolicyResolver::class)->resolve(policyUser(), policySite())['privacy']['text'];
+
+    expect($text)->not->toContain('minimal cookies')
+        ->and($text)->not->toContain('needed for it to function');
+});
+
+it('states the real retention window, tracking config rather than a hardcoded number', function () {
+    config()->set('partna.analytics_raw_event_retention_days', 45);
+    $text = app(SitePolicyResolver::class)->resolve(policyUser(), policySite())['privacy']['text'];
+
+    expect($text)->toContain('45 days')
+        ->and($text)->not->toContain('90 days');
+
+    config()->set('partna.analytics_raw_event_retention_days', 120);
+    $text = app(SitePolicyResolver::class)->resolve(policyUser(), policySite())['privacy']['text'];
+
+    expect($text)->toContain('120 days');
+});
+
+it('promises no automatic deletion window when the purge floor means nothing is purged', function () {
+    // Below PurgeRawAnalyticsEvents::MINIMUM_RETENTION_DAYS the purge command
+    // aborts with FAILURE and deletes nothing, so naming a window there would
+    // swap one false claim for a shorter one.
+    config()->set('partna.analytics_raw_event_retention_days', 10);
+    $text = app(SitePolicyResolver::class)->resolve(policyUser(), policySite())['privacy']['text'];
+
+    expect($text)->not->toContain('10 days')
+        ->and($text)->toContain('no fixed deletion date');
+});
+
+it('carries the same corrections into the dashboard preview text', function () {
+    $texts = app(SitePolicyResolver::class)->autoTexts(policyUser(), policySite());
+
+    expect($texts['privacy'])->toContain('pv_vid')
+        ->and($texts['privacy'])->toContain('IP address')
+        ->and($texts['privacy'])->not->toContain('minimal cookies');
+});

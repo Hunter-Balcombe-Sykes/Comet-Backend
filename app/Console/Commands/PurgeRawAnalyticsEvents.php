@@ -18,6 +18,15 @@ class PurgeRawAnalyticsEvents extends Command
     protected $description = 'Delete raw analytics event rows and stale derived content_popularity_scores '
         .'rows older than their retention windows. Runs in batches to avoid long-running transactions.';
 
+    /**
+     * Floor on the raw-event retention window. Below it handle() aborts and
+     * deletes NOTHING, so this is not a tunable — it is the line between "rows
+     * are purged on a schedule" and "rows live forever". SitePolicyResolver
+     * reads it for exactly that reason: the generated privacy policy may only
+     * name a deletion window when the purge would actually run.
+     */
+    public const MINIMUM_RETENTION_DAYS = 30;
+
     private const TABLES = [
         'analytics.link_clicks' => 'occurred_at',
         'analytics.site_visits' => 'occurred_at',
@@ -115,10 +124,11 @@ class PurgeRawAnalyticsEvents extends Command
         $raw = $this->option('days') ?? config('partna.analytics_raw_event_retention_days', 90);
         $days = (int) $raw;
 
-        if ($days < 30) {
+        if ($days < self::MINIMUM_RETENTION_DAYS) {
             $this->error(sprintf(
-                'Retention window must be at least 30 days (got %d). '
+                'Retention window must be at least %d days (got %d). '
                 .'Set ANALYTICS_RAW_EVENT_RETENTION_DAYS or pass --days=N.',
+                self::MINIMUM_RETENTION_DAYS,
                 $days
             ));
 
@@ -134,10 +144,11 @@ class PurgeRawAnalyticsEvents extends Command
     {
         $days = (int) config('partna.analytics.content_popularity_scores_retention_days', 180);
 
-        if ($days < 30) {
+        if ($days < self::MINIMUM_RETENTION_DAYS) {
             $this->error(sprintf(
-                'content_popularity_scores retention window must be at least 30 days (got %d). '
+                'content_popularity_scores retention window must be at least %d days (got %d). '
                 .'Set PARTNA_ANALYTICS_CONTENT_POPULARITY_SCORES_RETENTION_DAYS.',
+                self::MINIMUM_RETENTION_DAYS,
                 $days
             ));
 

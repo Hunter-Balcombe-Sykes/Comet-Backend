@@ -2,6 +2,7 @@
 
 namespace App\Services\Site;
 
+use App\Console\Commands\PurgeRawAnalyticsEvents;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 
@@ -24,6 +25,19 @@ use App\Models\Core\User\User;
  * dashboard shows that disclaimer) and are personalized with the site's
  * display name (workplace name for business accounts), its public URL, and
  * the public contact email when one is live.
+ *
+ * GENERIC IS NOT THE SAME AS VAGUE, and the privacy template learnt the
+ * difference on 2026-09-01. It described a site that collects anonymous
+ * aggregates behind functional-only cookies. The site it is published on does
+ * neither: apps/pages/src/analytics/beacon.ts mints a persistent per-visitor
+ * id in localStorage (pv_vid) plus a per-tab sessionStorage id (pv_sid) and
+ * attaches both to every beacon, and the pages middleware forwards the
+ * visitor's real IP and Cloudflare's geo (country/region/city/lat/lon) on
+ * every call, all of which the backend stores per event
+ * (AnalyticsController::buildEvent + DetectsClientInfo). This text goes out
+ * under the OWNER'S business name, so an inaccuracy here is a claim THEY are
+ * making about their own site. When the analytics lane changes what it
+ * collects or how long it keeps it, this file changes in the same commit.
  */
 class SitePolicyResolver
 {
@@ -135,6 +149,36 @@ class SitePolicyResolver
         ));
     }
 
+    /**
+     * The retention sentence, read from the window the purge actually runs on
+     * (partna.analytics_raw_event_retention_days, the same key
+     * PurgeRawAnalyticsEvents::retentionDays() reads) rather than a number
+     * typed into the prose — a hardcoded "90 days" becomes a false statement
+     * the day someone sets the env var.
+     *
+     * Below PurgeRawAnalyticsEvents::MINIMUM_RETENTION_DAYS the command aborts
+     * with FAILURE and deletes nothing, so in that configuration there is no
+     * deletion window to name; saying "10 days" there would trade one untrue
+     * claim for a more flattering one. The policy says so plainly instead.
+     */
+    private function analyticsRetentionLine(): string
+    {
+        $days = (int) config('partna.analytics_raw_event_retention_days', 90);
+
+        $records = 'Individual usage records — each page you open, link you tap, section you view and visit you make, '
+            .'with the browser identifiers and location estimate attached';
+
+        $direct = 'Anything you send us directly, such as an enquiry or a mailing-list subscription, is kept until you '
+            .'ask us to delete it or we no longer need it, and then deleted.';
+
+        if ($days < PurgeRawAnalyticsEvents::MINIMUM_RETENTION_DAYS) {
+            return "{$records} — are currently kept with no fixed deletion date. {$direct}";
+        }
+
+        return "{$records} — are deleted automatically {$days} days after they are recorded. Counts and rankings "
+            ."worked out from them may be kept longer, but those no longer single out a browser. {$direct}";
+    }
+
     /** @return list<array{heading: string, body: string}> */
     private function privacySections(string $name, string $url, ?string $contactEmail): array
     {
@@ -147,27 +191,35 @@ class SitePolicyResolver
             ],
             [
                 'heading' => 'Information we collect',
-                'body' => 'We collect information you choose to give us — for example your name and email address when you send an enquiry, join our mailing list, or contact us. We also collect limited usage information automatically when you browse the Site, such as the pages you view, the type of device and browser you use, and your approximate region. This usage information is aggregated and is not used to personally identify you.',
+                'body' => 'We collect information you choose to give us — for example your name and email address when you send an enquiry, join our mailing list, or contact us. We also record what you do on the Site automatically: the pages you open, the links and buttons you tap, the sections and items you scroll into view, how long you stay, the site or link that brought you here (including any campaign tags on it), and the device and browser you use. Each of those is stored as its own record, tied to the identifier described in the next section — not as an anonymous total.',
+            ],
+            [
+                'heading' => 'An identifier stored in your browser',
+                'body' => 'The first time you open the Site we generate a random identifier and save it in your browser under the key pv_vid, in local storage. It has no expiry date and stays until you clear this site\'s data, and it is attached to every record described above. We use it to tell repeat visits from new ones — to see how many people use the Site, not just how many pages are loaded. A second identifier, pv_sid, is saved in session storage and disappears when you close the tab; it groups a single visit together. Neither is linked to your name or email unless you also send us an enquiry, but both single your browser out from every other browser, so this information is specific to you rather than anonymous. Clearing this site\'s data in your browser settings removes them, and a new pv_vid is generated on your next visit.',
+            ],
+            [
+                'heading' => 'Location and your IP address',
+                'body' => 'Your device\'s IP address reaches our servers with every request. We do not keep the address itself — it is put through a one-way hash before anything is stored, which we use to spot abuse and to avoid counting the same action twice. The IP address is used first to estimate where you are, and that estimate IS stored with each record: your country, your state or region, your city, and approximate coordinates for that area, rounded down in precision before they are saved. It is an estimate from your network connection, not your device\'s GPS, and it is sometimes wrong.',
             ],
             [
                 'heading' => 'How we use your information',
-                'body' => 'We use your information to respond to your enquiries, to send you updates you have asked to receive, and to operate, protect and improve the Site. We do not sell your personal information.',
+                'body' => 'We use your information to respond to your enquiries, to send you updates you have asked to receive, and to operate, protect and improve the Site. The usage records above are how we see which pages and items people actually engage with and how many separate visitors the Site has. We do not sell your personal information, and we do not use it to advertise to you elsewhere.',
             ],
             [
                 'heading' => 'Sharing and third-party services',
-                'body' => 'We share information only with the service providers that power the Site — such as hosting, analytics and email delivery — and only as needed to run it. The Site also links out to third-party platforms we use (for example booking, ordering, ticketing or store platforms). Once you leave the Site, anything you share with those platforms is governed by their own privacy policies, and we encourage you to read them.',
+                'body' => 'We share information only with the service providers that power the Site — such as hosting, analytics and email delivery — and only as needed to run it. The usage records described above are collected and stored for us by the platform that hosts the Site, and are not shared with advertising networks. The Site also links out to third-party platforms we use (for example booking, ordering, ticketing or store platforms). Once you leave the Site, anything you share with those platforms is governed by their own privacy policies, and we encourage you to read them.',
             ],
             [
                 'heading' => 'Cookies and similar technologies',
-                'body' => 'The Site uses only the minimal cookies and similar technologies needed for it to function and to understand how it is used in aggregate. You can control or clear cookies through your browser settings.',
+                'body' => 'The Site does not set advertising or cross-site tracking cookies, and nothing here follows you to other websites. It does use your browser\'s local and session storage for the two identifiers described above. Those are for analytics — the Site works without them — and they are written as soon as you open a page, without asking you first. You can clear them at any time through your browser settings, and blocking storage for this site stops them being written at all.',
             ],
             [
                 'heading' => 'Data retention',
-                'body' => 'We keep your information only for as long as it is needed for the purposes described above, or as required by law, and then delete it.',
+                'body' => $this->analyticsRetentionLine(),
             ],
             [
                 'heading' => 'Your rights',
-                'body' => "You may ask us to access, correct or delete the personal information we hold about you at any time — {$contact}. If you are subscribed to our updates, every email includes an unsubscribe link.",
+                'body' => "You may ask us to access, correct or delete the personal information we hold about you at any time — {$contact}. If you are subscribed to our updates, every email includes an unsubscribe link. You can remove the browser identifiers described above yourself, without asking us, by clearing this site's data in your browser settings.",
             ],
             [
                 'heading' => 'Changes to this policy',
