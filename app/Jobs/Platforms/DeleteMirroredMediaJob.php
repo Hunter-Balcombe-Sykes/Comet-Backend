@@ -17,7 +17,10 @@ use Throwable;
  * Deletes a single mirrored-media folder from the R2 `media` disk.
  *
  * Instagram is the only platform that mirrors upstream images into our own
- * object storage (under `platforms/instagram/{timestamp}/`). When a connection
+ * object storage (under `platforms/instagram/{connection uuid}/` since
+ * 4feced1b6; pre-4feced1b6 rows still carry the retired
+ * `platforms/instagram/{created_at timestamp}/` until
+ * media:repair-instagram-mirror-prefix moves them). When a connection
  * is disconnected or its selection is re-saved to a new folder, the old folder
  * is now orphaned — this job reclaims it (CONS-21). Dispatched from
  * IntegrationConnectionObserver with the folder recorded in `payload._folder`.
@@ -44,7 +47,8 @@ class DeleteMirroredMediaJob implements ShouldBeUnique, ShouldQueue
     public int $uniqueFor = 300;
 
     /**
-     * @param  string  $folder  R2 prefix to delete, e.g. "platforms/instagram/1717000000".
+     * @param  string  $folder  R2 prefix to delete, e.g.
+     *                          "platforms/instagram/01a04350-24d2-7080-b166-ad68bda6f6b1".
      */
     public function __construct(public readonly string $folder)
     {

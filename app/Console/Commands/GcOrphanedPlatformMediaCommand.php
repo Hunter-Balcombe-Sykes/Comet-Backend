@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Jobs\Platforms\DeleteMirroredMediaJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Registry\Platform;
 use Illuminate\Console\Command;
@@ -30,14 +31,18 @@ use Throwable;
  * Direction is DB-first: the live set of owned folders is built from ONE cursor
  * pass over Instagram connections BEFORE any storage call, so a failed/partial
  * DB read aborts before a single object is read (never mistaken for "everything
- * is orphaned"). A folder is live if EITHER the derived token
- * (`platforms/instagram/{created_at timestamp}`, InstagramConnectionSeeder's
- * write path) OR the stored `payload._folder` (InstagramPayload's read
- * boundary) matches — a union, so a future folder-scheme change over-retains
- * rather than over-deletes. This union is also what makes the sweeper safe
- * under the known folder-token collision (two connections created in the same
- * wall-clock second share one folder): the folder is protected while ANY owner
- * is live, because the union just accumulates more keys, never fewer.
+ * is orphaned"). A folder is live if ANY of three keys match — the current
+ * derivation (`InstagramConnectionSeeder::mirrorFolder()`, keyed on the
+ * connection uuid), the retired one (`platforms/instagram/{created_at
+ * timestamp}`, still what every pre-4feced1b6 row holds until
+ * media:repair-instagram-mirror-prefix moves it), or the stored
+ * `payload._folder` (InstagramPayload's read boundary). A union, so a
+ * folder-scheme change over-retains rather than over-deletes; the stored key
+ * alone would not do, because a row is given one only once its seed completes,
+ * leaving a just-mirrored folder unprotected in between. The union is also what
+ * made the sweeper safe under the folder-token collision (two connections
+ * created in the same wall-clock second sharing one folder): the folder is
+ * protected while ANY owner is live, because the union only accumulates keys.
  *
  * Soft-deleted rows count as live for `platform_gc_deleted_grace_days` (default
  * 7d) — long enough that a FAILED disconnect-delete is still reclaimable, short
@@ -50,11 +55,20 @@ use Throwable;
  * media, or an unexpected deeper path, is surfaced instead of silently swept
  * under an ownership model this command does not understand.
  *
- * Uses the LITERAL 'media' disk, not MediaDiskResolver::resolve(): the mirror
- * writer (InstagramConnectionSeeder) and deleter (DeleteMirroredMediaJob) both
- * hard-code 'media', and 'media' is `throw => true` in config/filesystems.php
- * (a failed LIST surfaces instead of silently returning empty, which a
- * throw => false disk the resolver could return would not).
+ * Uses the LITERAL 'media' disk, not MediaDiskResolver::resolve(), because
+ * 'media' is `throw => true` in config/filesystems.php: a failed LIST surfaces
+ * instead of silently returning empty, which is what a throw => false disk the
+ * resolver could return (the `public_dev` alias) would do — and an empty listing
+ * here reads as "no platform media on disk", the one wrong answer this command
+ * must never give quietly.
+ *
+ * KNOWN DIVERGENCE, deliberately not closed here: the writer
+ * (InstagramConnectionSeeder::mediaDisk()) and the deleter
+ * (DeleteMirroredMediaJob) both go through MediaDiskResolver, so wherever
+ * PARTNA_MEDIA_DISK names something other than 'media' this command lists a
+ * DIFFERENT bucket from the one the mirrors were written to and finds nothing to
+ * sweep. Switching the disk is a change to what a delete-dispatcher can see, so
+ * it belongs to its own unit with its own gate, not to a docblock edit.
  */
 class GcOrphanedPlatformMediaCommand extends Command
 {
@@ -101,6 +115,23 @@ class GcOrphanedPlatformMediaCommand extends Command
                         return;
                     }
 
+                    // The CURRENT write rule. Since 4feced1b6 the seeder keys the
+                    // prefix on the connection uuid, and a row is only given
+                    // `payload._folder` once its seed completes — so between the
+                    // first mirrored object and the payload write, this derivation
+                    // is the ONLY thing standing between a live folder and a
+                    // delete dispatch. Deriving it (rather than trusting the
+                    // stored key) is what keeps the union safe across the
+                    // scheme change.
+                    $live[InstagramConnectionSeeder::mirrorFolder($connection)] = true;
+
+                    // The retired write rule, kept until media:repair-instagram-
+                    // mirror-prefix has moved every pre-4feced1b6 row: those still
+                    // hold 'platforms/instagram/'.created_at->timestamp. Union, so
+                    // a scheme change over-retains rather than over-deletes — and
+                    // under the collision this token had (two connections in one
+                    // wall-clock second sharing a folder) it protects the folder
+                    // while ANY owner is live, because the union only accumulates.
                     $live['platforms/instagram/'.$connection->created_at->timestamp] = true;
 
                     $stored = InstagramPayload::fromArray($connection->payload)->folder;

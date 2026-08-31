@@ -221,3 +221,20 @@ it('never reclaims a path deeper than the fixed 4-segment layout', function () {
     Queue::assertNothingPushed();
     Storage::disk('media')->assertExists('platforms/instagram/999999/nested/extra.jpg');
 });
+
+/**
+ * Post-4feced1b6 the seeder keys the prefix on the connection uuid, and
+ * `payload._folder` is only written once the seed completes. A row that mirrored
+ * its objects and then failed before the payload write has NO stored key — so if
+ * the live set did not derive the current rule as well, this sweeper would read
+ * a just-written folder as an orphan and dispatch a delete on live media.
+ */
+it('keeps the per-connection folder of a row that has not written its _folder yet', function () {
+    seedDecoyLiveConnection();
+    $id = insertInstagramConnection(now()->subDays(2));
+    putPlatformMirrorFiles("platforms/instagram/{$id}");
+
+    $this->artisan('media:gc-orphaned-platform-media')->assertSuccessful();
+
+    Queue::assertNotPushed(DeleteMirroredMediaJob::class, fn ($job) => $job->folder === "platforms/instagram/{$id}");
+});

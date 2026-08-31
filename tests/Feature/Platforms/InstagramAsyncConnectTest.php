@@ -622,7 +622,9 @@ it('reconnect reclaims stale reel files when the account now leads with a photo 
         'last_refresh_status' => 'pending',
     ]);
 
-    $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
+    // The production rule, not a restatement of it — restating it as a created_at
+    // concat is what left these assertions red when 4feced1b6 re-keyed the prefix.
+    $folder = InstagramConnectionSeeder::mirrorFolder($connection);
 
     // Pre-seed stale reel files left by a prior connect run.
     Storage::disk('media')->put("{$folder}/reel.mp4", 'old-video-bytes');
@@ -668,7 +670,9 @@ it('first connect writes photo and does not delete any spurious files (JOB-2)', 
         'last_refresh_status' => 'pending',
     ]);
 
-    $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
+    // The production rule, not a restatement of it — restating it as a created_at
+    // concat is what left these assertions red when 4feced1b6 re-keyed the prefix.
+    $folder = InstagramConnectionSeeder::mirrorFolder($connection);
 
     $scraper = Mockery::mock(InstagramScraper::class);
     $scraper->shouldReceive('fetchProfile')->once()->andReturn(['fullName' => 'First User']);
@@ -709,7 +713,9 @@ it('removed profile pic is reclaimed on reconnect when scraper returns null (JOB
         'last_refresh_status' => 'pending',
     ]);
 
-    $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
+    // The production rule, not a restatement of it — restating it as a created_at
+    // concat is what left these assertions red when 4feced1b6 re-keyed the prefix.
+    $folder = InstagramConnectionSeeder::mirrorFolder($connection);
 
     // Pre-seed a profile pic from a prior connect run.
     Storage::disk('media')->put("{$folder}/profile.jpg", 'old-profile-bytes');

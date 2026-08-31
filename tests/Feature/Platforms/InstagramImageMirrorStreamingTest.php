@@ -92,7 +92,10 @@ it('rejects an oversized image via the on-disk size backstop when Content-Length
         ->handle($scraper, app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
 
     $connection->refresh();
-    $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
+    // The production rule, not a restatement of it. Restating it as a created_at
+    // concat is what let these two assertions go red when 4feced1b6 re-keyed the
+    // prefix onto the connection uuid.
+    $folder = InstagramConnectionSeeder::mirrorFolder($connection);
 
     // Job still completes — one dropped image must not fail the whole job.
     expect($connection->last_refresh_status)->toBe('ok');
@@ -129,7 +132,10 @@ it('mirrors a normal image end-to-end with the exact bytes landing at the expect
         ->handle($scraper, app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
 
     $connection->refresh();
-    $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
+    // The production rule, not a restatement of it. Restating it as a created_at
+    // concat is what let these two assertions go red when 4feced1b6 re-keyed the
+    // prefix onto the connection uuid.
+    $folder = InstagramConnectionSeeder::mirrorFolder($connection);
 
     expect($connection->last_refresh_status)->toBe('ok');
     expect(Storage::disk('media')->exists("{$folder}/profile.jpg"))->toBeTrue();
@@ -254,7 +260,10 @@ it('drops a mirrored image whose bytes are not an accepted image format, whateve
         ->handle($scraper, app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
 
     $connection->refresh();
-    $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
+    // The production rule, not a restatement of it. Restating it as a created_at
+    // concat is what let these two assertions go red when 4feced1b6 re-keyed the
+    // prefix onto the connection uuid.
+    $folder = InstagramConnectionSeeder::mirrorFolder($connection);
 
     // Nothing reached R2, and no URL was published for it. The connect itself
     // still succeeds — a failed mirror has always degraded, never thrown.
@@ -289,7 +298,10 @@ it('drops a GIF — an image, but not one of the three formats the house allowli
         ->handle($scraper, app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
 
     $connection->refresh();
-    $folder = 'platforms/instagram/'.$connection->created_at->timestamp;
+    // The production rule, not a restatement of it. Restating it as a created_at
+    // concat is what let these two assertions go red when 4feced1b6 re-keyed the
+    // prefix onto the connection uuid.
+    $folder = InstagramConnectionSeeder::mirrorFolder($connection);
 
     expect(Storage::disk('media')->exists("{$folder}/profile.jpg"))->toBeFalse();
     expect($connection->payload['profilePicUrl'] ?? null)->toBeNull();

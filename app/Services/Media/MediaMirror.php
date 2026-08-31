@@ -335,9 +335,9 @@ final class MediaMirror
         }
 
         // CONTENT-addressed, never connection-addressed. InstagramConnectionSeeder
-        // derives its folder from the connection's created_at, which never
-        // changes, so every refresh overwrites one fixed photo.jpg in place —
-        // silently replacing an image a user already picked. Hashing the encoded
+        // derives its folder from the connection itself, which never changes, so
+        // every refresh overwrites one fixed photo.jpg in place — silently
+        // replacing an image a user already picked. Hashing the encoded
         // bytes means changed bytes land at a NEW path and the old object stays
         // exactly where whoever referenced it expects.
         $path = 'content-media/'.$userId.'/'.substr(hash('sha256', $variant['bytes']), 0, 32).'.webp';

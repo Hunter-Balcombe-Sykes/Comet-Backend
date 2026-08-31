@@ -223,7 +223,9 @@ it('the async connect job stores the R2 _folder in the payload', function () {
     (new InstagramConnectJob($user->id, 'creator', $conn->id))->handle($scraper, app(InstagramConnectionSeeder::class), app(InstagramAutoSync::class));
     $conn->refresh();
 
-    expect($conn->payload['_folder'])->toBe('platforms/instagram/'.$conn->created_at->timestamp);
+    // Asserted through the production rule: a restatement of it here is what went
+    // stale when 4feced1b6 moved the prefix off the wall-clock second.
+    expect($conn->payload['_folder'])->toBe(InstagramConnectionSeeder::mirrorFolder($conn));
 });
 
 // ── JOB-4: observer swallows + reports a dispatch failure instead of 500ing the write ──

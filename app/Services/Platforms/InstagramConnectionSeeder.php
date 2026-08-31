@@ -164,8 +164,9 @@ class InstagramConnectionSeeder
         // Reclaim stale mirrors of a media type no longer present this run (e.g. a
         // prior reel + its cover when the account now leads with a photo, or a
         // removed profile pic). The folder is stable per connection
-        // (created_at-derived) and the filenames are fixed, so a reconnect
-        // overwrites the live files in place — only the *complement* below (the
+        // (mirrorFolder() keys on the connection uuid, which a refresh does not
+        // move) and the filenames are fixed, so a reconnect overwrites the live
+        // files in place — only the *complement* below (the
         // fixed names NOT re-written this run) can linger. Deleting them here,
         // in-job and AFTER the writes, is race-free: unlike a separately-queued
         // delete it can never run after a fresh re-mirror and wipe it. $images is
