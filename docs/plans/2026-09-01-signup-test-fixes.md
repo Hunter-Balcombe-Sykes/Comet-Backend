@@ -864,3 +864,29 @@ accounts; and should confident matches auto-add the ACCOUNT? Owner does
 NOT want an answer message — think it through and either append concrete
 steps to this plan (if lanes should open) or record "fine as-is" with
 reasons in the decisions log.
+
+### Wave 4 wiring — executor decisions (2026-09-02, commit 056582f52)
+
+- **Spotify `show` kind moved brands**: spotify.player's detector AND
+  SpotifyConnect::parseEntity dropped `show`; the spotify_podcasts brand
+  owns the link shape end to end. Existing show-kind player rows keep
+  rendering (stored payloads are never re-detected).
+- **Bluesky flip**: the wave-2 "would 422 its own URL" note predated
+  classifyFromCatalog(); flipping is_connectable makes classify() answer
+  via the catalog backstop — verified live. BrandCoverageTest now probes
+  each surface's canonical URL template (first deep-path Brand detector).
+- **tiktok_shop.store + amazon-shop.store are real catalog surfaces**:
+  IntegrationConnection's saving guard refuses unknown surface_keys, so
+  the vendor-lane anchors need compiled surfaces; both ride the
+  split_part ELSE (no legacy slug, no migration). TiktokShopConnectJob
+  mirrors AmazonShopConnectJob; its anchor mint arms the reviews ingest
+  source through the observer (verified in TiktokShopConnectJobTest).
+- **FB-events observer hook is live**: creating/saving a facebook
+  connection provisions/follows the satellite on the same observer call;
+  the agent's standalone tests were updated to model pre-hook
+  connections. Live backfill run 2026-09-02: 119 created + eager.
+- **Live badge**: entirely backend-driven (LiveStatusInjector reads
+  partna.streaming_platforms = twitch,kick,tiktok,youtube) — no FE copy
+  of the list exists, so "FE allowlist" needed no dashboard change.
+- **phpstan baseline**: 14 pre-existing errors in the committed adapter
+  layer (identical set on clean tree) — flagged for the Wave 6 sweep.

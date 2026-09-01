@@ -13,9 +13,9 @@
 | 1 — vendor foundation | 57c5d264e, 4c22f651a | sc_key set, sc_cap=5400; canary rebuilds green |
 | 2 — identity & workplace | 236d6317c, ff9aaa8a9, c3962a0a1, e6b4a402d, d72f14665 | smoke 2026-09-01 (below) |
 | 3 — media architecture | b314cbeb9 (+ monorepo a0d50399, pages worker bc253d64) | migration applied; backfill minted 151 |
-| 4 — expansion | 67c9da00d (adapters) + wiring commit(s) TBD | caps live (twitch=1350, transcripts=300); streaming=twitch,kick,tiktok,youtube |
+| 4 — expansion | 67c9da00d (adapters) + 056582f52 (wiring, 92 files) | tinker 2026-09-02: TwitchConnect live, spotify_podcasts deferred, bluesky classifies own URL, all 7 connectors registered, tiktok_shop.store surface, find_social_profiles cap=0 (owner off-switch), ig_depth=false; FB-events backfill ran live: 119 satellites created+eager (5 no_parent_source) |
 
-Dashboard (monorepo `main`): ec998f3c, 220ce112, a0d50399 + wiring TBD.
+Dashboard (monorepo `main`): ec998f3c, 220ce112, a0d50399, e126d0f2 (tiles + vendor-store lane + registry 175 platforms).
 
 ## Mid-flight smoke test (2026-09-01, Waves 1+2 in production) — PASSED
 
