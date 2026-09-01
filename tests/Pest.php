@@ -593,6 +593,9 @@ function setupPreAccountBuildsTable(): void
         // Mirrors migration 20260901150000 (Item 1a scrape-first builds).
         'account_type TEXT NULL',
         'source_name TEXT NULL',
+        // Mirrors migration 20260901190000 (9h tier markers).
+        'content_filled_at TEXT NULL',
+        'enriched_at TEXT NULL',
         'claim_idempotency_key TEXT NULL',
         // Mirrors migration 20260828010000 (T28: release restores the exact
         // pre-claim publish state).

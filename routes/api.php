@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\PublicSite\PublicIntegrationController;
 use App\Http\Controllers\Api\PublicSite\PublicLoginIdentifierController;
 use App\Http\Controllers\Api\PublicSite\PublicNotificationEmailUnsubscribeController;
 use App\Http\Controllers\Api\PublicSite\PublicSignupAvailabilityController;
+use App\Http\Controllers\Api\PublicSite\PublicSignupPrewarmController;
 use App\Http\Controllers\Api\PublicSite\PublicSiteController;
 use App\Http\Controllers\Api\Webhooks\ResendWebhookController;
 use App\Http\Controllers\Api\Webhooks\SupabaseAuthHookController;
@@ -172,6 +173,13 @@ Route::post('/public/signup/availability', [PublicSignupAvailabilityController::
 // so it rides the generic public-site throttle like other public GETs.
 Route::post('/public/signup/build', [PreAccountBuildController::class, 'store'])
     ->middleware(['throttle:pre-account-build', 'bot.token:pre-account-build']);
+// 9g: fire-and-forget scrape pre-warm while the visitor is still typing —
+// costs at most one budget-gated scrape per distinct handle per 900s (the
+// job's unique window), answers an unconditional 202 (never an existence
+// oracle), and rides the build endpoint's bot-token scope with its own
+// tighter throttle bucket.
+Route::post('/public/signup/prewarm', PublicSignupPrewarmController::class)
+    ->middleware(['throttle:signup-prewarm', 'bot.token:pre-account-build']);
 Route::get('/public/signup/builds/{build}', [PreAccountBuildController::class, 'show'])
     ->whereUuid('build')
     ->middleware('throttle:public-site');

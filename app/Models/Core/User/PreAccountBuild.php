@@ -3,6 +3,9 @@
 namespace App\Models\Core\User;
 
 use App\Models\BaseModel;
+use App\Models\Core\Site\Menu;
+use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\Site\Workplace;
 use App\Models\Core\Staff\PartnaStaff;
 use Database\Factories\Core\User\PreAccountBuildFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -10,6 +13,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
 
 /**
  * @property string $id
@@ -22,6 +26,8 @@ use Illuminate\Support\Carbon;
  * @property string $build_state One of STATE_* — text NOT NULL DEFAULT 'pending' with a matching CHECK constraint (supabase/migrations/20260718200000_pre_account_sites.sql).
  * @property string|null $failure_code One of FAILURE_* (e.g. FAILURE_SOURCE_NOT_FOUND, FAILURE_SCRAPE_FAILED) when build_state is 'failed' — not DB-CHECK-enforced, app-level vocabulary only.
  * @property Carbon|null $thin_scrape_at Stamped when the source scrape returned no post timeline. INDEPENDENT of build_state — a thin build stays 'ready' because the site still renders. Not fillable (state column, SEC-4).
+ * @property Carbon|null $content_filled_at 9h tier marker: first poll observation of visible content (READY gallery/content media, or a fetched menu). Lazily stamped by observeTierMarkers(); not fillable.
+ * @property Carbon|null $enriched_at 9h tier marker: first poll observation of a landed workplace. Lazily stamped by observeTierMarkers(); not fillable.
  * @property string|null $created_ip_hash HMAC-SHA256 of CF-Connecting-IP under config('partna.pre_account.ip_hash_key') — see hashIp(); NULL for staff-built rows (no visitor IP to hash).
  * @property Carbon|null $expires_at Drives builds:prune-expired; irrelevant once claimed. NULL = never-expire (early-access builds, until staff approval).
  * @property string|null $contact_email Notify address + email-gate value; NULL = first-come claim.
@@ -93,7 +99,72 @@ class PreAccountBuild extends BaseModel
         'thin_scrape_at' => 'datetime',
         'claim_token_issued_at' => 'datetime',
         'auto_invite' => 'boolean',
+        'content_filled_at' => 'datetime',
+        'enriched_at' => 'datetime',
     ];
+
+    /**
+     * 9h: lazily stamp the post-ready tiers the first time the public poll
+     * observes them — content_filled (first gallery/content media READY, or
+     * the menu fetched) and enriched (a workplace landed). One indexed query
+     * per still-null tier per poll while settling; each stamp emits the
+     * per-tier timing telemetry line the timeline campaign measures from.
+     * "Observed at", not "happened at" — precise enough for tiers whose
+     * producers span many jobs, and centralised here instead of hooked into
+     * every one of them. Best-effort by contract: a failure must never break
+     * the poll.
+     */
+    public function observeTierMarkers(): void
+    {
+        if ($this->build_state !== self::STATE_READY || $this->user_id === null) {
+            return;
+        }
+        if ($this->content_filled_at !== null && $this->enriched_at !== null) {
+            return;
+        }
+
+        try {
+            $siteId = $this->user?->site?->id;
+            $stamps = [];
+
+            if ($this->content_filled_at === null && $siteId !== null) {
+                $hasContent = SiteMedia::query()
+                    ->where('site_id', $siteId)
+                    ->whereIn('pool', SiteMedia::GALLERY_POOLS)
+                    ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
+                    ->exists()
+                    || Menu::query()
+                        ->where('user_id', $this->user_id)
+                        ->where('fetch_status', 'ok')
+                        ->exists();
+                if ($hasContent) {
+                    $stamps['content_filled_at'] = now();
+                }
+            }
+
+            if ($this->enriched_at === null && $siteId !== null) {
+                $hasWorkplace = Workplace::query()
+                    ->where('site_id', $siteId)
+                    ->exists();
+                if ($hasWorkplace) {
+                    $stamps['enriched_at'] = now();
+                }
+            }
+
+            if ($stamps !== []) {
+                $this->forceFill($stamps)->saveQuietly();
+                foreach ($stamps as $column => $at) {
+                    Log::info('pre_account.tier', [
+                        'build_id' => $this->id,
+                        'tier' => str_replace('_at', '', $column),
+                        'seconds_since_created' => (int) $this->created_at->diffInSeconds($at),
+                    ]);
+                }
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
 
     /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo

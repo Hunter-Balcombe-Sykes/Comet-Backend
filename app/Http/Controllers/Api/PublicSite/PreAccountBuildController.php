@@ -74,6 +74,11 @@ class PreAccountBuildController extends ApiController
     {
         $build->loadMissing('user.site');
 
+        // 9h: the poll is the one reader every settling build has — let it
+        // stamp the post-ready tiers (content_filled/enriched) the first time
+        // it sees them and emit the per-tier timing telemetry.
+        $build->observeTierMarkers();
+
         return $this->success((new PreAccountBuildStatusResource($build))->resolve());
     }
 }

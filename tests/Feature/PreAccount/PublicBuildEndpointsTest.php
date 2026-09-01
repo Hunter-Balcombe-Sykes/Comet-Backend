@@ -1,6 +1,9 @@
 <?php
 
 use App\Jobs\PreAccount\GeneratePreAccountSiteJob;
+use App\Jobs\PreAccount\PrewarmInstagramProfileJob;
+use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\PreAccountBuild;
 use App\Services\PreAccount\ClaimSiteService;
 use App\Services\PreAccount\PreAccountBuildService;
@@ -176,4 +179,66 @@ it('never surfaces claim_token on the public poll endpoint', function () {
     $this->getJson("/api/public/signup/builds/{$build->id}")
         ->assertOk()
         ->assertJsonMissingPath('claim_token');
+});
+
+// ── 9h: tier markers on the poll wire ────────────────────────────────────────
+
+it('stamps content_filled/enriched lazily on the poll once their conditions are observable', function () {
+    setupSiteMediaTable();
+    setupWorkplacesTable();
+
+    $this->postJson('/api/public/signup/build', ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'tierjane']);
+    $build = PreAccountBuild::firstOrFail();
+    app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
+    $build->refresh();
+
+    // Pending: no tiers, nothing stamped.
+    $this->getJson("/api/public/signup/builds/{$build->id}")->assertOk()->assertJsonMissingPath('tiers');
+    expect($build->fresh()->content_filled_at)->toBeNull();
+
+    // Ready but no content/workplace yet: still nothing.
+    $build->forceFill(['build_state' => PreAccountBuild::STATE_READY])->save();
+    $this->getJson("/api/public/signup/builds/{$build->id}")->assertOk()->assertJsonMissingPath('tiers');
+
+    // Content lands (a READY gallery asset) → next poll stamps content_filled.
+    $site = $build->user->site;
+    (new SiteMedia([
+        'pool' => 'gallery', 'path' => 'images/t.webp', 'media_type' => 'image',
+        'processing_state' => 'ready', 'sort_order' => 0, 'is_active' => true,
+    ]))->site()->associate($site)->save();
+
+    $this->getJson("/api/public/signup/builds/{$build->id}")
+        ->assertOk()
+        ->assertJsonPath('tiers.content_filled_at', fn ($v) => is_string($v));
+    expect($build->fresh()->content_filled_at)->not->toBeNull()
+        ->and($build->fresh()->enriched_at)->toBeNull();
+
+    // Workplace lands → enriched stamps; content_filled stays at first observation.
+    $first = $build->fresh()->content_filled_at;
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
+
+    $this->getJson("/api/public/signup/builds/{$build->id}")
+        ->assertOk()
+        ->assertJsonPath('tiers.enriched_at', fn ($v) => is_string($v));
+    expect($build->fresh()->enriched_at)->not->toBeNull()
+        ->and($build->fresh()->content_filled_at?->toIso8601String())->toBe($first?->toIso8601String());
+});
+
+// ── 9g: the scrape pre-warm endpoint ─────────────────────────────────────────
+
+it('prewarm queues the cache-warm job and answers 202 without any existence signal', function () {
+    $this->postJson('/api/public/signup/prewarm', ['source_type' => 'instagram', 'source_ref' => '@WarmJane'])
+        ->assertStatus(202)
+        ->assertJsonPath('status', 'warming');
+
+    Queue::assertPushed(PrewarmInstagramProfileJob::class, fn ($job) => $job->username === 'warmjane');
+});
+
+it('prewarm rejects a non-instagram source and a malformed ref', function () {
+    $this->postJson('/api/public/signup/prewarm', ['source_type' => 'google_business', 'source_ref' => 'ChIJx'])
+        ->assertStatus(422);
+    $this->postJson('/api/public/signup/prewarm', ['source_type' => 'instagram', 'source_ref' => 'not a handle!'])
+        ->assertStatus(422);
+
+    Queue::assertNotPushed(PrewarmInstagramProfileJob::class);
 });

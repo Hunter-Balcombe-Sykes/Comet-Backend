@@ -509,6 +509,15 @@ survives untouched.
 - Seed fetches pooled (photo + reel-cover + profile concurrently); reel
   mp4 started but NOT awaited — photo fallback + Item 6c stand-in cover
   first paint; the doc rebuild swaps the reel in when it lands.
+- **DONE 2026-09-01, consciously narrowed** (executor decision): the mp4
+  (10-40s) left the critical path via SeedReelMirrorJob (media-mirror
+  lane, payload-merge under the row lock, observer purge swaps it live);
+  the poster rides WITH the mp4 (poster-first belongs to Item 6c's
+  renderer work, Wave 3). Image-GET pooling was NOT done: the three
+  small fetches share a hardened streamed-sink transport (SEC-14 sniff +
+  pixel budget) and pooling would have saved <1s at the cost of that
+  posture. ManyChat's webhook materializes identity synchronously (its
+  202 must carry the claim URL); fleet stays async for 1d parity.
 - AI bio pass runs concurrent with seed media fetches (names still
   written before seed()'s identity/Fresha-dependent steps — that
   ordering contract holds).
@@ -522,6 +531,16 @@ survives untouched.
   +120s accent re-pass, +5 min GoogleMenuPhotoScanJob, and the 15-min
   menu:retry-unavailable cron for the transient-failure case — each
   with dispatch-on-completion from the job that produces its input.
+- **DONE 2026-09-01** (executor decisions, recorded): the three scan
+  staggers were pure dead time (inputs already in hand) — removed
+  outright. The +120s accent re-pass chains from SiteMediaObserver on a
+  logo/gallery asset reaching READY with a dominant colour (the exact
+  state the async tiers query). The photo scan's 5-min hold became a
+  deferral released by MenuFetchJob's every terminal path
+  (chainAfterMenuSettled). The transient-failure case gets ONE in-band
+  re-fetch ~90s out via a RetryMenuFetchJob relay (self-dispatch would
+  be dropped by the unique lock still held in settled()); the 15-min
+  cron stays as the long-tail net.
 
 ### 9f. Videos-first mirror dispatch
 
@@ -535,12 +554,29 @@ survives untouched.
   profile cache makes the build's scrape a hit). Budget-gated + bot-token
   guarded so abandoned forms cost ≤1 actor run (≈1 vendor call under
   Item 8).
+- **DONE 2026-09-01** (executor decisions, recorded): the availability
+  endpoint never sees the IG handle (it checks email/handle_lc), so the
+  warm got its own endpoint — POST /public/signup/prewarm, dedicated
+  tight bucket (5/min + 15/hr per IP), the build endpoint's bot-token
+  scope, unconditional 202 (never an existence oracle), a 900s-unique
+  job matching the profile-cache window. FE fires it debounced 900ms
+  after the IG input settles, once per distinct handle. rememberLocked
+  collapses a warm-vs-build race: the build's prefetch waits on the
+  warm's lock and reads its answer.
 
 ### 9h. Tier markers on the poll wire (optional garnish, included)
 
 - Status endpoint exposes ready → content_filled → enriched so the
   signup UI shows honest progress and every real signup emits per-tier
   timing telemetry.
+- **DONE 2026-09-01** (executor decisions, recorded): markers are two
+  nullable columns stamped LAZILY by the public poll the first time it
+  observes each condition (observeTierMarkers) — centralised instead of
+  hooked into every producer job; each stamp logs `pre_account.tier`
+  with seconds_since_created (the campaign's telemetry). The FE card's
+  unmount-at-ready contract was left intact on purpose — tiers ride the
+  wire (BuildStatus.tiers) for a future card iteration; changing the
+  card's lifecycle mid-plan was out of scope.
 
 ### Target totals (validated against the 2026-09-01 measured builds)
 

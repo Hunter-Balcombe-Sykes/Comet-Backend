@@ -582,6 +582,27 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        // 9g: signup scrape pre-warm. Each accepted request can cost a real
+        // budget-gated scrape, so the bucket is TIGHTER than availability —
+        // a genuine visitor warms once, maybe twice after a typo. The job's
+        // own 900s unique window dedupes identical handles behind this.
+        RateLimiter::for('signup-prewarm', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return [Limit::none()];
+            }
+
+            $key = (string) ($request->header('CF-Connecting-IP') ?? $request->ip());
+
+            return [
+                Limit::perMinute(config('partna.throttle.signup_prewarm_per_minute', 5))
+                    ->by($key)
+                    ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
+                Limit::perHour(config('partna.throttle.signup_prewarm_per_hour', 15))
+                    ->by($key)
+                    ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
+            ];
+        });
+
         // Live subdomain availability checks (authenticated URL-change flow).
         // Keyed per user (supabase_uid) so one user's typing can't starve
         // others behind a shared IP; IP fallback covers edge cases where the

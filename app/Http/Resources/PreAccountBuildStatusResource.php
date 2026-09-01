@@ -38,6 +38,14 @@ class PreAccountBuildStatusResource extends ApiResource
             'subdomain' => $subdomain,
             'site_url' => ($ready && $subdomain) ? 'https://'.$subdomain.'.'.$publicDomain : null,
             'failure_code' => $this->failure_code,
+            // 9h: post-ready tiers, stamped lazily by the poll (see
+            // PreAccountBuild::observeTierMarkers). Absent until first
+            // observed; the signup UI may ignore them — the timeline
+            // campaign reads them.
+            'tiers' => ($this->content_filled_at !== null || $this->enriched_at !== null) ? array_filter([
+                'content_filled_at' => $this->content_filled_at?->toIso8601String(),
+                'enriched_at' => $this->enriched_at?->toIso8601String(),
+            ]) : null,
         ], fn ($v) => $v !== null);
     }
 }
