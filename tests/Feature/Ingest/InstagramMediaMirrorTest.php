@@ -351,3 +351,36 @@ it('leaves an already-set flag alone rather than rewriting it every sync', funct
 
     expect((bool) DB::table('content.media_assets')->where('user_id', $userId)->value('mirror_eligible'))->toBeFalse();
 });
+
+// Item 9f (2026-09-01): videos dispatch before images. An unmirrored image
+// renders from source_url; an unmirrored video renders NOT AT ALL, and its
+// signed URL is the one racing expiry — so the video bytes lead the wave.
+it('dispatches video-role mirrors before image-role mirrors within one projection pass', function () {
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+
+    $media = [
+        ['role' => 'cover', 'url' => 'https://cdn.example/a.jpg', 'ref' => 'instagram:ord1:0'],
+        ['role' => 'gallery', 'url' => 'https://cdn.example/b.jpg', 'ref' => 'instagram:ord1:1'],
+        ['role' => 'video', 'url' => 'https://cdn.example/c.mp4', 'ref' => 'instagram:ord1:2'],
+        ['role' => 'gallery', 'url' => 'https://cdn.example/d.jpg', 'ref' => 'instagram:ord1:3'],
+        ['role' => 'video', 'url' => 'https://cdn.example/e.mp4', 'ref' => 'instagram:ord1:4'],
+    ];
+
+    app(ProjectionWriter::class)->writeManualItem($userId, 'manual:ig-ord1', [
+        'kind' => 'media',
+        'headline' => 'ordering pass',
+        'media' => $media,
+    ]);
+
+    $order = [];
+    Bus::assertDispatched(MirrorMediaAssetJob::class, function (MirrorMediaAssetJob $job) use (&$order) {
+        $order[] = $job->sourceUrl;
+
+        return true;
+    });
+
+    expect(array_slice($order, 0, 2))->toBe(
+        ['https://cdn.example/c.mp4', 'https://cdn.example/e.mp4'],
+        'video-role assets must be dispatched ahead of every image so the watch pool and home background fill first'
+    );
+});

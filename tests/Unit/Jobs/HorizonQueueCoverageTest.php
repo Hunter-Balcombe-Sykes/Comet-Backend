@@ -71,45 +71,31 @@ it('analytics is listed AFTER images on supervisor-1, so a visitor spike cannot 
         );
 });
 
-// The mirror split (2026-08-18). 'images' is a MIXED queue: ProcessImageVariantsJob
-// has a user watching an upload spinner, MirrorMediaAssetJob is background work on
-// bytes that already render from their source_url. Under balance=>false two jobs on
-// one queue name are declared equally urgent, so a build wave's ~300 mirrors sat in
-// front of every real upload — a priority inversion no reordering of the lane can
-// reach, because the contention is INSIDE the queue.
-it('media-mirror is listed AFTER images, so background mirroring cannot delay a user upload', function () {
+// The mirror split, act two (2026-08-18 → 2026-09-01, Item 9b). First split out
+// of 'images' into supervisor-1's list; then promoted to its OWN supervisor,
+// because inside that strict-priority list a build wave's mirrors drained only
+// when default/cloudflare/cache-warm/images were empty — doc-rebuild and purge
+// churn starved them (87 mirrors ≈ 5-6 min on the 2026-09-01 baseline; the
+// dedicated lane targets ~1 min). These two tests pin the new shape from both
+// sides so a refactor can neither fold the queue back into supervisor-1 nor
+// let another queue ride the mirror lane and reintroduce the contention.
+it('media-mirror has its own dedicated supervisor and serves nothing else', function () {
     $horizon = require base_path('config/horizon.php');
-    $queue = $horizon['defaults']['supervisor-1']['queue'];
 
-    $imagesIndex = array_search('images', $queue, true);
-    $mirrorIndex = array_search('media-mirror', $queue, true);
-
-    expect($imagesIndex)->not->toBeFalse()
-        ->and($mirrorIndex)->not->toBeFalse()
-        ->and($mirrorIndex)->toBeGreaterThan(
-            $imagesIndex,
-            'media-mirror must drain after images — a user waits on an upload, nobody waits on a mirror'
+    expect($horizon['defaults'])->toHaveKey('supervisor-mirror')
+        ->and($horizon['defaults']['supervisor-mirror']['queue'])->toBe(
+            ['media-mirror'],
+            'supervisor-mirror exists to isolate mirrors from rebuild/purge churn — adding queues here recreates the contention it was built to end'
         );
 });
 
-// The other half of the placement, and the reason it is NOT simply appended last:
-// 'analytics' is the highest-volume queue in the system and floods in 20,000-job
-// bursts. Ranked below it, a mirror would wait out an entire visitor spike — trading
-// the inversion above for a worse one, and pushing latency past the point where an
-// Instagram signed URL expires and the mirror fails for real.
-it('media-mirror is listed BEFORE analytics, so a visitor spike cannot strand a mirror for an hour', function () {
+it('media-mirror no longer rides supervisor-1, whose churn starved it', function () {
     $horizon = require base_path('config/horizon.php');
     $queue = $horizon['defaults']['supervisor-1']['queue'];
 
-    $mirrorIndex = array_search('media-mirror', $queue, true);
-    $analyticsIndex = array_search('analytics', $queue, true);
-
-    expect($mirrorIndex)->not->toBeFalse()
-        ->and($analyticsIndex)->not->toBeFalse()
-        ->and($analyticsIndex)->toBeGreaterThan(
-            $mirrorIndex,
-            'analytics is a 20k-job firehose — a mirror ranked below it waits out the whole spike'
-        );
+    expect(array_search('media-mirror', $queue, true))->toBeFalse(
+        'media-mirror was promoted out of supervisor-1 (Item 9b) — listing it here again would double-serve the queue and re-couple mirrors to default/cloudflare churn'
+    );
 });
 
 it('media-mirror queue is covered in every Horizon environment', function () {
@@ -801,7 +787,10 @@ it('the four Unit F wait-time thresholds have the expected values', function () 
 
     // Exact equality, not a range — so a "tidy up" pass can't silently loosen
     // one of these back toward the accidental-60s failure mode.
-    expect($waits['redis:'.ModerationQueue::HIGH.',default,cloudflare,cache-warm,images,media-mirror,streaming,platform_refresh,platform_connect,analytics,cloudflare_bulk'])->toBe(900)
+    expect($waits['redis:'.ModerationQueue::HIGH.',default,cloudflare,cache-warm,images,streaming,platform_refresh,platform_connect,analytics,cloudflare_bulk'])->toBe(900)
+        // Item 9b: media-mirror left supervisor-1's composite key for its own
+        // lane; same 900s clock (signed-URL expiry), now on its own key.
+        ->and($waits['redis:media-mirror'])->toBe(900)
         ->and($waits['redis:ingest'])->toBe(1800)
         ->and($waits['redis:notifications,mail'])->toBe(300)
         ->and($waits['redis_scraping:scraping,gdpr'])->toBe(3600)

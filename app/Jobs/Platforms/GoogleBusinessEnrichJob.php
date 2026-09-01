@@ -138,6 +138,19 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         // came back empty.
         $gbp = GoogleBusinessPayload::fromArray($connection->payload);
 
+        // Item 9c (2026-09-01): the workplace seed consumes ONLY the Place
+        // Details payload already on the row — it never needed the harvest or
+        // the paid Apify result it used to wait ~17-57s behind. Seeding FIRST
+        // starts the whole website-scan subtree (WorkplaceObserver →
+        // ScanPreviousWebsiteContentJob → gallery/logo/menu/accent) in
+        // parallel with the scrape below, and fixes a quiet loss: the
+        // enrichment-unavailable soft-fail used to return before the
+        // workplace ever seeded, dropping a valid Place Details card because
+        // an unrelated paid call came back empty. This is also the R2 fix-1
+        // intent finished: previous_website now lands before the harvest
+        // itself, not merely before seed().
+        $autoSync->seedWorkplaceEarly($this->userId, $gbp->toArray());
+
         // A listing whose "website" is a link-in-bio page (linktr.ee, beacons,
         // msha.ke, stan.store) has nothing for the anchor harvest to find —
         // those pages render their links from JSON — but it is exactly the
@@ -240,11 +253,7 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         // only into slots the user hasn't filled, tagged source:'google-business'.
         // Booking syncs for every account type; the reservation/ordering/workplace/
         // social seeds are Business-Partna only (see GoogleBusinessAutoSync::seed).
-        // R2 fix-1: previous_website (and the rest of the workplace card)
-        // lands BEFORE any harvest/unroll dispatch inside seed() — narrowing
-        // the window the sweep exists to close.
-        $autoSync->seedWorkplaceEarly($this->userId, $gbp->toArray());
-
+        // (The workplace card itself seeded at the top of handle() — Item 9c.)
         $findings = $autoSync->seed(
             $this->userId,
             $enrichment,

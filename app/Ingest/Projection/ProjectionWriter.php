@@ -3252,6 +3252,13 @@ class ProjectionWriter
         // been queued and not yet run — which is how a build wave finished with
         // 32 unmirrored assets and one warning line to explain them.
         $skipped = [];
+        // Item 9f (2026-09-01): videos dispatch FIRST. An unmirrored image
+        // still renders from source_url; an unmirrored video renders NOT AT
+        // ALL (PoolResolver's video gate) — so in a build wave the video
+        // bytes are the ones a visitor is actually waiting on, and they are
+        // also the ones racing signed-URL expiry hardest. Two buckets merged
+        // video-first below; within a bucket, projection order is preserved.
+        $videoCandidates = [];
         $candidates = [];
         $ownedAssetIds = [];
         $borrowedAssetIds = [];
@@ -3289,8 +3296,15 @@ class ProjectionWriter
 
                 continue;
             }
-            $candidates[(string) $assetId] = $rawUrl;
+            if ((string) ($entry['role'] ?? '') === 'video') {
+                $videoCandidates[(string) $assetId] = $rawUrl;
+            } else {
+                $candidates[(string) $assetId] = $rawUrl;
+            }
         }
+        // Union, not merge: keys are asset ids and must not renumber; a
+        // fingerprint can only land in one bucket, so no key collides.
+        $candidates = $videoCandidates + $candidates;
 
         $this->healMirrorEligible($ownedAssetIds, $borrowedAssetIds, $chunk);
 
@@ -3303,10 +3317,17 @@ class ProjectionWriter
             // mirror" AND "why not" for the rest, at no extra round-trip.
             $rows = DB::table('content.media_assets')
                 ->whereIn('id', array_keys($slice))
-                ->get(['id', 'storage_path', 'site_media_id', 'source_url', 'mirror_attempts']);
+                ->get(['id', 'storage_path', 'site_media_id', 'source_url', 'mirror_attempts'])
+                ->keyBy('id');
 
-            foreach ($rows as $row) {
-                $assetId = (string) $row->id;
+            // Iterate the SLICE, not the DB result: whereIn() returns rows in
+            // storage order, which silently discards the video-first ordering
+            // (Item 9f) the candidate map was built to carry.
+            foreach (array_keys($slice) as $assetId) {
+                $row = $rows->get($assetId);
+                if ($row === null) {
+                    continue;
+                }
                 if ($row->storage_path !== null) {
                     $skipped['already_mirrored'] = ($skipped['already_mirrored'] ?? 0) + 1;
 

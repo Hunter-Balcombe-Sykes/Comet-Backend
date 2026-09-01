@@ -103,7 +103,14 @@ return [
         // reads back exactly the composite key the supervisor registers. Reorder
         // `defaults.supervisor-1.queue` and this string MUST move with it, or the
         // lane silently falls back to the accidental 60s ceiling.
-        'redis:'.ModerationQueue::HIGH.',default,cloudflare,cache-warm,images,media-mirror,streaming,platform_refresh,platform_connect,analytics,cloudflare_bulk' => 900,
+        'redis:'.ModerationQueue::HIGH.',default,cloudflare,cache-warm,images,streaming,platform_refresh,platform_connect,analytics,cloudflare_bulk' => 900,
+
+        // Lane 1b — supervisor-mirror (2026-09-01, Item 9b): media-mirror's
+        // own lane. 900s: mirrors are background byte-copies whose assets
+        // already render from source_url, but past 15 minutes signed
+        // Instagram URLs start expiring and latency becomes real failures —
+        // the same clock that motivated the queue's placement pre-split.
+        'redis:media-mirror' => 900,
 
         // Lane 2 — supervisor-ingest (balance=>'auto', 1 proc): the one lane
         // where a per-queue key is legitimate. 1800s = 2x ingest:dispatch's
@@ -122,7 +129,7 @@ return [
         // coordinator run (a legitimate ~2min across 2 procs).
         'redis:notifications,mail' => 300,
 
-        // Lane 4 — supervisor-long (balance=>false, 1 proc): scraping/gdpr,
+        // Lane 4 — supervisor-long (balance=>false, 3 procs since Item 9b): scraping/gdpr,
         // 600s-job tier. Was previously unkeyed (accidental 60s default),
         // close to absurd for this lane — two queued 600s scrapes alone
         // project 1200s and would have paged every 5 minutes forever on an
@@ -237,23 +244,17 @@ return [
             // correctness — but it is invisible to the user whose photo never appears.
             // Guarded by 'analytics is listed AFTER images' in HorizonQueueCoverageTest.
             //
-            // 2026-08-18: 'media-mirror' SPLIT OUT of 'images' and inserted directly
-            // below it (R8 follow-up). 'images' was a MIXED queue — ProcessImageVariantsJob
-            // has a user watching an upload spinner; MirrorMediaAssetJob is background work
-            // on bytes that already render from their source_url. balance=>false declares
-            // two jobs on one queue name equally urgent, so a pre-account build wave's ~300
-            // mirrors queued in front of every real upload. No reordering of THIS list could
-            // fix that — the contention was inside the queue, not between queues.
-            // Adds a queue NAME only: no new supervisor, process or memory (same shape as
-            // 'cloudflare_bulk'). Placement is deliberate on both sides — below 'images' so
-            // uploads always win, and ABOVE 'analytics' because that 20k-job firehose would
-            // otherwise strand a mirror for a whole visitor spike, long enough for an
-            // Instagram signed url to expire and turn latency into a real failure.
-            // Rejected alternative: promoting 'images' above 'cloudflare'. That queue carries
-            // SyncSubdomainToKvJob — the ONLY KV writer — so it would have traded "photo
-            // appears late" for "the site does not resolve".
-            // Guarded by two ordering tests in HorizonQueueCoverageTest.
-            'queue' => [ModerationQueue::HIGH, 'default', 'cloudflare', 'cache-warm', 'images', 'media-mirror', 'streaming', 'platform_refresh', 'platform_connect', 'analytics', 'cloudflare_bulk'],
+            // 2026-08-18: 'media-mirror' split out of 'images' (R8 follow-up) and
+            // parked in this list below it. 2026-09-01 (Item 9b): promoted OUT of
+            // this list into its own supervisor-mirror lane. In this strict-priority
+            // list a build wave's ~90 mirrors drained at ≤2 effective workers MINUS
+            // whatever default/cloudflare churn outranked them — measured on the
+            // 2026-09-01 baseline builds as 5-6 minutes for 87 mirrors that a
+            // dedicated 2-worker lane clears in ~1 minute. Mirrors are pure vendor-CDN
+            // I/O waits; nothing here is CPU-bound. Rejected alternative: raising
+            // this supervisor's maxProcesses — that scales the churn (doc rebuilds,
+            // purges) along with the mirrors and keeps the starvation coupling.
+            'queue' => [ModerationQueue::HIGH, 'default', 'cloudflare', 'cache-warm', 'images', 'streaming', 'platform_refresh', 'platform_connect', 'analytics', 'cloudflare_bulk'],
             'balance' => false,
             'maxProcesses' => 1,
             'maxTime' => 0,
@@ -301,9 +302,17 @@ return [
         // and both are 660. retry_after must exceed the 600s job timeouts or
         // Redis re-queues a still-running scrape (double-billed Apify,
         // duplicate menu rows) or a destructive GDPR run. timeout 660 keeps
-        // Horizon's own SIGKILL ahead of any Redis re-queue. maxProcesses
-        // stays 1 on deployed envs — external APIs are rate-limited, not
-        // CPU-bound.
+        // Horizon's own SIGKILL ahead of any Redis re-queue.
+        //
+        // maxProcesses 1 → 3 on deployed envs (2026-09-01, Item 9b). The old
+        // "external APIs are rate-limited, not CPU-bound" reasoning argued for
+        // 1, but per-vendor rate limits are enforced IN-APP (RateLimited
+        // middleware / budget ledgers), not by worker count — one worker only
+        // serialized UNRELATED jobs: a signup build queued behind another
+        // user's 82s menu scrape, and two simultaneous signups serialized
+        // entirely (measured 2026-09-01). These jobs are HTTP waits; three
+        // workers is concurrency for independent work, and the vendor
+        // limiters still gate per-vendor pressure exactly as before.
         'supervisor-long' => [
             'connection' => 'redis_scraping',
             'queue' => ['scraping', 'gdpr'],
@@ -314,6 +323,24 @@ return [
             'memory' => 256,
             'tries' => 1,
             'timeout' => 660,
+            'nice' => 5,
+        ],
+        // Mirror lane (2026-09-01, Item 9b): MirrorMediaAssetJob only. Split
+        // from supervisor-1's strict-priority list where doc-rebuild/purge
+        // churn (ranked above it) starved a build wave's mirrors — 87 mirrors
+        // took 5-6 min on the 2026-09-01 baseline; a dedicated lane clears
+        // them in ~1 min. Job $timeout=120 < redis retry_after=360, so the
+        // standard 'redis' connection is safe. Pure vendor-CDN I/O waits.
+        'supervisor-mirror' => [
+            'connection' => 'redis',
+            'queue' => ['media-mirror'],
+            'balance' => false,
+            'maxProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 1,
+            'timeout' => 300,
             'nice' => 5,
         ],
         // ffmpeg lane: ProcessVideoVariantsJob encodes for up to an hour
@@ -415,10 +442,16 @@ return [
 
     'environments' => [
 
+        // 2026-09-01 (Item 9b): supervisor-long 1→3 and the new
+        // supervisor-mirror at 2 add four workers (11 total). On the 2 GiB
+        // box that is a WATCH item, not a proven fit: deploy, watch for OOM
+        // restarts in cloud logs, and either resize the box (owner
+        // pre-approved) or trim supervisor-long to 2 if memory bites.
         'production' => [
             'supervisor-1' => ['maxProcesses' => 2],
             'supervisor-mail' => ['maxProcesses' => 2],
-            'supervisor-long' => ['maxProcesses' => 1],
+            'supervisor-long' => ['maxProcesses' => 3],
+            'supervisor-mirror' => ['maxProcesses' => 2],
             'supervisor-videos' => ['maxProcesses' => 1],
             'supervisor-ingest' => ['maxProcesses' => 1],
         ],
@@ -426,7 +459,8 @@ return [
         'development' => [
             'supervisor-1' => ['maxProcesses' => 2],
             'supervisor-mail' => ['maxProcesses' => 2],
-            'supervisor-long' => ['maxProcesses' => 1],
+            'supervisor-long' => ['maxProcesses' => 3],
+            'supervisor-mirror' => ['maxProcesses' => 2],
             'supervisor-videos' => ['maxProcesses' => 1],
             'supervisor-ingest' => ['maxProcesses' => 1],
         ],
@@ -435,6 +469,7 @@ return [
             'supervisor-1' => ['maxProcesses' => 3],
             'supervisor-mail' => ['maxProcesses' => 1],
             'supervisor-long' => ['maxProcesses' => 2],
+            'supervisor-mirror' => ['maxProcesses' => 1],
             'supervisor-videos' => ['maxProcesses' => 1],
             'supervisor-ingest' => ['maxProcesses' => 1],
         ],

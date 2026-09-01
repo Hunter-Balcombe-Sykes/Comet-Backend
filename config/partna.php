@@ -338,28 +338,30 @@ return [
             ],
         ],
 
-        // Shared Apify cost ceiling (SCALE-2). Every paid actor (instagram, menu,
+        // Shared Apify cost ceiling (SCALE-2). Caps ×3 2026-09-01 (Item 8 G2,
+        // owner-signed): env overrides on Laravel Cloud still win over these
+        // defaults; the ledger mechanics are unchanged. Every paid actor (instagram, menu,
         // google-business) claims a slot from ApifyBudget before spending: a
         // per-actor daily cap PLUS a global daily cap so one integration's runaway
         // can't exhaust the account and starve the others. Also carries the shared
         // run-sync HTTP timeout (CFG-9).
         'apify' => [
-            'global_daily_cap' => (int) env('PARTNA_APIFY_GLOBAL_DAILY_CAP', 3000),
+            'global_daily_cap' => (int) env('PARTNA_APIFY_GLOBAL_DAILY_CAP', 9000),
             'actors' => [
                 // Instagram reuses its existing tuned env var (behaviour preserved).
-                'instagram' => (int) env('PARTNA_INSTAGRAM_APIFY_DAILY_CAP', 600),
-                'menu' => (int) env('PARTNA_MENU_APIFY_DAILY_CAP', 900),
-                'google-business' => (int) env('PARTNA_GB_APIFY_DAILY_CAP', 900),
+                'instagram' => (int) env('PARTNA_INSTAGRAM_APIFY_DAILY_CAP', 1800),
+                'menu' => (int) env('PARTNA_MENU_APIFY_DAILY_CAP', 2700),
+                'google-business' => (int) env('PARTNA_GB_APIFY_DAILY_CAP', 2700),
                 // Convergence Phase 4. These MUST exist: tryClaim() defaults an
                 // unregistered actor's cap to 0, which denies every claim, so a
                 // missing entry here reads as "the connector lands nothing"
                 // rather than as a configuration error.
-                'music-spotify' => (int) env('PARTNA_SPOTIFY_APIFY_DAILY_CAP', 150),
-                'music-soundcloud' => (int) env('PARTNA_SOUNDCLOUD_APIFY_DAILY_CAP', 150),
-                'music-spotify_releases' => (int) env('PARTNA_SPOTIFY_RELEASES_APIFY_DAILY_CAP', 150),
+                'music-spotify' => (int) env('PARTNA_SPOTIFY_APIFY_DAILY_CAP', 450),
+                'music-soundcloud' => (int) env('PARTNA_SOUNDCLOUD_APIFY_DAILY_CAP', 450),
+                'music-spotify_releases' => (int) env('PARTNA_SPOTIFY_RELEASES_APIFY_DAILY_CAP', 450),
                 // T27c social feed actors (SocialActorDriver claims these).
-                'tiktok' => (int) env('PARTNA_TIKTOK_APIFY_DAILY_CAP', 300),
-                'facebook' => (int) env('PARTNA_FACEBOOK_APIFY_DAILY_CAP', 300),
+                'tiktok' => (int) env('PARTNA_TIKTOK_APIFY_DAILY_CAP', 900),
+                'facebook' => (int) env('PARTNA_FACEBOOK_APIFY_DAILY_CAP', 900),
             ],
 
             // CFG-9: HTTP client timeout for Apify run-sync-get-dataset-items calls, which block
