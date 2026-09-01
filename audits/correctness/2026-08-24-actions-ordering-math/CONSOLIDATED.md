@@ -69,7 +69,7 @@
 
 - P1 High: 1 of 1 complete
 - P2 Medium: 1 of 1 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
@@ -164,8 +164,9 @@
 
 ## P3 — Nice to have
 
-- [ ] **#RANK-3** · P3 — Pool locks have no `unavailable` reporting at all, unlike action slots
-    - **Where:** app/Site/Pools/PoolOrdering.php:56-68 (`applyLocks`), :95-146 (`applyLocksPerCollection`); app/Site/Pools/PoolResolver.php (`assemble`, call site)
+- [x] **#RANK-3** · P3 — Pool locks have no `unavailable` reporting at all, unlike action slots
+    - Resolution (2026-09-01): STALE — FIXED. Both halves of the "what to do" shipped. (1) `PoolOrdering::applyLocks()` and `applyLocksPerCollection()` now both return `array{items: list<...>, unavailable: list<string>}` (`app/Site/Pools/PoolOrdering.php:66-108`, `:123-181`), and the docblock says outright that a dropped lock is "reported in `unavailable` (#RANK-2) — mirrors" `ActionSlots::resolve()`, which is the contract this finding asked it to mirror. (2) It is threaded through: `PoolResolver::assemble()` captures `$lockResult['unavailable']` at `:446` and returns it as `'unavailablePoolLocks'` at `:477`, declared in the return-shape docblocks at `:203` and `:397`.
+    - **Where:** app/Site/Pools/PoolOrdering.php:66-108, :123-181; app/Site/Pools/PoolResolver.php:443-477
     - **Affects:** Owners whose pool locks reference an item that's later removed, excluded, or disconnected — the dashboard has no way to surface "this lock stopped applying."
     - **Effort:** M (~2–3h)
     - **What to do:**
