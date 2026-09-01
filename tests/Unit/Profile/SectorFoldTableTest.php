@@ -50,6 +50,10 @@ it('folds a Google category to the expected sector', function (string $category,
     // fold correctly and are asserted as such. The bug group is gone with them.
     'Spanish restaurant (was: matched spa before restaurant)' => ['Spanish restaurant', 'restaurant'],
     'Sports bar (was: matched gym via sport before bar)' => ['Sports bar', 'bar'],
+    // Was GROUP 4, the food gap. Closed by the F5 mapping wave (2026-08-31):
+    // gelato-messina-darlinghurst arrived with exactly this category, folded to
+    // nothing, and its can_use_menu therefore read false.
+    'Ice cream shop (was: the gelato gap)' => ['Ice cream shop', 'cafe'],
 ]);
 
 it('folds an Instagram businessCategoryName to the expected sector', function (string $category, string $expected) {
@@ -69,14 +73,17 @@ it('returns null for placeholder categories', function (string $category) {
         ->and(SectorTaxonomy::fromGoogleCategory($category))->toBeNull();
 })->with(['None', 'none', ' None ', 'null', 'N/A', '-', '']);
 
-// GROUP 4 — the food gap, pinned as current behaviour.
+// GROUP 4 — the food gap, pinned as current behaviour. One row shorter since
+// 2026-08-31: "Ice cream shop" is the category gelato-messina-darlinghurst
+// actually carried, so F5 mapped it and it moved up to group 1. The two
+// remaining rows are the shapes no live account has produced yet — they stay
+// here as gaps rather than being mapped on speculation.
 it('KNOWN GAP: an obviously-food category is not food to the gate', function (string $category) {
     $sector = SectorTaxonomy::fromGoogleCategory($category);
     expect(SectorTaxonomy::isFood($sector))->toBeFalse(
         "'{$category}' now folds to food sector '{$sector}' — the gelato gap closed; move this row to group 1 and update the report",
     );
 })->with([
-    'Ice cream shop' => ['Ice cream shop'],
     'Gelato shop' => ['Gelato shop'],
     'Dessert shop' => ['Dessert shop'],
 ]);

@@ -193,8 +193,10 @@ class User extends BaseModel
 
     // Account is in the normal, publicly-servable state (not suspended, disabled,
     // or pending deletion). Canonical predicate so the literal status string lives
-    // in one place — SyncSubdomainToKvJob retires the subdomain route when false,
-    // mirroring the public read path (public_site_payload requires status='active').
+    // in one place — SyncSubdomainToKvJob retires the subdomain route when false.
+    // (The `site.public_site_payload` view this used to cite requires status
+    // 'active' OR 'unclaimed' AND is_published — and it backs only the legacy
+    // /public/site path, not the profiles route.)
     public function isActive(): bool
     {
         return mb_strtolower(trim((string) ($this->status ?? ''))) === 'active';

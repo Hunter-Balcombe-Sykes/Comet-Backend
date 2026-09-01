@@ -450,8 +450,11 @@ class AnalyticsController extends ApiController
         }
 
         // T9 (issue 4, 2026-08-27): unclaimed pre-account sites render
-        // publicly with is_published=false (profiles endpoint has no publish
-        // gate; KV routes the subdomain), so gating ingest on is_published
+        // publicly with is_published=false (KV routes the subdomain, and the
+        // profiles endpoint carries the same unclaimed carve-out — it gained
+        // the claimed-owner half of this predicate on 2026-09-01, modelled on
+        // this block, which until then was the only place it existed), so
+        // gating ingest on is_published
         // alone silently discarded every visitor to a demo site. Accept the
         // renderable-as-unclaimed case; a CLAIMED owner's unpublished site
         // stays 404 — for them the publish knob IS the visibility switch.

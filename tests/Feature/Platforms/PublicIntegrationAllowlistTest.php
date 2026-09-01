@@ -315,6 +315,9 @@ it('keeps the GLOBAL shop link mode off this wire — the pool composes the URL 
         'user_id' => $user->id,
         'subdomain' => 'allowshop',
         'shop_link_mode' => 'checkout',
+        // Explicit: a raw insert takes the SQLite DDL default (0), and the
+        // public read paths now 404 a claimed owner's unpublished site.
+        'is_published' => true,
         'created_at' => now(),
         'updated_at' => now(),
     ]);

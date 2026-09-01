@@ -18,9 +18,13 @@ it('still classifies a plain "Cocktail bar" as bar', function () {
     expect(SectorTaxonomy::fromGoogleCategory('Cocktail bar'))->toBe('bar');
 });
 
+// The unmatched example used to be 'Locksmith'. It classifies now — it was one
+// of the 29 Google category strings the 2026-08-31 cold-build audit found
+// producing sector NULL on a live account (mb-locksmiths-melbourne). 'Shoe
+// repair' takes its place as a category the map genuinely has no home for.
 it('returns null for empty and unmatched categories', function () {
     expect(SectorTaxonomy::fromGoogleCategory(''))->toBeNull()
-        ->and(SectorTaxonomy::fromGoogleCategory('Locksmith'))->toBeNull();
+        ->and(SectorTaxonomy::fromGoogleCategory('Shoe repair'))->toBeNull();
 });
 
 /**
@@ -42,6 +46,7 @@ it('classifies a representative input for every KEYWORD_SECTORS entry to its int
     'makeup' => ['Makeup studio', 'makeup-artist'],
     'make-up' => ['Make-up studio', 'makeup-artist'],
     'spa' => ['Day spa', 'spa'],
+    'massage' => ['Massage', 'spa'],
     'tattoo' => ['Tattoo studio', 'tattoo-artist'],
     // M-10: Google's snake_case type body_art_service humanizes to this when
     // the primary type is a generic bucket (Vic Market Tattoo live shape).
@@ -56,18 +61,25 @@ it('classifies a representative input for every KEYWORD_SECTORS entry to its int
     'trainer' => ['Personal trainer', 'personal-trainer'],
     'chiropractor' => ['Chiropractor clinic', 'chiropractor'],
     'dentist' => ['Dentist office', 'dentist'],
+    'dental' => ['Dental clinic', 'dentist'],
     'physio' => ['Physio clinic', 'physiotherapist'],
+    'veterinar' => ['Veterinary care', 'veterinarian'],
+    'medical clinic' => ['Medical clinic', 'medical-clinic'],
     'sport' => ['Sports centre', 'gym'],
     'photographer' => ['Photographer studio', 'photographer'],
     'photo' => ['Photo booth', 'photographer'],
     'art gallery' => ['Art gallery', 'artist'],
     'gallery' => ['Local gallery', 'artist'],
+    'live music venue' => ['Live music venue', 'event-venue'],
+    'music venue' => ['Music venue', 'event-venue'],
+    'concert hall' => ['Concert hall', 'event-venue'],
     'music' => ['Music studio', 'musician'],
     'real estate' => ['Real estate agency', 'real-estate-agent'],
     'accountant' => ['Accountant office', 'accountant'],
     'lawyer' => ['Lawyer office', 'lawyer'],
     'attorney' => ['Attorney at law', 'lawyer'],
     'consultant' => ['Business consultant', 'consultant'],
+    'marketing' => ['Marketing agency', 'marketing-agency'],
     'clothing' => ['Clothing store', 'clothing-boutique'],
     'florist' => ['Florist shop', 'florist'],
     'flower' => ['Flower shop', 'florist'],
@@ -94,9 +106,32 @@ it('classifies a representative input for every KEYWORD_SECTORS entry to its int
     'cafe' => ['Cosy cafe', 'cafe'],
     'coffee' => ['Coffee shop', 'cafe'],
     'bakery' => ['Local bakery', 'bakery'],
+    'sandwich' => ['Sandwich shop', 'cafe'],
+    'ice cream' => ['Ice cream shop', 'cafe'],
     'food truck' => ['Food truck vendor', 'food-truck'],
     'caterer' => ['Caterer services', 'caterer'],
+    'brewery' => ['Brewery', 'bar'],
+    'winery' => ['Winery', 'bar'],
+    'pub' => ['Pub', 'bar'],
     'bar' => ['Wine bar', 'bar'],
+    'butcher' => ['Butcher shop', 'grocer'],
+    'food store' => ['Food store', 'grocer'],
+    'liquor' => ['Liquor store', 'liquor-store'],
+    'book store' => ['Book store', 'retail-store'],
+    'toy store' => ['Toy store', 'retail-store'],
+    'electronics store' => ['Electronics store', 'retail-store'],
+    'bicycle' => ['Bicycle shop', 'retail-store'],
+    'garden center' => ['Garden center', 'retail-store'],
+    'garden centre' => ['Garden centre', 'retail-store'],
+    'pet care' => ['Pet care service', 'pet-services'],
+    'museum' => ['Museum', 'museum-gallery'],
+    'laundry' => ['Laundry', 'laundry'],
+    'locksmith' => ['Locksmith', 'locksmith'],
+    'educational institution' => ['Educational institution', 'tutor'],
+    'market' => ['Market', 'market'],
+    'store' => ['Store', 'retail-store'],
+    'health' => ['Health', 'medical-clinic'],
+    'school' => ['School', 'tutor'],
 ]);
 
 /**
@@ -110,14 +145,17 @@ it('has one representative input for every KEYWORD_SECTORS entry', function () {
 
     // The dataset keys of the representative table are the keyword names.
     $covered = [
-        'barber', 'hair', 'nail', 'makeup', 'make-up', 'spa', 'tattoo', 'body art', 'piercing', 'gym', 'fitness', 'yoga',
-        'trainer', 'chiropractor', 'dentist', 'physio', 'sport', 'photographer', 'photo',
-        'art gallery', 'gallery', 'music', 'real estate', 'accountant', 'lawyer', 'attorney',
-        'consultant', 'clothing', 'florist', 'flower', 'jewel', 'gift shop', 'plumber',
+        'barber', 'hair', 'nail', 'makeup', 'make-up', 'spa', 'massage', 'tattoo', 'body art', 'piercing', 'gym', 'fitness', 'yoga',
+        'trainer', 'chiropractor', 'dentist', 'dental', 'physio', 'veterinar', 'medical clinic', 'sport', 'photographer', 'photo',
+        'art gallery', 'gallery', 'live music venue', 'music venue', 'concert hall', 'music', 'real estate', 'accountant', 'lawyer', 'attorney',
+        'consultant', 'marketing', 'clothing', 'florist', 'flower', 'jewel', 'gift shop', 'plumber',
         'electrician', 'clean', 'landscap', 'hotel', 'event venue', 'event planner', 'wedding',
         'car repair', 'auto repair', 'mechanic', 'car wash', 'car dealer', 'tutor',
         'dance school', 'dance', 'driving school', 'restaurant', 'cafe', 'coffee', 'bakery', 'donut', 'doughnut',
-        'food truck', 'caterer', 'bar',
+        'sandwich', 'ice cream', 'food truck', 'caterer', 'brewery', 'winery', 'pub', 'bar',
+        'butcher', 'food store', 'liquor', 'book store', 'toy store', 'electronics store', 'bicycle',
+        'garden center', 'garden centre', 'pet care', 'museum', 'laundry', 'locksmith',
+        'educational institution', 'market', 'store', 'health', 'school',
     ];
 
     expect(array_diff($keywords, $covered))->toBe([], 'KEYWORD_SECTORS entries with no representative input')

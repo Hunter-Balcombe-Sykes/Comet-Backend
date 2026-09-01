@@ -1,11 +1,34 @@
 # Overnight backlog — golden-standard pass
 
+> **RUN CLOSED 2026-09-01 — see section M for the final state.**
+
 Living list. Every issue found tonight, big or small, related or unrelated, lands here with evidence.
 Nothing is marked done without a citation. Started 2026-08-31 ~23:00 local.
 
 **Standing context:** the software is not live. No real users, every account is a test account. Downtime,
 destructive rebuilds and deleted test data are all acceptable. Where there is a choice, take the best
 design, not the smallest diff.
+
+---
+
+## M. RUN CLOSED — 2026-09-01
+
+Wave 4 complete (all seven units), Wave 8 complete (sound/sound). Final acts:
+
+- **F5 backfill executed live**: 30 more accounts classified (79 null → 49). The schema rail bit on
+  the way — `users_sector_check` didn't know the new slugs — fixed with a migration GENERATED from
+  `SectorTaxonomy::all()` (`20260901140000`), so the PHP taxonomy and its DB mirror cannot drift by
+  hand-editing again.
+- Remaining unmapped category strings, for a small follow-up: `Beauty Salon` (looks like a genuine
+  keyword miss), `Corporate Office`, `Services` ×2, `Funeral Home`, `Farm`. The other 43 null-sector
+  accounts have no Google category at all.
+- F22 live: `google_menu_scan.capability_denied` now logs instead of a silent 14ms return.
+- Name hardening live (`838038b8f`): fold word-break fix, emoji stripped from display names,
+  PersonNameMatch integration pinned.
+- Capability correction (`736f9c4ba`): a real reviews attribution gate restored, the render-time
+  menu veto removed, the false IdentitySync premise corrected.
+- E13 storage note: 194 legacy R2 prefixes await the delete queue (duplicated storage only; nothing
+  references them). The four contested accounts still need one paid re-scrape each — owner call.
 
 ---
 

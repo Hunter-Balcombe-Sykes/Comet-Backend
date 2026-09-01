@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\PublicSite;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Resources\Platforms\PublicIntegrationConnectionResource;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use Illuminate\Http\JsonResponse;
 
@@ -41,10 +42,22 @@ class PublicIntegrationController extends ApiController
             return $this->error('Not found.', 404);
         }
 
-        $user = User::query()->where('handle_lc', $handleLc)->first(['id']);
+        $user = User::query()->where('handle_lc', $handleLc)->first(['id', 'status']);
         if (! $user) {
             return $this->error('Not found.', 404);
         }
+
+        // The publish gate — same predicate as IndividualProfileController::show.
+        // The two public read paths must agree, or the gate is half a gate: this
+        // one hands back Instagram and Google Business payloads for a site the
+        // owner has switched off. Unclaimed builds are exempt (the pre-claim
+        // demo); a site-less user has no publish knob to honour.
+        // Uncached endpoint, so this is a direct read, not a cached verdict.
+        $site = Site::query()->where('user_id', $user->id)->first(['is_published']);
+        if ($site !== null && ! $site->is_published && ! $user->isUnclaimed()) {
+            return $this->error('Not found.', 404);
+        }
+
         $userId = $user->id;
 
         // Grouped by platform → list of {resourceId, payload, lastRefreshedAt}.

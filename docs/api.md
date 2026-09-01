@@ -365,15 +365,20 @@ All ids are UUID strings. Timestamps are ISO 8601 strings when returned by the A
 
 ### Public visibility vs. `is_published`
 
-`is_published` is a dashboard-level flag, not a public-visibility control. Pre-account sites (post-signup,
-pre-claim) render publicly at `<handle>.partna.au` and via `GET /api/public/profiles/{handle}` regardless
-of `is_published` — deliberate, so a visitor can see their site before claiming it. Some public-facing
-paths gate on it and some do not; there is no single rule, so check this table rather than assuming:
+**The rule turns on who owns the site** (corrected 2026-09-01 — before that date the two profile rows
+below read "No", and a claimed owner's unpublished site was fully readable):
+
+- **Claimed owner** (`users.status = 'active'`) — `is_published` **is** the public-visibility switch.
+  Every public path 404s when it is false.
+- **Unclaimed pre-account build** (`users.status = 'unclaimed'`) — renders at `<handle>.partna.au` and via
+  `GET /api/public/profiles/{handle}` **regardless** of `is_published`. Deliberate, so a visitor can see
+  their site before claiming it. (A "Dark Until Claimed" gate closing this was reverted 2026-08-25 on
+  owner decision.)
 
 | Path | Gates on `is_published`? |
 |---|---|
-| `GET /api/public/profiles/{handle}` (`IndividualProfileController`) — the live `<handle>.partna.au` sitepage | No |
-| `GET /api/public/profiles/{handle}/integrations` and `/platforms` (`PublicIntegrationController`) | No |
+| `GET /api/public/profiles/{handle}` (`IndividualProfileController`) — the live `<handle>.partna.au` sitepage | Yes — claimed owners only |
+| `GET /api/public/profiles/{handle}/integrations` (`PublicIntegrationController`) | Yes — claimed owners only |
 | `SyncSubdomainToKvJob` (Cloudflare KV write) — gates on `isActive() \|\| isUnclaimed()` instead | No |
 | `PublicSiteResolver` (lead/enquiry/subscribe site lookup) | Yes |
 | `PublicDocumentDownloadController` | Yes |
@@ -699,7 +704,9 @@ await fetch(`${API_BASE}/analytics/pageviews`, {
 
 An unpublished site returns **404, not 403** — `site.public_site_payload` simply yields no row
 (see "Public visibility vs. `is_published`"), and public endpoints answer 404 rather than 403 so a
-caller cannot enumerate which subdomains exist.
+caller cannot enumerate which subdomains exist. Note this endpoint has **no unclaimed carve-out**:
+the view requires `is_published = true` unconditionally, so an unpublished pre-account build 404s
+here even though it still renders on `GET /api/public/profiles/{handle}`.
 
 **Notes:**
 - `blocks` is a combined, sort-ordered array of both `links` and `sections` and includes `block_group` on each item.
