@@ -164,8 +164,12 @@ final class BuildProgressReader
 
     /**
      * How much of the pool has been copied to our storage — "Saving your
-     * media 14 of 28". content.media_assets carries user_id and storage_path
-     * (a mirrored asset has one); the unowned entries never mint an asset.
+     * media 14 of 28". Only the MIRROR-ELIGIBLE assets count: a borrowed
+     * entry (a Shopify product image, a YouTube thumbnail) is served from
+     * its own CDN and is unmirrored forever by design (migration
+     * 20260819004000). The first real signup after launch (2026-09-02,
+     * 39 owned + 79 Shopify images) counted them and could only finish on
+     * the ceiling, "39 of 118" on screen the whole way.
      *
      * @return array{mirrored: int, total: int}
      */
@@ -177,6 +181,7 @@ final class BuildProgressReader
         try {
             $row = DB::connection('pgsql')->table('content.media_assets')
                 ->where('user_id', $build->user_id)
+                ->where('mirror_eligible', true)
                 ->selectRaw('count(*) as total, count(storage_path) as mirrored')
                 ->first();
         } catch (\Throwable $e) {

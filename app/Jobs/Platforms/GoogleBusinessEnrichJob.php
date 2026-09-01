@@ -349,7 +349,7 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
             $this->userId,
             PreAccountBuildEvent::STAGE_LISTING,
             PreAccountBuildEvent::STATUS_LANDED,
-            'Pulled your Google listing — hours, photos and reviews',
+            'Pulled the Google listing — hours, photos and reviews',
         );
 
         // Terminal success: clear both markers so a genuine later reconnect

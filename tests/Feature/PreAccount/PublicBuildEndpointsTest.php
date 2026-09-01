@@ -337,6 +337,26 @@ it('carries a progress block from the first poll, fills it from the ledger, and 
     $this->getJson("/api/public/signup/builds/{$build->id}")
         ->assertJsonPath('progress.done', true)
         ->assertJsonPath('progress.stage', 'platforms');
+
+    // Media counts only the MIRROR-ELIGIBLE assets: a borrowed Shopify
+    // product image is unmirrored forever by design and must never hold the
+    // setup open (the first real signup, 2026-09-02: 39 owned + 79 borrowed
+    // read "39 of 118" until the ceiling).
+    $now = now()->toDateTimeString();
+    DB::connection('pgsql')->table('content.media_assets')->insert([
+        ['id' => (string) Str::uuid(), 'user_id' => (string) $build->user_id, 'fingerprint' => 'own-1', 'storage_path' => 'media/own-1.jpg', 'mirror_eligible' => 1, 'created_at' => $now],
+        ['id' => (string) Str::uuid(), 'user_id' => (string) $build->user_id, 'fingerprint' => 'own-2', 'storage_path' => null, 'mirror_eligible' => 1, 'created_at' => $now],
+        ['id' => (string) Str::uuid(), 'user_id' => (string) $build->user_id, 'fingerprint' => 'borrowed-1', 'storage_path' => null, 'mirror_eligible' => 0, 'created_at' => $now],
+    ]);
+    $this->getJson("/api/public/signup/builds/{$build->id}")
+        ->assertJsonPath('progress.media.total', 2)
+        ->assertJsonPath('progress.media.mirrored', 1)
+        ->assertJsonPath('progress.done', false);
+
+    DB::connection('pgsql')->table('content.media_assets')->where('fingerprint', 'own-2')->update(['storage_path' => 'media/own-2.jpg']);
+    $this->getJson("/api/public/signup/builds/{$build->id}")
+        ->assertJsonPath('progress.media.mirrored', 2)
+        ->assertJsonPath('progress.done', true);
 });
 
 it('noteForUser writes nothing for a claimed or stale build, and note() never throws', function () {
