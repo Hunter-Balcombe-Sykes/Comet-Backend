@@ -27,15 +27,106 @@ use Tests\Support\Architecture\PostgresLaneDdlScanner;
  * provisions at all — stays uncatchable by any static scan, exactly as
  * PostgresLaneDdlDriftTest says.
  *
+ * ATTRIBUTION, and its limits (do not over-trust a clean run). A lane file's app-code
+ * surface is discovered exactly two ways: every file-level `use App\...;` import, and every
+ * `Artisan::call()` / `$this->artisan()` call whose command name resolves to exactly one
+ * class under app/Console/Commands/ (an ambiguous or unresolved name is skipped, never
+ * guessed — see pgReadCoverageArtisanImports). A resolved command also contributes its OWN
+ * file-level App imports, one level deep, so a thin command that delegates its real work to
+ * an injected collaborator (IngestProjectCommand -> ProjectionWriter) still surfaces that
+ * collaborator's reads. A lane file that reaches app code by any OTHER route — an inline
+ * fully-qualified call with no `use` statement, a job dispatched by class-string, a facade
+ * macro, a call through a variable — is invisible here even though the table is provisioned
+ * and the column is genuinely read. Attribution is also per CLASS, not per METHOD:
+ * $appRefs[$fqcn] is the union of every method that class has, so a stand-in built
+ * faithfully for the one method a test actually calls can read as "missing" a column a
+ * different, uncalled method on the same class writes — see $knownLimitation below for a
+ * live instance. A green run of this guard is evidence for "no drift found on these
+ * attribution paths", not a general proof of stand-in completeness.
+ *
  * THE FIX FOR A FINDING IS ALWAYS ADDITIVE: add the column to the stand-in,
  * preferably via ALTER TABLE … ADD COLUMN IF NOT EXISTS so it heals whichever
  * file loses the first-creator-wins race. Never delete an assertion, and never
  * thin a table to silence this. If a test only passed because a column was
  * missing, that is a finding to report, not to paper over.
  */
+
+/**
+ * "file — table.column, read by Class" -> "file|table.column", to match a $findings entry
+ * against an $exempt / $knownDrift / $knownLimitation key.
+ */
+function pgReadCoverageFindingKey(string $finding): string
+{
+    [$file, $rest] = explode(' — ', $finding, 2);
+    [$tableColumn] = explode(',', $rest, 2);
+
+    return $file.'|'.$tableColumn;
+}
+
+/**
+ * command-name (the leading token of $signature, before the first brace or whitespace) =>
+ * list of FQCNs that declare it. Built from every *.php directly under
+ * app/Console/Commands/ — deliberately shallow (no subdirectories), which is where every
+ * command in this codebase lives today. A name mapping to more than one class is left
+ * ambiguous on purpose; see pgReadCoverageArtisanImports.
+ */
+function pgReadCoverageCommandSignatureIndex(string $commandsDir): array
+{
+    $index = [];
+    foreach (glob($commandsDir.'/*.php') ?: [] as $path) {
+        $source = (string) file_get_contents($path);
+
+        if (! preg_match('/namespace\s+([\w\\\\]+);/', $source, $ns)
+            || ! preg_match('/\bclass\s+(\w+)/', $source, $cls)
+            || ! preg_match('/\$signature\s*=\s*\'([^\'{\s]+)/', $source, $sig)) {
+            continue;
+        }
+
+        $index[$sig[1]][] = $ns[1].'\\'.$cls[1];
+    }
+
+    return $index;
+}
+
+/**
+ * A lane file that drives app code purely through Artisan::call()/$this->artisan() carries
+ * no `use App\...;` import at all (see the ATTRIBUTION paragraph above), so the main loop's
+ * import regex is blind to it. Resolve each invoked command name against $signatureIndex; an
+ * unresolved or ambiguous name is skipped rather than guessed, matching the conservatism of
+ * everything else in this guard. For each resolved command, return the command class itself
+ * PLUS its own file-level `App\` imports (one level, not recursive) — a command's handle()
+ * often reads a table directly (IngestProjectCommand's --dry-run branch does) but delegates
+ * the bulk of its work to an injected collaborator, and that collaborator's reads are exactly
+ * what this guard exists to catch.
+ */
+function pgReadCoverageArtisanImports(string $source, array $signatureIndex): array
+{
+    preg_match_all('/(?:Artisan::call|\$this->artisan)\(\s*[\'"]([a-zA-Z0-9:_-]+)[\'"]/', $source, $calls);
+
+    $imports = [];
+    foreach (array_unique($calls[1]) as $name) {
+        $candidates = $signatureIndex[$name] ?? [];
+        if (count($candidates) !== 1) {
+            continue; // unresolved or ambiguous — skip rather than guess
+        }
+
+        $commandFqcn = $candidates[0];
+        $imports[] = $commandFqcn;
+
+        $commandPath = base_path(str_replace('\\', '/', preg_replace('/^App\\\\/', 'app/', $commandFqcn)).'.php');
+        if (is_file($commandPath)) {
+            preg_match_all('/^use (App\\\\[\w\\\\]+);/m', (string) file_get_contents($commandPath), $commandImports);
+            array_push($imports, ...$commandImports[1]);
+        }
+    }
+
+    return array_values(array_unique($imports));
+}
+
 it('declares every column the app code a PG-lane file drives reads from a table it provisions', function () {
     $appRefs = AppColumnReadScanner::scanTree(base_path('app'));
     $byFile = PostgresLaneDdlScanner::laneDdlByFile(base_path('tests/Postgres'));
+    $signatureIndex = pgReadCoverageCommandSignatureIndex(base_path('app/Console/Commands'));
 
     // (file, schema.table) pairs whose stand-in is deliberately not faithful.
     $exempt = [
@@ -61,7 +152,9 @@ it('declares every column the app code a PG-lane file drives reads from a table 
 
     // Confirmed-real drift, triaged by hand (both sides opened, not batch-trusted) and
     // recorded here as a WORK QUEUE for a follow-up task to drain — see task-3-report.md
-    // for the full pre-triage finding list and the reasoning behind each entry below.
+    // for the full pre-triage finding list and the reasoning behind each entry below. A
+    // queue entry that stops reproducing FAILS THE BUILD (see the staleness check below) —
+    // it is not enough to fix the drift and leave the entry behind.
     $knownDrift = [
         // The da958493e regression (see docblock): ProjectionWriter's identity-resolution
         // select reads rs.last_seen_run, but these stand-ins predate that column.
@@ -69,6 +162,16 @@ it('declares every column the app code a PG-lane file drives reads from a table 
         'ProjectionWriterBatchingTest.php|ingest.record_state.last_seen_run',
         'ProjectionWriterConnectionSourceRaceTest.php|ingest.record_state.last_seen_run',
         'ProjectionWriterScopedResolveTest.php|ingest.record_state.last_seen_run',
+        // The FIFTH file of that same regression, invisible until Artisan-command
+        // resolution (see ATTRIBUTION above) taught this guard to follow
+        // Artisan::call('ingest:project', ...) through to IngestProjectCommand's own
+        // `use App\Ingest\Projection\ProjectionWriter;` import. This stand-in's
+        // ingest.record_state is the thinnest of the ten hand-written copies of that
+        // table — it also lacks current_version_id, read by ProjectionWriter's identity
+        // join (rv.id = rs.current_version_id), a second, independent gap the same
+        // Artisan-resolution pass surfaced in the same table in the same file.
+        'IngestProjectChunkingTest.php|ingest.record_state.last_seen_run',
+        'IngestProjectChunkingTest.php|ingest.record_state.current_version_id',
         // healMirrorEligible() reads content.media_assets.mirror_eligible; latent until now
         // because nothing had cross-referenced app reads against these stand-ins before.
         'ProjectionWriterIdentityRaceTest.php|content.media_assets.mirror_eligible',
@@ -77,19 +180,24 @@ it('declares every column the app code a PG-lane file drives reads from a table 
         'ProjectionWriterScopedResolveTest.php|content.media_assets.mirror_eligible',
     ];
 
-    // Known limitation, not drift: attribution is per file-level `use App\...;` import, i.e.
-    // per CLASS, not per METHOD. ShopContentWriter's cataloguesFor() is what
-    // ShopCatalogueCreatedAtTimezoneTest's stand-in is deliberately minimal for; removed_at
-    // and updated_at are written by a different method on the same class,
-    // retireStaleItems(), which this test never calls. Thinning the app-side scanner to
-    // method granularity is out of scope for this guard (see AppColumnReadScanner) —
-    // recorded here rather than sent back to Task 1, and NOT fixed by thinning the table.
+    // Known limitation, not drift: attribution is per CLASS, not per METHOD (see ATTRIBUTION
+    // above). ShopContentWriter's cataloguesFor() is what ShopCatalogueCreatedAtTimezoneTest's
+    // stand-in is deliberately minimal for; removed_at and updated_at are written by a
+    // different method on the same class, retireStaleItems(), which this test never calls.
+    // Thinning the app-side scanner to method granularity is out of scope for this guard (see
+    // AppColumnReadScanner) — recorded here rather than sent back to Task 1, and NOT fixed by
+    // thinning the table. Unlike $knownDrift, this is not a work queue Task 4 drains — it is
+    // a permanent false-positive class of the current attribution granularity, and stays
+    // subject to the same staleness check below (if cataloguesFor() ever starts reading
+    // either column, that entry stops masking a real finding and must come out).
     $knownLimitation = [
         'ShopCatalogueCreatedAtTimezoneTest.php|content.items.removed_at',
         'ShopCatalogueCreatedAtTimezoneTest.php|content.items.updated_at',
     ];
 
     $findings = [];
+    $triplesEvaluated = 0;
+    $pairsEvaluated = [];
     foreach (glob(base_path('tests/Postgres').'/*.php') ?: [] as $path) {
         $file = basename($path);
         $standIns = $byFile[$file] ?? [];
@@ -99,8 +207,9 @@ it('declares every column the app code a PG-lane file drives reads from a table 
 
         $source = (string) file_get_contents($path);
         preg_match_all('/^use (App\\\\[\w\\\\]+);/m', $source, $imports);
+        $fqcns = array_unique(array_merge($imports[1], pgReadCoverageArtisanImports($source, $signatureIndex)));
 
-        foreach ($imports[1] as $fqcn) {
+        foreach ($fqcns as $fqcn) {
             foreach ($appRefs[$fqcn] ?? [] as $table => $columns) {
                 if (! isset($standIns[$table]) || PostgresLaneDdlScanner::isScratch($table)) {
                     continue;
@@ -109,7 +218,10 @@ it('declares every column the app code a PG-lane file drives reads from a table 
                     continue;
                 }
 
+                $pairsEvaluated[$file.'|'.$table] = true;
+
                 foreach ($columns as $column) {
+                    $triplesEvaluated++;
                     if (! in_array($column, $standIns[$table], true)) {
                         $findings[] = sprintf(
                             '%s — %s.%s, read by %s',
@@ -124,15 +236,46 @@ it('declares every column the app code a PG-lane file drives reads from a table 
     $findings = array_values(array_unique($findings));
     sort($findings);
 
-    $queueKeys = array_merge($knownDrift, $knownLimitation);
-    $remaining = array_values(array_filter($findings, function (string $finding) use ($queueKeys) {
-        // $findings entries read "file — table.column, read by Class"; queue entries are
-        // "file|table.column" — rebuild that key from the finding to match against the queue.
-        [$file, $rest] = explode(' — ', $finding, 2);
-        [$tableColumn] = explode(',', $rest, 2);
+    // F1 — the cross-reference stage itself must be pinned, not only its two inputs (see the
+    // "cross-references a meaningful number" test below, which pins the scanners but not the
+    // join between them). Neutering ONLY the import regex above (e.g. lane files moving to
+    // grouped `use App\{A, B};` imports, or to inline FQCN calls) leaves both scanners intact
+    // and that other test green while every triple this loop would have evaluated silently
+    // drops toward zero. 1001 triples across 201 (file, table) pairs is today's real figure
+    // (984/195 before Artisan-command resolution recovered IngestProjectChunkingTest.php —
+    // see ATTRIBUTION above); >500 / >100 have headroom without being slack.
+    expect($triplesEvaluated)->toBeGreaterThan(500, sprintf(
+        "The cross-reference loop only evaluated %d (file, table, column) triples — expected\n".
+        "more than 500. This usually means the `use App\\...;` import regex (or the\n".
+        'Artisan-command resolution feeding it) stopped matching, silently making this guard vacuous.',
+        $triplesEvaluated
+    ))->and(count($pairsEvaluated))->toBeGreaterThan(100, sprintf(
+        'The cross-reference loop only evaluated %d (file, table) pairs — expected more than 100.',
+        count($pairsEvaluated)
+    ));
 
-        return ! in_array($file.'|'.$tableColumn, $queueKeys, true);
-    }));
+    $queueKeys = array_merge($knownDrift, $knownLimitation);
+    $rawKeys = array_values(array_unique(array_map('pgReadCoverageFindingKey', $findings)));
+
+    // F2 — a queue entry that stops reproducing (Task 4 fixed the drift it names, or a
+    // stand-in changed shape under it) must fail the build, not sit there as a permanent
+    // silent mask. Without this: fix the drift, leave the entry — $findings for that key goes
+    // empty, $remaining below stays [] either way, the suite stays green, and NOTHING says
+    // the entry is now stale. Reintroduce that exact drift later (a revert, a copy-paste
+    // stand-in) and this guard reports nothing, because the stale entry is still excluding
+    // that key.
+    $stale = array_values(array_diff($queueKeys, $rawKeys));
+    sort($stale);
+    expect($stale)->toBe([], "These \$knownDrift/\$knownLimitation entries no longer reproduce as findings —\n".
+        "whatever they excused (real drift or a per-class attribution false-positive) is gone,\n".
+        "the code changed shape under them, or they were mistyped:\n  ".
+        implode("\n  ", $stale).
+        "\n\nDelete them from the array. A stale entry is a silent mask: if the exact same drift\n".
+        'is ever reintroduced, this guard will report nothing.');
+
+    $remaining = array_values(array_filter($findings, fn (string $finding) => ! in_array(
+        pgReadCoverageFindingKey($finding), $queueKeys, true
+    )));
 
     expect($remaining)->toBe([], "PG-lane stand-ins are missing columns the code under test reads.\n".
         "Each one is an SQLSTATE 42703 that fires BEFORE the assertion it is hiding, and because\n".
