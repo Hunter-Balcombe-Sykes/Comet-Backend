@@ -38,9 +38,10 @@ final class BuildProgressReader
     public function forPoll(PreAccountBuild $build): array
     {
         $events = $this->events($build);
+        $media = $this->mediaCounts($build);
 
         return [
-            'done' => $this->isDone($build, $events),
+            'done' => $this->isDone($build, $events, $media),
             'stage' => $this->currentStage($build, $events),
             'events' => array_map(fn (PreAccountBuildEvent $e) => [
                 'id' => (string) $e->id,
@@ -50,7 +51,7 @@ final class BuildProgressReader
                 'payload' => $e->payload ?? [],
                 'at' => $e->created_at->toIso8601String(),
             ], $events),
-            'media' => $this->mediaCounts($build),
+            'media' => $media,
         ];
     }
 
@@ -62,15 +63,24 @@ final class BuildProgressReader
         $events = $this->events($build);
 
         return [
-            'done' => $this->isDone($build, $events),
+            'done' => $this->isDone($build, $events, $this->mediaCounts($build)),
             'stage' => $this->currentStage($build, $events),
         ];
     }
 
     /**
+     * Finished = every question the feed asks has an answer: content on the
+     * page, the workplace settled (a landing, or the chain said skipped/
+     * failed), the bio links routed (Instagram builds — the seeder always
+     * says, even "nothing to connect"), and the media saved (every asset
+     * mirrored, or none to mirror). The first live run (2026-09-02) said
+     * done at +24s with 0 of 45 assets saved and no platforms row yet; the
+     * feed had visibly not finished. The ceiling still bounds all of it.
+     *
      * @param  list<PreAccountBuildEvent>  $events
+     * @param  array{mirrored: int, total: int}  $media
      */
-    public function isDone(PreAccountBuild $build, array $events): bool
+    public function isDone(PreAccountBuild $build, array $events, array $media): bool
     {
         if ($build->build_state === PreAccountBuild::STATE_FAILED) {
             return true;
@@ -81,17 +91,21 @@ final class BuildProgressReader
         if ($build->build_state !== PreAccountBuild::STATE_READY || $build->content_filled_at === null) {
             return false;
         }
-        if ($build->enriched_at !== null) {
-            return true;
-        }
+
+        $workplaceAnswered = $build->enriched_at !== null;
+        $platformsAnswered = $build->source_type !== 'instagram';
         foreach ($events as $event) {
             if ($event->stage === PreAccountBuildEvent::STAGE_WORKPLACE
                 && in_array($event->status, [PreAccountBuildEvent::STATUS_SKIPPED, PreAccountBuildEvent::STATUS_FAILED], true)) {
-                return true;
+                $workplaceAnswered = true;
+            }
+            if ($event->stage === PreAccountBuildEvent::STAGE_PLATFORMS) {
+                $platformsAnswered = true;
             }
         }
+        $mediaSaved = $media['total'] === 0 || $media['mirrored'] >= $media['total'];
 
-        return false;
+        return $workplaceAnswered && $platformsAnswered && $mediaSaved;
     }
 
     /**

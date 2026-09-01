@@ -339,6 +339,15 @@ class InstagramConnectionSeeder
                     : 'Connected '.BuildProgress::count(count($platforms), 'platform', 'platforms').' from your bio links',
                 ['platforms' => $platforms],
             );
+        } else {
+            // The feed's platforms row must always get an answer — the
+            // progress reader waits on it for Instagram builds.
+            BuildProgress::noteForUser(
+                $userId,
+                PreAccountBuildEvent::STAGE_PLATFORMS,
+                PreAccountBuildEvent::STATUS_SKIPPED,
+                'No links in your bio to connect — add platforms from the dashboard',
+            );
         }
 
         // PRIV-2: bioLinks/syncFindings/unmatched are internal auto-sync bookkeeping

@@ -324,11 +324,19 @@ it('carries a progress block from the first poll, fills it from the ledger, and 
     (new SiteMedia(['pool' => 'content', 'path' => 'images/t.webp', 'media_type' => 'image', 'processing_state' => 'ready', 'sort_order' => 0, 'is_active' => true]))->site()->associate($site)->save();
     $this->getJson("/api/public/signup/builds/{$build->id}")->assertJsonPath('progress.done', false);
 
-    // The chain says skipped → done, without a workplace ever landing.
+    // The chain says skipped — the workplace question is answered, but an
+    // Instagram build still owes the platforms answer.
     BuildProgress::noteForUser((string) $build->user_id, PreAccountBuildEvent::STAGE_WORKPLACE, PreAccountBuildEvent::STATUS_SKIPPED, 'No workplace mentioned in your bio — you can add one later');
     $this->getJson("/api/public/signup/builds/{$build->id}")
-        ->assertJsonPath('progress.done', true)
+        ->assertJsonPath('progress.done', false)
         ->assertJsonPath('progress.stage', 'workplace');
+
+    // The seeder always answers it, even with nothing to connect → done
+    // (no media assets to save on this build).
+    BuildProgress::noteForUser((string) $build->user_id, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_SKIPPED, 'No links in your bio to connect — add platforms from the dashboard');
+    $this->getJson("/api/public/signup/builds/{$build->id}")
+        ->assertJsonPath('progress.done', true)
+        ->assertJsonPath('progress.stage', 'platforms');
 });
 
 it('noteForUser writes nothing for a claimed or stale build, and note() never throws', function () {
