@@ -77,6 +77,9 @@ final class SectorTaxonomy
         ['slug' => 'chiropractor', 'label' => 'Chiropractor', 'group' => 'Health & Fitness', 'bucket' => SectorStylePresets::HEALTH_FITNESS],
         ['slug' => 'therapist', 'label' => 'Therapist / Counsellor', 'group' => 'Health & Fitness', 'bucket' => SectorStylePresets::HEALTH_FITNESS],
         ['slug' => 'dentist', 'label' => 'Dentist', 'group' => 'Health & Fitness', 'bucket' => SectorStylePresets::HEALTH_FITNESS],
+        ['slug' => 'medical-clinic', 'label' => 'Medical clinic', 'group' => 'Health & Fitness', 'bucket' => SectorStylePresets::HEALTH_FITNESS],
+        ['slug' => 'optometrist', 'label' => 'Optometrist', 'group' => 'Health & Fitness', 'bucket' => SectorStylePresets::HEALTH_FITNESS],
+        ['slug' => 'veterinarian', 'label' => 'Vet / Animal hospital', 'group' => 'Health & Fitness', 'bucket' => SectorStylePresets::HEALTH_FITNESS],
 
         ['slug' => 'accountant', 'label' => 'Accountant / Bookkeeper', 'group' => 'Professional Services', 'bucket' => SectorStylePresets::PROFESSIONAL_SERVICES],
         ['slug' => 'lawyer', 'label' => 'Lawyer / Solicitor', 'group' => 'Professional Services', 'bucket' => SectorStylePresets::PROFESSIONAL_SERVICES],
@@ -95,6 +98,10 @@ final class SectorTaxonomy
         ['slug' => 'gift-shop', 'label' => 'Gift shop', 'group' => 'Retail & Shopping', 'bucket' => SectorStylePresets::RETAIL_SHOPPING],
         ['slug' => 'homewares', 'label' => 'Homewares / Décor', 'group' => 'Retail & Shopping', 'bucket' => SectorStylePresets::RETAIL_SHOPPING],
         ['slug' => 'artisan-maker', 'label' => 'Artisan / Handmade goods', 'group' => 'Retail & Shopping', 'bucket' => SectorStylePresets::RETAIL_SHOPPING],
+        ['slug' => 'retail-store', 'label' => 'Shop / Retail store', 'group' => 'Retail & Shopping', 'bucket' => SectorStylePresets::RETAIL_SHOPPING],
+        ['slug' => 'grocer', 'label' => 'Grocer / Food store', 'group' => 'Retail & Shopping', 'bucket' => SectorStylePresets::RETAIL_SHOPPING],
+        ['slug' => 'liquor-store', 'label' => 'Bottle shop / Liquor store', 'group' => 'Retail & Shopping', 'bucket' => SectorStylePresets::RETAIL_SHOPPING],
+        ['slug' => 'market', 'label' => 'Market', 'group' => 'Retail & Shopping', 'bucket' => SectorStylePresets::RETAIL_SHOPPING],
 
         ['slug' => 'plumber', 'label' => 'Plumber', 'group' => 'Home & Trade Services', 'bucket' => SectorStylePresets::HOME_SERVICES],
         ['slug' => 'electrician', 'label' => 'Electrician', 'group' => 'Home & Trade Services', 'bucket' => SectorStylePresets::HOME_SERVICES],
@@ -105,6 +112,9 @@ final class SectorTaxonomy
         ['slug' => 'handyman', 'label' => 'Handyman', 'group' => 'Home & Trade Services', 'bucket' => SectorStylePresets::HOME_SERVICES],
         ['slug' => 'removalist', 'label' => 'Removalist / Moving', 'group' => 'Home & Trade Services', 'bucket' => SectorStylePresets::HOME_SERVICES],
         ['slug' => 'pest-control', 'label' => 'Pest control', 'group' => 'Home & Trade Services', 'bucket' => SectorStylePresets::HOME_SERVICES],
+        ['slug' => 'pet-services', 'label' => 'Pet grooming / Care', 'group' => 'Home & Trade Services', 'bucket' => SectorStylePresets::HOME_SERVICES],
+        ['slug' => 'laundry', 'label' => 'Laundry / Dry cleaning', 'group' => 'Home & Trade Services', 'bucket' => SectorStylePresets::HOME_SERVICES],
+        ['slug' => 'locksmith', 'label' => 'Locksmith', 'group' => 'Home & Trade Services', 'bucket' => SectorStylePresets::HOME_SERVICES],
 
         ['slug' => 'accommodation', 'label' => 'Accommodation / Stays', 'group' => 'Hospitality & Events', 'bucket' => SectorStylePresets::HOSPITALITY],
         ['slug' => 'event-venue', 'label' => 'Event venue', 'group' => 'Hospitality & Events', 'bucket' => SectorStylePresets::HOSPITALITY],
@@ -124,6 +134,7 @@ final class SectorTaxonomy
         ['slug' => 'musician', 'label' => 'Musician / DJ', 'group' => 'Creative & Entertainment', 'bucket' => SectorStylePresets::CREATIVE_ENTERTAINMENT],
         ['slug' => 'content-creator', 'label' => 'Content creator / Influencer', 'group' => 'Creative & Entertainment', 'bucket' => SectorStylePresets::CREATIVE_ENTERTAINMENT],
         ['slug' => 'writer', 'label' => 'Writer / Copywriter', 'group' => 'Creative & Entertainment', 'bucket' => SectorStylePresets::CREATIVE_ENTERTAINMENT],
+        ['slug' => 'museum-gallery', 'label' => 'Museum / Gallery', 'group' => 'Creative & Entertainment', 'bucket' => SectorStylePresets::CREATIVE_ENTERTAINMENT],
 
         ['slug' => 'tutor', 'label' => 'Tutor', 'group' => 'Education & Coaching', 'bucket' => SectorStylePresets::EDUCATION_COACHING],
         ['slug' => 'life-coach', 'label' => 'Life / Business coach', 'group' => 'Education & Coaching', 'bucket' => SectorStylePresets::EDUCATION_COACHING],
@@ -153,6 +164,11 @@ final class SectorTaxonomy
         'makeup' => 'makeup-artist',
         'make-up' => 'makeup-artist',
         'spa' => 'spa',
+        // 'spa' is WHOLE_WORD, so it cannot reach "Massage" — the category
+        // lakshmi-thai-massage arrived with, and synced no sector from. The
+        // free-text map has carried this fold since 2026-08-12; the category
+        // map never did.
+        'massage' => 'spa',
         'tattoo' => 'tattoo-artist',
         // M-10: "Body art service" is what body_art_service humanizes to when
         // Google marks a tattoo shop's primary type as the generic "store".
@@ -164,17 +180,38 @@ final class SectorTaxonomy
         'trainer' => 'personal-trainer',
         'chiropractor' => 'chiropractor',
         'dentist' => 'dentist',
+        // Google files bondi-junction-dental under "Dental Clinic", which the
+        // 'dentist' stem cannot reach — the account synced no sector at all
+        // (cold-build audit, 2026-08-31).
+        'dental' => 'dentist',
         'physio' => 'physiotherapist',
+        // Stem, not 'veterinary': Google emits both "Veterinary Care" and
+        // "Veterinarian", and a key that only covers one is a silent null on
+        // the other.
+        'veterinar' => 'veterinarian',
+        'medical clinic' => 'medical-clinic',
         'photographer' => 'photographer',
         'photo' => 'photographer',
         'art gallery' => 'artist',
         'gallery' => 'artist',
+        // A venue that HOSTS music is not a musician — northcote-social-club, a
+        // pub with a bandroom, classified 'musician' on 2026-08-31 and was
+        // handed the musician page front (listen/events/watch/shop). These MUST
+        // stay above 'music'.
+        'live music venue' => 'event-venue',
+        'music venue' => 'event-venue',
+        'concert hall' => 'event-venue',
         'music' => 'musician',
         'real estate' => 'real-estate-agent',
         'accountant' => 'accountant',
         'lawyer' => 'lawyer',
         'attorney' => 'lawyer',
         'consultant' => 'consultant',
+        // Guards the 'market' key added below: 'market' is a stem, so it eats
+        // "Marketing agency" whole. The specific-before-generic discipline is
+        // the whole reason this key exists — there is no marketing account in
+        // the 2026-08-31 audit, only a collision waiting for one.
+        'marketing' => 'marketing-agency',
         'clothing' => 'clothing-boutique',
         'florist' => 'florist',
         'flower' => 'florist',
@@ -205,19 +242,70 @@ final class SectorTaxonomy
         // shop synced no sector and its food capabilities stayed dark.
         'donut' => 'bakery',
         'doughnut' => 'bakery',
+        // Same failure as 'donut', found the expensive way: pret-a-manger is
+        // filed "Sandwich Shop" and gelato-messina-darlinghurst "Ice Cream
+        // Shop". Neither classified, so neither had a sector, so isFood() was
+        // false, so can_use_menu was false — a sandwich chain served the
+        // BOOKING capability set and its menu OCR bailed in 14ms (2026-08-31).
+        'sandwich' => 'cafe',
+        'ice cream' => 'cafe',
         'food truck' => 'food-truck',
         'caterer' => 'caterer',
+        // Ahead of 'bar' only for tidiness — none of the three contains it.
+        // little-creatures-brewery-fremantle, chandon-australia, corner-hotel
+        // and exeter-hotel all synced sector null.
+        'brewery' => 'bar',
+        'winery' => 'bar',
+        // WHOLE_WORD: the 'pub' stem opens "PUBlic figure", the Facebook
+        // category a tattooist or a musician sits in, which is pinned to null.
+        'pub' => 'bar',
         'bar' => 'bar',
 
-        // LAST on purpose. 'sport' is a QUALIFIER, not a trade: it names
-        // what a venue is about, while the key it collides with names what
-        // the venue IS. "Sports bar" is a bar, "Sports cafe" is a cafe. The
-        // head noun wins, so the qualifier must sit after every key it can
-        // co-occur with — which, for a word this generic, means the end.
+        // ── Retail, civic and the remaining trades (F5, 2026-08-31) ─────────
+        // 68 of 209 ready unclaimed accounts carried sector NULL, and the cause
+        // was never a missing sector — it was a Google category string with no
+        // key to land on. Every key below is one of those strings. The four
+        // catch-alls they need ('market', 'store', 'health', 'school') are the
+        // broadest in the map and sit at the very END, after 'sport'.
+        'butcher' => 'grocer',
+        'food store' => 'grocer',
+        'liquor' => 'liquor-store',
+        'book store' => 'retail-store',
+        'toy store' => 'retail-store',
+        'electronics store' => 'retail-store',
+        'bicycle' => 'retail-store',
+        'garden center' => 'retail-store',
+        'garden centre' => 'retail-store',
+        'pet care' => 'pet-services',
+        'museum' => 'museum-gallery',
+        'laundry' => 'laundry',
+        'locksmith' => 'locksmith',
+        'educational institution' => 'tutor',
+
+        // LAST AMONG THE TRADE KEYS, on purpose. 'sport' is a QUALIFIER, not a
+        // trade: it names what a venue is about, while the key it collides with
+        // names what the venue IS. "Sports bar" is a bar, "Sports cafe" is a
+        // cafe. The head noun wins, so the qualifier must sit after every key it
+        // can co-occur with — which, for a word this generic, means the end.
         // It stays a stem (not in WHOLE_WORD_KEYWORDS) so it still catches
         // "Sports centre"/"Sporting club"; the leading boundary is what
         // keeps it out of "Transport service".
         'sport' => 'gym',
+
+        // ── The four category-wide catch-alls. Nothing may follow them. ─────
+        // These are not trades at all — they are the top of Google's own
+        // taxonomy, the string it falls back to when it has nothing narrower
+        // ("Store" for milligram and northside-records, "Market" for
+        // adelaide-central-market, "Health" for oscar-wylee-optometrist,
+        // "School" for melbourne-guitar-academy). They classify LAST because
+        // every one of them appears inside a more specific category above:
+        // "Liquor Store", "Food Store", "Medical Clinic", "Dance School". A
+        // reorder that lifts one of these is a silent downgrade of every
+        // specific key it contains.
+        'market' => 'market',
+        'store' => 'retail-store',
+        'health' => 'medical-clinic',
+        'school' => 'tutor',
         // NO bare 'artist' key, deliberately — but not for the old reason.
         // "Artist" is one of Instagram's most generic categories: tattooists,
         // musicians, hairdressers and photographers all pick it, and the
@@ -251,7 +339,26 @@ final class SectorTaxonomy
      *
      * @var list<string>
      */
-    private const WHOLE_WORD_KEYWORDS = ['spa', 'bar'];
+    private const WHOLE_WORD_KEYWORDS = ['spa', 'bar', 'pub'];
+
+    /**
+     * Whole category strings that name a DOMAIN rather than a trade. Folded to
+     * null on BOTH paths, checked as an exact match on the trimmed, lowercased
+     * whole string before the keyword loop runs.
+     *
+     * 'health/beauty' is the case this exists for, and it exists because F5's
+     * 'health' catch-all is a stem. Google files oscar-wylee-optometrist under
+     * the bare category "Health", so the key has to be there; Instagram's
+     * "Health/Beauty" is the Facebook-taxonomy bucket a tattooist, a
+     * hairdresser and a dietitian all share, and it has been pinned to null
+     * since 2026-08-10 for exactly that reason. Denying the whole string keeps
+     * both: the specific account gets its sector, the domain bucket still
+     * refuses to guess. Placeholder strings live in PLACEHOLDER_CATEGORIES —
+     * those are a scraper's junk, these are real categories that mean too much.
+     *
+     * @var list<string>
+     */
+    private const VAGUE_CATEGORIES = ['health/beauty'];
 
     /**
      * Instagram business categories that the shared substring map gets WRONG or
@@ -730,7 +837,9 @@ final class SectorTaxonomy
     private static function classify(string $raw, array $orderedKeywordToSlug): ?string
     {
         $lower = strtolower(trim($raw));
-        if ($lower === '' || in_array($lower, self::PLACEHOLDER_CATEGORIES, true)) {
+        if ($lower === ''
+            || in_array($lower, self::PLACEHOLDER_CATEGORIES, true)
+            || in_array($lower, self::VAGUE_CATEGORIES, true)) {
             return null;
         }
 
