@@ -928,3 +928,63 @@ Read the lanes; all three halves are already the right shape:
   (cap 0 is the off-switch; deleting the code would contradict
   "re-enabling is a cap raise, never a code change").
 - No retirement markers remain in app/.
+
+### Wave 7 — COMPLETE (2026-09-02, monorepo e5fc0d0e; pages version d86ba6c2 at 100%)
+
+All eleven items in one commit, verified on the dev server at 1280×800 and
+375×812 and then on production markup (ollies, ryanfitzsimons). Executor
+decisions worth knowing:
+
+- **Item 2 reading**: "oversize" measured as a 4:5 tile taller than the
+  content band (1280×800: 691px card in a 682px band) because the pair
+  formula sizes off width alone. Fix = a band-height cap on the slide
+  width, with the leftover becoming peek so the snapped pair stays
+  centred (scroll-padding stays a plain length — the engine parses it).
+- **Item 5**: the name spans the band's inner width (chrome inset each
+  side) and is bounded by the band's height — a short name on a wide
+  desktop is height-capped (144px) rather than 380px tall.
+- **Item 6**: "first action" = `content.actions[0]`, the #1 entry of the
+  owner's unified actions list (the Key Action's own seat). Page actions
+  glide the pager; others are their own link.
+- **Item 7 root cause**: `publicPhone` fell back to `gb.phone`, and a
+  partna account's `gb` is its WORKPLACE listing — the fallback is now
+  business-only.
+- **Item 8 root cause**: the handler existed; `scrollTo({behavior:
+  'smooth'})` across `scroll-snap-stop: always` pages is the Safari
+  re-snap hazard the carousel engine documents. New `glideTo()` (snap
+  suspended, 450ms cubic, timer-landed) serves the logo, menu rows and
+  the new CTA. Legal sheets (no pager) navigate home.
+- **Item 11 pushed back on "fix at the shared CSS"**: the DoorDash
+  wordmark asset kept the lockup's 0–154 viewBox with ink from x 42
+  (getBBox), so it was right-of-centre in EVERY centring consumer; no
+  shared CSS could centre it without un-centring the rest. Cropped the
+  asset to `42 0 112 18` in the kit (meta.json records it).
+- **Pre-existing red gates, not touched**: `npm run audit:tokens` fails
+  on nine owner-authored ScrollCard literals (1.75rem / 42% / 0.2rem …,
+  in HEAD before this wave); monorepo CI on `main` has failed since
+  ec998f3c on the DASHBOARD build ("supabaseUrl is required" while
+  prerendering /contact/enquiry-form — CI has no Supabase env). Both
+  flagged for the completeness pass below.
+
+## Post-Wave-7 owner additions (2026-09-02, verbatim scope, in order)
+
+Owner directive mid-Wave-7: none of these interrupt the Astro batch; they
+run AFTER Wave 7 ships, in this order.
+
+1. **Re-run the unclaimed-account signup campaign** through the public flow
+   so every Wave 0–6 change is seen working end to end; re-measure the run
+   timelines per account type (partna + business) against the Wave 5
+   table; then work out any FURTHER latency optimisations from that
+   evidence and execute them.
+2. **Plan completeness audit**: walk every item of this plan (Waves 0–8 +
+   4-EXT) and confirm each is actually done down to its details — fix any
+   gap found, don't just report it.
+3. **Proposal (written, at the very end — owner decides, nothing built):**
+   a. Astro sitepage: a centred popup + loader reading "your site is still
+      being set up" that shows until the build run FINISHES (all platforms,
+      workplace and content grabbed) — is it possible, and how.
+   b. Dashboard signup: a live progress surface during setup — what is
+      being fetched as it connects ("grabbing Instagram media…"), showing
+      some of the images being grabbed, the platforms being synced by
+      name, etc. Not everything — enough that the user watches the setup
+      happen. Same proposal document as (a).
