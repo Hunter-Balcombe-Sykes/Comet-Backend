@@ -215,10 +215,14 @@ class InstagramSourceGenerator implements SiteSourceGenerator
                 (array) $connection->payload,
                 ['bioMentions' => $intel->mentions],
             )]);
-            // Delayed so the Fresha → workplace path keeps precedence: the
-            // chain only fills a workplace that is STILL empty when it runs.
+            // Item 9a (2026-09-01): dispatched AT ready — the flat 600s delay
+            // is gone. Fresha precedence moved from clock to STATE: the job
+            // itself re-queues in 30s steps while the auto connect's
+            // connectMode=auto marker is still in flight (see the job's
+            // FRESHA_RECHECK_SECONDS doc). Workplace lands ~1-2 min after
+            // build instead of 10-12.
             BioMentionChainsJob::dispatch((string) $user->id, $intel->mentions)
-                ->delay(BioMentionChainsJob::DISPATCH_DELAY_SECONDS);
+                ->afterCommit();
         }
 
         // Flag, don't fail: the site still renders off what DID come back, and a

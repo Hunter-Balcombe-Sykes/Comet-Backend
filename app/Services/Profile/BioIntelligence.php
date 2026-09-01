@@ -49,7 +49,7 @@ Rules — follow every one:
 - first_name/last_name: the human's real name parts, only when clearly identifiable. A role/descriptor word (Barber, Music, Hair…) is NEVER a surname. null when unsure. For a business/venue/band name leave both null.
 - about: rewrite the biography's OWN fragments and facts into 1-4 consistent plain sentences. Keep their wording and voice — you are stitching, not authoring. Use every meaningful fact (location, specialty, role); drop emojis, hashtags, links, booking calls-to-action. If the biography has fewer than ~5 meaningful words, or is only links/CTAs, return null. NEVER add a fact that is not in the biography.
 - email/phone: only if literally present in the biography text; else null.
-- mentions: every @handle in the biography, with the exact surrounding label text and a type: "workplace" when the text says they own/work at/cut at it OR it is the profile's single venue-shaped mention (studio/salon/barbers/shop in its name); "brand" for ambassador/sponsor/team wording; else "other".
+- mentions: every @handle in the biography, with the exact surrounding label text and a type: "workplace" when the text says they own/work at/cut at it OR the handle itself is venue-shaped (studio/salon/barbers/shop in its name) — several mentions may all be "workplace"; nominate every plausible one rather than guessing a single winner; "brand" for ambassador/sponsor/team wording; else "other".
 PROMPT;
 
     /** Role/category words that are never a person's name part. */

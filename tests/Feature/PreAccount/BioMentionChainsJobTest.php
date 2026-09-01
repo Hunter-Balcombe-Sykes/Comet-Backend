@@ -66,20 +66,20 @@ function bmcProfile(array $overrides = []): ProfileFetchResult
     ], $overrides));
 }
 
-it('fills an empty workplace through the linker from a workplace mention (emdinonhair shape)', function () {
+it('connects via the Places-first one hop without spending a chained scrape (4-EXT, emdinonhair shape)', function () {
     $user = bmcUser('emdinonhair', [
         ['handle' => 'star_barber_darwin', 'label' => 'Owner @star_barber_darwin.', 'type' => 'workplace'],
     ]);
 
-    $this->mock(InstagramScraper::class, fn ($m) => $m->shouldReceive('fetchProfileResult')
-        ->once()->with('star_barber_darwin', $user->id)->andReturn(bmcProfile()));
+    // The whole point of 4-EXT: when the bare handle-name corroborates on its
+    // own, the paid chained scrape is never made.
+    $this->mock(InstagramScraper::class, fn ($m) => $m->shouldNotReceive('fetchProfileResult'));
 
     $this->mock(FreshaWorkplaceLinker::class, function ($m) {
         $m->shouldReceive('attempt')->once()->withArgs(function ($user, array $venue) {
             return $venue['name'] === 'Star Barber Darwin'
-                && $venue['postcode'] === '0800'
-                && is_string($venue['street'])
-                && str_contains($venue['street'], 'Star Village Arcade');
+                && $venue['postcode'] === null
+                && $venue['street'] === null;
         })->andReturn(['outcome' => 'connected', 'placeId' => 'p1', 'reason' => null]);
     });
 
@@ -140,7 +140,7 @@ it('does nothing for a business account or when there are no mentions', function
     app()->call([new BioMentionChainsJob((string) $biz->id, [['handle' => 'x_venue', 'label' => 'Owner', 'type' => 'workplace']]), 'handle']);
 });
 
-it('retries the workplace attempt with the handle-derived name when the fullName misses (star_barber_darwin shape)', function () {
+it('falls back from the one hop to the chained scrape and retries with the handle-derived name (star_barber_darwin shape)', function () {
     $user = bmcUser('emdinon2', [
         ['handle' => 'star_barber_darwin', 'label' => 'Owner @star_barber_darwin.', 'type' => 'workplace'],
     ]);
@@ -150,6 +150,11 @@ it('retries the workplace attempt with the handle-derived name when the fullName
         ->once()->andReturn(bmcProfile(['fullName' => 'Em|Holley|Finley'])));
 
     $this->mock(FreshaWorkplaceLinker::class, function ($m) {
+        // 4-EXT one hop first: bare handle-name, no corroborators, misses.
+        $m->shouldReceive('attempt')->once()
+            ->withArgs(fn ($u, array $v) => $v['name'] === 'Star Barber Darwin' && $v['postcode'] === null)
+            ->andReturn(['outcome' => 'no_match', 'placeId' => null, 'reason' => 'no_confident_match']);
+        // Then the scrape-evidenced ladder, exactly as before.
         $m->shouldReceive('attempt')->once()
             ->withArgs(fn ($u, array $v) => $v['name'] === 'Em|Holley|Finley')
             ->andReturn(['outcome' => 'no_match', 'placeId' => null, 'reason' => 'no_confident_match']);
@@ -159,4 +164,108 @@ it('retries the workplace attempt with the handle-derived name when the fullName
     });
 
     app()->call([new BioMentionChainsJob((string) $user->id, [['handle' => 'star_barber_darwin', 'label' => 'Owner', 'type' => 'workplace']]), 'handle']);
+});
+
+// ── Item 9a: state-gated Fresha precedence ──────────────────────────────────
+
+it('defers in 30s steps while an auto Fresha connect is still in flight, touching nothing', function () {
+    $user = bmcUser('deferme', [
+        ['handle' => 'some_studio', 'label' => 'Owner', 'type' => 'workplace'],
+    ]);
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
+        'payload' => ['url' => 'https://fresha.com/x', 'connectMode' => 'auto'],
+        'is_active' => false,
+    ]);
+
+    $this->mock(InstagramScraper::class, fn ($m) => $m->shouldNotReceive('fetchProfileResult'));
+    $this->mock(FreshaWorkplaceLinker::class, fn ($m) => $m->shouldNotReceive('attempt'));
+
+    app()->call([new BioMentionChainsJob((string) $user->id, [['handle' => 'some_studio', 'label' => 'Owner', 'type' => 'workplace']]), 'handle']);
+
+    Queue::assertPushed(BioMentionChainsJob::class, fn (BioMentionChainsJob $job) => $job->deferrals === 1
+        && $job->userId === (string) $user->id
+        && (int) $job->delay === BioMentionChainsJob::FRESHA_RECHECK_SECONDS);
+});
+
+it('runs anyway once the deferral cap is reached — waiting forever was never the contract', function () {
+    $user = bmcUser('capreached', [
+        ['handle' => 'the_studio', 'label' => 'Owner', 'type' => 'workplace'],
+    ]);
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
+        'payload' => ['url' => 'https://fresha.com/x', 'connectMode' => 'auto'],
+        'is_active' => false,
+    ]);
+
+    $this->mock(FreshaWorkplaceLinker::class, function ($m) {
+        $m->shouldReceive('attempt')->once()
+            ->withArgs(fn ($u, array $v) => $v['name'] === 'The Studio')
+            ->andReturn(['outcome' => 'connected', 'placeId' => 'p3', 'reason' => null]);
+    });
+    $this->mock(InstagramScraper::class, fn ($m) => $m->shouldNotReceive('fetchProfileResult'));
+
+    app()->call([new BioMentionChainsJob(
+        (string) $user->id,
+        [['handle' => 'the_studio', 'label' => 'Owner', 'type' => 'workplace']],
+        BioMentionChainsJob::MAX_FRESHA_DEFERRALS,
+    ), 'handle']);
+
+    Queue::assertNotPushed(BioMentionChainsJob::class);
+});
+
+// ── Item 4: multiple workplace candidates, evidence-ordered ─────────────────
+
+it('tries every workplace candidate in evidence order — the corroboration gate decides, not the classifier (ryanfitzsimonshair shape)', function () {
+    // Ryan's bio order: akro.studio, akrorecclub, orka.bali — all nominated.
+    // Evidence order puts the two venue-shaped handles first; akro connects
+    // on its one-hop, so nothing later is attempted and no scrape is spent.
+    $user = bmcUser('ryanshape', [
+        ['handle' => 'orka.bali', 'label' => '', 'type' => 'workplace'],
+        ['handle' => 'akro.studio', 'label' => '', 'type' => 'workplace'],
+    ]);
+
+    $this->mock(InstagramScraper::class, fn ($m) => $m->shouldNotReceive('fetchProfileResult'));
+    $this->mock(FreshaWorkplaceLinker::class, function ($m) {
+        // Venue-shaped handle ranks ABOVE the bio-order-first orka.bali.
+        $m->shouldReceive('attempt')->once()
+            ->withArgs(fn ($u, array $v) => $v['name'] === 'Akro Studio')
+            ->andReturn(['outcome' => 'connected', 'placeId' => 'p7', 'reason' => null]);
+    });
+
+    app()->call([new BioMentionChainsJob((string) $user->id, [
+        ['handle' => 'orka.bali', 'label' => '', 'type' => 'workplace'],
+        ['handle' => 'akro.studio', 'label' => '', 'type' => 'workplace'],
+    ]), 'handle']);
+});
+
+it('moves to the next candidate when the first cannot corroborate anywhere', function () {
+    $user = bmcUser('twovenues', [
+        ['handle' => 'first.studio', 'label' => '', 'type' => 'workplace'],
+        ['handle' => 'second.salon', 'label' => '', 'type' => 'workplace'],
+    ]);
+
+    $this->mock(InstagramScraper::class, function ($m) {
+        // Only candidate ONE pays a scrape (its one-hop missed); candidate
+        // two connects on its own one-hop before any scrape — the 4-EXT
+        // saving, visible in the count.
+        $m->shouldReceive('fetchProfileResult')->once()
+            ->andReturn(bmcProfile(['fullName' => null, 'biography' => 'no evidence here']));
+    });
+    $this->mock(FreshaWorkplaceLinker::class, function ($m) {
+        // One hop ('First Studio') AND the scrape leg's fallback venue name
+        // ('first studio' — venueFrom() lowercases nothing but also ucwords
+        // nothing) both miss.
+        $m->shouldReceive('attempt')
+            ->withArgs(fn ($u, array $v) => strcasecmp((string) $v['name'], 'First Studio') === 0)
+            ->andReturn(['outcome' => 'no_match', 'placeId' => null, 'reason' => 'no_confident_match']);
+        $m->shouldReceive('attempt')->once()
+            ->withArgs(fn ($u, array $v) => $v['name'] === 'Second Salon' && $v['postcode'] === null)
+            ->andReturn(['outcome' => 'connected', 'placeId' => 'p8', 'reason' => null]);
+    });
+
+    app()->call([new BioMentionChainsJob((string) $user->id, [
+        ['handle' => 'first.studio', 'label' => '', 'type' => 'workplace'],
+        ['handle' => 'second.salon', 'label' => '', 'type' => 'workplace'],
+    ]), 'handle']);
 });

@@ -35,10 +35,14 @@ use Throwable;
  *    publishing default (D10: publishing ON) and anything weaker lands in
  *    the routing-suggestions machinery via the router's own gating.
  *
- * Dispatched ~10 min after the build so the FRESHA → workplace path keeps
- * precedence (owner: bio workplace fills only when still empty). Chained
- * scrapes are capped and globally CACHED per handle — @andisco_aunz appears
- * in hundreds of barber bios; it is scraped once, not per signup.
+ * Dispatched AT ready since Item 9a (2026-09-01) — Fresha precedence is
+ * state-gated (see FRESHA_RECHECK_SECONDS), not clock-gated; the owner rule
+ * "bio workplace fills only when still empty" holds via hasWorkplace() and
+ * the linker's own google_already_connected guard. Chained scrapes are
+ * capped and globally CACHED per handle — @andisco_aunz appears in hundreds
+ * of barber bios; it is scraped once, not per signup. Item 4-EXT tries a
+ * Places-first one-hop before every scrape, so the common case spends no
+ * chained scrape at all.
  */
 class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
 {
@@ -48,8 +52,6 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
     public const MAX_CHAINED_SCRAPES = 3;
 
     public const CACHE_TTL_DAYS = 14;
-
-    public const DISPATCH_DELAY_SECONDS = 600;
 
     public int $tries = 1;
 
@@ -73,13 +75,36 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
     public function __construct(
         public readonly string $userId,
         public readonly array $mentions = [],
+        // Item 9a: how many 30s Fresha-pending deferrals this dispatch has
+        // already taken. Rides the job for the same reason mentions do.
+        public readonly int $deferrals = 0,
     ) {
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
 
+    /**
+     * Item 9a (2026-09-01): the job now dispatches AT ready (the flat 600s
+     * delay is gone) and yields to a still-in-flight auto Fresha connect by
+     * STATE, not clock: while the user's Fresha row still wears
+     * payload.connectMode=auto (stamped by AutoBookingConnectDispatcher,
+     * stripped when the fetch settles, row deleted on abandonment), the
+     * chain re-queues itself in 30s steps up to MAX_FRESHA_DEFERRALS. Past
+     * the cap it runs anyway — the old timer only ever outlasted Fresha's
+     * FIRST retry tier (5m/15m/45m/2h), so "wait forever" was never the
+     * contract; hasWorkplace() and the linker's google_already_connected
+     * guard keep precedence for every later race exactly as before.
+     */
+    public const FRESHA_RECHECK_SECONDS = 30;
+
+    public const MAX_FRESHA_DEFERRALS = 10;
+
     public function uniqueId(): string
     {
-        return $this->userId;
+        // Per-deferral-generation lock: a deferral re-dispatch from inside
+        // handle() must not be swallowed by the lock the RUNNING generation
+        // still holds. Duplicate build dispatches still collapse — both
+        // arrive at generation 0.
+        return $this->userId.':'.$this->deferrals;
     }
 
     public function handle(
@@ -97,6 +122,18 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
+        // Item 9a: state-gated Fresha precedence (see the constants' doc).
+        if ($this->deferrals < self::MAX_FRESHA_DEFERRALS && $this->freshaAutoConnectPending($user)) {
+            Log::info('bio_mention.deferred_for_fresha', [
+                'user_id' => $this->userId,
+                'deferrals' => $this->deferrals + 1,
+            ]);
+            self::dispatch($this->userId, $this->mentions, $this->deferrals + 1)
+                ->delay(self::FRESHA_RECHECK_SECONDS);
+
+            return;
+        }
+
         $mentions = $this->mentions;
         if ($mentions === []) {
             $connection = IntegrationConnection::query()
@@ -108,6 +145,14 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
         if ($mentions === []) {
             return;
         }
+
+        // Item 4 (2026-09-01): multiple venue-shaped mentions are legal now —
+        // the classifier nominates, the corroboration gate disambiguates. So
+        // candidates iterate in EVIDENCE order, not bio order: explicit
+        // works-there wording in the label first, then a venue token in the
+        // handle, then everything else (stable within a tier). Brand mentions
+        // keep their original relative order after the workplace candidates.
+        $mentions = $this->orderedForProcessing($mentions);
 
         $scrapes = 0;
         $workplaceDone = false;
@@ -125,6 +170,42 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
                 if ($workplaceDone || $this->hasWorkplace($user)) {
                     continue; // Fresha-linker (or an earlier mention) got there first — precedence holds.
                 }
+
+                // Item 4-EXT: Places-first one hop, BEFORE spending the paid
+                // chained scrape. A bare {name} venue reaches pick()'s
+                // no-corroborator branch, where a locality token in the name
+                // itself must agree with the candidate's address AND the
+                // single-candidate ambiguity guard must hold —
+                // "Star Barber Darwin" connects in one free-ish call, while
+                // "Akro Studio" (no locality token) correctly returns
+                // no_match and falls through to the scrape for its postcode
+                // evidence. The gate does the deciding either way.
+                $handleName = ucwords(str_replace(['_', '.'], ' ', $handle));
+                $oneHop = $linker->attempt($user, [
+                    'name' => $handleName,
+                    'street' => null, 'city' => null, 'postcode' => null,
+                    'region' => null, 'country' => 'AU',
+                    'lat' => null, 'lng' => null, 'phone' => null,
+                ]);
+                Log::info('bio_mention.workplace_chain', [
+                    'user_id' => $this->userId,
+                    'mention' => $handle,
+                    'venue' => $handleName,
+                    'outcome' => $oneHop['outcome'],
+                    'reason' => $oneHop['reason'],
+                    'via' => 'places_first',
+                ]);
+                if ($oneHop['outcome'] === 'connected') {
+                    $workplaceDone = true;
+
+                    continue;
+                }
+                if ($oneHop['outcome'] !== 'no_match') {
+                    // skipped (google_already_connected / capability) — the
+                    // scrape would meet the same wall; move on.
+                    continue;
+                }
+
                 $profile = $this->mentionProfile($scraper, $handle, $scrapes);
                 if ($profile === null) {
                     continue;
@@ -135,7 +216,6 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
                 // "Em|Holley|Finley" (the barbers, not the venue) — the
                 // handle-derived "Star Barber Darwin" is what Places knows.
                 $venue = $this->venueFrom($profile, $handle);
-                $handleName = ucwords(str_replace(['_', '.'], ' ', $handle));
                 foreach (array_unique([$venue['name'], $handleName]) as $candidateName) {
                     $attemptVenue = ['name' => $candidateName] + $venue;
                     $outcome = $linker->attempt($user, $attemptVenue);
@@ -212,6 +292,64 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
         $siteId = Site::query()->where('user_id', $user->id)->value('id');
 
         return $siteId !== null && Workplace::query()->whereKey($siteId)->exists();
+    }
+
+    /**
+     * Item 9a: is a system-initiated Fresha connect still in flight? The
+     * marker's lifecycle makes this a clean state read: connectMode=auto is
+     * stamped at dispatch (AutoBookingConnectDispatcher), stripped from the
+     * payload when the fetch settles either branch, and the whole row is
+     * deleted when the retry ladder abandons — so every terminal state reads
+     * false and only genuine in-flight reads true.
+     */
+    private function freshaAutoConnectPending(User $user): bool
+    {
+        $payload = IntegrationConnection::query()
+            ->where('user_id', $user->id)
+            ->where('platform', Platform::Fresha->value)
+            ->value('payload');
+
+        return is_array($payload) && ($payload['connectMode'] ?? null) === 'auto';
+    }
+
+    /**
+     * Item 4: workplace candidates in evidence order — explicit works-there
+     * wording beats a venue-shaped handle beats bio order — with brand/other
+     * mentions after them in their original relative order. Sorting is
+     * stable (index tiebreak), so equal-evidence candidates keep bio order.
+     *
+     * @param  list<array{handle?: string, label?: string, type?: string}>  $mentions
+     * @return list<array{handle?: string, label?: string, type?: string}>
+     */
+    private function orderedForProcessing(array $mentions): array
+    {
+        $workplace = [];
+        $rest = [];
+        foreach (array_values($mentions) as $i => $mention) {
+            if ((string) ($mention['type'] ?? 'other') === 'workplace') {
+                $workplace[] = [$this->evidenceTier($mention), $i, $mention];
+            } else {
+                $rest[] = $mention;
+            }
+        }
+
+        usort($workplace, static fn (array $a, array $b) => [$a[0], $a[1]] <=> [$b[0], $b[1]]);
+
+        return [...array_column($workplace, 2), ...$rest];
+    }
+
+    private function evidenceTier(array $mention): int
+    {
+        $label = mb_strtolower((string) ($mention['label'] ?? ''));
+        if ($label !== '' && preg_match('/owner|work|cut|based|resident|found|my (shop|salon|studio|store)/u', $label) === 1) {
+            return 0;
+        }
+        $handle = mb_strtolower((string) ($mention['handle'] ?? ''));
+        if (preg_match('/studio|salon|barber|shop|store|clinic|spa/u', $handle) === 1) {
+            return 1;
+        }
+
+        return 2;
     }
 
     /**
