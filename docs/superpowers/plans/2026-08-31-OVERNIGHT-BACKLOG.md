@@ -460,6 +460,21 @@ Full detail (11–18 findings each, incl. medium/low) is in the Wave 5 and Wave 
 
 ---
 
+### E14 — A build-time edge render serves raw Instagram URLs until someone purges · `TODO` · high
+
+Owner-reported on `bydannydixon.partna.au/gallery`: one photo and a row of empty boxes. Diagnosis, proven
+live 2026-09-01: the edge held a render made DURING the build, before media mirroring finished — its six
+gallery images pointed at raw `scontent-*.cdninstagram.com` URLs, which browsers refuse (hotlink
+protection; curl 200s the same URL, a browser gets nothing). The wire had all five mirrored items the
+whole time. A manual purge fixed it instantly — fresh render, all images from our CDN.
+
+This is E11 (24h edge TTL) × F11-class (raw vendor URL served when the mirror is not ready) compounding.
+**Durable fix: fire a purge when a site's media mirroring completes** — the moment the mirrored URLs
+exist is the moment the cached pre-mirror render is wrong. Same shape as the doc-rebuild-on-content-write
+rule (T4).
+
+---
+
 ## I. Still running
 
 - Nightwatch: a verdict on all 50 open issues (fixed-stale / live / infra / by-design-noise).
