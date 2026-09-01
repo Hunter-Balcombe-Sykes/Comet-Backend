@@ -432,6 +432,18 @@ class CacheKeyGenerator
         return 'platforms:apify:'.$actor.':daily:'.$date;
     }
 
+    /** Global daily ScrapeCreators claim counter across all sources (Item 8 G2). */
+    public static function scrapeCreatorsGlobalDailyLimit(string $date): string
+    {
+        return 'platforms:scrapecreators:global:daily:'.$date;
+    }
+
+    /** Per-source daily ScrapeCreators claim counter (source = instagram|tiktok|…). */
+    public static function scrapeCreatorsSourceDailyLimit(string $source, string $date): string
+    {
+        return 'platforms:scrapecreators:'.$source.':daily:'.$date;
+    }
+
     /**
      * Short-lived negative marker for a menu scrape target (platform + store URL)
      * that came back empty / bot-blocked (R4-RES-1). Keyed by the exact URL that

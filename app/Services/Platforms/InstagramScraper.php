@@ -5,7 +5,10 @@ namespace App\Services\Platforms;
 use App\Services\Cache\ApifyBudget;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
+use App\Services\Cache\ScrapeCreatorsBudget;
 use App\Services\Platforms\Actors\InstagramActorAdapter;
+use App\Services\Platforms\ScrapeCreators\InstagramProfileNormalizer;
+use App\Services\Platforms\ScrapeCreators\ScrapeCreatorsClient;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -97,6 +100,19 @@ class InstagramScraper extends PlatformScraper
 
     private function fetchProfileResultUncached(string $username, ?string $userId = null): ProfileFetchResult
     {
+        // Item 8 (2026-09-01): the ScrapeCreators lane fronts the actor. A
+        // usable, non-thin vendor profile short-circuits the 15-60s run-sync
+        // wait to ~2-4s; ANY other vendor outcome — no key, budget denied,
+        // transport/HTTP failure, NotFound husk, shape drift, thin timeline —
+        // falls through to the Apify path completely unchanged. Not-found
+        // semantics deliberately stay Apify's: telling a prospect their
+        // account doesn't exist remains a claim only the incumbent lane is
+        // trusted to make, so a vendor miss never maps to ProfileNotFound.
+        $vendor = $this->vendorProfileFetch($username, $userId);
+        if ($vendor !== null && ! $this->isThinProfile($vendor)) {
+            return ProfileFetchResult::ok($vendor);
+        }
+
         $first = $this->attemptFetch($username, $userId);
 
         if ($first->profile === null || ! $this->isThinProfile($first->profile)) {
@@ -126,6 +142,45 @@ class InstagramScraper extends PlatformScraper
         $this->logThinProfile($username, $userId, $first->profile, retried: true, recovered: false);
 
         return ProfileFetchResult::ok($first->profile, thin: true);
+    }
+
+    /**
+     * The vendor lane, contract-lossy by design: a normalized profile array
+     * or null, never a failure classification. Budget is claimed before the
+     * HTTP call and released when the call yields nothing usable — a miss
+     * must not burn a slot the day's real scrapes need.
+     */
+    private function vendorProfileFetch(string $username, ?string $userId = null): ?array
+    {
+        $client = app(ScrapeCreatorsClient::class);
+        if (! $client->enabled()) {
+            return null;
+        }
+        $budget = app(ScrapeCreatorsBudget::class);
+        if (! $budget->tryClaim('instagram')) {
+            return null;
+        }
+
+        $body = $client->get('/v1/instagram/profile', ['handle' => $username], $userId);
+        if ($body === null) {
+            $budget->release('instagram');
+
+            return null;
+        }
+
+        $profile = app(InstagramProfileNormalizer::class)->normalize($body);
+        if ($profile === null) {
+            // The call was made and billed upstream even when the shape is a
+            // husk — the slot stays spent; only transport-level nulls release.
+            Log::info('scrapecreators.instagram.unusable_shape', [
+                'username_hash' => hash('sha256', mb_strtolower($username)),
+                'user_id' => $userId,
+            ]);
+
+            return null;
+        }
+
+        return $profile;
     }
 
     // One run of the actor. Extracted so the thin retry above is exactly one

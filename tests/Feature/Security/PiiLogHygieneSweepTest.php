@@ -107,11 +107,12 @@ it('SEC-102: no InstagramScraper Log:: call embeds an un-hashed Instagram userna
 
     // Belt-and-braces: attemptFetch() has 4 failure branches (threw / not_ok /
     // bad_items / error_item), each hashing the (lowercased) username, plus
-    // logThinProfile()'s instagram.thin_profile line — 5 in total. If this
-    // drops, a branch stopped hashing; if you add a genuine 6th hashing call
-    // site, bump the number — the loop above is what actually guards against a
-    // raw leak.
-    expect(substr_count($src, "hash('sha256', mb_strtolower(\$username))"))->toBe(5);
+    // logThinProfile()'s instagram.thin_profile line, plus the vendor lane's
+    // scrapecreators.instagram.unusable_shape (Item 8, 2026-09-01) — 6 in
+    // total. If this drops, a branch stopped hashing; if you add a genuine
+    // 7th hashing call site, bump the number — the loop above is what
+    // actually guards against a raw leak.
+    expect(substr_count($src, "hash('sha256', mb_strtolower(\$username))"))->toBe(6);
 
     // Behavioural coverage: tests/Unit/Platforms/InstagramScraperTest.php's
     // "does not log the raw username" case drives the apify.threw branch and

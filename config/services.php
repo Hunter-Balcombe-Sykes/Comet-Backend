@@ -122,6 +122,14 @@ return [
         'client_version' => env('FRESHA_CLIENT_VERSION', 'd135e4b3a3be51f9dd24f5cc2af6dd6a647f85dd'),
     ],
 
+    // ScrapeCreators (Item 8, 2026-09-01) — the fast-vendor scrape lane that
+    // fronts Apify for the G3-assigned sources. Key absent ⇒ the lane is
+    // dormant and every scrape takes the Apify path exactly as before; that
+    // is the deploy-safety property, so never default this.
+    'scrapecreators' => [
+        'key' => env('SCRAPECREATORS_API_KEY'),
+    ],
+
     // Apify — used by the test-mode Instagram platform integration to run the
     // instagram-profile-scraper actor. One token, server-side only.
     'apify' => [

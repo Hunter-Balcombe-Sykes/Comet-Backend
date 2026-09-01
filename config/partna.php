@@ -364,6 +364,10 @@ return [
                 'facebook' => (int) env('PARTNA_FACEBOOK_APIFY_DAILY_CAP', 900),
             ],
 
+            // Item 8 note: with the ScrapeCreators lane in front (see the
+            // 'scrapecreators' block below), Apify claims now happen mostly on
+            // vendor misses — these caps became fallback headroom, not the
+            // primary spend rail.
             // CFG-9: HTTP client timeout for Apify run-sync-get-dataset-items calls, which block
             // until the actor finishes. Raise during an Apify latency incident without a deploy.
             // Must stay UNDER the calling job's own timeout or the job dies first — the binding
@@ -377,6 +381,21 @@ return [
             // GeneratePreAccountSiteJob 300. Both bounds pinned by HorizonQueueCoverageTest,
             // which fails if a raise here outruns either job.
             'run_sync_timeout_seconds' => (int) env('PARTNA_APIFY_RUN_SYNC_TIMEOUT_SECONDS', 125),
+        ],
+
+        // Item 8 (2026-09-01): the ScrapeCreators fast lane's own two-cap
+        // budget, ApifyBudget's twin (ScrapeCreatorsBudget). Caps are set
+        // ABOVE the Apify equivalents on purpose — this is the primary lane
+        // at ~1/10th the latency and the fallback needs its budget intact
+        // when this one throttles. A source with no entry here reads cap 0
+        // and never claims: adding a vendor-lane source means adding its cap,
+        // the same contract the Apify block documents above.
+        'scrapecreators' => [
+            'global_daily_cap' => (int) env('PARTNA_SC_GLOBAL_DAILY_CAP', 12000),
+            'timeout_seconds' => (int) env('PARTNA_SC_TIMEOUT_SECONDS', 20),
+            'sources' => [
+                'instagram' => (int) env('PARTNA_SC_INSTAGRAM_DAILY_CAP', 5400),
+            ],
         ],
 
         // AI menu-structuring spend (Mistral OCR + DeepSeek structuring, via
