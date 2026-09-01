@@ -160,5 +160,5 @@ it('lands a grab as POOL_CONTENT bytes plus an unpinned website-provenance pool 
 
     // The retired lane stayed empty.
     expect(SiteMedia::query()->where('site_id', (string) $site->id)
-        ->where('pool', SiteMedia::POOL_GALLERY)->exists())->toBeFalse();
+        ->where('pool', 'gallery')->exists())->toBeFalse();
 });

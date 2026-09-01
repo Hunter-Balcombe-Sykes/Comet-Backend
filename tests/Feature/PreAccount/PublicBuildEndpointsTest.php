@@ -200,10 +200,10 @@ it('stamps content_filled/enriched lazily on the poll once their conditions are 
     $build->forceFill(['build_state' => PreAccountBuild::STATE_READY])->save();
     $this->getJson("/api/public/signup/builds/{$build->id}")->assertOk()->assertJsonMissingPath('tiers');
 
-    // Content lands (a READY gallery asset) → next poll stamps content_filled.
+    // Content lands (a READY content-pool asset) → next poll stamps content_filled.
     $site = $build->user->site;
     (new SiteMedia([
-        'pool' => 'gallery', 'path' => 'images/t.webp', 'media_type' => 'image',
+        'pool' => 'content', 'path' => 'images/t.webp', 'media_type' => 'image',
         'processing_state' => 'ready', 'sort_order' => 0, 'is_active' => true,
     ]))->site()->associate($site)->save();
 

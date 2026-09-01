@@ -62,7 +62,8 @@ it('batchCheck issues exactly one SQL query regardless of section count', functi
     // multiple `exists (...)` subqueries inside it.
     expect($queries)->toHaveCount(1);
     expect($queries[0])->toStartWith('select exists');
-    // 5 original (gallery, document, priced-service, active-service, booking-link)
-    // + 1 portable subquery (workplace) = 6.
-    expect(substr_count($queries[0], 'exists ('))->toBeGreaterThanOrEqual(6);
+    // 4 original (document, priced-service, active-service, booking-link)
+    // + 1 portable subquery (workplace) = 5 — gallery's subquery retired
+    // with its pool (Wave 6, 2026-09-02; the rule answers without SQL now).
+    expect(substr_count($queries[0], 'exists ('))->toBeGreaterThanOrEqual(5);
 });

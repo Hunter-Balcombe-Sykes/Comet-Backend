@@ -54,13 +54,10 @@ class SiteMedia extends BaseModel
 
     protected $keyType = 'string';
 
-    // Retired as a WRITE target 2026-09-01 (Item 5: one media pool) —
-    // migration 20260901200000 backfilled every gallery row into
-    // POOL_CONTENT, and PoolGalleryWriteGuardTest pins the retirement.
-    // Kept only for the legacy read/filter surfaces (GALLERY_POOLS) until
-    // those lanes are torn down.
-    public const POOL_GALLERY = 'gallery';
-
+    // 'gallery' (POOL_GALLERY) fully retired: writes 2026-09-01 (Item 5,
+    // migration 20260901200000 backfilled every row into POOL_CONTENT),
+    // reads 2026-09-02 (Wave 6 — the legacy read/filter surfaces are gone;
+    // PoolGalleryWriteGuardTest pins that the string stays dead).
     public const POOL_CONTENT = 'content';
 
     // One downloadable document per site (PDF/JPG/PNG). See
@@ -123,14 +120,14 @@ class SiteMedia extends BaseModel
      * both reference this so the bust-key space can never drift from accepted input.
      * Deliberately excludes POOL_DOCUMENTS / POOL_DESIGN (not gallery-listable).
      *
-     * 'gallery' survives here as a legacy FILTER input only (Item 5,
-     * 2026-09-01): nothing writes the pool any more and the backfill emptied
-     * it, but the accepted-input/bust-key space stays stable until the
-     * gallery read surfaces are torn down.
+     * Down to the one live pool since Wave 6 (2026-09-02): the legacy
+     * 'gallery' filter value left with its read surfaces — an old client
+     * sending ?pool=gallery now gets the unfiltered list, the same answer
+     * as any other unknown pool value.
      *
      * @var list<string>
      */
-    public const GALLERY_POOLS = [self::POOL_GALLERY, self::POOL_CONTENT];
+    public const GALLERY_POOLS = [self::POOL_CONTENT];
 
     public const MEDIA_TYPE_IMAGE = 'image';
 

@@ -310,16 +310,6 @@ class SitepageDataResolverService
                 $present['links'] = true;
             }
 
-            // Ready gallery media → the Gallery page.
-            if ($this->safeQuery(fn () => SiteMedia::query()
-                ->where('site_id', $site->id)
-                ->where('pool', SiteMedia::POOL_GALLERY)
-                ->where('is_active', true)
-                ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
-                ->exists(), false, 'ready_gallery_media_exists', $site)) {
-                $present['gallery'] = true;
-            }
-
             // Content-pool presence (presence-via-pools, 2026-08-06): a
             // non-empty pool selection means the page has content whatever
             // its source — a hand-added item has no connection to advertise
@@ -599,42 +589,10 @@ class SitepageDataResolverService
         $this->degraded = true;
     }
 
-    // ── Gallery ──────────────────────────────────────────────────────────
-
-    /**
-     * @param  Collection<string, Block>  $sections
-     * @return array{state: string, data: array|null, block_id?: string}
-     */
-    public function getGallery(?Site $site, Collection $sections): array
-    {
-        return $this->sectionEnvelope($sections, 'gallery', function () use ($site): array {
-            if (! $site) {
-                return [];
-            }
-
-            // #W1-LIFE-5: a DB fault here degrades to "no gallery items", the
-            // same empty answer an un-authored gallery already returns — never
-            // a 500 on the platform's hottest read path.
-            return $this->safeQuery(
-                fn () => SiteMedia::query()
-                    ->where('site_id', $site->id)
-                    ->where('pool', SiteMedia::POOL_GALLERY)
-                    ->where('is_active', true)
-                    ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
-                    ->with('mediaVariants')
-                    ->orderBy('sort_order')
-                    ->get()
-                    ->map(fn (SiteMedia $media) => $this->buildGalleryItem($media))
-                    ->filter(fn (?array $item) => $item !== null && $item['url'] !== '')
-                    ->values()
-                    ->all(),
-                [],
-                'content_gallery',
-                $site,
-                'sitepage.content_read_failed',
-            );
-        });
-    }
+    // The legacy site_media gallery lane (getGallery/buildGalleryItem) was
+    // torn down 2026-09-02 (Wave 6): POOL_GALLERY retired 2026-09-01 and the
+    // gallery page reads the media POOL — getGallery had no callers left.
+    // buildMediaItem below carries the shared media shape both lanes used.
 
     /**
      * Project a SiteMedia row to the resolver-internal polymorphic envelope
@@ -702,18 +660,6 @@ class SitepageDataResolverService
             'poster' => null,
             'duration_ms' => null,
         ];
-    }
-
-    /**
-     * Backwards-compatible gallery item projection. Delegates to the shared
-     * polymorphic helper. Kept as a thin alias so the gallery engine's call
-     * site reads naturally; future callers should use buildMediaItem directly.
-     *
-     * @return array{id: string, sort_order: int, url: string, url_hd: string|null, alt_text: string|null, caption: string|null, kind: string, poster: string|null, duration_ms: int|null}|null
-     */
-    public function buildGalleryItem(SiteMedia $media): ?array
-    {
-        return $this->buildMediaItem($media);
     }
 
     // ── Content media (polymorphic — design layer) ──────────────────────

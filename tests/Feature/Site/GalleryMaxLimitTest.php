@@ -21,7 +21,7 @@ it('excludes failed-processing gallery rows from the active slot count', functio
         DB::connection('pgsql')->table('site.site_media')->insert([
             'id' => (string) Str::uuid(),
             'site_id' => $siteId,
-            'pool' => SiteMedia::POOL_GALLERY,
+            'pool' => SiteMedia::POOL_CONTENT,
             'is_active' => 1,
             'processing_state' => SiteMedia::PROCESSING_STATE_READY,
             'created_at' => $now,
@@ -33,7 +33,7 @@ it('excludes failed-processing gallery rows from the active slot count', functio
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => $siteId,
-        'pool' => SiteMedia::POOL_GALLERY,
+        'pool' => SiteMedia::POOL_CONTENT,
         'is_active' => 1,
         'processing_state' => SiteMedia::PROCESSING_STATE_FAILED,
         'created_at' => $now,
@@ -42,7 +42,7 @@ it('excludes failed-processing gallery rows from the active slot count', functio
 
     $activeCount = SiteMedia::query()
         ->where('site_id', $siteId)
-        ->where('pool', SiteMedia::POOL_GALLERY)
+        ->where('pool', SiteMedia::POOL_CONTENT)
         ->where('is_active', true)
         ->where('processing_state', '!=', SiteMedia::PROCESSING_STATE_FAILED)
         ->count();
@@ -54,12 +54,12 @@ it('counts only the active non-failed rows across pool boundaries', function () 
     $siteId = (string) Str::uuid();
     $now = now()->toDateTimeString();
 
-    // Gallery: 3 ready, 1 failed
+    // Content pool: 3 ready, 1 failed
     foreach ([SiteMedia::PROCESSING_STATE_READY, SiteMedia::PROCESSING_STATE_READY, SiteMedia::PROCESSING_STATE_READY, SiteMedia::PROCESSING_STATE_FAILED] as $state) {
         DB::connection('pgsql')->table('site.site_media')->insert([
             'id' => (string) Str::uuid(),
             'site_id' => $siteId,
-            'pool' => SiteMedia::POOL_GALLERY,
+            'pool' => SiteMedia::POOL_CONTENT,
             'is_active' => 1,
             'processing_state' => $state,
             'created_at' => $now,
@@ -67,11 +67,11 @@ it('counts only the active non-failed rows across pool boundaries', function () 
         ]);
     }
 
-    // Content pool: should not affect gallery count
+    // Another pool (design): must not affect the content slot count.
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => $siteId,
-        'pool' => SiteMedia::POOL_CONTENT,
+        'pool' => SiteMedia::POOL_DESIGN,
         'is_active' => 1,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,
         'created_at' => $now,
@@ -80,7 +80,7 @@ it('counts only the active non-failed rows across pool boundaries', function () 
 
     $galleryCount = SiteMedia::query()
         ->where('site_id', $siteId)
-        ->where('pool', SiteMedia::POOL_GALLERY)
+        ->where('pool', SiteMedia::POOL_CONTENT)
         ->where('is_active', true)
         ->where('processing_state', '!=', SiteMedia::PROCESSING_STATE_FAILED)
         ->count();
@@ -96,7 +96,7 @@ it('pending-state gallery rows count as occupied slots', function () {
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => $siteId,
-        'pool' => SiteMedia::POOL_GALLERY,
+        'pool' => SiteMedia::POOL_CONTENT,
         'is_active' => 1,
         'processing_state' => SiteMedia::PROCESSING_STATE_PENDING,
         'created_at' => $now,
@@ -105,7 +105,7 @@ it('pending-state gallery rows count as occupied slots', function () {
 
     $count = SiteMedia::query()
         ->where('site_id', $siteId)
-        ->where('pool', SiteMedia::POOL_GALLERY)
+        ->where('pool', SiteMedia::POOL_CONTENT)
         ->where('is_active', true)
         ->where('processing_state', '!=', SiteMedia::PROCESSING_STATE_FAILED)
         ->count();

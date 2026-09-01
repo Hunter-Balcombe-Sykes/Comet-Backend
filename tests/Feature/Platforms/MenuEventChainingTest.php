@@ -118,7 +118,7 @@ it('chains accent resolution when a gallery asset reaches READY with a dominant 
     $site = Site::factory()->for($user, 'user')->create();
 
     (new SiteMedia([
-        'pool' => 'gallery', 'path' => 'images/g.webp', 'media_type' => 'image',
+        'pool' => 'content', 'path' => 'images/g.webp', 'media_type' => 'image',
         'processing_state' => 'ready', 'sort_order' => 0, 'is_active' => true,
         'dominant_color' => '#aa3311',
     ]))->site()->associate($site)->save();
@@ -132,7 +132,7 @@ it('does not chain accent resolution for a still-processing or colourless asset'
     $site = Site::factory()->for($user, 'user')->create();
 
     (new SiteMedia([
-        'pool' => 'gallery', 'path' => 'images/p.webp', 'media_type' => 'image',
+        'pool' => 'content', 'path' => 'images/p.webp', 'media_type' => 'image',
         'processing_state' => 'processing', 'sort_order' => 0, 'is_active' => true,
         'dominant_color' => '#aa3311',
     ]))->site()->associate($site)->save();

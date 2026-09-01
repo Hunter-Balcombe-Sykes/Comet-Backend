@@ -3,11 +3,15 @@
 namespace App\Services\User\Visibility\Rules;
 
 use App\Models\Core\Site\Block;
-use App\Models\Core\Site\SiteMedia;
 use App\Services\User\Visibility\SectionVisibilityContract;
-use Illuminate\Support\Facades\DB;
 
-// Gallery is publishable once the site has at least one active gallery image.
+// RETIRED SEMANTICS (Wave 6, 2026-09-02): the gallery BLOCK published off the
+// legacy site_media gallery pool, which Item 5 retired (2026-09-01 backfill
+// emptied it; nothing writes it). Every site still carries a gallery block
+// row, so the rule stays registered — answering the same always-false the
+// empty pool produced — rather than deleting the registration and changing
+// what an unknown block type resolves to. The LIVE gallery page publishes
+// through the media pool (presence-via-pools), not through this block.
 class GalleryVisibility implements SectionVisibilityContract
 {
     public function blockType(): string
@@ -17,22 +21,11 @@ class GalleryVisibility implements SectionVisibilityContract
 
     public function contextSubqueries(string $userId, string $siteId): array
     {
-        return [
-            'has_gallery_image' => SiteMedia::query()
-                ->select(DB::raw('1'))
-                ->where('site_id', $siteId)
-                ->where('pool', SiteMedia::POOL_GALLERY)
-                ->where('media_type', SiteMedia::MEDIA_TYPE_IMAGE)
-                ->where('is_active', true)
-                ->whereNull('deleted_at')
-                ->getQuery(),
-        ];
+        return [];
     }
 
     public function resolve(Block $block, array $context, ?array $pendingSettings = null): array
     {
-        return ($context['has_gallery_image'] ?? false)
-            ? [true, null]
-            : [false, 'Gallery section requires at least 1 uploaded image.'];
+        return [false, 'The legacy gallery section is retired — media publishes through the media pool.'];
     }
 }

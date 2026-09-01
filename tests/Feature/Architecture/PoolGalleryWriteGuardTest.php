@@ -16,6 +16,12 @@ use Symfony\Component\Finder\Finder;
 // sources are request-validated pools (config partna.upload_pools), which is
 // the one remaining gallery door and is tracked for retirement with that
 // endpoint, not here.
+//
+// Wave 6 (2026-09-02): the READ surfaces left too — POOL_GALLERY the const
+// is deleted, GALLERY_POOLS is [POOL_CONTENT], and the /gallery routes +
+// controller + resolver arms are gone. The string-literal patterns below are
+// now the whole guard — a const reference can't compile (POOL_GALLERY no
+// longer exists), and re-adding the const is a review-sized diff by itself.
 it('nothing in app/ writes site_media into the retired gallery pool', function () {
     $offenders = [];
     $patterns = [

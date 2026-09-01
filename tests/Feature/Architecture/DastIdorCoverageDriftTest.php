@@ -27,9 +27,9 @@
 //
 // WHAT THIS GUARD DOES NOT ENFORCE, stated plainly so a green run is not read as
 // more than it is: it enforces DECIDER-level coverage, not VERB-level. README's
-// "What this still does NOT prove" §1 already records that gap — PATCH
-// api/gallery/{image} shares SitePolicy with the probed DELETE, so the DECISION
-// is covered, but a divergence introduced into one verb's handler alone would not
+// "What this still does NOT prove" §1 already records that gap — a PATCH
+// verb sharing its DELETE's SitePolicy call means the DECISION is covered,
+// but a divergence introduced into one verb's handler alone would not
 // be. VERB_VARIANT_OF below is where that acceptance is written down per route
 // rather than left implicit. Every entry carries the reason it is acceptable.
 //
@@ -104,7 +104,6 @@ const IDOR_COVERED_BY = [
     'User\Customers\UserCustomerController@show' => 'customer',
     'User\Customers\UserEnquiryController@markRead' => 'enquiry-read',
     'User\Customers\UserEnquiryController@markSpam' => 'enquiry-spam',
-    'User\SiteManagement\UserGalleryController@destroy' => 'gallery-image',
     'User\Uploads\UserUploadController@destroy' => 'upload-image',
     'User\Account\UserDocumentController@destroy' => 'document',
     'User\Content\ContentController@destroyUpload' => 'content-upload',
@@ -221,10 +220,6 @@ const IDOR_VERB_VARIANT_OF = [
     // policy ability; the PATCH/PUT ones additionally 422 on their FormRequest
     // before the controller method runs, which is why a bodyless probe of them
     // would prove nothing (README, "Probing a surface that needs a request body").
-    'User\SiteManagement\UserGalleryController@update' => [
-        'User\SiteManagement\UserGalleryController@destroy',
-        'Same SitePolicy call; a bodyless PATCH 422s on UpdateGalleryImageRequest before authorization runs.',
-    ],
     'User\Account\UserDocumentController@update' => [
         'User\Account\UserDocumentController@destroy',
         'Same pool check + policy call; a bodyless PATCH 422s on its FormRequest first.',

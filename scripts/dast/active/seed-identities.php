@@ -137,7 +137,7 @@ function seedIdentity(string $label): array
 
     $media = new SiteMedia([
         'path' => "dast/{$label}/gallery-1.jpg",
-        'pool' => 'gallery',
+        'pool' => 'content',
         'media_type' => 'image',
     ]);
     $media->site_id = $site->id;
@@ -201,7 +201,6 @@ function seedIdentity(string $label): array
  * requestor job is never load-bearing — reorder the probes freely and nothing
  * breaks:
  *
- *   media_id            → DELETE api/gallery/{image}                (consumed)
  *   media_image_id      → DELETE api/images/{image}                 (consumed)
  *   media_document_id   → DELETE api/documents/{document}           (consumed)
  *   media_content_id    → DELETE api/content/uploads/{upload}       (consumed)

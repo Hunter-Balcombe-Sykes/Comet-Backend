@@ -158,7 +158,7 @@ class SiteMediaObserver
     private function poolToBlockType(?string $pool): ?string
     {
         return match ($pool) {
-            SiteMedia::POOL_GALLERY => 'gallery',
+            // POOL_GALLERY's arm left with the pool (Wave 6, 2026-09-02).
             SiteMedia::POOL_DOCUMENTS => 'documents',
             default => null,
         };

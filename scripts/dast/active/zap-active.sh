@@ -169,10 +169,10 @@ IDOR_SURFACES=(
     # separately for exactly that reason. Consumes A's enquiry state, which is
     # why it is ordered after enquiry-read.
     "enquiry-spam|POST|/api/enquiries/%s/spam|ENQUIRY_ID"
-    # Four SiteMedia controllers, four DISTINCT ownership code paths. Pools are
+    # Three SiteMedia controllers, three DISTINCT ownership code paths
+    # (gallery-image left with its routes — Wave 6, 2026-09-02). Pools are
     # not interchangeable here: UserDocumentController::destroy pool-checks
-    # BEFORE authorizing, so a gallery id 404s for the wrong reason.
-    "gallery-image|DELETE|/api/gallery/%s|MEDIA_ID"
+    # BEFORE authorizing, so a wrong-pool id 404s for the wrong reason.
     "upload-image|DELETE|/api/images/%s|MEDIA_IMAGE_ID"
     "document|DELETE|/api/documents/%s|MEDIA_DOCUMENT_ID"
     "content-upload|DELETE|/api/content/uploads/%s|MEDIA_CONTENT_ID"

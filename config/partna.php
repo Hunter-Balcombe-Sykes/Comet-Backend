@@ -1924,7 +1924,7 @@ return [
     'upload_pools' => ['content'],
 
     'image_pools' => [
-        'gallery' => ['max' => (int) env('PARTNA_GALLERY_IMAGE_MAX', env('SIDEST_GALLERY_IMAGE_MAX', 6))],
+        // 'gallery' left with the pool (Wave 6, 2026-09-02).
         // 6 -> 20 (owner, 2026-08-27): sized for the old gallery-style use;
         // the media pool is a real photo library now that the upload door
         // feeds the sitepage gallery.

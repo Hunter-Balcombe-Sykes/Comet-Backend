@@ -18,7 +18,7 @@ it('builds the platform connection lock key as platform-wide only (no per-accoun
 
 it('enumerates cache-bust variants in lockstep with the controller filter inputs', function () {
     // Lock the accepted-input allowlists. A deliberate change to either must update this test.
-    expect(SiteMedia::GALLERY_POOLS)->toEqual(['gallery', 'content']);
+    expect(SiteMedia::GALLERY_POOLS)->toEqual(['content']);
     expect(SiteMedia::MEDIA_TYPE_FILTERS)->toEqual(['image', 'video', 'all']);
 
     // Enumerator must cover [null (= all pools) + every gallery pool] × every media-type filter.
@@ -31,7 +31,7 @@ it('enumerates cache-bust variants in lockstep with the controller filter inputs
 
     expect(CacheKeyGenerator::siteImagesViewVariants())
         ->toEqual($expected)
-        ->toHaveCount(9);
+        ->toHaveCount(6);
 });
 
 // #CCH-1 — these four analytics keys used to be built inline at each call site.

@@ -182,7 +182,6 @@ class UserUploadController extends ApiController
         return [
             'images' => $items->values()->all(),
             'limits' => [
-                'gallery' => config('partna.image_pools.gallery.max', 5),
                 'content' => config('partna.image_pools.content.max', 5),
             ],
         ];

@@ -272,7 +272,8 @@ it('delete soft-deletes the upload', function () {
 
 it('delete returns 404 for a non-content or wrong-site upload', function () {
     [$user, $site] = contentUserWithSite('up3');
-    $galleryMedia = contentUpload($site, ['pool' => SiteMedia::POOL_GALLERY]);
+    // A design-pool row: the endpoint only deletes content-pool uploads.
+    $galleryMedia = contentUpload($site, ['pool' => SiteMedia::POOL_DESIGN]);
 
     actingAsUser($user)->deleteJson("/api/content/uploads/{$galleryMedia->id}")
         ->assertStatus(404);

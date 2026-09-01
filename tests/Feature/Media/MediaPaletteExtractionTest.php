@@ -45,7 +45,7 @@ function seedPaletteMediaRow(string $siteId): string
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $id,
         'site_id' => $siteId,
-        'pool' => SiteMedia::POOL_GALLERY,
+        'pool' => SiteMedia::POOL_CONTENT,
         'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
         'path' => '',
         'sort_order' => 0,

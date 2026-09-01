@@ -42,7 +42,6 @@ use App\Http\Controllers\Api\User\Profile\SectorOptionsController;
 use App\Http\Controllers\Api\User\Site\HandleReclaimController;
 use App\Http\Controllers\Api\User\Site\SubdomainAvailabilityController;
 use App\Http\Controllers\Api\User\SiteManagement\CustomDomainController;
-use App\Http\Controllers\Api\User\SiteManagement\UserGalleryController;
 use App\Http\Controllers\Api\User\SiteManagement\UserSectionBlockController;
 use App\Http\Controllers\Api\User\SiteManagement\UserServiceCategoryController;
 use App\Http\Controllers\Api\User\SiteManagement\UserServiceController;
@@ -473,15 +472,6 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         Route::delete('/content/uploads/{upload}', [ContentController::class, 'destroyUpload'])
             ->whereUuid('upload')
             ->middleware('throttle:30,1');
-
-        // Image Gallery (gallery-pool ordering & legacy routes)
-        Route::get('/gallery', [UserGalleryController::class, 'index']);
-        Route::patch('/gallery/{image}', [UserGalleryController::class, 'update'])
-            ->whereUuid('image')
-            ->middleware('throttle:30,1');
-        Route::delete('/gallery/{image}', [UserGalleryController::class, 'destroy'])
-            ->whereUuid('image');
-        Route::post('/gallery/reorder', [UserGalleryController::class, 'reorder']);
 
         // Documents (one file per site — PDF/JPG/PNG, 10 MB max)
         Route::get('/documents', [UserDocumentController::class, 'index']);

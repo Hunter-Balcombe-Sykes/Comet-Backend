@@ -36,7 +36,7 @@ it('dispatches DeleteMediaArtifactsJob for each video media item on purge', func
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId,
         'site_id' => $site->id,
-        'pool' => SiteMedia::POOL_GALLERY,
+        'pool' => SiteMedia::POOL_CONTENT,
         'path' => "videos/{$professional->id}/{$mediaId}",
         'media_type' => SiteMedia::MEDIA_TYPE_VIDEO,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,
@@ -64,7 +64,7 @@ it('deletes image variant files from storage on purge', function () {
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId,
         'site_id' => $site->id,
-        'pool' => SiteMedia::POOL_GALLERY,
+        'pool' => SiteMedia::POOL_CONTENT,
         'path' => $imagePath,
         'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,
@@ -135,7 +135,7 @@ it('continues purge even when an individual media artifact cleanup throws', func
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId,
         'site_id' => $site->id,
-        'pool' => SiteMedia::POOL_GALLERY,
+        'pool' => SiteMedia::POOL_CONTENT,
         'path' => "videos/{$professional->id}/{$mediaId}",
         'media_type' => SiteMedia::MEDIA_TYPE_VIDEO,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,
