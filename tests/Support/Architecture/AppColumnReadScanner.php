@@ -16,6 +16,12 @@ use SplFileInfo;
  * two different tables in the same chain, an unqualified column on a
  * multi-table chain — is DROPPED rather than guessed. A missed catch costs
  * only what we already pay; a false alarm trains people to ignore the guard.
+ *
+ * Known, accepted miss: `DB::table("content.{$table}")` with an interpolated
+ * table name is invisible to this scanner — resolving PHP interpolation
+ * statically is out of scope. A writer that touches a table the PG lane
+ * never provisions at all is equally out of reach: this scanner only ever
+ * reports what app/ reads, never what the lane's stand-in DDL is missing.
  */
 final class AppColumnReadScanner
 {
@@ -324,42 +330,125 @@ final class AppColumnReadScanner
         return $refs;
     }
 
-    /** @return list<string> unqualified column names among the single-quoted literals in $argSpan */
+    /**
+     * The FIRST top-level argument of $argSpan, as a column name — and only
+     * when that argument is nothing but the literal itself. A second/third
+     * argument (`where('kind', 'manual')`'s `'manual'`, `orderBy('col',
+     * 'desc')`'s `'desc'`) is a value or a direction, not a column, and a
+     * literal nested inside a further array or call (`whereIn('state',
+     * ['a','b'])`'s `'a'`/`'b'`, a `str_replace([...])` argument) is never
+     * the column position either — both are dropped, not guessed.
+     *
+     * @return list<string>
+     */
     private static function bareColumnsIn(string $argSpan): array
     {
-        $columns = [];
+        $literal = self::firstTopLevelArgument($argSpan);
 
-        foreach (self::singleQuotedLiterals($argSpan) as [, $content]) {
-            if (str_contains($content, '.')) {
+        if ($literal === null || str_contains($literal, '.')) {
+            return [];
+        }
+
+        $column = self::normaliseColumn($literal);
+
+        return $column === null ? [] : [$column];
+    }
+
+    /**
+     * The substring of $argSpan up to (not including) its first top-level
+     * comma — depth 0, skipping single-quoted contents — or the whole span
+     * if there is none, trimmed. Returns the literal's raw content only if
+     * that whole segment is nothing but one single-quoted literal; null for
+     * anything else (a variable, an array, a nested call), which is exactly
+     * "not the literal argument itself".
+     */
+    private static function firstTopLevelArgument(string $argSpan): ?string
+    {
+        $depth = 0;
+        $length = strlen($argSpan);
+        $boundary = $length;
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $argSpan[$i];
+
+            if ($char === "'") {
+                $i = self::skipSingleQuoted($argSpan, $i);
+
                 continue;
             }
 
-            $column = self::normaliseColumn($content);
+            if ($char === '(' || $char === '[' || $char === '{') {
+                $depth++;
 
-            if ($column !== null) {
-                $columns[] = $column;
+                continue;
+            }
+
+            if ($char === ')' || $char === ']' || $char === '}') {
+                $depth--;
+
+                continue;
+            }
+
+            if ($char === ',' && $depth === 0) {
+                $boundary = $i;
+
+                break;
             }
         }
 
-        return $columns;
+        $first = trim(substr($argSpan, 0, $boundary));
+
+        return preg_match('/^\'([^\']*)\'$/', $first, $m) === 1 ? $m[1] : null;
     }
 
-    /** @return list<string> unqualified `'column' =>` array keys in $argSpan */
+    /**
+     * `'column' =>` keys of the write payload at bracket depth EXACTLY 1 —
+     * direct children of the outermost `[...]`. A key nested one level
+     * deeper (`'detail' => json_encode(['in_flight_run_id' => …])`'s
+     * `in_flight_run_id`) is a JSON payload field on some OTHER table
+     * entirely, not a column of the table this call writes to.
+     *
+     * @return list<string>
+     */
     private static function writeKeysIn(string $argSpan): array
     {
         $columns = [];
+        $depth = 0;
+        $length = strlen($argSpan);
 
-        if (preg_match_all('/\'([^\']*)\'\s*=>/', $argSpan, $matches) > 0) {
-            foreach ($matches[1] as $content) {
-                if (str_contains($content, '.')) {
-                    continue;
+        for ($i = 0; $i < $length; $i++) {
+            $char = $argSpan[$i];
+
+            if ($char === "'") {
+                $quoteStart = $i;
+                $end = self::skipSingleQuoted($argSpan, $i);
+
+                if ($depth === 1) {
+                    $content = substr($argSpan, $quoteStart + 1, $end - $quoteStart - 1);
+                    $rest = ltrim(substr($argSpan, $end + 1));
+
+                    if (str_starts_with($rest, '=>') && ! str_contains($content, '.')) {
+                        $column = self::normaliseColumn($content);
+
+                        if ($column !== null) {
+                            $columns[] = $column;
+                        }
+                    }
                 }
 
-                $column = self::normaliseColumn($content);
+                $i = $end;
 
-                if ($column !== null) {
-                    $columns[] = $column;
-                }
+                continue;
+            }
+
+            if ($char === '(' || $char === '[' || $char === '{') {
+                $depth++;
+
+                continue;
+            }
+
+            if ($char === ')' || $char === ']' || $char === '}') {
+                $depth--;
             }
         }
 
@@ -464,9 +553,12 @@ final class AppColumnReadScanner
     }
 
     /**
-     * Comments and double-quoted string bodies are removed entirely — an
-     * apostrophe inside a comment ("the mapper's per-platform pass") would
+     * Comments, double-quoted string bodies, and heredoc/nowdoc bodies are
+     * removed entirely — an apostrophe inside any of them (a comment's "the
+     * mapper's per-platform pass", or a heredoc's prose/SQL/Lua body) would
      * otherwise open a phantom single-quoted literal for every scan below it.
+     * Heredoc is skipped the same way as double-quoted: dropped whole,
+     * delimiters included, never copied to the output.
      */
     private static function stripCommentsAndDoubleQuoted(string $php): string
     {
@@ -496,6 +588,12 @@ final class AppColumnReadScanner
                 continue;
             }
 
+            if ($char === '<' && $next === '<' && ($php[$i + 2] ?? '') === '<') {
+                $i = self::skipHeredoc($php, $i);
+
+                continue;
+            }
+
             if ($char === "'") {
                 $end = self::skipSingleQuoted($php, $i);
                 $out .= substr($php, $i, $end - $i + 1);
@@ -521,6 +619,68 @@ final class AppColumnReadScanner
         $pos = strpos($php, "\n", $from);
 
         return $pos === false ? strlen($php) : $pos;
+    }
+
+    /**
+     * Index of the last character of the closing identifier for the
+     * heredoc/nowdoc opening at $start (the first `<` of `<<<`). Handles
+     * both `<<<'ID'` (nowdoc) and `<<<ID`/`<<<"ID"` (heredoc) openers, and a
+     * closing marker indented to match the body (PHP 7.3+ flexible heredoc)
+     * — the marker just has to be the first non-blank token on its line.
+     * Malformed input (no identifier, or no closing line) degrades to
+     * skipping as little as possible rather than guessing.
+     */
+    private static function skipHeredoc(string $php, int $start): int
+    {
+        $length = strlen($php);
+        $i = $start + 3; // past "<<<"
+
+        while ($i < $length && ($php[$i] === ' ' || $php[$i] === "\t")) {
+            $i++;
+        }
+
+        $quote = null;
+        if ($i < $length && ($php[$i] === "'" || $php[$i] === '"')) {
+            $quote = $php[$i];
+            $i++;
+        }
+
+        $idStart = $i;
+        while ($i < $length && ($php[$i] === '_' || ctype_alnum($php[$i]))) {
+            $i++;
+        }
+        $identifier = substr($php, $idStart, $i - $idStart);
+
+        if ($identifier === '') {
+            return $start + 2; // not actually a heredoc opener — bail out narrowly
+        }
+
+        if ($quote !== null && $i < $length && $php[$i] === $quote) {
+            $i++;
+        }
+
+        $bodyStart = self::indexOfLineEnd($php, $i);
+        $bodyStart = $bodyStart < $length ? $bodyStart + 1 : $length;
+
+        $pos = $bodyStart;
+        while ($pos < $length) {
+            $lineEnd = self::indexOfLineEnd($php, $pos);
+            $line = substr($php, $pos, $lineEnd - $pos);
+            $trimmed = ltrim($line, " \t");
+            $indent = strlen($line) - strlen($trimmed);
+
+            if (str_starts_with($trimmed, $identifier)) {
+                $after = $trimmed[strlen($identifier)] ?? '';
+
+                if ($after === '' || (! ctype_alnum($after) && $after !== '_')) {
+                    return $pos + $indent + strlen($identifier) - 1;
+                }
+            }
+
+            $pos = $lineEnd < $length ? $lineEnd + 1 : $length;
+        }
+
+        return $length - 1; // never closes within this file — skip to EOF
     }
 
     /** Index of the closing quote for the single-quoted literal opening at $quoteIndex. `''` inside is an escaped quote. */

@@ -147,3 +147,98 @@ it('is not confused by an apostrophe inside a PHP comment', function () {
 
     expect(AppColumnReadScanner::scanSource($php)['content.items'])->toContain('removed_at');
 });
+
+it('C1: takes only the first-position string literal as a column, never a value or a literal nested inside a further array/call', function () {
+    $php = <<<'PHP'
+    <?php
+    class W {
+        public function run() {
+            DB::table('content.sources')
+                ->where('kind', 'manual')
+                ->whereIn('state', ['proposed', 'applied', 'blocked'])
+                ->where('health', '!=', 'dead')
+                ->orderBy('updated_at', 'desc')
+                ->where('action_id', 'like', 'item:%')
+                ->where('key', str_replace(['-', '_'], ' ', $raw))
+                ->get();
+        }
+    }
+    PHP;
+
+    $refs = AppColumnReadScanner::scanSource($php)['content.sources'] ?? [];
+
+    expect($refs)->toContain('kind')
+        ->toContain('state')
+        ->toContain('health')
+        ->toContain('updated_at')
+        ->toContain('action_id')
+        ->toContain('key')
+        ->and($refs)->not->toContain('manual')
+        ->and($refs)->not->toContain('proposed')
+        ->and($refs)->not->toContain('applied')
+        ->and($refs)->not->toContain('blocked')
+        ->and($refs)->not->toContain('dead')
+        ->and($refs)->not->toContain('desc')
+        ->and($refs)->not->toContain('like')
+        ->and($refs)->not->toContain('_')
+        ->and($refs)->not->toContain('-');
+});
+
+it('C2: takes only depth-1 array keys as columns, never a key nested inside a json_encode() payload', function () {
+    $php = <<<'PHP'
+    <?php
+    class W {
+        public function run() {
+            DB::table('ingest.anomalies')->insert([
+                'id' => (string) Str::uuid(),
+                'source_id' => $candidate->id,
+                'kind' => 'stranded',
+                'detail' => json_encode([
+                    'in_flight_run_id' => $candidate->in_flight_run_id,
+                    'in_flight_since' => $candidate->in_flight_since,
+                ]),
+                'detected_at' => now(),
+            ]);
+        }
+    }
+    PHP;
+
+    $refs = AppColumnReadScanner::scanSource($php)['ingest.anomalies'] ?? [];
+
+    expect($refs)->toContain('id')
+        ->toContain('source_id')
+        ->toContain('kind')
+        ->toContain('detail')
+        ->toContain('detected_at')
+        ->and($refs)->not->toContain('in_flight_run_id')
+        ->and($refs)->not->toContain('in_flight_since');
+});
+
+it('I1: is not confused by an apostrophe inside a heredoc/nowdoc body', function () {
+    // Regression: an unrecognised heredoc body containing an apostrophe
+    // desyncs single-quote parity for everything after it. Left unfixed,
+    // the desync propagates far enough that this chain's own ->where(
+    // call never finds its matching close paren and is silently dropped —
+    // content.first_table never appears in the result at all.
+    $php = <<<'PHP'
+    <?php
+    class W {
+        public function first() {
+            DB::table('content.first_table')
+                ->where('note', <<<'EOT'
+                    it's unterminated on purpose
+                    EOT)
+                ->get();
+        }
+
+        public function second() {
+            DB::table('content.second_table')->where('real_col', 1)->get();
+        }
+    }
+    PHP;
+
+    $refs = AppColumnReadScanner::scanSource($php);
+
+    expect($refs['content.first_table'] ?? [])->toContain('note')
+        ->and($refs['content.second_table'] ?? [])->toContain('real_col');
+});
