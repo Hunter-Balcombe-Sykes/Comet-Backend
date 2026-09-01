@@ -13,6 +13,10 @@ use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
 
 beforeEach(function () {
+    // 219020b04 taught the middleware to look a staff account up before
+    // falling through to 403; without the stand-in table that lookup throws
+    // "no such table: core.partna_staff" instead of reaching the assertion.
+    setupPartnaStaffTable();
     $this->cache = Mockery::mock(UserCacheService::class);
     $this->middleware = new LoadCurrentUser($this->cache);
     $this->next = fn ($req) => new Response('ok', 200);

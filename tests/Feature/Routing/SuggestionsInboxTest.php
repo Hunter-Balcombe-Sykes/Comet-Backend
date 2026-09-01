@@ -620,12 +620,18 @@ it('keeps the reconciler\'s own block reason when an accepted store is refused b
     // unresolved. Overwriting there replaced a real 'cap_reached' — which
     // renders as "swap it for this one?" with a Replace button — with
     // "we couldn't reach this", whose Try again can only ever fail again.
+    // The host must RESOLVE in DNS. SafeUrlFetcher rejects a host that does
+    // not resolve to a public IP BEFORE issuing a request, so Http::fake() is
+    // never consulted, every commerce probe declines, and the reconciler never
+    // runs — the intent then settles 'unservable' instead of 'cap_reached'.
+    // This test sat red on `eleventh.com`, which no longer resolves (2026-09-01).
+    // example.com is IANA-reserved, so it cannot lapse.
     setupContentTables();
     Cache::flush();
     $pro = createTenant('inbox-store-capped-accept');
     Http::fake([
-        '*/meta.json' => Http::response(['id' => 999111, 'name' => 'Eleventh', 'currency' => 'AUD'], 200),
-        'https://eleventh.com/' => Http::response('<html><head><title>Eleventh</title></head><body>x</body></html>', 200, ['Content-Type' => 'text/html']),
+        '*/meta.json' => Http::response(['id' => 999111, 'name' => 'Example Store', 'currency' => 'AUD'], 200),
+        'https://example.com/' => Http::response('<html><head><title>Example Store</title></head><body>x</body></html>', 200, ['Content-Type' => 'text/html']),
         '*' => Http::response('', 404),
     ]);
 
@@ -639,7 +645,7 @@ it('keeps the reconciler\'s own block reason when an accepted store is refused b
 
     $intentId = seedIntent($pro->id, [
         'surface_key' => 'shopify.store', 'routing_class' => 'shop',
-        'identifier' => '999111', 'canonical_url' => 'https://eleventh.com/',
+        'identifier' => '999111', 'canonical_url' => 'https://example.com/',
         'block_reason' => 'below_threshold',
     ]);
 
