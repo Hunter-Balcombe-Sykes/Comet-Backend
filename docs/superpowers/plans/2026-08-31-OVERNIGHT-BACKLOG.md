@@ -475,6 +475,53 @@ rule (T4).
 
 ---
 
+## J. RE-AUDIT VERDICT (2026-08-31 21:59–22:56 UTC, fresh 23-account batch on the fixed code)
+
+Batch: 23/23 ready, zero failures, zero rejected specs. Instagram builds 14–58s, Google 2–6s;
+scraping drained 23 min after last ready. Full detail in the Wave 6 task output.
+
+### The honest table
+
+**FIXED, live evidence (8):** F1 platform beacons · F4 tel: links (both account types) · F9 JSON-LD
+address+phone · F10 real meta descriptions · F16 whole-batch dispatch · L1 review attribution
+(155 wires read card-by-card, zero violations) · L2 venue aggregate (5 badges recomputed, all match)
+· L3 mirror-folder collision (209 connections, 209 distinct folders, legacy pairs repaired).
+
+**PARTIAL (5):** F2 (failed builds 404; pending window remains) · F6 (no new failures in-window; two
+legacy rows) · F11 (mirrored on most; TikTok CDN still failing on some) · F15 (Booksy+Treatwell
+connectors mapped; Cliniko/NowBookIt not) · F21 (dark by design at the edge).
+
+**STILL OPEN (10):** F3 — NameShapeGate does not exist at HEAD; 8/12 fresh IG accounts wrong, brands
+split into fake person names ("The Edit", "Tension Music"). F5 — worse: 79/238 sector-null. F7 —
+username 'p' stored from a /p/ path. F8 — **a /brand-city/ URL evaded the /brand/ guard** (schnitz).
+F13 — 12 purge failures in-window. F14 — SVG 422s now the terminal mode. F17, F18 (17/30 profiles
+don't lead with home — wider than the sector-front case), F19, F20, F22.
+
+**NOT MEASURED (6):** F12 (suite-side), L5–L8 (no sweep drove a browser).
+
+### New defects the re-audit surfaced (top of 31)
+
+- **141 of 230 live sites link a stylesheet that 404s after a deploy** — asset-hash churn × the 24h
+  edge cache; they render unstyled until purged. The biggest visitor-facing defect on the platform,
+  and the generalisation of E11/E14.
+- **harper-blohm-cheese-shop publishes another company's identity**, and its Website resolves to
+  gambling spam.
+- **Nightwatch has recorded nothing since 2026-08-30 23:00** — the batch ran with telemetry dark, so
+  "no new issues" has meant nothing for two days.
+- The five deliberately-dark handles serve complete payloads on the wire.
+- OCR menu lane returned zero items on 7/7 fresh restaurants despite menu-dense photos every time;
+  25/78 food accounts have no menu.
+- ~12 concurrent sitepage renders exhaust the Supabase session pool → public 500s (matches the
+  Wave 5 pooler finding).
+- Seven sitepages publish a byte-identical og:image belonging to another handle (share-image variant
+  of the folder-collision class — needs the same uuid keying).
+- 'Sports School' classifies a sailing school as a gym; 13xx phone numbers get a wrong +61 transform;
+  grilld og:image is 88px.
+
+Full list of 31 with evidence: Wave 6 task output (`wusdiwedb`).
+
+---
+
 ## I. Still running
 
 - Nightwatch: a verdict on all 50 open issues (fixed-stale / live / infra / by-design-noise).
