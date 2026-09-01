@@ -433,7 +433,7 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 1 of 3 complete
+- P2 Medium: 2 of 3 complete
 - P3 Low: 0 of 9 complete
 
 ---
@@ -456,8 +456,13 @@ None.
         ],
         ```
 
-- [ ] **#CFG-2** · P2 — Auto-booking connect flag defaults to enabled everywhere it's read
-    - **Where:** config/partna.php:2194; app/Services/Platforms/LinkRouter.php:319; app/Routing/SourceReconciler.php:231; app/Services/Platforms/GoogleBusinessAutoSync.php:364; .env.example:502 (was `:1880-1881`, `:229`, `:345`, `:459`) — all four `true` defaults still present, unchanged.
+- [x] **#CFG-2** · P2 — Auto-booking connect flag defaults to enabled everywhere it's read
+    - Resolution (2026-09-01): WONTFIX — auto-booking-on is the deliberate, tested decision (owner confirmed 2026-09-01). ⚠️ The 2026-08-25 triage reached the same verdict but cited `d39cc6e61` for it, which is a Fresha auto-selection merge touching `FreshaController` and does not show this; the config key came from `46dfd867a`. The real evidence, verified today:
+        - `tests/Unit/Config/AutoBookingConfigTest.php:8-10` is a test titled "enables auto booking connect by default" that asserts `config('partna.connect.auto_booking.enabled')` is TRUE. The default is pinned on purpose, not drifted into.
+        - **The config flag is a kill switch, not the gate.** `$ctx->autoConnectBooking` defaults FALSE on `GoogleBusinessEnrichJob:79` and `InstagramConnectJob:86`, and its comment reads "TRUE only when a staff/ManyChat build reached this". `LinkRouter:318` and `GoogleBusinessAutoSync:363` both require it, so an ordinary dashboard paste never reaches the outbound fetch no matter what the config says. The finding's premise — that a fresh environment starts auto-fetching before anyone opted in — does not hold.
+        - The one path gated by the config alone is `SourceReconciler:229-231`, and it additionally requires `$user->isUnclaimed()` — i.e. pre-account builds auto-populating, which is the product itself.
+        Flipping the default would break the config test and disable pre-account auto-populate while closing no exposure. The three redundant `config(..., true)` fallbacks noted in the finding remain a fair cosmetic point; absorb them opportunistically if this file is open for other work.
+    - **Where:** config/partna.php:2194; app/Services/Platforms/LinkRouter.php:319; app/Routing/SourceReconciler.php:231; app/Services/Platforms/GoogleBusinessAutoSync.php:364; .env.example:502
     - **Affects:** Every new/staging environment; unclaimed pre-account users whose Instagram/Google Business connect flow discovers a Fresha booking link.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
