@@ -305,6 +305,24 @@ wire stopped serving 2026-08-14.
 4. **Zero Astro changes** — the renderer already reads only pools.media;
    that it needs no edits is the proof of the architecture.
 
+### DONE 2026-09-01 (executor decisions, recorded)
+
+- Provenance = the manual lane's coord namespace ('website:' beside
+  'upload:'/'manual:') — site_media carries no origin column and the
+  anchor coord already says where bytes came from.
+- The plan premise "GalleryAutoGrabber is the only writer left" was FALSE:
+  POST /uploads still accepted pool=gallery via partna.upload_pools. That
+  door is CLOSED in the same commit (config now ['content']); the DB CHECK
+  keeps 'gallery' until the legacy read surfaces (GALLERY_POOLS filters,
+  /api/gallery endpoints — dead wire since 2026-08-14) are torn down.
+- Migration ROLLBACK: NONE (flip records no pre-image); recovery = R2 dump.
+  Applied to dev 2026-09-01; backfill ran live: 151 website items minted,
+  317 already bridged, 1 skipped (no webp variant). Existing sites surface
+  them on their next document rebuild (Wave 5 verifies).
+- Legacy POOL_GALLERY READERS flagged for a follow-up teardown:
+  UserGalleryController, SitepageDataResolverService gallery envelope,
+  GalleryVisibility, the observer's gallery cache-key mapping.
+
 ### Selection model (owner-confirmed 2026-09-01, already live as R5)
 
 Sitepage = pinned items in owner order; "add media" picks from the
@@ -401,6 +419,14 @@ Verification: fresh build renders its videos before any mirror lands;
 mirrored URL replaces CDN URL on next rebuild; an artificially expired
 source_url video is NOT served (gate holds); dead-media handler covers
 the rotation window without a broken player.
+
+DONE 2026-09-01 (executor decisions, recorded): the gate is the oe
+pre-flight alone (no mirror-attempts cap — attempts aren't in the frames
+read, and expiry is the honest liveness signal); deck classification uses
+RESOLVED frames so an expired unmirrored video sits with the stills
+rather than leading with a card that can't play; the videos-lead deck
+partition applies in 'newest' mode only (smart/manual are owner
+choices).
 
 ## Item 8 (APPROVED, with owner decision gates): vendor-fast scrape lane — Apify becomes the fallback
 
