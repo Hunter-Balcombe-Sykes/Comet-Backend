@@ -88,27 +88,85 @@ function actingAsStaffOnlyJwt(PartnaStaff $staff): void
     });
 }
 
-it('registers no staff route behind current.pro', function () {
-    $router = app('router');
+/**
+ * Every spelling that actually reaches LoadCurrentUser.
+ *
+ * gatherMiddleware() returns middleware names as WRITTEN on the route —
+ * 'current.pro', 'current.pro:staff_session_ok', 'user.api' — never the class
+ * they alias to, and MiddlewareNameResolver cannot close that gap here: the
+ * aliases are registered on the HTTP kernel in bootstrap/app.php, so inside the
+ * test container the Router's own alias map is EMPTY and 'current.pro' resolves
+ * to itself.
+ *
+ * This leg previously compared those strings against LoadCurrentUser::class — a
+ * needle that can never appear in that haystack, making the assertion vacuously
+ * true. It passed no matter what the routes said. Proved 2026-09-01 under the
+ * mutation gate: adding 'current.pro' to the FIRST staff group left this test
+ * green while the end-to-end leg below went red. The old "guard the guard"
+ * checked the haystack was non-empty but never that the needle was findable,
+ * which is the half that was actually missing.
+ *
+ * So match on the names as written. Three tokens reach LoadCurrentUser today:
+ * the alias, the group that appends it, and the bare class for a direct
+ * reference. The positive control at the end of the test fails loudly if this
+ * set ever goes stale.
+ */
+function routeLoadsCurrentUser($route): bool
+{
+    $offendingTokens = ['current.pro', 'user.api', LoadCurrentUser::class];
 
-    $offenders = collect(Route::getRoutes()->getRoutes())
-        ->filter(fn ($route) => str_starts_with((string) $route->uri(), 'api/staff'))
-        ->filter(fn ($route) => in_array(
-            LoadCurrentUser::class,
-            $router->gatherRouteMiddleware($route),
-            true,
-        ))
+    foreach ($route->gatherMiddleware() as $name) {
+        if (! is_string($name)) {
+            continue;
+        }
+
+        // Strip middleware parameters: 'current.pro:staff_session_ok' is still
+        // LoadCurrentUser, and that parameterised form is the one GET /me uses.
+        $token = Str::before($name, ':');
+
+        if (in_array($token, $offendingTokens, true)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+it('registers no staff route behind current.pro', function () {
+    $staffRoutes = collect(Route::getRoutes()->getRoutes())
+        ->filter(fn ($route) => str_starts_with((string) $route->uri(), 'api/staff'));
+
+    $offenders = $staffRoutes
+        ->filter(fn ($route) => routeLoadsCurrentUser($route))
         ->map(fn ($route) => implode('|', $route->methods()).' '.$route->uri())
         ->values()
         ->all();
 
     expect($offenders)->toBe([]);
 
-    // Guard the guard: if the prefix ever changes, an empty haystack would make
-    // the assertion above vacuously true.
-    $staffRoutes = collect(Route::getRoutes()->getRoutes())
-        ->filter(fn ($route) => str_starts_with((string) $route->uri(), 'api/staff'));
+    // Guard the guard, part 1 — the HAYSTACK. If the prefix ever changes, the
+    // assertion above would pass on an empty collection.
     expect($staffRoutes->count())->toBeGreaterThan(50);
+
+    // Guard the guard, part 2 — the NEEDLE. The detector must be able to FIND
+    // a route that is behind current.pro, or the assertion above means nothing.
+    // This is the leg whose absence let the vacuous version ship.
+    $me = collect(Route::getRoutes()->getRoutes())
+        ->first(fn ($route) => $route->uri() === 'api/me' && in_array('GET', $route->methods(), true));
+
+    expect($me)->not->toBeNull()
+        // GET /me carries the PARAMETERISED form ('current.pro:staff_session_ok'),
+        // so this pins parameter-stripping too.
+        ->and(routeLoadsCurrentUser($me))->toBeTrue();
+
+    // ...and the 'user.api' group token, which is how the ordinary user routes
+    // pick up current.pro. A detector blind to the group would report zero here.
+    $nonStaffBehindCurrentPro = collect(Route::getRoutes()->getRoutes())
+        ->reject(fn ($route) => str_starts_with((string) $route->uri(), 'api/staff'))
+        ->filter(fn ($route) => routeLoadsCurrentUser($route))
+        ->count();
+
+    expect($nonStaffBehindCurrentPro)->toBeGreaterThan(10);
 });
 
 it('answers GET /staff/me for an actor with no core.users row', function () {
