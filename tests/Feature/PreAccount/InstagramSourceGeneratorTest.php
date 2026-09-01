@@ -172,3 +172,31 @@ it('writes display_name from a snake_case full_name payload (actor shape drift)'
     expect($user->fresh()->display_name)->toBe('Jane Doe')
         ->and($user->fresh()->first_name)->toBe('Jane');
 });
+
+it('a descriptor vanity name never becomes a person name — the gate is wired, not just written', function () {
+    // The 2026-09-01 re-audit exhibit: "Brisbane Personal Trainer" split into
+    // first "Brisbane" / last "Trainer" by the fallback parse, and the AI lane
+    // has produced the same shape ("The"/"Edit"). This test exercises the
+    // GENERATOR path, because NameShapeGateTest alone left the call site
+    // mutable — bypassing NameShapeGate::apply() in generate() survived every
+    // existing test (proved by mutation, 2026-09-01).
+    $scraper = Mockery::mock(InstagramScraper::class);
+    $scraper->shouldReceive('fetchProfileResult')->once()->with('cassandraskinnerpt', Mockery::type('string'))
+        ->andReturn(ProfileFetchResult::ok(['fullName' => 'Brisbane Personal Trainer', 'biography' => null]));
+    $seeder = Mockery::mock(InstagramConnectionSeeder::class);
+    $seeder->shouldReceive('seed')->once()->andReturn(['fullName' => 'Brisbane Personal Trainer']);
+    app()->instance(InstagramScraper::class, $scraper);
+    app()->instance(InstagramConnectionSeeder::class, $seeder);
+
+    $user = User::factory()->create(['status' => 'unclaimed', 'auth_user_id' => null, 'primary_email' => null, 'display_name' => 'cassandraskinnerpt', 'first_name' => 'cassandraskinnerpt']);
+    $site = Site::factory()->create(['user_id' => $user->id, 'is_published' => false]);
+
+    app(InstagramSourceGenerator::class)->generate($user, $site, 'cassandraskinnerpt');
+
+    $fresh = $user->fresh();
+    // The handle plainly contains her name, so the gate recovers it — and a
+    // descriptor pair ("Brisbane"/"Trainer") must never survive as first/last.
+    expect($fresh->display_name)->toBe('Cassandra Skinner')
+        ->and($fresh->first_name)->toBe('Cassandra')
+        ->and($fresh->last_name)->toBe('Skinner');
+});
