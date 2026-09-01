@@ -23,6 +23,7 @@ use App\Services\Platforms\MenuMerger;
 use App\Services\Platforms\MenuSource;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -139,6 +140,12 @@ it('LIFE-12: a manual menu edit between two terminal failures does NOT reopen th
 
 it('LIFE-12: a genuine successful scrape between two failures DOES reopen the episode', function () {
     Exceptions::fake();
+    // 9e: settled() chains RetryMenuFetchJob after a terminal failure; on the
+    // sync test driver its 90s delay is ignored and the relay would re-run the
+    // fetch inline, double-counting the once()-mocked scrape. The relay has
+    // its own coverage (MenuEventChainingTest) — fake the queue here so this
+    // test keeps pinning episode boundaries, not retry mechanics.
+    Queue::fake();
     $user = msfnUser('msfn2');
     msfnOrdering($user);
 
@@ -167,6 +174,7 @@ it('LIFE-12: a genuine successful scrape between two failures DOES reopen the ep
 
 it('LIFE-12: the soft-unavailable branch is not a recovery and does NOT reopen the episode', function () {
     Exceptions::fake();
+    Queue::fake(); // same 9e-relay suppression as the test above
     $user = msfnUser('msfn3');
     msfnOrdering($user);
 

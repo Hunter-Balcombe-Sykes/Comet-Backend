@@ -84,6 +84,11 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
     public function __construct(
         public readonly string $userId,
         public readonly bool $force = false,
+        // 9e: true only when dispatched by RetryMenuFetchJob — the one in-band
+        // recovery shot. Stops settled() re-chaining another retry, so a
+        // persistently-down platform hands off to the 15-minute cron instead
+        // of ping-ponging billed scrapes.
+        public readonly bool $inBandRetry = false,
     ) {
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
@@ -207,6 +212,12 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             $this->writePlatformSyncStatus($storeLinks, $menus, $menu, $now);
             $menu->forceFill(['fetch_status' => 'unavailable', 'last_fetched_at' => $now])->save();
 
+            // 9e: this is a terminal state for anything waiting on the fetch —
+            // chain the deferred Google-photo scan (it may now be the only menu
+            // source) and take ONE in-band recovery shot at the transient
+            // failure instead of parking on the 15-minute cron.
+            $this->settled();
+
             return;
         }
 
@@ -273,6 +284,49 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         // covers the /menu sub-page; nothing had been DISPATCHING the purge on a
         // menu content change, so refreshed prices/items sat stale at the edge.
         $this->bustSiteCache($this->userId);
+
+        // 9e: fetch settled successfully — release anything chained on it
+        // (the deferred Google-photo scan enriches the just-written rows).
+        $this->settled();
+    }
+
+    /**
+     * 9e (2026-09-01): every terminal path of this job — the ok tail, the
+     * nothing-usable branch, and failed() — announces completion so waiters
+     * chain off the real event instead of guessing with timers. Two waiters
+     * today: GoogleMenuPhotoScanJob's deferred dispatch (was a blind 5-minute
+     * head start), and — only when a platform landed 'unavailable' and this
+     * run was not itself the recovery shot — ONE in-band re-fetch ~90s out
+     * (was up to 15 minutes on the menu:retry-unavailable cron, which stays
+     * as the long-tail net). Best-effort by contract: a chaining failure must
+     * never fail a fetch that already wrote its content.
+     */
+    private function settled(): void
+    {
+        try {
+            GoogleMenuPhotoScanJob::chainAfterMenuSettled($this->userId);
+        } catch (Throwable $e) {
+            report($e);
+        }
+
+        try {
+            if ($this->inBandRetry) {
+                return;
+            }
+            $menu = Menu::query()->where('user_id', $this->userId)->with('platformLinks')->first();
+            $hasUnavailable = $menu !== null
+                && ($menu->fetch_status === 'unavailable'
+                    || $menu->platformLinks->contains(fn ($link) => $link->status === 'unavailable'));
+            if ($hasUnavailable) {
+                // A separate delayed job, not self-dispatch: this job is unique
+                // per user and its own lock is still held here, so a direct
+                // dispatch would be silently dropped. The relay runs after the
+                // lock releases and re-checks before re-billing a scrape.
+                RetryMenuFetchJob::dispatch($this->userId)->delay(now()->addSeconds(90));
+            }
+        } catch (Throwable $e) {
+            report($e);
+        }
     }
 
     /**
@@ -1486,5 +1540,10 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         // outage no matter how much the owner edits their menu meanwhile.
         // See PlatformHealthNotifier::menuScrapeFailed.
         app(PlatformHealthNotifier::class)->menuScrapeFailed((string) $this->userId, $menu?->last_successful_fetch_at);
+
+        // 9e: terminal failure is still "settled" for anything chained on the
+        // fetch — the photo scan may now be the only menu source, and the
+        // in-band retry gets its one shot here too.
+        $this->settled();
     }
 }

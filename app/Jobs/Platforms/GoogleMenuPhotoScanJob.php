@@ -85,11 +85,14 @@ class GoogleMenuPhotoScanJob implements ShouldBeUnique, ShouldQueue
     }
 
     /**
-     * T6 (2026-08-27): the post-enrichment dispatch, with the delay decided by
-     * what the delay is FOR. The 5-minute hold exists purely so a same-connect
-     * MenuFetchJob settles before the scan reads the menu — a user with no
-     * ordering platform connected has no MenuFetchJob to wait for, and the
-     * scan is their ONLY menu source, so holding it just delays their menu.
+     * T6 (2026-08-27) → 9e (2026-09-01): the post-enrichment dispatch. The
+     * old 5-minute hold existed purely so a same-connect MenuFetchJob settled
+     * before the scan read the menu — a blind timer. Now the wait IS the
+     * event: with an ordering platform whose fetch hasn't settled, this
+     * defers entirely and MenuFetchJob's own completion (every terminal
+     * path, including failed()) chains the scan via chainAfterMenuSettled().
+     * A user with no ordering platform — or one whose fetch already settled —
+     * gets the scan immediately; the scan is often their ONLY menu source.
      */
     public static function dispatchAfterEnrich(string $userId, string $placeId): void
     {
@@ -102,10 +105,44 @@ class GoogleMenuPhotoScanJob implements ShouldBeUnique, ShouldQueue
             ->where('routing_class', 'ordering')
             ->exists();
 
-        $job = self::dispatch($userId, $placeId);
-        if ($hasOrderingPlatform) {
-            $job->delay(now()->addMinutes(5));
+        $fetchSettled = ! $hasOrderingPlatform || Menu::query()
+            ->where('user_id', $userId)
+            ->whereIn('fetch_status', ['ok', 'unavailable'])
+            ->exists();
+
+        if ($fetchSettled) {
+            self::dispatch($userId, $placeId);
+
+            return;
         }
+
+        Log::info('menu_photo_scan.deferred_to_menu_fetch', ['user_id' => $userId]);
+    }
+
+    /**
+     * 9e: the completion half of the deferral above — called from every
+     * terminal path of MenuFetchJob. Dispatches the photo scan the moment the
+     * ordering fetch settles (success OR terminal failure) instead of the old
+     * fixed 5-minute head start. placeId is read off the user's own GBP
+     * connection; no GBP connection → nothing to scan from → no-op. The
+     * ShouldBeUnique lock (uniqueFor 3600) coalesces a re-fetch's re-chain
+     * with any scan already in flight.
+     */
+    public static function chainAfterMenuSettled(string $userId): void
+    {
+        // first()?->payload, not value('payload'): value() bypasses the model's
+        // array cast and would hand fromArray() a raw JSON string.
+        $payload = IntegrationConnection::query()
+            ->where('user_id', $userId)
+            ->where('platform', Platform::GoogleBusiness->value)
+            ->first()?->payload;
+
+        $placeId = is_array($payload) ? GoogleBusinessPayload::fromArray($payload)->placeId() : null;
+        if ($placeId === null || $placeId === '') {
+            return;
+        }
+
+        self::dispatch($userId, $placeId);
     }
 
     /**

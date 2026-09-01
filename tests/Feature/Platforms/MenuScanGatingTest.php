@@ -79,15 +79,17 @@ it('allowNew defaults true — existing behaviour unchanged', function () {
     expect($result['added'])->toBe(1);
 });
 
-it('dispatchAfterEnrich delays only when an ordering platform is connected', function () {
-    // No ordering platform → the scan is the only menu source; no 5-min hold.
+it('dispatchAfterEnrich defers only when an ordering fetch has not settled (9e)', function () {
+    // No ordering platform → the scan is the only menu source; fire now.
     $bare = msgUser('msgbare');
     GoogleMenuPhotoScanJob::dispatchAfterEnrich((string) $bare->id, 'place-bare');
     Queue::assertPushed(GoogleMenuPhotoScanJob::class, function (GoogleMenuPhotoScanJob $job) {
         return $job->userId !== '' && $job->delay === null;
     });
 
-    // Ordering platform connected → keep the settling delay.
+    // Ordering platform connected with its fetch unsettled → no dispatch at
+    // all: MenuFetchJob's completion chains the scan (was a blind 5-min hold;
+    // the chain itself is pinned in MenuEventChainingTest).
     $ordered = msgUser('msgordered');
     IntegrationConnection::create([
         'user_id' => $ordered->id,
@@ -97,8 +99,8 @@ it('dispatchAfterEnrich delays only when an ordering platform is connected', fun
         'is_active' => true,
     ]);
     GoogleMenuPhotoScanJob::dispatchAfterEnrich((string) $ordered->id, 'place-ordered');
-    Queue::assertPushed(GoogleMenuPhotoScanJob::class, function (GoogleMenuPhotoScanJob $job) use ($ordered) {
-        return $job->userId === (string) $ordered->id && $job->delay !== null;
+    Queue::assertNotPushed(GoogleMenuPhotoScanJob::class, function (GoogleMenuPhotoScanJob $job) use ($ordered) {
+        return $job->userId === (string) $ordered->id;
     });
 });
 

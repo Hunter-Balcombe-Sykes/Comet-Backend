@@ -2,6 +2,7 @@
 
 namespace App\Services\Platforms;
 
+use App\Jobs\Platforms\SeedReelMirrorJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
@@ -138,18 +139,17 @@ class InstagramConnectionSeeder
             }
         }
 
+        // 9d: the reel mp4 was the largest single chunk of the ready path
+        // (10-40s of CDN streaming). It leaves the critical path: the row is
+        // written video-less (skeletons fall back to images[0]), and
+        // SeedReelMirrorJob mirrors mp4 + poster on the media-mirror lane,
+        // merging them into the payload — the observer's wasChanged('payload')
+        // purge then swaps the reel onto the live page. Dispatched at the END
+        // of seed() (after the authoritative row write) so the merge can never
+        // be overwritten by this run's own full-selection save.
         $videoUrl = null;
         $videoPoster = null;
-        if ($media['video'] && $media['video']['videoUrl']) {
-            $videoSrc = $this->freshOrOriginal($media['video']['videoUrl'], $media['video']['shortCode'] ?? null, 'video');
-            $videoUrl = $videoSrc === null ? null : $this->mirrorVideo($videoSrc, "{$folder}/reel.mp4");
-            // Mirror the reel's poster only once its mp4 mirrored — it's the <video>'s
-            // poster frame, useless without the video.
-            if ($videoUrl && $media['video']['thumbnailUrl']) {
-                $posterSrc = $this->freshOrOriginal($media['video']['thumbnailUrl'], $media['video']['shortCode'] ?? null, 'image');
-                $videoPoster = $posterSrc === null ? null : $this->mirrorOne($posterSrc, "{$folder}/reel-cover.jpg");
-            }
-        }
+        $pendingReel = (bool) ($media['video'] && $media['video']['videoUrl']);
 
         $picSrc = $this->scraper->profilePicUrl($profile);
         $profilePic = $picSrc ? $this->mirrorOne($picSrc, "{$folder}/profile.jpg") : null;
@@ -174,8 +174,13 @@ class InstagramConnectionSeeder
         // key is a safe no-op.
         $written = array_filter([
             $images ? "{$folder}/photo.jpg" : null,
-            $videoUrl ? "{$folder}/reel.mp4" : null,
-            $videoPoster ? "{$folder}/reel-cover.jpg" : null,
+            // A pending async reel counts as written: SeedReelMirrorJob is about
+            // to overwrite both fixed names, so reclaiming them here would race
+            // it. If the job ultimately drops the mp4, a PRIOR run's files can
+            // linger unreferenced (payload holds no videoUrl) — storage
+            // garbage, never a user-visible stale reel.
+            $pendingReel ? "{$folder}/reel.mp4" : null,
+            $pendingReel ? "{$folder}/reel-cover.jpg" : null,
             $profilePic ? "{$folder}/profile.jpg" : null,
         ]);
         $stale = array_values(array_diff([
@@ -369,7 +374,59 @@ class InstagramConnectionSeeder
             ])->saveQuietly();
         }
 
+        // 9d: the reel leaves this method's wall clock. AFTER the row write on
+        // purpose — the job merges into the payload under the same lock, and
+        // dispatching earlier would let a fast worker's merge be clobbered by
+        // this run's own full-selection save above. afterCommit covers the
+        // pre-account build path (seed() runs inside the build transaction);
+        // outside a transaction it dispatches immediately, which is fine here
+        // because the row write has already happened.
+        if ($pendingReel) {
+            SeedReelMirrorJob::dispatch((string) $connection->id, $media['video'], $folder)->afterCommit();
+        }
+
         return $selection;
+    }
+
+    /**
+     * The async half of the 9d reel handoff: mirror the mp4 (then its poster —
+     * still useless without the video) and merge both into the connection
+     * payload under the same platformConnectionLock every writer of this row
+     * takes. The observer's wasChanged('payload') purge propagates the swap to
+     * the live page. A dropped mirror leaves the payload untouched — the photo
+     * fallback simply stands.
+     *
+     * @param  array{videoUrl: ?string, thumbnailUrl: ?string, shortCode: ?string}  $video
+     */
+    public function mirrorReelAndSwap(IntegrationConnection $connection, array $video, string $folder): void
+    {
+        $videoSrc = $this->freshOrOriginal($video['videoUrl'] ?? null, $video['shortCode'] ?? null, 'video');
+        $videoUrl = $videoSrc === null ? null : $this->mirrorVideo($videoSrc, "{$folder}/reel.mp4");
+        if ($videoUrl === null) {
+            return;
+        }
+
+        $videoPoster = null;
+        if (! empty($video['thumbnailUrl'])) {
+            $posterSrc = $this->freshOrOriginal($video['thumbnailUrl'], $video['shortCode'] ?? null, 'image');
+            $videoPoster = $posterSrc === null ? null : $this->mirrorOne($posterSrc, "{$folder}/reel-cover.jpg");
+        }
+
+        $key = CacheKeyGenerator::platformConnectionLock($connection->platform, (string) $connection->user_id);
+        Cache::lock($key, 10)->block(5, function () use ($connection, $videoUrl, $videoPoster) {
+            $connection->refresh();
+            $payload = (array) $connection->payload;
+            $payload['videoUrl'] = $videoUrl;
+            if ($videoPoster !== null) {
+                $payload['videoPoster'] = $videoPoster;
+            }
+            $connection->update(['payload' => $payload]);
+        });
+
+        Log::info('instagram.seed_reel.swapped', [
+            'connection_id' => (string) $connection->id,
+            'poster' => $videoPoster !== null,
+        ]);
     }
 
     /**

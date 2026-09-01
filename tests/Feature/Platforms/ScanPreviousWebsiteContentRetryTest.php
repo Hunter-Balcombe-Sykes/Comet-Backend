@@ -11,6 +11,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Events\JobQueued;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Artisan;
@@ -162,6 +163,16 @@ it('does not re-dispatch the billed OCR sub-job on retry — real queue-drain pr
         }
     });
 
+    // 9e removed the sub-job's 30s+ stagger, so the drain now pops (and runs,
+    // or fails) the PDF scan too — a jobs-table row count can no longer prove
+    // "dispatched once". Count enqueues at the source instead.
+    $pdfDispatches = 0;
+    Event::listen(JobQueued::class, function ($event) use (&$pdfDispatches) {
+        if (str_contains((string) $event->payload()['displayName'], 'WebsiteMenuPdfScanJob')) {
+            $pdfDispatches++;
+        }
+    });
+
     ScanPreviousWebsiteContentJob::dispatch((string) $user->id, (string) $site->id, 'https://example.com');
 
     drainDatabaseQueue();
@@ -172,12 +183,10 @@ it('does not re-dispatch the billed OCR sub-job on retry — real queue-drain pr
     expect(DB::table('failed_jobs')->where('payload', 'like', '%'.addcslashes(ScanPreviousWebsiteContentJob::class, '\\').'%')->count())->toBe(1);
     expect(DB::table('jobs')->where('payload', 'like', '%'.addcslashes(ScanPreviousWebsiteContentJob::class, '\\').'%')->count())->toBe(0);
 
-    // The billed sub-job: dispatched exactly once across the whole drain —
+    // The billed sub-job: enqueued exactly once across the whole drain —
     // BEFORE this fix, a second handle() attempt would have pushed a second
     // WebsiteMenuPdfScanJob payload for the same PDF, re-billing Mistral OCR.
-    // These rows are delayed 30s+ and deliberately never popped by the drain
-    // above (see drainDatabaseQueue's docblock) — only their COUNT matters.
-    expect(DB::table('jobs')->where('payload', 'like', '%'.addcslashes(WebsiteMenuPdfScanJob::class, '\\').'%')->count())->toBe(1);
+    expect($pdfDispatches)->toBe(1);
 });
 
 // #LIFE-9: the test above proves ONE dispatch of the parent job never fans

@@ -2,6 +2,7 @@
 
 namespace App\Observers\Core;
 
+use App\Jobs\Platforms\ResolveSiteAccentJob;
 use App\Models\Core\Site\SiteMedia;
 use App\Observers\Concerns\LogsWithRequestContext;
 use App\Services\Cache\SiteCacheInvalidator;
@@ -40,6 +41,7 @@ class SiteMediaObserver
         // New media always triggers section visibility reevaluation and cache bust.
         $this->reevaluateIfRelevant($media);
         $this->touchParentSite($media, 'create');
+        $this->maybeChainAccentResolve($media);
     }
 
     public function updated(SiteMedia $media): void
@@ -53,6 +55,35 @@ class SiteMediaObserver
 
         $this->reevaluateIfRelevant($media);
         $this->touchParentSite($media, 'update');
+        $this->maybeChainAccentResolve($media);
+    }
+
+    /**
+     * 9e (2026-09-01): the accent's logo/gallery tiers used to be reached by a
+     * BLIND +120s re-dispatch from ScanPreviousWebsiteContentJob — a timer
+     * guessing when the variant pipeline would land. This is the real event:
+     * a logo or gallery asset reaching READY with a dominant colour IS the
+     * input those tiers read (SiteAccentResolver queries exactly this state),
+     * so resolution chains off it directly. DesignKitAccentApplier is
+     * fill-if-empty, so once an accent exists every later transition no-ops —
+     * over-dispatch is a queue push, never a visible change.
+     */
+    private function maybeChainAccentResolve(SiteMedia $media): void
+    {
+        if ($media->processing_state !== SiteMedia::PROCESSING_STATE_READY
+            || $media->dominant_color === null
+            || $media->site_id === null) {
+            return;
+        }
+
+        $isLogo = $media->pool === SiteMedia::POOL_DESIGN
+            && in_array($media->purpose, [SiteMedia::PURPOSE_LOGO_FULL, SiteMedia::PURPOSE_LOGO_SQUARE], true);
+        $isGallery = in_array($media->pool, SiteMedia::GALLERY_POOLS, true) && $media->is_active;
+        if (! $isLogo && ! $isGallery) {
+            return;
+        }
+
+        ResolveSiteAccentJob::dispatch((string) $media->site_id, null, null);
     }
 
     public function deleted(SiteMedia $media): void

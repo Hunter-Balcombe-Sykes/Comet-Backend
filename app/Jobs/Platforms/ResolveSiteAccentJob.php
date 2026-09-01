@@ -15,13 +15,13 @@ use Throwable;
 /**
  * Runs SiteAccentResolver's priority chain and applies the result
  * fill-if-empty (DesignKitAccentApplier already no-ops on a manual accent —
- * inherited, not reimplemented here). Dispatched TWICE from
- * ScanPreviousWebsiteContentJob: immediately (theme-color/favicon are
- * available synchronously) and again after a delay (the logo/gallery tiers
- * depend on async media processing this job has no direct handle to chain
- * onto — LogoAutoGrabber/GalleryAutoGrabber dispatch their own variant jobs
- * several layers down via MediaUploadService, opaque to the caller). Cheap
- * and safe to over-dispatch: idempotent, and a no-op once an accent exists.
+ * inherited, not reimplemented here). Two dispatch sites since 9e
+ * (2026-09-01): ScanPreviousWebsiteContentJob fires it immediately with the
+ * synchronously-available tiers (theme-color/favicon), and SiteMediaObserver
+ * chains it whenever a logo/gallery asset reaches READY with a dominant
+ * colour — the exact state the async tiers query, replacing the old blind
+ * +120s re-dispatch. Cheap and safe to over-dispatch: idempotent, and a
+ * no-op once an accent exists.
  */
 class ResolveSiteAccentJob implements ShouldQueue
 {

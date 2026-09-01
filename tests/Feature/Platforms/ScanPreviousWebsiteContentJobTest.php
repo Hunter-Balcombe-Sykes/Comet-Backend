@@ -359,10 +359,11 @@ it('does not notify when the website scan finds nothing conflicting', function (
 // Accent RESOLUTION (fill-if-empty, priority chain) is ResolveSiteAccentJob's
 // own responsibility now — covered end to end in ResolveSiteAccentJobTest.
 // This job's job is only to extract the theme-color/favicon candidates from
-// the already-fetched page and dispatch the resolver (twice: immediate +
-// delayed, see the dispatch site's comment) with them.
+// the already-fetched page and dispatch the resolver ONCE with them — the
+// async logo/gallery tiers chain from SiteMediaObserver since 9e, not from a
+// second delayed dispatch here.
 
-it('dispatches ResolveSiteAccentJob twice, carrying the extracted theme-color candidate', function () {
+it('dispatches ResolveSiteAccentJob once, carrying the extracted theme-color candidate', function () {
     Queue::fake();
     // A BUSINESS: the workplace's website IS the site's brand, so its colours
     // are design evidence. (A partna account's are not — see the test below.)
@@ -375,7 +376,7 @@ it('dispatches ResolveSiteAccentJob twice, carrying the extracted theme-color ca
 
     Queue::assertPushed(ResolveSiteAccentJob::class, fn ($job) => $job->siteId === (string) $site->id
         && $job->themeColor === '#ff5500');
-    Queue::assertPushed(ResolveSiteAccentJob::class, 2);
+    Queue::assertPushed(ResolveSiteAccentJob::class, 1);
 });
 
 it('still dispatches ResolveSiteAccentJob when an accent already exists (fill-if-empty is the resolver job\'s call, not this one\'s)', function () {
@@ -388,7 +389,7 @@ it('still dispatches ResolveSiteAccentJob when an accent already exists (fill-if
 
     spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
 
-    Queue::assertPushed(ResolveSiteAccentJob::class, 2);
+    Queue::assertPushed(ResolveSiteAccentJob::class, 1);
     // The existing manual accent is untouched at THIS layer — dispatch alone
     // never writes anything (ResolveSiteAccentJobTest pins the actual guard).
     $row = DB::connection('pgsql')->table('site.design_kits')->where('site_id', (string) $site->id)->first();

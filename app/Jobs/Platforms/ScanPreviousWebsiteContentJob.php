@@ -280,7 +280,7 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
                 $pdfs,
                 fn (array $pdf) => $this->isMenuRelevantPdf($pdf['url'], $pdf['text']),
             ));
-            foreach (array_slice($relevantPdfs, 0, self::MAX_PDF_SCANS) as $index => $pdf) {
+            foreach (array_slice($relevantPdfs, 0, self::MAX_PDF_SCANS) as $pdf) {
                 // #LIFE-9: a manual Horizon retry of THIS job re-runs handle()
                 // from scratch, so without this claim it would re-dispatch (and
                 // re-bill) the OCR call for a PDF a prior attempt already sent.
@@ -291,8 +291,11 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
                     continue;
                 }
 
-                WebsiteMenuPdfScanJob::dispatch($this->userId, $pdf['url'])
-                    ->delay(now()->addSeconds(30 + $index * 15));
+                // 9e: no stagger delay — the input (the PDF url) is already in
+                // hand, and the scraping queue's own worker count bounds how
+                // many OCR calls run at once. The old 30+15n stagger was pure
+                // dead time on the menu's path to the page.
+                WebsiteMenuPdfScanJob::dispatch($this->userId, $pdf['url']);
             }
 
             // Menu (HTML fallback) — only when the narrow JSON-LD lookup above
@@ -314,7 +317,8 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
                     // Same backfill-command interaction noted at the PDF claim
                     // site above applies here too.
                     if ($this->looksMenuDense($visibleText) && $this->claimSubJobDispatch('html', $visibleText)) {
-                        WebsiteMenuHtmlScanJob::dispatch($this->userId, $visibleText)->delay(now()->addSeconds(30));
+                        // 9e: input already in hand — the old +30s was dead time.
+                        WebsiteMenuHtmlScanJob::dispatch($this->userId, $visibleText);
                     }
                 }
             }
@@ -380,8 +384,8 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         // of this job's own 60s window. Fills an EMPTY gallery pool only.
         $galleryCandidates = $galleryCandidateExtractor->extract($html, $baseUrl);
         if ($galleryCandidates !== []) {
-            WebsiteGalleryScanJob::dispatch($this->userId, $this->siteId, $galleryCandidates)
-                ->delay(now()->addSeconds(30));
+            // 9e: candidates already extracted — the old +30s was dead time.
+            WebsiteGalleryScanJob::dispatch($this->userId, $this->siteId, $galleryCandidates);
         }
 
         // Everything below is DESIGN evidence — the site's logo, accent and
@@ -427,23 +431,14 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
             ]);
         }
 
-        // Accent resolution — dispatched TWICE, not run inline. Once now
-        // (covers theme-color/favicon, already available — same latency as
-        // before this change) and once delayed (covers the logo/gallery
-        // tiers above, which are async and this job has no direct handle to
-        // chain onto — LogoAutoGrabber/GalleryAutoGrabber dispatch their own
-        // variant-processing jobs several layers down via MediaUploadService,
-        // opaque to this caller). Cheap to over-dispatch: DesignKitAccentApplier
-        // (inside ResolveSiteAccentJob) is fill-if-empty, so the second run is
-        // a no-op once the first (or a manual edit) already set an accent.
-        // 120s comfortably covers the gallery job's own 30s delay plus its
-        // processing, and gives the logo pipeline's typically-fast (but
-        // occasionally slow, cold-container) round-trip a fair shot — not a
-        // guarantee; a genuinely slower run just misses this pass and waits
-        // for the next website re-scan.
+        // Accent resolution — one immediate pass for the tiers already in hand
+        // (theme-color/favicon). The logo/gallery tiers no longer ride a blind
+        // +120s re-dispatch: 9e moved them onto the real event — SiteMediaObserver
+        // chains ResolveSiteAccentJob the moment a logo/gallery asset reaches
+        // READY with a dominant colour (exactly the state SiteAccentResolver
+        // queries), so a slow cold-container variant run can't miss its pass
+        // any more, and a fast one isn't held for two minutes.
         ResolveSiteAccentJob::dispatch($this->siteId, $themeColor, $faviconColor);
-        ResolveSiteAccentJob::dispatch($this->siteId, $themeColor, $faviconColor)
-            ->delay(now()->addSeconds(120));
 
         // §13's second half of website evidence: the font keyword classifier.
         // Same $html as everything above (no extra fetch), same fill-if-empty
