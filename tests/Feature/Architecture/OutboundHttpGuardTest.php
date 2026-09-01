@@ -109,6 +109,7 @@ const OUTBOUND_HTTP_ALLOWLIST = [
     'app/Services/Platforms/InstagramConnectionSeeder.php' => ['C', 'ALLOWED_HOSTS + isAllowedHost() + withoutRedirecting() + drop >=300'],
 
     'app/Console/Commands/FleetVerifyCommand.php' => ['A', 'staff-only console command; https://<handle>.partna.au where handle is OUR handle_lc column (validated DNS label, HandleAllocator-shaped) — the apex is fixed, no user input reaches the URL'],
+    'app/Console/Commands/FleetAssertCommand.php' => ['A', 'scheduled estate assertion; apex from config(partna.public_domain), label is OUR subdomain column — same shape as FleetVerifyCommand, no user input reaches the URL'],
 
     // ── Pattern D — FixedHostVariablePath (Rule 3 applies) ──────────────────
     'app/Services/Platforms/YoutubeThumbnailResolver.php' => ['D', 'i.ytimg.com; $videoId validated by VIDEO_ID_PATTERN'],
