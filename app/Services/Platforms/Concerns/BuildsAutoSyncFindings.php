@@ -12,6 +12,7 @@ use App\Services\Cache\DailyCounterClaim;
 use App\Services\Platforms\AutoBookingConnectDispatcher;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
+use App\Services\Platforms\Normalizers\TwitchNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\Registry\PlatformRegistry;
@@ -833,6 +834,17 @@ trait BuildsAutoSyncFindings
             // A standalone regex here would share the blind spot for reserved
             // path segments (pages/people/…) that G4-4 fixed.
             $parsed = app(FacebookNormalizer::class)($url);
+            $username = (string) ($parsed['username'] ?? '');
+
+            return $username !== '' ? $username : null;
+        }
+
+        if ($platform === 'twitch') {
+            // Item 10a (2026-09-01): TwitchConnect is a scraper strategy now,
+            // so the UrlConnect probe above no longer reaches twitch — parse
+            // with the SAME pure normalizer that strategy runs first (login
+            // capture + RESERVED blocklist; no network here, ever).
+            $parsed = (new TwitchNormalizer)($url);
             $username = (string) ($parsed['username'] ?? '');
 
             return $username !== '' ? $username : null;

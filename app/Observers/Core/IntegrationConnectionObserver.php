@@ -3,6 +3,7 @@
 namespace App\Observers\Core;
 
 use App\Ingest\ConnectorRegistry;
+use App\Ingest\FacebookEventsSourceProvisioner;
 use App\Ingest\Runtime\SourceScheduler;
 use App\Ingest\SourceProvisioner;
 use App\Jobs\Ingest\RunSourceJob;
@@ -379,6 +380,10 @@ class IntegrationConnectionObserver
         try {
             $result = app(SourceProvisioner::class)->sync($connection);
             $this->maybeRunEagerly($connection, $result);
+            // Item 11a (2026-09-01): a facebook connection's satellite events
+            // source — AFTER the parent sync above on purpose: the provisioner
+            // reads the parent facebook row's identifier that sync just wrote.
+            $this->maybeRunEagerly($connection, app(FacebookEventsSourceProvisioner::class)->sync($connection));
         } catch (UniqueConstraintViolationException) {
             // The benign, expected outcome of a concurrent duplicate save, and
             // the ONLY quiet arm here. SourceProvisioner's insert is

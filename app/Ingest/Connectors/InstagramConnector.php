@@ -17,6 +17,7 @@ use App\Ingest\Runtime\Connector;
 use App\Ingest\Runtime\Io;
 use App\Ingest\Runtime\Pull;
 use App\Ingest\Support\Fields;
+use App\Services\Platforms\InstagramScraper;
 
 /**
  * Instagram via the paid Apify profile actor (plan §11) — OFF THE SCHEDULER by
@@ -53,6 +54,21 @@ use App\Ingest\Support\Fields;
  * Field names drift across actor versions (raw GraphQL snake_case on
  * today's figue actor, camelCase historically) — every read tolerates both,
  * mirroring what InstagramScraper learned in production.
+ *
+ * Item 11b (2026-09-01), behind partna.limits.scrapecreators.instagram_depth_enabled
+ * (default FALSE — an absent key means OFF): depth rows blend into the SAME
+ * media stream after the window's records. Reels history (only when the
+ * window yielded fewer than 5 usable videos — Item 2's video lead is the
+ * number being served), highlight covers, and tagged posts, each fetched by
+ * InstagramScraper's depth methods, which own the whole vendor discipline
+ * under the 'instagram' ScrapeCreators cap and answer null for every failure
+ * mode — so the blend degrades to nothing and the window lane stands alone.
+ * The vendor is reached through the Http facade, not Io, exactly the
+ * YoutubeRssConnector shorts-blend precedent: the billing ledger is the
+ * budget's own and never admits the vendor host to `hosts`. Coverage stays
+ * computed off the WINDOW alone — depth rows land BELOW the prefix claim
+ * (older reels, dateless highlights/tagged), so a later flagless or
+ * budget-denied run can never tombstone them (C5).
  */
 class InstagramConnector implements Connector
 {
@@ -112,7 +128,7 @@ class InstagramConnector implements Connector
             return;
         }
 
-        yield from $this->mediaMessages($profile, $pull);
+        yield from $this->mediaMessages($profile, $pull, $username);
     }
 
     /**
@@ -136,7 +152,7 @@ class InstagramConnector implements Connector
     }
 
     /** @param array<string, mixed> $profile */
-    private function mediaMessages(array $profile, Pull $pull): iterable
+    private function mediaMessages(array $profile, Pull $pull, string $username): iterable
     {
         $posts = $profile['latestPosts'] ?? $profile['latest_posts'] ?? null;
         if (! is_array($posts)) {
@@ -174,10 +190,108 @@ class InstagramConnector implements Connector
             yield new Record('media', $item['shortcode'], $item);
         }
 
+        foreach ($this->depthRows($profile, $items, $pull, $username) as $item) {
+            yield new Record('media', $item['shortcode'], $item);
+        }
+
         // The grid is only ever the recent window — a prefix down to the
-        // oldest post actually seen, never the whole account (C5).
+        // oldest post actually seen, never the whole account (C5). Computed
+        // off the WINDOW items ALONE, never the blended depth rows: depth is
+        // reels-only below the window (and dateless highlights/tagged), so
+        // letting an older reel drag `from` down would claim the photos in
+        // that gap were seen, and their absence would delete real posts.
         $dates = array_filter(array_column($items, 'taken_at'));
         yield new Covered('media', Coverage::prefix($dates === [] ? null : min($dates), count($items)));
+    }
+
+    /**
+     * Item 11b's depth blend — [] unless the flag is on, and every vendor
+     * failure inside the scraper is a null that blends nothing. Reels history
+     * is fetched only when the window itself could not serve Item 2's
+     * videos-lead selection (fewer than 5 rows with a playable mp4);
+     * highlight covers and tagged posts are unconditional gallery candidates
+     * under the same flag. Rows arrive from the normalizers already in the
+     * landed vocabulary this connector's own mapPost() emits, deduped by
+     * shortcode against the window (a recent reel sits in both surfaces; the
+     * window copy wins — it carries the carousel frames and the actor-shaped
+     * caption).
+     *
+     * A latest_n scope is honoured the YoutubeRss way: what the window
+     * filled comes off the top, and a scope the window already satisfied
+     * skips every vendor call OUTRIGHT — no credit spent on rows the slice
+     * would discard.
+     *
+     * @param  array<string, mixed>  $profile
+     * @param  list<array<string, mixed>>  $windowItems  the sliced, yielded page
+     * @return list<array<string, mixed>>
+     */
+    private function depthRows(array $profile, array $windowItems, Pull $pull, string $username): array
+    {
+        // Safe-by-absence: the spine owns config/partna.php, and this code
+        // must behave as OFF until the key lands there and is flipped.
+        if (! (bool) config('partna.limits.scrapecreators.instagram_depth_enabled', false)) {
+            return [];
+        }
+
+        $limit = $pull->scopeLimit();
+        $remaining = $limit === null ? PHP_INT_MAX : $limit - count($windowItems);
+        if ($remaining <= 0) {
+            return [];
+        }
+
+        $scraper = app(InstagramScraper::class);
+        $seen = array_flip(array_column($windowItems, 'shortcode'));
+        $rows = [];
+
+        $windowVideos = count(array_filter(
+            $windowItems,
+            static fn (array $item) => isset($item['video_url']),
+        ));
+        if ($windowVideos < 5) {
+            $this->blend($rows, $seen, $scraper->fetchReelsDepth($username));
+        }
+
+        $this->blend($rows, $seen, $scraper->fetchHighlights($username));
+
+        $igUserId = $this->numericUserId($profile);
+        if ($igUserId !== null) {
+            $this->blend($rows, $seen, $scraper->fetchTaggedPosts($igUserId));
+        }
+
+        return array_slice($rows, 0, $remaining);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     * @param  array<string, int|true>  $seen
+     * @param  list<array<string, mixed>>|null  $fetched
+     */
+    private function blend(array &$rows, array &$seen, ?array $fetched): void
+    {
+        foreach ($fetched ?? [] as $row) {
+            $shortcode = $row['shortcode'] ?? null;
+            if (! is_string($shortcode) || isset($seen[$shortcode])) {
+                continue;
+            }
+            $seen[$shortcode] = true;
+            $rows[] = $row;
+        }
+    }
+
+    /**
+     * The numeric Instagram user id the tagged-posts endpoint requires, read
+     * off the already-scraped profile (raw GraphQL `id` on both the vendor
+     * and figue-actor shapes; `pk` tolerated for private-API drift). Absent
+     * or non-numeric means the tagged call is SKIPPED, never guessed — no
+     * credit rides on a resolution this connector cannot make.
+     *
+     * @param  array<string, mixed>  $profile
+     */
+    private function numericUserId(array $profile): ?string
+    {
+        $id = Fields::firstString($profile, ['id', 'pk']);
+
+        return $id !== null && preg_match('/^\d+$/', $id) === 1 ? $id : null;
     }
 
     /** @return array<string, mixed>|null */

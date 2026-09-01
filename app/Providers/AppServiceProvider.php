@@ -5,11 +5,18 @@ namespace App\Providers;
 use App\Catalog\DetectorSuspensions;
 use App\Http\Middleware\Throttle\FailOpenThrottleRequests;
 use App\Ingest\Runtime\Effects\BilledEffectDriverRegistry;
+use App\Ingest\Runtime\Effects\BlueskyVendorDriver;
+use App\Ingest\Runtime\Effects\FacebookEventsVendorDriver;
 use App\Ingest\Runtime\Effects\InstagramActorDriver;
 use App\Ingest\Runtime\Effects\MenuActorDriver;
 use App\Ingest\Runtime\Effects\MusicActorDriver;
+use App\Ingest\Runtime\Effects\PinterestVendorDriver;
 use App\Ingest\Runtime\Effects\PlacesDetailsDriver;
 use App\Ingest\Runtime\Effects\SocialActorDriver;
+use App\Ingest\Runtime\Effects\SpotifyPodcastsVendorDriver;
+use App\Ingest\Runtime\Effects\ThreadsVendorDriver;
+use App\Ingest\Runtime\Effects\TiktokShopVendorDriver;
+use App\Ingest\Runtime\Effects\TwitchVendorDriver;
 use App\Listeners\BlockSuppressedRecipients;
 use App\Listeners\RecordCacheMetrics;
 use App\Listeners\RecordScheduledTaskHeartbeat;
@@ -146,6 +153,16 @@ class AppServiceProvider extends ServiceProvider
             $app->make(MusicActorDriver::class),
             $app->make(MenuActorDriver::class),
             $app->make(SocialActorDriver::class),
+            // Wave 4 wiring (2026-09-01): the vendor drivers behind the new
+            // ingest sources (Items 10/11) — plus pinterest's, which landed
+            // in 67c9da00d without its registration line.
+            $app->make(PinterestVendorDriver::class),
+            $app->make(BlueskyVendorDriver::class),
+            $app->make(FacebookEventsVendorDriver::class),
+            $app->make(SpotifyPodcastsVendorDriver::class),
+            $app->make(ThreadsVendorDriver::class),
+            $app->make(TiktokShopVendorDriver::class),
+            $app->make(TwitchVendorDriver::class),
         ]));
 
         // Singleton so the request-scoped $requestCache memo actually persists

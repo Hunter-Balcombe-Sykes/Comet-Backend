@@ -3,6 +3,8 @@
 namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Routing\IriCanonicalizer;
+use App\Routing\LinkProjector;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\DisplaySettingsFilter;
 use App\Services\Platforms\GoogleBusinessApifyScraper;
@@ -10,6 +12,7 @@ use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\LinkInBioDetector;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\Platforms\ScrapeCreators\FindSocialProfilesClient;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -236,6 +239,15 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
             return;
         }
 
+        // Item 11g (2026-09-01): when the harvest named an Instagram or
+        // Facebook account, ask the discovery lane what OTHER platforms that
+        // identity verifiably has. Lowest authority in the union below — a
+        // link published on the site or crawled off the listing always beats
+        // a vendor corroboration — and fail-open: an empty map leaves the
+        // merge exactly as it was. Budget lives in the client (claim before
+        // call); no notification rides on any of this.
+        $discovered = $this->discoverSocials($harvest['socials'] ?? []);
+
         // Merge: Apify (when it ran) is the base; harvested keys overlay it —
         // links published on the business's own site are at least as
         // authoritative as ones crawled off the listing. Socials merge per
@@ -244,7 +256,7 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
             ...($enrichment ?? []),
             ...array_diff_key($harvest, ['socials' => true]),
             ...(($harvest['socials'] ?? []) !== [] || ($enrichment['socials'] ?? []) !== []
-                ? ['socials' => [...($enrichment['socials'] ?? []), ...($harvest['socials'] ?? [])]]
+                ? ['socials' => [...$discovered, ...($enrichment['socials'] ?? []), ...($harvest['socials'] ?? [])]]
                 : []),
         ];
 
@@ -392,6 +404,51 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         }
 
         return false;
+    }
+
+    /**
+     * Item 11g: {network => url} additions from the find-social-profiles
+     * lane, seeded off the FIRST projectable harvested IG/FB profile URL
+     * (Instagram preferred — the vendor's richest corroboration source; the
+     * endpoint costs 10 credits, so at most ONE call, never both networks).
+     * Handle extraction rides the same catalog projection seedSocials itself
+     * trusts — a reserved segment (/reel/…, profile.php) yields no
+     * identifier and the lane stays quiet, spending nothing. Keys translate
+     * into the harvest vocabulary ('twitter', not the registry's 'x') so the
+     * socials union reads to seedSocials exactly like a harvest.
+     *
+     * @param  array<string, mixed>  $harvestSocials
+     * @return array<string, string>
+     */
+    private function discoverSocials(array $harvestSocials): array
+    {
+        foreach (['instagram', 'facebook'] as $network) {
+            $url = $harvestSocials[$network] ?? null;
+            if (! is_string($url) || $url === '') {
+                continue;
+            }
+
+            try {
+                $projection = app(LinkProjector::class)->project(app(IriCanonicalizer::class)->canonicalize($url));
+                if ($projection->surfaceKey !== $network.'.profile'
+                    || ! is_string($projection->identifier) || $projection->identifier === '') {
+                    continue; // not a profile URL — the other network still gets its (free) look
+                }
+
+                $discovered = [];
+                foreach (app(FindSocialProfilesClient::class)->discover($network, $projection->identifier, $this->userId) ?? [] as $key => $profileUrl) {
+                    $discovered[$key === 'x' ? 'twitter' : $key] = $profileUrl;
+                }
+
+                return $discovered;
+            } catch (Throwable $e) {
+                report($e);
+
+                return [];
+            }
+        }
+
+        return [];
     }
 
     // The user's single google-business connection, matched on the indexed

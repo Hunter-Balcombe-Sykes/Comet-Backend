@@ -6,6 +6,7 @@ use App\Ingest\Manifest\CostClass;
 use App\Ingest\Manifest\Manifest;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Platforms\Payloads\FreshaSelection;
+use App\Services\Platforms\TiktokShopScraper;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -296,12 +297,22 @@ class SourceProvisioner
                     : 'https://soundcloud.com/'.strtolower((string) $this->bareSlug($resource, 'soundcloud'))),
             'spotify' => $this->httpUrl($payload['url'] ?? $payload['link'] ?? null, 'spotify.com')
                 ?? $this->spotifyEntityUrl($resource),
+            'spotify_podcasts' => $this->httpUrl($payload['url'] ?? $payload['link'] ?? null, 'spotify.com')
+                ?? $this->spotifyEntityUrl($resource),
             'apple_music', 'apple_podcasts' => $this->appleId($payload['input'] ?? null)
                 ?? $this->appleId($resource),
             'fresha' => $this->freshaSlug($payload['url'] ?? null)
                 ?? $this->bareSlug($resource, 'fresha'),
             'instagram' => $this->instagramUsername($payload['username'] ?? null)
                 ?? $this->instagramUsername($this->bareSlug($resource, 'instagram')),
+            // Wave 4 (2026-09-01): threads handles mirror instagram usernames.
+            'threads' => $this->instagramUsername($payload['username'] ?? null)
+                ?? $this->instagramUsername($this->bareSlug($resource, 'threads')),
+            'bluesky' => $this->bareSlug($payload['username'] ?? null, 'bluesky')
+                ?? $this->bareSlug($resource, 'bluesky'),
+            'twitch' => $this->bareSlug($payload['username'] ?? null, 'twitch')
+                ?? $this->bareSlug($resource, 'twitch'),
+            'tiktok_shop' => TiktokShopScraper::sellerIdFrom($resource),
             // T27c: the handle off a tiktok.com/@… connect (handle-kind
             // surfaces write `username`; older rows may carry it in resource).
             'tiktok' => $this->tiktokUsername($payload['username'] ?? null)

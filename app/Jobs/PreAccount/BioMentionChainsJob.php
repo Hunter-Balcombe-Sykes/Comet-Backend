@@ -12,6 +12,7 @@ use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\LinkRouter;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\RouteContext;
+use App\Services\Platforms\ScrapeCreators\FindSocialProfilesClient;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -111,6 +112,7 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
         InstagramScraper $scraper,
         FreshaWorkplaceLinker $linker,
         LinkRouter $router,
+        FindSocialProfilesClient $discovery,
     ): void {
         $user = User::query()->find($this->userId);
         if (! $user) {
@@ -247,6 +249,52 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
                     'user_id' => $this->userId,
                     'mention' => $handle,
                     'website' => $website,
+                    'outcome' => $result->outcome,
+                ]);
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
+
+        // Item 11g (2026-09-01): one cross-platform discovery per build, off
+        // the build's OWN Instagram identity — the loop above chained through
+        // OTHER accounts; this asks the vendor what other platforms THIS
+        // account verifiably has, after the mentions have had their turn at
+        // the router's per-platform slots.
+        $this->discoverOwnPlatforms($user, $router, $discovery);
+    }
+
+    /**
+     * Feed the vendor's corroborated {platform => url} map through the SAME
+     * router seam the brand chain uses, one RouteContext for the whole run
+     * (RouteContext's own one-per-run rule). Additive and fail-open by the
+     * lane's contract: no key, no budget slot, vendor miss and nothing-new
+     * all read null, and the build simply has no discoveries. The client
+     * owns the budget claim; nothing here notifies anyone.
+     */
+    private function discoverOwnPlatforms(User $user, LinkRouter $router, FindSocialProfilesClient $discovery): void
+    {
+        $igHandle = (string) data_get(IntegrationConnection::query()
+            ->where('user_id', $user->id)
+            ->where('platform', Platform::Instagram->value)
+            ->value('payload'), 'username', '');
+        if ($igHandle === '') {
+            return;
+        }
+
+        $map = $discovery->discover('instagram', $igHandle, $this->userId);
+        if ($map === null) {
+            return;
+        }
+
+        $ctx = new RouteContext;
+        foreach ($map as $platform => $url) {
+            try {
+                $result = $router->route($user, $url, $ctx);
+                Log::info('bio_mention.discovery_chain', [
+                    'user_id' => $this->userId,
+                    'platform' => $platform,
+                    'url' => $url,
                     'outcome' => $result->outcome,
                 ]);
             } catch (Throwable $e) {

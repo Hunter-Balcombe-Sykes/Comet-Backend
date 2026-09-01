@@ -71,7 +71,10 @@ class SpotifyConnect implements DeferredConnect
      */
     private function parseEntity(string $url): ?array
     {
-        if (preg_match('~^https?://open\.spotify\.com/(?:intl-[a-z]{2}(?:-[a-z]{2})?/)?(artist|playlist|show|user)/([A-Za-z0-9]+)~i', PlatformInput::urlish($url), $m)) {
+        // `show` removed 2026-09-01 (Item 11f): shows connect through the
+        // spotify_podcasts brand (SpotifyPodcastsConnect) — the same
+        // narrowing move T6b made for items, applied to the podcast kind.
+        if (preg_match('~^https?://open\.spotify\.com/(?:intl-[a-z]{2}(?:-[a-z]{2})?/)?(artist|playlist|user)/([A-Za-z0-9]+)~i', PlatformInput::urlish($url), $m)) {
             return [strtolower($m[1]), $m[2]];
         }
 

@@ -26,6 +26,9 @@ final class ProjectorRegistry
     private const MAP = [
         'apple_music' => ['listen' => AppleMusicReleaseProjector::class, 'songs' => AppleMusicTrackProjector::class],
         'apple_podcasts' => ['listen' => ApplePodcastsEpisodeProjector::class],
+        // Item 11f: spotify podcasts land the SAME doc shape — one projector, two sources.
+        'spotify_podcasts' => ['listen' => ApplePodcastsEpisodeProjector::class],
+        'bluesky' => ['posts' => BlueskyMediaProjector::class],
         'bandcamp' => ['releases' => BandcampReleaseProjector::class],
         // Booksy reviews land the same doc shape as Fresha's — shared
         // projector; the class name is historical (first producer).
@@ -40,6 +43,8 @@ final class ProjectorRegistry
         // (App\Ingest\Support\SchemaOrgEvent) — one projector, on purpose.
         'eventbrite' => ['events' => SchemaOrgEventProjector::class],
         'facebook' => ['media' => FacebookMediaProjector::class],
+        // Item 11a: FB event details land the schema.org doc shape — one projector.
+        'facebook_events' => ['events' => SchemaOrgEventProjector::class],
         'fresha' => ['services' => FreshaServiceProjector::class, 'reviews' => FreshaReviewProjector::class],
         'humanitix' => ['events' => SchemaOrgEventProjector::class],
         // Luma lands the same schema.org doc shape — same projector (T27b).
@@ -61,8 +66,11 @@ final class ProjectorRegistry
         'soundcloud' => ['tracks' => SoundcloudTrackProjector::class],
         'spotify' => ['tracks' => SpotifyTrackProjector::class, 'releases' => SpotifyReleaseProjector::class],
         'square' => ['menu' => MenuItemProjector::class],
+        'threads' => ['media' => ThreadsMediaProjector::class],
         'tiktok' => ['videos' => TiktokVideoProjector::class],
+        'tiktok_shop' => ['reviews' => TiktokShopReviewProjector::class],
         'treatwell' => ['services' => TreatwellServiceProjector::class],
+        'twitch' => ['watch' => TwitchVideoProjector::class],
         'uber_eats' => ['menu' => MenuItemProjector::class],
         'vimeo' => ['watch' => VimeoVideoProjector::class],
         'youtube' => ['watch' => YoutubeVideoProjector::class],

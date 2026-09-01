@@ -1,0 +1,38 @@
+{
+ "success": true,
+ "credits_charged": 1,
+ "highlights": [
+  {
+   "__typename": "GraphHighlightReel",
+   "id": "18069014636243848",
+   "cover_media": {
+    "thumbnail_src": "https://scontent-lis1-1.cdninstagram.com/v/t51.82787-15/548889850_18078426914294517_5793228969650677533_n.jpg?stp=c0.499.1284.1284a_dst-jpg_e35_s640x640_sh2.08_tt6&_nc_sid=94fea1"
+   },
+   "cover_media_cropped_thumbnail": {
+    "url": "https://scontent-lis1-1.cdninstagram.com/v/t51.82787-15/548889850_18078426914294517_5793228969650677533_n.jpg?stp=c0.499.1284.1284a_dst-jpg_e15_s150x150_tt6&_nc_sid=94fea1"
+   },
+   "owner": {
+    "__typename": "GraphUser",
+    "id": "38705054516",
+    "username": "ryanfitzsimonshair"
+   },
+   "title": "Not haircuts"
+  },
+  {
+   "__typename": "GraphHighlightReel",
+   "id": "18026651179801055",
+   "cover_media": {
+    "thumbnail_src": "https://scontent-lis1-1.cdninstagram.com/v/t51.71878-15/560580906_25438782402389183_6072348556687988205_n.jpg?stp=c0.248.640.640a_dst-jpg_e15_tt6&_nc_sid=94fea1"
+   },
+   "cover_media_cropped_thumbnail": {
+    "url": "https://scontent-lis1-1.cdninstagram.com/v/t51.71878-15/560580906_25438782402389183_6072348556687988205_n.jpg?stp=c0.441.640.640a_dst-jpg_e15_s150x150_tt6&_nc_sid=94fea1"
+   },
+   "owner": {
+    "__typename": "GraphUser",
+    "id": "38705054516",
+    "username": "ryanfitzsimonshair"
+   },
+   "title": "Haircuts"
+  }
+ ]
+}

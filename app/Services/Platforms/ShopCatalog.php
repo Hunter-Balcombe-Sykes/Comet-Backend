@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Platforms\ScrapeCreators\AmazonShopNormalizer;
 use App\Services\Shop\ShopContentWriter;
 use App\Services\Shop\StoreRecord;
 use Illuminate\Support\Facades\Cache;
@@ -31,6 +32,10 @@ class ShopCatalog
         // A required param would fail construction for those tests even
         // though they never reach the code that needs it.
         private readonly ?ShopContentWriter $content = null,
+        // Item 10b vendor-lane providers — nullable for the same hand-
+        // construction reason, resolved lazily in providerProducts().
+        private readonly ?TiktokShopScraper $tiktokShop = null,
+        private readonly ?AmazonShopScraper $amazonShop = null,
     ) {}
 
     /**
@@ -67,6 +72,19 @@ class ShopCatalog
                 ? $this->bigcartel->fetchProducts($account, $brand['currency'] ?? null)
                 : [],
             ShopProviderDetector::PROVIDER_GENERIC => $this->generic->fetchPage($brand['sourceUrl'] ?? $brand['url'])['products'] ?? [],
+            // Item 10b: the store id IS the identity ($brand['id'] =
+            // external_ref); URLs may carry vendor-ignored slugs, so neither
+            // arm dispatches on them. TikTok Shop throws 502 on any vendor
+            // miss (the scraper's own contract — a miss must land on
+            // syncLatest's unreachable path, never read as empty). Amazon
+            // folds null to [] instead: fetchStorefront's misses include
+            // budget-refused, and this arm is a secondary path (refresh is
+            // re-dispatching AmazonShopConnectJob) — an untouched selection
+            // beats a breaker trip fed by a budget ceiling.
+            ShopProviderDetector::PROVIDER_TIKTOK_SHOP => ($this->tiktokShop ?? app(TiktokShopScraper::class))->fetchProducts((string) $brand['id']),
+            ShopProviderDetector::PROVIDER_AMAZON_SHOP => (($page = ($this->amazonShop ?? app(AmazonShopScraper::class))->fetchStorefront((string) $brand['id'])) === null)
+                ? []
+                : app(AmazonShopNormalizer::class)->products($page),
             default => $this->shopify->fetchProducts($brand['url'], $brand['currency'] ?? null),
         };
     }

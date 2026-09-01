@@ -57,7 +57,7 @@ final class MediaMirror
      * Silence here fails safe: an unlisted source simply keeps serving from
      * its source_url.
      */
-    private const OWNED_REF_PREFIXES = ['instagram:', 'tiktok:', 'facebook:'];
+    private const OWNED_REF_PREFIXES = ['instagram:', 'tiktok:', 'facebook:', 'threads:'];
 
     public function __construct(
         private readonly SafeUrlFetcher $fetcher,

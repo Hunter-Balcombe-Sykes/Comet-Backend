@@ -56,7 +56,11 @@ it('never lets a derived descriptor shadow a hand-written one', function () {
     // Retired slugs are excluded: derived IS their end state.
     $retired = [...LinkOnlyBindings::slugs(), 'mixcloud', 'tidal', 'vimeo', 'bandcamp', 'youtube', 'youtube-music', 'apple-music', 'apple-podcast', 'spotify', 'soundcloud', 'eventbrite', 'humanitix', 'fresha', 'square', 'opentable', 'resdiary', 'nowbookit', 'google-business', 'instagram', 'square-ordering', 'bopple', 'hungrypanda', 'easi', 'booksy', 'vagaro', 'timely', 'kitomba', 'phorest', 'shortcuts', 'bella-booking', 'boulevard', 'glossgenius', 'mangomint', 'zenoti', 'mindbody', 'ovatu', 'resy', 'quandoo', 'sevenrooms', 'tock', 'tablecheck', 'ticketek', 'oztix', 'trybooking', 'resident-advisor', 'ticketmaster',
         // 2026-08-28: retired 2026-07-28, revived as a derived link-only brand.
-        'pinterest'];
+        'pinterest',
+        // 2026-09-01 (Item 10a): demoted to link-only Phase 1.2, now derived
+        // via BEHAVIOUR_BINDINGS (TwitchBinding) — no longer a LinkOnly slug,
+        // so it needs its own retirement row here.
+        'twitch'];
     foreach (array_diff(PlatformRegistry::handWrittenFreeze(), $retired) as $slug) {
         expect($registry->get($slug)?->isDerived())->toBeFalse(
             "Derived descriptor shadowed the hand-written '{$slug}'."
@@ -78,10 +82,13 @@ it('marks exactly the current REFRESHABLE platforms as refreshable', function ()
     // brand is in latest mode); 'fresha' joined for the service-menu refresh
     // (FreshaFetch 304s when nothing is selected or the menu is unchanged).
     // 'twitch' and 'strava' left on demotion to link-only (Phase 1.2) — a link
-    // has no upstream content to re-pull.
+    // has no upstream content to re-pull. (Twitch's 2026-09-01 upgrade keeps
+    // refreshable(false): identity refresh rides the ingest lane, not this
+    // cron.) 'spotify_podcasts' joined 2026-09-01 (Item 11f) — the billed
+    // weekly show-card re-pull via SpotifyPodcastsFetch.
     $expected = [
         'youtube', 'youtube-music', 'eventbrite', 'humanitix', 'apple-music', 'apple-podcast',
-        'bandcamp', 'spotify', 'soundcloud', 'vimeo',
+        'bandcamp', 'spotify', 'spotify_podcasts', 'soundcloud', 'vimeo',
         'google-business', 'shop', 'fresha',
     ];
     sort($expected);

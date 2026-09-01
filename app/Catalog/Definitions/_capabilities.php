@@ -12,7 +12,6 @@ use App\Services\Platforms\Normalizers\StravaNormalizer;
 use App\Services\Platforms\Normalizers\TelegramNormalizer;
 use App\Services\Platforms\Normalizers\ThreadsNormalizer;
 use App\Services\Platforms\Normalizers\TiktokNormalizer;
-use App\Services\Platforms\Normalizers\TwitchNormalizer;
 use App\Services\Platforms\Normalizers\XNormalizer;
 use App\Services\Platforms\OEmbedService;
 use App\Services\Platforms\Strategies\Connect\BandcampConnect;
@@ -21,6 +20,8 @@ use App\Services\Platforms\Strategies\Connect\OpenTableConnect;
 use App\Services\Platforms\Strategies\Connect\ResDiaryConnect;
 use App\Services\Platforms\Strategies\Connect\SoundcloudConnect;
 use App\Services\Platforms\Strategies\Connect\SpotifyConnect;
+use App\Services\Platforms\Strategies\Connect\SpotifyPodcastsConnect;
+use App\Services\Platforms\Strategies\Connect\TwitchConnect;
 use App\Services\Platforms\Strategies\Connect\UrlConnect;
 use App\Services\Platforms\Strategies\Connect\VimeoConnect;
 use App\Services\Platforms\Strategies\Connect\YoutubeConnect;
@@ -34,6 +35,7 @@ use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
 use App\Services\Platforms\Strategies\Fetch\GoogleBusinessFetch;
 use App\Services\Platforms\Strategies\Fetch\HumanitixFetch;
 use App\Services\Platforms\Strategies\Fetch\OEmbedFetch;
+use App\Services\Platforms\Strategies\Fetch\SpotifyPodcastsFetch;
 use App\Services\Platforms\Strategies\Fetch\VimeoFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeFetch;
 use App\Services\Platforms\Strategies\Fetch\YoutubeMusicFetch;
@@ -68,8 +70,13 @@ return [
     'connect.resdiary.url.v1' => [ResDiaryConnect::class, []],
     'connect.soundcloud.url.v1' => [SoundcloudConnect::class, []],
     'connect.spotify.url.v1' => [SpotifyConnect::class, []],
+    'connect.spotify_podcasts.url.v1' => [SpotifyPodcastsConnect::class, []],
     'connect.strava.url.v1' => fn (): object => new UrlConnect(new StravaNormalizer),
-    'connect.twitch.url.v1' => fn (): object => new UrlConnect(new TwitchNormalizer),
+    // Item 10a (2026-09-01): twitch repointed from UrlConnect(TwitchNormalizer)
+    // to the vendor-enriched strategy — the P3+ swap this manifest's header
+    // describes (entry moves, surface untouched). TwitchBinding attaches the
+    // same class at descriptor level; both must agree.
+    'connect.twitch.url.v1' => [TwitchConnect::class, []],
     'connect.vimeo.url.v1' => [VimeoConnect::class, []],
     'connect.youtube.url.v1' => [YoutubeConnect::class, []],
     'connect.youtube_music.url.v1' => [YoutubeMusicConnect::class, []],
@@ -93,6 +100,7 @@ return [
         fn (string $link): string => 'https://open.spotify.com/oembed?url='.rawurlencode($link),
         'spotify',
     ),
+    'fetch.spotify_podcasts.scrape.v1' => [SpotifyPodcastsFetch::class, []],
     'fetch.vimeo.api.v1' => [VimeoFetch::class, []],
     'fetch.youtube.scrape.v1' => [YoutubeFetch::class, []],
     'fetch.youtube_music.scrape.v1' => [YoutubeMusicFetch::class, []],

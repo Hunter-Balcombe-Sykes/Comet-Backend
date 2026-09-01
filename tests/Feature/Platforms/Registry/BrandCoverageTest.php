@@ -101,10 +101,21 @@ it('accepts a real url for its own host on every brand platform', function () {
         $checked++;
 
         $accepted = false;
+
+        // The surface's own canonical URL with placeholders filled is the
+        // strongest "its own url" probe — added 2026-09-01 for bluesky, the
+        // first Brand platform whose detector anchors on a deeper path
+        // (/profile/…) that the generic '/x' shapes below can't reach.
+        $canonicalProbes = [];
+        $template = CompiledCatalog::surface($descriptor->getSurfaceKey())['canonical_url_template'] ?? null;
+        if (is_string($template) && $template !== '') {
+            $canonicalProbes[] = preg_replace('/\{[a-z_]+\}/i', 'x', $template);
+        }
+
         foreach ($bySurface[$descriptor->getSurfaceKey()] ?? [] as $host) {
             // Three shapes because some detectors anchor on a subdomain
             // (mykajabi.com, circle.so) and reject the bare or www host.
-            foreach (["https://www.{$host}/x", "https://shop.{$host}/", "https://{$host}/x"] as $url) {
+            foreach ([...$canonicalProbes, "https://www.{$host}/x", "https://shop.{$host}/", "https://{$host}/x"] as $url) {
                 $classified = $harvester->classify($url);
                 if ($classified === null) {
                     continue;

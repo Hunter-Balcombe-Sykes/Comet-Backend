@@ -80,6 +80,11 @@ $registerIntegrationRoutes = function (string $base): void {
         ->group(function () {
             Route::get('/brands', [ShopController::class, 'brands']);
             Route::post('/brands', [ShopController::class, 'addBrand']);
+            // Item 10b (2026-09-01): vendor-lane storefronts the probe
+            // cascade can't reach — dedicated connects, availability-gated
+            // like square's (integration.shop via the platform default).
+            Route::post('/tiktok-shop/connect', [ShopController::class, 'connectTiktokShop'])->defaults('platform', 'shop')->middleware('platform.available');
+            Route::post('/amazon-shop/connect', [ShopController::class, 'connectAmazonShop'])->defaults('platform', 'shop')->middleware('platform.available');
             Route::get('/brands/{id}/connect/status', [ShopController::class, 'connectStatus'])->where('id', '[A-Za-z0-9._-]+');
             Route::patch('/brands/{id}', [ShopController::class, 'updateBrand'])->where('id', '[A-Za-z0-9._-]+');
             Route::delete('/brands/{id}', [ShopController::class, 'removeBrand'])->where('id', '[A-Za-z0-9._-]+');

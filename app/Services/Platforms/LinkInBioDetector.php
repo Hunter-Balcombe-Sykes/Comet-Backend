@@ -19,6 +19,10 @@ class LinkInBioDetector
         'linkin.bio', 'lnk.bio', 'bio.link', 'campsite.bio', 'snipfeed.co',
         'komi.io', 'hoo.be', 'taplink.cc', 'solo.to', 'liinks.co',
         'heylink.me', 'allmylinks.com', 'direct.me',
+        // Item 10b quartet (2026-09-01): pillar + linkme join komi/lnk.bio —
+        // without these two hosts InstagramAutoSync never dispatches the
+        // structured unroll the new normalizers exist for.
+        'pillar.io', 'link.me',
         // M-1 (2026-08-21, industrybeans live): Sprout Social's link-in-bio.
         // Client-rendered shell, unrolled via LinkInBioApiUnroller::sprout().
         'sprout.link',

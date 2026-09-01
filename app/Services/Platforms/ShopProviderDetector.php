@@ -29,6 +29,15 @@ class ShopProviderDetector
 
     public const PROVIDER_GENERIC = 'generic';
 
+    // Item 10b (2026-09-01): vendor-lane store providers. NOT probe results —
+    // detectDetailed() never answers these (amazon.com bot-blocks server
+    // reads; tiktok.com/shop is vendor-only). They exist so ShopConnections/
+    // ShopCatalog dispatch on the same vocabulary as the dedicated connect
+    // jobs, which mint them (values pinned to each scraper's PROVIDER const).
+    public const PROVIDER_TIKTOK_SHOP = TiktokShopScraper::PROVIDER;
+
+    public const PROVIDER_AMAZON_SHOP = AmazonShopScraper::PROVIDER;
+
     // detectDetailed() failure reasons (WS-B1.2) — the controller keys its
     // 422 `code` off these.
     public const FAILURE_UNSUPPORTED = 'unsupported';

@@ -14,9 +14,11 @@ use App\Http\Requests\Platforms\SubmitShopCatalogRequest;
 use App\Http\Requests\Platforms\UpdateShopBrandRequest;
 use App\Http\Requests\Platforms\UpdateShopSettingsRequest;
 use App\Http\Resources\Platforms\ShopBrandResource;
+use App\Jobs\Platforms\AmazonShopConnectJob;
 use App\Jobs\Platforms\ProcessShopBrandLogoJob;
 use App\Jobs\Platforms\ShopBrandConnectJob;
 use App\Jobs\Platforms\ShopInitialFillJob;
+use App\Jobs\Platforms\TiktokShopConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
@@ -25,6 +27,7 @@ use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\Cache\Concerns\JitteredTtl;
 use App\Services\Http\FetchBudget;
+use App\Services\Platforms\AmazonShopScraper;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\ShopPayload;
 use App\Services\Platforms\ShopBrandIdentity;
@@ -34,6 +37,7 @@ use App\Services\Platforms\ShopifyScraper;
 use App\Services\Platforms\ShopProviderDetector;
 use App\Services\Platforms\StrandedPendingWindow;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
+use App\Services\Platforms\TiktokShopScraper;
 use App\Services\Platforms\WooCommerceScraper;
 use App\Services\Shop\ProductPageAdder;
 use App\Services\Shop\ShopConnections;
@@ -514,6 +518,81 @@ class ShopController extends ApiController
         }
 
         return $lockResponse;
+    }
+
+    // POST /api/platforms/shop/tiktok-shop/connect (Item 10b, 2026-09-01) —
+    // dedicated vendor-lane connect. Not addBrand(): the probe cascade can't
+    // reach TikTok (vendor-only read), so the flow is resolve-identity →
+    // dispatch → 202, with the fill in TiktokShopConnectJob. The identity is
+    // known synchronously from the input, so the standard per-brand status
+    // poll works — it just 404s until the job mints the store (the tile
+    // polls through that window; the job's cap/availability re-checks under
+    // lock remain the authority). FeatureAvailability rides the route's
+    // platform.available middleware (integration.shop, addBrand's gate).
+    public function connectTiktokShop(Request $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        $validated = $request->validate(['url' => ['required', 'string', 'max:2048']]);
+
+        $sellerId = TiktokShopScraper::sellerIdFrom($validated['url']);
+        if ($sellerId === null) {
+            return $this->error('Enter your TikTok Shop storefront link (tiktok.com/shop/store/...).', 422);
+        }
+
+        if ($this->vendorStoreCapReached($user, $sellerId, TiktokShopScraper::PROVIDER)) {
+            return $this->error('You can connect up to '.self::maxBrands().' stores.', 422);
+        }
+
+        TiktokShopConnectJob::dispatch((string) $user->id, $validated['url'])->afterCommit();
+
+        return $this->success([
+            'id' => $sellerId,
+            'status' => 'pending',
+            'statusUrl' => url("/api/platforms/shop/brands/{$sellerId}/connect/status"),
+        ], 202);
+    }
+
+    // POST /api/platforms/shop/amazon-shop/connect (Item 10b) — same lane,
+    // amazon.com/shop/<handle> storefronts via AmazonShopConnectJob.
+    public function connectAmazonShop(Request $request): JsonResponse
+    {
+        $user = $this->currentUser($request);
+        $validated = $request->validate(['url' => ['required', 'string', 'max:2048']]);
+
+        $handle = AmazonShopScraper::handleFromUrl($validated['url']);
+        if ($handle === null) {
+            return $this->error('Enter an Amazon storefront link (amazon.com/shop/yourhandle).', 422);
+        }
+
+        if ($this->vendorStoreCapReached($user, $handle, AmazonShopScraper::PROVIDER)) {
+            return $this->error('You can connect up to '.self::maxBrands().' stores.', 422);
+        }
+
+        AmazonShopConnectJob::dispatch((string) $user->id, $validated['url'])->afterCommit();
+
+        return $this->success([
+            'id' => $handle,
+            'status' => 'pending',
+            'statusUrl' => url("/api/platforms/shop/brands/{$handle}/connect/status"),
+        ], 202);
+    }
+
+    /**
+     * Pre-dispatch cap read for the vendor-lane connects — the same
+     * whole-family count addBrand() takes, refreshes exempt (an existing
+     * store of THIS provider re-syncs without a slot). Advisory only: the
+     * job re-checks under the connection lock, this exists so a full shop
+     * 422s at the button instead of silently no-oping in the queue.
+     */
+    private function vendorStoreCapReached(User $user, string $externalRef, string $provider): bool
+    {
+        $stores = $this->shop->stores($user);
+        $existing = $stores->get($externalRef);
+        if ($existing !== null && $existing->provider === $provider) {
+            return false;
+        }
+
+        return $stores->filter(fn (StoreRecord $s): bool => $s->isIndividual === false)->count() >= self::maxBrands();
     }
 
     // GET /api/platforms/shop/brands/{id}/connect/status — poll a deferred

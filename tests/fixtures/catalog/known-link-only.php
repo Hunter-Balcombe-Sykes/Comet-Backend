@@ -67,9 +67,14 @@ return [
     'ticketweb.tickets',
     'tixr.tickets',
 
-    // routing_class 'shop' (1) — Gumroad's storefront ROOT is a link card by
+    // routing_class 'shop' (2) — Gumroad's storefront ROOT is a link card by
     // ruling (task #17, 2026-08-18); a deeper path keeps the product probe.
     'gumroad.store',
+    // Amazon storefronts (Item 10b, 2026-09-01): a scanned /shop/ link is a
+    // link card — the store CONNECTS only through the dedicated shop-lane
+    // endpoint (AmazonShopConnectJob; amazon.com bot-blocks every probe), so
+    // classify() must not promote it into a lane that would spend one.
+    'amazon-shop.store',
 
     // routing_class 'social' (24) — a catalog social surface is not thereby an
     // account the owner controls. Four are payment handles (paypal.me, venmo,

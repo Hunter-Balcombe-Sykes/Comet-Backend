@@ -5,12 +5,14 @@ namespace App\Ingest;
 use App\Ingest\Connectors\AppleMusicConnector;
 use App\Ingest\Connectors\ApplePodcastsConnector;
 use App\Ingest\Connectors\BandcampConnector;
+use App\Ingest\Connectors\BlueskyConnector;
 use App\Ingest\Connectors\BooksyConnector;
 use App\Ingest\Connectors\DeezerTracksConnector;
 use App\Ingest\Connectors\DiceConnector;
 use App\Ingest\Connectors\DoordashMenuConnector;
 use App\Ingest\Connectors\EventbriteConnector;
 use App\Ingest\Connectors\FacebookConnector;
+use App\Ingest\Connectors\FacebookEventsConnector;
 use App\Ingest\Connectors\FreshaConnector;
 use App\Ingest\Connectors\GoogleBusinessConnector;
 use App\Ingest\Connectors\HumanitixConnector;
@@ -20,10 +22,14 @@ use App\Ingest\Connectors\MixcloudConnector;
 use App\Ingest\Connectors\PinterestConnector;
 use App\Ingest\Connectors\ResidentAdvisorConnector;
 use App\Ingest\Connectors\SoundcloudTracksConnector;
+use App\Ingest\Connectors\SpotifyPodcastsConnector;
 use App\Ingest\Connectors\SpotifyTracksConnector;
 use App\Ingest\Connectors\SquareMenuConnector;
+use App\Ingest\Connectors\ThreadsConnector;
 use App\Ingest\Connectors\TiktokConnector;
+use App\Ingest\Connectors\TiktokShopConnector;
 use App\Ingest\Connectors\TreatwellConnector;
+use App\Ingest\Connectors\TwitchConnector;
 use App\Ingest\Connectors\UberEatsMenuConnector;
 use App\Ingest\Connectors\VimeoConnector;
 use App\Ingest\Connectors\YoutubeMusicConnector;
@@ -56,12 +62,14 @@ final class ConnectorRegistry
         'apple_music' => AppleMusicConnector::class,
         'apple_podcasts' => ApplePodcastsConnector::class,
         'bandcamp' => BandcampConnector::class,
+        'bluesky' => BlueskyConnector::class,
         'booksy' => BooksyConnector::class,
         'deezer' => DeezerTracksConnector::class,
         'dice' => DiceConnector::class,
         'doordash' => DoordashMenuConnector::class,
         'eventbrite' => EventbriteConnector::class,
         'facebook' => FacebookConnector::class,
+        'facebook_events' => FacebookEventsConnector::class,
         'fresha' => FreshaConnector::class,
         'google_business' => GoogleBusinessConnector::class,
         'humanitix' => HumanitixConnector::class,
@@ -72,9 +80,13 @@ final class ConnectorRegistry
         'pinterest' => PinterestConnector::class,
         'soundcloud' => SoundcloudTracksConnector::class,
         'spotify' => SpotifyTracksConnector::class,
+        'spotify_podcasts' => SpotifyPodcastsConnector::class,
         'square' => SquareMenuConnector::class,
+        'threads' => ThreadsConnector::class,
         'tiktok' => TiktokConnector::class,
+        'tiktok_shop' => TiktokShopConnector::class,
         'treatwell' => TreatwellConnector::class,
+        'twitch' => TwitchConnector::class,
         'uber_eats' => UberEatsMenuConnector::class,
         'vimeo' => VimeoConnector::class,
         'youtube' => YoutubeRssConnector::class,

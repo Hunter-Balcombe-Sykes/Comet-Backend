@@ -66,7 +66,10 @@ it('pins deferredConnect() flag <=> DeferredConnect interface for every descript
     // twitch + strava dropped (Phase 1.2): demoted to link-only, so their
     // connect is UrlConnect — a pure normalizer with no upstream fetch and
     // therefore nothing to defer. The negative loop below now pins that.
-    $deferredKeys = ['spotify', 'bandcamp', 'vimeo', 'youtube-music', 'youtube'];
+    // spotify_podcasts joined 2026-09-01 (Item 11f): SpotifyPodcastsConnect
+    // implements DeferredConnect (identify() pends the canonical link, the
+    // fill job re-resolves via SpotifyPodcastsFetch).
+    $deferredKeys = ['spotify', 'bandcamp', 'vimeo', 'youtube-music', 'youtube', 'spotify_podcasts'];
 
     foreach ($registry->all() as $key => $descriptor) {
         $strategy = $descriptor->connectStrategy();

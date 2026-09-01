@@ -424,7 +424,13 @@ return [
                 'youtube_lives' => (int) env('PARTNA_SC_YOUTUBE_LIVES_DAILY_CAP', 2700),
                 'spotify_podcasts' => (int) env('PARTNA_SC_SPOTIFY_PODCASTS_DAILY_CAP', 1350),
                 'transcripts' => (int) env('PARTNA_SC_TRANSCRIPTS_DAILY_CAP', 300),
-                'find_social_profiles' => (int) env('PARTNA_SC_FIND_SOCIAL_PROFILES_DAILY_CAP', 270),
+                // OWNER DECISION (2026-09-01, plan Item 11g): find_social_profiles
+                // ships DISABLED — cap 0 means ScrapeCreatorsBudget::tryClaim()
+                // refuses every claim before the wire, the hard off-switch the
+                // budget layer already enforces. The owner ruled the endpoint
+                // out (expensive; duplicates bio-chains + GB-harvest discovery).
+                // Re-enabling is a deliberate cap raise, never a code change.
+                'find_social_profiles' => (int) env('PARTNA_SC_FIND_SOCIAL_PROFILES_DAILY_CAP', 0),
             ],
             // Pinterest's one connect/refresh run fans out 1 boards call plus
             // up to boards_per_run board reads — both knobs explicit so the
@@ -432,6 +438,28 @@ return [
             'pinterest' => [
                 'boards_per_run' => (int) env('PARTNA_SC_PINTEREST_BOARDS_PER_RUN', 3),
                 'results_limit' => (int) env('PARTNA_SC_PINTEREST_RESULTS_LIMIT', 30),
+            ],
+            // TikTok Shop's review walk: one products call, then review pages
+            // for the top review_products_per_run products (best-selling
+            // order) — the whole per-run spend, legible next to the cap.
+            'tiktok_shop' => [
+                'review_products_per_run' => (int) env('PARTNA_SC_TIKTOK_SHOP_REVIEW_PRODUCTS_PER_RUN', 3),
+                'results_limit' => (int) env('PARTNA_SC_TIKTOK_SHOP_RESULTS_LIMIT', 30),
+            ],
+            // Facebook events: one list call, then per-event detail docs for
+            // at most details_per_run upcoming events per run.
+            'facebook_events' => [
+                'details_per_run' => (int) env('PARTNA_SC_FACEBOOK_EVENTS_DETAILS_PER_RUN', 8),
+            ],
+            // Item 11b IG depth (reels/highlights/tagged beyond the profile
+            // doc): OFF by default — three extra billed calls per IG run is a
+            // spend decision the owner flips deliberately, not a side effect
+            // of deploying the code.
+            'instagram_depth_enabled' => (bool) env('PARTNA_SC_INSTAGRAM_DEPTH_ENABLED', false),
+            'instagram_depth' => [
+                'reels_limit' => (int) env('PARTNA_SC_IG_DEPTH_REELS_LIMIT', 12),
+                'highlights_limit' => (int) env('PARTNA_SC_IG_DEPTH_HIGHLIGHTS_LIMIT', 10),
+                'tagged_limit' => (int) env('PARTNA_SC_IG_DEPTH_TAGGED_LIMIT', 10),
             ],
         ],
 
@@ -2337,6 +2365,11 @@ return [
             'bandcamp' => (int) env('PARTNA_REFRESH_INTERVAL_BANDCAMP', 12 * 3600),
             'apple-music' => (int) env('PARTNA_REFRESH_INTERVAL_APPLE_MUSIC', 12 * 3600),
             'apple-podcast' => (int) env('PARTNA_REFRESH_INTERVAL_APPLE_PODCAST', 12 * 3600),
+            // Weekly, not 12h like apple-podcast: this refresh is a BILLED
+            // vendor call (spotify_podcasts cap) re-pulling a show identity
+            // card that rarely changes — episodes ride the ingest lane on
+            // their own cadence, so cadence here is spend, not freshness.
+            'spotify_podcasts' => (int) env('PARTNA_REFRESH_INTERVAL_SPOTIFY_PODCASTS', 7 * 86400),
             'google-business' => (int) env('PARTNA_REFRESH_INTERVAL_GOOGLE_BUSINESS', 2 * 86400),
         ],
 

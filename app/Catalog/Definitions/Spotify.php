@@ -57,7 +57,13 @@ class Spotify
                 ->detect(
                     Detector::url('spotify.com')
                         ->subdomain('#^open$#')
-                        ->path('#^/(?:intl-[a-z]{2}(?:-[a-z]{2})?/)?(?<kind>artist|playlist|show|user)/(?<id>[A-Za-z0-9]+)#')
+                        // `show` left for spotify_podcasts.show (Item 11f,
+                        // 2026-09-01): a show is an account-shaped podcast
+                        // source with its own brand/lane now, not a player
+                        // embed. Existing show-kind player rows keep working
+                        // (stored payloads are never re-detected); only new
+                        // routing/connects move.
+                        ->path('#^/(?:intl-[a-z]{2}(?:-[a-z]{2})?/)?(?<kind>artist|playlist|user)/(?<id>[A-Za-z0-9]+)#')
                         ->captures('id')
                         ->from(IdentifierSource::Path)
                         ->strength(EvidenceStrength::DeepLinkWithSlug),

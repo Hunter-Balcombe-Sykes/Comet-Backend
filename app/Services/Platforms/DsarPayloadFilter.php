@@ -113,7 +113,10 @@ final class DsarPayloadFilter
         // channelId added back — the re-fetch input the public wire hides,
         // but it is the owner's own re-scrape identifier, not a secret.
         'youtube-music' => ['url', 'name', 'thumbnail', 'link', 'latest', 'items', 'highlights', 'channelId'],
-        'twitch' => ['url', 'login', 'name', 'image', 'description'],
+        // Item 10a (2026-09-01): TwitchConnect's enriched selection joins the
+        // legacy {username,url} rows — both vocabularies export (login/image
+        // are the pre-upgrade scraper's spelling, kept for old rows).
+        'twitch' => ['url', 'username', 'login', 'name', 'image', 'thumbnail', 'banner', 'description', 'followers', 'socialLinks', 'isLive', 'liveViewers', 'liveGame', 'liveStartedAt', 'liveCheckedAt'],
         'skool' => ['url', 'name', 'image', 'description'],
         'strava' => ['url', 'name', 'location', 'image', 'description', 'members'],
         // reviews/reviewSummary removed (third-party reviewer identity —
@@ -217,6 +220,12 @@ final class DsarPayloadFilter
         // unregistered, so DSAR rows would be stale.
         'pinterest' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'cal_com' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        // Item 11e (2026-09-01): bluesky flipped connectable — same
+        // BrandLinkConnect card payload as the four above.
+        'bluesky' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        // Item 11f (2026-09-01): the Spotify show identity card, public
+        // metadata end to end.
+        'spotify_podcasts' => ['url', 'link', 'name', 'thumbnail', 'description', 'publisher'],
         'classpass' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'doordash' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'eat_app' => ['url', 'name', 'favicon', 'logo', 'provider'],

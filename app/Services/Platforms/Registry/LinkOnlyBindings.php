@@ -15,7 +15,6 @@ use App\Services\Platforms\Normalizers\StravaNormalizer;
 use App\Services\Platforms\Normalizers\TelegramNormalizer;
 use App\Services\Platforms\Normalizers\ThreadsNormalizer;
 use App\Services\Platforms\Normalizers\TiktokNormalizer;
-use App\Services\Platforms\Normalizers\TwitchNormalizer;
 use App\Services\Platforms\Normalizers\XNormalizer;
 use App\Services\Platforms\Payloads\LinkPayload;
 
@@ -33,9 +32,10 @@ use App\Services\Platforms\Payloads\LinkPayload;
  * still runs and retro-fits the Brand connect where the catalog surface is
  * connectable — byte-identical behaviour, different author.
  *
- * `category` overrides the routing-class derivation for the three demoted
- * platforms whose dashboard grouping must not move (skool / strava /
- * twitch — convergence-phases §1.2).
+ * `category` overrides the routing-class derivation for the demoted
+ * platforms whose dashboard grouping must not move (skool / strava —
+ * convergence-phases §1.2; twitch carried the same override here until its
+ * 2026-09-01 move to TwitchBinding, which keeps it).
  */
 final class LinkOnlyBindings
 {
@@ -77,7 +77,10 @@ final class LinkOnlyBindings
         'medium' => ['label' => 'Medium', 'normalizer' => MediumNormalizer::class, 'error' => 'Enter your Medium username or profile URL (medium.com/@yourname).', 'category' => null, 'field' => 'username', 'max' => 200],
         'skool' => ['label' => 'Skool', 'normalizer' => SkoolNormalizer::class, 'error' => 'Enter your Skool community URL (skool.com/yourcommunity).', 'category' => PlatformCategory::Education, 'field' => 'url', 'max' => 500],
         'strava' => ['label' => 'Strava', 'normalizer' => StravaNormalizer::class, 'error' => 'Enter your Strava club URL (strava.com/clubs/yourclub).', 'category' => PlatformCategory::Content, 'field' => 'url', 'max' => 300],
-        'twitch' => ['label' => 'Twitch', 'normalizer' => TwitchNormalizer::class, 'error' => 'Enter your Twitch channel (twitch.tv/yourname).', 'category' => PlatformCategory::Streaming, 'field' => 'url', 'max' => 120],
+        // twitch left for BEHAVIOUR_BINDINGS 2026-09-01 (Item 10a): its
+        // contract outgrew the link-only shape — see TwitchBinding, which
+        // carries the row's frozen strings (422 copy, Streaming category,
+        // url field + max:120) verbatim.
         'whatsapp' => ['label' => 'WhatsApp', 'normalizer' => null, 'error' => null, 'category' => null, 'field' => null, 'max' => null],
         'substack' => ['label' => 'Substack', 'normalizer' => null, 'error' => null, 'category' => null, 'field' => null, 'max' => null],
         'patreon' => ['label' => 'Patreon', 'normalizer' => null, 'error' => null, 'category' => null, 'field' => null, 'max' => null],

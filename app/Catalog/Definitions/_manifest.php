@@ -3,6 +3,7 @@
 use App\Catalog\Definitions\Abacus;
 use App\Catalog\Definitions\Acuity;
 use App\Catalog\Definitions\Admitone;
+use App\Catalog\Definitions\AmazonShop;
 use App\Catalog\Definitions\AppleMusic;
 use App\Catalog\Definitions\ApplePodcasts;
 use App\Catalog\Definitions\Audiomack;
@@ -129,6 +130,7 @@ use App\Catalog\Definitions\Snapchat;
 use App\Catalog\Definitions\Songkick;
 use App\Catalog\Definitions\Soundcloud;
 use App\Catalog\Definitions\Spotify;
+use App\Catalog\Definitions\SpotifyPodcasts;
 use App\Catalog\Definitions\Square;
 use App\Catalog\Definitions\Squarespace;
 use App\Catalog\Definitions\Stan;
@@ -147,6 +149,7 @@ use App\Catalog\Definitions\Ticketmaster;
 use App\Catalog\Definitions\Ticketweb;
 use App\Catalog\Definitions\Tidal;
 use App\Catalog\Definitions\Tiktok;
+use App\Catalog\Definitions\TiktokShop;
 use App\Catalog\Definitions\Timely;
 use App\Catalog\Definitions\Tixr;
 use App\Catalog\Definitions\Toast;
@@ -183,6 +186,7 @@ return [
     Abacus::class,
     Acuity::class,
     Admitone::class,
+    AmazonShop::class,
     AppleMusic::class,
     ApplePodcasts::class,
     Audiomack::class,
@@ -309,6 +313,7 @@ return [
     Songkick::class,
     Soundcloud::class,
     Spotify::class,
+    SpotifyPodcasts::class,
     Square::class,
     Squarespace::class,
     Stan::class,
@@ -327,6 +332,7 @@ return [
     Ticketweb::class,
     Tidal::class,
     Tiktok::class,
+    TiktokShop::class,
     Timely::class,
     Tixr::class,
     Toast::class,

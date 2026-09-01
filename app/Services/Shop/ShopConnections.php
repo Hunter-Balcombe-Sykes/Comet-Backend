@@ -70,6 +70,11 @@ class ShopConnections
         ShopProviderDetector::PROVIDER_SQUARESPACE => 'squarespace.store',
         ShopProviderDetector::PROVIDER_BIGCARTEL => 'bigcartel.store',
         ShopProviderDetector::PROVIDER_GENERIC => 'generic.store',
+        // Item 10b (2026-09-01): vendor-lane stores get their own truthful
+        // wire surface rather than riding the generic fallback — the anchors
+        // are minted by their dedicated connect jobs, never by the probe.
+        ShopProviderDetector::PROVIDER_TIKTOK_SHOP => 'tiktok_shop.store',
+        ShopProviderDetector::PROVIDER_AMAZON_SHOP => 'amazon-shop.store',
     ];
 
     /**

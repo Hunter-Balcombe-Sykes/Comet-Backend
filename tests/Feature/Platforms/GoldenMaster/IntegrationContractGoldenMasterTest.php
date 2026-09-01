@@ -576,7 +576,11 @@ it('covers every integration GET read-route in the golden master', function () {
     // connector; /selection + /accounts), cal_com + classpass (BOOKING
     // hosts) and the revived pinterest (LINK_ONLY_HOSTS since 2026-08-11),
     // /selection each.
-    expect($readRoutes->count())->toBe(158);
+    // 158 → 162 on 2026-09-01 (Items 11e/11f): bluesky flipped connectable
+    // (classifyFromCatalog now answers for it) and gains its derived
+    // /selection; spotify_podcasts ships as a full MultiAccount brand —
+    // /accounts, /connect/status (DeferredConnect) and /selection.
+    expect($readRoutes->count())->toBe(162);
     expect($readRoutes->all())->toEqual([
         'api/platforms/acuity/selection',
         'api/platforms/apple/music/accounts',
@@ -590,6 +594,7 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/bandcamp/selection',
         'api/platforms/behance/selection',
         'api/platforms/bella-booking/selection',
+        'api/platforms/bluesky/selection',
         'api/platforms/booksy/selection',
         'api/platforms/bookwell/selection',
         'api/platforms/bopple/selection',
@@ -694,6 +699,9 @@ it('covers every integration GET read-route in the golden master', function () {
         'api/platforms/spotify/accounts',
         'api/platforms/spotify/connect/status',
         'api/platforms/spotify/selection',
+        'api/platforms/spotify_podcasts/accounts',
+        'api/platforms/spotify_podcasts/connect/status',
+        'api/platforms/spotify_podcasts/selection',
         'api/platforms/square-ordering/selection',
         'api/platforms/square/selection',
         'api/platforms/strava/selection',

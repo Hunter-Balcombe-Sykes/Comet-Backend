@@ -93,7 +93,8 @@ it('DELIBERATELY VACUOUS — flag off leaves every one of the 5 deferred platfor
     $deferred = collect($registry->all())
         ->filter(fn ($d) => $d->supportsDeferredConnect())
         ->keys()->sort()->values()->all();
-    expect($deferred)->toBe(['bandcamp', 'spotify', 'vimeo', 'youtube', 'youtube-music']);
+    // spotify_podcasts joined 2026-09-01 (Item 11f).
+    expect($deferred)->toBe(['bandcamp', 'spotify', 'spotify_podcasts', 'vimeo', 'youtube', 'youtube-music']);
 });
 
 // ── Flag ON → 202 ────────────────────────────────────────────────────────────

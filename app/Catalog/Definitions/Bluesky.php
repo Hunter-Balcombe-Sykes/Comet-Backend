@@ -13,9 +13,11 @@ use App\Catalog\Surface;
 use App\Catalog\SurfaceBuilder;
 
 /**
- * Bluesky — link-only social (wave 2, 2026-08-28). Handles are
- * {name}.bsky.social, a verbatim custom domain, or a did:plc: id, so the
- * capture charset is domain-shaped. Verified example: bsky.app/profile/pres.cafe.
+ * Bluesky — social, added link-only in wave 2 (2026-08-28), connectable
+ * since Item 11e (2026-09-01) as an ingest data source (posts → the socials
+ * pool via BlueskyConnector). Handles are {name}.bsky.social, a verbatim
+ * custom domain, or a did:plc: id, so the capture charset is domain-shaped.
+ * Verified example: bsky.app/profile/pres.cafe.
  */
 class Bluesky
 {
@@ -33,11 +35,13 @@ class Bluesky
                 ->routing(RoutingClass::Social)
                 ->shelf(Shelf::Social)
                 ->identifier(IdentifierKind::Url)
-                // Detect-only (wave 2): links route from scanned bios; the legacy
-                // harvester carries no classify() entry, so a manual connect card
-                // would 422 its own URL (BrandCoverageTest). Card comes later with
-                // harvester support, if ever needed.
-                ->notConnectable()
+                // Connectable since Item 11e (2026-09-01): the ingest lane
+                // (BlueskyConnector → posts pool) needs a connect door, and
+                // the wave-2 "would 422 its own URL" concern no longer holds —
+                // classify() backstops through classifyFromCatalog(), which
+                // answers for this surface once is_connectable is true (the
+                // very flag the old note predated flipping). The derived
+                // Brand card (BrandLinkConnect) is the whole flow.
                 ->refreshEvery(0)
                 ->canonicalUrl('https://bsky.app/profile/{handle}')
                 ->detect(

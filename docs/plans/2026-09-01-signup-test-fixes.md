@@ -691,6 +691,13 @@ contingency as Item 10.
 - **11g. find_social_profiles**: cross-platform discovery from one
   identity — strengthens the build's platform-detection layer
   (bio-mention chains, GB-enrich socials).
+  **OWNER DECISION 2026-09-01 (evening): ships DISABLED.** The endpoint
+  is expensive and overlaps what the bio-mention chains + GB socials
+  harvest already do. Adapter + call-site wiring stay in the tree, but
+  the daily cap defaults to 0 — tryClaim() denies every call and the
+  client returns null before any HTTP (fail-open no-op at both call
+  sites). Enable later, if ever, via PARTNA_SC_FIND_SOCIAL_PROFILES_
+  DAILY_CAP alone; no code change needed.
 
 ### Sequencing note (Items 10–11)
 
@@ -802,3 +809,58 @@ typecheck/lint per repo, commit small on the deploying branches
 (Comet-Backend `development`, monorepo `main`), deploy, then live-verify
 with the same DB/log capture used for the baseline. Any wave may be
 paused/resumed across sessions; this section is the handoff contract.
+
+## Waves 6–8 — appended by owner mid-execution (2026-09-01, verbatim scope)
+
+Owner directive: these run AFTER Wave 5 verification is green. Same
+execution contract (inline, full permission, set live as it goes, golden
+standard). Do not start them before the Wave 5 campaign passes.
+
+### Wave 6 — legacy-code deletion sweep
+Delete all code made legacy by Waves 0–4. Known entries (grow this list
+by sweeping, not memory):
+- Legacy POOL_GALLERY readers (flagged at Wave 3 commit b314cbeb9).
+- Any timer-based scheduling paths superseded by 9e dispatch-on-completion
+  (RetryMenuFetchJob relay STAYS — it is the replacement, not the legacy).
+- Dead code found via the wave diffs: grep each wave's commits for
+  "legacy/retired/superseded" markers + unreferenced symbols; verify
+  zero importers before each deletion (STOP gate applies).
+
+### Wave 7 — Astro sitepage batch (apps/pages, owner list 2026-09-01)
+One batch, applied in one pass, then verified at 375px + desktop:
+1. Links carousel cards: social share images get a `--dk-*-300` bg
+   (visible only when the image is a PNG/transparent).
+2. Platform cards must not stretch when fewer than a full row (2 cards
+   currently oversize).
+3. Desktop/multi-visible carousels: clicking a fully-visible card opens
+   its action/overlay only; only peeking cards advance the carousel.
+4. Footer: bottom bar stops being fixed at the footer — it moves up with
+   the page when the user scrolls into the footer (footer only).
+5. Footer bottom: display name (never logo), weight 500, size auto-fit
+   so the text always spans full width.
+6. Expanded menu: below privacy/terms, a full-width button (bg `1000`,
+   text `0`) wired to the user's FIRST action.
+7. Info expanded (partna users): show only their OWN public contact
+   info; workplace contact info lives only in the workplace section.
+8. Clicking the left header column (display name/logo) scrolls back to
+   the homepage.
+9. Product carousel cards: image gets a `--dk-*-50` bg (visible only
+   when the product image is transparent/PNG).
+10. Info expanded (partna users): platform icons in bordered square
+    containers, left-aligned, icons `1000` fill, brand colour on hover.
+11. DoorDash wordmark on menu-item hover overlays: horizontally centre
+    it (Uber Eats already is) — fix at the shared overlay/wordmark CSS.
+
+### Wave 8 — dashboard: staff-account settings page
+Staff accounts get a settings page carrying everything a normal partna
+account has where it applies to staff (2FA setup etc.). Gate on
+AccountCapabilities, never on account_type.
+
+### Evaluation task (execute during Wave 5 downtime, then decide)
+Owner asked (2026-09-01): are we using ScrapeCreators for ITEM-level
+enrichment — YouTube videos / Spotify tracks etc. — when auto-routed
+links land as items, and for pool-selectable items from platform
+accounts; and should confident matches auto-add the ACCOUNT? Owner does
+NOT want an answer message — think it through and either append concrete
+steps to this plan (if lanes should open) or record "fine as-is" with
+reasons in the decisions log.

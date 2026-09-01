@@ -141,6 +141,27 @@
    "captured_by": "manual (Item 8 live trial via curl; slimmed by hand, credits_remaining sanitized)",
    "notes": "Item 8 trial capture 2026-09-01, slimmed: profile + 2 video + 2 image posts"
   },
+  "scrapecreators-instagram-user-highlights.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "b84780388ae0125867acf2ccf4f41e88fd8ab784b72d56afe13a4a9bfef45db7",
+   "captured_by": "wave4-agent:ig_depth",
+   "notes": "GET /v1/instagram/user/highlights?handle=... \u2014 captured live 2026-09-01 via the scrape-creators MCP (Item 11b IG depth); slimmed, keys verbatim."
+  },
+  "scrapecreators-instagram-user-reels.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "a1f523283a8765e6c0e3040f6fd3d0a88af109c47d8ed4931007af036694ea75",
+   "captured_by": "wave4-agent:ig_depth",
+   "notes": "GET /v1/instagram/user/reels?handle=... \u2014 captured live 2026-09-01 via the scrape-creators MCP (Item 11b IG depth); slimmed to a bounded reel page, keys verbatim."
+  },
+  "scrapecreators-instagram-user-tagged-posts.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "453fb4e112e769f9bb8f9bcad56fcb8ed8f746ba17812cd3c956e028e31c6c1b",
+   "captured_by": "wave4-agent:ig_depth",
+   "notes": "GET /v1/instagram/user/tagged-posts?handle=... \u2014 captured live 2026-09-01 via the scrape-creators MCP (Item 11b IG depth); slimmed, keys verbatim."
+  },
   "scrapecreators-komi.json": {
    "source_url": "scrape-creators MCP capture (see notes)",
    "captured_at": "2026-09-01T12:25:46+00:00",

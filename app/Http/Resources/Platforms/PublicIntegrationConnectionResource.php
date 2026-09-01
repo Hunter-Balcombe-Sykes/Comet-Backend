@@ -120,7 +120,11 @@ class PublicIntegrationConnectionResource extends ApiResource
         // publishing the link, so they take the same {username, url} contract
         // as every other link-only platform above. Existing payloads are
         // normalised to that shape by `platforms:backfill-link-payloads`.
-        'twitch' => ['username', 'url'],
+        // twitch re-widened 2026-09-01 (Item 10a): TwitchConnect stores the
+        // identity card again and FeedPayload's read shape is the wire
+        // contract — name/thumbnail/description/followers survive; the
+        // stored-only detection keys (socialLinks, the live block) stay off.
+        'twitch' => ['username', 'url', 'name', 'thumbnail', 'description', 'followers'],
         'skool' => ['username', 'url'],
         'strava' => ['username', 'url'],
         // google-business: placeId / phoneIntl / priceLevel / priceRange /
@@ -264,6 +268,8 @@ class PublicIntegrationConnectionResource extends ApiResource
         'bark' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'beatport' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'bluesky' => ['url', 'name', 'favicon', 'logo', 'provider'],
+        // Item 11f (2026-09-01): the public Spotify show card.
+        'spotify_podcasts' => ['url', 'link', 'name', 'thumbnail', 'description', 'publisher'],
         'cal_com' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'cameo' => ['url', 'name', 'favicon', 'logo', 'provider'],
         'cash_app' => ['url', 'name', 'favicon', 'logo', 'provider'],
@@ -341,6 +347,8 @@ class PublicIntegrationConnectionResource extends ApiResource
         'partiful' => ['url', 'name', 'favicon', 'logo', 'provider'],
         // Storefront brands — see the `[]` rationale above.
         'shopify' => [],
+        'tiktok_shop' => [],
+        'amazon-shop' => [],
         'woocommerce' => [],
         'squarespace' => [],
         'bigcartel' => [],

@@ -7,7 +7,10 @@ use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\Cache\ScrapeCreatorsBudget;
 use App\Services\Platforms\Actors\InstagramActorAdapter;
+use App\Services\Platforms\ScrapeCreators\InstagramHighlightsNormalizer;
 use App\Services\Platforms\ScrapeCreators\InstagramProfileNormalizer;
+use App\Services\Platforms\ScrapeCreators\InstagramReelsNormalizer;
+use App\Services\Platforms\ScrapeCreators\InstagramTaggedPostsNormalizer;
 use App\Services\Platforms\ScrapeCreators\ScrapeCreatorsClient;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -181,6 +184,131 @@ class InstagramScraper extends PlatformScraper
         }
 
         return $profile;
+    }
+
+    /**
+     * Item 11b: video history BEYOND the ≤12-post profile window, via the
+     * vendor's /v1/instagram/user/reels. This supersedes Item 2's deferred
+     * "conditional deeper scrape" — where that plan would have paid a second
+     * Apify run, one vendor page fills the video pool for ~1/60th the wait.
+     * Vendor-ONLY: no actor knows this surface, so every failure of any kind
+     * is null and the caller simply has no depth this pass — the window lane
+     * stands alone, exactly the Item 8 fallback contract.
+     *
+     * Budget rides the EXISTING 'instagram' source cap (unit ig_depth ruling)
+     * rather than minting a new source: depth runs at most once per eager
+     * ingest, and a shared ledger means an incident throttles the whole
+     * Instagram vendor lane at one knob. Claim before the call, release on
+     * transport-null, slot stays spent on a billed husk.
+     *
+     * @return list<array<string, mixed>>|null rows in the media stream's
+     *                                         landed vocabulary (InstagramReelsNormalizer's contract)
+     */
+    public function fetchReelsDepth(string $username, ?string $userId = null): ?array
+    {
+        $rows = $this->vendorDepthRows(
+            '/v1/instagram/user/reels',
+            ['handle' => $username],
+            InstagramReelsNormalizer::class,
+            'instagram_reels',
+            $username,
+            $userId,
+        );
+
+        $limit = max(1, (int) config('partna.limits.scrapecreators.instagram_depth.reels_limit', 12));
+
+        return $rows === null ? null : array_slice($rows, 0, $limit);
+    }
+
+    /**
+     * Item 11b: story-highlight covers as gallery candidates, via the
+     * vendor's /v1/instagram/user/highlights. Same lossy vendor discipline
+     * and the same 'instagram' budget source as fetchReelsDepth.
+     *
+     * @return list<array<string, mixed>>|null
+     */
+    public function fetchHighlights(string $username, ?string $userId = null): ?array
+    {
+        $rows = $this->vendorDepthRows(
+            '/v1/instagram/user/highlights',
+            ['handle' => $username],
+            InstagramHighlightsNormalizer::class,
+            'instagram_highlights',
+            $username,
+            $userId,
+        );
+
+        $limit = max(1, (int) config('partna.limits.scrapecreators.instagram_depth.highlights_limit', 10));
+
+        return $rows === null ? null : array_slice($rows, 0, $limit);
+    }
+
+    /**
+     * Item 11b: tagged posts (social-proof imagery), via the vendor's
+     * /v1/instagram/user/tagged-posts. The endpoint takes ONLY the numeric
+     * Instagram user id — the caller reads it off the already-scraped
+     * profile, so this can never spend a credit resolving a handle. Same
+     * lossy discipline, same 'instagram' budget source.
+     *
+     * @return list<array<string, mixed>>|null
+     */
+    public function fetchTaggedPosts(string $igUserId, ?string $userId = null): ?array
+    {
+        $rows = $this->vendorDepthRows(
+            '/v1/instagram/user/tagged-posts',
+            ['user_id' => $igUserId],
+            InstagramTaggedPostsNormalizer::class,
+            'instagram_tagged',
+            $igUserId,
+            $userId,
+        );
+
+        $limit = max(1, (int) config('partna.limits.scrapecreators.instagram_depth.tagged_limit', 10));
+
+        return $rows === null ? null : array_slice($rows, 0, $limit);
+    }
+
+    /**
+     * The shared depth-lane skeleton: the Item 8 budget contract verbatim
+     * (claim before the call, release on transport-null, keep the slot spent
+     * on a billed husk), one endpoint, one normalizer. $identifier is hashed
+     * for the same joinable-identity reason attemptFetch() documents.
+     *
+     * @param  array<string, string|int>  $query
+     * @param  class-string  $normalizer  a ::rows(array): ?array normalizer
+     * @return list<array<string, mixed>>|null
+     */
+    private function vendorDepthRows(string $path, array $query, string $normalizer, string $logName, string $identifier, ?string $userId): ?array
+    {
+        $client = app(ScrapeCreatorsClient::class);
+        if (! $client->enabled()) {
+            return null;
+        }
+        $budget = app(ScrapeCreatorsBudget::class);
+        if (! $budget->tryClaim('instagram')) {
+            return null;
+        }
+
+        $body = $client->get($path, $query, $userId);
+        if ($body === null) {
+            $budget->release('instagram');
+
+            return null;
+        }
+
+        $rows = app($normalizer)->rows($body);
+        if ($rows === null) {
+            // Billed upstream even as a husk — the slot stays spent; only
+            // transport-level nulls release (the vendorProfileFetch rule).
+            Log::info("scrapecreators.{$logName}.unusable_shape", [
+                'identifier_hash' => hash('sha256', mb_strtolower($identifier)),
+                'user_id' => $userId,
+            ]);
+
+            return null;
+        }
+
+        return $rows;
     }
 
     // One run of the actor. Extracted so the thin retry above is exactly one
