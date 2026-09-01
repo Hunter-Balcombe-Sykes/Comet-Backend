@@ -30,15 +30,36 @@ class HandleAllocator
      */
     private const MAX_LENGTH = 63;
 
-    /** @return array{handle: string, handle_lc: string} */
-    public function allocate(string $seed): array
+    /**
+     * Item 1c (2026-09-01, owner-approved): handles read as the display name
+     * with the spaces removed — `thefamishedwolf`, `ryanfitzsimons` — never
+     * hyphenated. The collision ladder is deliberate about WHO gets a number:
+     *
+     *   1. the cleaned name's slug;
+     *   2. the UNTRIMMED name's slug when one is supplied (Item 1b trims
+     *      "The Famished Wolf Kensington" to "The Famished Wolf" — a second
+     *      location of the same brand deserves its real distinguisher, the
+     *      suburb, before anyone gets a digit);
+     *   3. the bare-integer suffix, unchanged (jane-doe1 style — still
+     *      distinct from the subdomain's hyphenated -1 on purpose).
+     *
+     * @return array{handle: string, handle_lc: string}
+     */
+    public function allocate(string $seed, ?string $untrimmedSeed = null): array
     {
-        $base = Str::slug($seed);
-        if ($base === '' || $base === '-') {
-            $base = 'professional';
+        $base = $this->base($seed);
+
+        if ($this->isAvailable(strtolower($base))) {
+            return ['handle' => $base, 'handle_lc' => strtolower($base)];
         }
 
-        $base = $this->limit($base, 0);
+        if (is_string($untrimmedSeed) && trim($untrimmedSeed) !== '' && $untrimmedSeed !== $seed) {
+            $fallback = $this->base($untrimmedSeed);
+            if ($fallback !== $base && $this->isAvailable(strtolower($fallback))) {
+                return ['handle' => $fallback, 'handle_lc' => strtolower($fallback)];
+            }
+        }
+
         $handle = $base;
         $attempt = 1;
         while (! $this->isAvailable(strtolower($handle))) {
@@ -48,6 +69,17 @@ class HandleAllocator
         }
 
         return ['handle' => $handle, 'handle_lc' => strtolower($handle)];
+    }
+
+    /** Slug with NO separator — display-name words concatenate. */
+    private function base(string $seed): string
+    {
+        $base = Str::slug($seed, '');
+        if ($base === '' || $base === '-') {
+            $base = 'professional';
+        }
+
+        return $this->limit($base, 0);
     }
 
     /**

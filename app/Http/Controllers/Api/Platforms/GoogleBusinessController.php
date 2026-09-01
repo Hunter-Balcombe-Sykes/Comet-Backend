@@ -19,6 +19,7 @@ use App\Services\Platforms\Registry\Platform;
 use App\Support\BusinessName;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 // Google Business — connect via the Places picker (canonical) or a pasted
 // Maps share link (legacy). Picker connects are enriched server-side with the
@@ -124,7 +125,9 @@ class GoogleBusinessController extends ApiController
             $enrich = (bool) config('services.apify.token');
 
             // Business accounts adopt the Google Business name as their display name.
-            $this->maybeAdoptGoogleName($user, $data['name'] ?? null);
+            // Suburb comes from the Place Details merge above — the picker form
+            // itself never carries addressParts.
+            $this->maybeAdoptGoogleName($user, $data['name'] ?? null, data_get($merged, 'addressParts.suburb'));
 
             // writeConnection owns the create/update authorization + payload upsert;
             // the promoted columns are a GB-specific follow-up. apify_status lives
@@ -172,7 +175,7 @@ class GoogleBusinessController extends ApiController
             return $this->error('Paste your Google Maps link — open your business on Google Maps, hit Share, and copy the link.', 422);
         }
 
-        $this->maybeAdoptGoogleName($user, $place['name'] ?? null);
+        $this->maybeAdoptGoogleName($user, $place['name'] ?? null, data_get($place, 'addressParts.suburb'));
 
         // PWL-1: same lock-boundary reasoning as the picker branch above — the
         // legacy link-parse path writes the same row the enrich job locks on.
@@ -206,18 +209,32 @@ class GoogleBusinessController extends ApiController
     // accounts keep whatever name they set. Gated on the capability so the
     // account_type read stays inside AccountCapabilities; UserObserver fans the
     // change out to the sitepage cache (display_name is a public-profile field).
-    private function maybeAdoptGoogleName(User $user, ?string $name): void
+    private function maybeAdoptGoogleName(User $user, ?string $name, ?string $suburb = null): void
     {
         $name = is_string($name) ? trim($name) : '';
         if ($name === '' || ! AccountCapabilities::for($user)->google_business_sets_display_name) {
             return;
         }
 
+        // Item 1b: the listing's own suburb comes off the end first — the
+        // sitepage wants the brand, Google's multi-location disambiguator
+        // stays available to the handle ladder (HandleAllocator's untrimmed
+        // fallback). Logged so every name's provenance is one line away.
+        $trim = BusinessName::trimLocality($name, $suburb);
+        if ($trim['rule'] !== null) {
+            Log::info('name_trim', [
+                'user_id' => $user->id,
+                'from' => $name,
+                'to' => $trim['name'],
+                'rule' => $trim['rule'],
+            ]);
+        }
+
         // Business names carry an 80-char sanity bound. This value is
         // auto-adopted from Google, not typed by hand, so it can't be rejected
         // outright like UpsertWorkplaceRequest does for manual entry —
         // word-trimmed instead.
-        $name = BusinessName::wordTrim($name);
+        $name = BusinessName::wordTrim($trim['name']);
 
         if ($user->display_name === $name) {
             return;

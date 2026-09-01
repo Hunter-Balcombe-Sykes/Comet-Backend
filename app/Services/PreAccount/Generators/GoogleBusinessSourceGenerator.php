@@ -15,6 +15,7 @@ use App\Services\PreAccount\SourceGenerationException;
 use App\Services\Profile\BioSource;
 use App\Services\Profile\ProfileEnricher;
 use App\Support\BusinessName;
+use Illuminate\Support\Facades\Log;
 
 // Builds a provisional business user's site from a Google Business Profile
 // place_id via the EXISTING Places + IdentitySync machinery: fetch details with
@@ -130,7 +131,19 @@ class GoogleBusinessSourceGenerator implements SiteSourceGenerator
         // account types — the bound here exists to match the controller, not
         // to satisfy validation.)
         if ($name !== '' && AccountCapabilities::for($user)->google_business_sets_display_name) {
-            $trimmedName = BusinessName::wordTrim($name);
+            // Item 1b: the listing's own suburb comes off the end first (the
+            // multi-location disambiguator stays available to the handle
+            // ladder); then the 80-char word-trim as before.
+            $localityTrim = BusinessName::trimLocality($name, data_get($details, 'addressParts.suburb'));
+            if ($localityTrim['rule'] !== null) {
+                Log::info('name_trim', [
+                    'user_id' => $user->id,
+                    'from' => $name,
+                    'to' => $localityTrim['name'],
+                    'rule' => $localityTrim['rule'],
+                ]);
+            }
+            $trimmedName = BusinessName::wordTrim($localityTrim['name']);
             if ($user->display_name !== $trimmedName) {
                 $user->display_name = $trimmedName;
                 $user->save();
