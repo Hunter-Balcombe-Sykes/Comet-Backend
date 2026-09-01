@@ -14,6 +14,11 @@ use Illuminate\Auth\Access\Response;
  *                is forbidden at the policy layer; role changes flow only via
  *                PartnaStaff::promoteToAdmin() and demoteToSupport() from an
  *                authorized endpoint.
+ *   - `updateOwnProfile` — self ONLY, any role (Wave 8, 2026-09-02): the
+ *                settings page's name edit. Deliberately a separate ability
+ *                from `update` so its self-edit rule stays intact — the
+ *                request class caps what this path can touch (name), never
+ *                role or email.
  *   - `delete` — admin only, AND must not be self. Prevents an admin from
  *                accidentally locking the org out of admin access.
  *
@@ -56,6 +61,11 @@ class PartnaStaffPolicy extends BasePolicy
         }
 
         return true;
+    }
+
+    public function updateOwnProfile(PartnaStaff $actor, PartnaStaff $target): bool|Response
+    {
+        return (string) $actor->id === (string) $target->id;
     }
 
     public function delete(PartnaStaff $actor, PartnaStaff $target): bool|Response

@@ -78,6 +78,67 @@ Route::middleware([
     'throttle:authenticated',
 ])->get('/me', [UserSelfController::class, 'show']);
 
+// SECURITY SETTINGS FOR EVERY SESSION (Wave 8, 2026-09-02). The sessions lane
+// and factor removal key on the auth uid alone (VerifySupabaseJwt's session
+// tracking, the Redis JTI blocklist, Supabase's factor store) — nothing in
+// them reads a professional. A staff-only session (a core.partna_staff row
+// with no core.users row) needs exactly these two for its settings page:
+// listing/revoking its own devices and removing a factor. So they carry the
+// `current.pro:staff_session_ok` leg like GET /me, spelled out in the group's
+// own order (a route-level ->withoutMiddleware/->middleware pair would run
+// identity resolution AFTER the throttle). Every professional route stays in
+// the strict group below, and PATCH /me in particular still 403s a staff-only
+// session — that is what StaffRoutesNeedNoUserRowTest pins.
+//
+// The sessions group keeps its pending-deletion bypass (a user mid-deletion
+// must still be able to sign devices out); the MFA route keeps the gate, in
+// the same position the strict group gave it.
+Route::middleware([
+    'supabase.jwt',
+    'require.email_verified',
+    'current.pro:'.LoadCurrentUser::MODE_STAFF_SESSION_OK,
+    'throttle:authenticated',
+])->prefix('sessions')->group(function () {
+    // Active session management — list / revoke / logout-everywhere-else.
+    // Powered by VerifySupabaseJwt's session tracking and the Redis JTI
+    // blocklist in TokenRevocationService. Bypasses pending-deletion gate
+    // so a user mid-deletion can still log themselves out.
+    //
+    // index and logout stay FAIL-OPEN on purpose. Listing your own
+    // sessions is a read, and logging YOURSELF out is not damage — a
+    // strict gate there would only stop a legitimate user signing out
+    // during an outage, for no security gain.
+    Route::get('/', [SessionController::class, 'index'])->name('sessions.index');
+    Route::post('/logout', [SessionController::class, 'logout'])->name('sessions.logout')
+        ->middleware('throttle:session-writes');
+    // These two revoke OTHER sessions — the path by which a revoked
+    // session could kick the real owner out. They are Redis writes, so
+    // during an outage they fail regardless; `revocation.strict` costs
+    // no availability and turns a raw 500 into an honest 503.
+    Route::post('/logout-others', [SessionController::class, 'logoutOthers'])->name('sessions.logout-others')
+        ->middleware(['throttle:session-writes', 'revocation.strict']);
+    Route::delete('/{sessionId}', [SessionController::class, 'destroy'])->name('sessions.destroy')
+        ->middleware(['throttle:session-writes', 'revocation.strict']);
+});
+
+// MFA self-service — fresh AAL2 enforced inside the controller (tighter
+// 60s window than session-level aal2). No require.aal2 middleware here.
+// `revocation.strict` because stripping a factor is a credential
+// mutation: it removes the victim's second factor for every future
+// login, not just this request.
+Route::middleware([
+    'supabase.jwt',
+    'require.email_verified',
+    'current.pro:'.LoadCurrentUser::MODE_STAFF_SESSION_OK,
+    EnforcePendingDeletionReadOnly::class,
+    'throttle:authenticated',
+    'revocation.strict',
+])->prefix('account/mfa')->group(function () {
+    Route::delete('/factors/{factorId}', [MfaController::class, 'destroy'])
+        ->whereUuid('factorId')
+        ->name('account.mfa.factors.destroy');
+});
+
 // Authorised user logged in
 Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:authenticated'])
     ->group(function () {
@@ -298,38 +359,9 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         Route::post('/me/data-export', [UserDataExportController::class, 'store'])
             ->withoutMiddleware([EnforcePendingDeletionReadOnly::class])
             ->middleware(['throttle:1,1440', 'revocation.strict', 'require.strong_auth']);
-        // MFA self-service — fresh AAL2 enforced inside the controller (tighter
-        // 60s window than session-level aal2). No require.aal2 middleware here.
-        // `revocation.strict` because stripping a factor is a credential
-        // mutation: it removes the victim's second factor for every future
-        // login, not just this request.
-        Route::prefix('account/mfa')->middleware('revocation.strict')->group(function () {
-            Route::delete('/factors/{factorId}', [MfaController::class, 'destroy'])
-                ->whereUuid('factorId')
-                ->name('account.mfa.factors.destroy');
-        });
-
-        // Active session management — list / revoke / logout-everywhere-else.
-        // Powered by VerifySupabaseJwt's session tracking and the Redis JTI
-        // blocklist in TokenRevocationService. Bypasses pending-deletion gate
-        // so a user mid-deletion can still log themselves out.
-        Route::prefix('sessions')->withoutMiddleware([EnforcePendingDeletionReadOnly::class])->group(function () {
-            // index and logout stay FAIL-OPEN on purpose. Listing your own
-            // sessions is a read, and logging YOURSELF out is not damage — a
-            // strict gate there would only stop a legitimate user signing out
-            // during an outage, for no security gain.
-            Route::get('/', [SessionController::class, 'index'])->name('sessions.index');
-            Route::post('/logout', [SessionController::class, 'logout'])->name('sessions.logout')
-                ->middleware('throttle:session-writes');
-            // These two revoke OTHER sessions — the path by which a revoked
-            // session could kick the real owner out. They are Redis writes, so
-            // during an outage they fail regardless; `revocation.strict` costs
-            // no availability and turns a raw 500 into an honest 503.
-            Route::post('/logout-others', [SessionController::class, 'logoutOthers'])->name('sessions.logout-others')
-                ->middleware(['throttle:session-writes', 'revocation.strict']);
-            Route::delete('/{sessionId}', [SessionController::class, 'destroy'])->name('sessions.destroy')
-                ->middleware(['throttle:session-writes', 'revocation.strict']);
-        });
+        // MFA self-service and session management moved OUT of this group
+        // (Wave 8, 2026-09-02) — declared below with the staff-session-ok
+        // identity leg, the same way GET /me is. See the note there.
 
         // View Site Details
         Route::get('/site', [UserSiteController::class, 'show']);

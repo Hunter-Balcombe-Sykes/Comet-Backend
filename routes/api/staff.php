@@ -55,6 +55,9 @@ Route::prefix('staff')
 
         // Staff Dashboard
         Route::get('/me', [StaffMeController::class, 'show']);
+        // The staff settings page's own-record edit (Wave 8): name only —
+        // see UpdateStaffMeRequest for what it deliberately cannot touch.
+        Route::patch('/me', [StaffMeController::class, 'update']);
 
         // Moderation queue — list + detail
         Route::get('/cases', [StaffCaseController::class, 'index'])->name('staff.cases.index');

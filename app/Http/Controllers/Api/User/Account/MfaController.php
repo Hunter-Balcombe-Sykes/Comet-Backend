@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\User\Account;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Mail\Security\TwoFactorRemovedMail;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use App\Services\Auth\Aal2FreshnessGate;
 use App\Services\Auth\AuthFactorEventRepository;
@@ -77,12 +78,20 @@ class MfaController extends ApiController
 
         // Security notice — fire-and-forget: a mail failure must never fail
         // the factor removal itself. auth_user_id, not id — $uid is the
-        // Supabase auth id, not our primary key.
+        // Supabase auth id, not our primary key. A staff-only session (Wave
+        // 8) has no core.users row: the notice goes to the staff record's
+        // email instead, never silently nowhere.
         try {
             $professional = User::query()->where('auth_user_id', $uid)->first();
-            $email = (string) ($professional->primary_email ?? '');
+            $email = (string) ($professional?->primary_email ?? '');
+            $name = $professional?->display_name;
+            if ($email === '') {
+                $staff = PartnaStaff::query()->where('auth_user_id', $uid)->first();
+                $email = (string) ($staff?->primary_email ?? '');
+                $name = $staff?->name;
+            }
             if ($email !== '') {
-                Mail::to($email)->queue(new TwoFactorRemovedMail($email, $professional?->display_name));
+                Mail::to($email)->queue(new TwoFactorRemovedMail($email, $name));
             }
         } catch (\Throwable $e) {
             Log::warning('mfa.factor_removed_mail_failed', ['auth_user_id' => $uid, 'error' => $e->getMessage()]);

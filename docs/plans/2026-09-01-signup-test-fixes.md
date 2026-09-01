@@ -966,6 +966,47 @@ decisions worth knowing:
   prerendering /contact/enquiry-form — CI has no Supabase env). Both
   flagged for the completeness pass below.
 
+### Wave 8 — COMPLETE (2026-09-02, monorepo bddaf265 + the backend commit carrying this note)
+
+A staff-only session (a `core.partna_staff` row with no `core.users` row)
+had no Settings at all. Now: Settings over the two sections that are about
+the person — Account (name editable via the new `PATCH /staff/me`; email
+and role read-only, admin-changed) and Security (password reset mail,
+two-factor enrol/remove, signed-in devices) — on the routes everyone has.
+Executor decisions:
+
+- **Gate = the session shape** (`sessionType === 'staff'`), which is the
+  existing staff-session contract; staff are not an account type, so no
+  `account_type` branch exists anywhere in this wave.
+- **`updateOwnProfile` is a NEW policy ability**: `PartnaStaffPolicy::
+  update` forbids self-edits on purpose (role transitions need a second
+  actor); the self-service name edit must not weaken that, so it has its
+  own ability and a request class that only knows `name`.
+- **Phone stays off**: `PartnaStaff::$hidden` keeps it off every staff API
+  surface as a role-escalation path; the page does not reopen that.
+- **Sessions + factor removal admit a staff-only session**: both key on the
+  auth uid alone, so they moved out of the `current.pro` group into a
+  staff-session-ok block declared like `GET /me` (same middleware order —
+  a route-level swap would run identity after the throttle). `PATCH /me`
+  stays strict (403 `staff_only_session`), pinned by test.
+- **Site-shaped sections redirect** a staff session to Account instead of
+  spinning; the tabs list only the session's own sections.
+- **Factor-removed mail** now reaches the staff record's email when there
+  is no professional row, instead of being silently skipped.
+
+### Post-Astro item 1 — signup campaign re-run: DONE (2026-09-02)
+
+Re-run recorded in `2026-09-01-signup-test-fixes-RESULTS.md` ("Re-run after
+Wave 7"). Verdict: no regression from Waves 6–7; the partna ready times
+were a vendor-500 night (ScrapeCreators `/v1/instagram/profile` HTTP 500
+×3, 9–12s each); business path and KV unchanged; the Instagram pool was
+on the page at ready+3s. The one controllable optimisation from the
+evidence is shipped in the same backend commit: `content_filled` now also
+observes a projected pool item with media (it was watching the
+website-grab lane since Wave 3 and read 60–75s late). The other lever —
+supervisor-mirror 2→4 — waits on the worker-box resize the owner
+pre-approved in config/horizon.php's memory note (recorded there).
+
 ## Post-Wave-7 owner additions (2026-09-02, verbatim scope, in order)
 
 Owner directive mid-Wave-7: none of these interrupt the Astro batch; they

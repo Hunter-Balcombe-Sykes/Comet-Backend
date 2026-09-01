@@ -200,3 +200,45 @@ it('records a staff write against the staff row when the actor has no user row',
         // the actor leg must never be smuggled into the target leg.
         ->and($entry->user_id)->toBeNull();
 });
+
+// ── Leg 4 (Wave 8, 2026-09-02): the two USER routes a staff-only session may
+// reach for its settings page — the sessions lane and factor removal — and
+// the one it still must not (PATCH /me has no profile to update).
+
+it('lists its own sessions for an actor with no core.users row, and still 403s PATCH /me', function () {
+    $staff = staffOnlyActor('support');
+    actingAsStaffOnlyJwt($staff);
+
+    $this->getJson('/api/sessions')->assertOk()->assertJsonStructure(['sessions']);
+
+    $this->patchJson('/api/me', ['display_name' => 'Nope'])
+        ->assertStatus(403)
+        ->assertJsonPath('error', 'staff_only_session');
+
+    expect(DB::connection('pgsql')->table('core.users')->count())->toBe(0);
+});
+
+it('declares the sessions lane and factor removal with the staff-session-ok identity leg, and nothing else', function () {
+    $routes = collect(Route::getRoutes()->getRoutes());
+    $staffOk = fn ($route) => collect($route->gatherMiddleware())
+        ->contains(fn ($name) => is_string($name) && $name === 'current.pro:'.LoadCurrentUser::MODE_STAFF_SESSION_OK);
+
+    $admitted = $routes
+        ->reject(fn ($route) => str_starts_with((string) $route->uri(), 'api/staff'))
+        ->filter($staffOk)
+        ->map(fn ($route) => implode('|', $route->methods()).' '.$route->uri())
+        ->sort()
+        ->values()
+        ->all();
+
+    // GET /me (the boot call), the four session routes, the factor removal.
+    // A new entry here is a new promise that the route reads no professional.
+    expect($admitted)->toBe([
+        'DELETE api/account/mfa/factors/{factorId}',
+        'DELETE api/sessions/{sessionId}',
+        'GET|HEAD api/me',
+        'GET|HEAD api/sessions',
+        'POST api/sessions/logout',
+        'POST api/sessions/logout-others',
+    ]);
+});
