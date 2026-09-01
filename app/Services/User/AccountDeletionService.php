@@ -10,6 +10,7 @@ use App\Mail\Notifications\AccountDeletionCancelledMail;
 use App\Mail\Notifications\AccountDeletionScheduledMail;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\User;
 use App\Models\Core\User\UserDeletionAuditEntry;
 use App\Models\Moderation\Evidence;
@@ -750,7 +751,31 @@ class AccountDeletionService
 
         // Step 1: delete Supabase auth user. If this fails, do NOT hard-delete
         // the DB row — we'd end up with an orphaned auth user and no way to retry.
-        if ($authUserId !== '' && ! $this->deleteSupabaseAuthUser($authUserId)) {
+        //
+        // UNLESS that auth user is also a staff member. The auth user is shared:
+        // core.partna_staff.auth_user_id and core.users.auth_user_id can point at
+        // the same GoTrue identity, and deleting it here would revoke the staff
+        // login as a side effect of erasing a professional profile — locking the
+        // staff row out of a session it can never get back, since nothing in the
+        // app can recreate a GoTrue identity. This is not hypothetical: retiring
+        // the platform admin's unwanted profile (2026-09-01) runs exactly this
+        // path against the auth user that holds his staff row.
+        //
+        // The purge is otherwise unchanged — every row, every artifact, every
+        // email-keyed erasure still runs. What survives is one login with no
+        // professional profile behind it, which is precisely what a staff account
+        // is now defined to be. The email does NOT free up for re-registration,
+        // and that is correct: it is still in use, as staff.
+        $preserveAuthUserForStaff = $authUserId !== '' && $this->authUserHoldsStaffRow($authUserId);
+
+        if ($preserveAuthUserForStaff) {
+            Log::info('Account purge preserving the Supabase auth user: it is a staff login', [
+                'user_id' => (string) $professional->id,
+                'auth_user_id' => $authUserId,
+            ]);
+        }
+
+        if ($authUserId !== '' && ! $preserveAuthUserForStaff && ! $this->deleteSupabaseAuthUser($authUserId)) {
             $this->logAuditEvent(
                 $professional,
                 UserDeletionAuditEntry::EVENT_PURGE_FAILED,
@@ -1415,6 +1440,20 @@ class AccountDeletionService
      * Call Supabase Admin API to delete an auth user. 404 is treated as success
      * (user already deleted). Any other non-2xx response is a failure.
      */
+    /**
+     * Does this GoTrue identity also hold a core.partna_staff row?
+     *
+     * Queried at purge time rather than passed in, because the caller that
+     * matters (the nightly PurgeSoftDeleted sweep) has no idea the account it is
+     * collecting is anyone's staff login.
+     */
+    private function authUserHoldsStaffRow(string $authUserId): bool
+    {
+        return PartnaStaff::query()
+            ->where('auth_user_id', $authUserId)
+            ->exists();
+    }
+
     private function deleteSupabaseAuthUser(string $authUserId): bool
     {
         $baseUrl = rtrim((string) config('supabase.url'), '/');
