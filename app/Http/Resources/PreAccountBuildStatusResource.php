@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Models\Core\User\PreAccountBuild;
+use App\Services\PreAccount\BuildProgressReader;
 use Illuminate\Http\Request;
 
 // Public poll shape for a pre-account build (site-first signup + staff
@@ -46,6 +47,11 @@ class PreAccountBuildStatusResource extends ApiResource
                 'content_filled_at' => $this->content_filled_at?->toIso8601String(),
                 'enriched_at' => $this->enriched_at?->toIso8601String(),
             ]) : null,
+            // Setup progress (2026-09-02): the feed the signup page draws
+            // while the fan-out lands. Present from the first poll (an empty
+            // ledger is still an answer); `done` is BuildProgressReader's
+            // rule, shared with the sitepage's handle endpoint.
+            'progress' => app(BuildProgressReader::class)->forPoll($this->resource),
         ], fn ($v) => $v !== null);
     }
 }

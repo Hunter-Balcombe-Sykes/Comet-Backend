@@ -4212,3 +4212,23 @@ function setupBrandAssetRefsTable(): void
         UNIQUE (connection_id, role)
     )');
 }
+
+/**
+ * Stand-in for core.pre_account_build_events (migration 20260902030000) —
+ * the setup progress ledger BuildProgress::note() appends to. Column set
+ * mirrors the migration exactly; the CHECK lists are enforced by the
+ * producers' constants in tests, not here.
+ */
+function setupPreAccountBuildEventsTable(): void
+{
+    attachTestSchemas();
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.pre_account_build_events (
+        id TEXT PRIMARY KEY NOT NULL,
+        build_id TEXT NOT NULL,
+        stage TEXT NOT NULL,
+        status TEXT NOT NULL,
+        label TEXT NOT NULL,
+        payload TEXT NOT NULL DEFAULT \'{}\',
+        created_at TEXT NOT NULL
+    )');
+}

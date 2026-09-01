@@ -620,6 +620,23 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        // Setup progress by handle (2026-09-02): the sitepage overlay polls
+        // every 5s for at most the 10-minute ceiling — 30/min per IP is
+        // several open tabs' worth, and a scraper gets nothing but {done}.
+        RateLimiter::for('site-progress', function (Request $request) use ($throttleEnabled) {
+            if (! $throttleEnabled) {
+                return [Limit::none()];
+            }
+
+            $key = (string) ($request->header('CF-Connecting-IP') ?? $request->ip());
+
+            return [
+                Limit::perMinute(config('partna.throttle.site_progress_per_minute', 30))
+                    ->by($key)
+                    ->response(fn () => response()->json(['message' => 'Too many requests. Please try again later.'], 429)),
+            ];
+        });
+
         // Live subdomain availability checks (authenticated URL-change flow).
         // Keyed per user (supabase_uid) so one user's typing can't starve
         // others behind a shared IP; IP fallback covers edge cases where the

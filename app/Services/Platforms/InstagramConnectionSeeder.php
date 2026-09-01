@@ -4,6 +4,7 @@ namespace App\Services\Platforms;
 
 use App\Jobs\Platforms\SeedReelMirrorJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Http\SafeUrlException;
@@ -12,6 +13,7 @@ use App\Services\Media\ImagePixelBudget;
 use App\Services\Media\InstagramMediaUrl;
 use App\Services\Media\MediaDiskResolver;
 use App\Services\Platforms\Payloads\InstagramPayload;
+use App\Services\PreAccount\BuildProgress;
 use App\Services\Profile\BioIntel;
 use App\Services\Profile\SectorTaxonomy;
 use finfo;
@@ -263,6 +265,16 @@ class InstagramConnectionSeeder
             'bioLinks' => $bioLinks,
         ];
 
+        // Setup progress (2026-09-02): the media row the feed shows, with the
+        // seed artwork as its thumbnails (the pool projection follows).
+        BuildProgress::noteForUser(
+            $userId,
+            PreAccountBuildEvent::STAGE_MEDIA,
+            PreAccountBuildEvent::STATUS_LANDED,
+            'Grabbing your latest photos and reels',
+            ['thumbnails' => array_values(array_filter([...$images, $videoPoster]))],
+        );
+
         // Preserve the google-business origin tag across a re-scrape (it drives the
         // /synced "Change to" flow). Read it typed; the scrape WRITE below stays literal.
         if (($source = InstagramPayload::fromArray($connection->payload)->source) !== null) {
@@ -312,6 +324,21 @@ class InstagramConnectionSeeder
                 'unmatched' => count($sync['unmatched']),
                 ...$ctx->summary(),
             ]);
+            // Setup progress (2026-09-02): the same fact as the run card
+            // above, said to the person signing up.
+            $platforms = array_values(array_unique(array_filter(array_map(
+                fn (array $finding) => (string) ($finding['platform'] ?? ''),
+                $sync['findings'],
+            ))));
+            BuildProgress::noteForUser(
+                $userId,
+                PreAccountBuildEvent::STAGE_PLATFORMS,
+                $platforms === [] ? PreAccountBuildEvent::STATUS_SKIPPED : PreAccountBuildEvent::STATUS_LANDED,
+                $platforms === []
+                    ? 'Checked '.BuildProgress::count(count($bioLinks), 'link', 'links').' in your bio — nothing to connect yet'
+                    : 'Connected '.BuildProgress::count(count($platforms), 'platform', 'platforms').' from your bio links',
+                ['platforms' => $platforms],
+            );
         }
 
         // PRIV-2: bioLinks/syncFindings/unmatched are internal auto-sync bookkeeping

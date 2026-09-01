@@ -4,10 +4,12 @@ namespace App\Services\Platforms;
 
 use App\Jobs\Platforms\GoogleBusinessEnrichJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\PreAccount\BuildProgress;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -128,6 +130,14 @@ class FreshaWorkplaceLinker
             'place_id' => $match['id'],
             'corroborated_by' => $match['corroboration'],
         ]);
+        // Setup progress (2026-09-02): the workplace row the feed shows.
+        BuildProgress::noteForUser(
+            (string) $user->id,
+            PreAccountBuildEvent::STAGE_WORKPLACE,
+            PreAccountBuildEvent::STATUS_LANDED,
+            'Workplace: '.$name,
+            ['name' => $name],
+        );
 
         return $this->outcome('connected', $match['id'], null);
     }

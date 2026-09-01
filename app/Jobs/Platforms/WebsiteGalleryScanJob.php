@@ -3,7 +3,9 @@
 namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
+use App\Services\PreAccount\BuildProgress;
 use App\Services\WebsiteScan\GalleryAutoGrabber;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -65,6 +67,14 @@ class WebsiteGalleryScanJob implements ShouldBeUnique, ShouldQueue
                 'site_id' => $this->siteId,
                 'decisions' => $decisions,
             ]);
+            // Setup progress (2026-09-02): the website row the feed shows.
+            BuildProgress::noteForUser(
+                $this->userId,
+                PreAccountBuildEvent::STAGE_WEBSITE,
+                PreAccountBuildEvent::STATUS_LANDED,
+                'Grabbed '.BuildProgress::count(count($decisions), 'photo', 'photos').' from your website',
+                ['photos' => count($decisions)],
+            );
         }
     }
 

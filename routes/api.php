@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\PublicSite\PublicNotificationEmailUnsubscribeContro
 use App\Http\Controllers\Api\PublicSite\PublicSignupAvailabilityController;
 use App\Http\Controllers\Api\PublicSite\PublicSignupPrewarmController;
 use App\Http\Controllers\Api\PublicSite\PublicSiteController;
+use App\Http\Controllers\Api\PublicSite\PublicSiteProgressController;
 use App\Http\Controllers\Api\Webhooks\ResendWebhookController;
 use App\Http\Controllers\Api\Webhooks\SupabaseAuthHookController;
 use Illuminate\Http\Request;
@@ -183,6 +184,11 @@ Route::post('/public/signup/prewarm', PublicSignupPrewarmController::class)
 Route::get('/public/signup/builds/{build}', [PreAccountBuildController::class, 'show'])
     ->whereUuid('build')
     ->middleware('throttle:public-site');
+// Setup progress for the sitepage overlay (2026-09-02): {done, stage} by
+// handle — a visitor holds no build id. Nothing about the person beyond what
+// the live page already shows; its own throttle bucket.
+Route::get('/public/sites/{handle}/progress', PublicSiteProgressController::class)
+    ->middleware('throttle:site-progress');
 Route::post('/public/auth/resolve-identifier', [PublicLoginIdentifierController::class, 'resolve'])
     ->middleware(['throttle:login-identifier', 'bot.token:login-identifier']);
 

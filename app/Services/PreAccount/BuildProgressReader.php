@@ -1,0 +1,176 @@
+<?php
+
+namespace App\Services\PreAccount;
+
+use App\Models\Core\User\PreAccountBuild;
+use App\Models\Core\User\PreAccountBuildEvent;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * The setup progress ledger's reader (2026-09-02) — one place that decides
+ * what "finished" means, for both readers:
+ *
+ *   - the public build poll (the dashboard's signup feed): `done`, the
+ *     events in order, and the media mirror counts;
+ *   - the handle progress endpoint (the sitepage's overlay): `done` and the
+ *     current stage only — a visitor is not the owner and sees no labels,
+ *     no thumbnails.
+ *
+ * DONE, the simple rule (owner, 2026-09-02, "do it quickly"): the build is
+ * ready AND content has landed (the poll's content_filled tier) AND the
+ * workplace question has an answer (the enriched tier, or the chain said
+ * skipped/failed) — OR the build is older than the ceiling, so a stuck
+ * vendor call can never hold a loader on screen. Not "no job left": that
+ * needs a pending-job counter threaded through every fan-out, and the
+ * tiers already say what a person is waiting for.
+ */
+final class BuildProgressReader
+{
+    /** After this, finished regardless — the same clock the preparing page and the mirror TTL run on. */
+    public const CEILING_MINUTES = 10;
+
+    /** The poll caps its feed; a build's ledger is a dozen rows, not a stream. */
+    private const EVENT_CAP = 50;
+
+    /**
+     * @return array{done: bool, stage: string|null, events: list<array<string, mixed>>, media: array{mirrored: int, total: int}}
+     */
+    public function forPoll(PreAccountBuild $build): array
+    {
+        $events = $this->events($build);
+
+        return [
+            'done' => $this->isDone($build, $events),
+            'stage' => $this->currentStage($build, $events),
+            'events' => array_map(fn (PreAccountBuildEvent $e) => [
+                'id' => (string) $e->id,
+                'stage' => $e->stage,
+                'status' => $e->status,
+                'label' => $e->label,
+                'payload' => $e->payload ?? [],
+                'at' => $e->created_at->toIso8601String(),
+            ], $events),
+            'media' => $this->mediaCounts($build),
+        ];
+    }
+
+    /**
+     * @return array{done: bool, stage: string|null}
+     */
+    public function forSite(PreAccountBuild $build): array
+    {
+        $events = $this->events($build);
+
+        return [
+            'done' => $this->isDone($build, $events),
+            'stage' => $this->currentStage($build, $events),
+        ];
+    }
+
+    /**
+     * @param  list<PreAccountBuildEvent>  $events
+     */
+    public function isDone(PreAccountBuild $build, array $events): bool
+    {
+        if ($build->build_state === PreAccountBuild::STATE_FAILED) {
+            return true;
+        }
+        if ($build->created_at->lt(now()->subMinutes(self::CEILING_MINUTES))) {
+            return true;
+        }
+        if ($build->build_state !== PreAccountBuild::STATE_READY || $build->content_filled_at === null) {
+            return false;
+        }
+        if ($build->enriched_at !== null) {
+            return true;
+        }
+        foreach ($events as $event) {
+            if ($event->stage === PreAccountBuildEvent::STAGE_WORKPLACE
+                && in_array($event->status, [PreAccountBuildEvent::STATUS_SKIPPED, PreAccountBuildEvent::STATUS_FAILED], true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The stage a loader would name: the newest started-but-not-landed
+     * stage, else the newest landed one, else the build state itself.
+     *
+     * @param  list<PreAccountBuildEvent>  $events
+     */
+    public function currentStage(PreAccountBuild $build, array $events): string
+    {
+        $open = [];
+        $latest = null;
+        foreach ($events as $event) {
+            $latest = $event->stage;
+            if ($event->status === PreAccountBuildEvent::STATUS_STARTED) {
+                $open[$event->stage] = true;
+            } else {
+                unset($open[$event->stage]);
+            }
+        }
+        if ($open !== []) {
+            return (string) array_key_last($open);
+        }
+        if ($latest !== null) {
+            return $latest;
+        }
+
+        return match ($build->build_state) {
+            PreAccountBuild::STATE_READY => PreAccountBuildEvent::STAGE_READY,
+            PreAccountBuild::STATE_FAILED => PreAccountBuildEvent::STAGE_FAILED,
+            default => PreAccountBuildEvent::STAGE_IDENTITY,
+        };
+    }
+
+    /**
+     * @return list<PreAccountBuildEvent>
+     */
+    private function events(PreAccountBuild $build): array
+    {
+        // The poll must never 500 because of the ledger — a read failure is an
+        // empty feed, reported.
+        try {
+            return PreAccountBuildEvent::query()
+                ->where('build_id', $build->id)
+                ->orderBy('created_at')
+                ->orderBy('id')
+                ->limit(self::EVENT_CAP)
+                ->get()
+                ->all();
+        } catch (\Throwable $e) {
+            report($e);
+
+            return [];
+        }
+    }
+
+    /**
+     * How much of the pool has been copied to our storage — "Saving your
+     * media 14 of 28". content.media_assets carries user_id and storage_path
+     * (a mirrored asset has one); the unowned entries never mint an asset.
+     *
+     * @return array{mirrored: int, total: int}
+     */
+    private function mediaCounts(PreAccountBuild $build): array
+    {
+        if ($build->user_id === null) {
+            return ['mirrored' => 0, 'total' => 0];
+        }
+        try {
+            $row = DB::connection('pgsql')->table('content.media_assets')
+                ->where('user_id', $build->user_id)
+                ->selectRaw('count(*) as total, count(storage_path) as mirrored')
+                ->first();
+        } catch (\Throwable $e) {
+            report($e);
+
+            return ['mirrored' => 0, 'total' => 0];
+        }
+
+        return ['mirrored' => (int) ($row->mirrored ?? 0), 'total' => (int) ($row->total ?? 0)];
+    }
+}

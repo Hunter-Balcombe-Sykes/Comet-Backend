@@ -5,6 +5,7 @@ namespace App\Jobs\PreAccount;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\FreshaWorkplaceLinker;
@@ -13,6 +14,7 @@ use App\Services\Platforms\LinkRouter;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\RouteContext;
 use App\Services\Platforms\ScrapeCreators\FindSocialProfilesClient;
+use App\Services\PreAccount\BuildProgress;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -145,8 +147,28 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
             $mentions = (array) data_get($connection?->payload, 'bioMentions', []);
         }
         if ($mentions === []) {
+            // Setup progress (2026-09-02): said plainly, so the feed's
+            // workplace row is never a spinner waiting for nothing. Skipped
+            // only when nothing else found one either.
+            if (! $this->hasWorkplace($user)) {
+                BuildProgress::noteForUser(
+                    (string) $user->id,
+                    PreAccountBuildEvent::STAGE_WORKPLACE,
+                    PreAccountBuildEvent::STATUS_SKIPPED,
+                    'No workplace mentioned in your bio — you can add one later',
+                );
+            }
+
             return;
         }
+
+        // Setup progress: the feed's "checking" row while the chain runs.
+        BuildProgress::noteForUser(
+            (string) $user->id,
+            PreAccountBuildEvent::STAGE_WORKPLACE,
+            PreAccountBuildEvent::STATUS_STARTED,
+            'Checking '.BuildProgress::count(count($mentions), 'place mentioned', 'places mentioned').' in your bio',
+        );
 
         // Item 4 (2026-09-01): multiple venue-shaped mentions are legal now —
         // the classifier nominates, the corroboration gate disambiguates. So

@@ -7,6 +7,7 @@ use App\Exceptions\Site\SubdomainUnavailableException;
 use App\Jobs\PreAccount\GeneratePreAccountSiteJob;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\PreAccountBuild;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Services\User\HandleAllocator;
 use App\Services\User\SiteProvisioningService;
@@ -287,6 +288,17 @@ class PreAccountBuildService
 
         $build->user()->associate($user);
         $build->save();
+
+        // Setup progress (2026-09-02): the first thing the signup feed says.
+        BuildProgress::note(
+            (string) $build->id,
+            PreAccountBuildEvent::STAGE_IDENTITY,
+            PreAccountBuildEvent::STATUS_LANDED,
+            $build->source_type === 'google_business'
+                ? 'Found your Google listing'
+                : 'Found your Instagram',
+            ['handle' => (string) $user->handle_lc],
+        );
 
         return $user;
     }

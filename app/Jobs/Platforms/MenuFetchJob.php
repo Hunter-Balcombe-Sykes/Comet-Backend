@@ -5,6 +5,7 @@ namespace App\Jobs\Platforms;
 use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\MenuPlatformLink;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Services\Cache\SiteCacheInvalidator;
 use App\Services\Content\ContentItemSlugAllocator;
@@ -18,6 +19,7 @@ use App\Services\Platforms\MenuProjectionMapper;
 use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\MenuSource;
 use App\Services\Platforms\NormalizesMenuItemNames;
+use App\Services\PreAccount\BuildProgress;
 use App\Site\Pools\PoolRegistry;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -525,6 +527,15 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         // MenuBackfiller::run() uses for the same reason).
         $this->syncOrderPlatforms($menu);
         $this->seedPins($userId, $itemIds);
+
+        // Setup progress (2026-09-02): the menu row the feed shows.
+        BuildProgress::noteForUser(
+            $userId,
+            PreAccountBuildEvent::STAGE_MENU,
+            PreAccountBuildEvent::STATUS_LANDED,
+            'Menu: '.BuildProgress::count(count($itemIds), 'dish', 'dishes'),
+            ['dishes' => count($itemIds)],
+        );
 
         $menu->forceFill([
             'fetch_status' => 'ok',

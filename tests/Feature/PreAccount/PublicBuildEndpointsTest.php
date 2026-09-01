@@ -5,6 +5,8 @@ use App\Jobs\PreAccount\PrewarmInstagramProfileJob;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\PreAccountBuild;
+use App\Models\Core\User\PreAccountBuildEvent;
+use App\Services\PreAccount\BuildProgress;
 use App\Services\PreAccount\ClaimSiteService;
 use App\Services\PreAccount\PreAccountBuildService;
 use App\Services\PreAccount\SourcePrefetch;
@@ -16,6 +18,8 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupPreAccountBuildsTable();
+    // The setup progress ledger the poll reads on every call (2026-09-02).
+    setupPreAccountBuildEventsTable();
     // LIFE-2: requestBuild() now takes a pg_advisory_xact_lock inside the build
     // transaction for every signup-path build (no staff actor) — without the shim
     // this errors on SQLite (no such function).
@@ -276,4 +280,75 @@ it('prewarm rejects a non-instagram source and a malformed ref', function () {
         ->assertStatus(422);
 
     Queue::assertNotPushed(PrewarmInstagramProfileJob::class);
+});
+
+// ── Setup progress (2026-09-02): the feed on the poll wire ───────────────────
+
+it('carries a progress block from the first poll, fills it from the ledger, and reports done once content and the workplace question have landed', function () {
+    setupSiteMediaTable();
+    setupWorkplacesTable();
+    setupSectionsTables();
+    setupContentTables();
+    setupPreAccountBuildEventsTable();
+
+    $this->postJson('/api/public/signup/build', ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'feedjane']);
+    $build = PreAccountBuild::firstOrFail();
+
+    // Pending, empty ledger: still an answer.
+    $this->getJson("/api/public/signup/builds/{$build->id}")
+        ->assertOk()
+        ->assertJsonPath('progress.done', false)
+        ->assertJsonPath('progress.stage', 'identity')
+        ->assertJsonPath('progress.events', [])
+        ->assertJsonPath('progress.media.total', 0);
+
+    // Identity lands through materializeIdentity — the first ledger row.
+    app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
+    $build->refresh();
+    $this->getJson("/api/public/signup/builds/{$build->id}")
+        ->assertOk()
+        ->assertJsonPath('progress.events.0.stage', 'identity')
+        ->assertJsonPath('progress.events.0.status', 'landed')
+        ->assertJsonPath('progress.events.0.label', 'Found your Instagram')
+        ->assertJsonPath('progress.stage', 'identity');
+
+    // A user-keyed note reaches the same build while it is live and unclaimed.
+    BuildProgress::noteForUser((string) $build->user_id, PreAccountBuildEvent::STAGE_WORKPLACE, PreAccountBuildEvent::STATUS_STARTED, 'Checking 2 places mentioned in your bio');
+    $this->getJson("/api/public/signup/builds/{$build->id}")
+        ->assertJsonPath('progress.stage', 'workplace')
+        ->assertJsonCount(2, 'progress.events');
+
+    // Ready + content, but the workplace question still open: not done.
+    $build->forceFill(['build_state' => PreAccountBuild::STATE_READY])->save();
+    $site = $build->user->site;
+    (new SiteMedia(['pool' => 'content', 'path' => 'images/t.webp', 'media_type' => 'image', 'processing_state' => 'ready', 'sort_order' => 0, 'is_active' => true]))->site()->associate($site)->save();
+    $this->getJson("/api/public/signup/builds/{$build->id}")->assertJsonPath('progress.done', false);
+
+    // The chain says skipped → done, without a workplace ever landing.
+    BuildProgress::noteForUser((string) $build->user_id, PreAccountBuildEvent::STAGE_WORKPLACE, PreAccountBuildEvent::STATUS_SKIPPED, 'No workplace mentioned in your bio — you can add one later');
+    $this->getJson("/api/public/signup/builds/{$build->id}")
+        ->assertJsonPath('progress.done', true)
+        ->assertJsonPath('progress.stage', 'workplace');
+});
+
+it('noteForUser writes nothing for a claimed or stale build, and note() never throws', function () {
+    setupPreAccountBuildEventsTable();
+
+    $this->postJson('/api/public/signup/build', ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'quietjane']);
+    $build = PreAccountBuild::firstOrFail();
+    app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
+    $build->refresh();
+    expect(PreAccountBuildEvent::query()->where('build_id', $build->id)->count())->toBe(1);
+
+    $build->forceFill(['claimed_at' => now()])->save();
+    BuildProgress::noteForUser((string) $build->user_id, PreAccountBuildEvent::STAGE_MENU, PreAccountBuildEvent::STATUS_LANDED, 'Menu: 3 dishes');
+    expect(PreAccountBuildEvent::query()->where('build_id', $build->id)->count())->toBe(1);
+
+    $build->forceFill(['claimed_at' => null, 'created_at' => now()->subHours(2)])->save();
+    BuildProgress::noteForUser((string) $build->user_id, PreAccountBuildEvent::STAGE_MENU, PreAccountBuildEvent::STATUS_LANDED, 'Menu: 3 dishes');
+    expect(PreAccountBuildEvent::query()->where('build_id', $build->id)->count())->toBe(1);
+
+    // A ledger write that cannot succeed (no such build) is reported, not thrown.
+    BuildProgress::note((string) Str::uuid(), PreAccountBuildEvent::STAGE_MENU, PreAccountBuildEvent::STATUS_LANDED, 'orphan');
+    expect(true)->toBeTrue();
 });

@@ -3,6 +3,7 @@
 namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Routing\IriCanonicalizer;
 use App\Routing\LinkProjector;
 use App\Services\Cache\CacheKeyGenerator;
@@ -14,6 +15,7 @@ use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\ScrapeCreators\FindSocialProfilesClient;
 use App\Services\Platforms\WebsiteLinkHarvester;
+use App\Services\PreAccount\BuildProgress;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -341,6 +343,14 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         if (! $saved) {
             return;
         }
+
+        // Setup progress (2026-09-02): the listing row the feed shows.
+        BuildProgress::noteForUser(
+            $this->userId,
+            PreAccountBuildEvent::STAGE_LISTING,
+            PreAccountBuildEvent::STATUS_LANDED,
+            'Pulled your Google listing — hours, photos and reviews',
+        );
 
         // Terminal success: clear both markers so a genuine later reconnect
         // re-scrapes (and re-bills) fresh instead of replaying a stale cache.
