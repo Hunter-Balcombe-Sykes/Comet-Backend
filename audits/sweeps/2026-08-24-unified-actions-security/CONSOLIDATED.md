@@ -235,7 +235,7 @@
         ```
 
 - [ ] **#SEC-6** · P2 — `ShortLinkExpander` caches the expanded destination URL without secret redaction
-    - **Where:** app/Routing/ShortLinkExpander.php:74-103
+    - **Where:** app/Routing/ShortLinkExpander.php:86-101 (was `:74-103`) — the cache call was rewritten under CCH-2/CCH-14 (now `CacheKeyGenerator::shortLinkExpansion()` + `rememberLockedNullable`), but no redaction was added on the way in or out.
     - **Affects:** Redis cache entries for expanded short links, up to 24h — a secret-bearing destination URL (e.g. `?token=...`) persists in plaintext for that window.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -515,7 +515,7 @@
         ```
 
 - [ ] **#SEC-15** · P2 — `SafeUrlFetcher`'s redirect-hop config default (8) exceeds its own documented/coded bound (5)
-    - **Where:** config/partna.php (`http_fetch.max_redirects`), app/Services/Http/SafeUrlFetcher.php:27
+    - **Where:** config/partna.php:1954 (`http_fetch.max_redirects` = 8), app/Services/Http/SafeUrlFetcher.php:27 (`MAX_REDIRECTS = 5`) — the 8-vs-5 divergence is unchanged.
     - **Affects:** All user- or third-party-supplied URL fetches through `SafeUrlFetcher`.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -616,7 +616,7 @@
         ```
 
 - [ ] **#SEC-20** · P3 — `PoolController::reorder` validates inline rather than via a Form Request
-    - **Where:** app/Http/Controllers/Api/Content/PoolController.php:162-165
+    - **Where:** app/Http/Controllers/Api/Content/PoolController.php:162 (`$request->validate([...])` still inline in `reorder()`, declared at `:145`).
     - **Affects:** Maintainability/consistency of a state-mutating route; not currently a bypass (rules are already explicit and bounded).
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -1165,7 +1165,7 @@
         ```
 
 - [ ] **SEM-15** · P2 — `IriCanonicalizer::normalizePath()` collapses a path whose sole segment is `amp` (or `index.html`) to the site root
-    - **Where:** app/Routing/IriCanonicalizer.php:340-374
+    - **Where:** app/Routing/IriCanonicalizer.php:371-383 (was `:340-374`) — a mid-path `amp` guard was added, but a path whose SOLE segment is `amp`/`index.html` still empties `$segments` and returns `/`, which is the case this finding names.
     - **Affects:** A pasted profile link whose entire path is a presentation-suffix word (e.g. an Instagram account literally named `amp`) — the link canonicalizes to the platform's homepage and fails to detect as that account.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -1272,6 +1272,7 @@
         ```
 
 - [ ] **SEM-19** · P3 — Sector classifier's keyword order files a Google-sourced "Fitness trainer" under Gym, not Personal Trainer
+    - Note (2026-09-01, still open — and now sharper): a `'fitness trainer' => 'personal-trainer'` correction WAS added, but only to `INSTAGRAM_CATEGORY_SECTORS` (`app/Services/Profile/SectorTaxonomy.php:275`, under a comment reading "Corrections — the substring map returns the wrong slug for these"). The Google path goes through `classify($category, self::KEYWORD_SECTORS)` (`:570`), where `'fitness' => 'gym'` (`:162`) still precedes `'trainer' => 'personal-trainer'` (`:164`). So the defect is now confirmed by the codebase's own correction — applied to one source and not the other.
     - **Where:** app/Services/Profile/SectorTaxonomy.php:149-230 (`KEYWORD_SECTORS`)
     - **Affects:** Personal trainers synced from Google Business whose category text is "Fitness trainer"/"Fitness coach" — they get the `gym` slug/label instead of `personal-trainer`; the same business synced from Instagram gets the correct slug (both share the same style bucket, so no visual regression).
     - **Effort:** S (~0.5–1h)
@@ -1293,6 +1294,7 @@
         ```
 
 - [ ] **SEM-20** · P3 — YouTube feed retry masks a mid-loop transport failure as the previous non-200 response
+    - Note (2026-09-01, still open — reads as fixed, is not): the surrounding comment now says "Transport-level null deliberately does NOT retry", which looks like this finding closed. It refers to the FIRST fetch. Inside the retry loop the masking line is unchanged: `$rss = $this->fetcher->tryFetch($feedUrl, $headers) ?? $rss;` (`app/Services/Platforms/YoutubeScraper.php:224`) — a mid-loop transport null still falls back to the previous non-200 and is reported as `non_200:<status>`.
     - **Where:** app/Services/Platforms/YoutubeScraper.php:114-152
     - **Affects:** YouTube channel refresh under intermittent feed failures — a few extra retry/sleep cycles beyond what the method's own comment intends, not a functional break (the retry loop still terminates via its existing attempt cap).
     - **Effort:** S (~0.5–1h)
@@ -1313,7 +1315,7 @@
         ```
 
 - [ ] **SEM-21** · P3 — Dev-only insights endpoint's item-score query no longer excludes page rows, now that pages live in the `action` family
-    - **Where:** app/Http/Controllers/Api/User/Analytics/DevInsightsController.php:91-99, 158-163
+    - **Where:** app/Http/Controllers/Api/User/Analytics/DevInsightsController.php:200 (was `:91-99, 158-163`) — the filter still reads `where('content_type', '!=', 'page')` while pages are written into the `action` family as `page:<id>` (see `pageScores()` at `:133-135`, which strips that prefix). The exclusion therefore still matches nothing.
     - **Affects:** The `/api/professional/dev-insights` diagnostic endpoint only (explicitly documented as dev/testing) — page entries appear duplicated as phantom `action:page:<id>` rows in the item breakdown, with null titles/zero impressions.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -1357,7 +1359,7 @@
         ```
 
 - [ ] **SEM-23** · P3 — `SafeUrlFetcher`'s body-size cap is double its documented value
-    - **Where:** config/partna.php:1654-1660
+    - **Where:** config/partna.php:1961 (`http_fetch.max_bytes` = 25 MB) vs app/Services/Http/SafeUrlFetcher.php:31-32 (`MAX_BYTES` documented as 10 MB) — was `:1654-1660`, which now points at `idempotency.max_body_bytes`, a different key.
     - **Affects:** All outbound user-supplied URL fetches (link previews, menu/shop scrapers) — the actual safety ceiling is looser than what the adjacent comment documents, though still bounded and safe.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -1372,7 +1374,7 @@
         ```
 
 - [ ] **SEM-24** · P3 — DAST canary route reads `env()` directly in `routes/api.php`, outside `config/`
-    - **Where:** routes/api.php:225-233
+    - **Where:** routes/api.php:239 (was `:225-233`) — DUPLICATE of #CFG-4 in `audits/sweeps/2026-08-24-unified-actions-delta` (same `env('DAST_CANARY')` line). Fix once, close both.
     - **Affects:** The DAST scanning pipeline's self-test canary route only — would silently fail to register under `config:cache` if the DAST runner ever caches config before scanning (currently it doesn't appear to, based on the "never present in a real deployed env" framing).
     - **Effort:** S (~0.5–1h)
     - **What to do:**
