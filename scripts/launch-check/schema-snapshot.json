@@ -1,7 +1,7 @@
 {
  "generated_at": "2026-09-01T10:35:28.623837+00:00",
  "project_ref": "glncumufgaqcmqhzwrxm",
- "latest_migration": "20260901190000",
+ "latest_migration": "20260901200000",
  "columns": [
   {
    "schema": "analytics",
