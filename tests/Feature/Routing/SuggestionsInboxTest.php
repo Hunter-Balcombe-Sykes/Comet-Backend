@@ -379,15 +379,23 @@ it('offers a probed Shopify storefront as a suggestion from a paste (never a pla
     Cache::flush();
     $pro = createTenant('inbox-store');
     // The probe cascade sees a Shopify storefront on the user's own domain.
+    // Reserved host (RFC 2606) deliberately: SafeUrlFetcher resolves DNS before
+    // it fetches, so a real fixture domain fails this test whenever that
+    // domain's nameservers do — with ZERO http calls, as a domain-logic error,
+    // which reads exactly like a store-detection bug. Cost a session
+    // 2026-09-01 (eleventh.com, down for a window, fine again an hour later).
+    // Must be a BARE example.com/net/org: .test and .invalid never resolve,
+    // and neither do subdomains of the reserved domains. Shop name and id come
+    // from the faked meta.json, never from the host.
     Http::fake([
         '*/meta.json' => Http::response(['id' => 2090478, 'name' => 'Beardbrand', 'currency' => 'USD'], 200),
-        'https://www.beardbrand.com/' => Http::response('<html><head><title>Beardbrand</title></head><body>Beard care</body></html>', 200, ['Content-Type' => 'text/html']),
+        'https://example.org/' => Http::response('<html><head><title>Beardbrand</title></head><body>Beard care</body></html>', 200, ['Content-Type' => 'text/html']),
         '*' => Http::response('', 404),
     ]);
 
     // 1. Suggest-only probe (what RoutingController::store dispatches after a
     //    Note): the reconciler writes a PROPOSED intent, no connection.
-    app()->call([new CommerceProbeJob((string) $pro->id, 'https://www.beardbrand.com/', suggestOnly: true), 'handle']);
+    app()->call([new CommerceProbeJob((string) $pro->id, 'https://example.org/', suggestOnly: true), 'handle']);
     $intent = DB::table('routing.source_intents')->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->first();
     expect($intent)->not->toBeNull()
         ->and($intent->state)->toBe('proposed')
@@ -407,7 +415,7 @@ it('offers a probed Shopify storefront as a suggestion from a paste (never a pla
 
     // 3. That job (probe answer cached from step 1) places the store: connection
     //    named after the shop, storefront collection, intent applied.
-    app()->call([new CommerceProbeJob((string) $pro->id, 'https://www.beardbrand.com/', 'shop'), 'handle']);
+    app()->call([new CommerceProbeJob((string) $pro->id, 'https://example.org/', 'shop'), 'handle']);
     $connection = IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->first();
     expect($connection)->not->toBeNull()
         ->and($connection->payload['name'] ?? null)->toBe('Beardbrand')
@@ -418,6 +426,8 @@ it('offers a probed Shopify storefront as a suggestion from a paste (never a pla
 it('connects a store whose suggestion carries a deep path, rather than re-proposing it', function () {
     // The live dev row this reproduces (intent df68c566, 2026-08-24):
     // shopify.store / 23504463 / https://stali.com.au/collections/star-wars —
+    // (that real URL is the incident record; the fixture below uses a reserved
+    // host — see the note in the storefront-suggestion test above.)
     // first seen through a collection link, not the storefront root.
     //
     // CommerceProbeJob's deep-page rule turns an UNASKED auto-connect into a
@@ -429,16 +439,16 @@ it('connects a store whose suggestion carries a deep path, rather than re-propos
     $pro = createTenant('inbox-store-deep');
     Http::fake([
         '*/meta.json' => Http::response(['id' => 23504463, 'name' => 'ST. ALi', 'currency' => 'AUD'], 200),
-        'https://stali.com.au/' => Http::response('<html><head><title>ST. ALi</title></head><body>Coffee</body></html>', 200, ['Content-Type' => 'text/html']),
+        'https://example.net/' => Http::response('<html><head><title>ST. ALi</title></head><body>Coffee</body></html>', 200, ['Content-Type' => 'text/html']),
         // REACHABLE and not a product page — the shape that sets $deepPage
         // (CommerceProbeJob::probe, FI-10). A 404 here would take the
         // unreachable arm instead, which probes the ORIGIN and so never
         // records the deep canonical_url the live row carries.
-        'https://stali.com.au/collections/star-wars' => Http::response('<html><head><title>Star Wars | ST. ALi</title></head><body>A collection</body></html>', 200, ['Content-Type' => 'text/html']),
+        'https://example.net/collections/star-wars' => Http::response('<html><head><title>Star Wars | ST. ALi</title></head><body>A collection</body></html>', 200, ['Content-Type' => 'text/html']),
         '*' => Http::response('', 404),
     ]);
 
-    $deep = 'https://stali.com.au/collections/star-wars';
+    $deep = 'https://example.net/collections/star-wars';
     app()->call([new CommerceProbeJob((string) $pro->id, $deep, suggestOnly: true), 'handle']);
 
     $intent = DB::table('routing.source_intents')->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->first();
@@ -477,7 +487,7 @@ it('settles an accepted store the seeder could not build, instead of leaving the
         'surface_key' => 'shopify.store',
         'routing_class' => 'shop',
         'identifier' => '23504463',
-        'canonical_url' => 'https://stali.com.au/collections/star-wars/products/mug',
+        'canonical_url' => 'https://example.net/collections/star-wars/products/mug',
         'block_reason' => 'below_threshold',
     ]);
 
@@ -511,8 +521,8 @@ it('gives an accept its own uniqueness slot, so a probe in flight cannot swallow
     // Asserted on uniqueId() directly: Queue::fake() never takes the unique
     // lock at all, so a dispatch-level test would pass whether or not the
     // two ids collide.
-    $discovery = new CommerceProbeJob('user-1', 'https://stali.com.au/', 'shop');
-    $accepted = new CommerceProbeJob('user-1', 'https://stali.com.au/', 'shop', acceptedIntentId: 'intent-1');
+    $discovery = new CommerceProbeJob('user-1', 'https://example.net/', 'shop');
+    $accepted = new CommerceProbeJob('user-1', 'https://example.net/', 'shop', acceptedIntentId: 'intent-1');
 
     expect($accepted->uniqueId())->not->toBe($discovery->uniqueId());
 });
@@ -582,10 +592,10 @@ it('names a suggested store on the card, rather than showing only its numeric id
     $pro = createTenant('inbox-store-name');
     Http::fake([
         '*/meta.json' => Http::response(['id' => 23504463, 'name' => 'ST. ALi', 'currency' => 'AUD'], 200),
-        'https://stali.com.au/' => Http::response('<html><head><title>ST. ALi</title></head><body>Coffee</body></html>', 200, ['Content-Type' => 'text/html']),
+        'https://example.net/' => Http::response('<html><head><title>ST. ALi</title></head><body>Coffee</body></html>', 200, ['Content-Type' => 'text/html']),
         '*' => Http::response('', 404),
     ]);
-    app()->call([new CommerceProbeJob((string) $pro->id, 'https://stali.com.au/', suggestOnly: true), 'handle']);
+    app()->call([new CommerceProbeJob((string) $pro->id, 'https://example.net/', suggestOnly: true), 'handle']);
 
     $card = collect(actingAsUser($pro)->getJson('/api/routing/suggestions')->assertOk()->json('suggestions'))
         ->firstWhere('surfaceKey', 'shopify.store');
