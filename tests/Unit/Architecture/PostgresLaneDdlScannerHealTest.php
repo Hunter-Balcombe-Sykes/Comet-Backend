@@ -12,16 +12,16 @@ it('counts columns added by an ADD COLUMN IF NOT EXISTS heal', function () {
     mkdir($dir);
     file_put_contents($dir.'/ExampleTest.php', <<<'PHP'
     <?php
-    $pg->statement('CREATE TABLE IF NOT EXISTS site.platform_connections (
+    $pg->statement('CREATE TABLE IF NOT EXISTS site.platform_connections_probe (
         id uuid PRIMARY KEY,
         user_id uuid NULL
     )');
-    $pg->statement('ALTER TABLE site.platform_connections ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true');
+    $pg->statement('ALTER TABLE site.platform_connections_probe ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true');
     PHP);
 
     $byFile = PostgresLaneDdlScanner::laneDdlByFile($dir);
 
-    expect($byFile['ExampleTest.php']['site.platform_connections'])
+    expect($byFile['ExampleTest.php']['site.platform_connections_probe'])
         ->toContain('id')->toContain('user_id')->toContain('is_active');
 });
 
@@ -30,11 +30,11 @@ it('counts columns added by the foreach heal-array idiom', function () {
     mkdir($dir);
     file_put_contents($dir.'/HealTest.php', <<<'PHP'
     <?php
-    $pg->statement('CREATE TABLE IF NOT EXISTS content.sources (
+    $pg->statement('CREATE TABLE IF NOT EXISTS content.sources_probe (
         id uuid PRIMARY KEY
     )');
     foreach ([
-        'content.sources' => ['connection_id' => 'uuid', 'kind' => "text NOT NULL DEFAULT 'manual'"],
+        'content.sources_probe' => ['connection_id' => 'uuid', 'kind' => "text NOT NULL DEFAULT 'manual'"],
     ] as $table => $columns) {
         foreach ($columns as $col => $type) {
             $pg->statement("ALTER TABLE {$table} ADD COLUMN IF NOT EXISTS {$col} {$type}");
@@ -44,7 +44,7 @@ it('counts columns added by the foreach heal-array idiom', function () {
 
     $byFile = PostgresLaneDdlScanner::laneDdlByFile($dir);
 
-    expect($byFile['HealTest.php']['content.sources'])
+    expect($byFile['HealTest.php']['content.sources_probe'])
         ->toContain('connection_id')->toContain('kind');
 });
 
@@ -53,7 +53,7 @@ it('associates a flat foreach heal-array with the literal table named in its ALT
     mkdir($dir);
     file_put_contents($dir.'/FlatHealTest.php', <<<'PHP'
     <?php
-    $pg->statement('CREATE TABLE IF NOT EXISTS core.users (
+    $pg->statement('CREATE TABLE IF NOT EXISTS core.users_probe (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid()
     )');
     foreach ([
@@ -63,13 +63,13 @@ it('associates a flat foreach heal-array with the literal table named in its ALT
         'created_at' => 'timestamptz NOT NULL DEFAULT now()',
         'updated_at' => 'timestamptz NOT NULL DEFAULT now()',
     ] as $col => $type) {
-        $pg->statement("ALTER TABLE core.users ADD COLUMN IF NOT EXISTS {$col} {$type}");
+        $pg->statement("ALTER TABLE core.users_probe ADD COLUMN IF NOT EXISTS {$col} {$type}");
     }
     PHP);
 
     $byFile = PostgresLaneDdlScanner::laneDdlByFile($dir);
 
-    expect($byFile['FlatHealTest.php']['core.users'])
+    expect($byFile['FlatHealTest.php']['core.users_probe'])
         ->toContain('id')
         ->toContain('handle')
         ->toContain('handle_lc')
@@ -83,19 +83,19 @@ it('never emits a bare "if" pseudo-column from IF NOT EXISTS on an interpolated 
     mkdir($dir);
     file_put_contents($dir.'/IfLeakTest.php', <<<'PHP'
     <?php
-    $pg->statement('CREATE TABLE IF NOT EXISTS core.users (
+    $pg->statement('CREATE TABLE IF NOT EXISTS core.users_scratch (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid()
     )');
     foreach ([
         'handle' => 'character varying(63)',
     ] as $col => $type) {
-        $pg->statement("ALTER TABLE core.users ADD COLUMN IF NOT EXISTS {$col} {$type}");
+        $pg->statement("ALTER TABLE core.users_scratch ADD COLUMN IF NOT EXISTS {$col} {$type}");
     }
     PHP);
 
     $byFile = PostgresLaneDdlScanner::laneDdlByFile($dir);
 
-    expect($byFile['IfLeakTest.php']['core.users'])->not->toContain('if');
+    expect($byFile['IfLeakTest.php']['core.users_scratch'])->not->toContain('if');
 });
 
 it('leaves the existing drift() contract untouched', function () {

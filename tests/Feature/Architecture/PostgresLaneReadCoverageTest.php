@@ -19,12 +19,12 @@ use Tests\Support\Architecture\PostgresLaneDdlScanner;
  *
  * SCOPE, and why it is drawn here. Only tables a lane file ALREADY PROVISIONS
  * are checked. This guard never demands a new table, because minimal
- * stand-ins are deliberate — `CREATE TABLE core.users (id uuid PRIMARY KEY)`
- * exists purely as an FK target, and forcing full-fat tables everywhere would
- * slow the lane and hide bugs. Eloquent access emits no literal column
- * strings, so a model-driven read never demands a column either. The
- * remaining failure mode — a writer touching a table this lane never
- * provisions at all — stays uncatchable by any static scan, exactly as
+ * stand-ins are deliberate — a bare `core.users` stand-in holding only
+ * `id uuid PRIMARY KEY` exists purely as an FK target, and forcing full-fat
+ * tables everywhere would slow the lane and hide bugs. Eloquent access emits
+ * no literal column strings, so a model-driven read never demands a column
+ * either. The remaining failure mode — a writer touching a table this lane
+ * never provisions at all — stays uncatchable by any static scan, exactly as
  * PostgresLaneDdlDriftTest says.
  *
  * ATTRIBUTION, and its limits (do not over-trust a clean run). A lane file's app-code
