@@ -79,6 +79,16 @@ class PersonNameMatch
      *
      * Deliberately excludes single letters: "Anthony A" is a real account and
      * a middle initial is not a descriptor.
+     *
+     * SUPERSET of NameShapeGate::DESCRIPTORS since 2026-09-01, pinned by "it
+     * refuses every word the write-side name gate already calls a descriptor".
+     * The two lists were assembled from the same 84 accounts a day apart and
+     * still disagreed about 29 words, and each disagreement is a hole with a
+     * direction: the gate declines to WRITE "academy" as a surname, this class
+     * then READS it out of display_name and goes hunting for it in review
+     * prose. The relation is one-way — this list is properly larger, because
+     * refusing costs the gate a real person's name column and costs this class
+     * only a review it publishes on the venue instead.
      */
     private const NOT_A_NAME = [
         // Connectives. "Lower East by" ends in one; "The Broken Oven Pizza
@@ -107,6 +117,15 @@ class PersonNameMatch
         'therapies', 'therapist', 'therapy', 'trainer', 'training', 'wedding',
         'weddings', 'wellness', 'yoga',
 
+        // Trades the write-side gate already knew and this list did not. Every
+        // one arrived from NameShapeGate::DESCRIPTORS when the two were
+        // reconciled; "academy" is the one that had a live carrier
+        // (jay.ink.academy), the rest are the same class caught early.
+        'academy', 'cake', 'celebrant', 'coach', 'coaching', 'decorator', 'dog',
+        'driving', 'edit', 'editions', 'esthetician', 'groomer', 'grooming',
+        'musician', 'nutrition', 'nutritionist', 'osteo', 'physio',
+        'physiotherapy', 'pt', 'school', 'stylist', 'tension', 'tutor',
+
         // Corporate suffixes.
         'co', 'company', 'group', 'inc', 'llc', 'ltd', 'pty', 'service',
         'services', 'solutions',
@@ -118,6 +137,12 @@ class PersonNameMatch
         'inner', 'local', 'london', 'lower', 'melbourne', 'mobile', 'newcastle',
         'north', 'online', 'perth', 'private', 'south', 'sydney', 'upper',
         'wellington', 'west', 'wollongong',
+        // Same reconciliation. "York" is a real surname and loses its
+        // text-mention tier here, on the settled rule stated above for West.
+        'chicago', 'hobart', 'york',
+
+        // Generic qualifiers, likewise from the gate's list.
+        'best', 'unlimited',
 
         // Single ordinary words seen standing alone in a first_name column
         // ("Fine Line Tattoo Artist ✨Elle✨" leaves "Fine"; "Found By The

@@ -74,15 +74,70 @@ final class NameShapeGate
         return $singles >= (int) ceil(count($tokens) * 0.6);
     }
 
-    /** Re-join a letter-spaced string: "S T U D I O  B I D E" → "STUDIO BIDE". */
+    /**
+     * Re-join a letter-spaced string: "S T U D I O  B I D E" → "STUDIO BIDE".
+     *
+     * A run of 2+ spaces is a hard word break AND so is any token of two or
+     * more characters. The first pass had only the former, which is fine for
+     * studiobide (double-spaced between words) and mangles everything spaced
+     * with single spaces throughout: jay.ink.academy's "J A Y - I N K ACADEMY"
+     * became "JAY-INKACADEMY", welding a whole word onto the letters. We were
+     * shipping a string worse than the one we set out to rescue, and the plan's
+     * fixture asserted isLetterSpaced() on that exact name while never once
+     * asserting what the fold did with it.
+     */
     public static function foldLetterSpacing(string $name): string
     {
-        $words = preg_split('/\s{2,}/u', trim($name)) ?: [];
+        $words = [];
+        foreach (preg_split('/\s{2,}/u', trim($name)) ?: [] as $segment) {
+            $run = '';
+            foreach (preg_split('/\s+/u', $segment) ?: [] as $token) {
+                if ($token === '') {
+                    continue;
+                }
+                if (mb_strlen($token) === 1) {
+                    $run .= $token;
 
-        return trim(implode(' ', array_map(
-            static fn (string $w): string => (string) preg_replace('/\s+/u', '', $w),
-            $words,
-        )));
+                    continue;
+                }
+                if ($run !== '') {
+                    $words[] = $run;
+                    $run = '';
+                }
+                $words[] = $token;
+            }
+            if ($run !== '') {
+                $words[] = $run;
+            }
+        }
+
+        return implode(' ', $words);
+    }
+
+    /**
+     * A name with pictographs removed and whitespace re-collapsed.
+     *
+     * Emoji were rejected out of first/last from the start and left untouched
+     * in display_name, which is the column the sitepage renders largest and
+     * the column PersonNameMatch reads first — so "Lucy Nguyen ✨" was refused
+     * whole by the review matcher for one character, and with first_name empty
+     * (which is what this gate writes when it rejects a part) that account
+     * published no reviews at all.
+     *
+     * Symbols and format characters only: \p{So} (✨ 🍓), \p{Sk} (skin-tone
+     * modifiers), \p{Cf} (ZWJ) and the variation selectors. Punctuation stays
+     * — the pipe in "SIMON DOYLE | Barber & Educator" is a legible separator,
+     * and removing it would produce a run-on that reads as a four-word name.
+     *
+     * Interior whitespace is deliberately NOT collapsed here. It has to be,
+     * eventually — removing " ✨ " leaves a two-space hole — but a run of two
+     * spaces is the only word boundary a letter-spaced name carries, and
+     * collapsing before the fold turned studiobide's "S T U D I O  B I D E"
+     * into "STUDIOBIDE". apply() collapses after folding instead.
+     */
+    public static function stripSymbols(string $name): string
+    {
+        return trim((string) preg_replace('/[\p{So}\p{Sk}\p{Cf}\x{FE0E}\x{FE0F}]/u', '', $name));
     }
 
     /**
@@ -126,10 +181,19 @@ final class NameShapeGate
         $first = trim((string) ($names['firstName'] ?? ''));
         $last = trim((string) ($names['lastName'] ?? ''));
 
+        // Before isLetterSpaced(), not after: a stray emoji is a token, and a
+        // token that is one character wide counts toward the single-letter
+        // ratio that decides whether this string is letter-spaced at all.
+        $display = self::stripSymbols($display);
+
         if ($display !== '' && self::isLetterSpaced($display)) {
             $display = self::foldLetterSpacing($display);
             $first = $last = '';
         }
+
+        // Now that the fold has read the double spaces it needed, the holes a
+        // stripped emoji left ("Lucy ✨ Nguyen" → "Lucy  Nguyen") close.
+        $display = trim((string) preg_replace('/\s+/u', ' ', $display));
 
         // A part that is a descriptor, an emoji, or a single letter is not a
         // name part. Both go, together: half a parsed name is not a name.

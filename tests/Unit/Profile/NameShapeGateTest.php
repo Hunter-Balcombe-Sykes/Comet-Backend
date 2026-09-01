@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\Profile\NameShapeGate;
+use App\Site\Pools\PersonNameMatch;
 use Tests\TestCase;
 
 // Unit tests here do not get Laravel booted by tests/Pest.php (only Feature is
@@ -74,6 +75,60 @@ it('folds letter-spacing rather than shipping it', function () {
     expect($out['displayName'])->toBe('STUDIO BIDE')
         ->and($out['firstName'])->toBeNull()
         ->and($out['lastName'])->toBeNull();
+});
+
+it('folds a single-spaced letter run without gluing the word beside it', function () {
+    // jay.ink.academy, live. isLetterSpaced() has said true about this string
+    // since the gate shipped and the fold has been mangling it ever since:
+    // splitting on 2+ spaces alone meant a name letter-spaced with SINGLE
+    // spaces throughout was one segment, so every space went and "ACADEMY"
+    // was welded onto the letters — "JAY-INKACADEMY", worse than the input we
+    // were rescuing. A word of 2+ characters is a word boundary; only a run of
+    // single characters folds.
+    expect(NameShapeGate::foldLetterSpacing('J A Y - I N K ACADEMY'))->toBe('JAY-INK ACADEMY')
+        ->and(NameShapeGate::foldLetterSpacing('S T U D I O  B I D E'))->toBe('STUDIO BIDE');
+});
+
+it('strips emoji out of the display name, not only out of the name parts', function () {
+    // fayeellefineline and playlunch, live. The gate nulled the emoji surname
+    // and the emoji given name on the first pass and then shipped the same
+    // emoji as the page's largest text, because the shape rules only ever ran
+    // over first/last. display_name is a name column too.
+    $faye = NameShapeGate::apply(
+        ['displayName' => 'Fine Line Tattoo Artist ✨Elle ✨', 'firstName' => 'Fine', 'lastName' => '✨'],
+        'fayeellefineline',
+        'Fine Line Tattoo Artist ✨Elle ✨',
+    );
+    expect($faye['displayName'])->toBe('Fine Line Tattoo Artist Elle');
+
+    $play = NameShapeGate::apply(
+        ['displayName' => 'Play Lunch 🍓', 'firstName' => '🍓', 'lastName' => null],
+        'playlunch',
+        'Play Lunch 🍓',
+    );
+    expect($play['displayName'])->toBe('Play Lunch')
+        ->and($play['firstName'])->toBeNull();
+});
+
+it('hands the review matcher a name it can read — the second consumer of this column', function () {
+    // WHY this test lives in the gate's file and not the matcher's: F3 is a
+    // write-side defect with a read-side symptom. PersonNameMatch fails closed
+    // on anything that is not a name, so ONE trailing sparkle on an otherwise
+    // clean display name — with first_name empty, which is what the gate
+    // itself writes when it rejects a part — returns null tokens, and null
+    // tokens suppress every review on the page. That is the "publishes no
+    // reviews at all" class: not a matcher bug, a name the matcher was right
+    // to refuse. Gate the column and the same account publishes.
+    expect(PersonNameMatch::tokens('Lucy Nguyen ✨', ''))->toBeNull();
+
+    $out = NameShapeGate::apply(
+        ['displayName' => 'Lucy Nguyen ✨', 'firstName' => null, 'lastName' => null],
+        'lucynguyenmua',
+        'Lucy Nguyen ✨',
+    );
+    expect($out['displayName'])->toBe('Lucy Nguyen')
+        ->and(PersonNameMatch::tokens($out['displayName'], $out['firstName']))
+        ->toBe(['full' => ['lucy nguyen'], 'first' => ['lucy']]);
 });
 
 it('strips the fabricated split off a brand name — the re-audit exhibits', function () {
