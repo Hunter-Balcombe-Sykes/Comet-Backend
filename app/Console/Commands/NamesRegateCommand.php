@@ -58,7 +58,7 @@ class NamesRegateCommand extends Command
             );
 
             if ($gated['displayName'] === $user->display_name
-                && $gated['firstName'] === $user->first_name
+                && ($gated['firstName'] ?? '') === (string) $user->first_name
                 && $gated['lastName'] === $user->last_name) {
                 continue;
             }
@@ -72,7 +72,7 @@ class NamesRegateCommand extends Command
 
             if (! $dry) {
                 $user->display_name = $gated['displayName'] ?? $user->display_name;
-                $user->first_name = $gated['firstName'];
+                $user->first_name = $gated['firstName'] ?? '';
                 $user->last_name = $gated['lastName'];
                 $user->save();
             }

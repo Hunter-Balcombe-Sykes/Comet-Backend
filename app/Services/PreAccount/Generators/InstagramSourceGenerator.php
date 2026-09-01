@@ -177,7 +177,10 @@ class InstagramSourceGenerator implements SiteSourceGenerator
 
         if ($gated['displayName'] !== null) {
             $user->display_name = $gated['displayName'];
-            $user->first_name = $gated['firstName'];
+            // core.users.first_name is NOT NULL; '' is the schema's honest
+            // "no usable name" — the review/staff matchers treat it as
+            // unusable and fail closed, which is the point of the gate.
+            $user->first_name = $gated['firstName'] ?? '';
             $user->last_name = $gated['lastName'];
         }
         $user->save();
