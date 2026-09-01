@@ -82,6 +82,7 @@ beforeEach(function () {
     $pg->statement('CREATE TABLE ingest.record_state (
         stream_id uuid NOT NULL REFERENCES ingest.streams (id) ON DELETE CASCADE,
         key text NOT NULL,
+        current_version_id bigint,
         last_seen_run uuid,
         tombstoned_at timestamptz,
         PRIMARY KEY (stream_id, key)

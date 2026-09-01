@@ -53,7 +53,7 @@ use Tests\Support\Architecture\PostgresLaneDdlScanner;
 
 /**
  * "file — table.column, read by Class" -> "file|table.column", to match a $findings entry
- * against an $exempt / $knownDrift / $knownLimitation key.
+ * against an $exempt / $knownLimitation key.
  */
 function pgReadCoverageFindingKey(string $finding): string
 {
@@ -150,46 +150,16 @@ it('declares every column the app code a PG-lane file drives reads from a table 
         // for exactly this guard's purpose — verified 2026-09-01.
     ];
 
-    // Confirmed-real drift, triaged by hand (both sides opened, not batch-trusted) and
-    // recorded here as a WORK QUEUE for a follow-up task to drain — see task-3-report.md
-    // for the full pre-triage finding list and the reasoning behind each entry below. A
-    // queue entry that stops reproducing FAILS THE BUILD (see the staleness check below) —
-    // it is not enough to fix the drift and leave the entry behind.
-    $knownDrift = [
-        // The da958493e regression (see docblock): ProjectionWriter's identity-resolution
-        // select reads rs.last_seen_run, but these stand-ins predate that column.
-        'ProjectionIdentityKeyAtomicityTest.php|ingest.record_state.last_seen_run',
-        'ProjectionWriterBatchingTest.php|ingest.record_state.last_seen_run',
-        'ProjectionWriterConnectionSourceRaceTest.php|ingest.record_state.last_seen_run',
-        'ProjectionWriterScopedResolveTest.php|ingest.record_state.last_seen_run',
-        // The FIFTH file of that same regression, invisible until Artisan-command
-        // resolution (see ATTRIBUTION above) taught this guard to follow
-        // Artisan::call('ingest:project', ...) through to IngestProjectCommand's own
-        // `use App\Ingest\Projection\ProjectionWriter;` import. This stand-in's
-        // ingest.record_state is the thinnest of the ten hand-written copies of that
-        // table — it also lacks current_version_id, read by ProjectionWriter's identity
-        // join (rv.id = rs.current_version_id), a second, independent gap the same
-        // Artisan-resolution pass surfaced in the same table in the same file.
-        'IngestProjectChunkingTest.php|ingest.record_state.last_seen_run',
-        'IngestProjectChunkingTest.php|ingest.record_state.current_version_id',
-        // healMirrorEligible() reads content.media_assets.mirror_eligible; latent until now
-        // because nothing had cross-referenced app reads against these stand-ins before.
-        'ProjectionWriterIdentityRaceTest.php|content.media_assets.mirror_eligible',
-        'ProjectionWriterManualCoordRaceTest.php|content.media_assets.mirror_eligible',
-        'ProjectionWriterMergeAnchorTest.php|content.media_assets.mirror_eligible',
-        'ProjectionWriterScopedResolveTest.php|content.media_assets.mirror_eligible',
-    ];
-
     // Known limitation, not drift: attribution is per CLASS, not per METHOD (see ATTRIBUTION
     // above). ShopContentWriter's cataloguesFor() is what ShopCatalogueCreatedAtTimezoneTest's
     // stand-in is deliberately minimal for; removed_at and updated_at are written by a
     // different method on the same class, retireStaleItems(), which this test never calls.
     // Thinning the app-side scanner to method granularity is out of scope for this guard (see
     // AppColumnReadScanner) — recorded here rather than sent back to Task 1, and NOT fixed by
-    // thinning the table. Unlike $knownDrift, this is not a work queue Task 4 drains — it is
-    // a permanent false-positive class of the current attribution granularity, and stays
-    // subject to the same staleness check below (if cataloguesFor() ever starts reading
-    // either column, that entry stops masking a real finding and must come out).
+    // thinning the table. This is not a work queue — it is a permanent false-positive class of
+    // the current attribution granularity, and stays subject to the same staleness check below
+    // (if cataloguesFor() ever starts reading either column, that entry stops masking a real
+    // finding and must come out).
     $knownLimitation = [
         'ShopCatalogueCreatedAtTimezoneTest.php|content.items.removed_at',
         'ShopCatalogueCreatedAtTimezoneTest.php|content.items.updated_at',
@@ -254,19 +224,18 @@ it('declares every column the app code a PG-lane file drives reads from a table 
         count($pairsEvaluated)
     ));
 
-    $queueKeys = array_merge($knownDrift, $knownLimitation);
+    $queueKeys = $knownLimitation;
     $rawKeys = array_values(array_unique(array_map('pgReadCoverageFindingKey', $findings)));
 
-    // F2 — a queue entry that stops reproducing (Task 4 fixed the drift it names, or a
-    // stand-in changed shape under it) must fail the build, not sit there as a permanent
-    // silent mask. Without this: fix the drift, leave the entry — $findings for that key goes
-    // empty, $remaining below stays [] either way, the suite stays green, and NOTHING says
-    // the entry is now stale. Reintroduce that exact drift later (a revert, a copy-paste
-    // stand-in) and this guard reports nothing, because the stale entry is still excluding
-    // that key.
+    // F2 — a queue entry that stops reproducing (the drift it named got fixed, or a stand-in
+    // changed shape under it) must fail the build, not sit there as a permanent silent mask.
+    // Without this: fix the drift, leave the entry — $findings for that key goes empty,
+    // $remaining below stays [] either way, the suite stays green, and NOTHING says the entry
+    // is now stale. Reintroduce that exact drift later (a revert, a copy-paste stand-in) and
+    // this guard reports nothing, because the stale entry is still excluding that key.
     $stale = array_values(array_diff($queueKeys, $rawKeys));
     sort($stale);
-    expect($stale)->toBe([], "These \$knownDrift/\$knownLimitation entries no longer reproduce as findings —\n".
+    expect($stale)->toBe([], "These \$knownLimitation entries no longer reproduce as findings —\n".
         "whatever they excused (real drift or a per-class attribution false-positive) is gone,\n".
         "the code changed shape under them, or they were mistyped:\n  ".
         implode("\n  ", $stale).
@@ -285,9 +254,8 @@ it('declares every column the app code a PG-lane file drives reads from a table 
         "  ALTER TABLE <table> ADD COLUMN IF NOT EXISTS <column> <type>\n".
         'so it heals whichever file loses the first-creator-wins race. Never thin a table to silence this.');
 
-    fwrite(STDERR, "\n[pg-read-coverage] ".count($knownDrift).' known-drift finding(s) queued for Task 4, '.
-        count($knownLimitation)." known-limitation finding(s) (per-class, not per-method, attribution —\n".
-        "not drift) recorded and excluded — see the docblocks above for both lists.\n");
+    fwrite(STDERR, "\n[pg-read-coverage] ".count($knownLimitation)." known-limitation finding(s) (per-class, not per-method, attribution —\n".
+        "not drift) recorded and excluded — see the docblock above for the list.\n");
 });
 
 // A scanner that silently matched nothing would make the gate above vacuous and
