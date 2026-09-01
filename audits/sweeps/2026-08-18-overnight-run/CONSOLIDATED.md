@@ -166,7 +166,7 @@
         ```
 
 - [ ] **#SEC-4** · P2 — `SafeUrlFetcher` replays the caller's exact headers on every redirect hop with no cross-origin stripping
-    - **Where:** app/Services/Http/SafeUrlFetcher.php:196-224 (`send()`), :450-499 (`pooledGet()`)
+    - **Where:** app/Services/Http/SafeUrlFetcher.php:250 (`send()`, was `:196-224`), :582+ (`pooledGet()`, was `:450-499`) — line drift only; `Http::withHeaders($headers)` still reuses the caller's array on every hop with no cross-origin strip. Note the sibling credentialed-BODY leak WAS closed since the scan (301/302/303 now downgrade to GET with an empty body, `:283-287`); headers were not.
     - **Affects:** Any current or future caller of `fetch()`/`post()`/`fetchMany()` that passes sensitive headers (`Authorization`, API keys, cookies) — a redirect to an attacker-controlled host would receive them unchanged. No current caller in this codebase passes such headers (all pass only `User-Agent`/`Accept`), so this is a latent primitive gap rather than an active leak today.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -220,7 +220,7 @@
         ```
 
 - [ ] **#SEC-6** · P2 — `SafeUrlFetcher` follows a 3xx before applying its own byte cap to that hop's response
-    - **Where:** app/Services/Http/SafeUrlFetcher.php:206-226 (`send()`), :396-424 (`fetchManyFollowingRedirects()`)
+    - **Where:** app/Services/Http/SafeUrlFetcher.php:271-289 (`send()`, was `:206-226`), :494+ (`fetchManyFollowingRedirects()`, was `:396-424`) — line drift only; the 3xx branch still `continue`s before the `assertWithinByteCap()`/`assertSinkWithinByteCap()` call at `:290-292`, and the pooled path still checks `exceedsByteCap()` only in the terminal branch (`:554`).
     - **Affects:** Any fetch target that returns an oversized body alongside a 3xx status, across both the serial and pooled fetch paths.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -327,8 +327,8 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
-- P2 Medium: 10 of 11 complete
-- P3 Low: 0 of 2 complete
+- P2 Medium: 11 of 11 complete
+- P3 Low: 1 of 2 complete
 
 ---
 
@@ -458,8 +458,9 @@
 
 ## P2 — Should fix
 
-- [ ] **#LIFE-7** · P2 — `analytics:compute-popularity`'s fixed lookback window drops a site's final popularity signal if it goes dormant during a missed scheduler tick
-    - **Where:** routes/console.php:139-152
+- [x] **#LIFE-7** · P2 — `analytics:compute-popularity`'s fixed lookback window drops a site's final popularity signal if it goes dormant during a missed scheduler tick
+    - Resolution (2026-09-01): STALE — FIXED. The proper fix shipped 2026-08-27 (smart-scoring plan): a persisted last-successful-run watermark in `analytics.scoring_watermarks` (migration `20260827070000_analytics_scoring_watermarks.sql`, verified present) replaces the fixed lookback. `ComputeContentPopularityScores::readWatermark()` is read at `:198-200` and advanced at `:265,:299`; the 60-minute `RECENT_EVENTS_WINDOW_MINUTES` survives only as the floor for a watermark fault. The `⚠️ ALSO OPEN` comment block this finding quoted is gone from `routes/console.php` and now reads "Both ⚠️ warnings that stood here CLOSED 2026-08-27".
+    - **Where:** routes/console.php:141-147 (was `:139-152`)
     - **Affects:** Public sitepage popularity ranking for a site whose last-ever activity lands inside a >45-minute scheduler outage window before the site goes dormant.
     - **Effort:** M (~2–4h, interim mitigation) — the code's own comment marks the full fix (a persisted watermark) as a larger, deferred schema change.
     - **What to do:**
@@ -779,7 +780,7 @@
 ## P3 — Nice to have
 
 - [ ] **#LIFE-18** · P3 — `display_settings` read-modify-write in `enableContentInstagramAuto()` is not race-safe
-    - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:175-202
+    - **Where:** app/Observers/Core/IntegrationConnectionObserver.php:178-205 (was `:175-202`)
     - **Affects:** A freshly-created Instagram connection whose `display_settings` is written by another concurrent process at the exact same moment.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -800,8 +801,9 @@
         }
         ```
 
-- [ ] **#LIFE-19** · P3 — `MediaMirror::mirror()` fetches up to 80 MB before applying the 15 MB still-image size cap
-    - **Where:** app/Services/Media/MediaMirror.php:70-109
+- [x] **#LIFE-19** · P3 — `MediaMirror::mirror()` fetches up to 80 MB before applying the 15 MB still-image size cap
+    - Resolution (2026-09-01): STALE — FIXED by #SCALE-3/#SCALE-15. `mirror()` now calls `tryFetchToFile($sourceUrl, $temp)` (`app/Services/Media/MediaMirror.php:196`), so the 80 MB ceiling lands on DISK, never on the PHP heap: the video signature is read as 12 bytes off the front of the file, the digest via `hash_file()`, and the 15 MB `MAX_BYTES` still-image cap is checked against `filesize()` at `:301` BEFORE anything is read into a string. The code says so at `:295-300`. The 80 MB fetch ceiling itself remains by necessity — a reel cannot be told from a still until the bytes arrive — but the memory exposure this finding was raised for is gone.
+    - **Where:** app/Services/Media/MediaMirror.php:196-302 (was `:70-109`)
     - **Affects:** Media-mirror queue worker memory during Instagram content ingest, if an oversized or malformed asset is fetched.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -1030,7 +1032,7 @@
         ```
 
 - [ ] **CACHE-7** · P3 — Category 2: `refreshItemCaches` still writes and mints slugs one item at a time for the changed tail
-    - **Where:** app/Ingest/Projection/ProjectionWriter.php:1653-1658, 1671-1678 (`refreshItemCaches`)
+    - **Where:** app/Ingest/Projection/ProjectionWriter.php:3525-3565 (`refreshItemCaches`, was `:1653-1658, 1671-1678`) — the READS were since batched (#SCALE-9/#API-7), but the changed-tail `update()` and the slug mint are still per item inside the `foreach ($batch as $itemId)`.
     - **Affects:** Projection runs where many items' cached headline/facets actually changed in one pass — the read side is already batched (SCALE-8), but the write-back and slug mint remain per item.
     - **Effort:** M (~2–4h)
     - **What to do:**
@@ -1308,7 +1310,7 @@ None.
 ## P2 — Should fix
 
 - [ ] **#SCALE-7** · P2 — Collection upsert writes the whole batch in one unbounded statement while its own read-back is chunked
-    - **Where:** app/Ingest/Projection/ProjectionWriter.php:1284-1312 (`upsertCollections`)
+    - **Where:** app/Ingest/Projection/ProjectionWriter.php:2991-3050 (`upsertCollections`, was `:1284-1312`) — the `->upsert($rows, ...)` at `:3046` is still one unbounded statement; the read-back below it at `:3061` is still `array_chunk(..., $this->writeChunk())`.
     - **Affects:** Connector runs that surface many collections/categories in one pass (large menu category sets, large product collection sets).
     - **Effort:** S (~0.5–1h)
     - **What to do:** Wrap the `content.collections` `upsert()` call in `array_chunk($rows, $this->writeChunk())`, matching the chunked read-back a few lines below it in the same method.
@@ -1693,7 +1695,7 @@ None.
 ## P3 — Nice to have
 
 - [ ] **#SCALE-23** · P3 — Absence folding builds two in-memory copies of the candidate set before its bounded write transaction
-    - **Where:** app/Ingest/Landing/Lander.php:429-444 (`foldAbsence`)
+    - **Where:** app/Ingest/Landing/Lander.php:436-478 (`foldAbsence`, was `:429-444`) — #SCALE-5 since narrowed `$candidates` to live-but-unseen rows via SQL, which shrinks the array but does not remove either copy.
     - **Affects:** Absence/tombstone folding on large streams — already substantially mitigated by existing chunking on both sides.
     - **Effort:** M (~2–4h)
     - **What to do:** Low priority given existing mitigation; if revisited, stream dominated-row selection directly into the write-chunk loop rather than building `$dominatedAbsent` fully first.
@@ -1714,7 +1716,7 @@ None.
         ```
 
 - [ ] **#SCALE-24** · P3 — Absence order-value lookup fetches the full JSONB document to read one field
-    - **Where:** app/Ingest/Landing/Lander.php:598-619 (`orderValuesFor`)
+    - **Where:** app/Ingest/Landing/Lander.php:640-661 (`orderValuesFor`, was `:598-619`) — now batched per chunk (#SCALE-5) but still `get(['key', 'doc'])`, decoding the whole document to read one field.
     - **Affects:** Absence folding when a stream's coverage needs an order-field comparison (already batched per-chunk, not per-key).
     - **Effort:** S (~0.5–1h)
     - **What to do:** Use Postgres JSON extraction server-side (`->selectRaw('key, doc->>? as order_value', [$spec->orderField])`) instead of decoding the whole `doc` column in PHP, with a fallback for the SQLite test lane.
@@ -1736,7 +1738,7 @@ None.
         ```
 
 - [ ] **#SCALE-25** · P3 — Google Business ordering seed re-fetches the same user row per store group
-    - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:561-564 (`seedOrdering`)
+    - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:659 (`seedOrdering`, was `:561-564`) — `User::find($userId)` is still inside the `foreach ($stores as $storeKey => $group)` loop.
     - **Affects:** A Google Business enrichment whose ordering block lists multiple store groups — a small, bounded N per connect event, not a routine hot-path query.
     - **Effort:** S (~0.5–1h)
     - **What to do:** Hoist `User::find($userId)` above the `foreach ($stores as $storeKey => $group)` loop and capture it in the closure, reusing it for both `LinkRouter::routeOrdering()` calls.
@@ -1751,7 +1753,7 @@ None.
         ```
 
 - [ ] **#SCALE-26** · P3 — Reservation-platform existence check issues one query per platform
-    - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:273-280 (`hasAnyReservation`)
+    - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:307-316 (`hasAnyReservation`, was `:273-280`)
     - **Affects:** Every Google Business enrichment carrying a reservation link — up to 4 sequential queries, held inside the reservations lock window.
     - **Effort:** S (~0.5–1h)
     - **What to do:** Replace the loop with one `IntegrationConnection::where('user_id', $userId)->whereIn('platform', self::RESERVATION_PLATFORMS)->exists()`.
@@ -1772,7 +1774,7 @@ None.
         ```
 
 - [ ] **#SCALE-27** · P3 — Booking existence check loops platforms with per-platform queries
-    - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:311 (`seedBooking`)
+    - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:345 (`seedBooking`, was `:311`)
     - **Affects:** Every Google Business enrichment carrying a booking link — up to 3 sequential queries, held inside the booking lock window.
     - **Effort:** S (~0.5–1h)
     - **What to do:** Replace `collect(self::BOOKING_PLATFORMS)->contains(fn ($p) => $this->has($userId, $p))` with one `whereIn('platform', self::BOOKING_PLATFORMS)->exists()`.
@@ -1784,7 +1786,7 @@ None.
         ```
 
 - [ ] **#SCALE-28** · P3 — Social-link seed path performs one existence query per platform
-    - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:721 (`seedSocials`)
+    - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:850 (`seedSocials`, was `:721`)
     - **Affects:** Every Google Business enrichment carrying social links — up to 5 sequential queries (Facebook, TikTok, X, LinkedIn, Instagram).
     - **Effort:** S (~0.5–1h)
     - **What to do:** Preload the user's connected platforms in one `whereIn(...)->pluck('platform')` and check membership in memory.
@@ -1798,7 +1800,7 @@ None.
         ```
 
 - [ ] **#SCALE-29** · P3 — Weekly Cloudflare KV backfill scheduler entry lacks `runInBackground()`
-    - **Where:** routes/console.php:340-345
+    - **Where:** routes/console.php:334-339 (was `:340-345`)
     - **Affects:** The every-minute keep-alive tick and other due scheduler tasks during the Sunday 04:00 KV resync window, if `--all` on a large user base takes long enough to matter.
     - **Effort:** S (~0.5–1h)
     - **What to do:** Add `->runInBackground()`, matching the file's own convention for cron-scale tasks that shouldn't block the per-minute scheduler tick.
@@ -2281,7 +2283,7 @@ None.
 ## Progress
 
 - P1 High: 1 of 1 complete
-- P2 Medium: 1 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 3 complete
 
 ---
@@ -2313,8 +2315,9 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **API-2** · P2 — The full site-wide popularity map is placed on the public wire without filtering to currently-live content
-    - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:95, 132-135; app/Services/Analytics/ContentPopularityReader.php:33-51
+- [x] **API-2** · P2 — The full site-wide popularity map is placed on the public wire without filtering to currently-live content
+    - Resolution (2026-09-01): STALE — FIXED. The full map is no longer on the public wire: `git grep "'popularity' =>" app/` returns nothing, and `ContentPopularityReader::forSite()` has no public-path caller left (its only remaining caller is `ShopController.php:1314`, an authenticated dashboard read). `IndividualProfilePayloadBuilder` now takes only the two scoped derivations — `pageRanksFromActions()` (`:231`) and `actionRanksForSite()` (`:303`) — instead of assigning the raw site-wide map to a `popularity` wire key.
+    - **Where:** app/Services/PublicSite/IndividualProfilePayloadBuilder.php:231,303; app/Services/Analytics/ContentPopularityReader.php:78-84
     - **Affects:** Unauthenticated public profile visitors; content identifiers of items the owner has since hidden, unpublished, or removed.
     - **Effort:** M (~2–4h)
     - **What to do:**
@@ -2563,7 +2566,7 @@ None.
         ```
 
 - [ ] **#CFG-5** · P3 — Ingest candidate-chunking batch size hardcoded in some Lander paths while a sibling path in the same file is config-driven
-    - **Where:** app/Ingest/Landing/Lander.php:430, 489, 514, 568
+    - **Where:** app/Ingest/Landing/Lander.php:472, 531, 556, 610 (was `:430, 489, 514, 568`) — three bare `array_chunk(..., 500)` plus the `->limit(500)`, against the config-driven `land_chunk` at `:58`.
     - **Affects:** Ingest operators tuning batch/page sizes for the coverage-dominance and absent-candidate sweeps; ability to shrink chunk size per environment without a deploy.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -2618,15 +2621,16 @@ None.
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 12 complete
+- P2 Medium: 2 of 12 complete
 - P3 Low: 0 of 7 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#TEST-1** · P2 — Product variant `imageUrl` has never round-tripped against real data
-    - **Where:** `app/Site/Pools/PoolResolver.php` (`variants()`)
+- [x] **#TEST-1** · P2 — Product variant `imageUrl` has never round-tripped against real data
+    - Resolution (2026-09-01): STALE — WRONG. The premise was a code comment, and the comment was false. `PoolResolver::variants()` (`app/Site/Pools/PoolResolver.php:2176-2184`) now records: "Re-measured 2026-08-30 (the earlier '0 of 268 dev rows' claim repeated here twice is stale and was false): 399 of 908 dev item_variants rows carry a non-null image_url, every one a Shopify CDN url with a ?v=<epoch> cache-buster." The field does round-trip real data, and the cast this finding worried about was replaced by `UrlSafety::safeHref()` under #SEC-2. Rule 5 case: `//`-comment evidence, not executable state.
+    - **Where:** `app/Site/Pools/PoolResolver.php:2176-2184` (`variants()`)
     - **Affects:** Public product payloads for the shop pool.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -2689,8 +2693,9 @@ None.
         expect($changed)->toBe(1);
         ```
 
-- [ ] **#TEST-5** · P2 — Cache-purge test claims "all three cache lanes" but only proves at least one job was pushed
-    - **Where:** `tests/Feature/Content/MediaSectionReshapeTest.php` (`reshapes a section still carrying latest_per_auto_source and fires all three cache lanes`)
+- [x] **#TEST-5** · P2 — Cache-purge test claims "all three cache lanes" but only proves at least one job was pushed
+    - Resolution (2026-09-01): STALE — FIXED. The test (`tests/Feature/Content/MediaSectionReshapeTest.php:38-63`) now asserts each lane separately: lane 1 `site.site_build_state.content_revision` toBe(1), lane 2 `site.sites.updated_at` `not->toBe($before)`, lane 3 `Queue::assertPushed(CloudflareCachePurgeJob::class)`. It also adds `$this->travel(1)->second()` with a comment explaining that without it lane 2's assertion is "a coin flip, not a check" — the second-precision trap that would have made the fix vacuous.
+    - **Where:** `tests/Feature/Content/MediaSectionReshapeTest.php:38-63` (`reshapes a section still carrying latest_per_auto_source and fires all three cache lanes`)
     - **Affects:** Cloudflare cache invalidation strength for the section-reshape command; a regression dropping two of three lanes would pass.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
