@@ -18,6 +18,7 @@ use App\Models\Core\Site\SectionGroup;
 use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\UserHandleAlias;
 use App\Models\Core\Staff\StaffAuditEntry;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Moderation\ActionLogEntry;
 use App\Models\Moderation\AuditEvent;
 use App\Models\Moderation\CaseSignal;
@@ -54,6 +55,14 @@ const POLICY_EXEMPT = [
 
     // Append-only audit log for handle/subdomain renames; readable by staff only — no per-row tenant policy.
     HandleChangeLog::class,
+
+    // Setup progress ledger (2026-09-02): append-only rows owned by the build,
+    // written only by BuildProgress::note() from the build's own jobs, never
+    // request-fillable. Read exclusively through the parent PreAccountBuild —
+    // the public poll by opaque build id, the handle endpoint by handle —
+    // which is where the access decision already lives; no row is ever
+    // addressed on its own.
+    PreAccountBuildEvent::class,
 
     // Handle alias table — read/write access flows through the parent Professional's policy.
     UserHandleAlias::class,
