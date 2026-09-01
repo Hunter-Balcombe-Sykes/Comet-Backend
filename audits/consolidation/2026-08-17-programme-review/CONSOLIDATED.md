@@ -49,7 +49,7 @@ Never script a tick keyed on id alone.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 6 of 6 complete
 - P2 Medium: 15 of 15 complete
-- P3 Low: 0 of 16 complete
+- P3 Low: 1 of 16 complete
 
 ## Suggested Bundled Sessions
 
@@ -720,7 +720,8 @@ work, not run as a campaign. Do not build units for them.
         private const CANDIDATE_SCAN_LIMIT = 200;
         ```
 
-- [ ] **#PGR-25** · P3 — `ItemMerger::separate()`'s docblock still describes a `DisjointSet` bug that was fixed on 2026-07-29, and cites a test file that doesn't exist
+- [x] **#PGR-25** · P3 — `ItemMerger::separate()`'s docblock still describes a `DisjointSet` bug that was fixed on 2026-07-29, and cites a test file that doesn't exist
+    - Resolution (2026-09-01): STALE — FIXED. `ItemMerger::separate()`'s docblock (`app/Services/Content/ItemMerger.php:92-118`) now opens "THE KNOWN GAP THIS DOCBLOCK USED TO DESCRIBE IS CLOSED — do not restore it from memory", names the commits that closed it (`05dd85465`, then FU-1 `08bf7d639`), points at the `DisjointSetTest` case that pins the fixed behaviour, and states that the cited `tests/Feature/Content/IdentityQueueTest.php` was deleted in `1917be75b`. Both halves of the "what to do" are done; the docblock explicitly cites this finding as the second of three phantom re-diagnoses it now exists to prevent.
     - **Source:** pools-resolver — was `#TEST-1`
     - **Where:** app/Services/Content/ItemMerger.php (`separate()` docblock); app/Content/Identity/DisjointSet.php
     - **Affects:** Any engineer reading `ItemMerger::separate()` to understand whether a "these are different" ruling is reliable — the comment currently tells them it isn't, when it now is.
@@ -931,7 +932,7 @@ work, not run as a campaign. Do not build units for them.
 
 - [ ] **#PGR-35** · P3 — Two consumers hardcode a `'partna.au'` fallback that disagrees with `config('partna.public_domain')`'s own default chain
     - **Source:** wire-resources — was `#CFG-1`
-    - **Where:** app/Http/Resources/PreAccountBuildStatusResource.php; routes/api/publicSite.php:16
+    - **Where:** app/Http/Resources/PreAccountBuildStatusResource.php:32; routes/api/publicSite.php:15 (was `:16` — line drifted, code unchanged; corrected 2026-09-01)
     - **Affects:** Pre-account build poll responses and public-site routing when `PARTNA_PUBLIC_DOMAIN` and `SIDEST_PUBLIC_DOMAIN` are both unset — the two consumers silently disagree with what the config layer itself would resolve to.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
