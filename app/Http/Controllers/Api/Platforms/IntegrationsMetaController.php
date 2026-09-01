@@ -132,7 +132,41 @@ class IntegrationsMetaController extends ApiController
 
         $payload = (new IntegrationsMetaResource($platforms))->resolve();
         $payload['availability'] = $availability;
+        $payload['connects'] = self::dedicatedConnectPaths();
 
         return $this->success($payload);
+    }
+
+    /**
+     * Item 3c (2026-09-01): the platform path segments that have a real
+     * `POST /platforms/{key}/connect` route, read off the LIVE route table —
+     * the same truth `route:list` prints. The dashboard's connect panel used
+     * to hand-copy this list (lib/queries/platforms.ts DEDICATED_CONNECT) and
+     * it rotted 20 routes stale in two weeks; serving it on the wire makes
+     * the drift class structurally impossible. Apple's pair comes through as
+     * their literal sub-paths ('apple/music', 'apple/podcast') — the consumer
+     * owns that mapping, this list never editorialises the route table.
+     *
+     * @return list<string>
+     */
+    private static function dedicatedConnectPaths(): array
+    {
+        static $paths = null;
+        if ($paths !== null) {
+            return $paths;
+        }
+
+        $found = [];
+        foreach (app('router')->getRoutes() as $route) {
+            $uri = $route->uri();
+            if (str_starts_with($uri, 'api/platforms/')
+                && str_ends_with($uri, '/connect')
+                && in_array('POST', $route->methods(), true)) {
+                $found[] = substr($uri, strlen('api/platforms/'), -strlen('/connect'));
+            }
+        }
+        sort($found);
+
+        return $paths = array_values(array_unique($found));
     }
 }

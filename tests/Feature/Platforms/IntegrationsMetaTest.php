@@ -222,3 +222,25 @@ it('counts the distinct items a connection actually feeds', function () {
         ->assertOk()
         ->assertJsonPath('platforms.youtube.item_count', 1);
 });
+
+// Item 3c (2026-09-01): the wire carries the dedicated-connect route list so
+// the dashboard's connect panel derives it instead of hand-copying it (the
+// hand copy went 20 routes stale between 2026-08-18 and 2026-09-01). Pinned
+// entries prove derivation from the LIVE route table, not a new hand copy:
+// uber_eats was one of the stale twenty, apple ships as literal sub-paths,
+// and shop must stay absent (its store connect is POST /platforms/shop/brands).
+it('serves the dedicated-connect route list on the meta wire', function () {
+    $user = createTenant('meta-'.Str::lower(Str::random(6)));
+
+    $response = actingAsUser($user)->getJson('/api/platforms/meta')->assertOk();
+    $connects = $response->json('connects');
+
+    expect($connects)->toBeArray()
+        ->and($connects)->toContain('instagram')
+        ->and($connects)->toContain('uber_eats')
+        ->and($connects)->toContain('order_online')
+        ->and($connects)->toContain('apple/music')
+        ->and($connects)->toContain('apple/podcast')
+        ->and($connects)->not->toContain('shop')
+        ->and(count($connects))->toBeGreaterThan(100);
+});
