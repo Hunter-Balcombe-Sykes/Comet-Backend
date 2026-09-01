@@ -211,3 +211,27 @@ it('refuses a structured staff attribution that names someone else', function ()
         ->and(PersonNameMatch::matchesStaffName('Shuki', $names))->toBeFalse()
         ->and(PersonNameMatch::matchesStaffName('Sayuri', $names))->toBeFalse();
 });
+
+// ── Anti-drift: one descriptor vocabulary, two consumers ────────────────────
+
+it('refuses every word the write-side name gate already calls a descriptor', function () {
+    // NameShapeGate (write side, F3) and this class (read side) both hold a
+    // list of words that are not a person's name, and on 2026-09-01 they
+    // disagreed about 29 of them — "academy", "cake", "edit", "tension",
+    // "physio", "stylist". Every disagreement is a hole in exactly one
+    // direction: the gate declines to write the word as a first/last name,
+    // then this class reads the same word out of display_name and hunts it in
+    // review prose. jay.ink.academy is the live shape — the gate rejects
+    // "ACADEMY" as a surname and the matcher would attribute a venue review
+    // saying "Academy" to whoever owns that page.
+    //
+    // The relation is one-way ON PURPOSE and this asserts only that direction:
+    // the read side must refuse AT LEAST what the write side refuses. The read
+    // side legitimately refuses more (connectives, honorifics, corporate
+    // suffixes) because refusing is its fail-closed answer, whereas the gate
+    // refusing a word costs a real name a column.
+    $gate = (new ReflectionClass(App\Services\Profile\NameShapeGate::class))->getConstant('DESCRIPTORS');
+    $read = (new ReflectionClass(PersonNameMatch::class))->getConstant('NOT_A_NAME');
+
+    expect(array_values(array_diff($gate, $read)))->toBe([]);
+});

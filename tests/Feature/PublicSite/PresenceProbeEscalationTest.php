@@ -431,10 +431,12 @@ it('LIFE-1 end-to-end: a services-probe fault degrades /api/public/profiles/{han
 // through to "shown".
 
 it('suppresses the GB-derived Menu page on a display-settings probe fault, even when a real fetched Menu exists', function () {
-    // The Menu page is gated on can_use_menu (SitepageId::PAGE_CAPABILITY),
-    // which is food-derived — an account with no sector would never show Menu
-    // regardless of the fault, which would make this assertion pass for the
-    // wrong reason. sector='cafe' is what keeps the fault the only variable.
+    // sector='cafe' is a leftover from the render-time capability veto this
+    // fixture was written against; that veto is gone (see
+    // SitepageMenuPresenceTest) and the Menu page now follows the fetched-menu
+    // row alone. Kept because a food business is still the realistic subject of
+    // a GB display-settings toggle, and the fault below stays the only variable
+    // either way.
     $pro = createTenant('gb-fault-suppress-menu', ['account_type' => 'business', 'sector' => 'cafe']);
     setupContentTables(); // pool presence probes (P4) need the pool tables
 

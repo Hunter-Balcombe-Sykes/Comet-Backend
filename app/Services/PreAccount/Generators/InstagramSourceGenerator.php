@@ -13,6 +13,7 @@ use App\Services\Platforms\ProfileFetchFailure;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Services\Profile\BioSource;
+use App\Services\Profile\NameShapeGate;
 use App\Services\Profile\PersonNameParser;
 use App\Services\Profile\ProfileEnricher;
 use App\Support\StyledUnicodeText;
@@ -160,17 +161,34 @@ class InstagramSourceGenerator implements SiteSourceGenerator
         ));
 
         $parsed = $fullName !== '' ? PersonNameParser::parse($fullName) : null;
-        $displayName = $intel->displayName ?? $parsed['displayName'] ?? null;
-        if ($displayName !== null) {
-            $user->display_name = $displayName;
-            $user->first_name = $intel->firstName ?? $parsed['firstName'] ?? $user->first_name;
-            $user->last_name = $intel->firstName !== null ? $intel->lastName : ($parsed['lastName'] ?? null);
+
+        // ONE source for the pair. The old ternary picked the surname's source
+        // by whether the GIVEN name was set, which could pair an AI first name
+        // with a parser surname — a real shape on 2026-08-31 (shapedbyruby).
+        $chosen = $intel->displayName !== null
+            ? ['displayName' => $intel->displayName, 'firstName' => $intel->firstName, 'lastName' => $intel->lastName]
+            : ['displayName' => $parsed['displayName'] ?? null, 'firstName' => $parsed['firstName'] ?? null, 'lastName' => $parsed['lastName'] ?? null];
+
+        // Provenance was gated upstream (gateNames: did it invent a word?).
+        // This gates SHAPE: is it a name at all? The 2026-09-01 re-audit showed
+        // the AI itself returning "The"/"Edit" and "Tension"/"Music" as person
+        // names — see NameShapeGate's docblock.
+        $gated = NameShapeGate::apply($chosen, $sourceRef, $fullName);
+
+        if ($gated['displayName'] !== null) {
+            $user->display_name = $gated['displayName'];
+            // core.users.first_name is NOT NULL; '' is the schema's honest
+            // "no usable name" — the review/staff matchers treat it as
+            // unusable and fail closed, which is the point of the gate.
+            $user->first_name = $gated['firstName'] ?? '';
+            $user->last_name = $gated['lastName'];
         }
         $user->save();
         Log::info('pre_account.bio_intelligence', [
             'user_id' => $user->id,
             'ai_used' => $intel->aiUsed,
             'display_name' => $user->display_name,
+            'name_gated' => $gated['displayName'] !== ($chosen['displayName'] ?? null) || $gated['firstName'] !== ($chosen['firstName'] ?? null) || $gated['lastName'] !== ($chosen['lastName'] ?? null),
             'about_set' => $intel->about !== null,
             'email_set' => trim((string) $user->public_contact_email) !== '',
             'phone_set' => trim((string) $user->public_contact_number) !== '',

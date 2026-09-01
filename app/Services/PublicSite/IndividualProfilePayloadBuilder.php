@@ -743,6 +743,7 @@ class IndividualProfilePayloadBuilder
     {
         return max(1, (int) config('partna.public_profile.degraded_cache_ttl_seconds', 10));
     }
+
     /**
      * The latest pre-account build's state, or null.
      *

@@ -8,11 +8,13 @@ use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\UpdateUserRequest;
 use App\Http\Requests\Api\User\UserShowRequest;
 use App\Http\Resources\SiteResource;
+use App\Http\Resources\Staff\PartnaStaffResource;
 use App\Http\Resources\UserDashboardResource;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Cache\UserCacheService;
 use App\Services\Site\SitePolicyResolver;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 // V2: Returns authenticated professional's full profile with site, services, and blocks. Dashboard entry point.
@@ -24,6 +26,14 @@ class UserSelfController extends ApiController
     public function show(UserShowRequest $request)
     {
         $uid = $request->attributes->get('supabase_uid');
+
+        // Staff-only session: a core.partna_staff row whose auth user has no
+        // core.users row. LoadCurrentUser (in staff_session_ok mode) let it
+        // through with `partna_staff` set and `professional` unset — see the
+        // incident note there. Answer the boot call from the staff row alone.
+        if ($request->attributes->get('staff_only_session') === true) {
+            return $this->success($this->staffSessionEnvelope($request));
+        }
 
         $pro = $this->currentUser($request);
 
@@ -76,11 +86,50 @@ class UserSelfController extends ApiController
 
         return $this->success([
             'uid' => $uid,
+            // Which of the two session shapes this is. Present on BOTH so the
+            // dashboard branches on one declared field instead of inferring
+            // from `professional === null` — see staffSessionEnvelope().
+            'session_type' => 'professional',
             ...$payload,
+            // The staff record itself, for the rare user+staff hybrid. Null for
+            // an ordinary professional. `professional.is_staff` keeps its exact
+            // meaning (a linked staff row exists) — this is the same fact with
+            // the identity attached, so the hybrid gets the staff shell without
+            // a second round-trip to the aal2-gated /staff/me.
+            'staff' => $pro->partnaStaff ? new PartnaStaffResource($pro->partnaStaff) : null,
             'blocks' => $blocks,
             'services' => $services,
             'customers_count' => $customersCount,
         ]);
+    }
+
+    /**
+     * The staff-only session envelope.
+     *
+     * Every professional-shaped key is present and empty rather than absent:
+     * the dashboard's boot path reads `site`, `blocks`, `services` and
+     * `customers_count` unconditionally, and a 200 that omits half the contract
+     * is a different kind of breakage from the 403 this replaces. `professional`
+     * is null — explicitly, because that IS the fact: a staff account has no
+     * professional profile and must never be given one.
+     *
+     * @return array<string, mixed>
+     */
+    private function staffSessionEnvelope(Request $request): array
+    {
+        /** @var PartnaStaff $staff */
+        $staff = $request->attributes->get('partna_staff');
+
+        return [
+            'uid' => $request->attributes->get('supabase_uid'),
+            'session_type' => 'staff',
+            'professional' => null,
+            'staff' => new PartnaStaffResource($staff),
+            'site' => null,
+            'blocks' => [],
+            'services' => [],
+            'customers_count' => 0,
+        ];
     }
 
     public function update(UpdateUserRequest $request)

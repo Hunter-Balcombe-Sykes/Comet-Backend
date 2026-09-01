@@ -1,11 +1,14 @@
 <?php
 
+use App\Console\Commands\FleetAssertCommand;
 use App\Models\Core\Site\Block;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -215,4 +218,112 @@ it('builds:await fails when a build is failed, and reports no builds cleanly', f
     $this->artisan('builds:await', ['--since' => now()->addDay()->toDateTimeString(), '--timeout' => 5])
         ->expectsOutputToContain('No builds')
         ->assertSuccessful();
+});
+
+// ── fleet:assert ─────────────────────────────────────────────────────────────
+//
+// The estate-invariant counterpart to fleet:verify. These pin the two things
+// that make it useful rather than decorative: the ratchet only fires on a
+// REGRESSION, and the absolute checks refuse to be baselined at all.
+
+function fleetAssertBaselinePath(): string
+{
+    return sys_get_temp_dir().'/fleet-assert-'.Str::uuid().'.json';
+}
+
+it('fleet:assert ratchets — a recorded estate holds, and one more offender breaks it', function () {
+    $path = fleetAssertBaselinePath();
+    User::factory()->count(2)->create();
+
+    $this->artisan('fleet:assert', ['--baseline' => $path, '--update-baseline' => true])->assertSuccessful();
+    // Same estate, same numbers: the backlog we already know about must not
+    // shout every night, or nobody reads the check.
+    $this->artisan('fleet:assert', ['--baseline' => $path])->assertSuccessful();
+
+    User::factory()->create();
+
+    $this->artisan('fleet:assert', ['--baseline' => $path])->assertFailed();
+});
+
+it('fleet:assert has no baseline tolerance for an owned, unpublished site that still serves', function () {
+    Http::fake(['*' => Http::response('', 200, ['cache-control' => 'public, max-age=15, s-maxage=26'])]);
+
+    $user = User::factory()->create(['status' => 'active']);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'fa-owned', 'is_published' => false]);
+
+    $path = fleetAssertBaselinePath();
+    $this->artisan('fleet:assert', ['--baseline' => $path, '--update-baseline' => true, '--http' => true]);
+
+    // Recording a baseline WITH the exposure present must not excuse it —
+    // that is the whole reason publish_gate_exposed is absolute, not ratcheted.
+    $this->artisan('fleet:assert', ['--baseline' => $path, '--http' => true])->assertFailed();
+});
+
+it('fleet:assert does not fault an UNCLAIMED build for serving while unpublished', function () {
+    // The pre-claim demo is the product pitch and the 2026-08-25 owner ruling
+    // reverted the gate that closed it. A future session must not "fix" this.
+    Http::fake(['*' => Http::response('', 200, ['cache-control' => 'public, s-maxage=26'])]);
+
+    $user = User::factory()->create(['status' => 'unclaimed', 'auth_user_id' => null, 'primary_email' => null]);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'fa-unclaimed', 'is_published' => false]);
+
+    $path = fleetAssertBaselinePath();
+    $this->artisan('fleet:assert', ['--baseline' => $path, '--update-baseline' => true, '--http' => true]);
+
+    $this->artisan('fleet:assert', ['--baseline' => $path, '--http' => true])->assertSuccessful();
+});
+
+it('fleet:assert flags an edge s-maxage far above what the application asks for', function () {
+    Http::fake(['*' => Http::response('', 200, ['cache-control' => 'public, max-age=15, s-maxage=86400'])]);
+
+    $user = User::factory()->create();
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'fa-stale', 'is_published' => true]);
+
+    $path = fleetAssertBaselinePath();
+    $this->artisan('fleet:assert', ['--baseline' => $path, '--update-baseline' => true, '--http' => true]);
+
+    $this->artisan('fleet:assert', ['--baseline' => $path, '--http' => true])->assertFailed();
+});
+
+// The name rule, taught by the live estate: two failure classes, and one
+// legitimate accented name that must survive both of them.
+it('fleet:assert name rule rejects blanks, handles, emoji and styled letterforms', function () {
+    expect(FleetAssertCommand::nameIsUnusable('', 'someone'))->toBeTrue()
+        ->and(FleetAssertCommand::nameIsUnusable('   ', 'someone'))->toBeTrue()
+        ->and(FleetAssertCommand::nameIsUnusable('playlunch', 'playlunch'))->toBeTrue()
+        ->and(FleetAssertCommand::nameIsUnusable('PlayLunch', 'playlunch'))->toBeTrue()
+        ->and(FleetAssertCommand::nameIsUnusable('🍎PLAYLUNCH', 'playlunch'))->toBeTrue()
+        ->and(FleetAssertCommand::nameIsUnusable('ʙᴇɴ', 'benwardscissorhands'))->toBeTrue();
+});
+
+it('fleet:assert name rule accepts ordinary names, accented ones included', function () {
+    expect(FleetAssertCommand::nameIsUnusable('Biànca Restaurant', 'bianca-restaurant'))->toBeFalse()
+        ->and(FleetAssertCommand::nameIsUnusable('José', 'jose-p'))->toBeFalse()
+        ->and(FleetAssertCommand::nameIsUnusable('Emma', 'emdinonhair'))->toBeFalse();
+});
+
+function fleetAssertConnection(string $userId, string $placeId): void
+{
+    $connection = new IntegrationConnection([
+        'surface_key' => 'google_business.listing', 'routing_class' => 'listing',
+        'resource_id' => 'google-business', 'payload' => [], 'is_active' => true,
+    ]);
+    $connection->user_id = $userId;
+    $connection->platform = 'google-business';
+    $connection->place_id = $placeId;
+    $connection->save();
+}
+
+it('fleet:assert counts duplicated place ids as GROUPS, not as rows', function () {
+    // The aggregate has to sit outside the GROUP BY: ->count() on a grouped
+    // builder counts rows per group, so two connections sharing one place id
+    // must read as ONE duplicated place, never as two.
+    fleetAssertConnection(User::factory()->create()->id, 'place-shared');
+    fleetAssertConnection(User::factory()->create()->id, 'place-shared');
+    fleetAssertConnection(User::factory()->create()->id, 'place-unique');
+
+    $path = fleetAssertBaselinePath();
+    $this->artisan('fleet:assert', ['--baseline' => $path, '--update-baseline' => true])->assertSuccessful();
+
+    expect(json_decode((string) file_get_contents($path), true)['duplicate_place_id'])->toBe(1);
 });

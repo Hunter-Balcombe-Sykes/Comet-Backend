@@ -52,14 +52,39 @@ use App\Http\Controllers\Api\User\SiteManagement\UserWorkplaceController;
 use App\Http\Controllers\Api\User\Uploads\UserDesignMediaController;
 use App\Http\Controllers\Api\User\Uploads\UserUploadController;
 use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
+use App\Http\Middleware\Context\LoadCurrentUser;
 use Illuminate\Support\Facades\Route;
+
+// GET /me is declared OUTSIDE the group below, with the group's stack spelled
+// out and `current.pro` swapped for `current.pro:staff_session_ok`. It is the
+// dashboard's boot call and the ONE user route a staff-only session (a
+// core.partna_staff row whose auth user has no core.users row) is allowed to
+// reach — see LoadCurrentUser::handleMissingProfile.
+//
+// Spelled out rather than declared inside the group with
+// ->withoutMiddleware('current.pro')->middleware('current.pro:staff_session_ok'):
+// route-level middleware is APPENDED after the group's, so that form would run
+// identity resolution after EnforcePendingDeletionReadOnly and the throttle
+// instead of before them. Order here is byte-identical to the group's.
+//
+// Registered ahead of the group so it wins the match; the group no longer
+// declares GET /me. `user.api` is expanded (supabase.jwt / require.email_verified
+// / current.pro) because only the `current.pro` leg differs — if that alias ever
+// gains a fourth member, add it here too.
+Route::middleware([
+    'supabase.jwt',
+    'require.email_verified',
+    'current.pro:'.LoadCurrentUser::MODE_STAFF_SESSION_OK,
+    EnforcePendingDeletionReadOnly::class,
+    'throttle:authenticated',
+])->get('/me', [UserSelfController::class, 'show']);
 
 // Authorised user logged in
 Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:authenticated'])
     ->group(function () {
 
-        // Show & Edit Details
-        Route::get('/me', [UserSelfController::class, 'show']);
+        // Edit Details. PATCH stays in the strict group deliberately: a staff-only
+        // session has no profile to update, so it must get the 403, not a 500.
         Route::patch('/me', [UserSelfController::class, 'update']);
 
         // Client-safe third-party integration keys (Google Maps, etc) for the

@@ -72,18 +72,34 @@ final class AccountCapabilities
             // person does both. Menu was never that. `$isBusiness && $isFood`
             // was written when `sector` was in practice a business-only field,
             // so the `$isBusiness &&` half was a guard against reading a column
-            // partna accounts never filled. IdentitySync and
-            // InstagramIdentitySync have stamped `sector` for BOTH types since;
-            // the guard stopped being a no-op and started asking "is this a food
-            // account that was ALSO filed under the right enum?" — a question
-            // about the enum, not about the account. ollies is a
+            // partna accounts never filled; dropping it lets a food account keep
+            // its Menu whatever enum it was filed under. ollies is a
             // Google-Business-sourced CAFE filed account_type=partna: it shipped
             // 105 ingested menu items in its public payload with no page to
-            // render them, as did broken-oven (171) and fred-sarson (69). Menu
-            // now follows the sector, which is evidence of what the account is.
+            // render them, as did broken-oven (171) and fred-sarson (69).
             // ra33rty — the fourth partna account with a Google-sourced sector —
             // is a gym, and still gets no Menu, which is the point: the gate got
             // narrower in what it reads, not looser in what it grants.
+            //
+            // CORRECTION (the amending commit's premise was false, and the
+            // scope of this clause depends on it). That commit justified the
+            // change with "IdentitySync and InstagramIdentitySync have stamped
+            // `sector` for BOTH types since". InstagramIdentitySync does.
+            // IdentitySync does NOT: applySector() returns early unless
+            // `workplace_brand_is_site_identity` — business only — because the
+            // 2026-08-19 identity plan (decision 12) holds that a partna's
+            // industry must not be set by where they WORK. So the Google path
+            // never stamps a partna's sector, and the next Google-sourced partna
+            // cafe arrives here with sector NULL, reads as not-food, and is
+            // refused the Menu its listing plainly has. ollies is fixed by the
+            // sector it already carries, not by anything that will stamp the
+            // next one. Do not read this clause as "the class is closed" — it is
+            // open at the Instagram-or-manual boundary, and closing it means
+            // either revisiting decision 12 or giving the Google path a partna
+            // sector source of its own. What it must NOT mean is a render-time
+            // veto making up the difference: SitepageDataResolverService
+            // ::presentPageIds carries the note on why the page a menu already
+            // exists for is not this capability's to withdraw.
             can_use_menu: $isFood,
             can_use_reservations: $isBusiness ? $isFood : true,
             can_use_booking: $isBusiness ? ! $isFood : true,

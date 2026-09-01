@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api\Staff\UserSiteManagement;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
-use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Http\Requests\Api\User\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\User\Site\UpsertSectionBlockRequest;
 use App\Http\Resources\SectionBlockResource;
@@ -19,7 +18,6 @@ use Illuminate\Support\Facades\DB;
 class StaffSectionManagementController extends ApiController
 {
     use ResolveCurrentSite;
-    use ResolveCurrentUser;
 
     public function index(Request $request, User $professional): JsonResponse
     {

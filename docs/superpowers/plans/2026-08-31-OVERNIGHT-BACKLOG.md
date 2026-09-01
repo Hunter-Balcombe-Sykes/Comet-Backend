@@ -460,6 +460,100 @@ Full detail (11–18 findings each, incl. medium/low) is in the Wave 5 and Wave 
 
 ---
 
+### E14 — A build-time edge render serves raw Instagram URLs until someone purges · `TODO` · high
+
+Owner-reported on `bydannydixon.partna.au/gallery`: one photo and a row of empty boxes. Diagnosis, proven
+live 2026-09-01: the edge held a render made DURING the build, before media mirroring finished — its six
+gallery images pointed at raw `scontent-*.cdninstagram.com` URLs, which browsers refuse (hotlink
+protection; curl 200s the same URL, a browser gets nothing). The wire had all five mirrored items the
+whole time. A manual purge fixed it instantly — fresh render, all images from our CDN.
+
+This is E11 (24h edge TTL) × F11-class (raw vendor URL served when the mirror is not ready) compounding.
+**Durable fix: fire a purge when a site's media mirroring completes** — the moment the mirrored URLs
+exist is the moment the cached pre-mirror render is wrong. Same shape as the doc-rebuild-on-content-write
+rule (T4).
+
+---
+
+## J. RE-AUDIT VERDICT (2026-08-31 21:59–22:56 UTC, fresh 23-account batch on the fixed code)
+
+Batch: 23/23 ready, zero failures, zero rejected specs. Instagram builds 14–58s, Google 2–6s;
+scraping drained 23 min after last ready. Full detail in the Wave 6 task output.
+
+### The honest table
+
+**FIXED, live evidence (8):** F1 platform beacons · F4 tel: links (both account types) · F9 JSON-LD
+address+phone · F10 real meta descriptions · F16 whole-batch dispatch · L1 review attribution
+(155 wires read card-by-card, zero violations) · L2 venue aggregate (5 badges recomputed, all match)
+· L3 mirror-folder collision (209 connections, 209 distinct folders, legacy pairs repaired).
+
+**PARTIAL (5):** F2 (failed builds 404; pending window remains) · F6 (no new failures in-window; two
+legacy rows) · F11 (mirrored on most; TikTok CDN still failing on some) · F15 (Booksy+Treatwell
+connectors mapped; Cliniko/NowBookIt not) · F21 (dark by design at the edge).
+
+**STILL OPEN (10):** F3 — NameShapeGate does not exist at HEAD; 8/12 fresh IG accounts wrong, brands
+split into fake person names ("The Edit", "Tension Music"). F5 — worse: 79/238 sector-null. F7 —
+username 'p' stored from a /p/ path. F8 — **a /brand-city/ URL evaded the /brand/ guard** (schnitz).
+F13 — 12 purge failures in-window. F14 — SVG 422s now the terminal mode. F17, F18 (17/30 profiles
+don't lead with home — wider than the sector-front case), F19, F20, F22.
+
+**NOT MEASURED (6):** F12 (suite-side), L5–L8 (no sweep drove a browser).
+
+### New defects the re-audit surfaced (top of 31)
+
+- **141 of 230 live sites link a stylesheet that 404s after a deploy** — asset-hash churn × the 24h
+  edge cache; they render unstyled until purged. The biggest visitor-facing defect on the platform,
+  and the generalisation of E11/E14.
+- **harper-blohm-cheese-shop publishes another company's identity**, and its Website resolves to
+  gambling spam.
+- **Nightwatch has recorded nothing since 2026-08-30 23:00** — the batch ran with telemetry dark, so
+  "no new issues" has meant nothing for two days.
+- The five deliberately-dark handles serve complete payloads on the wire.
+- OCR menu lane returned zero items on 7/7 fresh restaurants despite menu-dense photos every time;
+  25/78 food accounts have no menu.
+- ~12 concurrent sitepage renders exhaust the Supabase session pool → public 500s (matches the
+  Wave 5 pooler finding).
+- Seven sitepages publish a byte-identical og:image belonging to another handle (share-image variant
+  of the folder-collision class — needs the same uuid keying).
+- 'Sports School' classifies a sailing school as a gym; 13xx phone numbers get a wrong +61 transform;
+  grilld og:image is 88px.
+
+Full list of 31 with evidence: Wave 6 task output (`wusdiwedb`).
+
+---
+
+## K. Wave 8 complete — the staff identity split · `DONE` · verdicts: sound/sound
+
+**The root cause of the owner's loading issue, named:** a staff-only session's 403 was being
+translated as `bootstrap_required` — "finish signing up" — the exact mistranslation the new
+`staff_only_session` error code now makes impossible. `/me` answers with `session_type: "staff"`
+and an explicit contract (documented in the Wave 8 task output) that the dashboard now branches on.
+
+Landed: staff-only `/me` session (`219020b04`), provisioning guard (`187d1391a`), staff-route audit
+(`b3c8a9592`, `e9ff1f561`), purge preserves a staff auth user (`b6cf5fb71`), the junk `user-ot9fss`
+row + site purged with the staff row and login intact, and the full dashboard staff boot
+(`69558333`, `244ad856` + polish). Both provers: sound, clean.
+
+Residuals worth keeping (from the agents' own honest reporting):
+- A SUSPENDED user+staff hybrid is locked out of the staff surface via `/me` (403 before the staff
+  branch). Rare, unpinned.
+- `StaffProvisioningGuard` is convention, not enforcement — a future third auth-binding lane would
+  bypass it silently. A DB-level guard would be structural.
+- Untried mutation survives on `LoadCurrentUser.php:108`: dropping the actor scoping
+  (`PartnaStaff::query()->first()`) passes the suite — the staff-row lookup's scoping is unpinned.
+- No audit/command reports existing user+staff hybrids.
+
+## L. F3 shipped inline and verified on the wire · `DONE` · `3b2d2a6bd`, `c7f075d60`
+
+NameShapeGate + generator wiring (mutation-pinned at the call site after the class-only tests were
+proven bypassable) + `names:regate`. **59 of 101 unclaimed Instagram accounts re-gated in place**;
+wire-verified: "Cassandra Skinner" recovered from the handle, "STUDIO BIDE" folded, the fabricated
+"The"/"Edit" splits gone. `first_name` is NOT NULL, so the schema's no-name is `''` — which the
+matchers already fail closed on. Wave 4's name agent is now HARDENING the gate (single-space fold
+bug, emoji stripping from display_name, a PersonNameMatch integration test) — its commit follows.
+
+---
+
 ## I. Still running
 
 - Nightwatch: a verdict on all 50 open issues (fixed-stale / live / infra / by-design-noise).

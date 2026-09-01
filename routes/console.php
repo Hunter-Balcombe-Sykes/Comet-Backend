@@ -606,3 +606,21 @@ Schedule::command('enquiries:reconcile-notifications')
     ->withoutOverlapping(10)
     ->runInBackground()
     ->onFailure($reportScheduledFailure('enquiries:reconcile-notifications'));
+
+// Estate invariants. Deliberately runs AFTER the nightly maintenance block
+// (prune 03:25, purge-soft-deletes 03:20, builds:prune-expired 03:40) so it
+// measures the estate those commands leave behind, not the one they inherited.
+// --http is the point of the schedule rather than an extra: the publish gate and
+// the edge TTL are the two checks no unit test can reach, because their failure
+// lives in the serving plane and in a Cloudflare rule, not in this repo.
+// A breach exits non-zero, which surfaces through onFailure into Nightwatch.
+// NB: the flag goes in the command STRING, not the args array. Schedule::command
+// renders ['--http' => true] as --http='1', and a value-less option rejects that
+// with "The --http option does not accept a value" — a nightly task that fails on
+// argument parsing before it ever reaches a check.
+Schedule::command('fleet:assert --http')
+    ->dailyAt('04:10')
+    ->onOneServer()
+    ->withoutOverlapping(60) // 1h lock — the run is ~24 bounded HTTP calls plus six counts.
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('fleet-assert'));

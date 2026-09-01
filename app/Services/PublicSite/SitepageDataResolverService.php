@@ -163,9 +163,11 @@ class SitepageDataResolverService
 
     /**
      * The taxonomy page-ids this site has content for, in canonical order, with
-     * Business-only pages dropped for accounts lacking the capability. Defined
-     * ONCE here so the read path (buildPageOrder) and the write path
-     * (analytics:compute-popularity) share an identical presence gate.
+     * the lifestyle pages dropped for accounts that don't offer them and the
+     * ATTRIBUTION_GATED pages dropped unless their content is provably the
+     * owner's. Defined ONCE here so the read path (buildPageOrder) and the
+     * write path (analytics:compute-popularity) share an identical presence
+     * gate.
      *
      * Presence signals (any positive hit includes the page):
      *   home     — always (every published profile has one)
@@ -176,7 +178,7 @@ class SitepageDataResolverService
      *              fresha a saved selection)
      *   book     — active services
      *   gallery  — ready gallery media
-     *   menu     — a fetched Menu (Business)
+     *   menu     — a fetched Menu (the row only a can_use_menu-gated writer mints)
      *   links    — any live link block
      *
      * @param  Collection<string, Block>  $sections  pre-loaded section blocks
@@ -345,25 +347,43 @@ class SitepageDataResolverService
             }
         }
 
-        // Capability-gate: drop a present page whose named capability the
-        // account lacks — per page, on the capability that describes THAT page.
-        // Until 2026-09-01 this was one blanket `! $caps->can_use_multipage_site`
-        // over SitepageId::BUSINESS_ONLY, i.e. the Menu page's fate decided by a
-        // flag about atlas-skeleton selection. ollies (a Google-sourced cafe
-        // filed account_type=partna) lost its Menu page here, with 105 ingested
-        // menu items still in the payload, because of a capability that has
-        // nothing to do with menus. Never reintroduce an account_type-shaped
-        // page list: if a page needs a gate, it needs a capability of its own.
+        // Owner-attribution gate: a page whose content is not provably this
+        // owner's to show is not advertised. See gateOwnerAttribution().
+        $present = $this->gateOwnerAttribution($present, $site);
+
+        // NO capability veto stands here, and none may be added back. Two
+        // successive versions of one lived on this line and both dropped pages
+        // whose content was real:
         //
-        // The dynamic read needs no runtime guard: PAGE_CAPABILITY is a closed
-        // const of literal strings, so PHPStan proves every value names a real
-        // bool on AccountCapabilitySet and a map that outlives its capability
-        // fails analysis rather than the public render path.
-        foreach (SitepageId::PAGE_CAPABILITY as $gatedPage => $capability) {
-            if (! $caps->{$capability}) {
-                unset($present[$gatedPage]);
-            }
-        }
+        //   until 2026-09-01  `! $caps->can_use_multipage_site` over
+        //                     SitepageId::BUSINESS_ONLY — the Menu page's fate
+        //                     decided by a flag about atlas-skeleton selection.
+        //                     ollies (a Google-sourced cafe filed
+        //                     account_type=partna) lost its Menu page here with
+        //                     105 ingested menu items still in the payload.
+        //   2026-09-01        `! $caps->can_use_menu` over
+        //                     SitepageId::PAGE_CAPABILITY — the same drop, now
+        //                     reading `sector`. Narrower, and still a render-time
+        //                     capability veto, which is the exact mechanism
+        //                     PageCapabilities' docblock retired: "A page that
+        //                     exists but is silently dropped at render is the
+        //                     failure mode that produced 'my Menu page
+        //                     disappeared and nothing told me why'." `sector` is
+        //                     a mutable column with three writers and one path
+        //                     (Google → a partna account) that never stamps it,
+        //                     so every account whose sector moved or was never
+        //                     classified after its menu was ingested lost the
+        //                     page — the incident, re-created by the commit that
+        //                     quoted it.
+        //
+        // Menu is gated where the gate can say so: `site.menus.last_fetched_at`
+        // is written only by MenuController, MenuContentController,
+        // MenuFetchJob's callers and the three scan jobs, and EVERY one of them
+        // checks can_use_menu before writing (SectorCapabilityGatingTest pins
+        // the 403s). So the row the presence probe above just found is itself a
+        // capability-stamped artefact: asking the capability a second time at
+        // render can only ever discard a page whose content already exists, and
+        // that is the failure mode, not the guard.
 
         // Standard-gate: drop the lifestyle/creator pages (Listen / Strava /
         // Skool) for accounts that don't offer them (Business
@@ -384,6 +404,61 @@ class SitepageDataResolverService
             SitepageId::canonicalOrder(),
             static fn (string $page): bool => isset($present[$page]),
         ));
+    }
+
+    /**
+     * Drop every SitepageId::ATTRIBUTION_GATED page whose pool does not resolve
+     * to at least one item this owner may show.
+     *
+     * Reviews is the page that needs it and the reason the gate exists. A
+     * venue-level review source (a Google listing, a storewide Fresha) reviews
+     * the WORKPLACE; on a person's page only the reviews attributable to that
+     * person may appear — Fresha's structured staff attribution, or their name
+     * in the review text. PoolResolver::hasSelection() runs that scope
+     * (reviewsOutsidePersonScope + the owner's per-source suppression) over the
+     * same candidate set resolve() will publish, so nav cannot advertise a
+     * Reviews page the pool empties out behind.
+     *
+     * A comment cannot do this. Until 2026-09-01 the structural statement was
+     * SitepageId::BUSINESS_ONLY listing `reviews`; that commit deleted the
+     * entry and left prose saying whoever restores Reviews presence "gates it
+     * on the account's own review data" — in the commit family whose whole
+     * brief is that a review must not appear on a page whose owner is not named
+     * in it. Presence does not set `reviews` today (Reviews stopped being its
+     * own page 2026-07-13, and folds into About when that is built), so this
+     * gate is dormant by design: it is here so that the line which restores
+     * presence cannot also, silently, restore publishing other people's
+     * reviews on someone's page.
+     *
+     * Fails CLOSED, unlike this class's usual fail-open presence posture: a
+     * faulted probe means "cannot prove this is yours", and the answer to that
+     * is not to publish it. Same reasoning as the GB display-settings sentinel
+     * above — suppression is the safe direction when the question is whether a
+     * page may be shown at all.
+     *
+     * @param  array<string, bool>  $present
+     * @return array<string, bool>
+     */
+    public function gateOwnerAttribution(array $present, ?Site $site): array
+    {
+        foreach (SitepageId::ATTRIBUTION_GATED as $page) {
+            if (! isset($present[$page])) {
+                continue;
+            }
+
+            $proven = $site !== null && $this->safeQuery(
+                fn (): bool => app(PoolResolver::class)->hasSelection($site, $page),
+                false,
+                "attribution_{$page}",
+                $site,
+            );
+
+            if (! $proven) {
+                unset($present[$page]);
+            }
+        }
+
+        return $present;
     }
 
     /**
