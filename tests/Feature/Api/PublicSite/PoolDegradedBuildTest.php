@@ -80,6 +80,7 @@ function degradedPoolResolver(string $failingPool, array $answers): PoolResolver
                 app(SectionCandidates::class),
                 app(ContentItemSlugAllocator::class),
                 app(MediaUrlResolver::class),
+                app(\App\Services\Media\InstagramMediaUrl::class),
                 app(ContentPopularityReader::class),
                 app(CacheLockService::class),
             );

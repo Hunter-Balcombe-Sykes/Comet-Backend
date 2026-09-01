@@ -239,6 +239,28 @@ it('names the reason a candidate was skipped rather than dropping it silently', 
         ->once();
 });
 
+it('throttles the zero-dispatch aggregate line to once per user per window', function () {
+    // Wave 3 triage (2026-09-01): steady state re-projects the same skips on
+    // every document rebuild, so the unthrottled dispatched=0 line was one
+    // flood per rebuild saying nothing new. Two zero-dispatch passes inside
+    // one window emit ONE line; a dispatching pass still always logs (the
+    // `logs how many mirror candidates it dispatched` case above).
+    config()->set('partna.media_mirror_max_attempts', 3);
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+    projectIgMedia($userId, 'ABC', ['https://scontent.cdninstagram.com/v/a.jpg']);
+
+    DB::table('content.media_assets')->where('user_id', $userId)->update(['mirror_attempts' => 3]);
+    Log::spy();
+
+    projectIgMedia($userId, 'ABC', ['https://scontent.cdninstagram.com/v/a.jpg'], '-again');
+    projectIgMedia($userId, 'ABC', ['https://scontent.cdninstagram.com/v/a.jpg'], '-thrice');
+
+    Log::shouldHaveReceived('info')
+        ->withArgs(fn ($message, $context) => $message === 'media_mirror.dispatch'
+            && $context['dispatched'] === 0)
+        ->once();
+});
+
 it('reports a borrowed asset as skipped for not being owned', function () {
     $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
     Log::spy();

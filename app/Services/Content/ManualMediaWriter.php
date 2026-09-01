@@ -26,9 +26,27 @@ use Illuminate\Support\Facades\DB;
  * top unselected option in that sheet, and putting it ON the site stays an
  * explicit second choice. The pin lane was deleted with the rule — selection
  * goes through the pools' own selectPoolItem endpoint.
+ *
+ * Website grabs ride the same bridge since Item 5 (2026-09-01, POOL_GALLERY
+ * retired): GalleryAutoGrabber lands bytes as POOL_CONTENT and mints its
+ * items here under the 'website:' origin — same unpinned library semantics
+ * as an upload, provenance carried in the coord namespace.
  */
 class ManualMediaWriter
 {
+    /**
+     * Coord namespaces double as the pool item's provenance tag (Item 5,
+     * 2026-09-01): connection-synced items carry their source through
+     * content.sources.source_key, but manual-source items have only the
+     * anchor coord to say where their bytes came from. 'upload:' = an
+     * owner upload; 'website:' = a previous-website grab
+     * (GalleryAutoGrabber) — same byte lane (site_media POOL_CONTENT),
+     * different provenance.
+     */
+    public const ORIGIN_UPLOAD = 'upload';
+
+    public const ORIGIN_WEBSITE = 'website';
+
     public function __construct(
         private readonly ProjectionWriter $writer,
     ) {}
@@ -38,7 +56,7 @@ class ManualMediaWriter
      *
      * @return array{id: string}|null null when the user has no site
      */
-    public function add(User $user, SiteMedia $media): ?array
+    public function add(User $user, SiteMedia $media, string $origin = self::ORIGIN_UPLOAD): ?array
     {
         $site = $user->site;
         if (! $site instanceof Site) {
@@ -46,7 +64,7 @@ class ManualMediaWriter
         }
 
         $userId = (string) $user->id;
-        $coord = self::coordFor($media);
+        $coord = self::coordFor($media, $origin);
         $isVideo = $media->media_type === SiteMedia::MEDIA_TYPE_VIDEO;
 
         $facets = [
@@ -97,9 +115,15 @@ class ManualMediaWriter
         $userId = (string) $user->id;
 
         try {
+            // site_media does not record which origin bridged a row, so the
+            // delete lane probes every manual namespace — at most one coord
+            // exists per media id (each origin mints exactly once).
             $itemId = DB::connection('pgsql')->table('content.item_anchors')
                 ->where('user_id', $userId)
-                ->where('coord', self::coordFor($media))
+                ->whereIn('coord', [
+                    self::coordFor($media, self::ORIGIN_UPLOAD),
+                    self::coordFor($media, self::ORIGIN_WEBSITE),
+                ])
                 ->value('item_id');
         } catch (\Throwable) {
             // Fail-open ONLY here: a lookup that throws means the content
@@ -124,9 +148,9 @@ class ManualMediaWriter
         }
     }
 
-    /** Stable per-upload coord on the user's one manual source. */
-    private static function coordFor(SiteMedia $media): string
+    /** Stable per-media coord on the user's one manual source; the namespace carries provenance. */
+    private static function coordFor(SiteMedia $media, string $origin): string
     {
-        return 'upload:'.$media->id;
+        return $origin.':'.$media->id;
     }
 }

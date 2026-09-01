@@ -4,7 +4,11 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
 use App\Services\WebsiteScan\GalleryAutoGrabber;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
     setupUsersTable();
@@ -15,7 +19,7 @@ beforeEach(function () {
 function gagSeedSiteMedia(Site $site, string $processingState = SiteMedia::PROCESSING_STATE_READY, bool $isActive = true): SiteMedia
 {
     $media = (new SiteMedia([
-        'pool' => SiteMedia::POOL_GALLERY,
+        'pool' => SiteMedia::POOL_CONTENT,
         'bucket' => 'test-bucket',
         'path' => 'images/existing.jpg',
         'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
@@ -78,7 +82,7 @@ it('accepts a square image', function () {
 
 // ── grabIfEmpty() skip gate ──────────────────────────────────────────────────
 
-it('returns no decisions and attempts no fetch when the gallery already has an active photo', function () {
+it('returns no decisions and attempts no fetch when the media pool already has an active row', function () {
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
     gagSeedSiteMedia($site);
@@ -91,7 +95,7 @@ it('returns no decisions and attempts no fetch when the gallery already has an a
     expect($decisions)->toBe([]);
 });
 
-it('does not skip when the only existing gallery row is failed/inactive', function () {
+it('does not skip when the only existing content-pool row is failed/inactive', function () {
     $user = User::factory()->create();
     $site = Site::factory()->for($user, 'user')->create();
     gagSeedSiteMedia($site, SiteMedia::PROCESSING_STATE_FAILED);
@@ -114,4 +118,47 @@ it('returns no decisions when given no candidate URLs at all', function () {
     $decisions = app(GalleryAutoGrabber::class)->grabIfEmpty($user, $site, []);
 
     expect($decisions)->toBe([]);
+});
+
+// ── one media pool (Item 5, 2026-09-01) ──────────────────────────────────────
+
+it('lands a grab as POOL_CONTENT bytes plus an unpinned website-provenance pool item', function () {
+    // The full lane end-to-end: fetch → MediaUploadService (POOL_CONTENT) →
+    // the upload→pool bridge under the website: origin. Content-lane tables
+    // are provisioned so the bridge runs for real, not into a swallowed fault.
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
+    Queue::fake();
+    Storage::fake('media');
+    config(['partna.media_disk' => 'media', 'filesystems.disks.media.url' => 'https://cdn.test']);
+
+    $user = createTenant('gag-grab');
+    $site = $user->site;
+
+    $fake = UploadedFile::fake()->image('grab.png', 640, 480);
+    $png = file_get_contents($fake->getRealPath());
+    Http::fake(['example.com/*' => Http::response($png, 200, ['Content-Type' => 'image/png'])]);
+
+    $decisions = app(GalleryAutoGrabber::class)->grabIfEmpty($user, $site, ['https://example.com/photo.png']);
+
+    expect($decisions)->toHaveCount(1)
+        ->and($decisions[0]['outcome'])->toStartWith('uploaded');
+
+    $media = SiteMedia::query()->where('site_id', (string) $site->id)->firstOrFail();
+    expect($media->pool)->toBe(SiteMedia::POOL_CONTENT);
+
+    // The bridge minted the library item under the website: provenance coord.
+    $itemId = DB::table('content.item_anchors')
+        ->where('user_id', (string) $user->id)
+        ->where('coord', 'website:'.$media->id)
+        ->value('item_id');
+    expect($itemId)->not->toBeNull()
+        ->and(DB::table('content.items')->where('id', $itemId)->value('kind'))->toBe('media')
+        // Unpinned, exactly like an upload: library-only until the owner selects it.
+        ->and(DB::table('site.section_items')->where('item_id', $itemId)->exists())->toBeFalse();
+
+    // The retired lane stayed empty.
+    expect(SiteMedia::query()->where('site_id', (string) $site->id)
+        ->where('pool', SiteMedia::POOL_GALLERY)->exists())->toBeFalse();
 });

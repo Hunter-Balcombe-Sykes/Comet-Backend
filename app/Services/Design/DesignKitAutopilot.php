@@ -317,14 +317,15 @@ class DesignKitAutopilot
             }
         }
 
-        // POOL_GALLERY ONLY — not GALLERY_POOLS: POOL_CONTENT holds
-        // platform-synced imagery, and Instagram imagery is explicitly
-        // EXCLUDED as an accent source (owner decision; plan-02 critic
-        // note upgraded to a fix). The curated gallery is the tier
-        // decision 3 actually named.
+        // POOL_CONTENT is the one curated media pool since Item 5 retired
+        // POOL_GALLERY (2026-09-01): its site_media rows are owner uploads +
+        // previous-website grabs only. Instagram imagery stays explicitly
+        // EXCLUDED as an accent source (owner decision; plan-02 critic note
+        // upgraded to a fix) — by construction now, since platform mirrors
+        // live in content.media_assets and never touch site_media.
         $galleryPalette = SiteMedia::query()
             ->where('site_id', $siteId)
-            ->where('pool', SiteMedia::POOL_GALLERY)
+            ->where('pool', SiteMedia::POOL_CONTENT)
             ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
             ->whereNotNull('palette')
             ->orderBy('created_at')

@@ -194,11 +194,14 @@ it('persists corners and spacing fill-if-empty but never clobbers a manual pick'
         ->and($kit->spacing)->toBe('spacious');
 });
 
-// ── the gallery palette fallback (plan 02 step 5, decision 3) ────────────────
+// ── the media-pool palette fallback (plan 02 step 5, decision 3; Item 5 ──────
+// repointed it off the retired POOL_GALLERY, 2026-09-01) ─────────────────────
 
-it('the gallery fallback reads POOL_GALLERY only — synced content imagery is not an accent source', function () {
-    // Owner exclusion: Instagram imagery must never feed the accent;
-    // platform-synced media lives in the content pool.
+it('the imagery fallback reads POOL_CONTENT — the one media pool (uploads + website grabs)', function () {
+    // Item 5: uploads and website grabs are the only site_media content-pool
+    // writers, so the curated tier reads them directly. Instagram imagery
+    // stays excluded (owner decision) by construction — platform mirrors
+    // live in content.media_assets, never site_media.
     $siteId = autopilotSite();
     DB::connection('pgsql')->table('site.site_media')->where('site_id', $siteId)->delete();
     DB::connection('pgsql')->table('site.site_media')->insert([
@@ -209,18 +212,37 @@ it('the gallery fallback reads POOL_GALLERY only — synced content imagery is n
         'created_at' => now()->toISOString(), 'updated_at' => now()->toISOString(),
     ]);
 
+    $derived = app(DesignKitAutopilot::class)->fromBrandPalette($siteId);
+
+    expect($derived['reason'])->toBeNull()
+        ->and($derived['proposals']['color_accent'] ?? null)->not->toBeNull();
+});
+
+it('a leftover legacy gallery-pool palette no longer feeds the accent', function () {
+    // The retirement pin: migration 20260901200000 empties the lane, and
+    // the reader must not resurrect it if a row survives somehow.
+    $siteId = autopilotSite();
+    DB::connection('pgsql')->table('site.site_media')->where('site_id', $siteId)->delete();
+    DB::connection('pgsql')->table('site.site_media')->insert([
+        'id' => (string) Str::uuid(),
+        'site_id' => $siteId, 'pool' => 'gallery', 'purpose' => null,
+        'processing_state' => 'ready',
+        'palette' => json_encode(['dominant' => '#e0491f', 'colors' => ['#e0491f'], 'warm' => true]),
+        'created_at' => now()->toISOString(), 'updated_at' => now()->toISOString(),
+    ]);
+
     expect(app(DesignKitAutopilot::class)->fromBrandPalette($siteId)['reason'])
         ->toBe(DesignKitAutopilot::REASON_NO_PALETTE);
 });
 
-it('a neutral GALLERY palette reports neutral_palette, not the wordmark copy', function () {
+it('a neutral MEDIA-POOL palette reports neutral_palette, not the wordmark copy', function () {
     // The wordmark reason would be a lie for a site with no wordmark at
     // all (critic find): the reason names the actual source now.
     $siteId = autopilotSite();
     DB::connection('pgsql')->table('site.site_media')->where('site_id', $siteId)->delete();
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
-        'site_id' => $siteId, 'pool' => 'gallery', 'purpose' => null,
+        'site_id' => $siteId, 'pool' => 'content', 'purpose' => null,
         'processing_state' => 'ready',
         'palette' => json_encode(['dominant' => '#111111', 'colors' => ['#111111', '#fafafa'], 'warm' => false]),
         'created_at' => now()->toISOString(), 'updated_at' => now()->toISOString(),
@@ -230,14 +252,14 @@ it('a neutral GALLERY palette reports neutral_palette, not the wordmark copy', f
         ->toBe(DesignKitAutopilot::REASON_NEUTRAL_PALETTE);
 });
 
-it('falls back to the oldest ready gallery image palette when no logo palette exists', function () {
+it('falls back to the oldest ready media-pool image palette when no logo palette exists', function () {
     $siteId = autopilotSite();
-    // Blank the logo palettes; give the site one gallery image with a
+    // Blank the logo palettes; give the site one content-pool image with a
     // strong brand colour.
     DB::connection('pgsql')->table('site.site_media')->where('site_id', $siteId)->delete();
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
-        'site_id' => $siteId, 'pool' => 'gallery', 'purpose' => null,
+        'site_id' => $siteId, 'pool' => 'content', 'purpose' => null,
         'processing_state' => 'ready',
         'palette' => json_encode(['dominant' => '#0f766e', 'colors' => ['#0f766e'], 'warm' => false]),
         'created_at' => now()->toISOString(), 'updated_at' => now()->toISOString(),

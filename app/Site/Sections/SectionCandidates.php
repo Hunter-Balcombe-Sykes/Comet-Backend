@@ -147,6 +147,15 @@ class SectionCandidates
         //
         // If this ever shows up in a real profile, the fence is the measured
         // next step — not the pre-aggregate.
+        //
+        // Item 2 (2026-09-01, media surface): a media auto arm leads with its
+        // videos — class outranks recency, newest-first within each class.
+        // Keyed off the RULE (a live latest_n media predicate) rather than a
+        // new order_by value, so every existing pool:media section gains the
+        // order on its next resolve without a section reshape.
+        if (($section->order_by ?? 'recency') === 'recency' && $this->mediaRuleLeadsWithVideos($predicates)) {
+            $query->orderByRaw('('.self::videoClassSql('content.items.id', true).') DESC');
+        }
         $ordered = match ($section->order_by ?? 'recency') {
             'alphabetical' => $query->orderBy('content.items.headline_cache'),
             // Dated pools (events): soonest first, undated last. A correlated
@@ -326,10 +335,21 @@ class SectionCandidates
             // Media opt-in (2026-08-18, R5): fewer than N same-source items are
             // newer, and BOTH sparse toggles are on — auto_sync_latest (every
             // sourcing platform) and photos (google-business only; absent
-            // elsewhere = on).
+            // elsewhere = on). The media kind runs per CLASS (Item 2,
+            // 2026-09-01): up to N videos AND up to N images per source, each
+            // window counting only its own class — a video-less source still
+            // fills its image half, never padded.
             'latest_n_per_auto_source' => $this->applyExists($query, $negated, function ($q) use ($values) {
                 $n = max(1, (int) config('partna.pools.auto_latest_n', 5));
                 foreach (PoolRegistry::latestArmsFor($values) as $toggle => $kinds) {
+                    if (in_array('media', $kinds, true)) {
+                        $this->connectionSourceLatestArm($q, ['media'], $n, [$toggle, 'photos'], 'video');
+                        $this->connectionSourceLatestArm($q, ['media'], $n, [$toggle, 'photos'], 'image');
+                        $kinds = array_values(array_diff($kinds, ['media']));
+                        if ($kinds === []) {
+                            continue;
+                        }
+                    }
                     $this->connectionSourceLatestArm($q, $kinds, $n, [$toggle, 'photos']);
                 }
             }),
@@ -379,12 +399,17 @@ class SectionCandidates
      * another user's copy of the same video — made every candidate lose
      * (overnight F1).
      *
+     * $mediaClass narrows one arm to a media CLASS (Item 2, 2026-09-01):
+     * 'video' admits only items carrying a video-role frame and counts only
+     * same-class rivals, 'image' the complement — so the media pool's two
+     * windows fill independently.
+     *
      * @param  list<string>  $values
      * @param  list<string>  $toggles
      */
-    private function connectionSourceLatestArm($q, array $values, int $n, array $toggles): void
+    private function connectionSourceLatestArm($q, array $values, int $n, array $toggles, ?string $mediaClass = null): void
     {
-        $q->orWhereExists(function ($e) use ($values, $n, $toggles) {
+        $q->orWhereExists(function ($e) use ($values, $n, $toggles, $mediaClass) {
             $e->from('content.source_items')
                 ->join('content.sources', 'content.sources.id', '=', 'content.source_items.source_id')
                 ->join('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
@@ -414,6 +439,9 @@ class SectionCandidates
             if ($kinds !== null) {
                 $e->whereIn('content.items.kind', $kinds);
             }
+            if ($mediaClass !== null) {
+                $e->whereRaw(self::videoClassSql('content.items.id', $mediaClass === 'video'));
+            }
 
             // Correlated count of strictly-newer same-source items; N=1 is
             // exactly the old NOT EXISTS.
@@ -441,6 +469,7 @@ class SectionCandidates
                 .' and si2.removed_at is null and i2.removed_at is null'
                 .' and i2.id <> content.items.id'
                 .' and '.$kindSql
+                .($mediaClass === null ? '' : ' and '.self::videoClassSql('i2.id', $mediaClass === 'video'))
                 .' and ((p2.published_from is not null and p1.published_from is null)'
                 .' or ((p2.published_from is null) = (p1.published_from is null)'
                 .' and (COALESCE(p2.published_from, i2.first_seen_at) > COALESCE(p1.published_from, content.items.first_seen_at)'
@@ -451,6 +480,42 @@ class SectionCandidates
                 [...($kinds ?? []), $n, $n]
             );
         });
+    }
+
+    /**
+     * Whether this rule is the media pool's auto arm — a non-negated
+     * latest_n_per_auto_source over the media kind. That is the arm whose
+     * candidates lead with videos (Item 2, 2026-09-01).
+     *
+     * @param  list<mixed>  $predicates
+     */
+    private function mediaRuleLeadsWithVideos(array $predicates): bool
+    {
+        foreach ($predicates as $predicate) {
+            $predicate = (array) $predicate;
+            if (($predicate['op'] ?? '') !== 'latest_n_per_auto_source' || (bool) ($predicate['not'] ?? false)) {
+                continue;
+            }
+            if (in_array('media', array_map('strval', (array) ($predicate['values'] ?? [])), true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The media CLASS predicate, correlated to $itemColumn. 'video' = the
+     * item carries a video-role frame — the lane's own vocabulary: both
+     * writers of playable media (InstagramMediaProjector, ManualMediaWriter)
+     * stamp role=video. Raw SQL so one snippet serves the WHERE, the bounded
+     * count and the ORDER BY; it binds nothing.
+     */
+    private static function videoClassSql(string $itemColumn, bool $isVideo): string
+    {
+        $exists = "exists (select 1 from content.item_media as vm where vm.item_id = {$itemColumn} and vm.role = 'video')";
+
+        return $isVideo ? $exists : "not {$exists}";
     }
 
     /**

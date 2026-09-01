@@ -58,11 +58,18 @@ class SiteAccentResolver
             ->value('dominant_color');
     }
 
+    /**
+     * Curated tier = the one media pool (site_media POOL_CONTENT: owner
+     * uploads + previous-website grabs, the only writers of that byte lane).
+     * Instagram imagery stays excluded by construction — platform mirrors
+     * land in content.media_assets, never site_media. Item 5 repointed this
+     * tier off the retired POOL_GALLERY (2026-09-01).
+     */
     private function galleryDominant(string $siteId): ?string
     {
         return SiteMedia::query()
             ->where('site_id', $siteId)
-            ->whereIn('pool', SiteMedia::GALLERY_POOLS)
+            ->where('pool', SiteMedia::POOL_CONTENT)
             ->where('is_active', true)
             ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
             ->whereNotNull('dominant_color')

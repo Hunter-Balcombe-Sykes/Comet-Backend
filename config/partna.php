@@ -1857,8 +1857,12 @@ return [
     | upload_pools = pools accepted by the generic professional upload endpoint
     |   (UploadImageRequest / ReorderPoolImagesRequest). Other pools have
     |   dedicated controllers with their own authorization logic.
+    |   'gallery' retired 2026-09-01 (Item 5, one media pool): the wire
+    |   stopped serving that lane 2026-08-14, the dashboard never sends it,
+    |   and every remaining writer moved to the content + pool-item bridge —
+    |   accepting it here was the last open write door.
     */
-    'upload_pools' => ['gallery', 'content'],
+    'upload_pools' => ['content'],
 
     'image_pools' => [
         'gallery' => ['max' => (int) env('PARTNA_GALLERY_IMAGE_MAX', env('SIDEST_GALLERY_IMAGE_MAX', 6))],

@@ -106,6 +106,38 @@ it('remove() takes the item off the pool without touching the projection rows', 
         ->toBe(1);
 });
 
+// ── the website origin (Item 5, 2026-09-01) ─────────────────────────────────
+
+it('mints a website-grab item under the website: provenance coord — unpinned like an upload', function () {
+    [$pro, $siteId] = poolTenant();
+    $user = User::query()->findOrFail($pro->id);
+    $media = mmwUpload($siteId);
+
+    $result = app(ManualMediaWriter::class)->add($user, $media, ManualMediaWriter::ORIGIN_WEBSITE);
+
+    expect($result)->not->toBeNull();
+
+    $anchor = DB::table('content.item_anchors')
+        ->where('item_id', $result['id'])->value('coord');
+    expect($anchor)->toBe('website:'.$media->id);
+
+    // Same library-only semantics as an upload: no pin lane touched.
+    expect(DB::table('site.section_items')->where('item_id', $result['id'])->exists())->toBeFalse();
+});
+
+it('remove() finds a website-origin item — site_media does not record origin, so the delete lane probes both namespaces', function () {
+    [$pro, $siteId] = poolTenant();
+    $user = User::query()->findOrFail($pro->id);
+    $media = mmwUpload($siteId);
+    $writer = app(ManualMediaWriter::class);
+
+    $added = $writer->add($user, $media, ManualMediaWriter::ORIGIN_WEBSITE);
+    $writer->remove($user, $media);
+
+    expect(DB::table('content.items')->where('id', $added['id'])->value('removed_at'))
+        ->not->toBeNull();
+});
+
 it('is a no-op for a user without a site', function () {
     [$pro, $siteId] = poolTenant();
     $media = mmwUpload($siteId);

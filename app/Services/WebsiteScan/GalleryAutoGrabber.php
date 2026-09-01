@@ -5,6 +5,7 @@ namespace App\Services\WebsiteScan;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\User\User;
+use App\Services\Content\ManualMediaWriter;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Media\Exceptions\PoolLimitExceededException;
 use App\Services\Media\MediaUploadService;
@@ -12,13 +13,19 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Auto-populates an EMPTY gallery pool from a previous-website's own content
+ * Auto-populates an EMPTY media pool from a previous-website's own content
  * photos (WebsiteGalleryCandidateExtractor). Fills, never tops up: any site
- * with even one active gallery photo already — user-uploaded or previously
+ * with even one active content-pool row already — user-uploaded or previously
  * auto-grabbed — is left alone entirely, same "fills empty slots only, never
  * touches populated ones" contract as LogoAutoGrabber. MediaUploadService::
  * upload() is the single source of truth for the pool cap (PoolLimitExceededException
  * stops the loop once full) — no duplicate count-check here.
+ *
+ * Item 5 (2026-09-01): grabs land as site_media POOL_CONTENT — the same byte
+ * lane as owner uploads — and each one is bridged into an UNPINNED media-pool
+ * item (ManualMediaWriter, origin 'website'), so it is visible and curatable
+ * on /media like any upload. POOL_GALLERY, the lane the public wire stopped
+ * serving 2026-08-14, is retired as a write target.
  */
 class GalleryAutoGrabber
 {
@@ -43,6 +50,7 @@ class GalleryAutoGrabber
     public function __construct(
         private readonly SafeUrlFetcher $fetcher,
         private readonly MediaUploadService $uploads,
+        private readonly ManualMediaWriter $mediaWriter,
     ) {}
 
     /**
@@ -57,7 +65,7 @@ class GalleryAutoGrabber
 
         $hasExisting = SiteMedia::query()
             ->where('site_id', $site->id)
-            ->where('pool', SiteMedia::POOL_GALLERY)
+            ->where('pool', SiteMedia::POOL_CONTENT)
             ->where('is_active', true)
             ->where('processing_state', '!=', SiteMedia::PROCESSING_STATE_FAILED)
             ->exists();
@@ -149,17 +157,28 @@ class GalleryAutoGrabber
 
         try {
             $file = new UploadedFile($tmp, "auto-gallery.{$ext}", $mime, null, true);
-            $this->uploads->upload(
+            $media = $this->uploads->upload(
                 pro: $pro,
                 site: $site,
                 file: $file,
-                pool: SiteMedia::POOL_GALLERY,
+                pool: SiteMedia::POOL_CONTENT,
                 isVideo: false,
                 altText: null,
                 caption: null,
             );
 
-            Log::info('GalleryAutoGrabber: populated empty gallery from previous website.', [
+            // The upload→pool bridge, same best-effort placement as
+            // ContentController::storeUpload: a bridge fault must not void
+            // the stored bytes — the library listing still shows the
+            // SiteMedia row, and content:backfill-website-grab-media
+            // re-mints the item.
+            try {
+                $this->mediaWriter->add($pro, $media, ManualMediaWriter::ORIGIN_WEBSITE);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+
+            Log::info('GalleryAutoGrabber: populated empty media pool from previous website.', [
                 'site_id' => $site->id,
                 'mime' => $mime,
             ]);

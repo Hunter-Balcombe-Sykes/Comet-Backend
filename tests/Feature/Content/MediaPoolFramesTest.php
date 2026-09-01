@@ -179,9 +179,9 @@ it('emits a reel as a video frame with the cover as its poster (R7)', function (
     $source = poolSource($pro->id, poolConnection($pro->id, 'instagram.profile'));
     $item = poolItem($pro->id, $source, 'media', 'Reel', '2026-08-01T00:00:00Z');
     $cover = frameAsset($pro->id, ['source_url' => 'https://cdn.example.com/cover.jpg', 'width' => 1080, 'height' => 1350]);
-    // storage_path set: only a MIRRORED reel may ship as a video frame — an
-    // unmirrored one is a dead signed URL by construction (see the
-    // degrade test below).
+    // storage_path set: a MIRRORED reel serves from owned bytes, never the
+    // vendor URL (an unmirrored one serves from source only while its oe
+    // pre-flight passes — see the progressive/expired pair below).
     $video = frameAsset($pro->id, ['source_url' => 'https://cdn.example.com/reel.mp4', 'storage_path' => 'content-media/u/reel.mp4', 'mime_type' => 'video/mp4', 'width' => null, 'height' => null]);
     DB::table('content.item_media')->insert([
         ['id' => (string) Str::uuid(), 'item_id' => $item, 'source_id' => $source, 'asset_id' => $cover, 'role' => 'cover', 'position' => 0, 'created_at' => now()],
@@ -199,16 +199,46 @@ it('emits a reel as a video frame with the cover as its poster (R7)', function (
         ->and($frames[1]['poster'])->toBe('https://cdn.example.com/cover.jpg');
 });
 
-// The R3 tail (2026-08-28): a reel whose signed URL was already dead when the
-// mirror first tried stays unmirrored forever, and serving its source_url is
-// a <video> that never plays — a frozen black card on the gallery. The frame
-// degrades away; the cover still carries the card.
-it('drops an unmirrored third-party video frame, keeping the still (dead-URL reel)', function () {
+// Item 7 (2026-09-01, progressive media): an unmirrored video whose signed
+// URL is still LIVE serves from source while its mirror drains — the swap to
+// owned bytes lands on a later rebuild. The old unconditional drop survives
+// only for URLs the oe pre-flight proves dead (the R3 class), below.
+it('serves an unmirrored video from its fresh source URL, poster wired, and logs host-only', function () {
+    Log::spy();
     [$pro, $siteId] = poolTenant();
     $source = poolSource($pro->id, poolConnection($pro->id, 'instagram.profile'));
     $item = poolItem($pro->id, $source, 'media', 'Reel', '2026-08-01T00:00:00Z');
     $cover = frameAsset($pro->id, ['source_url' => 'https://cdn.example.com/cover.jpg', 'width' => 1080, 'height' => 1350]);
-    $video = frameAsset($pro->id, ['source_url' => 'https://instagram.fxyz1-1.fna.fbcdn.net/dead.mp4', 'mime_type' => 'video/mp4']);
+    // 0x7A000000 = 2034 — signed, far from lapsing. No storage_path, no
+    // site_media_id: the mirror has not landed yet.
+    $video = frameAsset($pro->id, ['source_url' => 'https://instagram.fxyz1-1.fna.fbcdn.net/fresh.mp4?oe=7A000000', 'mime_type' => 'video/mp4']);
+    DB::table('content.item_media')->insert([
+        ['id' => (string) Str::uuid(), 'item_id' => $item, 'source_id' => $source, 'asset_id' => $cover, 'role' => 'cover', 'position' => 0, 'created_at' => now()],
+        ['id' => (string) Str::uuid(), 'item_id' => $item, 'source_id' => $source, 'asset_id' => $video, 'role' => 'video', 'position' => 1, 'created_at' => now()],
+    ]);
+
+    $frames = collect(poolGet($pro, 'media')['selection'])->firstWhere('id', $item)['frames'];
+    expect($frames)->toHaveCount(2)
+        ->and($frames[1]['kind'])->toBe('video')
+        ->and($frames[1]['url'])->toBe('https://instagram.fxyz1-1.fna.fbcdn.net/fresh.mp4?oe=7A000000')
+        ->and($frames[1]['poster'])->toBe('https://cdn.example.com/cover.jpg');
+    // The risk window is instrumented — host only, never the signed URL.
+    Log::shouldHaveReceived('info')
+        ->with('pool.video.progressive_serve', ['host' => 'instagram.fxyz1-1.fna.fbcdn.net'])
+        ->atLeast()->once();
+});
+
+// The R3 tail (2026-08-28): a reel whose signed URL provably lapsed (oe= in
+// the past) stays dropped — serving it is a <video> that never plays, a
+// frozen black card on the gallery. The frame degrades away; the cover still
+// carries the card. This is Item 7's gate holding, not the old blanket drop.
+it('still drops an unmirrored video whose signed URL has expired, keeping the still', function () {
+    [$pro, $siteId] = poolTenant();
+    $source = poolSource($pro->id, poolConnection($pro->id, 'instagram.profile'));
+    $item = poolItem($pro->id, $source, 'media', 'Reel', '2026-08-01T00:00:00Z');
+    $cover = frameAsset($pro->id, ['source_url' => 'https://cdn.example.com/cover.jpg', 'width' => 1080, 'height' => 1350]);
+    // 0x60000000 = 2021 — long lapsed; the pre-flight refuses it.
+    $video = frameAsset($pro->id, ['source_url' => 'https://instagram.fxyz1-1.fna.fbcdn.net/dead.mp4?oe=60000000', 'mime_type' => 'video/mp4']);
     DB::table('content.item_media')->insert([
         ['id' => (string) Str::uuid(), 'item_id' => $item, 'source_id' => $source, 'asset_id' => $cover, 'role' => 'cover', 'position' => 0, 'created_at' => now()],
         ['id' => (string) Str::uuid(), 'item_id' => $item, 'source_id' => $source, 'asset_id' => $video, 'role' => 'video', 'position' => 1, 'created_at' => now()],

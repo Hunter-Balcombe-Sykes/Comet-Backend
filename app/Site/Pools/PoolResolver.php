@@ -10,6 +10,7 @@ use App\Services\Analytics\ItemFamily;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\Content\ContentItemSlugAllocator;
+use App\Services\Media\InstagramMediaUrl;
 use App\Services\Media\MediaUrlResolver;
 use App\Services\Platforms\ConnectionDisplayName;
 use App\Services\Platforms\DisplaySettingsFilter;
@@ -104,6 +105,7 @@ class PoolResolver
         private readonly SectionCandidates $candidates,
         private readonly ContentItemSlugAllocator $slugs,
         private readonly MediaUrlResolver $mediaUrls,
+        private readonly InstagramMediaUrl $instagramUrls,
         private readonly ContentPopularityReader $popularity,
         private readonly CacheLockService $cache,
     ) {}
@@ -426,6 +428,16 @@ class PoolResolver
         $settings = ActionSettings::fromSite($site);
         $mode = in_array($pool, ['events', 'reviews'], true) ? 'manual' : $settings->poolMode($pool);
         $selection = PoolOrdering::order($mode, $selection);
+        // Item 2 (2026-09-01): the media deck leads with its videos — every
+        // item shipping a playable video frame ranks ahead of every still,
+        // newest-first within each class (the mode order IS the within-class
+        // order). 'newest' only: smart is an explicit engagement ranking and
+        // manual is the owner's hand order (pins first) — both owner choices
+        // this default must not fight. In manual the auto tail still leads
+        // with videos via ruleCandidates()' own ORDER BY.
+        if ($pool === 'media' && $mode === 'newest') {
+            $selection = self::videosLead($selection);
+        }
         $collections = PoolOrdering::orderCollections($mode, $this->collectionsFor($pool, $site, $selection, $stores), $selection);
         // #RANK-2: a lock that couldn't be placed (item not in the
         // selection, or its position collided with another lock in the same
@@ -476,6 +488,34 @@ class PoolResolver
             'linkRoster' => ItemLinkRules::rosterFor($pool),
             'unavailablePoolLocks' => $unavailablePoolLocks,
         ];
+    }
+
+    /**
+     * Stable class partition (Item 2): items with a servable video frame
+     * first, stills after, relative order preserved either side. Classified
+     * on the RESOLVED frames rather than item_media rows on purpose — a video
+     * nothing can play (expired unmirrored source; frames() dropped it) must
+     * not lead the deck with a frozen card.
+     *
+     * @param  list<array<string, mixed>>  $items
+     * @return list<array<string, mixed>>
+     */
+    private static function videosLead(array $items): array
+    {
+        $videos = [];
+        $stills = [];
+        foreach ($items as $item) {
+            $hasVideo = false;
+            foreach ((array) ($item['frames'] ?? []) as $frame) {
+                if (($frame['kind'] ?? null) === 'video') {
+                    $hasVideo = true;
+                    break;
+                }
+            }
+            $hasVideo ? $videos[] = $item : $stills[] = $item;
+        }
+
+        return [...$videos, ...$stills];
     }
 
     /**
@@ -2526,16 +2566,24 @@ class PoolResolver
                 continue;
             }
             $isVideo = (string) $row->role === 'video' || str_starts_with((string) ($row->mime_type ?? ''), 'video/');
-            // An UNMIRRORED third-party video is a dead link by construction
-            // (2026-08-28): Instagram signs video URLs with an expiry, and the
-            // only reels that ever stay unmirrored are the ones whose URL was
-            // already dead when the mirror first tried (the R3 pre-flight
-            // case) — so serving source_url here ships a <video> that never
-            // plays, a frozen black card. Dropped instead: the item's cover
-            // still carries the card, losing only motion. Owner uploads ride
-            // site_media_id and mirrored reels ride storage_path; both pass.
+            // An UNMIRRORED third-party video used to be dropped outright
+            // (2026-08-28: back then the only reels left unmirrored were dead
+            // on arrival). Item 7 (2026-09-01) narrows the drop to URLs the
+            // oe pre-flight PROVES dead — those still ship a <video> that
+            // never plays, a frozen black card, and the item's cover carries
+            // the card instead. A fresh signed URL serves from source while
+            // its mirror drains; the swap to owned bytes lands on a later
+            // document rebuild, and the poster wiring below covers the
+            // rotation window. Owner uploads ride site_media_id and mirrored
+            // reels ride storage_path; both skip the gate. Host only in the
+            // log — a signed media URL never reaches a log line.
             if ($isVideo && $row->storage_path === null && $row->site_media_id === null) {
-                continue;
+                if ($this->instagramUrls->isExpired($hit['url'])) {
+                    continue;
+                }
+                Log::info('pool.video.progressive_serve', [
+                    'host' => parse_url($hit['url'], PHP_URL_HOST) ?: null,
+                ]);
             }
             $frames[] = [
                 'url' => $hit['url'],

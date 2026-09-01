@@ -38,17 +38,43 @@ function autoSelectStore(string $userId, array $overrides = []): string
     return $id;
 }
 
-function autoSelectProduct(string $userId, string $collectionId, int $position): string
+function autoSelectProduct(string $userId, string $collectionId, int $position, ?string $name = null): string
 {
     static $sources = [];
-    $sourceId = $sources[$userId] ??= poolSource($userId, null);
-    $itemId = poolItem($userId, $sourceId, 'product', 'P'.$position, '2026-08-0'.(($position % 8) + 1).'T00:00:00Z');
+    // Query-first like shopProduct(): idx_content_sources_manual allows ONE
+    // manual source per user, and autoSelectMenuItem() may have minted it.
+    $sourceId = $sources[$userId] ??= (DB::table('content.sources')
+        ->where('user_id', $userId)->where('kind', 'manual')->value('id')
+        ?? poolSource($userId, null));
+    $itemId = poolItem($userId, $sourceId, 'product', $name ?? 'P'.$position, '2026-08-0'.(($position % 8) + 1).'T00:00:00Z');
     DB::table('content.collection_items')->insert([
         'collection_id' => $collectionId, 'item_id' => $itemId,
         'source_id' => null, 'position' => $position,
     ]);
 
     return $itemId;
+}
+
+/** A live dish on the user's menu — content.items kind='menu_item', the read
+ * the Item 12 name backstop compares against. */
+function autoSelectMenuItem(string $userId, string $name): string
+{
+    $sourceId = DB::table('content.sources')
+        ->where('user_id', $userId)->where('kind', 'manual')->value('id')
+        ?? poolSource($userId, null);
+
+    return poolItem($userId, $sourceId, 'menu_item', $name, '2026-08-01T00:00:00Z');
+}
+
+/** The Item 12 food-guard fixture: sector on core.users, previous website on
+ * the workplace card — the pair the own-domain comparison reads. */
+function autoSelectOwnWebsite(string $userId, string $siteId, string $previousWebsite, ?string $sector): void
+{
+    DB::table('core.users')->where('id', $userId)->update(['sector' => $sector]);
+    DB::table('site.workplaces')->insert([
+        'site_id' => $siteId, 'previous_website' => $previousWebsite,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
 }
 
 function autoselectedAt(string $collectionId): mixed
@@ -160,4 +186,88 @@ it('no-ops on a user with no site row', function () {
 
     expect(app(ShopAutoSelector::class)->selectInitial($store))->toBe(0)
         ->and(autoselectedAt($store))->toBeNull();
+});
+
+// ── Item 12: menu/shop separation ────────────────────────────────────────────
+
+it('fills library-only for a food account whose store is on their own website domain', function () {
+    // The famished-wolf shape: a restaurant's own WooCommerce ordering site is
+    // probed as a store, and auto-select put the menu on the Sell page twice.
+    [$pro, $siteId] = poolTenant();
+    autoSelectOwnWebsite($pro->id, $siteId, 'https://www.thefamishedwolf.com.au', 'restaurant');
+    $store = autoSelectStore($pro->id, ['url' => 'https://thefamishedwolf.com.au']);
+    autoSelectProduct($pro->id, $store, 0, 'Wolf Dogs');
+    autoSelectProduct($pro->id, $store, 1, 'Classic Mac');
+
+    expect(app(ShopAutoSelector::class)->selectInitial($store))->toBe(0)
+        // No stamp: a policy answer, not the owner's — same rule as an empty
+        // catalogue.
+        ->and(autoselectedAt($store))->toBeNull()
+        ->and(DB::table('site.section_items')->count())->toBe(0)
+        // The catalogue itself is untouched — library-only, not un-ingested.
+        ->and(DB::table('content.collection_items')->where('collection_id', $store)->count())->toBe(2);
+});
+
+it('auto-fills unchanged for a non-food account with a store on their own domain', function () {
+    [$pro, $siteId] = poolTenant();
+    autoSelectOwnWebsite($pro->id, $siteId, 'https://www.beardbrand.com', 'barber');
+    $store = autoSelectStore($pro->id, ['url' => 'https://beardbrand.com']);
+    autoSelectProduct($pro->id, $store, 0);
+
+    expect(app(ShopAutoSelector::class)->selectInitial($store))->toBe(1)
+        ->and(autoselectedAt($store))->not->toBeNull();
+});
+
+it('auto-fills unchanged for a food account whose store is on a different domain', function () {
+    // The mixed case the guard must preserve: a restaurant that also sells
+    // real merch through a store that is NOT their own website.
+    [$pro, $siteId] = poolTenant();
+    autoSelectOwnWebsite($pro->id, $siteId, 'https://www.thefamishedwolf.com.au', 'restaurant');
+    $store = autoSelectStore($pro->id, ['url' => 'https://wolf-merch.myshopify.com']);
+    autoSelectProduct($pro->id, $store, 0);
+
+    expect(app(ShopAutoSelector::class)->selectInitial($store))->toBe(1)
+        ->and(autoselectedAt($store))->not->toBeNull();
+});
+
+it('never auto-pins a product whose normalized name matches a live menu item, in any sector', function () {
+    // The Classic Mac class, outside the sector guard: no workplace, no
+    // sector — the name collision alone keeps the dish off the Sell page,
+    // and the newest non-colliding products still fill all 5 slots.
+    [$pro, $siteId] = poolTenant();
+    autoSelectMenuItem($pro->id, 'Classic Mac!');
+    $store = autoSelectStore($pro->id);
+    $collided = autoSelectProduct($pro->id, $store, 0, 'Classic Mac');
+    $ids = [];
+    foreach (range(1, 6) as $pos) {
+        $ids[$pos] = autoSelectProduct($pro->id, $store, $pos);
+    }
+
+    expect(app(ShopAutoSelector::class)->selectInitial($store))->toBe(5);
+
+    $sectionId = DB::table('site.sections')
+        ->where('site_id', $siteId)->where('key', 'pool:shop')->value('id');
+    $pins = DB::table('site.section_items')->where('section_id', $sectionId)
+        ->where('state', 'pinned')->orderBy('sort_key')->pluck('item_id')->all();
+
+    // Filter-then-take: the collision costs the dish its slot, never the
+    // catalogue a pin — P1..P5 fill all five.
+    expect($pins)->toBe([$ids[1], $ids[2], $ids[3], $ids[4], $ids[5]])
+        ->and($pins)->not->toContain($collided);
+});
+
+it('leaves the stamp unset when every product collides with the menu', function () {
+    [$pro] = poolTenant();
+    $menuItemId = autoSelectMenuItem($pro->id, 'Classic Mac');
+    $store = autoSelectStore($pro->id);
+    autoSelectProduct($pro->id, $store, 0, 'Classic Mac');
+
+    expect(app(ShopAutoSelector::class)->selectInitial($store))->toBe(0)
+        ->and(autoselectedAt($store))->toBeNull();
+
+    // A removed dish no longer vetoes — the next select-time call gets its
+    // chance, same as a late-filling catalogue.
+    DB::table('content.items')->where('id', $menuItemId)->update(['removed_at' => now()]);
+    expect(app(ShopAutoSelector::class)->selectInitial($store))->toBe(1)
+        ->and(autoselectedAt($store))->not->toBeNull();
 });

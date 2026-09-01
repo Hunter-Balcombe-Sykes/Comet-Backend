@@ -24,9 +24,11 @@ use App\Site\Documents\BuildState;
 use App\Site\Documents\SiteCacheLanes;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Throwable;
 
 /**
  * The projection stage's ONE writer (plan §4 Landing → Projection, §5/§6
@@ -3365,6 +3367,25 @@ class ProjectionWriter
             return;
         }
 
+        // Zero-dispatch passes are throttled, not silenced (Wave 3 triage,
+        // 2026-09-01): steady state re-projects the same already-mirrored /
+        // not_owned skips on EVERY document rebuild, so the unthrottled line
+        // was one flood per rebuild saying nothing new — while R8 still needs
+        // the capped/unresolved tail to stay explainable, so it is once per
+        // user per hour rather than gone. Cache::add is an atomic SETNX
+        // (idiom: LinkProjector::reportMalformedPattern). A dispatching pass
+        // always logs — that line is new information each time.
+        if ($dispatched === 0) {
+            try {
+                if (! Cache::add("media_mirror:zero-dispatch:{$userId}", 1, 3600)) {
+                    return;
+                }
+            } catch (Throwable) {
+                // Observability must never become the fault — a cache outage
+                // costs the throttle, never the line or the projection.
+            }
+        }
+
         // info, not debug: this is the line that makes the unmirrored tail
         // readable in a log capture. It is one line per projection pass, not
         // per asset. Note prod's LOG_LEVEL defaults to `warning` and would drop
@@ -3609,7 +3630,7 @@ class ProjectionWriter
                     && ($liveSlugs[$itemId] ?? null) !== $this->slugs->baseSlug((string) $headline, (string) $itemId)) {
                     try {
                         $this->slugs->ensureCurrent((string) $row->user_id, (string) $itemId, (string) $headline);
-                    } catch (\Throwable $e) {
+                    } catch (Throwable $e) {
                         report($e);
                     }
                 }

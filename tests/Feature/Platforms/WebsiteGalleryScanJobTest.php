@@ -44,11 +44,11 @@ it('does nothing when the site no longer exists', function () {
     Http::assertNothingSent();
 });
 
-it('skips fetching entirely when the gallery already has an active photo', function () {
+it('skips fetching entirely when the media pool already has an active photo', function () {
     $user = wgsjUser('wgsjexisting');
     $site = Site::factory()->for($user, 'user')->create();
     (new SiteMedia([
-        'pool' => SiteMedia::POOL_GALLERY,
+        'pool' => SiteMedia::POOL_CONTENT,
         'bucket' => 'test-bucket',
         'path' => 'images/existing.jpg',
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,

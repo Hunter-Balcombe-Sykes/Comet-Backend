@@ -6,6 +6,10 @@
 // hold a mix of images and videos. Before this change, POST /images/reorder
 // silently defaulted `media_type` to 'image', which dropped video ids from
 // the reorder payload and corrupted the displayed order.
+//
+// Pool flipped gallery→content 2026-09-01 (Item 5 retired the gallery write
+// lane from partna.upload_pools) — the mixed-type reorder scoping under test
+// is pool-agnostic.
 
 use App\Http\Controllers\Api\User\Uploads\UserUploadController;
 use App\Http\Requests\Api\User\Uploads\ReorderPoolImagesRequest;
@@ -39,7 +43,7 @@ function seedGalleryMediaRow(string $siteId, string $mediaType, int $sortOrder):
     DB::connection('pgsql')->table('site_media')->insert([
         'id' => $id,
         'site_id' => $siteId,
-        'pool' => 'gallery',
+        'pool' => 'content',
         'path' => "{$mediaType}s/{$siteId}/{$id}/original.bin",
         'sort_order' => $sortOrder,
         'is_active' => true,
@@ -114,7 +118,7 @@ it('reorders a mixed image+video gallery when media_type is omitted', function (
 
     // Move video D to the front, keep the rest in order: [D, A, B, C].
     $response = callReorderController($professional, [
-        'pool' => 'gallery',
+        'pool' => 'content',
         'ids' => [$d, $a, $b, $c],
     ]);
 
@@ -140,7 +144,7 @@ it('still scopes the reorder when media_type is explicitly provided', function (
 
     // Swap the two images only; videos must keep their relative order.
     $response = callReorderController($professional, [
-        'pool' => 'gallery',
+        'pool' => 'content',
         'media_type' => 'image',
         'ids' => [$b, $a],
     ]);
@@ -166,7 +170,7 @@ it('rejects a mixed reorder that includes an id from another site', function () 
 
     // abort(403, …) throws HttpException inside the transaction — assert on that.
     expect(fn () => callReorderController($professionalA, [
-        'pool' => 'gallery',
+        'pool' => 'content',
         'ids' => [$ownImage, $foreignVideo],
     ]))->toThrow(HttpException::class);
 });

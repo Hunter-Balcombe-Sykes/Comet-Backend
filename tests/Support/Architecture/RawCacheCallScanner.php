@@ -67,6 +67,12 @@ final class RawCacheCallScanner
         // cross-tenant BY DESIGN (the same brand appears in hundreds of bios;
         // one paid scrape shared), no per-user CacheKeyGenerator shape fits.
         'app/Jobs/PreAccount/BioMentionChainsJob.php',
+        // Wave 3 (2026-09-01): one atomic Cache::add SETNX throttling the
+        // zero-dispatch media_mirror log line to once/user/hour — a log
+        // throttle (same class as the webhook idempotency dedupe above),
+        // never tenant data; wrapped in try/catch so a cache outage costs
+        // the throttle, not the line or the projection.
+        'app/Ingest/Projection/ProjectionWriter.php',
 
         // This entry carries NO justification comment in ci.yml — it is
         // present in the git-grep pathspec list with no accompanying bullet

@@ -54,6 +54,11 @@ class SiteMedia extends BaseModel
 
     protected $keyType = 'string';
 
+    // Retired as a WRITE target 2026-09-01 (Item 5: one media pool) —
+    // migration 20260901200000 backfilled every gallery row into
+    // POOL_CONTENT, and PoolGalleryWriteGuardTest pins the retirement.
+    // Kept only for the legacy read/filter surfaces (GALLERY_POOLS) until
+    // those lanes are torn down.
     public const POOL_GALLERY = 'gallery';
 
     public const POOL_CONTENT = 'content';
@@ -118,6 +123,11 @@ class SiteMedia extends BaseModel
      * both reference this so the bust-key space can never drift from accepted input.
      * Deliberately excludes POOL_DOCUMENTS / POOL_DESIGN (not gallery-listable).
      *
+     * 'gallery' survives here as a legacy FILTER input only (Item 5,
+     * 2026-09-01): nothing writes the pool any more and the backfill emptied
+     * it, but the accepted-input/bust-key space stays stable until the
+     * gallery read surfaces are torn down.
+     *
      * @var list<string>
      */
     public const GALLERY_POOLS = [self::POOL_GALLERY, self::POOL_CONTENT];
@@ -146,7 +156,9 @@ class SiteMedia extends BaseModel
 
     protected $attributes = [
         'is_active' => true,
-        'pool' => self::POOL_GALLERY,
+        // POOL_CONTENT since Item 5 (2026-09-01): a bare save must never
+        // recreate a row in the retired gallery lane.
+        'pool' => self::POOL_CONTENT,
         'media_type' => self::MEDIA_TYPE_IMAGE,
         'processing_state' => self::PROCESSING_STATE_PENDING,
     ];
