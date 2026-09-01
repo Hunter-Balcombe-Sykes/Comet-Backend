@@ -123,19 +123,11 @@ wolf=GB ChIJ-f-5fXtd1moRUyH7gmrvImY (business), ryan=IG ryanfitzsimonshair
       the 10.6s ready ARE the vendor-speed evidence.) Apify: no apify
       claims during the builds — vendor-primary held.
 
-### Item 9 (latency, the headline table)
-Measure a fresh partna + a fresh business build against:
-
-| Milestone | Baseline | Target | Measured |
-|---|---|---|---|
-| KV live | ~9s | ~9s | |
-| ready (partna / business) | 15–51s / ~5s | 8–25s / ~5s | (smoke: 10s partna w/ prewarm) |
-| media pool fully visible | 6–7 min | 60–90s | (smoke: <60s) |
-| workplace (partna) | 10–12 min | 45–90s | (smoke: ≤54s) |
-| EVERYTHING (partna / business) | 12–13 min / 4–9 min | 1.5–3 min / 2.5–3 min | |
-
-- [ ] Two simultaneous signups complete without serializing.
-- [ ] Tier telemetry (`pre_account.tier`) captured for every campaign build.
+### Item 9 (latency, the headline table) — PASSED 2026-09-02
+- [x] Measured table, the two simultaneous signups and the tier telemetry:
+      all recorded under "Campaign run — 2026-09-02" above (the skeleton
+      that stood here was the pre-run placeholder). Re-measured after
+      Wave 7 in "Re-run after Wave 7" below.
 
 ### Item 10 + 11 (expansion) — PASSED 2026-09-02 (testbed: ryanmcleodzooooom)
 - [x] Live connects, all real vendor calls: twitch (CohhCarnage — identity
@@ -192,6 +184,63 @@ constraint migration):**
 - [x] Plan file DELIBERATELY KEPT: it now carries the owner's Waves 6–8
       (legacy sweep, Astro batch, staff settings) appended mid-campaign —
       it is deleted when THOSE ship, not when this campaign closed.
+
+## Re-run after Wave 7 (2026-09-02 08:05 AEST, owner's post-Astro item 1)
+
+Same teardown (3/3 expired + pruned, zero residue) and the same inputs, same
+harness. Danny + wolf posted together at 22:05:16Z; ryan prewarmed at
+22:05:36Z and posted at 22:05:45Z — so ryan OVERLAPPED danny's build this
+time (Wave 5 ran him solo).
+
+| Milestone | Wave 5 (2026-09-02 am) | Re-run | Read |
+|---|---|---|---|
+| ready business (wolf) | 5.6s | **6.0s** | unchanged |
+| ready partna, concurrent (danny) | 13.5s | **30.3s** | vendor (below) |
+| ready partna, prewarmed (ryan) | 10.6s | **43.8s** | vendor (below) |
+| KV live | ready+2s | ready+1.5–2s | unchanged |
+| workplace (danny / ryan / wolf) | 15s | **38s / 64s / 5s** | trails ready by the same ~25s |
+| Instagram pool visible on the page | — (not separated) | **ready+3s** (`pool.video.progressive_serve` ×5 at 22:06:30 for ryan; images seed at prefetch) | Item 7 doing its job |
+| `content_filled` marker | 40.6s | **105s / 117s / 64s** | marker drift (below) |
+| fully MIRRORED pool | — | +144s / +157s | mirror lane width (below) |
+
+Sitepages: all three 200 with the right content (ryan 7 videos all from
+mirrored storage, wolf 6 videos + 54-dish menu, danny 13 images +
+workplace) and every Wave 7 surface present on the fresh builds.
+
+**What the server timeline says (windowed `cloud env:logs`, DB stamps):**
+
+1. **ScrapeCreators `/v1/instagram/profile` answered HTTP 500 three times**
+   (22:05:30 after 9.1s, 22:05:55 after 11.0s, 22:06:30 after 11.7s). Every
+   partna ready-path call hit one: danny's prefetch waited 9s for the 500
+   then took the actor fallback (`pre_account.bio_intelligence` at +21s,
+   materialised +21s, ready +30s); ryan's PrewarmInstagramProfileJob ran
+   34s and his generate job 31s. Wolf (Google) never touched the vendor and
+   was unchanged. The 20s client timeout is not the lever — the vendor
+   answered, slowly, with an error. This is vendor variance; the lossy
+   fallback held (every build finished with full content).
+2. **`content_filled` measures the wrong lane now.** Since Wave 3 the
+   Instagram pool projects into `content.items`/`item_media`, while the
+   marker still watches `site_media` content rows (only website grabs
+   mint those) and menus. On an Instagram-fed site it therefore fired on
+   the WebsiteGalleryScan grabs (+95–105s), long after the pool was on the
+   page. FIXED in this pass: the marker also observes a projected pool
+   item with media (commit below).
+3. **Mirroring is the long pole for "fully mirrored", not for visibility.**
+   35 + 42 + 64 mirror jobs at ~3s each on supervisor-mirror's 2
+   processes (overlap confirmed in the logs) ≈ 2 minutes for three
+   simultaneous builds. Videos and images render from source until then
+   (progressive serve), so the visitor sees the pool at ready. Widening the
+   lane to 4 would halve this, but config/horizon.php's own memory
+   arithmetic already over-commits the 2 GiB worker box (11 workers is a
+   WATCH item) — the config note says the real fix is the box resize the
+   owner pre-approved. **Owner action: resize the worker box, then
+   supervisor-mirror 2→4** (one-line config change, pre-written below).
+4. Cache purges ran 68 times in three minutes (ShouldBeUnique per handle,
+   35s) — cheap (0.3–0.9s each), on the low-priority lane; not a lever.
+
+**Verdict:** no regression from Waves 6–7. The partna ready times were a
+vendor-500 night; the business path and KV are unchanged; visible media is
+at ready. Telemetry corrected so the next run measures what visitors see.
 
 ## CAMPAIGN VERDICT (2026-09-02): GREEN
 

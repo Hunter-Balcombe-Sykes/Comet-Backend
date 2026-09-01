@@ -8,6 +8,7 @@ use App\Models\Core\User\PreAccountBuild;
 use App\Services\PreAccount\ClaimSiteService;
 use App\Services\PreAccount\PreAccountBuildService;
 use App\Services\PreAccount\SourcePrefetch;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -186,6 +187,10 @@ it('never surfaces claim_token on the public poll endpoint', function () {
 it('stamps content_filled/enriched lazily on the poll once their conditions are observable', function () {
     setupSiteMediaTable();
     setupWorkplacesTable();
+    // The marker's pool-item arm reads content.items/item_media — the plane
+    // always exists in production, so the stand-ins exist here too.
+    setupSectionsTables();
+    setupContentTables();
 
     $this->postJson('/api/public/signup/build', ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'tierjane']);
     $build = PreAccountBuild::firstOrFail();
@@ -222,6 +227,36 @@ it('stamps content_filled/enriched lazily on the poll once their conditions are 
         ->assertJsonPath('tiers.enriched_at', fn ($v) => is_string($v));
     expect($build->fresh()->enriched_at)->not->toBeNull()
         ->and($build->fresh()->content_filled_at?->toIso8601String())->toBe($first?->toIso8601String());
+});
+
+it('stamps content_filled from a projected pool item with media — the Instagram pool serves before any site_media row exists', function () {
+    setupSiteMediaTable();
+    setupSectionsTables();
+    setupContentTables();
+
+    $this->postJson('/api/public/signup/build', ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'pooljane']);
+    $build = PreAccountBuild::firstOrFail();
+    app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
+    $build->refresh();
+    $build->forceFill(['build_state' => PreAccountBuild::STATE_READY])->save();
+
+    // An item WITHOUT media is not content on the page yet.
+    $bare = seedContentItem((string) $build->user_id);
+    $this->getJson("/api/public/signup/builds/{$build->id}")->assertOk()->assertJsonMissingPath('tiers');
+    expect($build->fresh()->content_filled_at)->toBeNull();
+
+    // Its media row lands (the projection's item_media write) → the next poll
+    // stamps content_filled, with no site_media row anywhere.
+    DB::connection('pgsql')->table('content.item_media')->insert([
+        'id' => (string) Str::uuid(), 'item_id' => $bare, 'source_id' => 'src-1',
+        'role' => 'cover', 'position' => 0, 'created_at' => now()->toDateTimeString(),
+    ]);
+    expect(SiteMedia::query()->count())->toBe(0);
+
+    $this->getJson("/api/public/signup/builds/{$build->id}")
+        ->assertOk()
+        ->assertJsonPath('tiers.content_filled_at', fn ($v) => is_string($v));
+    expect($build->fresh()->content_filled_at)->not->toBeNull();
 });
 
 // ── 9g: the scrape pre-warm endpoint ─────────────────────────────────────────

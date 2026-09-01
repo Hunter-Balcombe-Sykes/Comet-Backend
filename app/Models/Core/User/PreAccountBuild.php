@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -107,10 +108,21 @@ class PreAccountBuild extends BaseModel
 
     /**
      * 9h: lazily stamp the post-ready tiers the first time the public poll
-     * observes them — content_filled (first gallery/content media READY, or
-     * the menu fetched) and enriched (a workplace landed). One indexed query
-     * per still-null tier per poll while settling; each stamp emits the
-     * per-tier timing telemetry line the timeline campaign measures from.
+     * observes them — content_filled (a projected pool item with media, a
+     * READY content-pool site_media row, or the menu fetched) and enriched
+     * (a workplace landed). One indexed query per still-null tier per poll
+     * while settling; each stamp emits the per-tier timing telemetry line
+     * the timeline campaign measures from.
+     *
+     * The pool-item arm (2026-09-02, campaign re-run): since Wave 3 the
+     * Instagram/TikTok/… pool projects into content.items + item_media and
+     * the page serves it progressively from ready — only website grabs
+     * still mint site_media content rows. Watching site_media alone made
+     * the marker fire on the WebsiteGalleryScan lane (+95–105s) while the
+     * pool had been on the page since ready+3s. Any item with a media row
+     * counts: this is telemetry about content having landed, not the
+     * rendering read (PoolResolver's LiveSourceScope is the visibility
+     * authority and needs the whole source plane to answer).
      * "Observed at", not "happened at" — precise enough for tiers whose
      * producers span many jobs, and centralised here instead of hooked into
      * every one of them. Best-effort by contract: a failure must never break
@@ -138,6 +150,13 @@ class PreAccountBuild extends BaseModel
                     || Menu::query()
                         ->where('user_id', $this->user_id)
                         ->where('fetch_status', 'ok')
+                        ->exists()
+                    || DB::connection('pgsql')->table('content.items')
+                        ->where('content.items.user_id', $this->user_id)
+                        ->whereExists(function ($media) {
+                            $media->from('content.item_media')
+                                ->whereColumn('content.item_media.item_id', 'content.items.id');
+                        })
                         ->exists();
                 if ($hasContent) {
                     $stamps['content_filled_at'] = now();
