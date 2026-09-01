@@ -53,6 +53,15 @@ beforeEach(function () {
     // them and never drop them), so: create with the FULL shape — every column
     // defaulted so a sibling's 2-column insert still works — then ALTER-heal in
     // case a sibling that ran first created a narrower one. Never DROP them.
+    // LoadCurrentUser:108 resolves PartnaStaff on EVERY authenticated request,
+    // and the forked claimers below go through the full HTTP stack. Without
+    // this the middleware 42P01s before the claim race under test even runs.
+    $pg->statement('CREATE TABLE IF NOT EXISTS core.partna_staff (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        auth_user_id uuid,
+        role text
+    )');
+
     $pg->statement('CREATE TABLE IF NOT EXISTS core.users (
         id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         auth_user_id  uuid,

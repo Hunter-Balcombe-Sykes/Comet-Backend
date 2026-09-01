@@ -54,7 +54,11 @@ beforeEach(function () {
     // tests/Postgres file runs first wins the definition, so declaring columns
     // this test never reads would be a claim the lane cannot honour.
     $pg->statement('CREATE TABLE IF NOT EXISTS core.users        (id uuid PRIMARY KEY DEFAULT gen_random_uuid())');
-    $pg->statement('CREATE TABLE IF NOT EXISTS core.partna_staff (id uuid PRIMARY KEY DEFAULT gen_random_uuid())');
+    $pg->statement('CREATE TABLE IF NOT EXISTS core.partna_staff (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        auth_user_id uuid,
+        role text
+    )');
     $pg->statement('CREATE TABLE IF NOT EXISTS core.feature_flags (
         key text NOT NULL, description text NOT NULL DEFAULT \'\',
         default_enabled boolean NOT NULL DEFAULT false, rollout_percent smallint NOT NULL DEFAULT 0,
