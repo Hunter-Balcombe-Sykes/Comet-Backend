@@ -776,7 +776,7 @@ None.
 ## Progress
 
 - P1 High: 1 of 1 complete
-- P2 Medium: 4 of 19 complete
+- P2 Medium: 7 of 19 complete
 - P3 Low: 0 of 5 complete
 
 ---
@@ -813,6 +813,7 @@ None.
 ## P2 — Should fix
 
 - [ ] **#TEST-2** · P2 — `content.storefronts` FK-cascade schema invariant reads an unscoped, unordered `$fk[0]` instead of the specific constraint it names
+    - ⚠️ Note (2026-09-01): the 2026-08-25 triage closed this as "refuted — `content.storefronts` has exactly one FK". **That reason is factually wrong, so this finding stays OPEN.** The table has TWO foreign keys: `collection_id` → `content.collections(id)` (`20260813100000_create_content_storefronts.sql:8`) and `storefronts_user_id_fkey` → `core.users(id)` (`20260819000100_content_storefronts_user_id.sql:51`) — the second added 2026-08-19, six days BEFORE that triage. The test filters only on `contype = 'f'`, so it gets two unordered rows and `$fk[0]` may be either. It passes today only because both happen to be `ON DELETE CASCADE` — luck, not the invariant it claims to pin. Scope the query by `conname` or `confrelid`.
     - **Where:** tests/Schema/ContentStorefrontsConstraintsTest.php:19-27
     - **Affects:** Reliability of the schema-invariant lane's guard against an orphaned `content.storefronts` row.
     - **Effort:** S (~0.5–1h)
@@ -906,8 +907,9 @@ None.
             WHERE settings ?| ARRAY['smart_actions', 'manual_actions', 'manual_order_pools'];
         ```
 
-- [ ] **#TEST-7** · P2 — `UpdateSiteRequest`'s publish-readiness guard (no `display_name` → can't publish) has no test
-    - **Where:** app/Http/Requests/Api/User/Site/UpdateSiteRequest.php:124-126
+- [x] **#TEST-7** · P2 — `UpdateSiteRequest`'s publish-readiness guard (no `display_name` → can't publish) has no test
+    - Resolution (2026-09-01): WONTFIX — premise refuted, per the 2026-08-25 pre-pilot triage (`audits/consolidation/2026-08-25-pre-pilot-p2-promotion/BACKLOG-TRIAGE.md`), re-verified against the code on 2026-09-01 rather than taken on faith. `core.users.display_name` is `text NOT NULL` (`supabase/migrations/20260726000000_baseline_pilot.sql:1143`), so the "no display_name → cannot publish" branch (now `UpdateSiteRequest.php:135`) is structurally unreachable. A branch no fixture can enter needs no test.
+    - **Where:** app/Http/Requests/Api/User/Site/UpdateSiteRequest.php:124-135
     - **Affects:** The site publish flow; a professional with an empty `display_name` could otherwise publish a malformed public sitepage.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -1101,7 +1103,8 @@ None.
         }
         ```
 
-- [ ] **#TEST-17** · P2 — `CommerceProbeJob`'s `ShouldBeUnique` dedup contract has no dispatch-twice or idempotency test
+- [x] **#TEST-17** · P2 — `CommerceProbeJob`'s `ShouldBeUnique` dedup contract has no dispatch-twice or idempotency test
+    - Resolution (2026-09-01): WONTFIX — premise refuted, per the 2026-08-25 pre-pilot triage (`audits/consolidation/2026-08-25-pre-pilot-p2-promotion/BACKLOG-TRIAGE.md`), re-verified against the code on 2026-09-01 rather than taken on faith. The `ShouldBeUnique` gotcha bites only via `Bus::dispatch(new ...)`, which skips `PendingDispatch` and never takes the unique lock. All six dispatch sites use `CommerceProbeJob::dispatch(...)`: `RoutingController.php:260`, `SuggestionsController.php:294`, `LinkInBioImporter.php:678`, `SourceReconciler.php:83`, `LinkRouter.php:217` and `:417`. The repo already guards the trap deliberately — see the warning comments at `ProjectionWriter.php:3336` and `ShopBrandConnectJob.php:212`.
     - **Where:** app/Jobs/Platforms/CommerceProbeJob.php:56, 86-89 (`$uniqueFor`, `uniqueId()`)
     - **Affects:** Scanned links; duplicate dispatches for the same user+URL within 300s could run duplicate probes or write duplicate cards.
     - **Effort:** S (~0.5–1h)
@@ -1152,8 +1155,9 @@ None.
         }
         ```
 
-- [ ] **#TEST-19** · P2 — `GoogleBusinessAutoSync::seedSocials()`'s facebook/tiktok/x/linkedin check-then-write loop is unlocked and untested for concurrency
-    - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:739-796
+- [x] **#TEST-19** · P2 — `GoogleBusinessAutoSync::seedSocials()`'s facebook/tiktok/x/linkedin check-then-write loop is unlocked and untested for concurrency
+    - Resolution (2026-09-01): WONTFIX — premise refuted, per the 2026-08-25 pre-pilot triage (`audits/consolidation/2026-08-25-pre-pilot-p2-promotion/BACKLOG-TRIAGE.md`), re-verified against the code on 2026-09-01 rather than taken on faith. The check-then-write race is backstopped in the database: `idx_platform_connections_unique_active` is UNIQUE on `(user_id, platform, resource_id) WHERE deleted_at IS NULL` (`supabase/migrations/20260726000000_baseline_pilot.sql:3215`). A lost race is a reported constraint violation, not a silent duplicate. ⚠️ This index does NOT cover #TEST-20, which stays open: two DIFFERENT reservation brands carry different `resource_id`s and both write into one single-slot family, so the index never fires. That is exactly why the triage promoted TEST-20 while refuting this one — do not close them together.
+    - **Where:** app/Services/Platforms/GoogleBusinessAutoSync.php:801-860
     - **Affects:** Users whose Google Business enrichment runs concurrently with itself via queue retries — a duplicate social connection can be written instead of reported as a conflict.
     - **Effort:** M (~2–4h)
     - **What to do:**

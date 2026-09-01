@@ -857,7 +857,7 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
-- P2 Medium: 9 of 11 complete
+- P2 Medium: 11 of 11 complete
 - P3 Low: 1 of 1 complete
 
 ---
@@ -973,9 +973,9 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
         Cache::put($key, $final ?? '', $final === null ? self::FAILURE_TTL_SECONDS : self::SUCCESS_TTL_SECONDS);
         ```
 
-- [ ] **CCH-4** · P2 — `ShortLinkExpander` has no stale-while-revalidate companion
-    - Note (2026-09-01, still open — and the PRESCRIPTION is now WRONG): the stampede half shipped under CCH-2, so the quoted `Cache::get` → sync fetch → `Cache::put` evidence is gone; the call is now single-flighted through `CacheLockService::rememberLockedNullable` (`app/Routing/ShortLinkExpander.php:88-101`). But SWR did NOT ship: `rememberLockedNullable`'s own docblock states "Note: no SWR here" (`app/Services/Cache/CacheLockService.php:410-413`) and it writes no `$key:stale`. Do NOT apply the "standardise on `rememberLocked`" fix as written — `resolveFinal()` can legitimately return null, and the call site carries an explicit "Do not 'upgrade' this to rememberLocked" warning because a null would poison the stale twin. A real fix needs SWR that tolerates a null result, not a swap to `rememberLocked`.
-    - **Where:** app/Routing/ShortLinkExpander.php:68-103
+- [x] **CCH-4** · P2 — `ShortLinkExpander` has no stale-while-revalidate companion
+    - Resolution (2026-09-01): WONTFIX — the absence of SWR here is DELIBERATE, per the 2026-08-25 pre-pilot triage (`audits/consolidation/2026-08-25-pre-pilot-p2-promotion/BACKLOG-TRIAGE.md`), re-verified against the code on 2026-09-01 rather than taken on faith. This session reached the same conclusion from the code independently, before that ruling was found. Detail: the stampede half shipped under CCH-2, so the quoted `Cache::get` → sync fetch → `Cache::put` evidence is gone; the call is now single-flighted through `CacheLockService::rememberLockedNullable` (`app/Routing/ShortLinkExpander.php:88-101`). But SWR did NOT ship: `rememberLockedNullable`'s own docblock states "Note: no SWR here" (`app/Services/Cache/CacheLockService.php:410-413`) and it writes no `$key:stale`. Do NOT apply the "standardise on `rememberLocked`" fix as written — `resolveFinal()` can legitimately return null, and the call site carries an explicit "Do not 'upgrade' this to rememberLocked" warning because a null would poison the stale twin. Caching a transient failure as last-known-good is worse than having no stale twin, so there is nothing here for SWR to protect.
+    - **Where:** app/Routing/ShortLinkExpander.php:86-101
     - **Affects:** Callers arriving after a short-link cache entry expires all block on a live external fetch instead of one caller regenerating while the rest read last-good.
     - **Effort:** M (~2–4h) — folds into the CCH-2 fix
     - **What to do:**
@@ -1040,8 +1040,9 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
         Cache::put($key, $json, (int) config('partna.refresh.host_limits.itunes.cache_ttl_seconds'));
         ```
 
-- [ ] **CCH-7** · P2 — `AppleSearch::itunes()` missing stale-while-revalidate companion
-    - **Where:** app/Services/Platforms/AppleSearch.php:109-133
+- [x] **CCH-7** · P2 — `AppleSearch::itunes()` missing stale-while-revalidate companion
+    - Resolution (2026-09-01): WONTFIX — same ruling and same reason as CCH-4, per the 2026-08-25 pre-pilot triage (`audits/consolidation/2026-08-25-pre-pilot-p2-promotion/BACKLOG-TRIAGE.md`), re-verified against the code on 2026-09-01 rather than taken on faith, and verified in this file too. `AppleSearch::itunes()` uses `rememberLockedNullable` behind a comment that settles it: "Do not 'upgrade' this to rememberLocked; there is nothing here for SWR/jitter to protect, since a failure must never be cached" (`app/Services/Platforms/AppleSearch.php:119-126`). `fetchDecoded()` returns null on a 429 or decode failure, which must never become a cached last-good response.
+    - **Where:** app/Services/Platforms/AppleSearch.php:117-129
     - **Affects:** Apple Music/Podcasts readers during primary-key expiry; no last-good fallback while a fresh lookup runs.
     - **Effort:** S (~0.5–1h) — folds into the CCH-1 fix
     - **What to do:**
