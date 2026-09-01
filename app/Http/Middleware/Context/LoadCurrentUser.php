@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware\Context;
 
+use App\Models\Core\Staff\PartnaStaff;
 use App\Services\Cache\UserCacheService;
 use Closure;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -14,11 +15,21 @@ use Symfony\Component\HttpFoundation\Response;
 // V2: Loads authenticated professional into request context via cache. Rejects suspended/missing accounts.
 class LoadCurrentUser
 {
+    /**
+     * Opt-in mode for the ONE route that must survive a staff-only session:
+     * GET /api/me, the dashboard's boot call. Passed as a middleware parameter
+     * (`current.pro:staff_session_ok`) rather than being the default, because
+     * every OTHER user route reads `professional` off the request — directly in
+     * ~6 controllers, via ResolveCurrentUser everywhere else — and letting a
+     * profile-less session through to those would turn a clean 403 into a 500.
+     */
+    public const MODE_STAFF_SESSION_OK = 'staff_session_ok';
+
     public function __construct(
         private UserCacheService $userCache
     ) {}
 
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next, ?string $mode = null): Response
     {
         $uid = $request->attributes->get('supabase_uid');
         if (! $uid) {
@@ -38,17 +49,7 @@ class LoadCurrentUser
         $professional = $this->userCache->getByAuthId($uid);
 
         if (! $professional) {
-            // Verified auth user with no Partna profile — they bailed mid-signup
-            // (closed the tab between supabase.auth.signUp and /api/bootstrap).
-            // Surface a structured error code so the frontend can route them
-            // back into the sign-up flow at the "about" step (resume=1) and
-            // finish the bootstrap with their existing session.
-            Log::debug('LoadCurrentUser no professional for uid', ['uid' => $uid]);
-
-            return response()->json([
-                'error' => 'bootstrap_required',
-                'message' => 'Finish setting up your Partna account.',
-            ], 403);
+            return $this->handleMissingProfile($request, $next, (string) $uid, $mode);
         }
 
         $status = $professional->status ?? 'active';
@@ -79,6 +80,69 @@ class LoadCurrentUser
         Context::add([
             'user_id' => (string) $professional->id,
             'account_type' => (string) ($professional->account_type?->value ?? ''),
+        ]);
+
+        return $next($request);
+    }
+
+    /**
+     * A verified auth user with no core.users row is one of two very different
+     * people, and answering both with `bootstrap_required` is what produced the
+     * incident this method exists for.
+     *
+     * A STAFF member is not a half-finished professional. Staff UX used to be a
+     * USER session with a staff overlay: /me required a core.users row, so the
+     * only way a staff member could boot the dashboard at all was to hold one —
+     * which meant being treated as a professional who owns a public sitepage.
+     * `bootstrap_required` is the frontend's cue to route the caller back into
+     * signup, so a staff-only session was pushed to mint exactly the row the
+     * owner ruled must never exist (2026-09-01). Staff sessions are first-class
+     * now: on the boot route they get a session envelope, and everywhere else a
+     * distinct 403 the dashboard must NOT translate into "finish signing up".
+     *
+     * The genuine bail-out-mid-signup case is unchanged — same code, same
+     * status, same message.
+     */
+    private function handleMissingProfile(Request $request, Closure $next, string $uid, ?string $mode): Response
+    {
+        $staff = PartnaStaff::query()->where('auth_user_id', $uid)->first();
+
+        if (! $staff) {
+            // Verified auth user with no Partna profile — they bailed mid-signup
+            // (closed the tab between supabase.auth.signUp and /api/bootstrap).
+            // Surface a structured error code so the frontend can route them
+            // back into the sign-up flow at the "about" step (resume=1) and
+            // finish the bootstrap with their existing session.
+            Log::debug('LoadCurrentUser no professional for uid', ['uid' => $uid]);
+
+            return response()->json([
+                'error' => 'bootstrap_required',
+                'message' => 'Finish setting up your Partna account.',
+            ], 403);
+        }
+
+        if ($mode !== self::MODE_STAFF_SESSION_OK) {
+            Log::info('LoadCurrentUser staff-only session on a professional route', [
+                'uid' => $uid,
+                'staff_id' => (string) $staff->id,
+                'route' => $request->path(),
+            ]);
+
+            return response()->json([
+                'error' => 'staff_only_session',
+                'message' => 'This is a staff session. It has no professional profile.',
+            ], 403);
+        }
+
+        $request->attributes->set('partna_staff', $staff);
+        $request->attributes->set('staff_only_session', true);
+
+        // Tag Nightwatch with the actor we DO have. The professional branch adds
+        // user_id/account_type below; a staff-only request has neither, and an
+        // untagged record is indistinguishable from an unauthenticated one.
+        Context::add([
+            'staff_id' => (string) $staff->id,
+            'staff_role' => (string) $staff->role,
         ]);
 
         return $next($request);
