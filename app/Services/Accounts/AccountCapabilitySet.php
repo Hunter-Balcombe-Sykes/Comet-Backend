@@ -77,7 +77,11 @@ final readonly class AccountCapabilitySet
         // account type. The account_type half was dropped because a cafe is a
         // food account whatever enum it was filed under — see the clause in
         // AccountCapabilities for the accounts that proved it. An account with
-        // no sector yet still reads as not-food until one is picked/synced.
+        // no sector yet still reads as not-food until one is picked manually or
+        // synced from Instagram; the Google sync does NOT fill it for a partna
+        // account (IdentitySync::applySector is business-only by decision 12),
+        // so "synced" is not the blanket the amending commit assumed — the
+        // correction is spelled out at the clause itself.
         public bool $can_use_menu,
         // Food businesses take table reservations instead of appointment
         // booking; every other account (including every partna account,

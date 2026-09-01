@@ -8,7 +8,8 @@ namespace App\Enums;
  * The 12 cases below, IN THIS ORDER, are the canonical default page order — the
  * order pages appear before any popularity re-ranking is applied. Every page is
  * presence-gated per site (shown only when the site has content for it); some
- * are additionally capability-gated (see PAGE_CAPABILITY).
+ * must additionally prove the content is the OWNER's to show (see
+ * ATTRIBUTION_GATED).
  *
  * 2026-08-27 (smart-scoring plan): `reservations`, `strava` and `skool` left
  * the taxonomy. The PLATFORMS stay — a reservation widget, a Strava club or a
@@ -37,31 +38,42 @@ enum SitepageId: string
     case Links = 'links';
 
     /**
-     * Capability-gated pages: page-id => the AccountCapabilitySet property that
-     * grants it. SitepageDataResolverService::presentPageIds drops a present
-     * page whose named capability the account lacks.
+     * Pages presence alone may not advertise. Presence proves the site HAS the
+     * content; these pages must additionally prove the content is the page
+     * OWNER's to show, against the owner's own data, every build. Enforced by
+     * SitepageDataResolverService::gateOwnerAttribution(), which asks
+     * PoolResolver::hasSelection() — the same arithmetic that decides what is
+     * behind the page — so nav can never advertise a page whose pool resolves
+     * empty. Fails CLOSED: a probe fault drops the page rather than advertising
+     * an unproven one.
      *
-     * Replaces BUSINESS_ONLY = ['menu', 'reviews'] (2026-09-01), which the
-     * resolver gated on can_use_multipage_site. That capability was minted by
-     * #30 to answer exactly one question — "may this account select the atlas
-     * multi-page skeleton?" — and the resolver borrowed it to answer a
-     * different one. Asking about skeleton selection and hearing "then you may
-     * not have a Menu page" is a non-sequitur, and it is how ollies (a
-     * Google-Business-sourced cafe filed account_type=partna) shipped 105
-     * ingested menu items that rendered nowhere while can_use_menu — the
-     * capability actually named for the job — sat unread one file away. A page
-     * is gated on the capability that describes THAT page, or it is not gated.
+     * THE HISTORY, because this constant has now been wrong twice.
      *
-     * `reviews` is dropped rather than remapped: presence has not set it since
-     * Reviews stopped being its own page (2026-07-13), so the entry stripped a
-     * page nothing granted. Whoever restores Reviews presence gates it on the
-     * account's own review data — PoolResolver already computes which reviews
-     * are in scope for a person (reviews_scoped_to_person), so a partna DOES
-     * have reviews — not on the account type.
+     * It was BUSINESS_ONLY = ['menu', 'reviews'], gated on
+     * can_use_multipage_site — a flag minted by #30 to answer "may this account
+     * select the atlas multi-page skeleton?", i.e. account_type verbatim. That
+     * is how ollies (a Google-sourced cafe filed account_type=partna) shipped
+     * 105 ingested menu items with no page to render them.
      *
-     * @var array<string, string>
+     * On 2026-09-01 it became PAGE_CAPABILITY = ['menu' => 'can_use_menu'] and
+     * `reviews` was dropped with only a comment in its place. Both halves were
+     * wrong. `menu` was wrong because a render-time capability veto is the
+     * exact mechanism PageCapabilities' docblock retired ("A page that exists
+     * but is silently dropped at render is the failure mode that produced 'my
+     * Menu page disappeared and nothing told me why'") — and can_use_menu reads
+     * `sector`, a column three writers move and one path never stamps at all,
+     * so any account whose sector goes null or non-food after its menu was
+     * ingested loses the page silently with the items still in the payload.
+     * That is the incident, re-created by the commit that quoted it. Menu is
+     * gated at the WRITE seam instead; see gateOwnerAttribution()'s comment.
+     * `reviews` was wrong because the entry it deleted was the only structural
+     * thing standing between a resolved review and a page, in the same commit
+     * family whose brief is that a review must not appear on a page whose owner
+     * is not named in it. A comment is not a gate. This list is.
+     *
+     * @var list<string>
      */
-    public const PAGE_CAPABILITY = ['menu' => 'can_use_menu'];
+    public const ATTRIBUTION_GATED = ['reviews'];
 
     /**
      * Pages available only to standard (partna) accounts — the lifestyle/creator
@@ -72,7 +84,7 @@ enum SitepageId: string
      * (AccountCapabilities::can_use_lifestyle_pages), never on account_type
      * directly.
      *
-     * NOT the frontend-mirrored counterpart of BUSINESS_ONLY: this is a
+     * NOT the frontend-mirrored counterpart of ATTRIBUTION_GATED: this is a
      * backend-presence-only constant. Presence is computed backend-side
      * (presentPageIds → pageOrder) and apps/pages consumes pageOrder verbatim, so
      * there is nothing to mirror in engines/page-taxonomy.ts.

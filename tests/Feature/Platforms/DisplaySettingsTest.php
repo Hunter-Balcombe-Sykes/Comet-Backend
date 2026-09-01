@@ -306,12 +306,13 @@ it('suppresses placeId and streetView from the dashboard selection when location
 
 // ── WS-B2.2 (I1): display toggles also gate public page PRESENCE ─────────────
 // so a toggled-off GB section doesn't advertise an empty page in nav/pageOrder.
-// The tenant below carries sector='cafe' because the Menu page is gated on
-// can_use_menu (food-derived) since 2026-09-01, not on the account type: an
-// account with no sector reads as not-food and has no Menu page to toggle, so
-// a null-sector fixture would exercise the capability gate instead of the
-// toggle these tests are about. Reviews is no longer presented as a page at
-// all (2026-07-13) — see the two tests below.
+// The tenant below carries sector='cafe' as a leftover from the render-time
+// can_use_menu veto these fixtures were written against; that veto is gone
+// (SitepageMenuPresenceTest) and the Menu page follows the fetched-menu row
+// alone, so the GB toggle is the only variable here whatever the sector says.
+// Reviews is no longer presented as a page at all (2026-07-13) — see the two
+// tests below, and SitepageReviewsAttributionGateTest for the gate that stands
+// behind whoever restores it.
 
 function dsBusinessTenant(string $handle): User
 {

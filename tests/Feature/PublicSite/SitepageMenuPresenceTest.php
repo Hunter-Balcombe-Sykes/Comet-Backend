@@ -1,21 +1,25 @@
 <?php
 
-// The Menu page is gated on can_use_menu — the capability named for the job —
-// and can_use_menu is derived from the account's SECTOR, not its account_type.
+// A Menu page follows the MENU. Not the account_type enum, and not a capability
+// recomputed from a column that moves under it.
 //
-// Before 2026-09-01 both halves of that sentence were false. The render gate in
-// presentPageIds dropped SitepageId::BUSINESS_ONLY (menu + reviews) whenever
-// can_use_multipage_site was false, and that capability answers one unrelated
-// question — "may this account select the atlas skeleton?" (#30) — which is
-// account_type verbatim. So ollies, a Google-Business-sourced CAFE filed
-// account_type=partna, shipped 105 ingested menu items in its public payload
-// with no page to render them; broken-oven (171 items) and fred-sarson (69)
-// did the same. A capability follows what an account IS, not the enum it was
-// filed under.
+// Two gates have stood on this line and both dropped pages whose content was
+// real. Until 2026-09-01 presentPageIds dropped SitepageId::BUSINESS_ONLY (menu
+// + reviews) whenever can_use_multipage_site was false — a flag answering "may
+// this account select the atlas skeleton?" (#30), which is account_type
+// verbatim. ollies, a Google-Business-sourced CAFE filed account_type=partna,
+// shipped 105 ingested menu items in its public payload with no page to render
+// them; broken-oven (171) and fred-sarson (69) did the same. The fix swapped
+// that for `! $caps->can_use_menu` — narrower, correctly named, and still a
+// render-time capability veto over a `sector` column with three writers and one
+// path (Google → a partna account) that never stamps it at all. Any account
+// whose sector went null or non-food after its menu was ingested lost the page
+// silently, items still in the payload: the same incident, re-created by the
+// commit that quoted it.
 //
-// The guard against the obvious over-correction is the same sector read:
-// ra33rty is the fourth partna account with a Google-sourced sector and it is a
-// GYM, so it gets no Menu page no matter what rows exist under it.
+// So there is no veto here now. The guard against "partna accounts may have
+// menus now" did not disappear with it — it moved to the seam that can
+// actually say no, the WRITE seam, and the last test pins it there.
 
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
@@ -39,7 +43,12 @@ function smpTenant(string $handle, string $accountType, ?string $sector): User
     return User::query()->with('site')->findOrFail($pro->id);
 }
 
-/** A Google-fetched menu — the row presentPageIds reads to grant the Menu page. */
+/**
+ * A fetched menu row. Only MenuController, MenuContentController, MenuFetchJob
+ * and the three scan jobs write this column, and every one of them checks
+ * can_use_menu first — so in production its existence is itself a record that
+ * the capability question was asked and answered yes.
+ */
 function smpFetchedMenu(string $userId): void
 {
     DB::connection('pgsql')->table('site.menus')->insert([
@@ -66,47 +75,64 @@ it('presents the Menu page on a sitepage for a food-sector partna account (the o
         ->and(smpPages($pro))->toContain('menu');
 });
 
-it('withholds the sitepage Menu page from a non-food partna account with a menu row (the ra33rty guard)', function () {
-    // The over-correction this pins shut: "partna accounts may have menus now".
-    // They may not — food accounts may, and a gym is not one, so the stray row
-    // buys it nothing.
-    $pro = smpTenant('smp-ra33rty', 'partna', 'gym');
-    smpFetchedMenu($pro->id);
-
-    expect(AccountCapabilities::for($pro)->can_use_menu)->toBeFalse()
-        ->and(smpPages($pro))->not->toContain('menu');
-});
-
-it('withholds the sitepage Menu page while the account industry is unknown, for either account type', function () {
-    // A null sector reads as not-food on purpose — "we do not know what this
-    // is" must not grant a food page. Pret A Manger sits here: Google calls it
-    // a "Sandwich Shop", SectorTaxonomy maps no sector from that string, and
-    // the account has no menu at all as a result. That is a classification gap
-    // upstream in SectorTaxonomy, NOT something the capability layer should
-    // paper over by reading account_type again.
-    foreach (['partna' => 'smp-unknown-partna', 'business' => 'smp-unknown-biz'] as $type => $handle) {
-        $pro = smpTenant($handle, $type, null);
-        smpFetchedMenu($pro->id);
-
-        expect(smpPages($pro))->not->toContain('menu');
-    }
-});
-
-it('still presents the sitepage Menu page for a food business — the amendment widened the gate, it did not move it', function () {
+it('still presents the sitepage Menu page for a food business', function () {
     $pro = smpTenant('smp-food-biz', 'business', 'restaurant');
     smpFetchedMenu($pro->id);
 
     expect(smpPages($pro))->toContain('menu');
 });
 
-it('does not let the atlas-skeleton capability decide the sitepage Menu page any more', function () {
+it('does not let the atlas-skeleton capability decide the sitepage Menu page', function () {
     // can_use_multipage_site is still account_type-derived and still false for
     // a partna — that is #30's contract and it is untouched. What changed is
-    // that presentPageIds no longer consults it: the Menu page above survives
-    // for a partna cafe precisely while this stays false.
+    // that presentPageIds no longer consults it.
     $pro = smpTenant('smp-atlas', 'partna', 'cafe');
     smpFetchedMenu($pro->id);
 
     expect(AccountCapabilities::for($pro)->can_use_multipage_site)->toBeFalse()
         ->and(smpPages($pro))->toContain('menu');
+});
+
+it('keeps the sitepage Menu page for an account whose industry is unknown but whose menu is real', function () {
+    // THE REGRESSION, both types. A null sector reads as not-food, so
+    // can_use_menu is false here — and until this file was corrected that was
+    // enough to strip the page while the ingested items stayed in the payload.
+    // It is not enough. Two ways an account reaches this state with a real
+    // menu: Google classified it into a string SectorTaxonomy maps nothing from
+    // (Pret A Manger is a "Sandwich Shop"), or the sector was cleared after the
+    // menu was ingested — nothing guards a manual pick the way
+    // SectorProvenance::isFoodDemotion guards the Google writer.
+    foreach (['partna' => 'smp-unknown-partna', 'business' => 'smp-unknown-biz'] as $type => $handle) {
+        $pro = smpTenant($handle, $type, null);
+        smpFetchedMenu($pro->id);
+
+        expect(AccountCapabilities::for($pro)->can_use_menu)->toBeFalse()
+            ->and(smpPages($pro))->toContain('menu');
+    }
+});
+
+it('keeps the sitepage Menu page after the account moves to a non-food industry', function () {
+    // The sharpest form of the same thing: a cafe that re-files itself as a
+    // gym still has 105 dishes in site.menu_items. Withdrawing the page is how
+    // "my Menu page disappeared and nothing told me why" happens; withdrawing
+    // the ability to EDIT it is the write seam's job, below.
+    $pro = smpTenant('smp-demoted', 'partna', 'gym');
+    smpFetchedMenu($pro->id);
+
+    expect(AccountCapabilities::for($pro)->can_use_menu)->toBeFalse()
+        ->and(smpPages($pro))->toContain('menu');
+});
+
+it('refuses a non-food account the menu itself — the guard the render path no longer duplicates', function () {
+    // The over-correction this pins shut is still pinned shut: "partna accounts
+    // may have menus now" is false. A gym cannot MINT one, so in production it
+    // never holds the row the tests above insert by hand, and the page it can
+    // never grant needs no second refusal at render.
+    foreach (['smp-gate-gym' => 'gym', 'smp-gate-unknown' => null] as $handle => $sector) {
+        $pro = smpTenant($handle, 'partna', $sector);
+
+        actingAsUser($pro)->postJson('/api/platforms/menu/refresh')
+            ->assertStatus(403)
+            ->assertJsonPath('message', 'Menu is not available for your account.');
+    }
 });
