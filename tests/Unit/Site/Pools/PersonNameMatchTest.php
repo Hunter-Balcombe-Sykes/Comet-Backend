@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\Profile\NameShapeGate;
 use App\Site\Pools\PersonNameMatch;
 
 // ── The incident (2026-09-01) ───────────────────────────────────────────────
@@ -230,7 +231,7 @@ it('refuses every word the write-side name gate already calls a descriptor', fun
     // side legitimately refuses more (connectives, honorifics, corporate
     // suffixes) because refusing is its fail-closed answer, whereas the gate
     // refusing a word costs a real name a column.
-    $gate = (new ReflectionClass(App\Services\Profile\NameShapeGate::class))->getConstant('DESCRIPTORS');
+    $gate = (new ReflectionClass(NameShapeGate::class))->getConstant('DESCRIPTORS');
     $read = (new ReflectionClass(PersonNameMatch::class))->getConstant('NOT_A_NAME');
 
     expect(array_values(array_diff($gate, $read)))->toBe([]);

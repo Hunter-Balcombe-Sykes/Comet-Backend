@@ -49,6 +49,7 @@ class IndividualProfileResource extends ApiResource
      *     architecture_id?: string|null,
      *     public_config?: array<string, mixed>,
      *     page_order?: list<string>,
+     *     build_state?: string|null,
      *     actions?: array{mode: string, entries: list<array<string, mixed>>},
      *     links?: list<array<string, mixed>>,
      *     pools?: array<string, array{items: list<array<string, mixed>>, latestItemId: string|null}>,
