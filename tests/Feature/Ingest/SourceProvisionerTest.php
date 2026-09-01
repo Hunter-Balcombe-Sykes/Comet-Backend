@@ -521,6 +521,21 @@ it('provisions youtube_music only from a real UC channel id', function () {
         ->and(ingestSourceFor($handleOnly))->toBeNull();
 });
 
+it('provisions pinterest from the profile URL first path segment (BrandLinkConnect payloads carry url only)', function () {
+    $userId = provisionerUser();
+
+    // The derived brand card stores {url, name, provider} — no username key
+    // (the 2026-09-02 campaign found the missing arm exactly this way: a
+    // connected profile with a url-only payload never provisioned).
+    $fromUrl = makeConnection($userId, ['platform' => 'pinterest', 'payload' => ['url' => 'https://www.pinterest.com/Tasty/?ref=share']]);
+    $fromResource = makeConnection($userId, ['platform' => 'pinterest', 'payload' => [], 'resource_id' => 'someboardowner']);
+    $junk = makeConnection($userId, ['platform' => 'pinterest', 'payload' => ['url' => 'https://www.pinterest.com/']]);
+
+    expect(ingestSourceFor($fromUrl)->identifier)->toBe('tasty')
+        ->and(ingestSourceFor($fromResource)->identifier)->toBe('someboardowner')
+        ->and(ingestSourceFor($junk))->toBeNull();
+});
+
 it('provisions instagram from the payload username, unscheduled (actor-billed, manual-only)', function () {
     $userId = provisionerUser();
 

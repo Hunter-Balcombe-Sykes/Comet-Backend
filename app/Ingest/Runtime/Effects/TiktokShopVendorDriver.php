@@ -125,7 +125,11 @@ final class TiktokShopVendorDriver implements BilledEffectDriver
             }
             $fetched++;
 
-            $body = $client->get('/v1/tiktok/shop/product-reviews', [
+            // 'product/reviews' with a SLASH — verified against the live API
+            // 2026-09-02 (the hyphen variant 404s; a wildcard Http::fake hid
+            // that until the first live run, so the lane test now pins the
+            // exact path).
+            $body = $client->get('/v1/tiktok/shop/product/reviews', [
                 'product_id' => (string) $product['productId'],
                 'region' => 'US',
                 'page' => 1,

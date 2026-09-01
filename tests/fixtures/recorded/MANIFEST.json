@@ -293,7 +293,7 @@
    "captured_at": "2026-09-01T12:25:46+00:00",
    "sha256": "2ef9c038513553141e7f6bf09d1d542050e98e136f5f099cd657700ae519fa8d",
    "captured_by": "wave4-agent:tiktok_shop",
-   "notes": "GET /v1/tiktok/shop/product-reviews?product_id=1729527313880355335&region=US&page=1 \u2014 captured live 2026-09-01 via the scrape-creators MCP; slimmed 10\u21923 rows, keys verbatim (keeps the anonymous-reviewer row: reviewer_id '', no reviewer_avatar_url key, masked name; plus a 4-star row)."
+   "notes": "GET /v1/tiktok/shop/product/reviews? (slash path \u2014 the 2026-09-01 note wrote the hyphen variant, which 404s; corrected 2026-09-02 against the live API) product_id=1729527313880355335&region=US&page=1 \u2014 captured live 2026-09-01 via the scrape-creators MCP; slimmed 10\u21923 rows, keys verbatim (keeps the anonymous-reviewer row: reviewer_id '', no reviewer_avatar_url key, masked name; plus a 4-star row)."
   },
   "scrapecreators-tiktok-shop-products.json": {
    "source_url": "scrape-creators MCP capture (see notes)",

@@ -150,7 +150,7 @@ it('refuses the shop fetch before spending when the daily cap is exhausted', fun
 it('walks the top products in vendor order and answers product-stamped review rows', function () {
     Http::fake([
         'api.scrapecreators.com/v1/tiktok/shop/products*' => Http::response(ttShopLaneProductsFixture()),
-        'api.scrapecreators.com/v1/tiktok/shop/product-reviews*' => Http::response(ttShopLaneReviewsFixture()),
+        'api.scrapecreators.com/v1/tiktok/shop/product/reviews*' => Http::response(ttShopLaneReviewsFixture()),
     ]);
 
     $result = app(TiktokShopVendorDriver::class)->run(ttShopLaneCtx(['seller_id' => '7495794203056835079']));
@@ -168,13 +168,16 @@ it('walks the top products in vendor order and answers product-stamped review ro
         ->and($result->data[0]['product_rating'])->toBe(4.5);
     // 1 products call + review_products_per_run (default 3) review calls.
     Http::assertSentCount(4);
+    // The EXACT slash path — the hyphen variant 404s live (found 2026-09-02;
+    // a wildcard fake would keep answering it and hide the regression).
+    Http::assertSent(fn (ClientRequest $request) => str_contains($request->url(), '/v1/tiktok/shop/product/reviews?product_id=1729527313880355335'));
 });
 
 it('bounds spend at review_products_per_run', function () {
     config()->set('partna.limits.scrapecreators.tiktok_shop.review_products_per_run', 1);
     Http::fake([
         'api.scrapecreators.com/v1/tiktok/shop/products*' => Http::response(ttShopLaneProductsFixture()),
-        'api.scrapecreators.com/v1/tiktok/shop/product-reviews*' => Http::response(ttShopLaneReviewsFixture()),
+        'api.scrapecreators.com/v1/tiktok/shop/product/reviews*' => Http::response(ttShopLaneReviewsFixture()),
     ]);
 
     $result = app(TiktokShopVendorDriver::class)->run(ttShopLaneCtx(['seller_id' => '7495794203056835079']));
@@ -187,7 +190,7 @@ it('walks past a reviewless product instead of abandoning the run', function () 
     Http::fake([
         'api.scrapecreators.com/v1/tiktok/shop/products*' => Http::response(ttShopLaneProductsFixture()),
         // Every product answers the zero-reviews husk — routine, not rotation.
-        'api.scrapecreators.com/v1/tiktok/shop/product-reviews*' => Http::response(['success' => true, 'credits_charged' => 1, 'product_reviews' => []]),
+        'api.scrapecreators.com/v1/tiktok/shop/product/reviews*' => Http::response(['success' => true, 'credits_charged' => 1, 'product_reviews' => []]),
     ]);
 
     $result = app(TiktokShopVendorDriver::class)->run(ttShopLaneCtx(['seller_id' => '7495794203056835079']));

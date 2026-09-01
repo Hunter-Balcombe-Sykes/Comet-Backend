@@ -310,6 +310,13 @@ class SourceProvisioner
                 ?? $this->instagramUsername($this->bareSlug($resource, 'threads')),
             'bluesky' => $this->bareSlug($payload['username'] ?? null, 'bluesky')
                 ?? $this->bareSlug($resource, 'bluesky'),
+            // Item 10c follow-up (2026-09-02, found in the wiring campaign):
+            // pinterest had NO arm, so a connected profile never provisioned
+            // its boards source. The profile URL's first path segment is the
+            // handle (BrandLinkConnect payloads carry url only).
+            'pinterest' => $this->bareSlug($payload['username'] ?? null, 'pinterest')
+                ?? $this->pinterestHandle($payload['url'] ?? $payload['link'] ?? null)
+                ?? $this->bareSlug($resource, 'pinterest'),
             'twitch' => $this->bareSlug($payload['username'] ?? null, 'twitch')
                 ?? $this->bareSlug($resource, 'twitch'),
             'tiktok_shop' => TiktokShopScraper::sellerIdFrom($resource),
@@ -495,6 +502,23 @@ class SourceProvisioner
     }
 
     /** The username segment of a mixcloud.com profile/show URL, or null. */
+    /** The pinterest handle off a pinterest.com profile URL's first path segment. */
+    private function pinterestHandle(mixed $url): ?string
+    {
+        $url = $this->cleanString($url);
+        if ($url === null) {
+            return null;
+        }
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        if (! preg_match('/(^|\.)pinterest\.[a-z.]+$/', $host) && $host !== 'pin.it') {
+            return null;
+        }
+        $segments = array_values(array_filter(explode('/', trim((string) parse_url($url, PHP_URL_PATH), '/'))));
+        $first = $segments[0] ?? null;
+
+        return is_string($first) && preg_match('/^[A-Za-z0-9_]{1,60}$/', $first) === 1 ? strtolower($first) : null;
+    }
+
     private function mixcloudUsername(mixed $value): ?string
     {
         if (! is_string($value)) {
