@@ -1,0 +1,100 @@
+{
+ "success": true,
+ "credits_remaining": 9999,
+ "credits_charged": 0,
+ "id": "44445592",
+ "isLive": false,
+ "currentViewersCount": null,
+ "stream": {},
+ "handle": "pokimane",
+ "displayName": "pokimane",
+ "profileImageURL": "https://static-cdn.jtvnw.net/jtv_user_pictures/912232e8-9e53-4fb7-aac4-14aed07869ca-profile_image-150x150.png",
+ "bannerImageURL": "https://static-cdn.jtvnw.net/jtv_user_pictures/cfaf7ac8-56d9-4f3a-b5b0-328e90976ea3-profile_banner-480.jpeg",
+ "description": "hi ♡ i stream sometimes 📧 Business inquiries: teampokimane@wmeagency.com",
+ "followers": 9450698,
+ "instagram": "https://www.instagram.com/imane",
+ "youtube": "https://www.youtube.com/pokimane",
+ "tiktok": "https://www.tiktok.com/@poki",
+ "twitter": "https://twitter.com/pokimanelol",
+ "facebook": "https://www.facebook.com/pokimane",
+ "isPartner": true,
+ "allVideos": [
+  {
+   "animatedPreviewURL": "https://d2nvs31859zcd8.cloudfront.net/69d1494e01df11b56fe9_pokimane_317341322487_1788028071/storyboards/2859918222-strip-0.jpg",
+   "game": {
+    "boxArtURL": "https://static-cdn.jtvnw.net/ttv-boxart/509658-40x56.jpg",
+    "id": "509658",
+    "slug": "just-chatting",
+    "displayName": "Just Chatting",
+    "name": "Just Chatting",
+    "__typename": "Game"
+   },
+   "id": "2859918222",
+   "lengthSeconds": 11058,
+   "owner": {
+    "displayName": "pokimane",
+    "id": "44445592",
+    "login": "pokimane",
+    "profileImageURL": "https://static-cdn.jtvnw.net/jtv_user_pictures/912232e8-9e53-4fb7-aac4-14aed07869ca-profile_image-50x50.png",
+    "primaryColorHex": "E1B5D9",
+    "roles": {
+     "isPartner": true,
+     "__typename": "UserRoles"
+    },
+    "__typename": "User"
+   },
+   "previewThumbnailURL": "https://static-cdn.jtvnw.net/cf_vods/d2nvs31859zcd8/69d1494e01df11b56fe9_pokimane_317341322487_1788028071//thumb/thumb0-320x180.jpg",
+   "publishedAt": "2026-08-29T18:27:56Z",
+   "self": {
+    "isRestricted": false,
+    "viewingHistory": null,
+    "__typename": "VideoSelfEdge"
+   },
+   "title": "see you soon 🌸 ｡◕ ‿ ◕｡",
+   "viewCount": 208053,
+   "resourceRestriction": null,
+   "contentTags": [],
+   "__typename": "Video"
+  },
+  {
+   "animatedPreviewURL": "https://d2nvs31859zcd8.cloudfront.net/41730842679d2ff43de2_pokimane_319006707415_1787863951/storyboards/2858157849-strip-0.jpg",
+   "game": {
+    "boxArtURL": "https://static-cdn.jtvnw.net/ttv-boxart/509658-40x56.jpg",
+    "id": "509658",
+    "slug": "just-chatting",
+    "displayName": "Just Chatting",
+    "name": "Just Chatting",
+    "__typename": "Game"
+   },
+   "id": "2858157849",
+   "lengthSeconds": 12631,
+   "owner": {
+    "displayName": "pokimane",
+    "id": "44445592",
+    "login": "pokimane",
+    "profileImageURL": "https://static-cdn.jtvnw.net/jtv_user_pictures/912232e8-9e53-4fb7-aac4-14aed07869ca-profile_image-50x50.png",
+    "primaryColorHex": "E1B5D9",
+    "roles": {
+     "isPartner": true,
+     "__typename": "UserRoles"
+    },
+    "__typename": "User"
+   },
+   "previewThumbnailURL": "https://static-cdn.jtvnw.net/cf_vods/d2nvs31859zcd8/41730842679d2ff43de2_pokimane_319006707415_1787863951//thumb/thumb0-320x180.jpg",
+   "publishedAt": "2026-08-27T20:52:36Z",
+   "self": {
+    "isRestricted": false,
+    "viewingHistory": null,
+    "__typename": "VideoSelfEdge"
+   },
+   "title": "blood on the clocktower w friends :) <3",
+   "viewCount": 157395,
+   "resourceRestriction": null,
+   "contentTags": [],
+   "__typename": "Video"
+  }
+ ],
+ "similarStreamers": [],
+ "cached": true,
+ "cached_at": "2026-08-31T22:39:17.000Z"
+}

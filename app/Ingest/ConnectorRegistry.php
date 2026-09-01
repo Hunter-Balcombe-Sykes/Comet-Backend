@@ -17,6 +17,7 @@ use App\Ingest\Connectors\HumanitixConnector;
 use App\Ingest\Connectors\InstagramConnector;
 use App\Ingest\Connectors\LumaConnector;
 use App\Ingest\Connectors\MixcloudConnector;
+use App\Ingest\Connectors\PinterestConnector;
 use App\Ingest\Connectors\ResidentAdvisorConnector;
 use App\Ingest\Connectors\SoundcloudTracksConnector;
 use App\Ingest\Connectors\SpotifyTracksConnector;
@@ -68,6 +69,7 @@ final class ConnectorRegistry
         'luma' => LumaConnector::class,
         'resident_advisor' => ResidentAdvisorConnector::class,
         'mixcloud' => MixcloudConnector::class,
+        'pinterest' => PinterestConnector::class,
         'soundcloud' => SoundcloudTracksConnector::class,
         'spotify' => SpotifyTracksConnector::class,
         'square' => SquareMenuConnector::class,

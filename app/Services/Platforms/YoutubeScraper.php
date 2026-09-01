@@ -6,6 +6,8 @@ use App\Exceptions\Platforms\VendorAccountFaultException;
 use App\Services\Cache\ScrapeCreatorsBudget;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\ScrapeCreators\ScrapeCreatorsClient;
+use App\Services\Platforms\ScrapeCreators\YoutubeLivesNormalizer;
+use App\Services\Platforms\ScrapeCreators\YoutubeShortsNormalizer;
 use App\Support\ThrottledReport;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -382,6 +384,112 @@ class YoutubeScraper extends PlatformScraper
         Log::info('youtube.uploads_feed_vendor_rescue', ['channelId' => $channelId, 'videos' => count($out)]);
 
         return ['title' => $title, 'videos' => $out];
+    }
+
+    /**
+     * Item 11c (2026-09-01): the channel's Shorts shelf via the vendor's
+     * /v1/youtube/channel/shorts (a SLASH route — unlike channel-videos this
+     * one is NOT hyphenated; verified against the live OpenAPI spec). Vendor-
+     * ONLY: YouTube serves no free feed for the shelf, so unlike
+     * fetchUploadsFeed there is no lane to rescue — every failure of any kind
+     * is null and the caller simply has no shorts this pass. Rows are the
+     * exact vendorUploadsFeed shape (WATCH-pool vocabulary, Item 11c), so
+     * readers cannot tell a short from a video.
+     *
+     * Its own budget source ('youtube_shorts', G2: every new source gets its
+     * own cap from day one) so a chatty shorts lane can never starve the
+     * RSS-rescue slots under 'youtube'. Claim before the call, release on
+     * transport-null, slot stays spent on a billed husk.
+     *
+     * @return list<array{videoId: string, name: string, description: string, link: string, date: ?string, thumbnail: string, lengthSeconds: ?int}>|null
+     */
+    public function fetchShorts(string $handleOrId, int $limit = 15): ?array
+    {
+        $client = app(ScrapeCreatorsClient::class);
+        if (! $client->enabled()) {
+            return null;
+        }
+        $budget = app(ScrapeCreatorsBudget::class);
+        if (! $budget->tryClaim('youtube_shorts')) {
+            return null;
+        }
+
+        $body = $client->get(
+            '/v1/youtube/channel/shorts',
+            $this->vendorChannelParam($handleOrId) + ['sort' => 'newest'],
+        );
+        if ($body === null) {
+            $budget->release('youtube_shorts');
+
+            return null;
+        }
+
+        $rows = app(YoutubeShortsNormalizer::class)->rows($body);
+        if ($rows === null) {
+            // Success-shaped husk (NotFound bills a credit as success:true) or
+            // shape drift — either way the call was billed; slot stays spent.
+            Log::info('scrapecreators.youtube_shorts.unusable_shape', ['channel' => $handleOrId]);
+
+            return null;
+        }
+
+        return array_slice($rows, 0, $limit);
+    }
+
+    /**
+     * Item 11c (2026-09-01): the channel's Live tab via the vendor's
+     * /v1/youtube/channel/lives — a LIVE-STATUS input, never pool content.
+     * The result's isLive bool is the normalized read Item 11d's
+     * CheckStreamingLiveStatusJob consolidation consumes; nothing here polls.
+     * Same lossy vendor discipline as fetchShorts, on its own budget source
+     * ('youtube_lives' — a status poller's cadence must never spend the
+     * shorts or RSS-rescue slots). Null means "vendor miss / status unknown",
+     * never "offline": isLive false is only ever asserted off a populated
+     * Live tab with nothing live (the normalizer's contract).
+     *
+     * @return array{isLive: bool, lives: list<array{videoId: string, name: string, link: string, thumbnail: ?string, isLive: bool, watching: ?int, lengthSeconds: ?int}>}|null
+     */
+    public function fetchLives(string $handleOrId): ?array
+    {
+        $client = app(ScrapeCreatorsClient::class);
+        if (! $client->enabled()) {
+            return null;
+        }
+        $budget = app(ScrapeCreatorsBudget::class);
+        if (! $budget->tryClaim('youtube_lives')) {
+            return null;
+        }
+
+        $body = $client->get('/v1/youtube/channel/lives', $this->vendorChannelParam($handleOrId));
+        if ($body === null) {
+            $budget->release('youtube_lives');
+
+            return null;
+        }
+
+        $result = app(YoutubeLivesNormalizer::class)->normalize($body);
+        if ($result === null) {
+            Log::info('scrapecreators.youtube_lives.unusable_shape', ['channel' => $handleOrId]);
+
+            return null;
+        }
+
+        return $result;
+    }
+
+    /**
+     * The shorts/lives endpoints accept a UC… id or a bare handle, on
+     * DIFFERENT query params — routing the stored identity (which is either,
+     * see normalizeHandle) to the right one skips the channel-page resolution
+     * fetch a channelIdFrom() round-trip would spend.
+     *
+     * @return array{channelId: string}|array{handle: string}
+     */
+    private function vendorChannelParam(string $handleOrId): array
+    {
+        return preg_match('/^UC[A-Za-z0-9_-]{22}$/', $handleOrId) === 1
+            ? ['channelId' => $handleOrId]
+            : ['handle' => ltrim($handleOrId, '@')];
     }
 
     /**

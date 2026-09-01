@@ -40,9 +40,9 @@ it('skips Kick entirely when rate_limited key is set in Redis', function () {
 
     $poller = Mockery::mock(LiveStatusPoller::class);
     // Kick should NOT be dispatched (circuit-breaker set)
-    $poller->shouldReceive('poll')->with('kick', Mockery::any())->never();
+    $poller->shouldReceive('poll')->with('kick', Mockery::any(), Mockery::any())->never();
     // Twitch is still dispatched
-    $poller->shouldReceive('poll')->with('twitch', Mockery::any())->once();
+    $poller->shouldReceive('poll')->with('twitch', Mockery::any(), Mockery::any())->once();
 
     Log::shouldReceive('warning')->once()->withArgs(fn ($msg) => str_contains((string) $msg, 'rate limited'));
 
@@ -111,7 +111,7 @@ it('catches poller exceptions and logs per-platform error without crashing the j
 
     $poller = Mockery::mock(LiveStatusPoller::class);
     $poller->shouldReceive('poll')
-        ->with('twitch', Mockery::any())
+        ->with('twitch', Mockery::any(), Mockery::any())
         ->andThrow(new RuntimeException('Network error'));
 
     // Fake the exception reporter so report($e) inside the per-platform catch
@@ -155,6 +155,18 @@ it('short-circuits before Redis and the poller when no block has live-checking e
 
     $job = new CheckStreamingLiveStatusJob;
     $job->handle($poller);
+});
+
+it('bounds redelivery without ever retrying a tick that threw', function () {
+    // The July MaxAttemptsExceeded fix (Nightwatch #339): tries must exceed 1
+    // so a redelivered tick RUNS instead of exploding pre-run, while
+    // maxExceptions=1 pins "the next scheduled tick is the retry" for real
+    // failures. A drift back to tries=1 reintroduces the noise class.
+    $job = new CheckStreamingLiveStatusJob;
+
+    expect($job->tries)->toBeGreaterThan(1)
+        ->and($job->maxExceptions)->toBe(1)
+        ->and($job->timeout)->toBe(90);
 });
 
 it('logs job failure via failed() callback', function () {

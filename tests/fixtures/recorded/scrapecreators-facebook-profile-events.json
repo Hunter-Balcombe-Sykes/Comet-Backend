@@ -1,0 +1,271 @@
+{
+ "success": true,
+ "credits_charged": 1,
+ "events": [
+  {
+   "id": "2318347295599702",
+   "__typename": "Event",
+   "name": "Immigrant Union - Tote Front Bar",
+   "is_canceled": false,
+   "event_creator": {
+    "__typename": "User",
+    "__isEntity": "User",
+    "url": "https://www.facebook.com/ImmigrantUnion",
+    "name": "Immigrant Union",
+    "id": "100052671646970"
+   },
+   "event_place": null,
+   "day_time_sentence": "Sat, 12 Sep at 18:00 AEST",
+   "url": "https://www.facebook.com/events/2318347295599702/",
+   "gif_cover_photo": null,
+   "cover_video": null,
+   "__isEntity": "Event",
+   "event_kind": "PUBLIC_TYPE",
+   "is_happening_now": false,
+   "is_online_or_detected_online": false,
+   "is_past": false,
+   "start_timestamp": 1789200000
+  },
+  {
+   "id": "1053591417622856",
+   "__typename": "Event",
+   "name": "Tides of Darkness: An Ocean of Australian Extremity",
+   "is_canceled": false,
+   "event_creator": {
+    "__typename": "User",
+    "__isEntity": "User",
+    "url": "https://www.facebook.com/Drencherfestival",
+    "name": "Drencher Festival",
+    "id": "100068845981160"
+   },
+   "event_place": {
+    "__typename": "FreeformPlace",
+    "contextual_name": "The Tote",
+    "location": {
+     "reverse_geocode": {
+      "city": "Melbourne"
+     }
+    },
+    "__isNode": "FreeformPlace",
+    "id": "1375022234802630"
+   },
+   "day_time_sentence": "Fri, 18 Sep at 19:00 AEST",
+   "url": "https://www.facebook.com/events/1053591417622856/",
+   "gif_cover_photo": null,
+   "cover_video": null,
+   "__isEntity": "Event",
+   "event_kind": "PUBLIC_TYPE",
+   "is_happening_now": false,
+   "is_online_or_detected_online": false,
+   "is_past": false,
+   "start_timestamp": 1789722000
+  },
+  {
+   "id": "1754005679083857",
+   "__typename": "Event",
+   "name": "BENNI HEDGERS LIVE AT THE TOTE ",
+   "is_canceled": false,
+   "event_creator": {
+    "__typename": "User",
+    "__isEntity": "User",
+    "url": null,
+    "name": "Eden Matheson-Coles",
+    "id": "pfbid0cL4j3CJjRyHe3TWJeD6VsfyjzhXigtBB9ymqorMDRQ5XTdmRbRboSxJscmJzX3m8l"
+   },
+   "event_place": {
+    "__typename": "Page",
+    "contextual_name": "The Tote",
+    "location": {
+     "reverse_geocode": {
+      "city": "Melbourne"
+     }
+    },
+    "__isNode": "Page",
+    "id": "9227934655"
+   },
+   "day_time_sentence": "Fri, 18 Sep at 19:30 AEST",
+   "url": "https://www.facebook.com/events/1754005679083857/",
+   "gif_cover_photo": null,
+   "cover_video": null,
+   "__isEntity": "Event",
+   "event_kind": "PUBLIC_TYPE",
+   "is_happening_now": false,
+   "is_online_or_detected_online": false,
+   "is_past": false,
+   "start_timestamp": 1789723800
+  },
+  {
+   "id": "895466186719851",
+   "__typename": "Event",
+   "name": "DOMSON+FRIENDS DAY PARTY ft. Katie Pearson, Hunny Machete, LXRP + Ding Ding Ding raising $$$ for TJP",
+   "is_canceled": false,
+   "event_creator": {
+    "__typename": "User",
+    "__isEntity": "User",
+    "url": "https://www.facebook.com/thetotehotel",
+    "name": "The Tote",
+    "id": "100064514179328"
+   },
+   "event_place": {
+    "__typename": "FreeformPlace",
+    "contextual_name": "71 Johnston Street (Cnr Johnston and Wellington St), Collingwood, VIC, Australia, Victoria 3066",
+    "location": {
+     "reverse_geocode": {
+      "city": "Melbourne"
+     }
+    },
+    "__isNode": "FreeformPlace",
+    "id": "1468945851932540"
+   },
+   "day_time_sentence": "Sat, 10 Oct at 14:00 AEDT",
+   "url": "https://www.facebook.com/events/895466186719851/",
+   "gif_cover_photo": null,
+   "cover_video": null,
+   "__isEntity": "Event",
+   "event_kind": "PUBLIC_TYPE",
+   "is_happening_now": false,
+   "is_online_or_detected_online": false,
+   "is_past": false,
+   "start_timestamp": 1791601200
+  },
+  {
+   "id": "4051431535151748",
+   "__typename": "Event",
+   "name": "The Berzerker - HOMECOMING",
+   "is_canceled": false,
+   "event_creator": {
+    "__typename": "User",
+    "__isEntity": "User",
+    "url": "https://www.facebook.com/thetotehotel",
+    "name": "The Tote",
+    "id": "100064514179328"
+   },
+   "event_place": {
+    "__typename": "FreeformPlace",
+    "contextual_name": "71 Johnston Street (Cnr Johnston and Wellington St), Collingwood, VIC, Australia, Victoria 3066",
+    "location": {
+     "reverse_geocode": {
+      "city": "Melbourne"
+     }
+    },
+    "__isNode": "FreeformPlace",
+    "id": "1463619965798462"
+   },
+   "day_time_sentence": "Tue, 13 Oct at 20:00 AEDT",
+   "url": "https://www.facebook.com/events/4051431535151748/",
+   "gif_cover_photo": null,
+   "cover_video": null,
+   "__isEntity": "Event",
+   "event_kind": "PUBLIC_TYPE",
+   "is_happening_now": false,
+   "is_online_or_detected_online": false,
+   "is_past": false,
+   "start_timestamp": 1791882000
+  },
+  {
+   "id": "1759413615194443",
+   "__typename": "Event",
+   "name": "SHONEN KNIFE AT THE TOTE w/ MOLER",
+   "is_canceled": false,
+   "event_creator": {
+    "__typename": "User",
+    "__isEntity": "User",
+    "url": "https://www.facebook.com/thetotehotel",
+    "name": "The Tote",
+    "id": "100064514179328"
+   },
+   "event_place": {
+    "__typename": "FreeformPlace",
+    "contextual_name": "71 Johnston Street (Cnr Johnston and Wellington St), Collingwood, VIC, Australia, Victoria 3066",
+    "location": {
+     "reverse_geocode": {
+      "city": "Melbourne"
+     }
+    },
+    "__isNode": "FreeformPlace",
+    "id": "1597920425058744"
+   },
+   "day_time_sentence": "Wed, 14 Oct at 19:30 AEDT",
+   "url": "https://www.facebook.com/events/1759413615194443/",
+   "gif_cover_photo": null,
+   "cover_video": null,
+   "__isEntity": "Event",
+   "event_kind": "PUBLIC_TYPE",
+   "is_happening_now": false,
+   "is_online_or_detected_online": false,
+   "is_past": false,
+   "start_timestamp": 1791966600
+  },
+  {
+   "id": "1627027338343732",
+   "__typename": "Event",
+   "name": "Out Of Control Army First Ever Mexican SkaBQ in Collingwood at The TOTE (Matinee)",
+   "is_canceled": false,
+   "event_creator": {
+    "__typename": "User",
+    "__isEntity": "User",
+    "url": "https://www.facebook.com/skanation",
+    "name": "Ska Nation International Music Festival",
+    "id": "100063646940449"
+   },
+   "event_place": {
+    "__typename": "Page",
+    "contextual_name": "The Tote",
+    "location": {
+     "reverse_geocode": {
+      "city": "Melbourne"
+     }
+    },
+    "__isNode": "Page",
+    "id": "9227934655"
+   },
+   "day_time_sentence": "Sat, 17 Oct at 02:30 AEDT",
+   "url": "https://www.facebook.com/events/1627027338343732/",
+   "gif_cover_photo": null,
+   "cover_video": null,
+   "__isEntity": "Event",
+   "event_kind": "PUBLIC_TYPE",
+   "is_happening_now": false,
+   "is_online_or_detected_online": false,
+   "is_past": false,
+   "start_timestamp": 1792164600
+  },
+  {
+   "id": "643186928855795",
+   "__typename": "Event",
+   "name": "NEGATIVE APPROACH 2026 AUS & NZ TOUR // MELBOURNE",
+   "is_canceled": false,
+   "event_creator": {
+    "__typename": "User",
+    "__isEntity": "User",
+    "url": "https://www.facebook.com/people/Vinnies-Records-Touring/61567020788938/",
+    "name": "Vinnies Records & Touring",
+    "id": "61567020788938"
+   },
+   "event_place": {
+    "__typename": "FreeformPlace",
+    "contextual_name": "The Tote",
+    "location": {
+     "reverse_geocode": {
+      "city": "Melbourne"
+     }
+    },
+    "__isNode": "FreeformPlace",
+    "id": "122217922766567359"
+   },
+   "day_time_sentence": "Fri, 23 Oct at 19:00 AEDT",
+   "url": "https://www.facebook.com/events/643186928855795/",
+   "gif_cover_photo": null,
+   "cover_video": null,
+   "__isEntity": "Event",
+   "event_kind": "PUBLIC_TYPE",
+   "is_happening_now": false,
+   "is_online_or_detected_online": false,
+   "is_past": false,
+   "start_timestamp": 1792742400
+  }
+ ],
+ "cursor": "eyJpZCI6IllYQndYMk52Ykd4bFkzUnBiMjQ2Y0daaWFXUXdNMVkwVTAxdVpURm5WM0pPZDFwMVNsQkZaR1Y0WVZweU5sUk5TelF4TVV4WWVuVjZaMFkwV2t4dVlsbzFUVnBLVFZJeFEycGlWRW8yYVdvMGVXMDVOamQzTWxGbVVWQnRPRE5LTjFSMmJsQmpkVGxOYm5BNFVVMUhlbTVGYTNScyIsImN1cnNvciI6IkFRSFRPeWRZOHd4M3VuWDNwaDRFV0R1ZnY0d0hvWDZoeTAwVVl3VHE3MjFqRkNRQzlQYUFIaTJqS2JGYzh4eVh0VDQzN1R3eTNrczJBaWZVdk51Ymo5clB3dyJ9",
+ "has_next_page": true,
+ "total_count": 10
+}

@@ -1,0 +1,118 @@
+{
+  "success": true,
+  "credits_charged": 1,
+  "cursor": "LT4yMjczNjE1NDk4Nzc0NDc0NDF8MTB8MTM5NTUyMzU4NDExMjI4NCpHUUwqfGYxYWYxOGNkMzg0YjUxNzU1OGYyYzIwMDk3NWY3MTkzMWFmZjUxZjJhNzM0ZjJjMjkyZTQ3ZGQ4MmY1YzAzNmJ8TkVXfA==",
+  "boards": [
+    {
+      "node_id": "Qm9hcmQ6MjI3MzYxNTQ5ODc3NDUxNzA4",
+      "type": "board",
+      "id": "227361549877451708",
+      "name": "Summer Inspo",
+      "url": "https://www.pinterest.com/food52/summer-inspo/",
+      "description": "",
+      "privacy": "public",
+      "pin_count": 3,
+      "follower_count": 408379,
+      "section_count": 0,
+      "created_at": "Thu, 20 Jun 2024 14:52:24 +0000",
+      "board_order_modified_at": "Tue, 01 Jul 2025 14:33:28 +0000",
+      "image_cover_url": "https://i.pinimg.com/200x150/47/72/58/477258f2d8016fcbd2cce9847c9acb97.jpg",
+      "image_cover_hd_url": "https://i.pinimg.com/474x/47/72/58/477258f2d8016fcbd2cce9847c9acb97.jpg",
+      "cover_images": {
+        "200x150": {
+          "url": "https://i.pinimg.com/200x150/47/72/58/477258f2d8016fcbd2cce9847c9acb97.jpg",
+          "width": 200,
+          "height": 150
+        },
+        "236x": {
+          "url": "https://i.pinimg.com/236x/47/72/58/477258f2d8016fcbd2cce9847c9acb97.jpg",
+          "width": 236,
+          "height": null
+        }
+      },
+      "has_custom_cover": false,
+      "is_collaborative": false,
+      "collaborator_count": 0,
+      "owner": {
+        "id": "227361618596462719",
+        "username": "food52",
+        "full_name": "Food52",
+        "type": "user"
+      }
+    },
+    {
+      "node_id": "Qm9hcmQ6MjI3MzYxNTQ5ODc3NDQ5Njg2",
+      "type": "board",
+      "id": "227361549877449686",
+      "name": "Outdoor Dining",
+      "url": "https://www.pinterest.com/food52/outdoor-dining/",
+      "description": "",
+      "privacy": "public",
+      "pin_count": 26,
+      "follower_count": 408379,
+      "section_count": 0,
+      "created_at": "Mon, 06 May 2024 14:49:03 +0000",
+      "board_order_modified_at": "Mon, 01 Jun 2026 19:00:13 +0000",
+      "image_cover_url": "https://i.pinimg.com/200x150/ac/60/79/ac6079c6e5d0de49bd0d009110e9b020.jpg",
+      "image_cover_hd_url": "https://i.pinimg.com/474x/ac/60/79/ac6079c6e5d0de49bd0d009110e9b020.jpg",
+      "cover_images": {
+        "200x150": {
+          "url": "https://i.pinimg.com/200x150/ac/60/79/ac6079c6e5d0de49bd0d009110e9b020.jpg",
+          "width": 200,
+          "height": 150
+        },
+        "236x": {
+          "url": "https://i.pinimg.com/236x/ac/60/79/ac6079c6e5d0de49bd0d009110e9b020.jpg",
+          "width": 236,
+          "height": null
+        }
+      },
+      "has_custom_cover": false,
+      "is_collaborative": false,
+      "collaborator_count": 0,
+      "owner": {
+        "id": "227361618596462719",
+        "username": "food52",
+        "full_name": "Food52",
+        "type": "user"
+      }
+    },
+    {
+      "node_id": "Qm9hcmQ6MjI3MzYxNTQ5ODc3NDQ3NDQx",
+      "type": "board",
+      "id": "227361549877447441",
+      "name": "Colorful Tables",
+      "url": "https://www.pinterest.com/food52/colorful-tables/",
+      "description": "Whimsy Table Decor",
+      "privacy": "public",
+      "pin_count": 45,
+      "follower_count": 408379,
+      "section_count": 0,
+      "created_at": "Wed, 20 Mar 2024 18:15:19 +0000",
+      "board_order_modified_at": "Thu, 07 May 2026 16:03:41 +0000",
+      "image_cover_url": "https://i.pinimg.com/200x150/6a/f2/3c/6af23c64881daa704bd7cc21c2f39165.jpg",
+      "image_cover_hd_url": "https://i.pinimg.com/474x/6a/f2/3c/6af23c64881daa704bd7cc21c2f39165.jpg",
+      "cover_images": {
+        "200x150": {
+          "url": "https://i.pinimg.com/200x150/6a/f2/3c/6af23c64881daa704bd7cc21c2f39165.jpg",
+          "width": 200,
+          "height": 150
+        },
+        "236x": {
+          "url": "https://i.pinimg.com/236x/6a/f2/3c/6af23c64881daa704bd7cc21c2f39165.jpg",
+          "width": 236,
+          "height": null
+        }
+      },
+      "has_custom_cover": false,
+      "is_collaborative": false,
+      "collaborator_count": 0,
+      "owner": {
+        "id": "227361618596462719",
+        "username": "food52",
+        "full_name": "Food52",
+        "type": "user"
+      }
+    }
+  ]
+}

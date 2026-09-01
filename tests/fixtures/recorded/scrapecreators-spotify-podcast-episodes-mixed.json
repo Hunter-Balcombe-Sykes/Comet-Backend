@@ -1,0 +1,264 @@
+{
+  "success": true,
+  "credits_remaining": 7049,
+  "credits_charged": 1,
+  "id": "4rOoJ6Egrf8K2IrywzwOMk",
+  "uri": "spotify:show:4rOoJ6Egrf8K2IrywzwOMk",
+  "episodes": [
+    {
+      "__typename": "RestrictedContent"
+    },
+    {
+      "__typename": "Episode",
+      "accessInfo": null,
+      "audio": [
+        {
+          "url": "https://p.scdn.co/mp3-preview/dfb9908ef9c593c962c305b5687edd6cc43b42d7"
+        },
+        {
+          "url": "https://p.scdn.co/mp3-preview/90fe5b2c16848e5c4004e55dc3078f1916f08123"
+        },
+        {
+          "url": "https://p.scdn.co/mp3-preview/8539c99798e262f28a12596174c75633b8547b7c"
+        },
+        {
+          "url": "https://p.scdn.co/mp3-preview/c1d37003d40a73ce6c305464b48cb6e338abb6f5"
+        },
+        {
+          "url": "https://p.scdn.co/mp3-preview/27852e2b297a81bd96911a5f53a3d374e1c13440"
+        },
+        {
+          "url": "https://p.scdn.co/mp3-preview/5f1e53e4750805ee44484009958b1c23eea48ba6"
+        }
+      ],
+      "contentInformation": null,
+      "contentRating": {
+        "label": "EXPLICIT"
+      },
+      "contentRatingsV2": {
+        "labels": [
+          "EXPLICIT"
+        ]
+      },
+      "contents": [],
+      "coverArt": {
+        "sources": [
+          {
+            "height": 64,
+            "url": "https://i.scdn.co/image/ab6765630000f68d3ee5f54685f8844127071d3f",
+            "width": 64
+          },
+          {
+            "height": 300,
+            "url": "https://i.scdn.co/image/ab67656300005f1f3ee5f54685f8844127071d3f",
+            "width": 300
+          },
+          {
+            "height": 640,
+            "url": "https://i.scdn.co/image/ab6765630000ba8a3ee5f54685f8844127071d3f",
+            "width": 640
+          }
+        ]
+      },
+      "creator": null,
+      "description": "Daniel Everett, PhD, is a linguist and college professor. He is the author of several books, including “Don’t Sleep, There Are Snakes: Life and Language in the Amazonian Jungle” and “How Language Began: The Story of Humanity’s Greatest Invention.”https://daneverettbooks.com  Perplexity: Download the app or ask Perplexity anything at https://pplx.ai/rogan.  Get a free welcome kit with your first subscription of AG1 at drinkag1.com/joerogan  Use code ROGAN at https://BlueChew.com  to get 10% OFF + Free Overnight Shipping on your first order. Learn more about your ad choices. Visit podcastchoices.com/adchoices",
+      "duration": {
+        "totalMilliseconds": 9468564
+      },
+      "gatedEntityRelations": [],
+      "htmlDescription": "<p>Daniel Everett, PhD, is a linguist and college professor. He is the author of several books, including “Don’t Sleep, There Are Snakes: Life and Language in the Amazonian Jungle” and “How Language Began: The Story of Humanity’s Greatest Invention.”<br /><a href=\"https://daneverettbooks.com/\" rel=\"nofollow\">https://daneverettbooks.com</a></p>\n<p><br /></p>\n<p>Perplexity: Download the app or ask Perplexity anything at <a href=\"https://pplx.ai/rogan\" rel=\"nofollow\">https://pplx.ai/rogan</a>.</p>\n<p><br /></p>\n<p>Get a free welcome kit with your first subscription of AG1 at <a href=\"drinkag1.com/joerogan\" rel=\"nofollow\">drinkag1.com/joerogan</a></p>\n<p><br /></p>\n<p>Use code ROGAN at <a href=\"https://BlueChew.com\" rel=\"nofollow\">https://BlueChew.com</a>  to get 10% OFF &#43; Free Overnight Shipping on your first order.</p><p> </p><p>Learn more about your ad choices. Visit <a href=\"https://podcastchoices.com/adchoices\" rel=\"nofollow\">podcastchoices.com/adchoices</a></p>",
+      "id": "71Q6UzLG4QoN7lRw5SmUxf",
+      "mediaTypes": [
+        "VIDEO",
+        "AUDIO"
+      ],
+      "name": "#2547 - Daniel Everett",
+      "playability": {
+        "playable": true,
+        "reason": "PLAYABLE",
+        "unplayabilityReasons": []
+      },
+      "playedState": {
+        "playPositionMilliseconds": 0,
+        "state": "NOT_STARTED"
+      },
+      "podcastV2": {
+        "__typename": "Podcast",
+        "coverArt": {
+          "sources": [
+            {
+              "height": 64,
+              "url": "https://i.scdn.co/image/ab6765630000f68d94c7c734f09452f9f9b5acfc",
+              "width": 64
+            },
+            {
+              "height": 300,
+              "url": "https://i.scdn.co/image/ab67656300005f1f94c7c734f09452f9f9b5acfc",
+              "width": 300
+            },
+            {
+              "height": 640,
+              "url": "https://i.scdn.co/image/ab6765630000ba8a94c7c734f09452f9f9b5acfc",
+              "width": 640
+            }
+          ]
+        },
+        "name": "The Joe Rogan Experience",
+        "showTypes": [
+          "SHOW_TYPE_EXCLUSIVE"
+        ],
+        "trailerV2": null,
+        "uri": "spotify:show:4rOoJ6Egrf8K2IrywzwOMk",
+        "accessInfo": null
+      },
+      "previewPlayback": {
+        "audioPreview": {
+          "cdnUrl": "https://p.scdn.co/mp3-preview/a3817d8be11c14beb24fb9c20852162f82f79a37.mp3"
+        }
+      },
+      "releaseDate": {
+        "isoString": "2026-08-27T17:00:00Z",
+        "precision": "MINUTE"
+      },
+      "restrictions": {
+        "paywallContent": false
+      },
+      "segments": null,
+      "sharingInfo": {
+        "shareId": "GgkkPZ2CSHqZYYbPTzcZOw",
+        "shareUrl": "https://open.spotify.com/episode/71Q6UzLG4QoN7lRw5SmUxf?si=GgkkPZ2CSHqZYYbPTzcZOw"
+      },
+      "transcripts": [],
+      "type": "PODCAST_EPISODE",
+      "uri": "spotify:episode:71Q6UzLG4QoN7lRw5SmUxf",
+      "visualIdentity": {
+        "sixteenByNineCoverImage": {
+          "image": {
+            "__typename": "ImageV2",
+            "sources": [
+              {
+                "maxHeight": 720,
+                "maxWidth": 1280,
+                "url": "https://image-cdn-ak.spotifycdn.com/image/ab6772ab000030ae51ac2e48825646822352a219"
+              },
+              {
+                "maxHeight": 360,
+                "maxWidth": 640,
+                "url": "https://image-cdn-ak.spotifycdn.com/image/ab6772ab0000e0e751ac2e48825646822352a219"
+              }
+            ]
+          }
+        },
+        "squareCoverImage": {
+          "__typename": "VisualIdentityImage",
+          "extractedColorSet": {
+            "encoreBaseSetTextColor": {
+              "alpha": 255,
+              "blue": 110,
+              "green": 165,
+              "red": 255
+            },
+            "highContrast": {
+              "backgroundBase": {
+                "alpha": 255,
+                "blue": 0,
+                "green": 48,
+                "red": 145
+              },
+              "backgroundTintedBase": {
+                "alpha": 255,
+                "blue": 0,
+                "green": 9,
+                "red": 97
+              },
+              "textBase": {
+                "alpha": 255,
+                "blue": 255,
+                "green": 255,
+                "red": 255
+              },
+              "textBrightAccent": {
+                "alpha": 255,
+                "blue": 255,
+                "green": 255,
+                "red": 255
+              },
+              "textSubdued": {
+                "alpha": 255,
+                "blue": 154,
+                "green": 192,
+                "red": 255
+              }
+            },
+            "higherContrast": {
+              "backgroundBase": {
+                "alpha": 255,
+                "blue": 0,
+                "green": 10,
+                "red": 101
+              },
+              "backgroundTintedBase": {
+                "alpha": 255,
+                "blue": 40,
+                "green": 55,
+                "red": 144
+              },
+              "textBase": {
+                "alpha": 255,
+                "blue": 255,
+                "green": 255,
+                "red": 255
+              },
+              "textBrightAccent": {
+                "alpha": 255,
+                "blue": 96,
+                "green": 215,
+                "red": 30
+              },
+              "textSubdued": {
+                "alpha": 255,
+                "blue": 154,
+                "green": 192,
+                "red": 255
+              }
+            },
+            "minContrast": {
+              "backgroundBase": {
+                "alpha": 255,
+                "blue": 0,
+                "green": 111,
+                "red": 247
+              },
+              "backgroundTintedBase": {
+                "alpha": 255,
+                "blue": 0,
+                "green": 83,
+                "red": 217
+              },
+              "textBase": {
+                "alpha": 255,
+                "blue": 255,
+                "green": 255,
+                "red": 255
+              },
+              "textBrightAccent": {
+                "alpha": 255,
+                "blue": 255,
+                "green": 255,
+                "red": 255
+              },
+              "textSubdued": {
+                "alpha": 255,
+                "blue": 255,
+                "green": 255,
+                "red": 255
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "cursor": 50,
+  "totalCount": 2745
+}

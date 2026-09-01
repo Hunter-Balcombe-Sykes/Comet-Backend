@@ -18,7 +18,11 @@ use App\Services\Platforms\LinkInBioApiUnroller;
 use App\Services\Platforms\LinkInBioDetector;
 use App\Services\Platforms\LinkInBioInlinePayloadReader;
 use App\Services\Platforms\MediaSeeder;
+use App\Services\Platforms\ScrapeCreators\KomiLinksNormalizer;
+use App\Services\Platforms\ScrapeCreators\LinkbioLinksNormalizer;
+use App\Services\Platforms\ScrapeCreators\LinkmeLinksNormalizer;
 use App\Services\Platforms\ScrapeCreators\LinktreeLinksNormalizer;
+use App\Services\Platforms\ScrapeCreators\PillarLinksNormalizer;
 use App\Services\Platforms\ScrapeCreators\ScrapeCreatorsClient;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\DB;
@@ -77,6 +81,30 @@ class LinkInBioImporter
         'Checking your browser',
     ];
 
+    /**
+     * The five link-in-bio services ScrapeCreators reads (Item 10b, 2026-09-01
+     * — the quartet generalizing Item 8's Linktree-only lane). One endpoint +
+     * one normalizer per service: the recorded payloads share no row shape
+     * (Komi hides invisible modules, Pillar splits links/products/socials,
+     * Lnk.Bio says text-not-title, Linkme nests grouped webLinks), so a
+     * parameterized single normalizer was rejected — each stays a thin
+     * per-endpoint pass, the Wave-1 pattern.
+     *
+     * Hosts match exactly or by subdomain — Komi pages LIVE on subdomains
+     * (<user>.komi.io), and www. rides the same rule. clk.bio is Lnk.Bio's
+     * own reachable mirror of lnk.bio (see retireFloorCards' history); the
+     * vendor documents lnk.bio URLs, so the mirror rewrites onto the
+     * canonical host before the call — a vendor refusal of the rewrite just
+     * falls through to the HTML parse that already reads clk.bio today.
+     */
+    private const VENDOR_SERVICES = [
+        'linktree' => ['path' => '/v1/linktree', 'normalizer' => LinktreeLinksNormalizer::class, 'hosts' => ['linktr.ee']],
+        'komi' => ['path' => '/v1/komi', 'normalizer' => KomiLinksNormalizer::class, 'hosts' => ['komi.io']],
+        'pillar' => ['path' => '/v1/pillar', 'normalizer' => PillarLinksNormalizer::class, 'hosts' => ['pillar.io']],
+        'linkbio' => ['path' => '/v1/linkbio', 'normalizer' => LinkbioLinksNormalizer::class, 'hosts' => ['lnk.bio', 'clk.bio']],
+        'linkme' => ['path' => '/v1/linkme', 'normalizer' => LinkmeLinksNormalizer::class, 'hosts' => ['link.me']],
+    ];
+
     public function __construct(
         private readonly SafeUrlFetcher $fetcher,
         private readonly WebsiteLinkHarvester $harvester,
@@ -133,6 +161,25 @@ class LinkInBioImporter
             $response = $this->fetcher->tryFetch($pageUrl);
 
             if ($response === null || $response['status'] !== 200 || $response['body'] === '') {
+                // Vendor rescue (Item 10b): the vendor lane must not die with
+                // the fetch it exists to replace — lnk.bio 403s both of
+                // SafeUrlFetcher's UAs at the edge, so for that whole host
+                // class the lane inside unroll() would never run. An empty
+                // body runs unroll()'s vendor arm alone (no anchors, no
+                // inline payload to read); a vendor yield makes the page a
+                // normal acquisition, and any miss falls into the
+                // unavailable accounting below exactly as before.
+                if ($this->vendorService($pageUrl) !== null) {
+                    $before = count($seen);
+                    $this->unroll($pageUrl, '', $context, $tally, $seen, $probedHosts, $placedKeys, $droppedReasons);
+                    if (count($seen) > $before) {
+                        $unrolled[] = $pageUrl;
+                        $this->paceNextFetch($index, $pageCount, $pageDelayMs);
+
+                        continue;
+                    }
+                }
+
                 $unavailable++;
                 $reason = $this->unavailableReason($response);
                 $unavailableReasons[$reason] = ($unavailableReasons[$reason] ?? 0) + 1;
@@ -420,25 +467,30 @@ class LinkInBioImporter
         $apiLinks = $this->api->unroll($baseUrl)
             ?? $this->inline->read($baseUrl, $body);
 
-        // Item 8 G3 (2026-09-01, owner-approved): ScrapeCreators fronts the
-        // Linktree case — trial-verified exact parity with the __NEXT_DATA__
-        // parse (same 3 links on the recorded ryanfitzsimons page), with the
-        // shell-rev fragility transferred to the vendor. Vendor links lead the
+        // Item 8 G3 (2026-09-01, owner-approved), generalized to five services
+        // by Item 10b: ScrapeCreators fronts the Linktree case — trial-verified
+        // exact parity with the __NEXT_DATA__ parse (same 3 links on the
+        // recorded ryanfitzsimons page), with the shell-rev fragility
+        // transferred to the vendor — and now Komi/Pillar/Lnk.Bio/Linkme ride
+        // the same lane off their own recorded payloads. Vendor links lead the
         // list (page order, so connection slots resolve as today), and the
         // inline parse's own answer is UNIONED in behind them rather than
-        // discarded: the vendor payload carries only the tile list, never the
+        // discarded: /v1/linktree carries only the tile list, never the
         // socialLinks icon row, and T24/issue 19 (benbohmer/memphislk) proved
         // icon-row socials are unrecoverable from anchors — replacing the
         // parser outright would make them absent, which the lane contract
         // forbids. Dupes fold in $seen below. On ANY vendor miss — no key,
         // budget denied, non-2xx, transport, husk — $vendorLinks is null and
         // this whole block is a no-op: the existing parse runs unchanged.
-        $vendorLinks = $this->vendorLinktreeLinks($baseUrl, $context);
+        $vendorLinks = $this->vendorBioLinks($baseUrl, $context);
         if ($vendorLinks !== null) {
             $apiLinks = array_values(array_unique([...$vendorLinks, ...($apiLinks ?? [])]));
         }
 
-        $links = $apiLinks ?? $this->harvester->allOutboundLinks($body, $baseUrl);
+        // The vendor-rescue path arrives with NO body at all (the fetch was
+        // refused), and DOMDocument::loadHTML refuses an empty string — the
+        // harvester has nothing to read either way.
+        $links = $apiLinks ?? ($body === '' ? [] : $this->harvester->allOutboundLinks($body, $baseUrl));
 
         // F12 (2026-08-20, the natalieannehair stan.store trace): the API and
         // inline unrollers return the platform's TILE links and never see the
@@ -461,7 +513,7 @@ class LinkInBioImporter
         // them in, exactly as every anchor-harvested host always has.
         // Socials append AFTER tiles, so MAX_LINKS starvation is only
         // conceivable in multi-page batches.
-        if ($apiLinks !== null) {
+        if ($apiLinks !== null && $body !== '') {
             $anchorSocials = array_values(array_filter(
                 $this->harvester->allOutboundLinks($body, $baseUrl),
                 fn (string $link): bool => ($this->harvester->classify($link)['category'] ?? null) === 'social',
@@ -533,20 +585,44 @@ class LinkInBioImporter
     }
 
     /**
-     * The vendor lane for Linktree pages, contract-lossy by design (the
-     * InstagramScraper::vendorProfileFetch pattern): the owner's outbound
-     * URLs in page order, or null — never a failure classification. Budget
-     * ('linkinbio') is claimed before the HTTP call and released on a
-     * transport-level null; a billed husk keeps its slot spent. Any non-
-     * Linktree host answers null before the client is even consulted, so
-     * every other link-in-bio service is untouched by this lane.
+     * Which VENDOR_SERVICES entry reads this page's host — null for every
+     * host the vendor has no endpoint for, so the rest of the catalogue is
+     * untouched by the lane. Subdomain matching is the LinkInBioDetector
+     * idiom (and load-bearing here: Komi pages are <user>.komi.io).
+     */
+    private function vendorService(string $pageUrl): ?string
+    {
+        $host = strtolower((string) parse_url($pageUrl, PHP_URL_HOST));
+        if ($host === '') {
+            return null;
+        }
+
+        foreach (self::VENDOR_SERVICES as $service => $config) {
+            foreach ($config['hosts'] as $known) {
+                if ($host === $known || str_ends_with($host, '.'.$known)) {
+                    return $service;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The vendor lane for the five services ScrapeCreators reads,
+     * contract-lossy by design (the InstagramScraper::vendorProfileFetch
+     * pattern): the owner's outbound URLs in page order, or null — never a
+     * failure classification. One budget source ('linkinbio') covers the
+     * whole lane — a page is one claim regardless of which service reads it.
+     * Claimed before the HTTP call and released on a transport-level null; a
+     * billed husk keeps its slot spent.
      *
      * @return list<string>|null
      */
-    private function vendorLinktreeLinks(string $pageUrl, RoutingContext $context): ?array
+    private function vendorBioLinks(string $pageUrl, RoutingContext $context): ?array
     {
-        $host = strtolower((string) parse_url($pageUrl, PHP_URL_HOST));
-        if (! in_array($host, ['linktr.ee', 'www.linktr.ee'], true)) {
+        $service = $this->vendorService($pageUrl);
+        if ($service === null) {
             return null;
         }
 
@@ -560,20 +636,25 @@ class LinkInBioImporter
             return null;
         }
 
+        // The clk.bio mirror rewrite (see VENDOR_SERVICES). Scheme and path
+        // survive; only the host moves onto the one the vendor documents.
+        $requestUrl = preg_replace('~^(https?://)(?:www\.)?clk\.bio~i', '${1}lnk.bio', $pageUrl) ?? $pageUrl;
+
         $userId = $context->user === null ? null : (string) $context->user->id;
-        $body = $client->get('/v1/linktree', ['url' => $pageUrl], $userId);
+        $body = $client->get(self::VENDOR_SERVICES[$service]['path'], ['url' => $requestUrl], $userId);
         if ($body === null) {
             $budget->release('linkinbio');
 
             return null;
         }
 
-        $normalizer = app(LinktreeLinksNormalizer::class);
+        $normalizer = app(self::VENDOR_SERVICES[$service]['normalizer']);
         $page = $normalizer->normalize($body);
         if ($page === null) {
             // The call was made and billed upstream even when the shape is a
             // husk — the slot stays spent; only transport-level nulls release.
-            Log::info('scrapecreators.linktree.unusable_shape', [
+            Log::info('scrapecreators.linkinbio.unusable_shape', [
+                'service' => $service,
                 'user_id' => $userId,
                 'import_run_id' => $context->importRunId,
             ]);

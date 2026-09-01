@@ -20,35 +20,336 @@
    "captured_at": "2026-08-18T14:26:04+00:00",
    "sha256": "a212e2be466896a86f324614530d434667858a9d235a68f8968b629765dc27ff",
    "captured_by": "fixtures:capture",
-   "notes": "JS SPA — expect 0 anchors (finding N2)"
+   "notes": "JS SPA \u2014 expect 0 anchors (finding N2)"
   },
   "linkinbio/linktree.hair.html": {
    "source_url": "https://linktr.ee/jess.hairstylist",
    "captured_at": "2026-08-18T14:25:59+00:00",
    "sha256": "81edf8378262eae8f40db15ac655b4dbc40d4820c344420c4413026127046eab",
    "captured_by": "fixtures:capture",
-   "notes": "Linktree, hairstylist (wave source). __NEXT_DATA__ is invalid JSON post-redaction (bare account id → unquoted [redacted-phone]) — do not json_decode this blob. The anchors and hrefs in the body ARE intact and faithful."
+   "notes": "Linktree, hairstylist (wave source). __NEXT_DATA__ is invalid JSON post-redaction (bare account id \u2192 unquoted [redacted-phone]) \u2014 do not json_decode this blob. The anchors and hrefs in the body ARE intact and faithful."
   },
   "linkinbio/linktree.mixed.html": {
    "source_url": "https://linktr.ee/crucibletattooco",
    "captured_at": "2026-08-18T14:25:54+00:00",
    "sha256": "f239885651dac98cde80250a06417f14d92cedc6ba0ce12726dfdb640f302b41",
    "captured_by": "fixtures:capture",
-   "notes": "Linktree, tattoo studio; IG+Fresha+FB+Pinterest+Bluesky+canva.link mix (wave R2 source). __NEXT_DATA__ is invalid JSON post-redaction (bare account id → unquoted [redacted-phone]) — do not json_decode this blob. The anchors and hrefs in the body ARE intact and faithful."
+   "notes": "Linktree, tattoo studio; IG+Fresha+FB+Pinterest+Bluesky+canva.link mix (wave R2 source). __NEXT_DATA__ is invalid JSON post-redaction (bare account id \u2192 unquoted [redacted-phone]) \u2014 do not json_decode this blob. The anchors and hrefs in the body ARE intact and faithful."
   },
   "linkinbio/lnkbio.clkbio.html": {
    "source_url": "https://clk.bio/TheMetaPunter",
    "captured_at": "2026-08-24T12:40:10+00:00",
    "sha256": "439b6980c90154ab8c7d913afe8780a2420ea52018aa36bb75aedbe1c971c8bf",
    "captured_by": "fixtures:capture",
-   "notes": "Lnk.Bio via its clk.bio mirror (themetapunter, 2026-08-24). 32 anchors: 4 owner links (rel=external nofollow ugc), 7 share widgets, 5 display:none SEO backlinks to Lnk.Bio's own portfolio. lnk.bio/TheMetaPunter answers 403 for the same content. Redaction replaced 156 bare numbers with [redacted-phone] (image ids, data-id attrs) — same behaviour the linktree captures note. The ANCHORS AND HREFS ARE INTACT: harvested=23, classified=4 measured against this file."
+   "notes": "Lnk.Bio via its clk.bio mirror (themetapunter, 2026-08-24). 32 anchors: 4 owner links (rel=external nofollow ugc), 7 share widgets, 5 display:none SEO backlinks to Lnk.Bio's own portfolio. lnk.bio/TheMetaPunter answers 403 for the same content. Redaction replaced 156 bare numbers with [redacted-phone] (image ids, data-id attrs) \u2014 same behaviour the linktree captures note. The ANCHORS AND HREFS ARE INTACT: harvested=23, classified=4 measured against this file."
   },
   "places/amiconi.listing.json": {
    "source_url": "file:///private/tmp/claude-501/-Users-joshuahunter-Herd-Side-Street-backend/51326dd2-a9b4-4652-8645-29b2e54b9cf0/scratchpad/amiconi.raw.json",
    "captured_at": "2026-08-28T07:13:38+00:00",
    "sha256": "329676c6ae10d51c6046b1f799c726fd4dc1c8c382df71d20fa50e6d9059ad60",
    "captured_by": "fixtures:capture",
-   "notes": "Real Places (New) details payload as STORED on a google-business connection (dev, Amiconi Restaurant, connection 01a03729). Dumped via psql from site.platform_connections.payload — the exact shape GoogleBusinessService::fetchPlaceDetails() returns. Carries editorialSummary + category: the two GBP bio-enrichment inputs."
+   "notes": "Real Places (New) details payload as STORED on a google-business connection (dev, Amiconi Restaurant, connection 01a03729). Dumped via psql from site.platform_connections.payload \u2014 the exact shape GoogleBusinessService::fetchPlaceDetails() returns. Carries editorialSummary + category: the two GBP bio-enrichment inputs."
+  },
+  "scrapecreators-amazon-shop.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "9b30e256be7428d67fad2a19063079307486df96211a01472bcde50bd1532714",
+   "captured_by": "wave4-agent:amazon",
+   "notes": "Item 10b capture 2026-09-01 via scrape-creators MCP (v1_amazon_shop) for https://www.amazon.com/shop/sydneydelrey (vendor-documented public example storefront); slimmed: lists 20\u21924, curations 16\u21922, all 16 trendingPicks verbatim incl. the bare-int price 239 row; credits fields retained raw."
+  },
+  "scrapecreators-bluesky-profile-notfound.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "6430461751e51337d6c94e7b215f3308aea0a37b218c18f183ad2b75ff34072e",
+   "captured_by": "wave4-agent:bluesky",
+   "notes": "Item 10b capture 2026-09-01: verbatim NotFound husk \u2014 success:true + error:not_found, bills ZERO credits (diverges from Spotify's billed husk)"
+  },
+  "scrapecreators-bluesky-profile.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "c1efea20a9c64908c4271addf5defb67febbc7fa26fecf22735a5700d94d250a",
+   "captured_by": "wave4-agent:bluesky",
+   "notes": "Item 10b capture 2026-09-01 via scrape-creators MCP: /v1/bluesky/profile?handle=bsky.app \u2014 verbatim (credits_remaining left as billed)"
+  },
+  "scrapecreators-bluesky-user-posts-espn.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "76c3685f1e4462abcdff82a48e7e470503c3dfc4df6d2bdcdc5904d99f5801c5",
+   "captured_by": "wave4-agent:bluesky",
+   "notes": "Item 10b capture 2026-09-01: /v1/bluesky/user/posts?handle=espn.com, slimmed 30\u21922 items: the own-author video#view (HLS playlist + thumbnail, NO aspectRatio/alt) + an images post"
+  },
+  "scrapecreators-bluesky-user-posts.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "15fb955156634464ab7da3624a914d373289b2d71cdfe7b46722e35f7efea26c",
+   "captured_by": "wave4-agent:bluesky",
+   "notes": "Item 10b capture 2026-09-01: /v1/bluesky/user/posts?user_id=did:plc:z72i7hdynmk6r22z27h6tvur (bsky.app), slimmed 30\u21926 items: 3 own posts (pinned-2024-first + 2 images posts), 1 own reply (record.reply), 2 foreign-author reposts with NO reason marker (video + external)"
+  },
+  "scrapecreators-facebook-event-details.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "4bfd5600cb766b70d05a0c61a5f1e7e6e4be086697caf94b624408f3cfa7ea09",
+   "captured_by": "wave4-agent:fb_events",
+   "notes": "Live /v1/facebook/event/details answer for event 1759413615194443 (Shonen Knife @ The Tote, 2026-09-01): start_time null with start_timestamp real, Oztix ticket_url, cover_photo_url, AEDT day_time_sentence; verbatim except credits_remaining dropped."
+  },
+  "scrapecreators-facebook-post-transcript.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "a28805b3da250c9d098bd6e74b575dedf98ac320796a237de42545aa536f3a39",
+   "captured_by": "wave4-agent:transcripts",
+   "notes": "GET /v1/facebook/post/transcript?url=https://www.facebook.com/reel/1535656380759655 via scrape-creators MCP 2026-09-01 \u2014 real response is SRT-numbered cues (docs example shows plain text; normalizer accepts both); vendor echoes a different post_id than the URL's reel id."
+  },
+  "scrapecreators-facebook-profile-events-empty.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "b4d1a9cf3b803869dfa56bb989b7d5557bdf2901c4a755ac7667c5ea41f4f6b5",
+   "captured_by": "wave4-agent:fb_events",
+   "notes": "Live /v1/facebook/profile/events husk for https://www.facebook.com/cornerhotel (2026-09-01): success:true, events:[], cursor 'e30' \u2014 the billed empty-page shape the husk doctrine gates on; credits_remaining dropped."
+  },
+  "scrapecreators-facebook-profile-events.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "4335a5110b185d4164e78ab0c6edc7646ac1dd47f8e766aeccad1f46dd6551a9",
+   "captured_by": "wave4-agent:fb_events",
+   "notes": "Live /v1/facebook/profile/events answer for https://www.facebook.com/thetotehotel (2026-09-01, via scrape-creators MCP): 8 upcoming events incl. nullable event_place and Page-vs-FreeformPlace variants; verbatim except credits_remaining dropped."
+  },
+  "scrapecreators-facebook-profile-posts.json": {
+   "source_url": "https://api.scrapecreators.com/v1/facebook/profile/posts?url=https://www.facebook.com/thefamishedwolf",
+   "captured_at": "2026-09-01T08:20:00+00:00",
+   "sha256": "b21ecf6c0d097817d1e82db818cc7746b287525ac9d6478c158b62848eb131c3",
+   "captured_by": "manual (Item 8 live trial via curl; slimmed by hand, credits_remaining sanitized)",
+   "notes": "Item 8 trial capture 2026-09-01, slimmed: reel + multi-photo + single-image, live cursor"
+  },
+  "scrapecreators-find-social-profiles.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "ad069390a07689cea41693b7d1a2a95b26b8071d9078e7e0f844242c4ff99beb",
+   "captured_by": "wave4-agent:find_profiles",
+   "notes": "Real /v1/find-social-profiles answer for instagram/mkbhd, captured 2026-09-01 via the scrape-creators MCP (vendor cache hit cached_at 2026-08-28, 0 credits); 7 verified profiles rows incl. the twitter-name/x.com-URL quirk and four competing youtube rows."
+  },
+  "scrapecreators-instagram-media-transcript.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "97db7dcdb8df31e6907cc11694bc34d39360679de1d233fc751dbc042b2a53c6",
+   "captured_by": "wave4-agent:transcripts",
+   "notes": "GET /v2/instagram/media/transcript?url=https://www.instagram.com/reel/DHsD6HGqJhp via scrape-creators MCP 2026-09-01 \u2014 AI-generated one-slide transcripts array (endpoint 500'd on first attempt, succeeded on retry ~30s later; each attempt may bill)."
+  },
+  "scrapecreators-instagram-profile.json": {
+   "source_url": "https://api.scrapecreators.com/v1/instagram/profile?handle=ryanfitzsimonshair",
+   "captured_at": "2026-09-01T08:20:00+00:00",
+   "sha256": "d3a01b65b5bcb146e0692852992bf3fe534e6e5a440158a069d7412afcf297c5",
+   "captured_by": "manual (Item 8 live trial via curl; slimmed by hand, credits_remaining sanitized)",
+   "notes": "Item 8 trial capture 2026-09-01, slimmed: profile + 2 video + 2 image posts"
+  },
+  "scrapecreators-komi.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "5d686d9801d352f1a0e1e896b37ed7fb48b587577cf109258e2df64db404b8a3",
+   "captured_by": "wave4-agent:linkinbio",
+   "notes": "Live /v1/komi for kimkardashian.komi.io, 2026-09-01 via scrape-creators MCP (1 credit); DATA_CAPTURE_SIGNUP methods[].fields arrays elided (form-field schema, no URLs)"
+  },
+  "scrapecreators-linkbio.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "b7de7e8b3bd742be9ff74805291550f3eca5a81a5b2b2b03313514673959d195",
+   "captured_by": "wave4-agent:linkinbio",
+   "notes": "Live /v1/linkbio for lnk.bio/msjennafischer, 2026-09-01 via scrape-creators MCP (1 credit); byte-faithful, no redactions needed"
+  },
+  "scrapecreators-linkme.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "88c314f666a62768249ccf10e41046bab80ffd43150cb88be2ad33d7ff647366",
+   "captured_by": "wave4-agent:linkinbio",
+   "notes": "Live /v1/linkme for link.me/danucd, 2026-09-01 via scrape-creators MCP (1 credit); infoLinks email linkValue/faceValue redacted to redacted-email@example.invalid variants (keys kept)"
+  },
+  "scrapecreators-linktree.json": {
+   "source_url": "https://api.scrapecreators.com/v1/linktree?url=https://linktr.ee/ryanfitzsimons",
+   "captured_at": "2026-09-01T08:20:00+00:00",
+   "sha256": "9a171ffd6c5e76e669f383553dda38486e04410d79f8dfaeeeaaec1fdce0d6c2",
+   "captured_by": "manual (Item 8 live trial via curl; slimmed by hand, credits_remaining sanitized)",
+   "notes": "Item 8 trial capture 2026-09-01: verbatim \u2014 3 links matching the HTML parser ground truth"
+  },
+  "scrapecreators-pillar.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "38f0095503322d5e6ccea2766d6ca23ae045225943cea5772a74d18b73fcb363",
+   "captured_by": "wave4-agent:linkinbio",
+   "notes": "Live /v1/pillar for pillar.io/angelstrife, 2026-09-01 via scrape-creators MCP (1 credit); email/email_primary values redacted to redacted-email@example.invalid (keys kept \u2014 shape real)"
+  },
+  "scrapecreators-pinterest-board.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "4090ccdf8fc5de6472aa119d31cb9908b91bb18bd3899b8cd828bdce1b13246c",
+   "captured_by": "wave4-agent:pinterest",
+   "notes": "REAL /v1/pinterest/board answer for pinterest.com/food52/colorful-tables/ (2026-09-01, scrape-creators MCP), slimmed 16 rows to 5: upload-only pin (link null, description ' '), video pin (is_video:false yet video_list carries the mp4, duration 92933ms), two product pins (one is_repin:true), plus the REAL type:'story' related-interests junk row proving the shape gate. images trimmed to 236x/736x/orig, videos to V_720P+V_HLSV4, pinner dropped."
+  },
+  "scrapecreators-pinterest-user-boards.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "53da665d582a94abc9d669c397f8676398cb58ea24f29902c330cd52d747d7fa",
+   "captured_by": "wave4-agent:pinterest",
+   "notes": "REAL /v1/pinterest/user/boards answer for food52 (2026-09-01, scrape-creators MCP), slimmed 10 boards to 3; per-board keys trimmed to normalizer-read set + representative extras. Keeps both description variants ('' and text) and image_cover_hd_url/cover_images/image_cover_url fallback chain."
+  },
+  "scrapecreators-soundcloud-tracks.json": {
+   "source_url": "https://api.scrapecreators.com/v1/soundcloud/artist/tracks?handle=ben-bohmer",
+   "captured_at": "2026-09-01T08:20:00+00:00",
+   "sha256": "ca7164901a8d8c665c7d939529973a559ca1e58338d3b32f0ef2fe51d9eaacc9",
+   "captured_by": "manual (Item 8 live trial via curl; slimmed by hand, credits_remaining sanitized)",
+   "notes": "Item 8 trial capture 2026-09-01: all 4 tracks"
+  },
+  "scrapecreators-spotify-artist-notfound.json": {
+   "source_url": "https://api.scrapecreators.com/v1/spotify/artist?id=5tDPJkdVuOTFQvzFY8pFmL",
+   "captured_at": "2026-09-01T08:20:00+00:00",
+   "sha256": "1596f4901f74f52a7c4e7d79ea59c3816c15c789b7d1bdc36f1543944ab24b36",
+   "captured_by": "manual (Item 8 live trial via curl; slimmed by hand, credits_remaining sanitized)",
+   "notes": "Item 8 trial capture 2026-09-01: verbatim NotFound husk \u2014 bills a credit with success:true"
+  },
+  "scrapecreators-spotify-artist.json": {
+   "source_url": "https://api.scrapecreators.com/v1/spotify/artist?id=5tDjiBYUsTqzd0RkTZxK7u",
+   "captured_at": "2026-09-01T08:20:00+00:00",
+   "sha256": "574f953c63899caf5e19bfdb83ba11cb61e212b9edda30e39f70dfdbe3ac257d",
+   "captured_by": "manual (Item 8 live trial via curl; slimmed by hand, credits_remaining sanitized)",
+   "notes": "Item 8 trial capture 2026-09-01, slimmed: 2 albums, 2 singles, 3 topTracks (Ben B\u00f6hmer)"
+  },
+  "scrapecreators-spotify-podcast-episodes-mixed.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "7eeb683915dd002da6ad25b71f40bb45141d5a2205f651f5e5b76e5416faf3f5",
+   "captured_by": "wave4-agent:spotify_podcasts",
+   "notes": "Item 11f live capture 2026-09-01, JRE 4rOoJ6Egrf8K2IrywzwOMk (Spotify exclusive): recorded MID-LIST RestrictedContent husk + 1 real episode of 50 kept, totalCount=2745 \u2014 proves per-entry husk skipping"
+  },
+  "scrapecreators-spotify-podcast-episodes.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "e873173f19991d61633547f3ed51968356c75472897be5fe260d28259977985d",
+   "captured_by": "wave4-agent:spotify_podcasts",
+   "notes": "Item 11f live capture 2026-09-01, /v1/spotify/podcast/episodes?id=79CkJF3UJTHFV8Dse3Oy0P (Huberman Lab); slimmed: first 3 of 50 entries verbatim, live cursor=50 + totalCount=437 kept"
+  },
+  "scrapecreators-spotify-podcast-notfound.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "fc8caaaeb345161bf1e9435df87db1043a2c18f194773a398b1717c26c4a28da",
+   "captured_by": "wave4-agent:spotify_podcasts",
+   "notes": "Item 11f live capture 2026-09-01: verbatim NotFound husk (bogus id 79CkJF3UJTHFV8Dse3Oy0Q) \u2014 bills a credit with success:true, __typename gates"
+  },
+  "scrapecreators-spotify-podcast.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "24c0596164526ba4802d043fbe6b3174cf5379b8f5b1a397313558f63735dbc7",
+   "captured_by": "wave4-agent:spotify_podcasts",
+   "notes": "Item 11f live capture 2026-09-01 via MCP, /v1/spotify/podcast?id=79CkJF3UJTHFV8Dse3Oy0P (Huberman Lab); slimmed by hand: trailerV2 nulled (the shape JRE really answers) + visualIdentity color sets pruned"
+  },
+  "scrapecreators-threads-profile-notfound.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "7f1a3089bf24c7e098aa62aae2d7dec9fc22221a63aa65b1a274ad81078815ec",
+   "captured_by": "wave4-agent:threads",
+   "notes": "https://api.scrapecreators.com/v1/threads/profile?handle=zqxv9-no-such-partna-handle-8814 \u2014 Item 10a capture 2026-09-01: verbatim NotFound husk (success:true, error:not_found, errorStatus:404, credits_charged:0, no username)."
+  },
+  "scrapecreators-threads-profile.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "8b9b71f47df5612efadec709387b99fa934a989f817e7d4623be14dcbc8f9098",
+   "captured_by": "wave4-agent:threads",
+   "notes": "https://api.scrapecreators.com/v1/threads/profile?handle=zuck \u2014 Item 10a capture 2026-09-01 via the scrape-creators MCP; verbatim except credits_remaining sanitized to 9999. Identity card + 2 hd_profile_pic_versions (320/640)."
+  },
+  "scrapecreators-threads-user-posts.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "4d0114062e3e5b73c6140ba1a3165a53afb839adf2ca91471c99298e5d6a0d13",
+   "captured_by": "wave4-agent:threads",
+   "notes": "https://api.scrapecreators.com/v1/threads/user/posts?handle=mosseri \u2014 Item 10a capture 2026-09-01 via the scrape-creators MCP, slimmed by hand (credits_remaining sanitized): 4 of 15 posts \u2014 single image, video, text-only, MIXED 3-child carousel (2 children carry video_versions); candidates[:2] (largest-first verified), video_versions[:1], user/text_post_app_info trimmed."
+  },
+  "scrapecreators-tiktok-profile-videos.json": {
+   "source_url": "https://api.scrapecreators.com/v3/tiktok/profile/videos?handle=ryanfitzbarber",
+   "captured_at": "2026-09-01T08:20:00+00:00",
+   "sha256": "9f31081542309cbb7c0161d8b15271c6578ff3f88145b282ed473f3ddd2aff73",
+   "captured_by": "manual (Item 8 live trial via curl; slimmed by hand, credits_remaining sanitized)",
+   "notes": "Item 8 trial capture 2026-09-01, slimmed: 4 items incl. 2 pinned out of order"
+  },
+  "scrapecreators-tiktok-shop-product-reviews.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "2ef9c038513553141e7f6bf09d1d542050e98e136f5f099cd657700ae519fa8d",
+   "captured_by": "wave4-agent:tiktok_shop",
+   "notes": "GET /v1/tiktok/shop/product-reviews?product_id=1729527313880355335&region=US&page=1 \u2014 captured live 2026-09-01 via the scrape-creators MCP; slimmed 10\u21923 rows, keys verbatim (keeps the anonymous-reviewer row: reviewer_id '', no reviewer_avatar_url key, masked name; plus a 4-star row)."
+  },
+  "scrapecreators-tiktok-shop-products.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "9ce3e27349533bc8417e7f29501a203f0a6dc8b6a76dcb468a80a00926c55497",
+   "captured_by": "wave4-agent:tiktok_shop",
+   "notes": "GET /v1/tiktok/shop/products?url=https://www.tiktok.com/shop/store/goli-nutrition/7495794203056835079&region=US&sort_by=top \u2014 captured live 2026-09-01 via the scrape-creators MCP; slimmed 20\u21924 product rows, keys verbatim (keeps the sale_price_decimal '30.8' trailing-zero-drop row and full shopInfo)."
+  },
+  "scrapecreators-tiktok-user-live-notfound.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "9f96be5fd7386e647a1342b7228159dc879a452317e25eeae67724790526e7c1",
+   "captured_by": "wave4-agent:live_status",
+   "notes": "GET /v1/tiktok/user/live for a nonexistent handle, 2026-09-01 \u2014 billed husk {is_live:false, liveRoomUserInfo:{}}, verified byte-identical to a real never-streamed account's answer (shoplc), which is why the shape must read unknown, never offline; credits_remaining scrubbed to 9999."
+  },
+  "scrapecreators-tiktok-user-live.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "0a0f3721cf1215a8f87e42a4baa648b51c724f0d0b8e98b04e9db968543c3966",
+   "captured_by": "wave4-agent:live_status",
+   "notes": "GET /v1/tiktok/user/live?handle=charlidamelio, 2026-09-01 \u2014 real OFFLINE answer (is_live false, last room ships verbatim with status 4); slimmed: multi-KB streamData/hevcStreamData CDN-URL blobs dropped, credits_remaining scrubbed to 9999."
+  },
+  "scrapecreators-tiktok-video-transcript.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "56c571bf75286bb6dae8597b77d2c561bafd2586f0f95fcdf250649ae5b06658",
+   "captured_by": "wave4-agent:transcripts",
+   "notes": "GET /v1/tiktok/video/transcript?url=https://www.tiktok.com/@stoolpresidente/video/7499229683859426602&language=en via scrape-creators MCP 2026-09-01 \u2014 WEBVTT cue-sheet dialect, ~90s pizza-review video (vendor's documented example media)."
+  },
+  "scrapecreators-twitch-profile-live.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "51feedddfda18dc53b75291622d2a3b203cca889316ef6e92e4b8fb3fb32520b",
+   "captured_by": "wave4-agent:twitch",
+   "notes": "source_url https://api.scrapecreators.com/v1/twitch/profile?handle=jynxzi \u2014 Item 10a capture 2026-09-01 via scrape-creators MCP (cached 2026-08-31T22:40:15Z, 0 credits); slimmed by hand: allVideos to 2 (first row keeps the real 404_processing placeholder thumbnail), featuredClips to 1 sans guestStarParticipants, credits_remaining sanitized. isLive:true with full stream block; no social-link keys (omitted, not null)."
+  },
+  "scrapecreators-twitch-profile.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "9ca9b57699a8095b689c0ebabfc323d30781eb1241ae2f534eff1d099983eb1a",
+   "captured_by": "wave4-agent:twitch",
+   "notes": "source_url https://api.scrapecreators.com/v1/twitch/profile?handle=pokimane \u2014 Item 10a capture 2026-09-01 via scrape-creators MCP (cached 2026-08-31T22:39:17Z, 0 credits); slimmed by hand: allVideos to 2, featuredClips absent in the real answer, credits_remaining sanitized to 9999. Offline profile with all five sibling social-link keys present."
+  },
+  "scrapecreators-twitch-user-videos.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "480fbb8ab13bce61a52478093b5737a3ce4ce587d291555167daafd6d60b36da",
+   "captured_by": "wave4-agent:twitch",
+   "notes": "source_url https://api.scrapecreators.com/v1/twitch/user/videos?handle=jynxzi&sort_by=TIME \u2014 Item 10a capture 2026-09-01 via scrape-creators MCP (live, 1 credit); slimmed by script: videos 100\u21925, credits_remaining sanitized; hasNextPage/cursor kept verbatim."
+  },
+  "scrapecreators-youtube-channel-lives.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "92c7986c72a8d521afda326ddc5698d708c1b0f88a1812523dd8394989b4f5b2",
+   "captured_by": "wave4-agent:yt_deep",
+   "notes": "GET /v1/youtube/channel/lives?handle=LofiGirl via scrape-creators MCP 2026-09-01; slimmed to 5 of 23 entries verbatim \u2014 3 currently-live (incl. the broken float viewCountInt 1.4 for '1.4K watching' and int 14 for '14K') + 2 finished streams sharing one identical synthesized publishedTime; continuationToken was genuinely null."
+  },
+  "scrapecreators-youtube-channel-shorts.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "e6b360938cd110d05c303cba2ba5b84279e34d7800eab36c766fcbc30918f995",
+   "captured_by": "wave4-agent:yt_deep",
+   "notes": "GET /v1/youtube/channel/shorts?handle=MrBeast&sort=newest via scrape-creators MCP 2026-09-01; slimmed to the first 5 of ~48 shorts verbatim (covers explicit-null and non-null descriptions), envelope keys verbatim, giant continuationToken dropped (Wave 1 convention)."
+  },
+  "scrapecreators-youtube-channel-videos.json": {
+   "source_url": "https://api.scrapecreators.com/v1/youtube/channel-videos?channelId=UCVeCg7M6VPx45EAjbkIeRTw&sort=latest",
+   "captured_at": "2026-09-01T08:20:00+00:00",
+   "sha256": "5baf354ef1fcb510dd4e377eeb1ac8fd5ed214c07ffef4b65efbd4469c911317",
+   "captured_by": "manual (Item 8 live trial via curl; slimmed by hand, credits_remaining sanitized)",
+   "notes": "Item 8 trial capture 2026-09-01, slimmed: 4 videos; publishedTime synthesized, publishDate real"
+  },
+  "scrapecreators-youtube-video-transcript.json": {
+   "source_url": "scrape-creators MCP capture (see notes)",
+   "captured_at": "2026-09-01T12:25:46+00:00",
+   "sha256": "b075906519100dca2036b2ff4ddf6bf60fb4d0c2372625fa7f1acf60a2c2f9c8",
+   "captured_by": "wave4-agent:transcripts",
+   "notes": "GET /v1/youtube/video/transcript?url=https://www.youtube.com/watch?v=bjVIDXPP7Uk&language=en via scrape-creators MCP 2026-09-01 \u2014 338 segments + transcript_only_text + language:'English' + captionTracks with signed (now-expired) URLs; 65KB, no 2-min limit on this platform."
   },
   "shop/abovetheground-homepage.html": {
    "source_url": "https://abovetheground.com.au/",
@@ -112,62 +413,6 @@
    "sha256": "d5bbda1bcda795cd9defbc22284e1469080e201ba4355184275b7dab0adaab46",
    "captured_by": "fixtures:capture",
    "notes": "Real tattoo studio site (wave source)"
-  },
-  "scrapecreators-instagram-profile.json": {
-   "source_url": "https://api.scrapecreators.com/v1/instagram/profile?handle=ryanfitzsimonshair",
-   "captured_at": "2026-09-01T08:20:00+00:00",
-   "sha256": "d3a01b65b5bcb146e0692852992bf3fe534e6e5a440158a069d7412afcf297c5",
-   "captured_by": "manual (Item 8 live trial via curl; slimmed by hand, credits_remaining sanitized)",
-   "notes": "Item 8 trial capture 2026-09-01, slimmed: profile + 2 video + 2 image posts"
-  },
-  "scrapecreators-tiktok-profile-videos.json": {
-   "source_url": "https://api.scrapecreators.com/v3/tiktok/profile/videos?handle=ryanfitzbarber",
-   "captured_at": "2026-09-01T08:20:00+00:00",
-   "sha256": "9f31081542309cbb7c0161d8b15271c6578ff3f88145b282ed473f3ddd2aff73",
-   "captured_by": "manual (Item 8 live trial via curl; slimmed by hand, credits_remaining sanitized)",
-   "notes": "Item 8 trial capture 2026-09-01, slimmed: 4 items incl. 2 pinned out of order"
-  },
-  "scrapecreators-facebook-profile-posts.json": {
-   "source_url": "https://api.scrapecreators.com/v1/facebook/profile/posts?url=https://www.facebook.com/thefamishedwolf",
-   "captured_at": "2026-09-01T08:20:00+00:00",
-   "sha256": "b21ecf6c0d097817d1e82db818cc7746b287525ac9d6478c158b62848eb131c3",
-   "captured_by": "manual (Item 8 live trial via curl; slimmed by hand, credits_remaining sanitized)",
-   "notes": "Item 8 trial capture 2026-09-01, slimmed: reel + multi-photo + single-image, live cursor"
-  },
-  "scrapecreators-spotify-artist.json": {
-   "source_url": "https://api.scrapecreators.com/v1/spotify/artist?id=5tDjiBYUsTqzd0RkTZxK7u",
-   "captured_at": "2026-09-01T08:20:00+00:00",
-   "sha256": "574f953c63899caf5e19bfdb83ba11cb61e212b9edda30e39f70dfdbe3ac257d",
-   "captured_by": "manual (Item 8 live trial via curl; slimmed by hand, credits_remaining sanitized)",
-   "notes": "Item 8 trial capture 2026-09-01, slimmed: 2 albums, 2 singles, 3 topTracks (Ben Böhmer)"
-  },
-  "scrapecreators-spotify-artist-notfound.json": {
-   "source_url": "https://api.scrapecreators.com/v1/spotify/artist?id=5tDPJkdVuOTFQvzFY8pFmL",
-   "captured_at": "2026-09-01T08:20:00+00:00",
-   "sha256": "1596f4901f74f52a7c4e7d79ea59c3816c15c789b7d1bdc36f1543944ab24b36",
-   "captured_by": "manual (Item 8 live trial via curl; slimmed by hand, credits_remaining sanitized)",
-   "notes": "Item 8 trial capture 2026-09-01: verbatim NotFound husk — bills a credit with success:true"
-  },
-  "scrapecreators-soundcloud-tracks.json": {
-   "source_url": "https://api.scrapecreators.com/v1/soundcloud/artist/tracks?handle=ben-bohmer",
-   "captured_at": "2026-09-01T08:20:00+00:00",
-   "sha256": "ca7164901a8d8c665c7d939529973a559ca1e58338d3b32f0ef2fe51d9eaacc9",
-   "captured_by": "manual (Item 8 live trial via curl; slimmed by hand, credits_remaining sanitized)",
-   "notes": "Item 8 trial capture 2026-09-01: all 4 tracks"
-  },
-  "scrapecreators-linktree.json": {
-   "source_url": "https://api.scrapecreators.com/v1/linktree?url=https://linktr.ee/ryanfitzsimons",
-   "captured_at": "2026-09-01T08:20:00+00:00",
-   "sha256": "9a171ffd6c5e76e669f383553dda38486e04410d79f8dfaeeeaaec1fdce0d6c2",
-   "captured_by": "manual (Item 8 live trial via curl; slimmed by hand, credits_remaining sanitized)",
-   "notes": "Item 8 trial capture 2026-09-01: verbatim — 3 links matching the HTML parser ground truth"
-  },
-  "scrapecreators-youtube-channel-videos.json": {
-   "source_url": "https://api.scrapecreators.com/v1/youtube/channel-videos?channelId=UCVeCg7M6VPx45EAjbkIeRTw&sort=latest",
-   "captured_at": "2026-09-01T08:20:00+00:00",
-   "sha256": "5baf354ef1fcb510dd4e377eeb1ac8fd5ed214c07ffef4b65efbd4469c911317",
-   "captured_by": "manual (Item 8 live trial via curl; slimmed by hand, credits_remaining sanitized)",
-   "notes": "Item 8 trial capture 2026-09-01, slimmed: 4 videos; publishedTime synthesized, publishDate real"
   }
  }
 }

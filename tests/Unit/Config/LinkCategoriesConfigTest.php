@@ -104,8 +104,10 @@ it('registers twitch and kick as streaming path-mode platforms', function () {
     }
 });
 
-it('streaming_platforms config lists twitch and kick', function () {
-    expect(config('partna.streaming_platforms'))->toBe(['twitch', 'kick']);
+it('streaming_platforms config lists the live-status platforms', function () {
+    // tiktok + youtube joined 2026-09-01 (Item 11d unified live-status) —
+    // the poller's vendor legs are dormant for any platform absent here.
+    expect(config('partna.streaming_platforms'))->toBe(['twitch', 'kick', 'tiktok', 'youtube']);
 });
 
 it('every platform defining url_templates (SEM-1 shape map) has a consistent registry: https, {handle}, and url_template is one of the map values', function () {

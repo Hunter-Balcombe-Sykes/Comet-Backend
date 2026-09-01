@@ -1,0 +1,113 @@
+{
+ "success": true,
+ "credits_remaining": 7051,
+ "credits_charged": 1,
+ "videos": [],
+ "channels": [],
+ "playlists": [],
+ "shorts": [],
+ "shelves": [],
+ "lives": [
+  {
+   "type": "live",
+   "id": "rFZHOHl-L8A",
+   "url": "https://www.youtube.com/watch?v=rFZHOHl-L8A",
+   "title": "lofi hip hop radio 📚 beats to relax/study to",
+   "thumbnail": "https://i.ytimg.com/vi/rFZHOHl-L8A/hq720.jpg?v=6a85616e&sqp=-oaymwEnCNAFEJQDSFryq4qpAxkIARUAAIhCGAHYAQHiAQoIGBACGAY4AUAB&rs=AOn4CLDRXLBYlhE2P6wT4LJMlFbu6bJRpg",
+   "channel": {
+    "id": null,
+    "title": null,
+    "handle": null,
+    "thumbnail": null
+   },
+   "viewCountText": "14K watching",
+   "viewCountInt": 14,
+   "publishedTimeText": null,
+   "publishedTime": null,
+   "lengthText": "LIVE",
+   "lengthSeconds": null,
+   "badges": []
+  },
+  {
+   "type": "live",
+   "id": "0muHFBSiybw",
+   "url": "https://www.youtube.com/watch?v=0muHFBSiybw",
+   "title": "summer lofi radio ☀️ music to put you in a better mood",
+   "thumbnail": "https://i.ytimg.com/vi/0muHFBSiybw/hq720.jpg?v=6a7dc02e&sqp=-oaymwEnCNAFEJQDSFryq4qpAxkIARUAAIhCGAHYAQHiAQoIGBACGAY4AUAB&rs=AOn4CLCoZZa9uA-TXVXKfISxOAPQhCpbsw",
+   "channel": {
+    "id": null,
+    "title": null,
+    "handle": null,
+    "thumbnail": null
+   },
+   "viewCountText": "921 watching",
+   "viewCountInt": 921,
+   "publishedTimeText": null,
+   "publishedTime": null,
+   "lengthText": "LIVE",
+   "lengthSeconds": null,
+   "badges": []
+  },
+  {
+   "type": "live",
+   "id": "E2vONfzoyRI",
+   "url": "https://www.youtube.com/watch?v=E2vONfzoyRI",
+   "title": "jazz lofi radio 🎷 beats to chill/study to",
+   "thumbnail": "https://i.ytimg.com/vi/E2vONfzoyRI/hq720.jpg?v=6a105e36&sqp=-oaymwEnCNAFEJQDSFryq4qpAxkIARUAAIhCGAHYAQHiAQoIGBACGAY4AUAB&rs=AOn4CLAQhxtTJK5Xo0esGY6eZIXsF3UIHw",
+   "channel": {
+    "id": null,
+    "title": null,
+    "handle": null,
+    "thumbnail": null
+   },
+   "viewCountText": "1.4K watching",
+   "viewCountInt": 1.4,
+   "publishedTimeText": null,
+   "publishedTime": null,
+   "lengthText": "LIVE",
+   "lengthSeconds": null,
+   "badges": []
+  },
+  {
+   "type": "live",
+   "id": "DWcJFNfaw9c",
+   "url": "https://www.youtube.com/watch?v=DWcJFNfaw9c",
+   "title": "lofi hip hop radio - beats to sleep/chill to",
+   "thumbnail": "https://i.ytimg.com/vi/DWcJFNfaw9c/hq720.jpg?sqp=-oaymwEnCNAFEJQDSFryq4qpAxkIARUAAIhCGAHYAQHiAQoIGBACGAY4AUAB&rs=AOn4CLD2L96Px1z3EAJJzp9oiM5rZeAMog",
+   "channel": {
+    "id": null,
+    "title": null,
+    "handle": null,
+    "thumbnail": null
+   },
+   "viewCountText": "129M views",
+   "viewCountInt": 129000000,
+   "publishedTimeText": "Streamed 4 years ago",
+   "publishedTime": "2022-09-01T11:58:55.784Z",
+   "lengthText": "20,772:51:34",
+   "lengthSeconds": null,
+   "badges": []
+  },
+  {
+   "type": "live",
+   "id": "5qap5aO4i9A",
+   "url": "https://www.youtube.com/watch?v=5qap5aO4i9A",
+   "title": "lofi hip hop radio - beats to relax/study to",
+   "thumbnail": "https://i.ytimg.com/vi/5qap5aO4i9A/hq720.jpg?sqp=-oaymwEnCNAFEJQDSFryq4qpAxkIARUAAIhCGAHYAQHiAQoIGBACGAY4AUAB&rs=AOn4CLCDrpyGLXimgnFNrFT-C5-0KhtOow",
+   "channel": {
+    "id": null,
+    "title": null,
+    "handle": null,
+    "thumbnail": null
+   },
+   "viewCountText": "668M views",
+   "viewCountInt": 668000000,
+   "publishedTimeText": "Streamed 4 years ago",
+   "publishedTime": "2022-09-01T11:58:55.784Z",
+   "lengthText": "20,843:43:51",
+   "lengthSeconds": null,
+   "badges": []
+  }
+ ],
+ "continuationToken": null
+}

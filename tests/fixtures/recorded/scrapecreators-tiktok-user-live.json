@@ -1,0 +1,44 @@
+{
+  "success": true,
+  "credits_remaining": 9999,
+  "credits_charged": 1,
+  "is_live": false,
+  "liveRoom": {
+    "coverUrl": "https://p16-common-sign.tiktokcdn-us.com/tos-useast5-avt-0068-tx/ee31de49ddf64b45c5b2e3c55fbd0ea4~tplv-tiktokx-cropcenter:720:720.webp?dr=9640&refresh_token=56bed3df&x-expires=1788436800&x-signature=gEkv49ROZN%2BmGVskk6F94%2FL0rrs%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=fdd36af4&idc=useast5",
+    "squareCoverImg": "",
+    "title": "",
+    "startTime": 1781762987,
+    "status": 4,
+    "paidEvent": {
+      "event_id": 0,
+      "paid_type": 0
+    },
+    "liveSubOnly": 0,
+    "liveRoomMode": 0,
+    "gameTagId": 0,
+    "liveRoomStats": {
+      "enterCount": 208690,
+      "userCount": 1
+    },
+    "streamId": "3578336603596653583",
+    "multiStreamScene": 0,
+    "multiStreamSource": 0
+  },
+  "liveRoomUserInfo": {
+    "avatarLarger": "https://p19-common-sign.tiktokcdn-us.com/tos-useast5-avt-0068-tx/ee31de49ddf64b45c5b2e3c55fbd0ea4~tplv-tiktokx-cropcenter:1080:1080.webp?dr=9640&refresh_token=ca883917&x-expires=1788436800&x-signature=ESQdC9QXVMhlyeTQ2Y%2FljAY7w1w%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=fdd36af4&idc=useast5",
+    "avatarMedium": "https://p19-common-sign.tiktokcdn-us.com/tos-useast5-avt-0068-tx/ee31de49ddf64b45c5b2e3c55fbd0ea4~tplv-tiktokx-cropcenter:720:720.webp?dr=9640&refresh_token=4b4fdecd&x-expires=1788436800&x-signature=YhWT%2BYz1SNDYhNcErCXz18MvcZk%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=fdd36af4&idc=useast5",
+    "avatarThumb": "https://p19-common-sign.tiktokcdn-us.com/tos-useast5-avt-0068-tx/ee31de49ddf64b45c5b2e3c55fbd0ea4~tplv-tiktokx-cropcenter:100:100.webp?dr=9640&refresh_token=2f7e0ad4&x-expires=1788436800&x-signature=NCctTSctAo7x%2Fuoo16h4%2BjXc%2F1Y%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=fdd36af4&idc=useast5",
+    "id": "5831967",
+    "nickname": "charli d’amelio",
+    "secUid": "MS4wLjABAAAA-VASjiXTh7wDDyXvjk10VFhMWUAoxr8bgfO1kAL1-9s",
+    "secret": false,
+    "uniqueId": "charlidamelio",
+    "verified": true,
+    "roomId": "7652613286029986574",
+    "signature": "orca enthusiast\nmeg thee stallion fan\ni post on youtube on saturdays (for the most part)",
+    "status": 4,
+    "followStatus": 0,
+    "followingCount": 1439,
+    "followerCount": 159321731
+  }
+}

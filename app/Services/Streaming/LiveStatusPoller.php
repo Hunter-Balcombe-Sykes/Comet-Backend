@@ -8,13 +8,24 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 
 /**
- * Polls Twitch and Kick APIs for live status and writes results to Redis.
+ * Polls live status for streaming platforms and writes results to Redis.
  * No DB writes — live status is ephemeral.
+ *
+ * Item 11d (2026-09-01): one vendor-first check per platform. Twitch asks
+ * ScrapeCreators first and falls through to the untouched Helix batch path on
+ * any miss — a bad vendor day degrades to today's behaviour, never to silence.
+ * TikTok and YouTube are vendor-ONLY (they never had an incumbent client):
+ * a miss there means status UNKNOWN, so nothing is written and the prior
+ * Redis value keeps serving until its TTL lapses — never a false "offline".
+ * Kick stays on KickApiClient — the vendor has no live surface for it and the
+ * owner kept Kick link-only (Item 10a).
  *
  * Cold-handle demotion: handles offline for N consecutive reads get a longer
  * TTL, which skips them on subsequent cycles via filterStaleHandles. This is
  * the main scalability lever — most streaming handles are offline most of the
- * time; tiered TTLs let the poller spend its API budget on likely-live handles.
+ * time; tiered TTLs let the poller spend its API/credit budget on likely-live
+ * handles. It matters MORE now: the vendor legs are one billed call per
+ * handle, so the tiers are what keep an every-2-min cadence affordable.
  */
 class LiveStatusPoller
 {
@@ -44,15 +55,23 @@ class LiveStatusPoller
 
     public function __construct(
         private TwitchApiClient $twitch,
-        private KickApiClient $kick
+        private KickApiClient $kick,
+        private ScrapeCreatorsLiveClient $vendor
     ) {}
 
     /**
      * Poll $platform for the given $handles and write results to Redis.
      *
+     * $deadline (a microtime(true) instant) bounds the vendor legs: each
+     * vendor call is one HTTP round-trip per handle with a config-tunable
+     * timeout, so an unbounded loop could outrun the calling job's own
+     * $timeout — the exact worker-kill → MaxAttemptsExceeded class this
+     * refactor retires. Past the deadline, remaining handles read as vendor
+     * misses (Twitch still gets its Helix batch; the rest keep prior status).
+     *
      * @param  string[]  $handles  Raw handles (may contain duplicates)
      */
-    public function poll(string $platform, array $handles): void
+    public function poll(string $platform, array $handles, ?float $deadline = null): void
     {
         $handles = array_values(array_unique($handles));
         $handles = $this->filterStaleHandles($platform, $handles);
@@ -62,16 +81,30 @@ class LiveStatusPoller
         }
 
         match ($platform) {
-            'twitch' => $this->pollTwitch($handles),
+            'twitch' => $this->pollTwitch($handles, $deadline),
             'kick' => $this->pollKick($handles),
+            'tiktok', 'youtube' => $this->pollVendorOnly($platform, $handles, $deadline),
             default => Log::warning('streaming.unknown_platform', ['platform' => $platform]),
         };
     }
 
     /** @param string[] $handles */
-    private function pollTwitch(array $handles): void
+    private function pollTwitch(array $handles, ?float $deadline = null): void
     {
-        foreach (array_chunk($handles, self::TWITCH_BATCH_SIZE) as $batch) {
+        // Vendor-first: every miss (disabled lane, budget denied, transport,
+        // husk, deadline) queues the handle for the untouched Helix path.
+        $fallback = [];
+        foreach ($handles as $handle) {
+            $isLive = $this->deadlinePassed($deadline) ? null : $this->vendor->isLive('twitch', $handle);
+            if ($isLive === null) {
+                $fallback[] = $handle;
+
+                continue;
+            }
+            $this->writeStatus('twitch', $handle, $isLive);
+        }
+
+        foreach (array_chunk($fallback, self::TWITCH_BATCH_SIZE) as $batch) {
             try {
                 $liveSet = array_flip($this->twitch->getLiveHandles($batch));
                 foreach ($batch as $handle) {
@@ -107,6 +140,37 @@ class LiveStatusPoller
                 return;
             }
         }
+    }
+
+    /**
+     * TikTok/YouTube: the vendor IS the lane — a miss is "status unknown",
+     * never "offline", so no write happens and the prior value serves until
+     * its TTL lapses. Misses are logged as ONE aggregate line per platform
+     * per cycle, not per handle (log-flood discipline).
+     *
+     * @param  string[]  $handles
+     */
+    private function pollVendorOnly(string $platform, array $handles, ?float $deadline): void
+    {
+        $unknown = 0;
+        foreach ($handles as $handle) {
+            $isLive = $this->deadlinePassed($deadline) ? null : $this->vendor->isLive($platform, $handle);
+            if ($isLive === null) {
+                $unknown++;
+
+                continue;
+            }
+            $this->writeStatus($platform, $handle, $isLive);
+        }
+
+        if ($unknown > 0) {
+            Log::info('streaming.vendor_status_unknown', ['platform' => $platform, 'handles' => $unknown]);
+        }
+    }
+
+    private function deadlinePassed(?float $deadline): bool
+    {
+        return $deadline !== null && microtime(true) >= $deadline;
     }
 
     /**

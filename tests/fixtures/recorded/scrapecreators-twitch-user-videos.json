@@ -1,0 +1,179 @@
+{
+ "success": true,
+ "credits_remaining": 9999,
+ "credits_charged": 1,
+ "videos": [
+  {
+   "id": "2861930683",
+   "animatedPreviewURL": "https://d2nvs31859zcd8.cloudfront.net/d3574e5bc84ebaca7fd4_jynxzi_319062233687_1788214893/storyboards/2861930683-strip-0.jpg",
+   "lengthSeconds": 11425,
+   "game": {
+    "boxArtURL": "https://static-cdn.jtvnw.net/ttv-boxart/509658-40x56.jpg",
+    "id": "509658",
+    "slug": "just-chatting",
+    "displayName": "Just Chatting",
+    "name": "Just Chatting",
+    "__typename": "Game"
+   },
+   "broadcastIdentifier": {
+    "id": "319062233687",
+    "__typename": "BroadcastIdOnly"
+   },
+   "owner": {
+    "displayName": "Jynxzi",
+    "id": "411377640",
+    "login": "jynxzi",
+    "profileImageURL": "https://static-cdn.jtvnw.net/jtv_user_pictures/645d98a0-a2eb-48a3-b687-cfbc55243e4a-profile_image-50x50.png",
+    "primaryColorHex": null,
+    "roles": {
+     "isPartner": true,
+     "__typename": "UserRoles"
+    },
+    "__typename": "User"
+   },
+   "previewThumbnailURL": "https://static-cdn.jtvnw.net/cf_vods/d2nvs31859zcd8/d3574e5bc84ebaca7fd4_jynxzi_319062233687_1788214893//thumb/thumb0-320x180.jpg",
+   "publishedAt": "2026-08-31T22:21:38Z",
+   "title": "[605/730] 🔴 LATE NIGHT STREAM 🔴 NEW R6 SEASON TOMORROW 🔴",
+   "viewCount": 730601,
+   "contentTags": []
+  },
+  {
+   "id": "2860751804",
+   "animatedPreviewURL": "https://d2vi6trrdongqn.cloudfront.net/f165d3e54358d839474b_jynxzi_320164415456_1788105836/storyboards/2860751804-strip-0.jpg",
+   "lengthSeconds": 42552,
+   "game": {
+    "boxArtURL": "https://static-cdn.jtvnw.net/ttv-boxart/509658-40x56.jpg",
+    "id": "509658",
+    "slug": "just-chatting",
+    "displayName": "Just Chatting",
+    "name": "Just Chatting",
+    "__typename": "Game"
+   },
+   "broadcastIdentifier": {
+    "id": "320164415456",
+    "__typename": "BroadcastIdOnly"
+   },
+   "owner": {
+    "displayName": "Jynxzi",
+    "id": "411377640",
+    "login": "jynxzi",
+    "profileImageURL": "https://static-cdn.jtvnw.net/jtv_user_pictures/645d98a0-a2eb-48a3-b687-cfbc55243e4a-profile_image-50x50.png",
+    "primaryColorHex": null,
+    "roles": {
+     "isPartner": true,
+     "__typename": "UserRoles"
+    },
+    "__typename": "User"
+   },
+   "previewThumbnailURL": "https://static-cdn.jtvnw.net/cf_vods/d2vi6trrdongqn/f165d3e54358d839474b_jynxzi_320164415456_1788105836//thumb/thumb0-320x180.jpg",
+   "publishedAt": "2026-08-30T16:04:01Z",
+   "title": "[604/730] ⛓️ PLAYING CHAINED TOGETHER w LOS & RON ⛓️ IRL SEGMENTS EVERY NIGHT ⛓️",
+   "viewCount": 2985639,
+   "contentTags": []
+  },
+  {
+   "id": "2858128913",
+   "animatedPreviewURL": "https://d2vi6trrdongqn.cloudfront.net/c8c4bf5321caab45f035_jynxzi_72845166916_6305199911/storyboards/2858128913-strip-0.jpg",
+   "lengthSeconds": 1746,
+   "game": {
+    "boxArtURL": "https://static-cdn.jtvnw.net/ttv-boxart/509658-40x56.jpg",
+    "id": "509658",
+    "slug": "just-chatting",
+    "displayName": "Just Chatting",
+    "name": "Just Chatting",
+    "__typename": "Game"
+   },
+   "broadcastIdentifier": {
+    "id": "1",
+    "__typename": "BroadcastIdOnly"
+   },
+   "owner": {
+    "displayName": "Jynxzi",
+    "id": "411377640",
+    "login": "jynxzi",
+    "profileImageURL": "https://static-cdn.jtvnw.net/jtv_user_pictures/645d98a0-a2eb-48a3-b687-cfbc55243e4a-profile_image-50x50.png",
+    "primaryColorHex": null,
+    "roles": {
+     "isPartner": true,
+     "__typename": "UserRoles"
+    },
+    "__typename": "User"
+   },
+   "previewThumbnailURL": "https://static-cdn.jtvnw.net/cf_vods/d2vi6trrdongqn/c8c4bf5321caab45f035_jynxzi_72845166916_6305199911//thumb/thumb2858128913-320x180.jpg",
+   "publishedAt": "2026-08-27T20:09:45Z",
+   "title": "Highlight: [601/730] 🔴 FANMAIL -> GTA 6 TRAILER @ 3PM ET -> JYNXZI vs TIMMY @ 4PM ET 🔴",
+   "viewCount": 7656,
+   "contentTags": []
+  },
+  {
+   "id": "2858042034",
+   "animatedPreviewURL": "https://d2vi6trrdongqn.cloudfront.net/2970ea7d04dc67575b08_jynxzi_24351725396_2144184162/storyboards/2858042034-strip-0.jpg",
+   "lengthSeconds": 4085,
+   "game": {
+    "boxArtURL": "https://static-cdn.jtvnw.net/ttv-boxart/509658-40x56.jpg",
+    "id": "509658",
+    "slug": "just-chatting",
+    "displayName": "Just Chatting",
+    "name": "Just Chatting",
+    "__typename": "Game"
+   },
+   "broadcastIdentifier": {
+    "id": "1",
+    "__typename": "BroadcastIdOnly"
+   },
+   "owner": {
+    "displayName": "Jynxzi",
+    "id": "411377640",
+    "login": "jynxzi",
+    "profileImageURL": "https://static-cdn.jtvnw.net/jtv_user_pictures/645d98a0-a2eb-48a3-b687-cfbc55243e4a-profile_image-50x50.png",
+    "primaryColorHex": null,
+    "roles": {
+     "isPartner": true,
+     "__typename": "UserRoles"
+    },
+    "__typename": "User"
+   },
+   "previewThumbnailURL": "https://static-cdn.jtvnw.net/cf_vods/d2vi6trrdongqn/2970ea7d04dc67575b08_jynxzi_24351725396_2144184162//thumb/thumb2858042034-320x180.jpg",
+   "publishedAt": "2026-08-27T18:25:40Z",
+   "title": "Highlight: [601/730] 🔴 FANMAIL -> GTA 6 TRAILER @ 3PM ET -> JYNXZI vs TIMMY @ 4PM ET 🔴",
+   "viewCount": 826,
+   "contentTags": []
+  },
+  {
+   "id": "2857955660",
+   "animatedPreviewURL": "https://d2vi6trrdongqn.cloudfront.net/2bddc4cac898f446d890_jynxzi_319985975902_1787848770/storyboards/2857955660-strip-0.jpg",
+   "lengthSeconds": 13055,
+   "game": {
+    "boxArtURL": "https://static-cdn.jtvnw.net/ttv-boxart/509658-40x56.jpg",
+    "id": "509658",
+    "slug": "just-chatting",
+    "displayName": "Just Chatting",
+    "name": "Just Chatting",
+    "__typename": "Game"
+   },
+   "broadcastIdentifier": {
+    "id": "319985975902",
+    "__typename": "BroadcastIdOnly"
+   },
+   "owner": {
+    "displayName": "Jynxzi",
+    "id": "411377640",
+    "login": "jynxzi",
+    "profileImageURL": "https://static-cdn.jtvnw.net/jtv_user_pictures/645d98a0-a2eb-48a3-b687-cfbc55243e4a-profile_image-50x50.png",
+    "primaryColorHex": null,
+    "roles": {
+     "isPartner": true,
+     "__typename": "UserRoles"
+    },
+    "__typename": "User"
+   },
+   "previewThumbnailURL": "https://static-cdn.jtvnw.net/cf_vods/d2vi6trrdongqn/2bddc4cac898f446d890_jynxzi_319985975902_1787848770//thumb/thumb0-320x180.jpg",
+   "publishedAt": "2026-08-27T16:39:35Z",
+   "title": "[601/730] 🔴 FANMAIL -> GTA 6 TRAILER @ 3PM ET -> JYNXZI vs TIMMY @ 4PM ET 🔴",
+   "viewCount": 896336,
+   "contentTags": []
+  }
+ ],
+ "hasNextPage": true,
+ "cursor": "2800887542|4561|2026-06-20T02:20:16Z|2284"
+}

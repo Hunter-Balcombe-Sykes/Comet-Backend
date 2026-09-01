@@ -298,8 +298,10 @@ return [
     'shop_brands_max' => (int) env('PARTNA_SHOP_BRANDS_MAX', 10),
 
     // Platforms that support automatic live status detection via the polling job.
-    // Must match keys in social_platforms above.
-    'streaming_platforms' => ['twitch', 'kick'],
+    // Must match keys in social_platforms above. tiktok + youtube joined
+    // 2026-09-01 (Item 11d): the poller's new vendor legs stay dormant until
+    // a platform is listed here.
+    'streaming_platforms' => ['twitch', 'kick', 'tiktok', 'youtube'],
 
     // Live-status polling tuning knobs. Keeps API call volume bounded.
     'streaming' => [
@@ -401,6 +403,35 @@ return [
                 'soundcloud' => (int) env('PARTNA_SC_SOUNDCLOUD_DAILY_CAP', 1350),
                 'linkinbio' => (int) env('PARTNA_SC_LINKINBIO_DAILY_CAP', 1350),
                 'youtube' => (int) env('PARTNA_SC_YOUTUBE_DAILY_CAP', 1350),
+                // Wave 4 (2026-09-01, Items 10/11): every NEW source lands
+                // with its own cap from day one (G2). Ceilings, not budgets —
+                // sized to the small-connect lanes they serve, with the
+                // multi-call runs (pinterest boards+pins, per-product
+                // enrichment) and the per-minute pollers (live status) given
+                // their own arithmetic. transcripts and find_social_profiles
+                // run deliberately tight: the most speculative spend ships
+                // behind the smallest ceilings.
+                'twitch' => (int) env('PARTNA_SC_TWITCH_DAILY_CAP', 1350),
+                'twitch_live' => (int) env('PARTNA_SC_TWITCH_LIVE_DAILY_CAP', 2000),
+                'tiktok_live' => (int) env('PARTNA_SC_TIKTOK_LIVE_DAILY_CAP', 2000),
+                'tiktok_shop' => (int) env('PARTNA_SC_TIKTOK_SHOP_DAILY_CAP', 1350),
+                'pinterest' => (int) env('PARTNA_SC_PINTEREST_DAILY_CAP', 675),
+                'threads' => (int) env('PARTNA_SC_THREADS_DAILY_CAP', 1350),
+                'amazon' => (int) env('PARTNA_SC_AMAZON_DAILY_CAP', 675),
+                'bluesky' => (int) env('PARTNA_SC_BLUESKY_DAILY_CAP', 675),
+                'facebook_events' => (int) env('PARTNA_SC_FACEBOOK_EVENTS_DAILY_CAP', 1350),
+                'youtube_shorts' => (int) env('PARTNA_SC_YOUTUBE_SHORTS_DAILY_CAP', 1350),
+                'youtube_lives' => (int) env('PARTNA_SC_YOUTUBE_LIVES_DAILY_CAP', 2700),
+                'spotify_podcasts' => (int) env('PARTNA_SC_SPOTIFY_PODCASTS_DAILY_CAP', 1350),
+                'transcripts' => (int) env('PARTNA_SC_TRANSCRIPTS_DAILY_CAP', 300),
+                'find_social_profiles' => (int) env('PARTNA_SC_FIND_SOCIAL_PROFILES_DAILY_CAP', 270),
+            ],
+            // Pinterest's one connect/refresh run fans out 1 boards call plus
+            // up to boards_per_run board reads — both knobs explicit so the
+            // per-run spend is legible next to the cap above.
+            'pinterest' => [
+                'boards_per_run' => (int) env('PARTNA_SC_PINTEREST_BOARDS_PER_RUN', 3),
+                'results_limit' => (int) env('PARTNA_SC_PINTEREST_RESULTS_LIMIT', 30),
             ],
         ],
 

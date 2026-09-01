@@ -46,6 +46,8 @@ final class ProjectorRegistry
         'luma' => ['events' => SchemaOrgEventProjector::class],
         'resident_advisor' => ['events' => SchemaOrgEventProjector::class],
         'instagram' => ['media' => InstagramMediaProjector::class],
+        // Wave 4 wiring (2026-09-01): the pinterest connector's media stream.
+        'pinterest' => ['pins' => PinterestMediaProjector::class],
         'mixcloud' => ['tracks' => MixcloudTrackProjector::class],
         'google_business' => [
             'reviews' => GoogleBusinessReviewProjector::class,

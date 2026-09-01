@@ -1,0 +1,152 @@
+{
+ "success": true,
+ "credits_remaining": 9999,
+ "credits_charged": 0,
+ "id": "411377640",
+ "isLive": true,
+ "currentViewersCount": 38707,
+ "stream": {
+  "id": "319062233687",
+  "createdAt": "2026-08-31T22:21:33Z",
+  "game": {
+   "id": "509658",
+   "displayName": "Just Chatting",
+   "__typename": "Game"
+  },
+  "type": "live",
+  "viewersCount": 38707,
+  "__typename": "Stream",
+  "tags": [
+   {
+    "id": "fft:CHANNEL:411377640:0",
+    "name": "English",
+    "__typename": "FreeformTag"
+   }
+  ]
+ },
+ "handle": "jynxzi",
+ "displayName": "Jynxzi",
+ "profileImageURL": "https://static-cdn.jtvnw.net/jtv_user_pictures/645d98a0-a2eb-48a3-b687-cfbc55243e4a-profile_image-150x150.png",
+ "bannerImageURL": "https://static-cdn.jtvnw.net/jtv_user_pictures/6360f46b-e137-48b8-a739-8c91c5d7e886-profile_banner-480.jpeg",
+ "description": "BUSINESS EMAIL: jynxzi@rightclick.gg",
+ "followers": 11238493,
+ "isPartner": true,
+ "allVideos": [
+  {
+   "animatedPreviewURL": "https://d2nvs31859zcd8.cloudfront.net/d3574e5bc84ebaca7fd4_jynxzi_319062233687_1788214893/storyboards/2861930683-strip-0.jpg",
+   "game": {
+    "boxArtURL": "https://static-cdn.jtvnw.net/ttv-boxart/509658-40x56.jpg",
+    "id": "509658",
+    "slug": "just-chatting",
+    "displayName": "Just Chatting",
+    "name": "Just Chatting",
+    "__typename": "Game"
+   },
+   "id": "2861930683",
+   "lengthSeconds": 1116,
+   "owner": {
+    "displayName": "Jynxzi",
+    "id": "411377640",
+    "login": "jynxzi",
+    "profileImageURL": "https://static-cdn.jtvnw.net/jtv_user_pictures/645d98a0-a2eb-48a3-b687-cfbc55243e4a-profile_image-50x50.png",
+    "primaryColorHex": null,
+    "roles": {
+     "isPartner": true,
+     "__typename": "UserRoles"
+    },
+    "__typename": "User"
+   },
+   "previewThumbnailURL": "https://vod-secure.twitch.tv/_404/404_processing_320x180.png",
+   "publishedAt": "2026-08-31T22:21:38Z",
+   "self": {
+    "isRestricted": false,
+    "viewingHistory": null,
+    "__typename": "VideoSelfEdge"
+   },
+   "title": "[605/730] 🔴 LATE NIGHT STREAM 🔴 NEW R6 SEASON TOMORROW 🔴",
+   "viewCount": 284,
+   "resourceRestriction": null,
+   "contentTags": [],
+   "__typename": "Video"
+  },
+  {
+   "animatedPreviewURL": "https://d2vi6trrdongqn.cloudfront.net/f165d3e54358d839474b_jynxzi_320164415456_1788105836/storyboards/2860751804-strip-0.jpg",
+   "game": {
+    "boxArtURL": "https://static-cdn.jtvnw.net/ttv-boxart/509658-40x56.jpg",
+    "id": "509658",
+    "slug": "just-chatting",
+    "displayName": "Just Chatting",
+    "name": "Just Chatting",
+    "__typename": "Game"
+   },
+   "id": "2860751804",
+   "lengthSeconds": 42552,
+   "owner": {
+    "displayName": "Jynxzi",
+    "id": "411377640",
+    "login": "jynxzi",
+    "profileImageURL": "https://static-cdn.jtvnw.net/jtv_user_pictures/645d98a0-a2eb-48a3-b687-cfbc55243e4a-profile_image-50x50.png",
+    "primaryColorHex": null,
+    "roles": {
+     "isPartner": true,
+     "__typename": "UserRoles"
+    },
+    "__typename": "User"
+   },
+   "previewThumbnailURL": "https://static-cdn.jtvnw.net/cf_vods/d2vi6trrdongqn/f165d3e54358d839474b_jynxzi_320164415456_1788105836//thumb/thumb0-320x180.jpg",
+   "publishedAt": "2026-08-30T16:04:01Z",
+   "self": {
+    "isRestricted": false,
+    "viewingHistory": null,
+    "__typename": "VideoSelfEdge"
+   },
+   "title": "[604/730] ⛓️ PLAYING CHAINED TOGETHER w LOS & RON ⛓️ IRL SEGMENTS EVERY NIGHT ⛓️",
+   "viewCount": 2980044,
+   "resourceRestriction": null,
+   "contentTags": [],
+   "__typename": "Video"
+  }
+ ],
+ "featuredClips": [
+  {
+   "id": "3282304760",
+   "slug": "PowerfulDifferentDotterelVoHiYo-0paaxPc_ufurlCdc",
+   "clipTitle": "a real champ wouldn't complain",
+   "clipViewCount": 41030,
+   "curator": {
+    "id": "92154382",
+    "login": "spacestation",
+    "displayName": "Spacestation",
+    "__typename": "User"
+   },
+   "clipGame": {
+    "id": "1535225577",
+    "slug": "the-last-of-us-part-ii-remastered",
+    "name": "The Last of Us Part II Remastered",
+    "displayName": "The Last of Us Part II Remastered",
+    "boxArtURL": "https://static-cdn.jtvnw.net/ttv-boxart/1535225577_IGDB-52x72.jpg",
+    "__typename": "Game"
+   },
+   "broadcaster": {
+    "displayName": "Jynxzi",
+    "id": "411377640",
+    "login": "jynxzi",
+    "profileImageURL": "https://static-cdn.jtvnw.net/jtv_user_pictures/645d98a0-a2eb-48a3-b687-cfbc55243e4a-profile_image-50x50.png",
+    "primaryColorHex": null,
+    "roles": {
+     "isPartner": true,
+     "__typename": "UserRoles"
+    },
+    "__typename": "User"
+   },
+   "thumbnailURL": "https://static-cdn.jtvnw.net/twitch-video-assets/twitch-vap-video-assets-prod-us-west-2/e54e22fb-5259-42b6-b39b-31e48282b6f1/landscape/thumb/thumb-0000000000-1920x1080.jpg",
+   "createdAt": "2026-08-20T16:26:56Z",
+   "durationSeconds": 24,
+   "isFeatured": true,
+   "__typename": "Clip"
+  }
+ ],
+ "similarStreamers": [],
+ "cached": true,
+ "cached_at": "2026-08-31T22:40:15.000Z"
+}

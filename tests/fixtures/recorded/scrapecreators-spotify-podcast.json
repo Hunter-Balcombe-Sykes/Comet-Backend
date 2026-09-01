@@ -1,0 +1,97 @@
+{
+  "success": true,
+  "credits_remaining": 7048,
+  "credits_charged": 1,
+  "id": "79CkJF3UJTHFV8Dse3Oy0P",
+  "uri": "spotify:show:79CkJF3UJTHFV8Dse3Oy0P",
+  "__typename": "Podcast",
+  "accessInfo": null,
+  "consumptionOrderV2": "EPISODIC",
+  "contentCapabilityTrait": {
+    "rateability": {
+      "value": "RESTRICTED"
+    }
+  },
+  "contentRatingV2": {
+    "labels": [
+      "EXPLICIT"
+    ]
+  },
+  "contentType": "CONTENT_TYPE_PODCAST",
+  "coverArt": {
+    "sources": [
+      {
+        "height": 64,
+        "url": "https://i.scdn.co/image/ab6765630000f68d66aed32f8066a72781b3b12a",
+        "width": 64
+      },
+      {
+        "height": 300,
+        "url": "https://i.scdn.co/image/ab67656300005f1f66aed32f8066a72781b3b12a",
+        "width": 300
+      },
+      {
+        "height": 640,
+        "url": "https://i.scdn.co/image/ab6765630000ba8a66aed32f8066a72781b3b12a",
+        "width": 640
+      }
+    ]
+  },
+  "description": "The Huberman Lab podcast is hosted by Andrew Huberman, Ph.D., a neuroscientist and tenured professor in the department of neurobiology, and by courtesy, psychiatry and behavioral sciences at Stanford School of Medicine. The podcast discusses neuroscience and science-based tools, including how our brain and its connections with the organs of our body control our perceptions, our behaviors, and our health, as well as existing and emerging tools for measuring and changing how our nervous system works.Huberman has made numerous significant contributions to the fields of brain development, brain function, and neural plasticity, which is the ability of our nervous system to rewire and learn new behaviors, skills, and cognitive functioning. He is a McKnight Foundation and Pew Foundation Fellow and was awarded the Cogan Award, given to the scientist making the most significant discoveries in the study of vision, in 2017. Work from the Huberman Laboratory at Stanford School of Medicine has been published in top journals, including Nature, Science, and Cell, and has been featured in TIME, BBC, Scientific American, Discover, and other top media outlets.In 2021, Dr. Huberman launched the Huberman Lab podcast. The podcast is frequently ranked in the top 10 of all podcasts globally and is often ranked #1 in the categories of Science, Education, and Health & Fitness.",
+  "episodesV2": [
+    {
+      "entity": {
+        "__typename": "EpisodeResponseWrapper",
+        "data": {
+          "__typename": "Episode",
+          "creator": null,
+          "uri": "spotify:episode:304elIxDVbXQ7dBO4G2N4e"
+        }
+      }
+    }
+  ],
+  "gatedEntityRelations": [],
+  "htmlDescription": "<p>The Huberman Lab podcast is hosted by Andrew Huberman, Ph.D., a neuroscientist and tenured professor in the department of neurobiology, and by courtesy, psychiatry and behavioral sciences at Stanford School of Medicine. The podcast discusses neuroscience and science-based tools, including how our brain and its connections with the organs of our body control our perceptions, our behaviors, and our health, as well as existing and emerging tools for measuring and changing how our nervous system works.</p><p>Huberman has made numerous significant contributions to the fields of brain development, brain function, and neural plasticity, which is the ability of our nervous system to rewire and learn new behaviors, skills, and cognitive functioning. He is a McKnight Foundation and Pew Foundation Fellow and was awarded the Cogan Award, given to the scientist making the most significant discoveries in the study of vision, in 2017. </p><p>Work from the Huberman Laboratory at Stanford School of Medicine has been published in top journals, including Nature, Science, and Cell, and has been featured in TIME, BBC, Scientific American, Discover, and other top media outlets.</p><p>In 2021, Dr. Huberman launched the Huberman Lab podcast. The podcast is frequently ranked in the top 10 of all podcasts globally and is often ranked #1 in the categories of Science, Education, and Health &amp; Fitness.</p>",
+  "mediaType": "MIXED",
+  "musicAndTalk": false,
+  "name": "Huberman Lab",
+  "playability": {
+    "playable": true,
+    "reason": "PLAYABLE",
+    "unplayabilityReasons": []
+  },
+  "publisher": {
+    "name": "Scicomm Media"
+  },
+  "rating": {
+    "averageRating": {
+      "average": 4.904844554063527,
+      "showAverage": true,
+      "totalRatings": 131364
+    },
+    "canRate": true,
+    "rating": {
+      "rating": 0
+    }
+  },
+  "saved": false,
+  "sharingInfo": {
+    "shareId": "iA04kypjQlaCNWwv31K8sQ",
+    "shareUrl": "https://open.spotify.com/show/79CkJF3UJTHFV8Dse3Oy0P?si=iA04kypjQlaCNWwv31K8sQ"
+  },
+  "showTypes": [],
+  "topics": [
+    {
+      "__typename": "PodcastTopic",
+      "title": "Health",
+      "uri": "spotify:genre:0JQ5DAqbMKFxGfN2v0xfBG"
+    },
+    {
+      "__typename": "PodcastTopic",
+      "title": "Science",
+      "uri": "spotify:genre:0JQ5IMCbQBLzqj7yQzZb03"
+    }
+  ],
+  "trailerV2": null,
+  "popularity": null
+}

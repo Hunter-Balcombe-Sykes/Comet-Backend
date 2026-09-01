@@ -1,0 +1,8 @@
+{
+ "success": true,
+ "credits_remaining": 7053,
+ "credits_charged": 0,
+ "error": "not_found",
+ "errorStatus": 404,
+ "message": "Shoot looks like the user is not found, or is private and needs to be accessed by a logged in account :("
+}

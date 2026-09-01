@@ -1,0 +1,8 @@
+{
+  "success": true,
+  "credits_remaining": 7059,
+  "credits_charged": 0,
+  "error": "not_found",
+  "errorStatus": 404,
+  "message": "Shoot, it looks like this account doesn't exist :( You will not be charged any credits for this request."
+}

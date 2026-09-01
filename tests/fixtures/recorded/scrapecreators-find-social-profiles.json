@@ -1,0 +1,108 @@
+{
+  "success": true,
+  "credits_remaining": 7045,
+  "credits_charged": 0,
+  "source": {
+    "platform": "instagram",
+    "handle": "mkbhd",
+    "url": "https://www.instagram.com/mkbhd"
+  },
+  "profiles": [
+    {
+      "platform": "instagram",
+      "handle": "mkbhd",
+      "url": "https://www.instagram.com/mkbhd",
+      "confidence": 1,
+      "evidence": [
+        "source_profile",
+        "website_link"
+      ]
+    },
+    {
+      "platform": "youtube",
+      "handle": "mkbhd",
+      "url": "https://www.youtube.com/@mkbhd",
+      "confidence": 0.95,
+      "evidence": [
+        "same_handle_match",
+        "reciprocal_profile_link"
+      ]
+    },
+    {
+      "platform": "twitter",
+      "handle": "mkbhd",
+      "url": "https://x.com/mkbhd",
+      "confidence": 0.9,
+      "evidence": [
+        "same_handle_match",
+        "shared_website",
+        "website_link"
+      ]
+    },
+    {
+      "platform": "youtube",
+      "handle": null,
+      "url": "https://www.youtube.com/channel/UCBJycsmduvYEL83R_U4JriQ",
+      "confidence": 0.9,
+      "evidence": [
+        "website_link"
+      ]
+    },
+    {
+      "platform": "youtube",
+      "handle": null,
+      "url": "https://www.youtube.com/channel/UCG7J20LhUeLl6y_Emi7OJrA",
+      "confidence": 0.9,
+      "evidence": [
+        "website_link"
+      ]
+    },
+    {
+      "platform": "youtube",
+      "handle": "Waveform",
+      "url": "https://www.youtube.com/Waveform",
+      "confidence": 0.9,
+      "evidence": [
+        "website_link"
+      ]
+    },
+    {
+      "platform": "youtube",
+      "handle": "autofocus",
+      "url": "https://www.youtube.com/autofocus",
+      "confidence": 0.9,
+      "evidence": [
+        "website_link"
+      ]
+    }
+  ],
+  "link_in_bio_urls": [],
+  "expanded_website_urls": [
+    "https://mkbhd.com/"
+  ],
+  "partial": false,
+  "failed_link_in_bio_urls": [],
+  "failed_website_urls": [],
+  "source_linked_profile_urls": [],
+  "failed_source_linked_profile_urls": [],
+  "same_handle_candidate_urls": [
+    "https://www.tiktok.com/@mkbhd",
+    "https://www.youtube.com/@mkbhd",
+    "https://x.com/mkbhd",
+    "https://www.facebook.com/mkbhd"
+  ],
+  "same_handle_search_partial": false,
+  "google_search_used": true,
+  "google_search_failed": false,
+  "google_candidate_urls": [
+    "https://www.youtube.com/user/marquesbrownlee",
+    "https://www.facebook.com/marquesbrownlee"
+  ],
+  "google_candidate_link_in_bio_urls": [],
+  "failed_google_candidate_link_in_bio_urls": [],
+  "verified_google_candidate_urls": [],
+  "failed_google_candidate_urls": [],
+  "google_verification_partial": false,
+  "cached": true,
+  "cached_at": "2026-08-28T01:49:39.000Z"
+}

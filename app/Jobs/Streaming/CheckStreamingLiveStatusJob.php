@@ -13,17 +13,33 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 
-// Polls Twitch and Kick for live status of all blocks with live_check_enabled=true.
-// Scheduled: every 2 minutes via routes/console.php.
+// Polls live status for every block with live_check_enabled=true — vendor-first
+// per platform via ScrapeCreators (Item 11d), Helix fallback for Twitch, Kick
+// unchanged on its own API. Scheduled: every 2 minutes via routes/console.php.
 class CheckStreamingLiveStatusJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 1;
+    // MaxAttemptsExceeded hygiene (Nightwatch #339, open since July): tries=1
+    // turned every REDELIVERY (worker killed mid-run, retry_after lapse) into
+    // "has been attempted too many times" before the tick even ran. tries=3
+    // lets a redelivered tick simply run — its writes are idempotent and the
+    // WithoutOverlapping lock below drops true overlaps. maxExceptions=1 keeps
+    // the old intent: a tick that actually THREW is never retried, because the
+    // next scheduled tick two minutes out IS the retry.
+    public int $tries = 3;
 
-    // tries=1 means no retry, so $backoff is moot at runtime — but JobHygienePolicyTest
-    // requires every ShouldQueue job to declare $tries, $backoff, and $timeout.
-    public int $backoff = 0;
+    public int $maxExceptions = 1;
+
+    public int $backoff = 30;
+
+    /**
+     * Poll budget handed to LiveStatusPoller as a hard deadline: the vendor
+     * legs cost one HTTP round-trip per handle, so this is what guarantees the
+     * job finishes inside $timeout instead of dying to the worker's kill — the
+     * OTHER historical source of the MaxAttemptsExceeded noise.
+     */
+    private const POLL_DEADLINE_SECONDS = 75;
 
     public function __construct()
     {
@@ -95,6 +111,10 @@ class CheckStreamingLiveStatusJob implements ShouldQueue
             Log::warning('streaming: skipping Kick — rate limited from previous cycle');
         }
 
+        // One deadline across ALL platforms — a slow vendor day on the first
+        // platform must not push the later ones past the worker's kill.
+        $deadline = microtime(true) + self::POLL_DEADLINE_SECONDS;
+
         foreach ($handlesByPlatform as $platform => $handles) {
             if (empty($handles)) {
                 continue;
@@ -105,7 +125,7 @@ class CheckStreamingLiveStatusJob implements ShouldQueue
             }
 
             try {
-                $poller->poll($platform, $handles);
+                $poller->poll($platform, $handles, $deadline);
             } catch (\Throwable $e) {
                 report($e);
                 Log::error('streaming.poll_error', [

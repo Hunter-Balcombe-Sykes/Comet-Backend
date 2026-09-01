@@ -5,6 +5,7 @@
 use App\Exceptions\Streaming\KickRateLimitException;
 use App\Services\Streaming\KickApiClient;
 use App\Services\Streaming\LiveStatusPoller;
+use App\Services\Streaming\ScrapeCreatorsLiveClient;
 use App\Services\Streaming\TwitchApiClient;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Redis;
@@ -28,7 +29,9 @@ it('poller uses the config value for the Kick rate-limit circuit-breaker TTL', f
         ->once()
         ->andThrow(new KickRateLimitException(60));
 
-    $poller = new LiveStatusPoller($twitch, $kick);
+    // Third arg since Item 11d (vendor live-status legs); the kick path
+    // under test never touches it.
+    $poller = new LiveStatusPoller($twitch, $kick, Mockery::mock(ScrapeCreatorsLiveClient::class));
     $poller->poll('kick', ['someuser']);
 
     $ttl = Redis::ttl('streaming:kick:rate_limited');
