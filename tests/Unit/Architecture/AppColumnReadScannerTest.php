@@ -242,3 +242,26 @@ it('I1: is not confused by an apostrophe inside a heredoc/nowdoc body', function
     expect($refs['content.first_table'] ?? [])->toContain('note')
         ->and($refs['content.second_table'] ?? [])->toContain('real_col');
 });
+
+it('C2 round 2: recovers an upsert() row-batch\'s columns while still dropping a nested json_encode() key', function () {
+    // Regression: the C2 fix (depth exactly 1) over-corrected — upsert()'s
+    // first argument is ALWAYS an array of rows, even for one row, so a
+    // real row's keys sit at depth 2 and were being silently dropped along
+    // with the illegitimate json_encode() nesting C2 was actually about.
+    $php = <<<'PHP'
+    <?php
+    class W {
+        public function run() {
+            DB::table('content.batched')
+                ->upsert([['col_a' => 1, 'col_b' => 2]], ['col_a'], ['col_b']);
+            DB::table('ingest.anomalies')->insert(['detail' => json_encode(['not_a_column' => 1])]);
+        }
+    }
+    PHP;
+
+    $refs = AppColumnReadScanner::scanSource($php);
+
+    expect($refs['content.batched'] ?? [])->toContain('col_a')
+        ->and($refs['content.batched'] ?? [])->toContain('col_b')
+        ->and($refs['ingest.anomalies'] ?? [])->not->toContain('not_a_column');
+});

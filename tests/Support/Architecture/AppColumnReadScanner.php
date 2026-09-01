@@ -402,33 +402,95 @@ final class AppColumnReadScanner
     }
 
     /**
-     * `'column' =>` keys of the write payload at bracket depth EXACTLY 1 —
-     * direct children of the outermost `[...]`. A key nested one level
-     * deeper (`'detail' => json_encode(['in_flight_run_id' => …])`'s
-     * `in_flight_run_id`) is a JSON payload field on some OTHER table
-     * entirely, not a column of the table this call writes to.
+     * `'column' =>` keys of the write payload, one argument at a time (an
+     * `upsert()` call's row-batch, uniqueBy and update-columns arguments
+     * each need their own depth accounting — see writeKeysInArgument()).
      *
      * @return list<string>
      */
     private static function writeKeysIn(string $argSpan): array
     {
         $columns = [];
+
+        foreach (self::splitTopLevel($argSpan) as $argument) {
+            $columns = array_merge($columns, self::writeKeysInArgument($argument));
+        }
+
+        return $columns;
+    }
+
+    /**
+     * One write-call argument's columns. Two shapes, both real:
+     *  - `update()`/`insert()`/`insertOrIgnore()`'s single argument, and
+     *    `upsert()`'s 2nd (uniqueBy) and 3rd (update-columns) arguments, are
+     *    flat `['column' => value, …]` arrays — their own top-level keys
+     *    (depth 1 relative to the call, depth 0 relative to this argument's
+     *    OWN content) are the columns.
+     *  - `upsert()`'s 1st argument is ALWAYS an array of rows, even for one
+     *    row (`[['column' => value, …]]`) — a legitimate batch wrapper, not
+     *    the illegitimate `json_encode([…])` nesting C2 fixed. When this
+     *    argument's own content has no top-level pairs (because its only
+     *    top-level element is itself an array), descend exactly one level
+     *    into the FIRST row and take its keys. Only the first: every row in
+     *    one upsert() call writes the same columns, so there is nothing
+     *    further rows would add, and not descending indefinitely keeps a
+     *    real `json_encode([…])`-in-a-row (nested one level deeper again)
+     *    still out of reach.
+     *
+     * Anything that is not a bare array literal at all (a variable, `DB::raw()`,
+     * …) contributes nothing — conservative, matching bareColumnsIn()'s C1 fix.
+     *
+     * @return list<string>
+     */
+    private static function writeKeysInArgument(string $argument): array
+    {
+        $content = self::arrayLiteralContents($argument);
+
+        if ($content === null) {
+            return [];
+        }
+
+        $flat = self::topLevelPairKeys($content);
+
+        if ($flat !== []) {
+            return $flat;
+        }
+
+        $firstElement = trim(self::splitTopLevel($content)[0] ?? '');
+        $rowContent = self::arrayLiteralContents($firstElement);
+
+        return $rowContent === null ? [] : self::topLevelPairKeys($rowContent);
+    }
+
+    /**
+     * `'key' =>` pairs at bracket depth EXACTLY 0 within $content — $content
+     * is the text INSIDE one array literal's own brackets, so depth 0 here
+     * means "a direct child of that array", and a key nested inside a
+     * further call or array (`json_encode([…])`'s keys, a row array's own
+     * keys when $content is the row-BATCH wrapper) sits at depth ≥ 1 and is
+     * correctly excluded.
+     *
+     * @return list<string>
+     */
+    private static function topLevelPairKeys(string $content): array
+    {
+        $columns = [];
         $depth = 0;
-        $length = strlen($argSpan);
+        $length = strlen($content);
 
         for ($i = 0; $i < $length; $i++) {
-            $char = $argSpan[$i];
+            $char = $content[$i];
 
             if ($char === "'") {
                 $quoteStart = $i;
-                $end = self::skipSingleQuoted($argSpan, $i);
+                $end = self::skipSingleQuoted($content, $i);
 
-                if ($depth === 1) {
-                    $content = substr($argSpan, $quoteStart + 1, $end - $quoteStart - 1);
-                    $rest = ltrim(substr($argSpan, $end + 1));
+                if ($depth === 0) {
+                    $key = substr($content, $quoteStart + 1, $end - $quoteStart - 1);
+                    $rest = ltrim(substr($content, $end + 1));
 
-                    if (str_starts_with($rest, '=>') && ! str_contains($content, '.')) {
-                        $column = self::normaliseColumn($content);
+                    if (str_starts_with($rest, '=>') && ! str_contains($key, '.')) {
+                        $column = self::normaliseColumn($key);
 
                         if ($column !== null) {
                             $columns[] = $column;
@@ -453,6 +515,109 @@ final class AppColumnReadScanner
         }
 
         return $columns;
+    }
+
+    /**
+     * $text's inner content if, once trimmed, it is nothing but one bracketed
+     * array literal (`[…]` spanning the whole trimmed string) — null for
+     * anything else (a variable, a call, a scalar), which is exactly "not a
+     * bare array literal".
+     */
+    private static function arrayLiteralContents(string $text): ?string
+    {
+        $trimmed = trim($text);
+
+        if ($trimmed === '' || $trimmed[0] !== '[') {
+            return null;
+        }
+
+        $close = self::matchingBracket($trimmed, 0);
+
+        if ($close === null || $close !== strlen($trimmed) - 1) {
+            return null;
+        }
+
+        return substr($trimmed, 1, $close - 1);
+    }
+
+    /** Index of the bracket matching the one at $open ((/[/{, closed by )/]/}), skipping single-quoted contents; null if it never closes. */
+    private static function matchingBracket(string $text, int $open): ?int
+    {
+        $depth = 0;
+        $length = strlen($text);
+
+        for ($i = $open; $i < $length; $i++) {
+            $char = $text[$i];
+
+            if ($char === "'") {
+                $i = self::skipSingleQuoted($text, $i);
+
+                continue;
+            }
+
+            if ($char === '(' || $char === '[' || $char === '{') {
+                $depth++;
+
+                continue;
+            }
+
+            if ($char === ')' || $char === ']' || $char === '}') {
+                $depth--;
+
+                if ($depth === 0) {
+                    return $i;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * $text split into its top-level segments (raw, untrimmed) on depth-0
+     * commas — skipping single-quoted contents and treating any of `([{` /
+     * `)]}` as a depth change. Used both for a call's own argument list and,
+     * recursively, for one array literal's top-level elements.
+     *
+     * @return list<string>
+     */
+    private static function splitTopLevel(string $text): array
+    {
+        $segments = [];
+        $depth = 0;
+        $length = strlen($text);
+        $start = 0;
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $text[$i];
+
+            if ($char === "'") {
+                $i = self::skipSingleQuoted($text, $i);
+
+                continue;
+            }
+
+            if ($char === '(' || $char === '[' || $char === '{') {
+                $depth++;
+
+                continue;
+            }
+
+            if ($char === ')' || $char === ']' || $char === '}') {
+                $depth--;
+
+                continue;
+            }
+
+            if ($char === ',' && $depth === 0) {
+                $segments[] = substr($text, $start, $i - $start);
+                $start = $i + 1;
+            }
+        }
+
+        $segments[] = substr($text, $start);
+
+        return $segments;
     }
 
     /**
