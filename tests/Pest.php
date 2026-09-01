@@ -564,7 +564,7 @@ function setupPreAccountBuildsTable(): void
     attachTestSchemas();
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.pre_account_builds (
         id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
+        user_id TEXT NULL,
         source_type TEXT NULL,
         source_ref TEXT NULL,
         source_ref_lc TEXT NULL,
@@ -590,6 +590,9 @@ function setupPreAccountBuildsTable(): void
         // Mirrors migration 20260825170000 (ManyChat claim links).
         'claim_token_hash TEXT NULL',
         'claim_token_issued_at TEXT NULL',
+        // Mirrors migration 20260901150000 (Item 1a scrape-first builds).
+        'account_type TEXT NULL',
+        'source_name TEXT NULL',
         'claim_idempotency_key TEXT NULL',
         // Mirrors migration 20260828010000 (T28: release restores the exact
         // pre-claim publish state).
@@ -1540,7 +1543,7 @@ function setupBlocksTable(): void
     attachTestSchemas();
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.blocks (
         id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
+        user_id TEXT NULL,
         site_id TEXT NOT NULL,
         block_group TEXT NULL,
         block_type TEXT NULL,
@@ -3677,7 +3680,7 @@ function setupAuthFactorEventsTable(): void
     attachTestSchemas();
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS audit.auth_factor_events (
         id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
+        user_id TEXT NULL,
         session_id TEXT NULL,
         event_type TEXT NOT NULL,
         factor_id TEXT NULL,

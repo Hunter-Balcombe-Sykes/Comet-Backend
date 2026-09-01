@@ -12,6 +12,7 @@ use App\Services\Platforms\GoogleBusinessService;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\PreAccount\SourceGenerationException;
+use App\Services\PreAccount\SourcePrefetch;
 use App\Services\Profile\BioSource;
 use App\Services\Profile\ProfileEnricher;
 use App\Support\BusinessName;
@@ -52,13 +53,16 @@ class GoogleBusinessSourceGenerator implements SiteSourceGenerator
         return $sourceName ?: 'business';
     }
 
-    // $autoConnectBooking is handed to GoogleBusinessEnrichJob, which is where
-    // this source's booking link is actually resolved (GoogleBusinessAutoSync
-    // has its own seedBooking and never touches LinkRouter).
-    public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false): void
+    /**
+     * Item 1a, phase one: Place Details + PII strip + the locality trim
+     * (Item 1b), before any identity exists. The trimmed listing name seeds
+     * the handle; the RAW name rides as the untrimmed ladder fallback so a
+     * multi-location brand's second venue claims its suburb, not a digit.
+     */
+    public function prefetch(string $sourceRef, ?string $sourceName, ?string $userId = null): SourcePrefetch
     {
         try {
-            $details = $this->service->fetchPlaceDetails($sourceRef, (string) $user->id);
+            $details = $this->service->fetchPlaceDetails($sourceRef, $userId ?? 'pre-account');
         } catch (PlacesBudgetExhaustedException) {
             // RV-6: a budget stop is not a bad place_id — FAILURE_SCRAPE_FAILED
             // is the resettable failure state (build re-runs), never
@@ -77,6 +81,37 @@ class GoogleBusinessSourceGenerator implements SiteSourceGenerator
         // (render is gated by is_published, not claim status). GoogleBusinessFetch
         // mirrors this strip on refresh for as long as the owner stays unclaimed.
         $details = GoogleBusinessPayload::stripThirdPartyPii($details);
+
+        $rawName = trim((string) ($details['name'] ?? '')) ?: trim((string) $sourceName);
+        $trim = BusinessName::trimLocality($rawName, data_get($details, 'addressParts.suburb'));
+
+        return new SourcePrefetch(
+            payload: $details,
+            displayName: $trim['name'] !== '' ? $trim['name'] : null,
+            untrimmedName: $rawName !== '' && $rawName !== $trim['name'] ? $rawName : null,
+            extra: ['trim_rule' => $trim['rule']],
+        );
+    }
+
+    // $autoConnectBooking is handed to GoogleBusinessEnrichJob, which is where
+    // this source's booking link is actually resolved (GoogleBusinessAutoSync
+    // has its own seedBooking and never touches LinkRouter).
+    public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false, ?SourcePrefetch $prefetch = null): void
+    {
+        if ($prefetch !== null) {
+            $details = $prefetch->payload;
+        } else {
+            // Legacy/re-run path — fetch + strip exactly as before Item 1a.
+            try {
+                $details = $this->service->fetchPlaceDetails($sourceRef, (string) $user->id);
+            } catch (PlacesBudgetExhaustedException) {
+                throw SourceGenerationException::scrapeFailed('places budget exhausted');
+            }
+            if ($details === null) {
+                throw SourceGenerationException::sourceNotFound();
+            }
+            $details = GoogleBusinessPayload::stripThirdPartyPii($details);
+        }
 
         $name = trim((string) ($details['name'] ?? '')) ?: $user->display_name;
 

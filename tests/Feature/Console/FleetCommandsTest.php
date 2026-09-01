@@ -1,6 +1,7 @@
 <?php
 
 use App\Console\Commands\FleetAssertCommand;
+use App\Jobs\PreAccount\GeneratePreAccountSiteJob;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
@@ -120,25 +121,23 @@ it('fleet:rebuild dry-run prints specs and changes nothing', function () {
         ->and($build->fresh()->expires_at->isFuture())->toBeTrue();
 });
 
-it('fleet:rebuild tears down and rebuilds, re-allocating the same handle', function () {
-    // Handle == source_ref: for instagram builds the fresh handle derives
-    // from the ref, which is how real fleet rebuilds keep their handles.
+it('fleet:rebuild tears down and queues a fresh scrape-first build', function () {
     [$user] = fleetTenant('frfull');
     seedPartnaStaff();
 
     $this->artisan('fleet:rebuild', ['handles' => ['frfull']])
+        ->expectsOutputToContain('queued')
         ->assertSuccessful();
 
-    // Old provisional user hard-deleted; a fresh one allocated from the ref.
-    // SQLite caveat (same limitation PruneExpiredBuildsTest documents): the
-    // site row's ON DELETE CASCADE doesn't fire here, so the stale subdomain
-    // makes HandleAllocator suffix ('frfull1'). On Postgres the cascade frees
-    // the exact handle — verified live on all 16 fleet rebuilds 2026-08-27.
+    // Old provisional user hard-deleted. Item 1a/1d: the fresh build has NO
+    // user yet — identity (and the handle, off the scraped display name via
+    // the same ladder public signups use) materializes inside the queued job.
     expect(User::withTrashed()->find($user->id))->toBeNull();
-    $fresh = User::query()->where('handle_lc', 'like', 'frfull%')->first();
+    $fresh = PreAccountBuild::query()->where('source_ref', 'frfull')->latest('created_at')->first();
     expect($fresh)->not->toBeNull()
-        ->and($fresh->id)->not->toBe($user->id)
-        ->and(PreAccountBuild::query()->where('user_id', $fresh->id)->exists())->toBeTrue();
+        ->and($fresh->user_id)->toBeNull()
+        ->and($fresh->account_type)->not->toBeNull();
+    Queue::assertPushed(GeneratePreAccountSiteJob::class);
 });
 
 // ── fleet:new ────────────────────────────────────────────────────────────────
@@ -186,12 +185,19 @@ it('fleet:new cold-builds an account that never existed', function () {
 
     $this->artisan('fleet:new', fleetSpecs([
         ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'fnfresh', 'source_name' => 'Fn Fresh'],
-    ]))->assertSuccessful();
+    ]))
+        ->expectsOutputToContain('queued')
+        ->assertSuccessful();
 
-    $user = User::query()->where('handle_lc', 'like', 'fnfresh%')->first();
-    expect($user)->not->toBeNull()
-        ->and($user->status)->toBe('unclaimed')
-        ->and(PreAccountBuild::query()->where('user_id', $user->id)->exists())->toBeTrue();
+    // Item 1a/1d: no user at request time — the build row carries the
+    // identity facts and the queued job materializes the user after the
+    // scrape verifies the source.
+    $build = PreAccountBuild::query()->where('source_ref', 'fnfresh')->first();
+    expect($build)->not->toBeNull()
+        ->and($build->user_id)->toBeNull()
+        ->and($build->account_type)->toBe('partna')
+        ->and($build->source_name)->toBe('Fn Fresh');
+    Queue::assertPushed(GeneratePreAccountSiteJob::class);
 });
 
 it('fleet:new rejects specs that are not a JSON list', function () {

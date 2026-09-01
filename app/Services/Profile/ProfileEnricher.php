@@ -33,6 +33,22 @@ class ProfileEnricher
      */
     public function enrich(User $user, BioSource $source): BioIntel
     {
+        $intel = $this->analyse($source);
+
+        $this->apply($user, $intel);
+
+        return $intel;
+    }
+
+    /**
+     * Item 1a: the ANALYSIS half alone, user-free — phase one of a build now
+     * needs the cleaned name BEFORE any user exists (it seeds the handle), so
+     * the model pass and the user write split. This stays the ONLY route to
+     * BioIntelligence (PreAccountEnrichmentSeamTest); a caller that analyses
+     * here must apply the SAME result via applyIntel(), never re-analyse.
+     */
+    public function analyse(BioSource $source): BioIntel
+    {
         // No bio text is the common case for a Google listing (74% of real ones
         // carry no description at all) — skip the model rather than pay for a
         // call whose every field the gates would null anyway.
@@ -40,16 +56,12 @@ class ProfileEnricher
             return BioIntel::empty();
         }
 
-        $intel = BioIntel::fromArray($this->bioIntelligence->analyse(
+        return BioIntel::fromArray($this->bioIntelligence->analyse(
             $source->handle,
             $source->fullName,
             $source->biography,
             $source->businessCategory,
         ));
-
-        $this->apply($user, $intel);
-
-        return $intel;
     }
 
     /**

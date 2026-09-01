@@ -12,6 +12,8 @@ use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\ProfileFetchFailure;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\PreAccount\SourceGenerationException;
+use App\Services\PreAccount\SourcePrefetch;
+use App\Services\Profile\BioIntel;
 use App\Services\Profile\BioSource;
 use App\Services\Profile\NameShapeGate;
 use App\Services\Profile\PersonNameParser;
@@ -52,20 +54,88 @@ class InstagramSourceGenerator implements SiteSourceGenerator
         return $normalizedRef;
     }
 
-    public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false): void
+    /**
+     * Item 1a, phase one: scrape + verify + NAME, before any identity exists.
+     * The scrape is the same fetchProfileResult (vendor-first, cached 900s) —
+     * so generate()'s legacy self-fetch path below reads the cache, never a
+     * second paid run. The AI pass runs HERE because the cleaned person name
+     * now seeds the handle; analyse() is user-free, and the resulting intel
+     * rides the bundle so generate() applies it without a second model call.
+     */
+    public function prefetch(string $sourceRef, ?string $sourceName, ?string $userId = null): SourcePrefetch
     {
         // Only a handle the actor positively reports as nonexistent is the
         // prospect's problem. Every other failure is ours breaking upstream, and
         // calling it "source not found" tells someone their own Instagram account
         // doesn't exist — while also inviting a retry that buys the same answer
         // for another paid scrape.
-        $result = $this->scraper->fetchProfileResult($sourceRef, $user->id);
+        $result = $this->scraper->fetchProfileResult($sourceRef, $userId);
         if ($result->profile === null) {
             throw $result->failure === ProfileFetchFailure::ProfileNotFound
                 ? SourceGenerationException::sourceNotFound()
                 : SourceGenerationException::scrapeFailed($result->failure->value);
         }
         $profile = $result->profile;
+
+        [$intel, $gated, $chosen] = $this->resolveNames($profile, $sourceRef);
+
+        return new SourcePrefetch(
+            payload: $profile,
+            // The cleaned person name seeds the handle (Item 1c); when the
+            // gates produced nothing usable the normalized IG ref remains the
+            // honest seed, exactly as before Item 1a.
+            displayName: $gated['displayName'] ?? null,
+            untrimmedName: null,
+            extra: ['intel' => $intel, 'gated' => $gated, 'chosen' => $chosen, 'thin' => $result->thin],
+        );
+    }
+
+    /**
+     * One gated naming pass, shared by prefetch() and the legacy self-fetch
+     * path of generate(). Returns the BioIntel and the shape-gated name trio.
+     *
+     * @return array{0: BioIntel, 1: array{displayName: ?string, firstName: ?string, lastName: ?string}, 2: array{displayName: ?string, firstName: ?string, lastName: ?string}}
+     */
+    private function resolveNames(array $profile, string $sourceRef): array
+    {
+        $fullName = trim(StyledUnicodeText::fold((string) (data_get($profile, 'fullName') ?? data_get($profile, 'full_name'))) ?? '');
+        $biography = data_get($profile, 'biography') ?? data_get($profile, 'bio');
+        $biography = is_string($biography) ? trim(StyledUnicodeText::fold($biography) ?? '') : null;
+
+        $source = new BioSource(
+            handle: $sourceRef,
+            fullName: $fullName ?: null,
+            biography: $biography ?: null,
+            businessCategory: data_get($profile, 'businessCategoryName') ?? data_get($profile, 'business_category_name'),
+        );
+        $intel = $this->enricher->analyse($source);
+
+        $parsed = $fullName !== '' ? PersonNameParser::parse($fullName) : null;
+        $chosen = $intel->displayName !== null
+            ? ['displayName' => $intel->displayName, 'firstName' => $intel->firstName, 'lastName' => $intel->lastName]
+            : ['displayName' => $parsed['displayName'] ?? null, 'firstName' => $parsed['firstName'] ?? null, 'lastName' => $parsed['lastName'] ?? null];
+
+        return [$intel, NameShapeGate::apply($chosen, $sourceRef, $fullName), $chosen];
+    }
+
+    public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false, ?SourcePrefetch $prefetch = null): void
+    {
+        if ($prefetch !== null) {
+            $profile = $prefetch->payload;
+            $thin = (bool) ($prefetch->extra['thin'] ?? false);
+        } else {
+            // Legacy/re-run path (fleet rebuilds, early-access re-generation):
+            // fetch for ourselves exactly as before Item 1a. The 900s profile
+            // cache collapses this with a same-build prefetch.
+            $result = $this->scraper->fetchProfileResult($sourceRef, $user->id);
+            if ($result->profile === null) {
+                throw $result->failure === ProfileFetchFailure::ProfileNotFound
+                    ? SourceGenerationException::sourceNotFound()
+                    : SourceGenerationException::scrapeFailed($result->failure->value);
+            }
+            $profile = $result->profile;
+            $thin = $result->thin;
+        }
 
         // Pending placeholder mirroring InstagramController::connect — payload []
         // (NOT null: platform_connections.payload is NOT NULL on live Postgres).
@@ -149,31 +219,19 @@ class InstagramSourceGenerator implements SiteSourceGenerator
         // falls back to the parse (names) or to nothing (About/contact) —
         // no-About beats a bad About.
         //
-        // Through the shared ProfileEnricher since 2026-08-28: the About and the
-        // contact pair are written there, identically for every source. Names are
-        // NOT — this generator's rule (AI display name, else PersonNameParser) is
-        // its own, and only a pre-account build (no owner yet) may write them at all.
-        $intel = $this->enricher->enrich($user, new BioSource(
-            handle: $sourceRef,
-            fullName: $fullName ?: null,
-            biography: $biography,
-            businessCategory: data_get($profile, 'businessCategoryName') ?? data_get($profile, 'business_category_name'),
-        ));
-
-        $parsed = $fullName !== '' ? PersonNameParser::parse($fullName) : null;
-
-        // ONE source for the pair. The old ternary picked the surname's source
-        // by whether the GIVEN name was set, which could pair an AI first name
-        // with a parser surname — a real shape on 2026-08-31 (shapedbyruby).
-        $chosen = $intel->displayName !== null
-            ? ['displayName' => $intel->displayName, 'firstName' => $intel->firstName, 'lastName' => $intel->lastName]
-            : ['displayName' => $parsed['displayName'] ?? null, 'firstName' => $parsed['firstName'] ?? null, 'lastName' => $parsed['lastName'] ?? null];
-
-        // Provenance was gated upstream (gateNames: did it invent a word?).
-        // This gates SHAPE: is it a name at all? The 2026-09-01 re-audit showed
-        // the AI itself returning "The"/"Edit" and "Tension"/"Music" as person
-        // names — see NameShapeGate's docblock.
-        $gated = NameShapeGate::apply($chosen, $sourceRef, $fullName);
+        // Since Item 1a the pass itself runs in prefetch() (the cleaned name
+        // seeds the handle, so it must exist pre-identity); here the ALREADY
+        // PAID result is applied via applyIntel — one model call per build,
+        // same rule the seeder's identity-sync leg has always followed. The
+        // legacy self-fetch path pays for its own pass via resolveNames().
+        if ($prefetch !== null && ($prefetch->extra['intel'] ?? null) instanceof BioIntel) {
+            $intel = $prefetch->extra['intel'];
+            $gated = (array) ($prefetch->extra['gated'] ?? ['displayName' => null, 'firstName' => null, 'lastName' => null]);
+            $chosen = (array) ($prefetch->extra['chosen'] ?? $gated);
+        } else {
+            [$intel, $gated, $chosen] = $this->resolveNames($profile, $sourceRef);
+        }
+        $this->enricher->applyIntel($user, $intel);
 
         if ($gated['displayName'] !== null) {
             $user->display_name = $gated['displayName'];
@@ -234,7 +292,7 @@ class InstagramSourceGenerator implements SiteSourceGenerator
         // guarantees at most one. A direct update, matching the SEC-4 convention that
         // state columns are not mass-assignable. Nothing observes this column, so
         // there is no cache to invalidate.
-        if ($result->thin) {
+        if ($thin) {
             PreAccountBuild::query()
                 ->where('user_id', $user->id)
                 ->where('source_type', 'instagram')

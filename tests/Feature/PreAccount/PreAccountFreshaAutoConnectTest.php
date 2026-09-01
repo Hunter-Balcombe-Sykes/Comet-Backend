@@ -6,6 +6,7 @@ use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\PreAccount\Generators\SiteSourceGenerator;
 use App\Services\PreAccount\SourceGeneratorRegistry;
+use App\Services\PreAccount\SourcePrefetch;
 
 beforeEach(function () {
     setupUsersTable();
@@ -59,7 +60,12 @@ it('passes autoConnectBooking TRUE for a self-serve site-first signup', function
                 return $normalizedRef;
             }
 
-            public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false): void
+            public function prefetch(string $sourceRef, ?string $sourceName, ?string $userId = null): SourcePrefetch
+            {
+                return new SourcePrefetch(payload: []);
+            }
+
+            public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false, ?SourcePrefetch $prefetch = null): void
             {
                 $this->seen->flag = $autoConnectBooking;
             }

@@ -7,6 +7,7 @@ use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\PreAccount\PreAccountBuildException;
 use App\Services\PreAccount\PreAccountBuildService;
+use App\Services\PreAccount\SourcePrefetch;
 use App\Services\User\SiteProvisioningService;
 use Illuminate\Bus\UniqueLock;
 use Illuminate\Contracts\Cache\Repository;
@@ -40,7 +41,7 @@ function makePartnaStaff(): PartnaStaff
     return $staff;
 }
 
-it('creates provisional user + unpublished site + pending build and dispatches the job', function () {
+it('creates a pending, identity-less build and dispatches the job; materialization earns the user', function () {
     $result = app(PreAccountBuildService::class)->requestBuild(
         accountType: 'partna', sourceType: 'instagram', rawSourceRef: '@JaneDoe',
         sourceName: null, ipHash: hash('sha256', '1.2.3.4'),
@@ -51,9 +52,14 @@ it('creates provisional user + unpublished site + pending build and dispatches t
         ->and($build->build_state)->toBe(PreAccountBuild::STATE_PENDING)
         ->and($build->source_ref)->toBe('janedoe')          // IG normalization strips @ + lowercases
         ->and($build->source_ref_lc)->toBe('janedoe')
-        ->and($build->built_via)->toBe(PreAccountBuild::VIA_SIGNUP);
+        ->and($build->built_via)->toBe(PreAccountBuild::VIA_SIGNUP)
+        // Item 1a: NO identity exists yet — that is the whole point. The
+        // request-time facts identity creation needs ride the row instead.
+        ->and($build->user_id)->toBeNull()
+        ->and($build->account_type)->toBe('partna');
 
-    $user = $build->user;
+    app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
+    $user = $build->refresh()->user;
     expect($user->status)->toBe('unclaimed')
         ->and($user->auth_user_id)->toBeNull()
         ->and($user->primary_email)->toBeNull()
@@ -72,8 +78,9 @@ it('re-serves an existing LIVE build for the same source without re-scraping', f
 
     expect($second['reused'])->toBeTrue()
         ->and($second['build']->id)->toBe($first['build']->id)
-        // re-served build keeps its ORIGINAL account_type (spec §4.1)
-        ->and($second['build']->user->account_type->value)->toBe('partna');
+        // re-served build keeps its ORIGINAL account_type (spec §4.1) — read
+        // off the build row since Item 1a (no user exists pre-materialize).
+        ->and($second['build']->account_type)->toBe('partna');
     Queue::assertPushed(GeneratePreAccountSiteJob::class, 1);
 });
 
@@ -380,17 +387,23 @@ function seedRaceCompetitor(PartnaStaff $staff, string $refLc, ?string $contactE
  */
 function stageLostInsertRace(PreAccountBuild $competitor): void
 {
-    app()->instance(SiteProvisioningService::class, new class extends SiteProvisioningService
-    {
-        public function createSiteForHandle(string $userId, string $handleLc, bool $published = true): Site
-        {
-            throw new UniqueConstraintViolationException(
-                'pgsql',
-                'insert into "core"."pre_account_builds" ...',
-                [],
-                new PDOException('SQLSTATE[23505]: Unique violation: duplicate key value violates unique constraint "pre_account_builds_live_source_unique"'),
-            );
+    // Item 1a: requestBuild() no longer provisions a site in-request, so the
+    // race is staged at the point that CAN still lose it — the build INSERT
+    // itself (the test schema carries no partial unique index to hit for
+    // real, so the violation is faked exactly as before, one row earlier).
+    $armed = new stdClass;
+    $armed->fired = false;
+    PreAccountBuild::creating(function () use ($armed) {
+        if ($armed->fired) {
+            return;
         }
+        $armed->fired = true;
+        throw new UniqueConstraintViolationException(
+            'pgsql',
+            'insert into "core"."pre_account_builds" ...',
+            [],
+            new PDOException('SQLSTATE[23505]: Unique violation: duplicate key value violates unique constraint "pre_account_builds_live_source_unique"'),
+        );
     });
 
     Event::listen(

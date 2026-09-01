@@ -13,6 +13,7 @@ use App\Services\PreAccount\Generators\SiteSourceGenerator;
 use App\Services\PreAccount\PreAccountBuildService;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Services\PreAccount\SourceGeneratorRegistry;
+use App\Services\PreAccount\SourcePrefetch;
 use Illuminate\Contracts\Queue\Job;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Mail;
@@ -64,7 +65,12 @@ it('re-scrapes IG, opens the window, flips to invited, and emails the invite', f
                 return $normalizedRef;
             }
 
-            public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false): void {}
+            public function prefetch(string $sourceRef, ?string $sourceName, ?string $userId = null): SourcePrefetch
+            {
+                return new SourcePrefetch(payload: []);
+            }
+
+            public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false, ?SourcePrefetch $prefetch = null): void {}
         };
         $mock->shouldReceive('for')->andReturn($gen);
     });
@@ -131,6 +137,11 @@ it('flips to failed, does not notify, and reports when the re-scrape throws (nev
     $this->mock(SourceGeneratorRegistry::class, function ($mock) {
         $gen = new class implements SiteSourceGenerator
         {
+            public function prefetch(string $sourceRef, ?string $sourceName, ?string $userId = null): SourcePrefetch
+            {
+                return new SourcePrefetch(payload: []);
+            }
+
             public function normalizeRef(string $raw): string
             {
                 return $raw;
@@ -146,7 +157,7 @@ it('flips to failed, does not notify, and reports when the re-scrape throws (nev
                 return $normalizedRef;
             }
 
-            public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false): void
+            public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false, ?SourcePrefetch $prefetch = null): void
             {
                 throw SourceGenerationException::scrapeFailed('boom');
             }
@@ -281,6 +292,11 @@ function throwingGenerator(Throwable $toThrow): SiteSourceGenerator
 {
     return new class($toThrow) implements SiteSourceGenerator
     {
+        public function prefetch(string $sourceRef, ?string $sourceName, ?string $userId = null): SourcePrefetch
+        {
+            return new SourcePrefetch(payload: []);
+        }
+
         public function __construct(private Throwable $toThrow) {}
 
         public function normalizeRef(string $raw): string
@@ -298,7 +314,7 @@ function throwingGenerator(Throwable $toThrow): SiteSourceGenerator
             return $normalizedRef;
         }
 
-        public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false): void
+        public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false, ?SourcePrefetch $prefetch = null): void
         {
             throw $this->toThrow;
         }
@@ -387,7 +403,12 @@ it('does NOT fail the job on a happy approval — fail() is not fired indiscrimi
                 return $normalizedRef;
             }
 
-            public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false): void {}
+            public function prefetch(string $sourceRef, ?string $sourceName, ?string $userId = null): SourcePrefetch
+            {
+                return new SourcePrefetch(payload: []);
+            }
+
+            public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false, ?SourcePrefetch $prefetch = null): void {}
         };
         $mock->shouldReceive('for')->andReturn($gen);
     });

@@ -19,6 +19,7 @@ use App\Exceptions\Site\SubdomainUnavailableException;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\PreAccount\PreAccountBuildService;
+use App\Services\PreAccount\SourcePrefetch;
 use App\Services\User\SiteProvisioningService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
@@ -48,6 +49,11 @@ it('provisions the site on the handle the user was actually allocated', function
     $build = app(PreAccountBuildService::class)->requestBuild(
         'partna', 'instagram', 'janedoe', null, hash('sha256', 'a'),
     )['build'];
+    // Item 1a: identity materializes in the job now — do it explicitly here
+    // with an empty prefetch so the seed falls back to the generator's, which
+    // is exactly the pre-1a behaviour these invariants pin.
+    app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
+    $build->refresh();
 
     expect($build->user->handle_lc)->toBe('janedoe')
         ->and($build->user->site->subdomain)->toBe('janedoe');
@@ -60,6 +66,11 @@ it('converges when the source ref contains periods (D.O.C. Pizza shape)', functi
     $build = app(PreAccountBuildService::class)->requestBuild(
         'partna', 'instagram', 'd.o.c.pizza', null, hash('sha256', 'b'),
     )['build'];
+    // Item 1a: identity materializes in the job now — do it explicitly here
+    // with an empty prefetch so the seed falls back to the generator's, which
+    // is exactly the pre-1a behaviour these invariants pin.
+    app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
+    $build->refresh();
 
     expect($build->user->handle_lc)->toBe('docpizza')
         ->and($build->user->site->subdomain)->toBe('docpizza');
@@ -72,6 +83,11 @@ it('converges when the source name contains an apostrophe (Errol\'s shape)', fun
     $build = app(PreAccountBuildService::class)->requestBuild(
         'business', 'google_business', 'ChIJerrols00000', "Errol's", hash('sha256', 'c'),
     )['build'];
+    // Item 1a: identity materializes in the job now — do it explicitly here
+    // with an empty prefetch so the seed falls back to the generator's, which
+    // is exactly the pre-1a behaviour these invariants pin.
+    app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
+    $build->refresh();
 
     expect($build->user->handle_lc)->toBe('errols')
         ->and($build->user->site->subdomain)->toBe('errols');
@@ -87,6 +103,11 @@ it('converges on the handle-collision path', function () {
     $build = app(PreAccountBuildService::class)->requestBuild(
         'partna', 'instagram', 'janedoe', null, hash('sha256', 'd'),
     )['build'];
+    // Item 1a: identity materializes in the job now — do it explicitly here
+    // with an empty prefetch so the seed falls back to the generator's, which
+    // is exactly the pre-1a behaviour these invariants pin.
+    app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
+    $build->refresh();
 
     expect($build->user->handle_lc)->toBe('janedoe1')
         ->and($build->user->site->subdomain)->toBe('janedoe1');
@@ -100,7 +121,8 @@ it('converges through several consecutive collisions', function () {
     // place_ids with the same name collide three times in a row.
     foreach (['e', 'f', 'g'] as $i => $salt) {
         $build = $svc->requestBuild('business', 'google_business', 'ChIJtwin0000'.$i, 'Twin', hash('sha256', $salt))['build'];
-        expectConverged($build->user);
+        $svc->materializeIdentity($build, new SourcePrefetch(payload: []));
+        expectConverged($build->refresh()->user);
     }
 
     // Same seed name each time → 'twin', 'twin1', 'twin2' on BOTH sides.
@@ -118,6 +140,11 @@ it('rejects a handle whose subdomain is already held by another site', function 
     $build = app(PreAccountBuildService::class)->requestBuild(
         'partna', 'instagram', 'janedoe', null, hash('sha256', 'h'),
     )['build'];
+    // Item 1a: identity materializes in the job now — do it explicitly here
+    // with an empty prefetch so the seed falls back to the generator's, which
+    // is exactly the pre-1a behaviour these invariants pin.
+    app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
+    $build->refresh();
 
     expect($build->user->handle_lc)->toBe('janedoe1')
         ->and($build->user->site->subdomain)->toBe('janedoe1');
@@ -142,6 +169,11 @@ it('rejects a handle whose subdomain is held by an ACTIVE alias', function () {
     $build = app(PreAccountBuildService::class)->requestBuild(
         'partna', 'instagram', 'janedoe', null, hash('sha256', 'i'),
     )['build'];
+    // Item 1a: identity materializes in the job now — do it explicitly here
+    // with an empty prefetch so the seed falls back to the generator's, which
+    // is exactly the pre-1a behaviour these invariants pin.
+    app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
+    $build->refresh();
 
     expect($build->user->handle_lc)->toBe('janedoe1')
         ->and($build->user->site->subdomain)->toBe('janedoe1');
@@ -165,6 +197,11 @@ it('allows a handle whose subdomain is held only by an EXPIRED alias', function 
     $build = app(PreAccountBuildService::class)->requestBuild(
         'partna', 'instagram', 'janedoe', null, hash('sha256', 'j'),
     )['build'];
+    // Item 1a: identity materializes in the job now — do it explicitly here
+    // with an empty prefetch so the seed falls back to the generator's, which
+    // is exactly the pre-1a behaviour these invariants pin.
+    app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
+    $build->refresh();
 
     expect($build->user->handle_lc)->toBe('janedoe')
         ->and($build->user->site->subdomain)->toBe('janedoe');
@@ -174,6 +211,11 @@ it('never allocates a reserved subdomain as a handle', function () {
     $build = app(PreAccountBuildService::class)->requestBuild(
         'partna', 'instagram', 'admin', null, hash('sha256', 'k'),
     )['build'];
+    // Item 1a: identity materializes in the job now — do it explicitly here
+    // with an empty prefetch so the seed falls back to the generator's, which
+    // is exactly the pre-1a behaviour these invariants pin.
+    app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
+    $build->refresh();
 
     expect($build->user->handle_lc)->toBe('admin1');
     expectConverged($build->user);
@@ -280,13 +322,17 @@ it('reports a pre-account refusal, because there the handle was machine-allocate
         ->andThrow(new SubdomainUnavailableException('allocator guarantee broke'));
     app()->instance(SiteProvisioningService::class, $provisioning);
 
-    expect(fn () => app(PreAccountBuildService::class)->requestBuild(
+    // Item 1a: provisioning moved from requestBuild() to materializeIdentity()
+    // (the job's phase two) — the call-site reaction under test moved with it.
+    $build = app(PreAccountBuildService::class)->requestBuild(
         accountType: 'partna',
         sourceType: 'instagram',
         rawSourceRef: '@janedoe',
         sourceName: 'Jane Doe',
         ipHash: null,
-    ))->toThrow(SubdomainUnavailableException::class);
+    )['build'];
+    expect(fn () => app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: [])))
+        ->toThrow(SubdomainUnavailableException::class);
 
     Exceptions::assertReported(SubdomainUnavailableException::class);
 });

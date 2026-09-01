@@ -7,9 +7,9 @@ use App\Jobs\Concerns\ThrottlesPreAccountScraping;
 use App\Jobs\Platforms\ThrottledByProvider;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\PreAccountBuild;
-use App\Services\Design\HeadshotAutoSeeder;
 use App\Services\PreAccount\ClaimNotifier;
 use App\Services\PreAccount\ContactFormSeeder;
+use App\Services\PreAccount\PreAccountBuildService;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Services\PreAccount\SourceGeneratorRegistry;
 use App\Services\Site\SectionBlockProvisioner;
@@ -77,19 +77,52 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, Throttle
             return;
         }
 
-        $user = $build->user;
-        $site = $user?->site;
-        if (! $user || ! $site) {
-            // SEC-4: build_state/failure_code are no longer fillable — forceFill so a
-            // dropped write can't silently strand this build in the wrong state.
+        // SEC-4: build_state is no longer fillable — forceFill so this transition
+        // isn't a silent no-op.
+        $build->forceFill(['build_state' => PreAccountBuild::STATE_BUILDING])->save();
+
+        // ── Item 1a, phase one: verify the source BEFORE any identity exists.
+        // A failed prefetch fails the build with NOTHING to clean up — no user,
+        // no handle squatted, no site row, no KV route ever published. This is
+        // structurally where the bydannydixon handle-retention class died.
+        $generator = $registry->for($build->source_type);
+        try {
+            $prefetch = $generator->prefetch($build->source_ref, $build->source_name, $build->user_id);
+        } catch (SourceGenerationException $e) {
+            $build->forceFill(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => $e->failureCode])->save();
+            report($e);
+            Log::warning('pre_account.build_failed', ['build_id' => $build->id, 'failure_code' => $e->failureCode, 'phase' => 'prefetch']);
+            $this->retireRouteIfAny($build);
+
+            return;
+        } catch (Throwable $e) {
             $build->forceFill(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => PreAccountBuild::FAILURE_SCRAPE_FAILED])->save();
+            report($e);
+            $this->retireRouteIfAny($build);
 
             return;
         }
 
-        // SEC-4: build_state is no longer fillable — forceFill so this transition
-        // isn't a silent no-op.
-        $build->forceFill(['build_state' => PreAccountBuild::STATE_BUILDING])->save();
+        // ── Phase two: materialize the identity the verified source earned.
+        // A re-run (failed-build re-serve, early-access re-generation) already
+        // carries its user — allocation is once-per-build, never repeated.
+        $user = $build->user;
+        if (! $user) {
+            try {
+                $user = app(PreAccountBuildService::class)->materializeIdentity($build, $prefetch);
+            } catch (Throwable $e) {
+                $build->forceFill(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => PreAccountBuild::FAILURE_SCRAPE_FAILED])->save();
+                report($e);
+
+                return;
+            }
+        }
+        $site = $user->site;
+        if (! $site) {
+            $build->forceFill(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => PreAccountBuild::FAILURE_SCRAPE_FAILED])->save();
+
+            return;
+        }
 
         try {
             // Auto-connect a discovered booking menu for EVERY pre-account build.
@@ -111,8 +144,8 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, Throttle
             // when it cannot. Storewide understates prices, which that design accepts
             // as the trade against publishing nothing, bounded by the owner
             // correcting it after claim (payload.autoSelected surfaces the guess).
-            $registry->for($build->source_type)->generate(
-                $user, $site, $build->source_ref, true,
+            $generator->generate(
+                $user, $site, $build->source_ref, true, $prefetch,
             );
         } catch (SourceGenerationException $e) {
             // SEC-4: build_state/failure_code are no longer fillable — forceFill so a
@@ -192,19 +225,16 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, Throttle
             report($e);
         }
 
-        // T17 (owner, 2026-08-27): partna accounts get their Instagram profile
-        // picture as the `headshot` design singleton (fill-empty only) — the
-        // sitepage favicon reads its icon variant. Non-fatal, same contract
-        // as the seeding steps above.
-        try {
-            app(HeadshotAutoSeeder::class)->seedFromInstagram($user, $site);
-        } catch (Throwable $e) {
-            report($e);
-        }
-
         // SEC-4: build_state is no longer fillable — forceFill so this transition
         // isn't a silent no-op.
         $build->forceFill(['build_state' => PreAccountBuild::STATE_READY])->save();
+
+        // T17 (owner, 2026-08-27) + Item 9d (2026-09-01): partna accounts get
+        // their Instagram profile picture as the `headshot` design singleton
+        // (fill-empty only). Dispatched AFTER ready rather than run inline —
+        // it reads only our own R2 mirror and nothing in the first render
+        // depends on it, so it must not sit on the critical path.
+        SeedHeadshotJob::dispatch((string) $user->id, (string) $site->id)->afterCommit();
 
         // Staff marketing builds go live immediately; the KV re-sync writes the
         // routing entry (with unclaimed TTL — see SyncSubdomainToKvJob) since
@@ -233,6 +263,19 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, Throttle
         $userId = PreAccountBuild::query()->whereKey($this->buildId)->value('user_id');
         if ($userId) {
             SyncSubdomainToKvJob::dispatch((string) $userId);
+        }
+    }
+
+    /**
+     * Item 1a: a pre-identity failure has no route to retire — the KV entry
+     * only ever exists once materializeIdentity() created the site. A re-run
+     * failure (user already bound from a prior attempt) retires exactly as
+     * the post-generate failure paths always did.
+     */
+    private function retireRouteIfAny(PreAccountBuild $build): void
+    {
+        if ($build->user_id !== null) {
+            SyncSubdomainToKvJob::dispatch((string) $build->user_id);
         }
     }
 }

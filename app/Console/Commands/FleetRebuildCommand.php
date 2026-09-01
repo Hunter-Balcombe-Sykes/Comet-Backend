@@ -104,11 +104,12 @@ class FleetRebuildCommand extends Command
                     $staff,
                 );
                 $fresh = $result['build'];
-                $newHandle = User::query()->whereKey($fresh->user_id)->value('handle_lc');
-                $this->info("{$spec['handle']} -> build {$fresh->id} (handle {$newHandle})");
-                if ($newHandle !== $spec['handle']) {
-                    $this->warn("{$spec['handle']}: handle CHANGED to {$newHandle} — source_name no longer allocates the old handle.");
-                }
+                // Item 1a/1d: the fresh handle allocates inside the job from the
+                // SCRAPED display name — the exact ladder public signups use —
+                // so a request-time handle print (and the old CHANGED warning)
+                // is impossible now. builds:await / fleet:verify report the
+                // handle each rebuild actually landed on.
+                $this->info("{$spec['handle']} -> build {$fresh->id} queued (handle allocates after scrape)");
             } catch (\Throwable $e) {
                 $failures++;
                 $this->error("{$spec['handle']}: rebuild failed — ".$e->getMessage());

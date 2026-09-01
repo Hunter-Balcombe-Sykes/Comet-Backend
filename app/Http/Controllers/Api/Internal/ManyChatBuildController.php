@@ -9,6 +9,7 @@ use App\Models\Core\User\PreAccountBuild;
 use App\Services\PreAccount\ClaimTokenIssuer;
 use App\Services\PreAccount\PreAccountBuildException;
 use App\Services\PreAccount\PreAccountBuildService;
+use App\Services\PreAccount\SourcePrefetch;
 use Illuminate\Http\JsonResponse;
 
 // POST /api/internal/webhooks/manychat/builds — the ManyChat marketing surface.
@@ -51,6 +52,19 @@ class ManyChatBuildController extends ApiController
         }
 
         $build = $result['build'];
+
+        // Item 1a: public signups materialize identity in the job, AFTER the
+        // scrape verifies the source. This webhook cannot wait — its 202 must
+        // carry a claim URL, and the claim URL needs the subdomain — so the
+        // outreach lane materializes here, synchronously, with an empty
+        // prefetch (seed falls back to the generator's, i.e. the business
+        // name ManyChat already supplies). The job still prefetches before
+        // generating; a dead source fails the build and retires the route
+        // exactly like a re-run failure.
+        if ($build->user_id === null) {
+            $this->builds->materializeIdentity($build, new SourcePrefetch(payload: []));
+            $build->refresh();
+        }
         $build->loadMissing('user.site');
 
         $subdomain = $build->user?->site?->subdomain;

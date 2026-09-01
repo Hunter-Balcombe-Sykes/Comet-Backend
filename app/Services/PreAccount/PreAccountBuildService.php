@@ -110,37 +110,13 @@ class PreAccountBuildService
                     }
                 }
 
-                $seed = $this->generators->for($sourceType)->handleSeed($ref, $sourceName);
-                $user = $this->createProvisionalUserWithRetry($seed, $accountType, $sourceName);
-
-                // Real subdomain at build time, unpublished for signup builds; the
-                // staff publish knob flips AFTER generation succeeds (in the job).
-                //
-                // SIGNUP-1: the subdomain is the handle the user was ACTUALLY
-                // allocated on the line above — not the raw $seed re-normalised.
-                // subdomainBaseFromHandle() replaces dots/apostrophes with hyphens
-                // where Str::slug() drops them, and suffixes '-2' where
-                // HandleAllocator suffixes '2', so re-deriving from $seed produced
-                // a subdomain that disagreed with the handle and a site_url that
-                // 404'd. handle_lc is the honest target: it is the routing key
-                // (SyncSubdomainToKvJob lowercases the handle to key KV).
-                // The handle here is machine-allocated by HandleAllocator, which
-                // already required it to be free as a subdomain — so a refusal means
-                // that guarantee broke, which is an alarm, not bad input. Report at
-                // this call site (the bootstrap path deliberately does not) and
-                // re-throw so the outer transaction still rolls back.
-                try {
-                    $this->siteProvisioning->createSiteForHandle(
-                        $user->id,
-                        (string) $user->handle_lc,
-                        published: false,
-                    );
-                } catch (SubdomainUnavailableException $e) {
-                    report($e);
-
-                    throw $e;
-                }
-
+                // Item 1a (2026-09-01): NO identity is allocated here any more.
+                // The scrape verifies the source first (in the job), and only a
+                // verified source materializes a user, handle, site and KV
+                // route — so a typo'd handle can never squat a name again (the
+                // bydannydixon class), and the handle can be seeded from the
+                // CLEANED display name the scrape produces (Item 1c). The two
+                // request-time facts identity creation needs ride the row.
                 $build = new PreAccountBuild([
                     'source_type' => $sourceType,
                     'source_ref' => $ref,
@@ -150,13 +126,14 @@ class PreAccountBuildService
                     'expires_at' => $expiresAt,
                     'contact_email' => $contactEmail,
                     'auto_invite' => $autoInvite,
+                    'account_type' => $accountType,
+                    'source_name' => $sourceName,
                 ]);
                 // SEC-4: build_state is no longer fillable. Set explicitly (not left to
                 // the DB DEFAULT 'pending') so the in-memory model matches the row
                 // immediately after save() — Eloquent doesn't re-fetch DB-computed
                 // column defaults post-insert.
                 $build->build_state = PreAccountBuild::STATE_PENDING;
-                $build->user()->associate($user);
                 if ($staff) {
                     $build->builtByStaff()->associate($staff);
                 }
@@ -275,10 +252,49 @@ class PreAccountBuildService
      * surfacing to the outer catch (UniqueConstraintViolationException), which
      * assumes any such violation is pre_account_builds_live_source_unique.
      */
-    private function createProvisionalUserWithRetry(string $seed, string $accountType, ?string $sourceName): User
+    /**
+     * Item 1a: materialize the identity AFTER the scrape verified the source.
+     * Called by GeneratePreAccountSiteJob with phase one's bundle — the seed
+     * is the CLEANED display name when the source yielded one (Item 1c), the
+     * generator's legacy seed otherwise, and the untrimmed name rides as the
+     * allocator's ladder fallback (Item 1b's multi-location case). Creates
+     * user + site and binds the build, exactly what requestBuild() used to do
+     * in-request — now that it is earned.
+     */
+    public function materializeIdentity(PreAccountBuild $build, SourcePrefetch $prefetch): User
+    {
+        $accountType = (string) ($build->account_type ?: 'partna');
+        $sourceName = $prefetch->displayName
+            ?? ($build->source_name !== null && trim((string) $build->source_name) !== '' ? (string) $build->source_name : null);
+        $seed = $prefetch->displayName
+            ?? $this->generators->for($build->source_type)->handleSeed($build->source_ref, $build->source_name);
+
+        $user = $this->createProvisionalUserWithRetry($seed, $accountType, $sourceName, $prefetch->untrimmedName);
+
+        try {
+            $this->siteProvisioning->createSiteForHandle(
+                $user->id,
+                (string) $user->handle_lc,
+                published: false,
+            );
+        } catch (SubdomainUnavailableException $e) {
+            // HandleAllocator already required the handle to be free as a
+            // subdomain — a refusal means that guarantee broke: alarm, not input.
+            report($e);
+
+            throw $e;
+        }
+
+        $build->user()->associate($user);
+        $build->save();
+
+        return $user;
+    }
+
+    private function createProvisionalUserWithRetry(string $seed, string $accountType, ?string $sourceName, ?string $untrimmedSeed = null): User
     {
         for ($i = 0; $i < 5; $i++) {
-            $handle = $this->handles->allocate($seed);
+            $handle = $this->handles->allocate($seed, $untrimmedSeed);
             if ($user = $this->tryCreateProvisionalUser($handle, $accountType, $sourceName)) {
                 return $user;
             }

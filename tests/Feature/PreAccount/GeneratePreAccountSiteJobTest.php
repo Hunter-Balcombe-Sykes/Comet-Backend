@@ -10,6 +10,7 @@ use App\Models\Core\User\User;
 use App\Services\PreAccount\Generators\SiteSourceGenerator;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Services\PreAccount\SourceGeneratorRegistry;
+use App\Services\PreAccount\SourcePrefetch;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
@@ -35,6 +36,9 @@ function makePendingBuild(bool $publish = false): PreAccountBuild
 function bindGenerator(?Closure $behaviour = null): void
 {
     $gen = Mockery::mock(SiteSourceGenerator::class);
+    // Item 1a: the job prefetches before generate — a mock without this dies
+    // as an unexpected-call fatal that kills the runner with no output.
+    $gen->shouldReceive('prefetch')->andReturn(new SourcePrefetch(payload: []))->byDefault();
     $exp = $gen->shouldReceive('generate')->once();
     if ($behaviour) {
         $exp->andReturnUsing($behaviour);
@@ -104,6 +108,11 @@ it('notifies via email when a published build with contact_email reaches ready',
     $this->mock(SourceGeneratorRegistry::class, function ($mock) {
         $gen = new class implements SiteSourceGenerator
         {
+            public function prefetch(string $sourceRef, ?string $sourceName, ?string $userId = null): SourcePrefetch
+            {
+                return new SourcePrefetch(payload: []);
+            }
+
             public function normalizeRef(string $raw): string
             {
                 return $raw;
@@ -119,7 +128,7 @@ it('notifies via email when a published build with contact_email reaches ready',
                 return $normalizedRef;
             }
 
-            public function generate($user, $site, $ref, $autoConnectBooking = false): void {}
+            public function generate($user, $site, $ref, $autoConnectBooking = false, $prefetch = null): void {}
         };
         $mock->shouldReceive('for')->andReturn($gen);
     });
@@ -148,6 +157,11 @@ it('does not notify when an unpublished build with contact_email reaches ready',
     $this->mock(SourceGeneratorRegistry::class, function ($mock) {
         $gen = new class implements SiteSourceGenerator
         {
+            public function prefetch(string $sourceRef, ?string $sourceName, ?string $userId = null): SourcePrefetch
+            {
+                return new SourcePrefetch(payload: []);
+            }
+
             public function normalizeRef(string $raw): string
             {
                 return $raw;
@@ -163,7 +177,7 @@ it('does not notify when an unpublished build with contact_email reaches ready',
                 return $normalizedRef;
             }
 
-            public function generate($user, $site, $ref, $autoConnectBooking = false): void {}
+            public function generate($user, $site, $ref, $autoConnectBooking = false, $prefetch = null): void {}
         };
         $mock->shouldReceive('for')->andReturn($gen);
     });
@@ -189,6 +203,11 @@ it('does not notify when auto_invite is false even if published', function () {
     $this->mock(SourceGeneratorRegistry::class, function ($mock) {
         $gen = new class implements SiteSourceGenerator
         {
+            public function prefetch(string $sourceRef, ?string $sourceName, ?string $userId = null): SourcePrefetch
+            {
+                return new SourcePrefetch(payload: []);
+            }
+
             public function normalizeRef(string $raw): string
             {
                 return $raw;
@@ -204,7 +223,7 @@ it('does not notify when auto_invite is false even if published', function () {
                 return $normalizedRef;
             }
 
-            public function generate($user, $site, $ref, $autoConnectBooking = false): void {}
+            public function generate($user, $site, $ref, $autoConnectBooking = false, $prefetch = null): void {}
         };
         $mock->shouldReceive('for')->andReturn($gen);
     });
@@ -232,6 +251,11 @@ it('deactivates the IG connection for a dark early-access build', function () {
     $this->mock(SourceGeneratorRegistry::class, function ($mock) use ($user) {
         $gen = new class($user) implements SiteSourceGenerator
         {
+            public function prefetch(string $sourceRef, ?string $sourceName, ?string $userId = null): SourcePrefetch
+            {
+                return new SourcePrefetch(payload: []);
+            }
+
             public function __construct(private User $user) {}
 
             public function normalizeRef(string $raw): string
@@ -249,7 +273,7 @@ it('deactivates the IG connection for a dark early-access build', function () {
                 return $normalizedRef;
             }
 
-            public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false): void
+            public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false, ?SourcePrefetch $prefetch = null): void
             {
                 IntegrationConnection::create([
                     'user_id' => $this->user->id, 'platform' => 'instagram',
@@ -286,6 +310,11 @@ it('leaves the IG connection active for a non-early-access build (signup)', func
     $this->mock(SourceGeneratorRegistry::class, function ($mock) use ($user) {
         $gen = new class($user) implements SiteSourceGenerator
         {
+            public function prefetch(string $sourceRef, ?string $sourceName, ?string $userId = null): SourcePrefetch
+            {
+                return new SourcePrefetch(payload: []);
+            }
+
             public function __construct(private User $user) {}
 
             public function normalizeRef(string $raw): string
@@ -303,7 +332,7 @@ it('leaves the IG connection active for a non-early-access build (signup)', func
                 return $normalizedRef;
             }
 
-            public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false): void
+            public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false, ?SourcePrefetch $prefetch = null): void
             {
                 IntegrationConnection::create([
                     'user_id' => $this->user->id, 'platform' => 'instagram',

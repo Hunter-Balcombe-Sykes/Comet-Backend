@@ -2,6 +2,7 @@
 
 use App\Models\Core\User\User;
 use App\Services\PreAccount\PreAccountBuildService;
+use App\Services\PreAccount\SourcePrefetch;
 use App\Services\User\HandleAllocator;
 use App\Services\User\SiteProvisioningService;
 use App\Support\BusinessName;
@@ -130,6 +131,11 @@ it('converges handle and subdomain end to end on the business path for the uglie
     $build = app(PreAccountBuildService::class)->requestBuild(
         'business', 'google_business', 'ChIJ'.md5($name), $name, hash('sha256', $salt),
     )['build'];
+    // Item 1a: identity materializes in the job now — do it explicitly here
+    // with an empty prefetch so the seed falls back to the generator's, which
+    // is exactly the pre-1a behaviour these invariants pin.
+    app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
+    $build->refresh();
 
     $subdomain = DB::connection('pgsql')->table('site.sites')->where('user_id', $build->user_id)->value('subdomain');
     $user = User::query()->find($build->user_id);

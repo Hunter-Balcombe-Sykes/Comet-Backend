@@ -63,9 +63,18 @@ it('requires every registered generator to actually call the enrichment seam', f
         // str_contains, not toContain: Pest's toContain is VARIADIC, so a second
         // argument is read as another NEEDLE, never as a failure message — the
         // assertion silently becomes "contains this explanation too" and fails.
-        expect(str_contains($source, '->enrich('))->toBeTrue(
-            "Pre-account source '{$sourceType}' ({$class}) injects ProfileEnricher but never calls "
-            .'enrich() — the dependency alone enriches nothing.'
+        //
+        // Two seam shapes since Item 1a: the one-shot enrich(), or the split
+        // pair — analyse() in prefetch (the cleaned name must exist before any
+        // user does) with applyIntel() applying that SAME paid result in
+        // generate(). Half the pair alone is the bug this guard exists for:
+        // analyse-without-apply pays and discards, apply-without-analyse
+        // applies nothing.
+        $oneShot = str_contains($source, '->enrich(');
+        $splitPair = str_contains($source, '->analyse(') && str_contains($source, '->applyIntel(');
+        expect($oneShot || $splitPair)->toBeTrue(
+            "Pre-account source '{$sourceType}' ({$class}) injects ProfileEnricher but calls neither "
+            .'enrich() nor the analyse()+applyIntel() pair — the dependency alone enriches nothing.'
         );
     }
 });

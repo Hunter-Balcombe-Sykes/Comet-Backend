@@ -44,7 +44,11 @@ class BuildsAwaitCommand extends Command
             ->orderBy('created_at')
             ->get()
             ->map(fn (PreAccountBuild $b) => [
-                User::query()->whereKey($b->user_id)->value('handle_lc') ?? '(gone)',
+                // Item 1a: a build that failed before the scrape verified its
+                // source never had a user — label it by ref, not '(gone)'.
+                ($b->user_id === null
+                    ? ($b->source_ref ? "({$b->source_ref})" : '(no identity)')
+                    : User::query()->whereKey($b->user_id)->value('handle_lc') ?? '(gone)'),
                 (string) $b->build_state,
                 $b->failure_code ?? '-',
                 (string) $b->created_at,

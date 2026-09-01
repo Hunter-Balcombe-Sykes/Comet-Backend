@@ -3,6 +3,8 @@
 use App\Jobs\PreAccount\GeneratePreAccountSiteJob;
 use App\Models\Core\User\PreAccountBuild;
 use App\Services\PreAccount\ClaimSiteService;
+use App\Services\PreAccount\PreAccountBuildService;
+use App\Services\PreAccount\SourcePrefetch;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -52,6 +54,11 @@ it('403s with WAITLIST_ONLY when the waitlist gate is on (moved from bootstrap)'
 it('polls a build through its lifecycle: subdomain available immediately (claim needs it before ready), site_url only once ready', function () {
     $this->postJson('/api/public/signup/build', ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'janedoe']);
     $build = PreAccountBuild::firstOrFail();
+    // Item 1a: the subdomain now exists from MATERIALIZATION (seconds into the
+    // job, still well before ready) rather than from the 202 itself — Decision
+    // A (claim before ready) holds, one poll-tick later.
+    app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
+    $build->refresh();
     $subdomain = $build->user->site->subdomain;
 
     // Subdomain exists from creation (SiteProvisioningService::createSiteWithRetry
@@ -77,6 +84,8 @@ it('polls a build through its lifecycle: subdomain available immediately (claim 
 it('stays reachable and correct after the build has been claimed — no new authenticated endpoint needed', function () {
     $this->postJson('/api/public/signup/build', ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'janedoe']);
     $build = PreAccountBuild::firstOrFail();
+    app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
+    $build->refresh();
     $build->forceFill(['build_state' => PreAccountBuild::STATE_READY])->save(); // B11 SEC-4: build_state no longer fillable
 
     setupEmailSubscriptionsTable();

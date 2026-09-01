@@ -81,6 +81,9 @@ class PreAccountBuild extends BaseModel
     protected $fillable = [
         'source_type', 'source_ref', 'source_ref_lc', 'built_via',
         'created_ip_hash', 'expires_at', 'contact_email', 'auto_invite',
+        // Item 1a: request-time facts the job consumes at (post-scrape)
+        // identity-materialization time.
+        'account_type', 'source_name',
     ];
 
     protected $casts = [

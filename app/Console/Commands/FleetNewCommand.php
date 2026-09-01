@@ -3,7 +3,6 @@
 namespace App\Console\Commands;
 
 use App\Models\Core\Staff\PartnaStaff;
-use App\Models\Core\User\User;
 use App\Services\PreAccount\PreAccountBuildService;
 use Illuminate\Console\Command;
 
@@ -125,8 +124,11 @@ class FleetNewCommand extends Command
                     $staff,
                 );
                 $build = $result['build'];
-                $handle = User::query()->whereKey($build->user_id)->value('handle_lc');
-                $this->info("{$spec['sourceRef']} -> build {$build->id} (handle {$handle})");
+                // Item 1a/1d: identity materializes inside the job, after the
+                // scrape verifies the source — the handle comes off the SCRAPED
+                // display name (the same ladder public signups use), so it
+                // cannot be printed here. builds:await / fleet:verify report it.
+                $this->info("{$spec['sourceRef']} -> build {$build->id} queued (handle allocates after scrape)");
             } catch (\Throwable $e) {
                 $failures++;
                 $this->error("{$spec['sourceRef']}: build failed — ".$e->getMessage());

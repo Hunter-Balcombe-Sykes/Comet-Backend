@@ -76,6 +76,16 @@ class PruneExpiredPreAccountBuilds extends Command
                         return false; // claimed since candidate selection
                     }
 
+                    // Item 1a: a build that failed BEFORE materialization has no
+                    // user, site, media, or KV route — the row itself is the whole
+                    // footprint. Delete it and be done; falling through to the
+                    // user teardown would leave it unprunable forever.
+                    if ($build->user_id === null) {
+                        $build->delete();
+
+                        return true;
+                    }
+
                     // SKIP LOCKED: a claim transaction holds this row's lock — skip,
                     // re-evaluate next run. (SQLite ignores the lock clause; the
                     // Postgres behavior — never block, never steal a mid-claim row —

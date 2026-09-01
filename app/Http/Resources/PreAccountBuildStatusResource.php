@@ -34,7 +34,7 @@ class PreAccountBuildStatusResource extends ApiResource
         return array_filter([
             'build_id' => $this->id,
             'build_state' => $this->build_state,
-            'account_type' => $this->user?->account_type?->value,
+            'account_type' => $this->account_type ?? $this->user?->account_type?->value,
             'subdomain' => $subdomain,
             'site_url' => ($ready && $subdomain) ? 'https://'.$subdomain.'.'.$publicDomain : null,
             'failure_code' => $this->failure_code,
