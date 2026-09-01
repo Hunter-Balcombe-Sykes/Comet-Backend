@@ -7,9 +7,52 @@ use Tests\TestCase;
 // that by default (see tests/Pest.php), so opt in file-locally.
 uses(TestCase::class)->in(__FILE__);
 
-it('counts columns added by an ADD COLUMN IF NOT EXISTS heal', function () {
+/**
+ * Creates a fresh sys_get_temp_dir()/pglane_* fixture dir and tracks it so
+ * afterEach() below can remove it — these are throwaway stand-in fixtures
+ * for one test, not something that should accumulate under /tmp forever.
+ */
+function pgLaneHealTempDir(): string
+{
     $dir = sys_get_temp_dir().'/pglane_'.uniqid();
     mkdir($dir);
+
+    pgLaneHealTrackedDirs($dir);
+
+    return $dir;
+}
+
+/** Registers (or, called with $flush, drains) the dirs pgLaneHealTempDir() created. */
+function pgLaneHealTrackedDirs(?string $dir = null, bool $flush = false): array
+{
+    static $dirs = [];
+
+    if ($flush) {
+        $drained = $dirs;
+        $dirs = [];
+
+        return $drained;
+    }
+
+    if ($dir !== null) {
+        $dirs[] = $dir;
+    }
+
+    return $dirs;
+}
+
+afterEach(function () {
+    foreach (pgLaneHealTrackedDirs(null, true) as $dir) {
+        foreach (glob($dir.'/*') ?: [] as $file) {
+            @unlink($file);
+        }
+
+        @rmdir($dir);
+    }
+});
+
+it('counts columns added by an ADD COLUMN IF NOT EXISTS heal', function () {
+    $dir = pgLaneHealTempDir();
     file_put_contents($dir.'/ExampleTest.php', <<<'PHP'
     <?php
     $pg->statement('CREATE TABLE IF NOT EXISTS site.platform_connections_probe (
@@ -26,8 +69,7 @@ it('counts columns added by an ADD COLUMN IF NOT EXISTS heal', function () {
 });
 
 it('counts columns added by the foreach heal-array idiom', function () {
-    $dir = sys_get_temp_dir().'/pglane_'.uniqid();
-    mkdir($dir);
+    $dir = pgLaneHealTempDir();
     file_put_contents($dir.'/HealTest.php', <<<'PHP'
     <?php
     $pg->statement('CREATE TABLE IF NOT EXISTS content.sources_probe (
@@ -49,8 +91,7 @@ it('counts columns added by the foreach heal-array idiom', function () {
 });
 
 it('associates a flat foreach heal-array with the literal table named in its ALTER statement', function () {
-    $dir = sys_get_temp_dir().'/pglane_'.uniqid();
-    mkdir($dir);
+    $dir = pgLaneHealTempDir();
     file_put_contents($dir.'/FlatHealTest.php', <<<'PHP'
     <?php
     $pg->statement('CREATE TABLE IF NOT EXISTS core.users_probe (
@@ -79,8 +120,7 @@ it('associates a flat foreach heal-array with the literal table named in its ALT
 });
 
 it('never emits a bare "if" pseudo-column from IF NOT EXISTS on an interpolated ADD COLUMN', function () {
-    $dir = sys_get_temp_dir().'/pglane_'.uniqid();
-    mkdir($dir);
+    $dir = pgLaneHealTempDir();
     file_put_contents($dir.'/IfLeakTest.php', <<<'PHP'
     <?php
     $pg->statement('CREATE TABLE IF NOT EXISTS core.users_scratch (

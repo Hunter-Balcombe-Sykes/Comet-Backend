@@ -17,11 +17,34 @@ use SplFileInfo;
  * multi-table chain — is DROPPED rather than guessed. A missed catch costs
  * only what we already pay; a false alarm trains people to ignore the guard.
  *
- * Known, accepted miss: `DB::table("content.{$table}")` with an interpolated
- * table name is invisible to this scanner — resolving PHP interpolation
- * statically is out of scope. A writer that touches a table the PG lane
- * never provisions at all is equally out of reach: this scanner only ever
- * reports what app/ reads, never what the lane's stand-in DDL is missing.
+ * Known, accepted misses:
+ *  - `DB::table("content.{$table}")` with an interpolated table name is
+ *    invisible to this scanner — resolving PHP interpolation statically is
+ *    out of scope.
+ *  - A writer that touches a table the PG lane never provisions at all is
+ *    equally out of reach: this scanner only ever reports what app/ reads,
+ *    never what the lane's stand-in DDL is missing.
+ *  - A query built as `->from('schema.table')` — the closure/subquery idiom,
+ *    e.g. `$q->whereExists(fn ($e) => $e->from('content.f_occurrence')...)` —
+ *    is invisible UNLESS it happens to fall inside another chain's span,
+ *    because CHAIN_START anchors only on `DB::table(`/`->table(`, never
+ *    `->from(`. This is deliberate, not an oversight: `->from()` calls
+ *    already sit inside an outer chain's span as TABLE_INTRODUCING matches
+ *    (see tableDeclarations()), so making `->from()` a second chain start
+ *    would let two spans overlap the same text and corrupt attribution
+ *    between them. Measured 2026-09-01: 8 app/ classes have at least one
+ *    `->from()` call whose table literal falls outside every DB::table()/
+ *    ->table() chain span in that file — 12 distinct tables reached only
+ *    this way. Live example — `App\Site\Sections\SectionCandidates`
+ *    (app/Site/Sections/SectionCandidates.php:250-256, 340) reaches
+ *    `content.source_items` and `content.f_occurrence` only via
+ *    `$e->from('content.source_items')`/`$e->from('content.f_occurrence')`
+ *    inside `whereExists` closures, so both tables read UNCHECKED by
+ *    PostgresLaneReadCoverageTest even though `SectionOccurrenceOrderingTest`
+ *    provisions them both.
+ *
+ * All three fail safe: a miss here can only hide a real finding, never invent
+ * a false one.
  */
 final class AppColumnReadScanner
 {

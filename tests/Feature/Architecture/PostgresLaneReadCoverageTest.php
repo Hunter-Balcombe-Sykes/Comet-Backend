@@ -41,8 +41,23 @@ use Tests\Support\Architecture\PostgresLaneDdlScanner;
  * $appRefs[$fqcn] is the union of every method that class has, so a stand-in built
  * faithfully for the one method a test actually calls can read as "missing" a column a
  * different, uncalled method on the same class writes — see $knownLimitation below for a
- * live instance. A green run of this guard is evidence for "no drift found on these
- * attribution paths", not a general proof of stand-in completeness.
+ * live instance. AppColumnReadScanner has its own blind spot on top of this: a query built
+ * as `->from('schema.table')` inside a closure/subquery (`whereExists`, a `whereIn`
+ * sub-select) is invisible unless it happens to fall inside another chain's span, because
+ * only `DB::table(`/`->table(` start a chain — see that class's docblock for why `->from()`
+ * deliberately does not. `App\Site\Sections\SectionCandidates` reaches `content.source_items`
+ * and `content.f_occurrence` only this way, so both go unchecked here even though
+ * `SectionOccurrenceOrderingTest` provisions them. A green run of this guard is evidence for
+ * "no drift found on these attribution paths", not a general proof of stand-in completeness —
+ * concretely: of the 54 tests/Postgres/ files that provision at least one table, this guard
+ * contributes at least one checked (file, table) pair for only 32 of them (59%, measured
+ * 2026-09-01). The other 22 contribute zero — mostly legitimately, because they are pure
+ * constraint/FK/domain tests that drive no app code at all (SectionShapeDomainTest,
+ * IngestCascadeDeletionTest, GalleryMax6TriggerTest), but a few genuinely drive app code by a
+ * route this guard cannot see: StaffFeatureFlagOverrideEndpointTest exercises its target
+ * entirely over HTTP (a route dispatch, not a `use App\...;` import), and
+ * ClaimConcurrencyTest's collaborator is reached the same invisible way. Their tables get no
+ * static coverage from this guard at all — only CI's live PG run protects them.
  *
  * THE FIX FOR A FINDING IS ALWAYS ADDITIVE: add the column to the stand-in,
  * preferably via ALTER TABLE … ADD COLUMN IF NOT EXISTS so it heals whichever
@@ -65,15 +80,35 @@ function pgReadCoverageFindingKey(string $finding): string
 
 /**
  * command-name (the leading token of $signature, before the first brace or whitespace) =>
- * list of FQCNs that declare it. Built from every *.php directly under
- * app/Console/Commands/ — deliberately shallow (no subdirectories), which is where every
- * command in this codebase lives today. A name mapping to more than one class is left
- * ambiguous on purpose; see pgReadCoverageArtisanImports.
+ * list of FQCNs that declare it. Built from every *.php under app/Console/Commands/,
+ * RECURSIVELY — a shallow, one-level glob missed the 4 command classes under
+ * app/Console/Commands/Moderation/ until 2026-09-01 (they simply never entered the index, so
+ * an Artisan::call() to one of them silently resolved to zero candidates rather than one — a
+ * false miss, not a false alarm, but still a coverage hole in what this guard could see). A
+ * name mapping to more than one class is left ambiguous on purpose; see
+ * pgReadCoverageArtisanImports — recursion does not weaken that: two commands under different
+ * subdirectories sharing one $signature still land in the same bucket and still get skipped.
  */
+function pgReadCoverageCommandFiles(string $commandsDir): array
+{
+    $files = [];
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($commandsDir, RecursiveDirectoryIterator::SKIP_DOTS)
+    );
+
+    foreach ($iterator as $file) {
+        if ($file->isFile() && $file->getExtension() === 'php') {
+            $files[] = $file->getPathname();
+        }
+    }
+
+    return $files;
+}
+
 function pgReadCoverageCommandSignatureIndex(string $commandsDir): array
 {
     $index = [];
-    foreach (glob($commandsDir.'/*.php') ?: [] as $path) {
+    foreach (pgReadCoverageCommandFiles($commandsDir) as $path) {
         $source = (string) file_get_contents($path);
 
         if (! preg_match('/namespace\s+([\w\\\\]+);/', $source, $ns)
@@ -165,6 +200,8 @@ it('declares every column the app code a PG-lane file drives reads from a table 
         'ShopCatalogueCreatedAtTimezoneTest.php|content.items.updated_at',
     ];
 
+    $exemptHits = array_fill_keys($exempt, 0);
+
     $findings = [];
     $triplesEvaluated = 0;
     $pairsEvaluated = [];
@@ -184,7 +221,10 @@ it('declares every column the app code a PG-lane file drives reads from a table 
                 if (! isset($standIns[$table]) || PostgresLaneDdlScanner::isScratch($table)) {
                     continue;
                 }
-                if (in_array($file.'|'.$table, $exempt, true)) {
+                $exemptKey = $file.'|'.$table;
+                if (array_key_exists($exemptKey, $exemptHits)) {
+                    $exemptHits[$exemptKey]++;
+
                     continue;
                 }
 
@@ -223,6 +263,37 @@ it('declares every column the app code a PG-lane file drives reads from a table 
         'The cross-reference loop only evaluated %d (file, table) pairs — expected more than 100.',
         count($pairsEvaluated)
     ));
+
+    // F3 — $exempt has no per-column equivalent to check against (it skips a whole table before
+    // any column is even looked at), and "still reproduces" (F2's shape) is not meaningful here:
+    // $exemptHits shows 0 for SourceReconcilerAtomicityTest.php|site.platform_connections on
+    // every run today (verified 2026-09-01) — SourceReconciler currently reaches that table only
+    // through Eloquent, so the query-builder scan this guard runs on never gets far enough to
+    // even offer the pair for exemption. That is not staleness, it is the exemption pre-empting a
+    // regression that has not happened yet — asserting "must have fired" would make this guard
+    // permanently red for a correct, working exemption. What CAN be checked without depending on
+    // that regression having occurred: the entry still names a real (file, table) pair — a lane
+    // file that still exists and still provisions that table in its stand-in. That is the
+    // narrower, structural half of "stale" (a typo, a renamed file, a table dropped from the
+    // stand-in) and it is exactly what a bit-rotted entry looks like; it does NOT prove the
+    // exemption is currently doing anything, only that it still COULD.
+    $deadExempt = [];
+    foreach ($exempt as $entry) {
+        [$file, $table] = explode('|', $entry, 2);
+        if (! isset($byFile[$file][$table])) {
+            $deadExempt[] = $entry;
+        }
+    }
+    sort($deadExempt);
+    expect($deadExempt)->toBe([], "These \$exempt entries no longer name a (file, table) pair that exists —\n".
+        "the file is gone, was renamed, or its stand-in no longer declares that table:\n  ".
+        implode("\n  ", $deadExempt).
+        "\n\nDelete them from the array (or fix the typo). Note this is a weaker guarantee than\n".
+        "F2 below gives \$knownLimitation: it proves the entry still points at something real, not\n".
+        'that it is currently excluding a finding — see the comment above for why that gap is fine here.');
+
+    fwrite(STDERR, "\n[pg-read-coverage] \$exempt skip count this run: ".
+        implode(', ', array_map(fn (string $k) => "{$k}={$exemptHits[$k]}", array_keys($exemptHits)))."\n");
 
     $queueKeys = $knownLimitation;
     $rawKeys = array_values(array_unique(array_map('pgReadCoverageFindingKey', $findings)));
