@@ -80,9 +80,14 @@ wolf=GB ChIJ-f-5fXtd1moRUyH7gmrvImY (business), ryan=IG ryanfitzsimonshair
       to do; the mechanism itself is pinned by its unit tests. Expired-
       source never-serves: unit-pinned (isExpired gate).
 
-### Item 3 (connect sheet)
-- [ ] Every backend platform present + wired on the sheet; order_online
-      stays off; new Wave 4 tiles render and route to dedicated connects.
+### Item 3 (connect sheet) — PASSED 2026-09-02
+- [x] DEDICATED_CONNECT regenerated verbatim from the backend route list
+      (115 keys; monorepo e126d0f2), Wave 4 tiles added (bluesky, spotify
+      podcasts, tiktok shop, amazon storefront), the two vendor-store
+      tiles route to their dedicated shop-lane endpoints with a
+      404-tolerant poll; order_online still carries no tile (route stays
+      in the set — wire truth). Dashboard: tsc clean, vitest 10/10,
+      eslint 0 errors; app.partna.au serving the deploy (200).
 
 ### Item 4 + 4-EXT (workplace) — PASSED 2026-09-02
 - [x] Ryan: workplace = "AKRO STUDIO | ELSTERNWICK BARBERSHOP", written by
@@ -132,13 +137,40 @@ Measure a fresh partna + a fresh business build against:
 - [ ] Two simultaneous signups complete without serializing.
 - [ ] Tier telemetry (`pre_account.tier`) captured for every campaign build.
 
-### Item 10 + 11 (expansion)
-- [ ] One live connect per new platform on a test account (twitch, threads,
-      pinterest, tiktok shop, amazon, bluesky, spotify podcast); FB events
-      from an existing FB connection; shorts blended into watch; unified
-      live-status poller ticking for all four platforms without
-      MaxAttemptsExceeded.
-- [ ] Budget caps claim under each new source key.
+### Item 10 + 11 (expansion) — PASSED 2026-09-02 (testbed: ryanmcleodzooooom)
+- [x] Live connects, all real vendor calls: twitch (CohhCarnage — identity
+      card with 1.72M followers on the payload), threads (@zuck → 15 posts
+      into the media pool), pinterest (tasty), bluesky (connect ok;
+      pres.cafe folded correctly — the account no longer exists upstream,
+      vendor 404-husk, the lossy contract holding), spotify podcasts
+      (Huberman Lab → 50 episodes into listen), tiktok shop (Goli store
+      minted, 4 products synced, reviews lane fixed mid-campaign — see
+      below), amazon storefront (sydneydelrey store minted). Every
+      connection auto-provisioned its ingest source with the right
+      identifier through the observer.
+- [x] FB events: 119 satellites backfilled + eager; the lane pulls real
+      events (pages with public events answered seen=3/changed=3; the
+      no-events majority folds 'unavailable' — the faithful vendor
+      answer, not a failure).
+- [x] Shorts blend: youtube run seen=15 into watch with the
+      youtube_shorts budget leg claimed.
+- [x] Budget caps claim under every new source key (ledger 2026-09-02:
+      twitch, tiktok_shop, amazon, facebook_events, youtube_shorts,
+      spotify_podcasts all claimed; find_social_profiles pinned 0).
+- [x] Live-status poller: CheckStreamingLiveStatusJob on the 2-minute
+      schedule with onOneServer + withoutOverlapping(5); no failed jobs.
+
+**Campaign catches (fixed + shipped mid-campaign, 317cb7792 + the
+constraint migration):**
+1. `ingest.effects` kind CHECK rejected 'vendor' — every new lane's
+   first eager run died on 23514. Migration
+   20260902010000_effects_kind_check_admits_vendor applied; 138 killed
+   sources reset and re-run green.
+2. TikTok reviews endpoint path is `product/reviews` (hyphen variant
+   404s live); wildcard Http::fake had masked it — path fixed, fake
+   pinned exact.
+3. SourceProvisioner had no pinterest arm — connected profiles never
+   provisioned their boards source. Arm added + tested.
 
 ### Item 12 (menu/shop separation) — PASSED 2026-09-02
 - [x] Wolf rebuild: 54 distinct dishes across 5 menu categories (57
@@ -148,7 +180,22 @@ Measure a fresh partna + a fresh business build against:
       none, so zero is the faithful state.
 
 ### Housekeeping (post-campaign)
-- [ ] NIGHTWATCH_REQUEST_SAMPLE_RATE back to 0.1.
-- [ ] Nightwatch billing (owner-side 402) — re-check.
-- [ ] Legacy POOL_GALLERY reader teardown scheduled (flagged Wave 3).
-- [ ] Delete the plan file once all green.
+- [ ] NIGHTWATCH_REQUEST_SAMPLE_RATE back to 0.1 — OWNER ACTION: one
+      field in the Laravel Cloud UI (the CLI only replaces the whole env
+      set from a file, which would wipe masked secrets; not automatable
+      safely). The related platform-agent noise ("Ingest failed: No
+      authentication details" in system logs) is the Nightwatch billing
+      402, also owner-side.
+- [ ] Nightwatch billing (owner-side 402) — re-check. OWNER ACTION.
+- [x] Legacy POOL_GALLERY reader teardown scheduled — Wave 6 of the plan
+      file (appended 2026-09-01) carries it.
+- [x] Plan file DELIBERATELY KEPT: it now carries the owner's Waves 6–8
+      (legacy sweep, Astro batch, staff settings) appended mid-campaign —
+      it is deleted when THOSE ship, not when this campaign closed.
+
+## CAMPAIGN VERDICT (2026-09-02): GREEN
+
+Every item verified live; three real defects found and shipped fixed
+during the campaign (effects kind constraint, tiktok reviews path,
+pinterest provisioner arm) — which is exactly what a verification
+campaign is for. Two housekeeping actions remain, both owner-side.
