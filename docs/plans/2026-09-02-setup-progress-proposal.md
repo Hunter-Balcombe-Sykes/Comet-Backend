@@ -1,11 +1,18 @@
-# Proposal: showing the setup as it happens (owner decision — nothing built)
+# Setup progress: showing the setup as it happens — BUILT 2026-09-02
 
 > Asked 2026-09-02, after the signup plan closed: (a) a centred "your site
 > is still being set up" popup with a loader on the ASTRO sitepage until
 > the build run finishes, and (b) a live view on the DASHBOARD signup of
 > what is being fetched as it connects — platform names, some of the media
-> being grabbed. This is the proposal for both; it builds only on what the
-> run already produces. Nothing here is started.
+> being grabbed. Proposed, then built the same day on the owner's "do it,
+> quickly" (fast path: the simple `done` rule, the two defaults below,
+> targeted tests). Shipped: backend `3aeefa301` (ledger, poll `progress`,
+> `GET /public/sites/{handle}/progress`), dashboard `b2607a27` (the feed),
+> pages `1cdf324d` (overlay + `ui/Loader`, worker version a7dd010b).
+> Defaults taken: the overlay shows only when opened from the signup card
+> (`?setup=1`), and it names the stage. The design below is what was built;
+> the one deliberate departure is "finished" — the tier-based rule, not the
+> pending-job counter.
 
 ## What exists today (the parts to build on)
 
