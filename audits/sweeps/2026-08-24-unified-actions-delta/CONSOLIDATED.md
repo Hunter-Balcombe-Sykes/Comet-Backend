@@ -175,7 +175,7 @@ None.
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
 - P2 Medium: 0 of 0 complete
-- P3 Low: 1 of 8 complete
+- P3 Low: 2 of 8 complete
 
 ---
 
@@ -234,7 +234,7 @@ None.
         ```
 
 - [ ] **#API-4** · P3 — Public profile payload exposes the internal `site_id` UUID and `accountType` to unauthenticated visitors
-    - **Where:** app/Http/Resources/PublicSite/IndividualProfileResource.php:97-98
+    - **Where:** app/Http/Resources/PublicSite/IndividualProfileResource.php:98-99 (was `:97-98`) — DUPLICATE of #PGR-34 in `audits/consolidation/2026-08-17-programme-review` (the same `site_id` on the same line). Fix once, close both.
     - **Affects:** Every unauthenticated visitor to `GET /api/public/profiles/{handle}` — increases the correlation/enumeration surface of an otherwise-anonymous public page.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -250,6 +250,7 @@ None.
         ```
 
 - [ ] **#API-5** · P3 — Public pool hydration fetches the full `site.platform_connections.payload` JSONB to extract one fallback URL
+    - Note (2026-09-01, still open): partially mitigated since the scan. `PoolResolver.php:1198` now keys the read by DISTINCT connection id instead of per item, so the "up to LIBRARY_LIMIT copies of the same multi-MB blob" half is gone. The finding's own point stands: the full `payload` column is still selected to extract one fallback URL.
     - **Where:** app/Site/Pools/PoolResolver.php:763-786, 862-874
     - **Affects:** Public sitepage pool rendering — the hottest read path per the platform's scale profile; DB bandwidth/memory per connection payload blob.
     - **Effort:** M (~2–4h)
@@ -275,8 +276,9 @@ None.
         $url = $payload['url'] ?? ($payload['selection']['url'] ?? null);
         ```
 
-- [ ] **#API-6** · P3 — Public pool hydration builds every pool's `library` selection (up to 500 items each) even though the public wire only ships `selection`
-    - **Where:** app/Site/Pools/PoolWire.php:111-117, 184-195
+- [x] **#API-6** · P3 — Public pool hydration builds every pool's `library` selection (up to 500 items each) even though the public wire only ships `selection`
+    - Resolution (2026-09-01): STALE — FIXED by #SCALE-2, exactly as this finding prescribed (narrow the id set, don't revert the batched hydrate). `PoolWire::forSite()` now pushes only `$plan['selectionIds']` into `$allIds` (`app/Site/Pools/PoolWire.php:119-122`) and hydrates that alone at `:130`. The comment above it states the closed defect verbatim: "SCALE-2: selection ids only ... Nine pools x LIBRARY_LIMIT (500) each meant a public cache miss could hydrate up to 4,500 item payloads through itemPayloads() only to throw every library one away below." It also confirms the dashboard library still comes from the separate `PoolController::show` → `PoolResolver::resolve()` entry point, as the finding required.
+    - **Where:** app/Site/Pools/PoolWire.php:111-130
     - **Affects:** Public sitepage pool rendering — the hottest read path per the platform's scale profile.
     - **Effort:** M (~2–4h)
     - **What to do:**
@@ -439,7 +441,7 @@ None.
 ## P2 — Should fix
 
 - [ ] **#CFG-1** · P2 — Refresh conditional-request flag defaults to enabled
-    - **Where:** config/partna.php:2017-2019; .env.example:354
+    - **Where:** config/partna.php:2329-2331; .env.example:393 (was `:2017-2019`; `:354`) — both still ship `true`.
     - **Affects:** Every platform-refresh fetch strategy using ETag/If-None-Match on a fresh or new environment.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -455,7 +457,7 @@ None.
         ```
 
 - [ ] **#CFG-2** · P2 — Auto-booking connect flag defaults to enabled everywhere it's read
-    - **Where:** config/partna.php:1880-1881; app/Services/Platforms/LinkRouter.php:319; app/Routing/SourceReconciler.php:229; app/Services/Platforms/GoogleBusinessAutoSync.php:345; .env.example:459
+    - **Where:** config/partna.php:2194; app/Services/Platforms/LinkRouter.php:319; app/Routing/SourceReconciler.php:231; app/Services/Platforms/GoogleBusinessAutoSync.php:364; .env.example:502 (was `:1880-1881`, `:229`, `:345`, `:459`) — all four `true` defaults still present, unchanged.
     - **Affects:** Every new/staging environment; unclaimed pre-account users whose Instagram/Google Business connect flow discovers a Fresha booking link.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -1242,6 +1244,7 @@ None.
         ```
 
 - [ ] **#TEST-24** · P3 — Public-profile shape test doesn't assert the recently-published `publicConfig.displayGalleryPage`/`shopLinkMode` fields
+    - Note (2026-09-01, still open): half addressed. `shopLinkMode` IS now asserted (`tests/Feature/Api/PublicSite/IndividualProfileControllerTest.php:155,872`; `tests/Feature/Resources/IndividualProfileResourceTest.php:38`). `displayGalleryPage` still has NO assertion anywhere in `tests/`, though the field is live (`settings.display_gallery_page` on both site-update requests, documented on the `publicConfig` wire at `IndividualProfilePayloadBuilder.php:53`).
     - **Where:** tests/Feature/Api/PublicSite/IndividualProfileControllerTest.php (skeleton-envelope shape test)
     - **Affects:** Visibility of a regression to two fields recently added to the public profile wire contract.
     - **Effort:** S (~0.5–1h)
