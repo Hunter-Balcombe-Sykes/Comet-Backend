@@ -137,6 +137,7 @@ beforeEach(function () {
         stream_id uuid NOT NULL,
         key text NOT NULL,
         current_version_id bigint,
+        last_seen_run uuid,
         last_seen_at timestamptz NOT NULL DEFAULT now(),
         tombstoned_at timestamptz,
         PRIMARY KEY (stream_id, key)
