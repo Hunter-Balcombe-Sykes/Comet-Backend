@@ -17,7 +17,9 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * @property string $id
- * @property string $user_id 1:1 FK to core.users.id (UNIQUE, ON DELETE CASCADE). Not fillable — set via ->user()->associate().
+ * @property string|null $user_id 1:1 FK to core.users.id (UNIQUE, ON DELETE CASCADE) — NULL until the scrape verifies the source (Item 1a, scrape-first: the row exists user-less and materializeIdentity() binds the user). Not fillable — set via ->user()->associate().
+ * @property string|null $account_type 'partna'|'business', captured at request time (9h) — nullable on pre-9h rows.
+ * @property string|null $source_name Optional display-name hint captured with the build request (ManyChat/staff lanes).
  * @property string $source_type One of 'instagram'|'google_business' (source_type CHECK) — the pairing map key in config('partna.pre_account.*').
  * @property string $source_ref The raw source reference as typed/looked up (handle, place id, etc.).
  * @property string $source_ref_lc Lowercased $source_ref — the dedupe key (pre_account_builds_live_source_unique).

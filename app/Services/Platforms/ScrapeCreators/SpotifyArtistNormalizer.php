@@ -190,7 +190,7 @@ class SpotifyArtistNormalizer
             if (! is_string($url) || ! preg_match('~^https?://~', $url)) {
                 continue;
             }
-            $width = is_array($source) && is_numeric($source['width'] ?? null)
+            $width = is_numeric($source['width'] ?? null)
                 ? (int) $source['width']
                 : (str_contains($url, 'ab67616d0000b273') ? 640 : (str_contains($url, 'ab67616d00001e02') ? 300 : 64));
             if ($best === null || $width > $best[0]) {

@@ -14,6 +14,11 @@ namespace App\Services\Cache;
 // fallback contract Item 8 promises.
 class ScrapeCreatorsBudget
 {
+    /**
+     * @phpstan-impure — mutates the daily counters: a second call with the
+     * same source is a REAL second claim, never a remembered value (the
+     * mid-run re-claims in the vendor drivers depend on that).
+     */
     public function tryClaim(string $source): bool
     {
         $sourceCap = (int) config("partna.limits.scrapecreators.sources.{$source}", 0);

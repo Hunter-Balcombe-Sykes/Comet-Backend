@@ -70,9 +70,9 @@ class SiteMediaObserver
      */
     private function maybeChainAccentResolve(SiteMedia $media): void
     {
+        // site_id is NOT NULL at the DB — only state and colour gate here.
         if ($media->processing_state !== SiteMedia::PROCESSING_STATE_READY
-            || $media->dominant_color === null
-            || $media->site_id === null) {
+            || $media->dominant_color === null) {
             return;
         }
 

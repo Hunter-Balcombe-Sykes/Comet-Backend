@@ -157,7 +157,7 @@ class IntegrationsMetaController extends ApiController
         }
 
         $found = [];
-        foreach (app('router')->getRoutes() as $route) {
+        foreach (app('router')->getRoutes()->getRoutes() as $route) {
             $uri = $route->uri();
             if (str_starts_with($uri, 'api/platforms/')
                 && str_ends_with($uri, '/connect')

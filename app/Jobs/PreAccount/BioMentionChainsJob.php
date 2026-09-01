@@ -373,7 +373,7 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
     {
         $workplace = [];
         $rest = [];
-        foreach (array_values($mentions) as $i => $mention) {
+        foreach ($mentions as $i => $mention) {
             if ((string) ($mention['type'] ?? 'other') === 'workplace') {
                 $workplace[] = [$this->evidenceTier($mention), $i, $mention];
             } else {
