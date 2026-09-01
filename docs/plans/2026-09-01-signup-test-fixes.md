@@ -890,3 +890,29 @@ reasons in the decisions log.
   of the list exists, so "FE allowlist" needed no dashboard change.
 - **phpstan baseline**: 14 pre-existing errors in the committed adapter
   layer (identical set on clean tree) — flagged for the Wave 6 sweep.
+
+### Evaluation task — VERDICT: fine as-is (2026-09-02, no plan steps added)
+
+Question: should ScrapeCreators enrich ITEM-level links (YouTube video /
+Spotify track pastes and auto-routed bio items), and should confident
+matches auto-add the ACCOUNT?
+
+Read the lanes; all three halves are already the right shape:
+
+1. **Item metadata is free.** MediaSeeder → MediaPageReader uses each
+   platform's OFFICIAL oEmbed (YouTube/Vimeo/Spotify/SoundCloud/Mixcloud,
+   MediaPageReader.php:26-31) + OG fallback for title/cover/canonical —
+   the only fields an item card renders. SC here would be paid calls for
+   data we don't display. No lane opened.
+2. **Account derivation already exists — as suggestions, by the owner's
+   own prior ruling.** MediaParentSuggester (T9b, 2026-08-20) derives the
+   channel/artist behind every seeded item from the oEmbed author_url
+   (zero vendor spend) and files a routing-inbox suggestion. It is
+   SUGGEST-ONLY by design ("bios are full of other people's content"),
+   and the paste-lane auto-connect upgrade is already flagged in the run
+   report as a future owner decision. Nothing to build; flipping to
+   auto-connect stays a deliberate owner call, not a default.
+3. **Account-item pools are vendor-backed where it matters.** Post-Wave-4
+   the ingest connectors use SC exactly where a platform needs it
+   (IG/TikTok/Threads/Bluesky/Pinterest/TikTok Shop/Spotify shows);
+   YouTube rides free RSS + the shorts blend.

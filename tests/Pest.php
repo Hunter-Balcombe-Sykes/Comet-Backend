@@ -3375,7 +3375,7 @@ function setupIngestTables(): void
         digest TEXT PRIMARY KEY,
         run_id TEXT NULL,
         source_id TEXT NULL,
-        kind TEXT NOT NULL CHECK (kind IN (\'http\', \'actor\', \'api\', \'ai\')),
+        kind TEXT NOT NULL CHECK (kind IN (\'http\', \'actor\', \'api\', \'ai\', \'vendor\')),
         cost_tag TEXT NULL,
         cost_units INTEGER NOT NULL DEFAULT 0,
         claimed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
