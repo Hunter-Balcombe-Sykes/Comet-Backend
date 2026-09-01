@@ -699,6 +699,7 @@
 ## P3 — Nice to have
 
 - [ ] **SCALE-13** · P3 — Social-connection convergence migration lacked `lock_timeout`/`statement_timeout` guards its sibling migrations use
+    - Note (2026-09-01, still open): verified directly — no `lock_timeout` or `statement_timeout` anywhere in that migration file. DUPLICATE of #MIG-2 in `audits/sweeps/2026-08-24-unified-actions-delta` (same file, same missing guards). Fix once, close both. Bear in mind the file is already applied on dev, so the guard only ever binds on the prod apply that is still outstanding.
     - **Where:** supabase/migrations/20260820110000_single_account_social_convergence.sql
     - **Affects:** `site.platform_connections` write availability, had this migration hit contention at deploy time. Already applied; documented here for template consistency on future large-table cleanup migrations.
     - **Effort:** S (~0.5–1h)
@@ -740,6 +741,7 @@
         ```
 
 - [ ] **SCALE-15** · P3 — Link preview makes an up-to-8s synchronous fetch on every debounced keystroke pause
+    - Note (2026-09-01, still open): half addressed. The finding offered two remedies; the second — "a cached short-link expansion for repeated previews of the same URL" — shipped under CCH-2 (24h `SUCCESS_TTL_SECONDS`, single-flighted), so a repeat preview of the same URL no longer refetches. The first is unchanged: `preview_budget_seconds` is still 8 (`app/Http/Controllers/Api/Routing/RoutingController.php:78`), so a first-seen URL still holds a worker for up to that budget.
     - **Where:** app/Http/Controllers/Api/Routing/RoutingController.php:69-82
     - **Affects:** Users typing URLs into the link form; worker pool on a high-frequency, client-debounced endpoint.
     - **Effort:** S (~0.5–1h)
@@ -856,7 +858,7 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 - P0 Blockers: 0 of 0 complete
 - P1 High: 2 of 2 complete
 - P2 Medium: 9 of 11 complete
-- P3 Low: 0 of 1 complete
+- P3 Low: 1 of 1 complete
 
 ---
 
@@ -972,6 +974,7 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
         ```
 
 - [ ] **CCH-4** · P2 — `ShortLinkExpander` has no stale-while-revalidate companion
+    - Note (2026-09-01, still open — and the PRESCRIPTION is now WRONG): the stampede half shipped under CCH-2, so the quoted `Cache::get` → sync fetch → `Cache::put` evidence is gone; the call is now single-flighted through `CacheLockService::rememberLockedNullable` (`app/Routing/ShortLinkExpander.php:88-101`). But SWR did NOT ship: `rememberLockedNullable`'s own docblock states "Note: no SWR here" (`app/Services/Cache/CacheLockService.php:410-413`) and it writes no `$key:stale`. Do NOT apply the "standardise on `rememberLocked`" fix as written — `resolveFinal()` can legitimately return null, and the call site carries an explicit "Do not 'upgrade' this to rememberLocked" warning because a null would poison the stale twin. A real fix needs SWR that tolerates a null result, not a swap to `rememberLocked`.
     - **Where:** app/Routing/ShortLinkExpander.php:68-103
     - **Affects:** Callers arriving after a short-link cache entry expires all block on a live external fetch instead of one caller regenerating while the rest read last-good.
     - **Effort:** M (~2–4h) — folds into the CCH-2 fix
@@ -1225,8 +1228,9 @@ Line numbers confirmed match the file exactly. Now producing the final adjudicat
 
 ## P3 — Nice to have
 
-- [ ] **CCH-14** · P3 — `ShortLinkExpander` builds its cache key ad-hoc instead of through `CacheKeyGenerator`
-    - **Where:** app/Routing/ShortLinkExpander.php:68
+- [x] **CCH-14** · P3 — `ShortLinkExpander` builds its cache key ad-hoc instead of through `CacheKeyGenerator`
+    - Resolution (2026-09-01): STALE — FIXED. The inline `'shortlink:'.sha1($url)` is gone; the key is now `CacheKeyGenerator::shortLinkExpansion($url)` (`app/Routing/ShortLinkExpander.php:86`, generator at `app/Services/Cache/CacheKeyGenerator.php:528`) and is the single key used for both read and write via `rememberLockedNullable`.
+    - **Where:** app/Routing/ShortLinkExpander.php:86
     - **Affects:** Cache-key consistency; a future second writer/reader constructing the key differently would silently miss.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
