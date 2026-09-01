@@ -136,6 +136,7 @@ final class PostgresLaneDdlScanner
 
             self::addLiteralHeals($sql, $tables);
             self::addForeachHeals($sql, $tables);
+            self::addFlatForeachHeals($sql, $tables);
 
             $byFile[basename($file)] = $tables;
         }
@@ -151,8 +152,15 @@ final class PostgresLaneDdlScanner
      */
     private static function addLiteralHeals(string $sql, array &$tables): void
     {
+        // The `?+` is load-bearing, not stylistic. With a plain `?`, an
+        // interpolated column ({$col}) can't satisfy ([a-z_0-9]+) — it starts
+        // with `{` — so the engine backtracks OUT of "if not exists " and the
+        // required group matches the literal word "if" instead, injecting a
+        // garbage `if` pseudo-column. Possessive locks the optional group in
+        // once it matches, so a failed interpolated column yields no match at
+        // all instead of a wrong one.
         preg_match_all(
-            '/alter\s+table\s+([a-z_0-9.]+)\s+add\s+column\s+(?:if\s+not\s+exists\s+)?([a-z_0-9]+)/i',
+            '/alter\s+table\s+([a-z_0-9.]+)\s+add\s+column\s+(?:if\s+not\s+exists\s+)?+([a-z_0-9]+)/i',
             $sql,
             $heals,
             PREG_SET_ORDER
@@ -162,6 +170,102 @@ final class PostgresLaneDdlScanner
             $table = self::normalise($heal[1]);
             $column = self::normalise($heal[2]);
             $tables[$table] = array_values(array_unique(array_merge($tables[$table] ?? [], [$column])));
+        }
+    }
+
+    /**
+     * The `foreach (['col' => 'type', …] as $col => $type) { … ALTER TABLE
+     * <literal.table> ADD COLUMN IF NOT EXISTS {$col} {$type} … }` idiom
+     * (ClaimConcurrencyTest, GoogleBusinessWorkplaceLockTest,
+     * SubdomainAliasCollisionTest — load-bearing in the last one: its
+     * core.users CREATE body declares only `id`, and handle/handle_lc/
+     * deleted_at/created_at/updated_at exist SOLELY via this heal).
+     *
+     * Distinct from addForeachHeals(): that one's outer array is keyed by
+     * table name with a NESTED array of columns (`'schema.table' => [...]`);
+     * this one's array is flat (`'col' => 'type'`) and the table instead
+     * appears literally inside the loop body's ALTER TABLE statement. The
+     * two shapes are told apart by inspecting the array body, since both
+     * start with the same `foreach ([` opener.
+     *
+     * Conservative in the same direction as the rest of this file: if the
+     * loop body's ALTER doesn't literally name a table AND reference this
+     * same foreach's key variable, or that table isn't one the file already
+     * declares, the heal is dropped rather than guessed — crediting a
+     * stand-in with a column it doesn't create would make Task 3 MISS real
+     * drift, the worse failure direction.
+     *
+     * @param  array<string, list<string>>  $tables
+     */
+    private static function addFlatForeachHeals(string $sql, array &$tables): void
+    {
+        $offset = 0;
+
+        while (preg_match('/foreach\s*\(\s*\[/i', $sql, $m, PREG_OFFSET_CAPTURE, $offset)) {
+            $bracketOpen = $m[0][1] + strlen($m[0][0]) - 1;
+            $afterOpener = $m[0][1] + strlen($m[0][0]);
+
+            $bracketClose = self::matchingBracket($sql, $bracketOpen);
+            if ($bracketClose === null) {
+                $offset = $afterOpener;
+
+                continue;
+            }
+
+            $arrayBody = substr($sql, $bracketOpen + 1, $bracketClose - $bracketOpen - 1);
+
+            // The nested `'schema.table' => [...]` idiom is addForeachHeals()'s
+            // job — skip it here so a table-keyed array isn't misread as a
+            // flat column-keyed one.
+            if (preg_match('/\'[a-z_]+\.[a-z_]+\'\s*=>\s*\[/i', $arrayBody) === 1) {
+                $offset = $bracketClose + 1;
+
+                continue;
+            }
+
+            if (preg_match(
+                '/\A\s*as\s*\$([a-zA-Z_][a-zA-Z0-9_]*)\s*=>\s*\$[a-zA-Z_][a-zA-Z0-9_]*\s*\)\s*\{/',
+                substr($sql, $bracketClose + 1),
+                $head
+            ) !== 1) {
+                $offset = $bracketClose + 1;
+
+                continue;
+            }
+
+            $colVar = $head[1];
+            $braceOpen = $bracketClose + 1 + strpos(substr($sql, $bracketClose + 1), '{');
+            $braceClose = self::matchingBrace($sql, $braceOpen);
+
+            if ($braceClose === null) {
+                $offset = $bracketClose + 1;
+
+                continue;
+            }
+
+            $body = substr($sql, $braceOpen + 1, $braceClose - $braceOpen - 1);
+
+            // The table has to be literal AND the ADD COLUMN target has to be
+            // THIS foreach's own key variable — otherwise it's an unrelated
+            // loop that happens to shape-match the opener.
+            if (preg_match(
+                '/alter\s+table\s+([a-z_0-9.]+)\s+add\s+column\s+(?:if\s+not\s+exists\s+)?+\{\$'.preg_quote($colVar, '/').'\}/i',
+                $body,
+                $tableMatch
+            ) === 1) {
+                $table = self::normalise($tableMatch[1]);
+
+                if (isset($tables[$table])) {
+                    preg_match_all('/\'([a-z_0-9]+)\'\s*=>/i', $arrayBody, $keys);
+
+                    foreach ($keys[1] as $column) {
+                        $column = self::normalise($column);
+                        $tables[$table] = array_values(array_unique(array_merge($tables[$table], [$column])));
+                    }
+                }
+            }
+
+            $offset = $braceClose + 1;
         }
     }
 
@@ -331,6 +435,28 @@ final class PostgresLaneDdlScanner
             if ($sql[$i] === '[') {
                 $depth++;
             } elseif ($sql[$i] === ']') {
+                $depth--;
+                if ($depth === 0) {
+                    return $i;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Same trick again, for the flat heal-array idiom's `foreach (...) { … }`
+     * body — needed to isolate the loop body so the ALTER TABLE inside it can
+     * be checked without also matching whatever comes after the loop.
+     */
+    private static function matchingBrace(string $sql, int $open): ?int
+    {
+        $depth = 0;
+        for ($i = $open, $n = strlen($sql); $i < $n; $i++) {
+            if ($sql[$i] === '{') {
+                $depth++;
+            } elseif ($sql[$i] === '}') {
                 $depth--;
                 if ($depth === 0) {
                     return $i;
