@@ -326,7 +326,7 @@ None.
 ## P2 — Should fix
 
 - [ ] **#PRIV-1** · P2 — Early-access applicant retention (730d) is enforced but its duration is unexplained relative to the platform's own shorter precedents (Cat 5)
-    - **Where:** config/partna.php:1074-1082
+    - **Where:** config/partna.php:1216-1224 (was `:1074-1082`) — `retention_days` is still 730 and its comment still explains only WHAT it deletes, not why 730 against the 90d feedback / 365d subscription precedents.
     - **Affects:** People who submitted early-access interest but never signed up; their email + signup metadata sit in `early_access_signups` for up to two years.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -348,7 +348,7 @@ None.
         ```
 
 - [ ] **#PRIV-2** · P2 — Moderation reporter PII retention only covers resolved cases; a case that never resolves keeps a non-account reporter's name/message forever (Cat 4)
-    - **Where:** config/partna.php:2594-2599; routes/console.php:422-432
+    - **Where:** config/partna.php:2928-2933; routes/console.php:416-427 (was `:2594-2599`; `:422-432`) — `signal_pii_retention_days` is still scoped to "case has been resolved" in both the config comment and the scheduler comment, so an unresolved case still retains non-account reporter PII indefinitely.
     - **Affects:** Non-account members of the public who file a moderation report against a Partna sitepage; their name, contact detail, and free-text report text.
     - **Effort:** M (~2–4h)
     - **What to do:**
@@ -396,7 +396,7 @@ None.
 ## P3 — Nice to have
 
 - [ ] **#PRIV-4** · P3 — `feedback:prune-old-submissions` scheduler comment states the wrong default retention window (Cat 7 doc drift)
-    - **Where:** routes/console.php:434-436 vs config/partna.php:2379-2386
+    - **Where:** routes/console.php:428-429 vs config/partna.php:2686-2697 (was `:434-436`; `:2379-2386`) — the drift is unchanged: the scheduler comment still says "default 365d" while the config comment sets 90 days and explains at length why it is deliberately SHORTER than the 365-day subscription precedent.
     - **Affects:** No runtime behavior — this is a documentation-only drift that could mislead a future reader into thinking feedback PII is kept longer than it actually is.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -580,7 +580,7 @@ None.
 ## P3 — Nice to have
 
 - [ ] **#SEM-5** · P3 — `notification_retention_days` uses singular `profile_task`, disagreeing with the `profile_tasks` category key everywhere else — currently dormant, will silently misconfigure retention the moment it's wired up
-    - **Where:** config/partna.php:2150 (retention map) vs config/partna.php:2203 (mailables/category registry)
+    - **Where:** config/partna.php:2463 (retention map, `'profile_task' => 180`) vs config/partna.php:2516 (mailables/category registry, `'profile_tasks'`) — was `:2150` vs `:2203`.
     - **Affects:** Future profile-task notification retention/pruning, once a dispatcher is wired to pass this category through `NotificationPublisher`.
     - **Effort:** S (~0.5–1h)
     - **What to do:**
@@ -598,7 +598,7 @@ None.
         ```
 
 - [ ] **#SEM-6** · P3 — The `ModelNotFoundException` branch in the API exception renderer is unreachable; Laravel's `prepareException()` already converts it to `NotFoundHttpException` before this callback runs
-    - **Where:** bootstrap/app.php:207-219
+    - **Where:** bootstrap/app.php:238 (was `:207-219`) — the `elseif ($e instanceof ModelNotFoundException)` branch is still there.
     - **Affects:** API consumers hitting a model-binding 404 (e.g. a route-bound UUID that doesn't exist) receive the generic "Endpoint not found" message instead of the intended "Resource not found."
     - **Effort:** S (~0.5–1h)
     - **What to do:**
