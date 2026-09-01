@@ -29,6 +29,9 @@ function loopUser(): User
         'id' => (string) Str::uuid(),
         'user_id' => $user->id,
         'subdomain' => 'pilot',
+        // Explicit: a raw insert takes the SQLite DDL default (0), and the
+        // public read paths now 404 a claimed owner's unpublished site.
+        'is_published' => true,
         'created_at' => now(),
         'updated_at' => now(),
     ]);

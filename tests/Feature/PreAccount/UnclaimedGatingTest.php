@@ -44,8 +44,12 @@
  *
  *   - IndividualProfileController / IndividualProfilePayloadBuilder /
  *     SitepageDataResolverService / QrCodeController
- *     — none gate on `User.status` at all (they resolve purely on handle/site
- *     existence + `is_published`), so there is nothing to widen or leave.
+ *     — none gate on `User.status` at all, so there is nothing to widen or
+ *     leave. (Corrected 2026-09-01: the parenthetical here used to say they
+ *     resolve on "handle/site existence + is_published". They did NOT consult
+ *     is_published — that was the defect. IndividualProfileController and
+ *     PublicIntegrationController now gate on it via the claimed-owner
+ *     predicate; see tests/Feature/PublicSite/PublishGateTest.php.)
  *
  * Deviation from the brief: this task ALSO wires `tests/Feature/PreAccount`
  * into scripts/audit/audit.sh's codebase_chunks() (feature-misc-tail chunk),

@@ -22,6 +22,9 @@ use Illuminate\Support\Facades\Log;
  *
  * 404 rules (audit: avoid existence leak on public endpoints):
  *   - Handle not found
+ *   - A CLAIMED owner's site with is_published=false (logged '404-unpublished').
+ *     An UNCLAIMED pre-account build is exempt and keeps rendering; a user with
+ *     no site row has no publish knob and also keeps rendering.
  *
  * Caching (audit Phase G P3):
  *   1. handle.resolve:{handle}     short-TTL (default 30 s, config-driven) Redis map of
@@ -45,6 +48,18 @@ use Illuminate\Support\Facades\Log;
  *                                  method 404s before reaching the max(). Matters
  *                                  for first publish/claim, not design edits; the
  *                                  follow-up purge chain is the rescue there.
+ *                                  The 'unpublished' verdict has the SAME hole,
+ *                                  in both directions (a republished site can stay
+ *                                  dark, an unpublished one lit) for one in-flight
+ *                                  reader across the save — bounded by the TTL, not
+ *                                  by the floor. Two further caveats on that key:
+ *                                  invalidateSitePayload busts by site.subdomain
+ *                                  while this reads by users.handle_lc, so a
+ *                                  DIVERGED row is never busted (0 of 268 on dev
+ *                                  2026-09-01, repaired by ConvergeSiteSubdomains,
+ *                                  not by a constraint); and entries written before
+ *                                  the gate shipped carry no 'unpublished' key, so
+ *                                  ?? false fails OPEN for their remaining TTL.
  *   2. public.profile:{handle}:{updated_at_ts}
  *                                  Full payload, single-flight via
  *                                  CacheLockService::rememberLocked (jittered,
@@ -98,12 +113,35 @@ class IndividualProfileController extends ApiController
                     'updated_at_ts' => $site?->updated_at?->timestamp
                         ?? $pro->updated_at?->timestamp
                         ?? 0,
+                    // The publish gate. For a CLAIMED owner the publish knob IS
+                    // the visibility switch. An UNCLAIMED pre-account build keeps
+                    // rendering while unpublished — that is the pre-claim demo,
+                    // and the gate that closed it (ee1c22784) was reverted
+                    // 2026-08-25 on owner decision. Same predicate as
+                    // AnalyticsController::resolvePublishedSite().
+                    //
+                    // Computed HERE, not in IndividualProfilePayloadBuilder: this
+                    // rides the resolve cache, which invalidateSitePayload()
+                    // deletes on every site save, so unpublishing takes effect on
+                    // the next request. In the builder it would bake a 404 into
+                    // the timestamp-keyed payload cache, which is invalidated by
+                    // ROTATION — the stale key is abandoned, never deleted — so a
+                    // republished site would stay dark for the full TTL.
+                    //
+                    // No site row means no publish knob to honour (a pre-account
+                    // user exists before its site does), so that case is left to
+                    // serve, as it does today.
+                    'unpublished' => $site !== null
+                        && ! $site->is_published
+                        && ! $pro->isUnclaimed(),
                 ];
             }
         );
 
-        if ($resolved['not_found'] ?? false) {
-            $this->logIfSlow($handleLc, '404', $startedAt);
+        $unpublished = (bool) ($resolved['unpublished'] ?? false);
+
+        if (($resolved['not_found'] ?? false) || $unpublished) {
+            $this->logIfSlow($handleLc, $unpublished ? '404-unpublished' : '404', $startedAt);
 
             return $this->error('Not found.', 404);
         }

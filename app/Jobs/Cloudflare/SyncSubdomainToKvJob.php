@@ -102,13 +102,23 @@ class SyncSubdomainToKvJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
         // exclusion was the original bug (deleted users left their KV live).
         $pro = User::withTrashed()->find($this->userId);
 
-        // Routable = active OR unclaimed (pre-account build; publish is a separate
-        // knob — an unpublished site 404s at the payload layer, same as today).
+        // Routable = active OR unclaimed. Publish is a separate knob, enforced at
+        // the READ path, not here — and until 2026-09-01 that was load-bearing and
+        // FALSE: this comment claimed an unpublished site 404s at the payload
+        // layer, the job routed the subdomain on the strength of it, and nothing
+        // actually refused. IndividualProfileController::show and
+        // PublicIntegrationController::show now 404 a CLAIMED owner's unpublished
+        // site, so the claim holds. An UNCLAIMED build is deliberately exempt (the
+        // pre-claim demo), which is why this job still routes it while unpublished.
+        //
+        // KV stays a ROUTING pointer, never a visibility control: retiring the
+        // entry on unpublish would serve unclaimedHtml() — "this address is free" —
+        // for a handle its owner still holds.
+        //
         // Otherwise retire: the user is gone (hard/soft-deleted or no handle) OR
         // the account is suspended/disabled/pending-deletion. A suspended user is
         // NOT trashed, so without this gate a moderation takedown left the route —
-        // and the edge-cached page — live (EDGE-3). Mirrors the public read path
-        // (public_site_payload requires status='active' OR 'unclaimed').
+        // and the edge-cached page — live (EDGE-3).
         if (! $pro || $pro->trashed() || ! $pro->handle || ! ($pro->isActive() || $pro->isUnclaimed())) {
             $this->retire($kv, $pro);
 
