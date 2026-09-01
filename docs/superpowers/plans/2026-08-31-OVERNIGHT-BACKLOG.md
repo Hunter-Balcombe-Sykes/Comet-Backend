@@ -522,6 +522,38 @@ Full list of 31 with evidence: Wave 6 task output (`wusdiwedb`).
 
 ---
 
+## K. Wave 8 complete — the staff identity split · `DONE` · verdicts: sound/sound
+
+**The root cause of the owner's loading issue, named:** a staff-only session's 403 was being
+translated as `bootstrap_required` — "finish signing up" — the exact mistranslation the new
+`staff_only_session` error code now makes impossible. `/me` answers with `session_type: "staff"`
+and an explicit contract (documented in the Wave 8 task output) that the dashboard now branches on.
+
+Landed: staff-only `/me` session (`219020b04`), provisioning guard (`187d1391a`), staff-route audit
+(`b3c8a9592`, `e9ff1f561`), purge preserves a staff auth user (`b6cf5fb71`), the junk `user-ot9fss`
+row + site purged with the staff row and login intact, and the full dashboard staff boot
+(`69558333`, `244ad856` + polish). Both provers: sound, clean.
+
+Residuals worth keeping (from the agents' own honest reporting):
+- A SUSPENDED user+staff hybrid is locked out of the staff surface via `/me` (403 before the staff
+  branch). Rare, unpinned.
+- `StaffProvisioningGuard` is convention, not enforcement — a future third auth-binding lane would
+  bypass it silently. A DB-level guard would be structural.
+- Untried mutation survives on `LoadCurrentUser.php:108`: dropping the actor scoping
+  (`PartnaStaff::query()->first()`) passes the suite — the staff-row lookup's scoping is unpinned.
+- No audit/command reports existing user+staff hybrids.
+
+## L. F3 shipped inline and verified on the wire · `DONE` · `3b2d2a6bd`, `c7f075d60`
+
+NameShapeGate + generator wiring (mutation-pinned at the call site after the class-only tests were
+proven bypassable) + `names:regate`. **59 of 101 unclaimed Instagram accounts re-gated in place**;
+wire-verified: "Cassandra Skinner" recovered from the handle, "STUDIO BIDE" folded, the fabricated
+"The"/"Edit" splits gone. `first_name` is NOT NULL, so the schema's no-name is `''` — which the
+matchers already fail closed on. Wave 4's name agent is now HARDENING the gate (single-space fold
+bug, emoji stripping from display_name, a PersonNameMatch integration test) — its commit follows.
+
+---
+
 ## I. Still running
 
 - Nightwatch: a verdict on all 50 open issues (fixed-stale / live / infra / by-design-noise).
