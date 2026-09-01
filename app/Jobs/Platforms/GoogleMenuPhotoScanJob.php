@@ -140,9 +140,29 @@ class GoogleMenuPhotoScanJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        // Menu is a capability-gated feature (business + food) — same gate as
-        // every menu surface. Never spend AI on an account that can't show one.
+        // Menu is a capability-gated feature (food sector) — same gate as every
+        // menu surface. Never spend AI on an account that can't show one.
+        //
+        // It logs now. The bare return meant an unclassified food business got
+        // no platform menu, no scan, and no evidence anywhere that a scan had
+        // been declined: this check sat above the first Log::info, so the job
+        // returned in 14.35ms saying nothing at all. pret-a-manger is the proof
+        // — Google category "Sandwich Shop", no keyword to land on, sector
+        // null, and isFood(null) is false by design, so a sandwich chain was
+        // served the BOOKING capability set and shipped 0 menu items.
+        //
+        // sector_missing is the field worth alerting on. A non-food sector is a
+        // deliberate no; a NULL one is a classification miss, and the next
+        // unmapped Google category should surface as this log line rather than
+        // as another silently menu-less site.
         if (! AccountCapabilities::for($user)->can_use_menu) {
+            Log::info('google_menu_scan.capability_denied', [
+                'user_id' => $this->userId,
+                'place_id' => $this->placeId,
+                'sector' => $user->sector,
+                'sector_missing' => $user->sector === null,
+            ]);
+
             return;
         }
 
