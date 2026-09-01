@@ -3,7 +3,9 @@
 namespace App\Services\Platforms;
 
 use App\Exceptions\Platforms\VendorAccountFaultException;
+use App\Services\Cache\ScrapeCreatorsBudget;
 use App\Services\Http\SafeUrlFetcher;
+use App\Services\Platforms\ScrapeCreators\ScrapeCreatorsClient;
 use App\Support\ThrottledReport;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -172,7 +174,8 @@ class YoutubeScraper extends PlatformScraper
     /**
      * The uploads feed for a known channel id: the feed-level channel title +
      * the most-recent videos (same shape as fetchRecentVideos). Null when the
-     * feed can't be fetched.
+     * feed can't be fetched AND the vendor fallback (vendorUploadsFeed) can't
+     * rescue it; vendor-rescued entries additionally carry lengthSeconds.
      *
      * @return array{title: ?string, videos: list<array{videoId:string, name:string, description:string, link:string, date:?string, thumbnail:string}>}|null
      */
@@ -228,7 +231,7 @@ class YoutubeScraper extends PlatformScraper
             // LIFE-26: transport-level failure (SSRF/timeout/DNS) reaching the feed.
             Log::warning('youtube.uploads_feed_failed', ['channelId' => $channelId, 'reason' => 'fetch_null']);
 
-            return null;
+            return $this->vendorUploadsFeed($channelId, $limit);
         }
         // 304 Not Modified → let the caller (a fetch strategy) short-circuit. On a
         // 200, capture the fresh ETag/Last-Modified for next time. Normal on every
@@ -240,7 +243,7 @@ class YoutubeScraper extends PlatformScraper
             // LIFE-26: reachable but an explicit non-200 (e.g. 403/404/5xx).
             Log::warning('youtube.uploads_feed_failed', ['channelId' => $channelId, 'reason' => 'non_200:'.$rss['status']]);
 
-            return null;
+            return $this->vendorUploadsFeed($channelId, $limit);
         }
 
         // Channel display name from the feed head (before any <entry>): the
@@ -297,6 +300,88 @@ class YoutubeScraper extends PlatformScraper
         unset($entry);
 
         return ['title' => $feedTitle, 'videos' => $out];
+    }
+
+    /**
+     * Item 8 G3 (2026-09-01): YouTube is TIERED, not vendor-primary — the free
+     * RSS feed stays the primary lane (a healthy poll makes ZERO vendor calls;
+     * the two call sites above are failure exits only), and ScrapeCreators'
+     * /v1/youtube/channel-videos (the HYPHEN route) answers only after the RSS
+     * retry ladder exhausts — the live AWS-egress 404/500 class that used to
+     * drop real channels. The vendor items are mapped into the exact shape the
+     * RSS parse returns so callers cannot tell the lanes apart; lengthSeconds
+     * rides along as pure enrichment (RSS has no duration — readers that don't
+     * know the key ignore it). publishDate is the real upload date;
+     * publishedTime is synthesized at scrape time (trial-verified: identical
+     * across every item) and must never be read.
+     *
+     * Any vendor failure returns null — exactly what the caller was about to
+     * receive — so this lane can only rescue, never degrade. Budget is claimed
+     * before the call and released on transport-null; a billed husk (2xx body
+     * with no usable videos) keeps the slot spent.
+     *
+     * @return array{title: ?string, videos: list<array{videoId:string, name:string, description:string, link:string, date:?string, thumbnail:string, lengthSeconds:?int}>}|null
+     */
+    private function vendorUploadsFeed(string $channelId, int $limit): ?array
+    {
+        $client = app(ScrapeCreatorsClient::class);
+        if (! $client->enabled()) {
+            return null;
+        }
+        $budget = app(ScrapeCreatorsBudget::class);
+        if (! $budget->tryClaim('youtube')) {
+            return null;
+        }
+
+        $body = $client->get('/v1/youtube/channel-videos', ['channelId' => $channelId, 'sort' => 'latest']);
+        if ($body === null) {
+            $budget->release('youtube');
+
+            return null;
+        }
+
+        $videos = $body['videos'] ?? null;
+        $out = [];
+        $title = null;
+        foreach (is_array($videos) ? $videos : [] as $video) {
+            if (! is_array($video) || ! is_string($video['id'] ?? null) || $video['id'] === '') {
+                continue;
+            }
+            $id = $video['id'];
+
+            if ($title === null) {
+                $channel = $video['channel'] ?? null;
+                $channelTitle = is_array($channel) ? ($channel['title'] ?? null) : null;
+                $title = is_string($channelTitle) && trim($channelTitle) !== '' ? $channelTitle : null;
+            }
+
+            $date = $video['publishDate'] ?? null;
+            $out[] = [
+                'videoId' => $id,
+                'name' => is_string($video['title'] ?? null) ? $video['title'] : '',
+                'description' => is_string($video['description'] ?? null) ? trim($video['description']) : '',
+                'link' => "https://www.youtube.com/watch?v={$id}",
+                'date' => is_string($date) && trim($date) !== '' ? $date : null,
+                'thumbnail' => is_string($video['thumbnail'] ?? null) ? $video['thumbnail'] : '',
+                'lengthSeconds' => is_int($video['lengthSeconds'] ?? null) ? $video['lengthSeconds'] : null,
+            ];
+
+            if (count($out) >= $limit) {
+                break;
+            }
+        }
+
+        if ($out === []) {
+            // Success-shaped husk (NotFound bills a credit as success:true) or
+            // shape drift — either way the call was billed; slot stays spent.
+            Log::info('scrapecreators.youtube.unusable_shape', ['channelId' => $channelId]);
+
+            return null;
+        }
+
+        Log::info('youtube.uploads_feed_vendor_rescue', ['channelId' => $channelId, 'videos' => count($out)]);
+
+        return ['title' => $title, 'videos' => $out];
     }
 
     /**

@@ -1,0 +1,100 @@
+{
+  "success": true,
+  "credits_remaining": 7075,
+  "credits_charged": 1,
+  "tracks": [
+    {
+      "id": 2219840441,
+      "kind": "track",
+      "title": "Caught Up In The Fire (An Apparition)",
+      "permalink": "caught-up-in-the-fire-an-2",
+      "permalink_url": "https://soundcloud.com/ben-bohmer/caught-up-in-the-fire-an-2",
+      "artwork_url": "https://i1.sndcdn.com/artworks-U0H9rkJpo7ei-0-large.png",
+      "duration": 226501,
+      "genre": "Electronic",
+      "created_at": "2025-11-27T13:46:36Z",
+      "release_date": "2025-12-09T00:00:00Z",
+      "display_date": "2025-12-09T14:00:00Z",
+      "publisher_metadata": {
+        "artist": "Ben Böhmer, JONAH",
+        "isrc": "GBCFB2500726",
+        "release_title": "Caught Up In The Fire (An Apparition)"
+      },
+      "user": {
+        "id": 1471987,
+        "username": "Ben Böhmer",
+        "permalink": "ben-bohmer"
+      }
+    },
+    {
+      "id": 2223168791,
+      "kind": "track",
+      "title": "Caught Up In The Fire (feat. JONAH) (An Apparition) - Teaser",
+      "permalink": "caught-up-in-the-fire-feat-jonah-an-apparition",
+      "permalink_url": "https://soundcloud.com/ben-bohmer/caught-up-in-the-fire-feat-jonah-an-apparition",
+      "artwork_url": "https://i1.sndcdn.com/artworks-9PnrZfWKL07NgVop-bVceAw-large.png",
+      "duration": 30054,
+      "genre": "Electronic",
+      "created_at": "2025-12-03T10:39:51Z",
+      "release_date": null,
+      "display_date": "2025-12-03T10:41:14Z",
+      "publisher_metadata": {
+        "artist": "Ben Böhmer",
+        "isrc": null,
+        "release_title": null
+      },
+      "user": {
+        "id": 1471987,
+        "username": "Ben Böhmer",
+        "permalink": "ben-bohmer"
+      }
+    },
+    {
+      "id": 2202551155,
+      "kind": "track",
+      "title": "Caught Up In The Fire",
+      "permalink": "caught-up-in-the-fire-3",
+      "permalink_url": "https://soundcloud.com/ben-bohmer/caught-up-in-the-fire-3",
+      "artwork_url": "https://i1.sndcdn.com/artworks-auLZelNiMjPz-0-large.png",
+      "duration": 223584,
+      "genre": "Electronic",
+      "created_at": "2025-10-30T15:50:43Z",
+      "release_date": "2025-11-17T00:00:00Z",
+      "display_date": "2025-11-17T14:00:00Z",
+      "publisher_metadata": {
+        "artist": "Ben Böhmer, JONAH",
+        "isrc": "GBCFB2500533",
+        "release_title": "Caught Up In The Fire"
+      },
+      "user": {
+        "id": 1471987,
+        "username": "Ben Böhmer",
+        "permalink": "ben-bohmer"
+      }
+    },
+    {
+      "id": 2205178275,
+      "kind": "track",
+      "title": "Caught Up In The Fire (feat. JONAH) (Teaser)",
+      "permalink": "caught-up-in-the-fire-feat-jonah",
+      "permalink_url": "https://soundcloud.com/ben-bohmer/caught-up-in-the-fire-feat-jonah",
+      "artwork_url": "https://i1.sndcdn.com/artworks-9PnrZfWKL07NgVop-bVceAw-large.png",
+      "duration": 30048,
+      "genre": "Electronic",
+      "created_at": "2025-11-03T10:36:00Z",
+      "release_date": null,
+      "display_date": "2025-11-03T15:00:28Z",
+      "publisher_metadata": {
+        "artist": "Ben Böhmer",
+        "isrc": null,
+        "release_title": null
+      },
+      "user": {
+        "id": 1471987,
+        "username": "Ben Böhmer",
+        "permalink": "ben-bohmer"
+      }
+    }
+  ],
+  "cursor": "2025-04-30T08:44:22.000Z,tracks,00000000002087563251"
+}

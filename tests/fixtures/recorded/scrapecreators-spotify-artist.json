@@ -1,0 +1,309 @@
+{
+  "success": true,
+  "credits_remaining": 7076,
+  "credits_charged": 1,
+  "__typename": "Artist",
+  "id": "5tDjiBYUsTqzd0RkTZxK7u",
+  "uri": "spotify:artist:5tDjiBYUsTqzd0RkTZxK7u",
+  "profile": {
+    "name": "Ben Böhmer"
+  },
+  "stats": {
+    "followers": 727207,
+    "monthlyListeners": 3727204
+  },
+  "discography": {
+    "albums": [
+      {
+        "id": "57OLEpkhCXysV9FWrSbwid",
+        "name": "Bloom",
+        "type": "ALBUM",
+        "date": {
+          "day": 27,
+          "month": 9,
+          "precision": "DAY",
+          "year": 2024
+        },
+        "label": "Ninja Tune",
+        "coverArt": {
+          "sources": [
+            {
+              "height": 300,
+              "url": "https://i.scdn.co/image/ab67616d00001e02d68de53c2004e03d338f1ffb",
+              "width": 300
+            },
+            {
+              "height": 64,
+              "url": "https://i.scdn.co/image/ab67616d00004851d68de53c2004e03d338f1ffb",
+              "width": 64
+            },
+            {
+              "height": 640,
+              "url": "https://i.scdn.co/image/ab67616d0000b273d68de53c2004e03d338f1ffb",
+              "width": 640
+            }
+          ]
+        },
+        "tracks": {
+          "totalCount": 11
+        },
+        "sharingInfo": {
+          "shareUrl": "https://open.spotify.com/album/57OLEpkhCXysV9FWrSbwid?si=mOQPEtP2SQSIj1Vif1a-xQ"
+        },
+        "uri": "spotify:album:57OLEpkhCXysV9FWrSbwid"
+      },
+      {
+        "id": "648lTYMGJkN5gAuVg89iRX",
+        "name": "Live At The Roundhouse, London",
+        "type": "ALBUM",
+        "date": {
+          "day": 9,
+          "month": 12,
+          "precision": "DAY",
+          "year": 2022
+        },
+        "label": "Anjunadeep",
+        "coverArt": {
+          "sources": [
+            {
+              "height": 300,
+              "url": "https://i.scdn.co/image/ab67616d00001e0217da189f9e5f43d88269a854",
+              "width": 300
+            },
+            {
+              "height": 64,
+              "url": "https://i.scdn.co/image/ab67616d0000485117da189f9e5f43d88269a854",
+              "width": 64
+            },
+            {
+              "height": 640,
+              "url": "https://i.scdn.co/image/ab67616d0000b27317da189f9e5f43d88269a854",
+              "width": 640
+            }
+          ]
+        },
+        "tracks": {
+          "totalCount": 20
+        },
+        "sharingInfo": {
+          "shareUrl": "https://open.spotify.com/album/648lTYMGJkN5gAuVg89iRX?si=jre8koKARk-rvvtOAf7LoQ"
+        },
+        "uri": "spotify:album:648lTYMGJkN5gAuVg89iRX"
+      }
+    ],
+    "singles": [
+      {
+        "id": "0Kylm5pCQ5cUlRb6EvHLEw",
+        "name": "Caught Up In The Fire (An Apparition)",
+        "type": "SINGLE",
+        "date": {
+          "day": 9,
+          "month": 12,
+          "precision": "DAY",
+          "year": 2025
+        },
+        "label": "Ninja Tune",
+        "coverArt": {
+          "sources": [
+            {
+              "height": 300,
+              "url": "https://i.scdn.co/image/ab67616d00001e02f8584b866dbc09638d7f20a4",
+              "width": 300
+            },
+            {
+              "height": 64,
+              "url": "https://i.scdn.co/image/ab67616d00004851f8584b866dbc09638d7f20a4",
+              "width": 64
+            },
+            {
+              "height": 640,
+              "url": "https://i.scdn.co/image/ab67616d0000b273f8584b866dbc09638d7f20a4",
+              "width": 640
+            }
+          ]
+        },
+        "tracks": {
+          "totalCount": 3
+        },
+        "sharingInfo": {
+          "shareUrl": "https://open.spotify.com/album/0Kylm5pCQ5cUlRb6EvHLEw?si=S6qMI7IxS9uAAjoLPLriiA"
+        },
+        "uri": "spotify:album:0Kylm5pCQ5cUlRb6EvHLEw"
+      },
+      {
+        "id": "6stjuO04Rw5O2xqog9u8dA",
+        "name": "Caught Up In The Fire",
+        "type": "SINGLE",
+        "date": {
+          "day": 17,
+          "month": 11,
+          "precision": "DAY",
+          "year": 2025
+        },
+        "label": "Ninja Tune",
+        "coverArt": {
+          "sources": [
+            {
+              "height": 300,
+              "url": "https://i.scdn.co/image/ab67616d00001e020c438fca7013ad6563464323",
+              "width": 300
+            },
+            {
+              "height": 64,
+              "url": "https://i.scdn.co/image/ab67616d000048510c438fca7013ad6563464323",
+              "width": 64
+            },
+            {
+              "height": 640,
+              "url": "https://i.scdn.co/image/ab67616d0000b2730c438fca7013ad6563464323",
+              "width": 640
+            }
+          ]
+        },
+        "tracks": {
+          "totalCount": 3
+        },
+        "sharingInfo": {
+          "shareUrl": "https://open.spotify.com/album/6stjuO04Rw5O2xqog9u8dA?si=QZnoDrjfQTOcpk68hZ8QtQ"
+        },
+        "uri": "spotify:album:6stjuO04Rw5O2xqog9u8dA"
+      }
+    ],
+    "compilations": [],
+    "latest": null,
+    "topTracks": [
+      {
+        "uid": "644ab53709d894ace66b",
+        "track": {
+          "id": "1MvLmHeLkaNgUScgbUVnWJ",
+          "name": "Breathing",
+          "duration": {
+            "totalMilliseconds": 222605
+          },
+          "artists": [
+            {
+              "profile": {
+                "name": "Ben Böhmer"
+              },
+              "uri": "spotify:artist:5tDjiBYUsTqzd0RkTZxK7u"
+            },
+            {
+              "profile": {
+                "name": "Nils Hoffmann"
+              },
+              "uri": "spotify:artist:6sOEMfvCfHQ9dhSWyamXVb"
+            },
+            {
+              "profile": {
+                "name": "Malou"
+              },
+              "uri": "spotify:artist:5mU7ohKXRejACFS8eZIixp"
+            }
+          ],
+          "albumOfTrack": {
+            "coverArt": {
+              "sources": [
+                {
+                  "url": "https://i.scdn.co/image/ab67616d00001e0263393476ef4f6c43a0a0be09"
+                },
+                {
+                  "url": "https://i.scdn.co/image/ab67616d0000485163393476ef4f6c43a0a0be09"
+                },
+                {
+                  "url": "https://i.scdn.co/image/ab67616d0000b27363393476ef4f6c43a0a0be09"
+                }
+              ]
+            },
+            "uri": "spotify:album:1bgPsKJwqED6DoNaZNdM42"
+          },
+          "playcount": 125204446,
+          "uri": "spotify:track:1MvLmHeLkaNgUScgbUVnWJ"
+        }
+      },
+      {
+        "uid": "b2a9152ae89621121218",
+        "track": {
+          "id": "1a3u6JpaSEndtkzDyUFOqC",
+          "name": "Weightless - jamesjamesjames Remix",
+          "duration": {
+            "totalMilliseconds": 249779
+          },
+          "artists": [
+            {
+              "profile": {
+                "name": "Ben Böhmer"
+              },
+              "uri": "spotify:artist:5tDjiBYUsTqzd0RkTZxK7u"
+            },
+            {
+              "profile": {
+                "name": "Panama"
+              },
+              "uri": "spotify:artist:3W9UldYu0xJcaOAw2SUTDI"
+            },
+            {
+              "profile": {
+                "name": "jamesjamesjames"
+              },
+              "uri": "spotify:artist:0DqR5aQYPz1s2M3YbycLMJ"
+            }
+          ],
+          "albumOfTrack": {
+            "coverArt": {
+              "sources": [
+                {
+                  "url": "https://i.scdn.co/image/ab67616d00001e021e2de4e838094b2f41a6a94f"
+                },
+                {
+                  "url": "https://i.scdn.co/image/ab67616d000048511e2de4e838094b2f41a6a94f"
+                },
+                {
+                  "url": "https://i.scdn.co/image/ab67616d0000b2731e2de4e838094b2f41a6a94f"
+                }
+              ]
+            },
+            "uri": "spotify:album:6Sv0gyjKWyrdij1ToQG6f0"
+          },
+          "playcount": 78716249,
+          "uri": "spotify:track:1a3u6JpaSEndtkzDyUFOqC"
+        }
+      },
+      {
+        "uid": "888c5811460d4ef23ad3",
+        "track": {
+          "id": "58ney0bG2Vwecj8QzNGRkV",
+          "name": "Beyond Beliefs",
+          "duration": {
+            "totalMilliseconds": 313586
+          },
+          "artists": [
+            {
+              "profile": {
+                "name": "Ben Böhmer"
+              },
+              "uri": "spotify:artist:5tDjiBYUsTqzd0RkTZxK7u"
+            }
+          ],
+          "albumOfTrack": {
+            "coverArt": {
+              "sources": [
+                {
+                  "url": "https://i.scdn.co/image/ab67616d00001e02f31ced0e5fd5ed524804f4a5"
+                },
+                {
+                  "url": "https://i.scdn.co/image/ab67616d00004851f31ced0e5fd5ed524804f4a5"
+                },
+                {
+                  "url": "https://i.scdn.co/image/ab67616d0000b273f31ced0e5fd5ed524804f4a5"
+                }
+              ]
+            },
+            "uri": "spotify:album:1ZwkNGxlonmG4bjmLbV1Rr"
+          },
+          "playcount": 69252327,
+          "uri": "spotify:track:58ney0bG2Vwecj8QzNGRkV"
+        }
+      }
+    ]
+  }
+}

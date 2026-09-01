@@ -4,8 +4,13 @@ namespace App\Ingest\Runtime\Effects;
 
 use App\Ingest\Runtime\EffectNotAttempted;
 use App\Services\Cache\ApifyBudget;
+use App\Services\Cache\ScrapeCreatorsBudget;
 use App\Services\Platforms\Actors\MusicActorAdapter;
+use App\Services\Platforms\ScrapeCreators\ScrapeCreatorsClient;
+use App\Services\Platforms\ScrapeCreators\SoundcloudTracksNormalizer;
+use App\Services\Platforms\ScrapeCreators\SpotifyArtistNormalizer;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 /**
  * ('actor', 'music') — the paid Apify track scrape behind Spotify and
@@ -46,6 +51,20 @@ final class MusicActorDriver implements BilledEffectDriver
 
         if ($identifier === '') {
             return BilledEffectResult::noAnswer('music actor effect carried no identifier');
+        }
+
+        // Item 8 (2026-09-01, G3: both music platforms = SC primary): the
+        // ScrapeCreators lane fronts the actor — ~2-4s REST against a 15-60s
+        // run-sync hold. ANY vendor outcome other than usable rows — no key,
+        // budget denied, transport/HTTP failure, NotFound husk, shape drift,
+        // empty list — falls through to the Apify path completely unchanged.
+        // Deliberately BEFORE the Apify config/token check: a vendor answer
+        // needs no actor. Empty-catalogue semantics stay Apify's alone —
+        // the vendor never produces Answered([]), so "this artist has no
+        // tracks" remains a claim only the incumbent lane can settle.
+        $vendor = $this->vendorRows($platform, $identifier, $ctx->userId);
+        if ($vendor !== null) {
+            return BilledEffectResult::answered($vendor);
         }
 
         $config = config("partna.music.platforms.{$platform}");
@@ -89,5 +108,75 @@ final class MusicActorDriver implements BilledEffectDriver
         return BilledEffectResult::answered(
             $adapter->tracks(is_array($dataset) ? $dataset : [])
         );
+    }
+
+    /**
+     * The vendor lane, contract-lossy by design: normalized rows or null,
+     * never a failure classification. One /v1/spotify/artist call carries
+     * BOTH Spotify streams (discography lists for releases, topTracks for
+     * tracks), so both platforms spend the one 'spotify' budget source.
+     * Budget is claimed before the call and released on transport-null; a
+     * billed husk keeps its slot spent (NotFound bills a credit upstream).
+     *
+     * @return non-empty-list<array<string, mixed>>|null
+     */
+    private function vendorRows(string $platform, string $identifier, ?string $userId): ?array
+    {
+        $client = app(ScrapeCreatorsClient::class);
+        if (! $client->enabled()) {
+            return null;
+        }
+
+        if ($platform === 'soundcloud') {
+            // The connection's own stored URL, exactly — handles are
+            // exact-match with no fuzzy resolution (a squatter answers
+            // "successfully"), so the handle is READ from the identifier the
+            // existing lane already trusts, never guessed.
+            if (! preg_match('~soundcloud\.com/([A-Za-z0-9_.-]+)~i', $identifier, $m)) {
+                return null;
+            }
+            $source = 'soundcloud';
+            $path = '/v1/soundcloud/artist/tracks';
+            $query = ['handle' => $m[1]];
+        } elseif ($platform === 'spotify' || $platform === 'spotify_releases') {
+            if (! preg_match('~open\.spotify\.com/(?:intl-[a-z]{2}/)?artist/([A-Za-z0-9]+)~', $identifier, $m)) {
+                return null;
+            }
+            $source = 'spotify';
+            $path = '/v1/spotify/artist';
+            $query = ['id' => $m[1]];
+        } else {
+            return null;
+        }
+
+        $budget = app(ScrapeCreatorsBudget::class);
+        if (! $budget->tryClaim($source)) {
+            return null;
+        }
+
+        $body = $client->get($path, $query, $userId);
+        if ($body === null) {
+            $budget->release($source);
+
+            return null;
+        }
+
+        $rows = match ($platform) {
+            'spotify' => app(SpotifyArtistNormalizer::class)->tracks($body),
+            'spotify_releases' => app(SpotifyArtistNormalizer::class)->releases($body),
+            default => app(SoundcloudTracksNormalizer::class)->tracks($body),
+        };
+        if ($rows === null) {
+            // Billed upstream even as a husk — the slot stays spent; only
+            // transport-level nulls release (same rule as the Instagram lane).
+            Log::info('scrapecreators.music.unusable_shape', [
+                'platform' => $platform,
+                'user_id' => $userId,
+            ]);
+
+            return null;
+        }
+
+        return $rows;
     }
 }

@@ -395,6 +395,12 @@ return [
             'timeout_seconds' => (int) env('PARTNA_SC_TIMEOUT_SECONDS', 20),
             'sources' => [
                 'instagram' => (int) env('PARTNA_SC_INSTAGRAM_DAILY_CAP', 5400),
+                'tiktok' => (int) env('PARTNA_SC_TIKTOK_DAILY_CAP', 2700),
+                'facebook' => (int) env('PARTNA_SC_FACEBOOK_DAILY_CAP', 2700),
+                'spotify' => (int) env('PARTNA_SC_SPOTIFY_DAILY_CAP', 1350),
+                'soundcloud' => (int) env('PARTNA_SC_SOUNDCLOUD_DAILY_CAP', 1350),
+                'linkinbio' => (int) env('PARTNA_SC_LINKINBIO_DAILY_CAP', 1350),
+                'youtube' => (int) env('PARTNA_SC_YOUTUBE_DAILY_CAP', 1350),
             ],
         ],
 

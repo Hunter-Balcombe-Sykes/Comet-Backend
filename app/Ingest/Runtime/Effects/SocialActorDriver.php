@@ -5,6 +5,10 @@ namespace App\Ingest\Runtime\Effects;
 use App\Exceptions\Platforms\VendorAccountFaultException;
 use App\Ingest\Runtime\EffectNotAttempted;
 use App\Services\Cache\ApifyBudget;
+use App\Services\Cache\ScrapeCreatorsBudget;
+use App\Services\Platforms\ScrapeCreators\FacebookPostsNormalizer;
+use App\Services\Platforms\ScrapeCreators\ScrapeCreatorsClient;
+use App\Services\Platforms\ScrapeCreators\TiktokVideosNormalizer;
 use App\Support\ThrottledReport;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -33,6 +37,15 @@ use Throwable;
  * dataset is indistinguishable from a bot-wall miss (the menu lane's def.uber
  * lesson), and settling it ok would serve "this account posts nothing" for
  * the whole freshness window.
+ *
+ * Item 8 G3 (2026-09-01): the ScrapeCreators lane fronts both actors, the
+ * InstagramScraper pattern verbatim — vendor rows mapped into the EXACT actor
+ * dataset shape the connectors read, so downstream cannot tell the lanes
+ * apart; ANY vendor outcome short of usable rows (no key, budget denied,
+ * transport/HTTP failure, success-shaped husk) falls through to the untouched
+ * Apify path below. Vendor rules: claim ScrapeCreatorsBudget per page before
+ * the call, release on a transport-level null, keep the slot spent on billed
+ * husks; empty vendor rows fall through, never answered([]).
  */
 final class SocialActorDriver implements BilledEffectDriver
 {
@@ -51,8 +64,21 @@ final class SocialActorDriver implements BilledEffectDriver
      * miss, not an empty account.
      */
     private const SPECS = [
-        'tiktok' => ['proof' => 'id'],
-        'facebook' => ['proof' => 'postId'],
+        'tiktok' => [
+            'proof' => 'id',
+            // /v1 profile itemList is UNRELIABLE for content (G3) — the
+            // videos endpoint is the only vendor content source. ~10/page.
+            'vendor_path' => '/v3/tiktok/profile/videos',
+            'vendor_pages' => 3,
+            'order' => 'createTimeISO',
+        ],
+        'facebook' => [
+            'proof' => 'postId',
+            // 3 posts/call upstream — the page cap bounds spend per run.
+            'vendor_path' => '/v1/facebook/profile/posts',
+            'vendor_pages' => 4,
+            'order' => 'time',
+        ],
     ];
 
     public function __construct(private readonly ApifyBudget $budget) {}
@@ -65,6 +91,16 @@ final class SocialActorDriver implements BilledEffectDriver
     public function run(BilledEffectContext $ctx): BilledEffectResult
     {
         $name = $ctx->name;
+
+        // ── Vendor lane first (Item 8): before even the token checks, like
+        // InstagramScraper — a usable vendor answer needs no Apify config.
+        $vendorRows = $this->vendorRows($ctx);
+        if ($vendorRows !== null) {
+            $this->log('social.vendor.ok', $name, $ctx, ['rows' => count($vendorRows)]);
+
+            return BilledEffectResult::answered($vendorRows);
+        }
+
         $token = config('services.apify.token');
         $actor = trim((string) config("partna.social_actors.{$name}.actor"));
         $input = $this->actorInput($name, $ctx);
@@ -145,6 +181,119 @@ final class SocialActorDriver implements BilledEffectDriver
         $this->log('social.actor.ok', $name, $ctx, ['rows' => count($rows)]);
 
         return BilledEffectResult::answered($rows);
+    }
+
+    /**
+     * The vendor lane, contract-lossy by design: actor-shaped rows or null,
+     * never a failure classification. Pages are claimed one budget slot each;
+     * a transport-null releases its slot, a billed husk keeps it spent. A
+     * mid-pagination failure keeps the pages already landed — fewer rows than
+     * the actor's window is the economics G3 signed off on, and paid content
+     * is not discarded to re-buy it from Apify.
+     *
+     * @return list<array<string, mixed>>|null
+     */
+    private function vendorRows(BilledEffectContext $ctx): ?array
+    {
+        $name = $ctx->name;
+        $spec = self::SPECS[$name];
+
+        $client = app(ScrapeCreatorsClient::class);
+        if (! $client->enabled()) {
+            return null;
+        }
+
+        $identifier = $this->vendorIdentifier($name, $ctx);
+        if ($identifier === null) {
+            return null;
+        }
+
+        $budget = app(ScrapeCreatorsBudget::class);
+        $limit = max(1, (int) config("partna.social_actors.{$name}.results_limit", 30));
+
+        /** @var array<string, array<string, mixed>> $rows keyed by proof id — pagination dedupe */
+        $rows = [];
+        $cursor = null;
+
+        for ($page = 0; $page < $spec['vendor_pages']; $page++) {
+            if (! $budget->tryClaim($name)) {
+                break;
+            }
+
+            $query = $name === 'tiktok' ? ['handle' => $identifier] : ['url' => $identifier];
+            if ($cursor !== null) {
+                $query[$name === 'tiktok' ? 'max_cursor' : 'cursor'] = $cursor;
+            }
+
+            $body = $client->get($spec['vendor_path'], $query, $ctx->userId);
+            if ($body === null) {
+                // Transport-level nothing: hand the slot back.
+                $budget->release($name);
+                break;
+            }
+
+            // From here the call was billed upstream — the slot stays spent.
+            $pageRows = $name === 'tiktok'
+                ? app(TiktokVideosNormalizer::class)->rows($body, $identifier)
+                : app(FacebookPostsNormalizer::class)->rows($body);
+
+            if ($pageRows === null) {
+                $this->log('social.vendor.unusable_shape', $name, $ctx, ['page' => $page]);
+                break;
+            }
+
+            $before = count($rows);
+            foreach ($pageRows as $row) {
+                $rows[(string) $row[$spec['proof']]] ??= $row;
+            }
+
+            $cursor = $this->vendorNextCursor($name, $body);
+            // Stop on: no next page, enough rows, or a page that added
+            // nothing — a cursor loop must not burn the page cap on dupes.
+            if ($cursor === null || count($rows) >= $limit || count($rows) === $before) {
+                break;
+            }
+        }
+
+        if ($rows === []) {
+            return null;
+        }
+
+        // Re-sort desc after pagination: pinned TikTok videos (is_top=1) lead
+        // the vendor feed out of order, exactly like the actor's grid.
+        $order = $spec['order'];
+        $rows = array_values($rows);
+        usort($rows, static fn (array $a, array $b) => strcmp((string) ($b[$order] ?? ''), (string) ($a[$order] ?? '')));
+
+        return array_slice($rows, 0, $limit);
+    }
+
+    /** Same extraction + validation as actorInput — the lanes must agree on what an identifier is. */
+    private function vendorIdentifier(string $name, BilledEffectContext $ctx): ?string
+    {
+        if ($name === 'tiktok') {
+            $username = strtolower(ltrim(trim((string) ($ctx->input['username'] ?? '')), '@'));
+
+            return $username === '' ? null : $username;
+        }
+
+        $pageUrl = trim((string) ($ctx->input['page_url'] ?? ''));
+
+        return preg_match('~^https://(www\.)?facebook\.com/~i', $pageUrl) === 1 ? $pageUrl : null;
+    }
+
+    /** @param array<string, mixed> $body */
+    private function vendorNextCursor(string $name, array $body): int|string|null
+    {
+        if ($name === 'tiktok') {
+            return ! empty($body['has_more']) && is_numeric($body['max_cursor'] ?? null)
+                ? (int) $body['max_cursor']
+                : null;
+        }
+
+        $cursor = $body['cursor'] ?? null;
+
+        return is_string($cursor) && $cursor !== '' ? $cursor : null;
     }
 
     /**

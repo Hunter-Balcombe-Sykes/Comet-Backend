@@ -8,6 +8,7 @@ use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
 use App\Routing\SecretParams;
 use App\Routing\ShortLinkExpander;
+use App\Services\Cache\ScrapeCreatorsBudget;
 use App\Services\Content\LinkPoolReader;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Notifications\FindingsNotifier;
@@ -17,6 +18,8 @@ use App\Services\Platforms\LinkInBioApiUnroller;
 use App\Services\Platforms\LinkInBioDetector;
 use App\Services\Platforms\LinkInBioInlinePayloadReader;
 use App\Services\Platforms\MediaSeeder;
+use App\Services\Platforms\ScrapeCreators\LinktreeLinksNormalizer;
+use App\Services\Platforms\ScrapeCreators\ScrapeCreatorsClient;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -416,6 +419,25 @@ class LinkInBioImporter
         // the anchor pass stays the default and the floor backstops all four.
         $apiLinks = $this->api->unroll($baseUrl)
             ?? $this->inline->read($baseUrl, $body);
+
+        // Item 8 G3 (2026-09-01, owner-approved): ScrapeCreators fronts the
+        // Linktree case — trial-verified exact parity with the __NEXT_DATA__
+        // parse (same 3 links on the recorded ryanfitzsimons page), with the
+        // shell-rev fragility transferred to the vendor. Vendor links lead the
+        // list (page order, so connection slots resolve as today), and the
+        // inline parse's own answer is UNIONED in behind them rather than
+        // discarded: the vendor payload carries only the tile list, never the
+        // socialLinks icon row, and T24/issue 19 (benbohmer/memphislk) proved
+        // icon-row socials are unrecoverable from anchors — replacing the
+        // parser outright would make them absent, which the lane contract
+        // forbids. Dupes fold in $seen below. On ANY vendor miss — no key,
+        // budget denied, non-2xx, transport, husk — $vendorLinks is null and
+        // this whole block is a no-op: the existing parse runs unchanged.
+        $vendorLinks = $this->vendorLinktreeLinks($baseUrl, $context);
+        if ($vendorLinks !== null) {
+            $apiLinks = array_values(array_unique([...$vendorLinks, ...($apiLinks ?? [])]));
+        }
+
         $links = $apiLinks ?? $this->harvester->allOutboundLinks($body, $baseUrl);
 
         // F12 (2026-08-20, the natalieannehair stan.store trace): the API and
@@ -508,6 +530,58 @@ class LinkInBioImporter
                 default => $this->handleUnrouted($url, $result, $context, $tally, $probedHosts, $droppedReasons),
             };
         }
+    }
+
+    /**
+     * The vendor lane for Linktree pages, contract-lossy by design (the
+     * InstagramScraper::vendorProfileFetch pattern): the owner's outbound
+     * URLs in page order, or null — never a failure classification. Budget
+     * ('linkinbio') is claimed before the HTTP call and released on a
+     * transport-level null; a billed husk keeps its slot spent. Any non-
+     * Linktree host answers null before the client is even consulted, so
+     * every other link-in-bio service is untouched by this lane.
+     *
+     * @return list<string>|null
+     */
+    private function vendorLinktreeLinks(string $pageUrl, RoutingContext $context): ?array
+    {
+        $host = strtolower((string) parse_url($pageUrl, PHP_URL_HOST));
+        if (! in_array($host, ['linktr.ee', 'www.linktr.ee'], true)) {
+            return null;
+        }
+
+        $client = app(ScrapeCreatorsClient::class);
+        if (! $client->enabled()) {
+            return null;
+        }
+
+        $budget = app(ScrapeCreatorsBudget::class);
+        if (! $budget->tryClaim('linkinbio')) {
+            return null;
+        }
+
+        $userId = $context->user === null ? null : (string) $context->user->id;
+        $body = $client->get('/v1/linktree', ['url' => $pageUrl], $userId);
+        if ($body === null) {
+            $budget->release('linkinbio');
+
+            return null;
+        }
+
+        $normalizer = app(LinktreeLinksNormalizer::class);
+        $page = $normalizer->normalize($body);
+        if ($page === null) {
+            // The call was made and billed upstream even when the shape is a
+            // husk — the slot stays spent; only transport-level nulls release.
+            Log::info('scrapecreators.linktree.unusable_shape', [
+                'user_id' => $userId,
+                'import_run_id' => $context->importRunId,
+            ]);
+
+            return null;
+        }
+
+        return $normalizer->urls($page);
     }
 
     /**
