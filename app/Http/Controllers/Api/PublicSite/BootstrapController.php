@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Requests\Api\BootstrapRequest;
 use App\Http\Resources\UserDashboardResource;
 use App\Models\Core\User\User;
+use App\Services\User\StaffProvisioningGuard;
 use App\Services\User\UserBootstrapService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
@@ -110,6 +111,18 @@ class BootstrapController extends ApiController
                 'This email is already associated with a different account. Sign in with your original method, or contact support to link accounts.',
                 409,
                 ['code' => 'EMAIL_ALREADY_REGISTERED']
+            );
+        }
+
+        if ($e->getMessage() === StaffProvisioningGuard::REJECTION) {
+            // Unreachable over HTTP today — the create branch this can fire from
+            // is already 410'd above — but the service is reusable internally and
+            // a bare RuntimeException here would surface as a 500 rather than the
+            // rule it actually is. The guard has already logged the lane.
+            return $this->error(
+                'Staff accounts do not have a Partna site.',
+                409,
+                ['code' => 'STAFF_ACCOUNT_NO_PROFILE']
             );
         }
 

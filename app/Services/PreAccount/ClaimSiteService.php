@@ -16,6 +16,7 @@ use App\Services\Cache\SiteCacheService;
 use App\Services\Cache\UserCacheService;
 use App\Services\User\EmailReuseGuard;
 use App\Services\User\SignupSideEffects;
+use App\Services\User\StaffProvisioningGuard;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -34,12 +35,13 @@ class ClaimSiteService
         private readonly UserCacheService $userCache,
         private readonly SiteCacheService $siteCache,
         private readonly ClaimTokenIssuer $tokens,
+        private readonly StaffProvisioningGuard $staffGuard,
     ) {}
 
     /**
      * @return array{professional: User, site: Site, is_new_claim?: bool}
      *
-     * @throws RuntimeException CLAIM_NOT_FOUND|ALREADY_CLAIMED|BUILD_FAILED|ACCOUNT_EXISTS|EMAIL_ALREADY_REGISTERED|CLAIM_EMAIL_MISMATCH|CLAIM_NOT_INVITED
+     * @throws RuntimeException CLAIM_NOT_FOUND|ALREADY_CLAIMED|BUILD_FAILED|ACCOUNT_EXISTS|EMAIL_ALREADY_REGISTERED|CLAIM_EMAIL_MISMATCH|CLAIM_NOT_INVITED|STAFF_ACCOUNT_NO_PROFILE
      */
     public function claim(string $uid, string $verifiedEmail, string $subdomain, bool $marketingOptIn = false, ?string $claimToken = null): array
     {
@@ -134,6 +136,13 @@ class ClaimSiteService
             if (User::query()->where('auth_user_id', $uid)->exists()) {
                 throw new RuntimeException('ACCOUNT_EXISTS');
             }
+
+            // ...and a staff account must own NO site. This is the live lane —
+            // bootstrap's create branch is HTTP-dead behind 410 SIGNUP_MOVED, so
+            // claim is the one way an auth user still acquires a professional
+            // profile over HTTP. Inside the lockForUpdate above, ahead of the
+            // bind.
+            $this->staffGuard->assertMayHoldProfile($uid, 'claim');
 
             if ($this->emailGuard->isClaimedByAnotherAuthUser($verifiedEmail, $uid)) {
                 throw new RuntimeException('EMAIL_ALREADY_REGISTERED');

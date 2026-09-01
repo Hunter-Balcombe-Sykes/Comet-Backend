@@ -23,6 +23,7 @@ class UserBootstrapService
         private readonly UserCacheService $cache,
         private readonly EmailReuseGuard $emailReuseGuard,
         private readonly SignupSideEffects $sideEffects,
+        private readonly StaffProvisioningGuard $staffGuard,
     ) {}
 
     /**
@@ -32,7 +33,8 @@ class UserBootstrapService
      * @return array{professional: User, site: Site, created: bool}
      *
      * @throws RuntimeException with one of: 'ACCOUNT_DISABLED', 'EMAIL_ALREADY_REGISTERED',
-     *                          'HANDLE_ALREADY_TAKEN'. Other exceptions propagate.
+     *                          'HANDLE_ALREADY_TAKEN', 'STAFF_ACCOUNT_NO_PROFILE'.
+     *                          Other exceptions propagate.
      */
     public function bootstrap(string $uid, array $data): array
     {
@@ -60,6 +62,14 @@ class UserBootstrapService
             $professional = $existing;
 
             if (! $professional) {
+                // A staff account must never acquire a professional profile —
+                // and therefore never a sitepage. Sits INSIDE the lock, ahead of
+                // every write, so it cannot be raced by a concurrent bootstrap.
+                // Create-branch only: the else-branch below refreshes a row that
+                // already exists, and retiring an existing hybrid is a data
+                // decision, not something to spring on a profile refresh.
+                $this->staffGuard->assertMayHoldProfile($uid, 'bootstrap');
+
                 $this->guardAgainstEmailReuseByDifferentAuthUser((string) ($data['primary_email'] ?? ''), $uid);
 
                 $createdProfessional = true;
