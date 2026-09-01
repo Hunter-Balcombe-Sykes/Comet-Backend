@@ -916,3 +916,15 @@ Read the lanes; all three halves are already the right shape:
    the ingest connectors use SC exactly where a platform needs it
    (IG/TikTok/Threads/Bluesky/Pinterest/TikTok Shop/Spotify shows);
    YouTube rides free RSS + the shorts blend.
+
+### Wave 6 — COMPLETE (2026-09-02, commits d68279aa5 + c420d4fe7)
+
+- POOL_GALLERY: read surfaces fully torn down (routes, controller,
+  resolver chain, visibility subquery, DAST surface, consts, config).
+- phpstan baseline: 14 → 0.
+- Timer paths: none dangle — the 9e relay is the design, other delays
+  belong to unrelated lanes.
+- find_social_profiles: KEPT dormant by the recorded owner decision
+  (cap 0 is the off-switch; deleting the code would contradict
+  "re-enabling is a cap raise, never a code change").
+- No retirement markers remain in app/.
