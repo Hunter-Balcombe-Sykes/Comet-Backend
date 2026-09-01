@@ -113,6 +113,98 @@ final class PostgresLaneDdlScanner
     }
 
     /**
+     * Per-file declared columns, INCLUDING additively healed ones.
+     *
+     * The lane heals as well as creates: SectionOccurrenceOrderingTest pairs
+     * CREATE TABLE IF NOT EXISTS with ALTER TABLE … ADD COLUMN IF NOT EXISTS
+     * precisely because whoever runs first decides the shape, and a bare
+     * CREATE IF NOT EXISTS would inherit a thinner earlier table. A reader that
+     * counted only CREATE bodies would report those healed columns as missing.
+     *
+     * @return array<string, array<string, list<string>>> basename => table => columns
+     */
+    public static function laneDdlByFile(string $laneDir): array
+    {
+        $byFile = [];
+
+        $files = glob(rtrim($laneDir, '/').'/*.php') ?: [];
+        sort($files);
+
+        foreach ($files as $file) {
+            $sql = self::stripComments((string) file_get_contents($file));
+            $tables = self::parseCreateTables($sql);
+
+            self::addLiteralHeals($sql, $tables);
+            self::addForeachHeals($sql, $tables);
+
+            $byFile[basename($file)] = $tables;
+        }
+
+        return $byFile;
+    }
+
+    /**
+     * ALTER TABLE t ADD COLUMN IF NOT EXISTS c … written directly, table and
+     * column both literal in the statement string.
+     *
+     * @param  array<string, list<string>>  $tables
+     */
+    private static function addLiteralHeals(string $sql, array &$tables): void
+    {
+        preg_match_all(
+            '/alter\s+table\s+([a-z_0-9.]+)\s+add\s+column\s+(?:if\s+not\s+exists\s+)?([a-z_0-9]+)/i',
+            $sql,
+            $heals,
+            PREG_SET_ORDER
+        );
+
+        foreach ($heals as $heal) {
+            $table = self::normalise($heal[1]);
+            $column = self::normalise($heal[2]);
+            $tables[$table] = array_values(array_unique(array_merge($tables[$table] ?? [], [$column])));
+        }
+    }
+
+    /**
+     * The `foreach (['schema.table' => ['col' => 'type', …]] as $table => $columns)
+     * … ALTER TABLE {$table} ADD COLUMN IF NOT EXISTS {$col} …` idiom
+     * (SectionOccurrenceOrderingTest). The table/column names never appear
+     * literally next to ADD COLUMN — they're interpolated — so this reads them
+     * out of the heal array itself instead. Only applied to tables the file
+     * already declares, per the brief: an interpolated table this file never
+     * CREATEs is out of scope for a per-file reader.
+     *
+     * @param  array<string, list<string>>  $tables
+     */
+    private static function addForeachHeals(string $sql, array &$tables): void
+    {
+        $offset = 0;
+
+        while (preg_match('/\'([a-z_]+\.[a-z_]+)\'\s*=>\s*\[/i', $sql, $m, PREG_OFFSET_CAPTURE, $offset)) {
+            $table = self::normalise($m[1][0]);
+            $open = $m[0][1] + strlen($m[0][0]) - 1;
+            $offset = $m[0][1] + strlen($m[0][0]);
+
+            $close = self::matchingBracket($sql, $open);
+            if ($close === null) {
+                continue;
+            }
+
+            if (isset($tables[$table])) {
+                $body = substr($sql, $open + 1, $close - $open - 1);
+                preg_match_all('/\'([a-z_0-9]+)\'\s*=>/i', $body, $keys);
+
+                foreach ($keys[1] as $column) {
+                    $column = self::normalise($column);
+                    $tables[$table] = array_values(array_unique(array_merge($tables[$table], [$column])));
+                }
+            }
+
+            $offset = $close + 1;
+        }
+    }
+
+    /**
      * Lane DDL that names something the real schema does not have.
      *
      * @return array{tables: array<string, list<string>>, columns: list<string>}
@@ -217,6 +309,28 @@ final class PostgresLaneDdlScanner
             if ($sql[$i] === '(') {
                 $depth++;
             } elseif ($sql[$i] === ')') {
+                $depth--;
+                if ($depth === 0) {
+                    return $i;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Same balancing trick as matchingParen(), for the heal-array idiom's
+     * `[ … ]` — a column type value can itself contain a nested `[]` (rare,
+     * but a plain regex would still be wrong to trust here).
+     */
+    private static function matchingBracket(string $sql, int $open): ?int
+    {
+        $depth = 0;
+        for ($i = $open, $n = strlen($sql); $i < $n; $i++) {
+            if ($sql[$i] === '[') {
+                $depth++;
+            } elseif ($sql[$i] === ']') {
                 $depth--;
                 if ($depth === 0) {
                     return $i;
