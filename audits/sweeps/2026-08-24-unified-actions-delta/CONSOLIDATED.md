@@ -776,7 +776,7 @@ None.
 ## Progress
 
 - P1 High: 1 of 1 complete
-- P2 Medium: 7 of 19 complete
+- P2 Medium: 8 of 19 complete
 - P3 Low: 0 of 5 complete
 
 ---
@@ -812,8 +812,8 @@ None.
 
 ## P2 — Should fix
 
-- [ ] **#TEST-2** · P2 — `content.storefronts` FK-cascade schema invariant reads an unscoped, unordered `$fk[0]` instead of the specific constraint it names
-    - ⚠️ Note (2026-09-01): the 2026-08-25 triage closed this as "refuted — `content.storefronts` has exactly one FK". **That reason is factually wrong, so this finding stays OPEN.** The table has TWO foreign keys: `collection_id` → `content.collections(id)` (`20260813100000_create_content_storefronts.sql:8`) and `storefronts_user_id_fkey` → `core.users(id)` (`20260819000100_content_storefronts_user_id.sql:51`) — the second added 2026-08-19, six days BEFORE that triage. The test filters only on `contype = 'f'`, so it gets two unordered rows and `$fk[0]` may be either. It passes today only because both happen to be `ON DELETE CASCADE` — luck, not the invariant it claims to pin. Scope the query by `conname` or `confrelid`.
+- [x] **#TEST-2** · P2 — `content.storefronts` FK-cascade schema invariant reads an unscoped, unordered `$fk[0]` instead of the specific constraint it names
+    - Resolution (2026-09-01): FIXED in this branch. ⚠️ First, the record: the 2026-08-25 triage closed this as "refuted — `content.storefronts` has exactly one FK", and **that reason was factually wrong**. The table has TWO foreign keys — `collection_id` → `content.collections` (`20260813100000_create_content_storefronts.sql:8`) and `storefronts_user_id_fkey` → `core.users` (`20260819000100_content_storefronts_user_id.sql:51`), the second added six days BEFORE that triage. So the finding was real. `tests/Schema/ContentStorefrontsConstraintsTest.php` now scopes each lookup by `confrelid = ?::regclass` instead of reading `$fk[0]`, asserts exactly one FK per parent, and asserts BOTH cascade — the old assertion would have kept passing if the collection FK were changed to NO ACTION and the user FK happened to be returned first.
     - **Where:** tests/Schema/ContentStorefrontsConstraintsTest.php:19-27
     - **Affects:** Reliability of the schema-invariant lane's guard against an orphaned `content.storefronts` row.
     - **Effort:** S (~0.5–1h)
