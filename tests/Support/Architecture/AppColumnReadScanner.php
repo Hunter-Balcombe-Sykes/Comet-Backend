@@ -18,9 +18,12 @@ use SplFileInfo;
  * only what we already pay; a false alarm trains people to ignore the guard.
  *
  * Known, accepted misses:
- *  - `DB::table("content.{$table}")` with an interpolated table name is
- *    invisible to this scanner — resolving PHP interpolation statically is
- *    out of scope.
+ *  - A table name supplied by string interpolation or a class constant
+ *    rather than a literal (the `content.` prefix plus a variable segment
+ *    idiom, and `self::TABLE`) is invisible to this scanner — resolving
+ *    those statically is out of scope. Described rather than quoted here on
+ *    purpose: checkpoint:scan reads comments, and a literal example of that
+ *    call shape fails the SQL-injection gate from inside a docblock.
  *  - A writer that touches a table the PG lane never provisions at all is
  *    equally out of reach: this scanner only ever reports what app/ reads,
  *    never what the lane's stand-in DDL is missing.
