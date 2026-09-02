@@ -297,7 +297,13 @@ class PreAccountBuildService
             $build->source_type === 'google_business'
                 ? 'Found your Google listing'
                 : 'Found your Instagram',
-            ['handle' => (string) $user->handle_lc],
+            [
+                'handle' => (string) $user->handle_lc,
+                // Sign-up preview (2026-09-02, A.5): the identity scene shows a
+                // name and the source's mark before any media lands.
+                'displayName' => $user->display_name,
+                'sourcePlatform' => (string) $build->source_type,
+            ],
         );
 
         return $user;

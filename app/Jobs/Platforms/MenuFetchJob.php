@@ -528,13 +528,35 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         $this->syncOrderPlatforms($menu);
         $this->seedPins($userId, $itemIds);
 
-        // Setup progress (2026-09-02): the menu row the feed shows.
+        // Setup progress (2026-09-02): the menu row the feed shows. The dish
+        // photos (A.5) are the covers the writes above attached — the same
+        // content.items / item_media / media_assets read ShopInitialFillJob
+        // makes for products, limited to six and only URLs stored on our side.
+        $dishPhotos = [];
+        try {
+            $dishPhotos = DB::connection('pgsql')->table('content.items as i')
+                ->join('content.item_media as im', fn ($j) => $j->on('im.item_id', '=', 'i.id')->where('im.role', 'cover'))
+                ->join('content.media_assets as ma', 'ma.id', '=', 'im.asset_id')
+                ->where('i.user_id', $userId)
+                ->where('i.kind', 'menu_item')
+                ->whereNull('i.removed_at')
+                ->whereNotNull('ma.source_url')
+                ->orderByDesc('i.created_at')
+                ->limit(6)
+                ->pluck('ma.source_url')
+                ->filter(fn ($u) => is_string($u) && $u !== '')
+                ->values()
+                ->all();
+        } catch (Throwable $e) {
+            // Feed decoration only — never an exception report for it.
+            Log::debug('menu.fetch_job.progress_photos_skipped', ['user_id' => $userId, 'error' => $e->getMessage()]);
+        }
         BuildProgress::noteForUser(
             $userId,
             PreAccountBuildEvent::STAGE_MENU,
             PreAccountBuildEvent::STATUS_LANDED,
             'Menu: '.BuildProgress::count(count($itemIds), 'dish', 'dishes'),
-            ['dishes' => count($itemIds)],
+            ['dishes' => count($itemIds), 'photos' => $dishPhotos],
         );
 
         $menu->forceFill([

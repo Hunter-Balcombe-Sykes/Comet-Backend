@@ -4,6 +4,7 @@ use App\Jobs\PreAccount\GeneratePreAccountSiteJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\PreAccountBuild;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Services\PreAccount\PreAccountBuildException;
 use App\Services\PreAccount\PreAccountBuildService;
@@ -69,6 +70,22 @@ it('creates a pending, identity-less build and dispatches the job; materializati
         ->and($user->site->subdomain)->toBe('janedoe');
 
     Queue::assertPushed(GeneratePreAccountSiteJob::class, fn ($job) => $job->buildId === $build->id);
+});
+
+// Sign-up preview (2026-09-02, A.5): the identity note now also carries
+// displayName and sourcePlatform so the scene shows a name and mark before
+// any media lands.
+it('lands displayName and sourcePlatform alongside handle on the identity note', function () {
+    setupPreAccountBuildEventsTable();
+    $result = app(PreAccountBuildService::class)->requestBuild('partna', 'instagram', 'identitypreview', null, hash('sha256', 'idp'));
+    $build = $result['build'];
+
+    app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
+
+    $event = PreAccountBuildEvent::query()->where('build_id', $build->id)->where('stage', PreAccountBuildEvent::STAGE_IDENTITY)->firstOrFail();
+    expect($event->payload['sourcePlatform'])->toBe('instagram')
+        ->and($event->payload['handle'])->toBe('identitypreview')
+        ->and($event->payload)->toHaveKey('displayName');
 });
 
 it('re-serves an existing LIVE build for the same source without re-scraping', function () {

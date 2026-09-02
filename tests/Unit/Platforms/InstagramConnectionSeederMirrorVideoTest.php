@@ -8,6 +8,8 @@
 // blip, not a real absence of video — one bounded retry, not unbounded.
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\PreAccountBuild;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use Illuminate\Http\Client\ConnectionException;
@@ -228,6 +230,28 @@ it('persists latestMedia() diagnostics as _mediaDiagnostics on the stored connec
     ]);
     // The mirror itself correctly failed (disallowed host) — videoUrl stays null.
     expect($stored['videoUrl'])->toBeNull();
+});
+
+// Sign-up preview (2026-09-02, A.5): profilePic/displayName on STAGE_MEDIA
+// let the identity scene swap its monogram the moment media lands.
+it('lands profilePic and displayName keys on the STAGE_MEDIA sign-up-preview note', function () {
+    setupPreAccountBuildsTable();
+    setupPreAccountBuildEventsTable();
+    $user = createTenant('ig-media-preview');
+    $connection = IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
+        'payload' => [], 'is_active' => true,
+    ]);
+    $build = PreAccountBuild::factory()->make(['source_type' => 'instagram']);
+    $build->user()->associate($user);
+    $build->save();
+    $profile = ['fullName' => 'Media Preview', 'followersCount' => 1, 'postsCount' => 0, 'latestPosts' => []];
+
+    app(InstagramConnectionSeeder::class)->seed($connection, 'mediapreview', (string) $user->id, $profile);
+
+    $event = PreAccountBuildEvent::query()->where('build_id', $build->id)->where('stage', PreAccountBuildEvent::STAGE_MEDIA)->firstOrFail();
+    expect($event->payload)->toHaveKeys(['profilePic', 'displayName']);
+    expect($event->payload['displayName'])->toBe('Media Preview');
 });
 
 it('never emits _mediaDiagnostics on the public/dashboard Instagram payload', function () {

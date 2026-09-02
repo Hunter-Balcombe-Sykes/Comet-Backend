@@ -174,7 +174,9 @@ class InstagramConnectionSeeder
         $pendingReel = (bool) ($media['video'] && $media['video']['videoUrl']);
 
         $picSrc = $this->scraper->profilePicUrl($profile);
+        $mark = hrtime(true);
         $profilePic = $picSrc ? $this->mirrorOne($picSrc, "{$folder}/profile.jpg") : null;
+        $timing['mirror_pic_ms'] = self::msSince($mark);
 
         // BE2: bio links — externalUrl + externalUrls[].url + URLs regexed out of
         // biography, defensively (Apify actor field names vary by version; today's
@@ -306,6 +308,11 @@ class InstagramConnectionSeeder
                     ), static fn ($u) => is_string($u) && $u !== '')), 0, 8),
                 ]))),
                 'avatar' => is_string($profilePic ?? null) && $profilePic !== '' ? $profilePic : null,
+                // Sign-up preview (2026-09-02, A.5): the mirrored profile pic
+                // (never a raw CDN URL) and the name, so the identity scene can
+                // swap its monogram for the real avatar the moment media lands.
+                'profilePic' => is_string($profilePic ?? null) && $profilePic !== '' ? $profilePic : null,
+                'displayName' => is_string($selection['fullName'] ?? null) && $selection['fullName'] !== '' ? $selection['fullName'] : null,
             ],
         );
 
@@ -373,7 +380,7 @@ class InstagramConnectionSeeder
                 $platforms === []
                     ? 'Checked '.BuildProgress::count(count($bioLinks), 'link', 'links').' in your bio — nothing to connect yet'
                     : 'Connected '.BuildProgress::count(count($platforms), 'platform', 'platforms').' from your bio links',
-                ['platforms' => $platforms],
+                ['platforms' => BuildProgress::platformEntries($userId, $platforms)],
             );
         } else {
             // The feed's platforms row must always get an answer — the

@@ -3,6 +3,8 @@
 use App\Jobs\Platforms\GoogleBusinessEnrichJob;
 use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\PreAccountBuild;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\GoogleBusinessApifyScraper;
@@ -613,6 +615,28 @@ it('skips enrichment when the stored place no longer matches (reconnect guard)',
     expect($conn->payload)->not->toHaveKey('menu');
     expect($conn->apify_status)->toBe('pending');   // untouched (indexed guard skipped the job)
     Http::assertNothingSent();
+});
+
+// Sign-up preview (2026-09-02, A.5): reviewSamples on the STAGE_LISTING note.
+// gbApifyItem() carries no `reviews` key, matching the real pre-claim path
+// (GoogleBusinessPayload::stripThirdPartyPii drops reviews before the
+// provisional write) — so this is the empty-array branch.
+it('lands an empty reviewSamples on the STAGE_LISTING sign-up-preview note pre-claim', function () {
+    setupPreAccountBuildsTable();
+    setupPreAccountBuildEventsTable();
+    config(['services.apify.token' => 'apify-token']);
+    Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
+    $user = gbApifyUser('gb-listing-preview');
+    gbApifyConnection($user);
+    $build = PreAccountBuild::factory()->make(['source_type' => 'google_business']);
+    $build->user()->associate($user);
+    $build->save();
+
+    (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
+        ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
+
+    $event = PreAccountBuildEvent::query()->where('build_id', $build->id)->where('stage', PreAccountBuildEvent::STAGE_LISTING)->firstOrFail();
+    expect($event->payload['reviewSamples'])->toBe([]);
 });
 
 it('gates switched-off display sections out of the persisted payload but keeps placeId (WS-B2)', function () {

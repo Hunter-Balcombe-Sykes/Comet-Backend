@@ -3,6 +3,8 @@
 use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
+use App\Models\Core\User\PreAccountBuild;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Services\Content\ManualMenuItems;
 use App\Services\Content\ManualMenuWriter;
@@ -68,6 +70,24 @@ function mfjrScrape(User $user, array $items): void
         app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class)
     );
 }
+
+// Sign-up preview (2026-09-02, A.5): persist() now attaches a photos array
+// (≤6 dish cover URLs) to the STAGE_MENU note. noteForUser() only writes
+// with a live, unclaimed PreAccountBuild for the user, so create one first.
+it('lands a photos array on the STAGE_MENU sign-up-preview note', function () {
+    setupPreAccountBuildsTable();
+    setupPreAccountBuildEventsTable();
+    $user = mfjrUser('mfjr-preview');
+    mfjrOrdering($user);
+    $build = PreAccountBuild::factory()->make(['source_type' => 'instagram']);
+    $build->user()->associate($user);
+    $build->save();
+
+    mfjrScrape($user, [['name' => 'Cola', 'pickupPrice' => 3.0, 'deliveryPrice' => 3.0]]);
+
+    $event = PreAccountBuildEvent::query()->where('build_id', $build->id)->where('stage', PreAccountBuildEvent::STAGE_MENU)->firstOrFail();
+    expect($event->payload['photos'])->toBeArray();
+});
 
 it('revives a retired scraper-owned dish when the scrape re-emits it, keeping its id', function () {
     $user = mfjrUser('mfjr1');

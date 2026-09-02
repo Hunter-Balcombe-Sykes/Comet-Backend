@@ -2,6 +2,7 @@
 
 namespace App\Services\PreAccount;
 
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\PreAccountBuildEvent;
 
@@ -84,6 +85,53 @@ final class BuildProgress
         }
 
         self::note($buildId, $stage, $status, $label, $payload);
+    }
+
+    /**
+     * Sign-up preview (2026-09-02, A.5): the platforms row as
+     * `{platform, handle, url}` entries, one per slug and in the emitter's
+     * order, so the card can show a mark with the handle under it. Both
+     * emitters (the bio-link auto-sync and the link-page scan) only know
+     * slugs; the handle/url live on the connection rows they just wrote,
+     * read here through the payloads' shared `username|handle` / `url|link`
+     * keys. A slug with no row (a conflict finding) still gets an entry so
+     * the count the label states matches the marks shown.
+     *
+     * @param  list<string>  $slugs
+     * @return list<array{platform: string, handle: string|null, url: string|null}>
+     */
+    public static function platformEntries(string $userId, array $slugs): array
+    {
+        $slugs = array_values(array_unique(array_filter($slugs, static fn (string $s): bool => $s !== '')));
+        if ($slugs === []) {
+            return [];
+        }
+
+        $byPlatform = [];
+        try {
+            $rows = IntegrationConnection::query()
+                ->where('user_id', $userId)
+                ->whereIn('platform', $slugs)
+                ->orderBy('created_at')
+                ->get(['platform', 'payload']);
+            foreach ($rows as $row) {
+                $byPlatform[(string) $row->platform] ??= $row->payload ?? [];
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        $str = static fn (mixed $v): ?string => is_string($v) && $v !== '' ? $v : null;
+
+        return array_map(static function (string $slug) use ($byPlatform, $str): array {
+            $payload = $byPlatform[$slug] ?? [];
+
+            return [
+                'platform' => $slug,
+                'handle' => $str($payload['username'] ?? $payload['handle'] ?? null),
+                'url' => $str($payload['url'] ?? $payload['link'] ?? null),
+            ];
+        }, $slugs);
     }
 
     /**

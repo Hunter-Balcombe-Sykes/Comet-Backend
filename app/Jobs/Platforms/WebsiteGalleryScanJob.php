@@ -78,7 +78,7 @@ class WebsiteGalleryScanJob implements ShouldBeUnique, ShouldQueue
                     'thumbnails' => array_slice(array_values(array_filter(array_map(
                         static fn (array $d) => str_starts_with($d['outcome'], 'uploaded') ? $d['url'] : null,
                         $decisions,
-                    ))), 0, 4),
+                    ))), 0, 6),
                 ],
             );
         }

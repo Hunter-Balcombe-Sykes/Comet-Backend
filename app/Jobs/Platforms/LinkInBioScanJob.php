@@ -100,7 +100,7 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
                 PreAccountBuildEvent::STAGE_PLATFORMS,
                 $placed === [] ? PreAccountBuildEvent::STATUS_SKIPPED : PreAccountBuildEvent::STATUS_LANDED,
                 $label,
-                ['platforms' => $placed],
+                ['platforms' => BuildProgress::platformEntries($this->userId, $placed)],
             );
         }
     }

@@ -363,6 +363,27 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
                     static fn (array $p): ?string => $p['photoPicUrl'],
                     $listingPayload->photos(),
                 ), static fn (?string $u): bool => $u !== null && $u !== '')), 0, 3),
+                // Sign-up preview (2026-09-02, A.5): up to three review samples
+                // WHEN the stored listing carries reviews. On the pre-claim
+                // path it never does — GoogleBusinessPayload::stripThirdPartyPii
+                // drops `reviews` before the provisional write (PRIV-1) — so
+                // this is [] for a signup preview and fills only for a claimed
+                // owner's re-enrich. The scene hides the block when empty.
+                'reviewSamples' => array_slice(array_values(array_filter(array_map(
+                    static function (mixed $r): ?array {
+                        if (! is_array($r)) {
+                            return null;
+                        }
+                        $text = $r['text'] ?? $r['reviewText'] ?? null;
+                        $author = $r['name'] ?? $r['authorName'] ?? $r['author'] ?? null;
+                        $rating = $r['rating'] ?? $r['stars'] ?? null;
+
+                        return is_string($text) && trim($text) !== ''
+                            ? ['author' => is_string($author) ? $author : null, 'rating' => is_numeric($rating) ? (float) $rating : null, 'text' => trim($text)]
+                            : null;
+                    },
+                    is_array($listing['reviews'] ?? null) ? $listing['reviews'] : [],
+                ))), 0, 3),
             ],
         );
 
