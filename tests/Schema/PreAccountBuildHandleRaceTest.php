@@ -37,6 +37,7 @@
 use App\Models\Core\Staff\PartnaStaff;
 use App\Services\PreAccount\PreAccountBuildException;
 use App\Services\PreAccount\PreAccountBuildService;
+use App\Services\PreAccount\SourcePrefetch;
 use App\Services\User\HandleAllocator;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -192,12 +193,21 @@ it('retries past a colliding handle_lc without aborting the build transaction', 
             );
         app()->instance(HandleAllocator::class, $mockAllocator);
 
-        $result = app(PreAccountBuildService::class)->requestBuild(
+        $service = app(PreAccountBuildService::class);
+        $result = $service->requestBuild(
             accountType: 'partna', sourceType: 'instagram', rawSourceRef: 'handleracewinner'.Str::random(6),
             sourceName: null, ipHash: null, staff: $staff,
         );
 
-        expect($result['build']->user->handle_lc)->toBe($handleLcFree);
+        // Item 1a (c3962a0a1, 2026-09-02): requestBuild no longer allocates a
+        // handle or creates the provisional user — materializeIdentity does,
+        // once the scrape has verified the source. The savepoint isolation
+        // this test exists to prove still lives in
+        // createProvisionalUserWithRetry; only the entry point moved.
+        $user = $service->materializeIdentity($result['build'], new SourcePrefetch(payload: []));
+
+        expect($user->handle_lc)->toBe($handleLcFree)
+            ->and((string) $result['build']->refresh()->user_id)->toBe((string) $user->id);
 
         // Outer transaction still alive: the build row committed (to the savepoint)
         // in the same tx as the pre-seeded collision row.
@@ -251,12 +261,17 @@ it('exhausts retries cleanly (PreAccountBuildException) when every attempt colli
             ->andReturn(['handle' => $handleLc, 'handle_lc' => $handleLc]);
         app()->instance(HandleAllocator::class, $mockAllocator);
 
+        $service = app(PreAccountBuildService::class);
+        $build = $service->requestBuild(
+            accountType: 'partna', sourceType: 'instagram', rawSourceRef: 'handleraceloser'.Str::random(6),
+            sourceName: null, ipHash: null, staff: $staff,
+        )['build'];
+
         $thrown = null;
         try {
-            app(PreAccountBuildService::class)->requestBuild(
-                accountType: 'partna', sourceType: 'instagram', rawSourceRef: 'handleraceloser'.Str::random(6),
-                sourceName: null, ipHash: null, staff: $staff,
-            );
+            // Item 1a: the exhaustion path is reached through
+            // materializeIdentity now, not requestBuild.
+            $service->materializeIdentity($build, new SourcePrefetch(payload: []));
         } catch (PreAccountBuildException $e) {
             $thrown = $e;
         }
@@ -264,12 +279,22 @@ it('exhausts retries cleanly (PreAccountBuildException) when every attempt colli
         expect($thrown)->not->toBeNull('Expected a clean PreAccountBuildException, not a raw DB error.')
             ->and($thrown->errorCode)->toBe(PreAccountBuildException::SOURCE_REF_INVALID);
 
-        // Outer transaction is still usable — no 25P02 poisoning from the collisions —
-        // and the failed attempt left no partial rows behind. Scoped to this test's
-        // own handle_lc (see the header comment: a whole-table count only ever passed
-        // because the SQLite lane's core.users starts empty, which this lane's
-        // real, shared, persistent database does not).
-        expect(DB::table('core.pre_account_builds')->where('source_type', 'instagram')->where('source_ref_lc', 'like', 'handleraceloser%')->count())->toBe(0);
+        // Outer transaction is still usable — no 25P02 poisoning from the collisions.
+        //
+        // The BUILD row survives, and must: since Item 1a (c3962a0a1) requestBuild
+        // creates it before any identity exists, and F3 resets a failed build so it
+        // re-runs. Deleting it here would break that retry path. This assertion
+        // used to expect 0 because the pre-Item-1a requestBuild created build and
+        // user together, so an exhausted allocation rolled BOTH back.
+        //
+        // What must NOT survive is a half-made identity: no user bound to the
+        // build, and no ghost core.users row past the savepoint rollback. Scoped
+        // to this test's own handle_lc (see the header comment: a whole-table
+        // count only ever passed because the SQLite lane's core.users starts
+        // empty, which this lane's real, shared, persistent database does not).
+        $builds = DB::table('core.pre_account_builds')->where('source_type', 'instagram')->where('source_ref_lc', 'like', 'handleraceloser%');
+        expect((clone $builds)->count())->toBe(1)
+            ->and((clone $builds)->whereNotNull('user_id')->count())->toBe(0);
         expect(DB::table('core.users')->where('handle_lc', $handleLc)->count())->toBe(1); // only the pre-seeded row
     } finally {
         if (DB::transactionLevel() > 0) {
