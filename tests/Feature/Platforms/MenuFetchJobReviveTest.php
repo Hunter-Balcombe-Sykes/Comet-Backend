@@ -85,7 +85,7 @@ it('lands a photos array on the STAGE_MENU sign-up-preview note', function () {
 
     mfjrScrape($user, [['name' => 'Cola', 'pickupPrice' => 3.0, 'deliveryPrice' => 3.0]]);
 
-    $event = PreAccountBuildEvent::query()->where('build_id', $build->id)->where('stage', PreAccountBuildEvent::STAGE_MENU)->firstOrFail();
+    $event = PreAccountBuildEvent::query()->where('build_id', $build->id)->where('stage', PreAccountBuildEvent::STAGE_MENU)->where('status', 'landed')->firstOrFail();
     expect($event->payload['photos'])->toBeArray();
 });
 

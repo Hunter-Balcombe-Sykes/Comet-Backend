@@ -80,7 +80,7 @@ it('slices thumbnails to 6 on the STAGE_WEBSITE sign-up-preview note', function 
 
     (new WebsiteGalleryScanJob((string) $user->id, (string) $site->id, []))->handle(app(GalleryAutoGrabber::class));
 
-    $event = PreAccountBuildEvent::query()->where('build_id', $build->id)->where('stage', PreAccountBuildEvent::STAGE_WEBSITE)->firstOrFail();
+    $event = PreAccountBuildEvent::query()->where('build_id', $build->id)->where('stage', PreAccountBuildEvent::STAGE_WEBSITE)->where('status', 'landed')->firstOrFail();
     expect($event->payload['thumbnails'])->toHaveCount(6);
     expect($event->payload['photos'])->toBe(7);
 });
