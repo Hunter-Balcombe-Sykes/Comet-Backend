@@ -220,8 +220,13 @@ function seedIdentity(string $label): array
  * it was retired (2026-09-01 writes, 2026-09-02 reads).
  *
  * site.site_media carries UNIQUE (site_id, pool, sort_order) WHERE deleted_at IS
- * NULL — the two content rows therefore need distinct sort_order (1 and 0); the
- * documents row may reuse 0.
+ * NULL, and createIdentity() has ALREADY written a content-pool row for this
+ * site at sort_order 0 (the column default). The two probe content rows must
+ * therefore start at 1, not 0 — seeding one at 0 collides with that row and
+ * takes the whole lane down before ZAP starts. That is exactly what happened
+ * between 2026-09-02 d68279aa5 (which moved createIdentity's row from the
+ * gallery pool to content, creating the clash) and this fix. The documents row
+ * is in its own pool and may reuse 0.
  *
  * @return array<string, string>
  */
@@ -244,7 +249,7 @@ function seedProbeFixtures(User $user, Site $site, string $label): array
         [
             'id' => $mediaImageId, 'site_id' => $siteId,
             'path' => "dast/{$label}/content-2.jpg", 'pool' => 'content',
-            'media_type' => 'image', 'sort_order' => 1,
+            'media_type' => 'image', 'sort_order' => 2,
             'created_at' => $now, 'updated_at' => $now,
         ],
         [
@@ -256,7 +261,7 @@ function seedProbeFixtures(User $user, Site $site, string $label): array
         [
             'id' => $mediaContentId, 'site_id' => $siteId,
             'path' => "dast/{$label}/content-1.jpg", 'pool' => 'content',
-            'media_type' => 'image', 'sort_order' => 0,
+            'media_type' => 'image', 'sort_order' => 1,
             'created_at' => $now, 'updated_at' => $now,
         ],
     ]);
