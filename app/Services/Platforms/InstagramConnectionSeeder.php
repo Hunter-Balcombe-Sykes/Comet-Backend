@@ -374,18 +374,23 @@ class InstagramConnectionSeeder
                 fn (array $finding) => (string) ($finding['platform'] ?? ''),
                 $sync['findings'],
             ))));
-            BuildProgress::noteForUser(
-                $userId,
-                PreAccountBuildEvent::STAGE_PLATFORMS,
-                $platforms === [] ? PreAccountBuildEvent::STATUS_SKIPPED : PreAccountBuildEvent::STATUS_LANDED,
-                $platforms === []
-                    ? 'Checked '.BuildProgress::count(count($bioLinks), 'link', 'links').' in your bio — nothing to connect yet'
-                    : 'Connected '.BuildProgress::count(count($platforms), 'platform', 'platforms').' from your bio links',
-                ['platforms' => BuildProgress::platformEntries($userId, $platforms)],
-            );
-        } else {
+            if ($platforms !== [] || (int) ($sync['scans'] ?? 0) === 0) {
+                BuildProgress::noteForUser(
+                    $userId,
+                    PreAccountBuildEvent::STAGE_PLATFORMS,
+                    $platforms === [] ? PreAccountBuildEvent::STATUS_SKIPPED : PreAccountBuildEvent::STATUS_LANDED,
+                    $platforms === []
+                        ? 'Checked '.BuildProgress::count(count($bioLinks), 'link', 'links').' in your bio — nothing to connect yet'
+                        : 'Connected '.BuildProgress::count(count($platforms), 'platform', 'platforms').' from your bio links',
+                    ['platforms' => BuildProgress::platformEntries($userId, $platforms)],
+                );
+            }
+        } elseif ((int) ($sync['scans'] ?? 0) === 0) {
             // The feed's platforms row must always get an answer — the
-            // progress reader waits on it for Instagram builds.
+            // progress reader waits on it for Instagram builds. Unless a
+            // link-page scan was just dispatched (2026-09-02): that scan
+            // answers the row itself, and a "nothing to connect" here
+            // contradicted the "connected 3 platforms" it landed 30s later.
             BuildProgress::noteForUser(
                 $userId,
                 PreAccountBuildEvent::STAGE_PLATFORMS,

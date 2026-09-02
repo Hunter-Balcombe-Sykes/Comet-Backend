@@ -6,8 +6,10 @@ use App\Jobs\Platforms\ScanPreviousWebsiteContentJob;
 use App\Jobs\Platforms\SweepPreviousWebsiteCardsJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\SiteCacheInvalidator;
+use App\Services\PreAccount\BuildProgress;
 use App\Services\Site\SectionBlockProvisioner;
 use App\Services\User\SectionVisibilityService;
 use Illuminate\Support\Facades\Log;
@@ -226,6 +228,9 @@ class WorkplaceObserver
     private function dispatchContentScan(Workplace $workplace): void
     {
         try {
+            // Setup progress (2026-09-02): the website is owed from HERE, not
+            // from the scan's first line — that ran after "done" (teegan +94s).
+            BuildProgress::noteForUser((string) $workplace->site->user_id, PreAccountBuildEvent::STAGE_WEBSITE, PreAccountBuildEvent::STATUS_STARTED, 'Looking at your website');
             ScanPreviousWebsiteContentJob::dispatch(
                 (string) $workplace->site->user_id,
                 (string) $workplace->site_id,

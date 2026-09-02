@@ -120,7 +120,24 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         return now()->addMinutes(30);
     }
 
+    /** Whether this run wrote the menu stage's answer (landed/skipped/failed). */
+    private bool $menuAnswered = false;
+
     public function handle(MenuSource $source, MenuApifyScraper $scraper, MenuMerger $merger): void
+    {
+        try {
+            $this->run($source, $scraper, $merger);
+        } finally {
+            // Setup progress (2026-09-02): a run that returns without dishes
+            // and without a note (no plan, nothing scrapable) still answers
+            // the menu row — Nando's held "done" to the owed timeout on it.
+            if (! $this->menuAnswered) {
+                BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_MENU, PreAccountBuildEvent::STATUS_SKIPPED, 'Nothing to read from your menu yet');
+            }
+        }
+    }
+
+    private function run(MenuSource $source, MenuApifyScraper $scraper, MenuMerger $merger): void
     {
         // Setup progress (2026-09-02): the menu stage has STARTED.
         BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_MENU, PreAccountBuildEvent::STATUS_STARTED, 'Reading your menu');
@@ -215,6 +232,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         if (array_filter($menus) === []) {
             $this->writePlatformSyncStatus($storeLinks, $menus, $menu, $now);
             // Setup progress (2026-09-02): an owed stage gets its answer.
+            $this->menuAnswered = true;
             BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_MENU, PreAccountBuildEvent::STATUS_SKIPPED, "Couldn't read your menu yet — it will retry");
             $menu->forceFill(['fetch_status' => 'unavailable', 'last_fetched_at' => $now])->save();
 
@@ -531,6 +549,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         // MenuBackfiller::run() uses for the same reason).
         $this->syncOrderPlatforms($menu);
         $this->seedPins($userId, $itemIds);
+        $this->menuAnswered = true;
 
         // Setup progress (2026-09-02): the menu row the feed shows. The dish
         // photos (A.5) are the covers the writes above attached — the same
@@ -1562,6 +1581,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
     public function failed(Throwable $e): void
     {
         // Setup progress (2026-09-02): an owed stage gets its answer.
+        $this->menuAnswered = true;
         BuildProgress::noteForUser((string) $this->userId, PreAccountBuildEvent::STAGE_MENU, PreAccountBuildEvent::STATUS_FAILED, "Couldn't read your menu just now");
         report($e);
         Log::error('menu.fetch_job.failed', ['user_id' => $this->userId, 'error' => $e->getMessage()]);

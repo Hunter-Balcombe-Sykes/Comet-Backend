@@ -74,12 +74,14 @@ class InstagramAutoSync
         // Dominant case today: the Apify actor returns no bio fields at all, so
         // the connect job calls this with []. Skip the user lookup entirely.
         if ($bioLinks === []) {
-            return ['findings' => [], 'unmatched' => []];
+            return ['findings' => [], 'unmatched' => [], 'scans' => 0];
         }
 
         $user = User::find($userId);
 
         $findings = [];
+
+        $scans = 0;
         $unmatched = [];
 
         // ONE context for the whole run — carries first-link-per-platform
@@ -161,6 +163,7 @@ class InstagramAutoSync
                     // Setup progress (2026-09-02): the platforms row is owed from here.
                     BuildProgress::noteForUser($userId, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_STARTED, 'Checking your link page');
                     LinkInBioScanJob::dispatch($userId, $url, $autoConnectBooking);
+                    $scans++;
 
                     continue;
                 }
@@ -218,7 +221,7 @@ class InstagramAutoSync
             }
         }
 
-        return ['findings' => $findings, 'unmatched' => $unmatched];
+        return ['findings' => $findings, 'unmatched' => $unmatched, 'scans' => $scans];
     }
 
     /** Override — adds Facebook normalizer support to the trait's implementation. */
