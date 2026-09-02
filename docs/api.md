@@ -236,17 +236,88 @@ All four error bodies put the machine-readable code at the **top level**: `{ "me
 
 **Common status codes:** 200, 404 (unknown `build_id`)
 
+### `GET /api/public/signup/builds/{build_id}/prefill`
+
+- Purpose: the sign-up flow's name/handle screens pre-fill from what the build
+  scraped, so the person confirms instead of typing (A.8)
+- Auth: Required (Supabase JWT) — the flow calls it after the OTP step, and
+  gating on a verified session is what keeps scraped names from being an
+  anonymous enumeration surface
+- Rate limit: `public-site`
+
+**Response (200):**
+
+```json
+{
+  "first_name": "Jane",
+  "last_name": "Doe",
+  "display_name": "Jane Doe",
+  "handle": "janedoe",
+  "sector": "hair-salon"
+}
+```
+
+Fields are `null` when the build learned nothing for them. 404 for an unknown
+or claimed build.
+
+### `GET /api/public/signup/sector-options`
+
+- Purpose: the sign-up flow's industry screen renders the sector picker
+  pre-claim, when no `core.users` row exists yet — so the taxonomy has to be
+  readable off the user API
+- Auth: Required (Supabase JWT)
+- Rate limit: `public-site`
+
+**Response (200):** `{ "groups": [{ "group": "Beauty & grooming", "options": [{ "slug": "hair-salon", "label": "Hair salon" }, …] }, …] }` — the same `SectorTaxonomy` groups the dashboard's account settings use, so a slug picked here is valid on `POST /api/claim`.
+
+### `POST /api/public/signup/availability`
+
+- Purpose: live email/phone/handle availability for the sign-up flow's screens
+- Auth: None (bot token `signup`)
+- Rate limit: `signup-availability`
+
+Body takes any of `email`, `phone`, `handle_lc` (all optional). Response wraps
+each in `{ "available": bool, "exists": bool }` plus `signups_open` /
+`waitlist_only`. The email check also catches confirmed Supabase users with no
+`core.users` row (orphans/mid-signup resumes) so the flow routes them to
+sign-in/resume instead of a signUp that silently sends nothing. Availability is
+advisory — the claim re-checks the handle under the site row's lock, and the
+flow must still handle `409 HANDLE_TAKEN`.
+
 ### `POST /api/claim`
 
 - Purpose: bind a Supabase-authenticated visitor to an unclaimed pre-account site (first-come)
 - Auth: Required (Supabase JWT) — email read **only** from the verified JWT `email` claim, never the body (same OV-A hardening as bootstrap)
 - Rate limit: `claim` (5/min per Supabase `sub`)
 
-**Request body:**
+**Request body** (A.8, 2026-09-02 — the sign-up flow's own answers ride the claim):
 
 ```json
-{ "subdomain": "jane-doe" }
+{
+  "subdomain": "jane-doe",
+  "claim_token": "…",
+  "handle": "jane",
+  "first_name": "Jane",
+  "last_name": "Doe",
+  "display_name": "Jane Doe",
+  "sector": "hair-salon"
+}
 ```
+
+Everything but `subdomain` is optional (the ManyChat claim page and older
+clients keep claiming with the bare body); the service applies only what
+arrives. `handle` re-addresses the site inside the claim transaction —
+availability is checked under the site row's lock with the own-site
+exemption, the first set writes no alias and no rename cooldown, and a
+conflict answers `409 HANDLE_TAKEN`. Names fill; `sector` must pass
+`SectorTaxonomy::isValid` and stamps `sector_source = 'manual'` only when it
+differs from what a sync wrote.
+
+With `partna.pre_account.require_claim_proof` on (dev: ON), a **signup**
+build's claim requires a valid `claim_token`. The token comes from the build
+`202` — and is **re-minted (rotated) when the POST re-serves a live signup
+build**, so the flow's resume path always holds a working one (U28); staff/
+outreach builds keep mint-once + staff reissue.
 
 **Response (200):** identical shape to `POST /api/bootstrap`'s success response — `{ "professional": {...}, "site": {...} }` — so the frontend can land straight in the dashboard. A retry with the same JWT after a successful claim replays the same 200 (idempotent), not a 409.
 
@@ -379,7 +450,7 @@ below read "No", and a claimed owner's unpublished site was fully readable):
 |---|---|
 | `GET /api/public/profiles/{handle}` (`IndividualProfileController`) — the live `<handle>.partna.au` sitepage | Yes — claimed owners only |
 | `GET /api/public/profiles/{handle}/integrations` (`PublicIntegrationController`) | Yes — claimed owners only |
-| `SyncSubdomainToKvJob` (Cloudflare KV write) — gates on `isActive() \|\| isUnclaimed()` instead | No |
+| `SyncSubdomainToKvJob` (Cloudflare KV write) — gates on `isActive() \|\| isUnclaimed()` instead, and (A.8, 2026-09-02) retires the route for an unclaimed site whose LATEST build is a self-serve signup build (`built_via = 'signup'`), so a mid-signup site isn't publicly routable before its claim; staff/outreach demo builds stay lit | No |
 | `PublicSiteResolver` (lead/enquiry/subscribe site lookup) | Yes |
 | `PublicDocumentDownloadController` | Yes |
 | `AnalyticsController` (pageview/click/dwell tracking) | Yes |
@@ -1048,6 +1119,44 @@ HTTP 423 Locked
 - Purpose: publish or unpublish the mini-site
 - Request body: `{ "published": true }`
 - Response (200): `{ "published": true }`
+
+### Setup dialog (`/api/site/setup`) — A.9/C/D, 2026-09-02
+
+The first-run setup walk: the dashboard's dialog reads one composed payload,
+accepts suggestions in batches, and bookmarks progress. `GET /api/me` mirrors
+the bookmark at `professional.setup { step, completed_at }`.
+
+#### `GET /api/site/setup`
+
+Response: `{ "step": "platforms" | null, "completed_at": null, "account_type":
+"partna", "progress": { "done": false, "stage": "platforms" }, "passes": [...] }`.
+
+Each pass (`identity`, `logo`, `workplace`, `platforms`, `services`,
+`listing`, `menu`, `social`, …) carries its suggestions camelCased: `id`,
+`surfaceKey`, `brandKey`, `displayName`, `accountName`, `avatar`, `url`,
+`origin`, `originLabel`, `band`, `preselected`, `syncing`, `connectionId`,
+`actions`. The pass list is registry-driven per account/build shape — a
+business built from its own Google listing gets no separate `listing`/`menu`
+pass. `origin`/`originLabel` are debugging metadata: the dashboard never
+renders origin labels (owner decision, 2026-09-02).
+
+Polling: the open dialog polls at 3s; the home status card at 30s.
+
+#### `PUT /api/site/setup`
+
+Body `{ "step": "platforms" }` bookmarks the pass the person is on; body
+`{ "completed": true }` stamps `completed_at` and sets `step` to `done`.
+
+#### `POST /api/site/setup/accept`
+
+One batch per pass: `{ "pass": "platforms", "accept": [ids], "select": [ids],
+"exclude": [ids], "adopt": id, "logo": { "square": id, "full": id } }` — all
+arrays optional. `accept` connects platform suggestions (mints
+`connectionId`s), `select`/`exclude` curate pool items, `adopt` takes a
+workplace-candidate id, `logo` promotes `site.logo_candidates` rows
+(state → `promoted`). Booking team-member picks are NOT accepted here — the
+dashboard's booking selection step saves itself through the booking
+endpoints, and the applier rejects a `teamMember` key by design.
 
 ### Services
 
