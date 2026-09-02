@@ -2,6 +2,7 @@
 
 namespace App\Ingest\Runtime;
 
+use App\Models\Core\Site\IntegrationConnection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -43,6 +44,11 @@ final class IngestStatusWriteback
             return;
         }
 
+        // 2026-09-02: a connector that learned the connection's identity mid-run
+        // (YoutubeRssConnector resolving @handle → UC… channel id) says so in a
+        // note; the connection carries it from here so duplicates retire.
+        $this->applyResolvedIdentity($connectionId, $runId);
+
         $current = DB::table('site.platform_connections')
             ->where('id', $connectionId)
             ->whereNull('deleted_at')
@@ -69,6 +75,42 @@ final class IngestStatusWriteback
         }
 
         DB::table('site.platform_connections')->where('id', $connectionId)->update($update);
+    }
+
+    private function applyResolvedIdentity(string $connectionId, string $runId): void
+    {
+        try {
+            $detail = DB::table('ingest.runs')->where('id', $runId)->value('detail');
+            $decoded = is_string($detail) ? json_decode($detail, true) : null;
+            $notes = is_array($decoded) && is_array($decoded['notes'] ?? null) ? $decoded['notes'] : [];
+            $channelId = null;
+            foreach ($notes as $note) {
+                if (is_array($note) && ($note['code'] ?? null) === 'channel_resolved') {
+                    $candidate = $note['context']['channelId'] ?? null;
+                    if (is_string($candidate) && preg_match('/^UC[A-Za-z0-9_-]{22}$/', $candidate) === 1) {
+                        $channelId = $candidate;
+                    }
+                }
+            }
+            if ($channelId === null) {
+                return;
+            }
+            $row = IntegrationConnection::query()->whereKey($connectionId)->whereNull('deleted_at')->first();
+            if ($row === null || $row->platform !== 'youtube') {
+                return;
+            }
+            $payload = (array) $row->payload;
+            if (($payload['channelId'] ?? null) === $channelId) {
+                return;
+            }
+            // A real save: IntegrationConnectionObserver::saved() is what
+            // retires the other row for the same channel and re-keys the
+            // ingest source onto the channel id.
+            $row->payload = [...$payload, 'channelId' => $channelId];
+            $row->save();
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /**

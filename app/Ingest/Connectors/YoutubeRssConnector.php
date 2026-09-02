@@ -109,6 +109,13 @@ class YoutubeRssConnector implements Connector
 
                 return;
             }
+            // 2026-09-02: say what the handle resolved to, so the connection
+            // can carry channelId (IngestStatusWriteback) and a second row for
+            // the same channel — youtube.com/channel/UC… beside
+            // youtube.com/@handle on one link page — retires.
+            if ($resolvedFresh) {
+                yield new Note('channel_resolved', "handle '{$identifier}' resolved to {$channelId}", ['channelId' => $channelId]);
+            }
         }
 
         $response = $io->get('https://www.youtube.com/feeds/videos.xml?'.http_build_query(['channel_id' => $channelId]));

@@ -27,6 +27,7 @@ use App\Services\Platforms\ScrapeCreators\LinktreeLinksNormalizer;
 use App\Services\Platforms\ScrapeCreators\PillarLinksNormalizer;
 use App\Services\Platforms\ScrapeCreators\ScrapeCreatorsClient;
 use App\Services\Platforms\WebsiteLinkHarvester;
+use App\Services\Shop\DiscountCodeAdopter;
 use App\Services\Shop\DiscountCodeSniffer;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -491,20 +492,7 @@ class LinkInBioImporter
      */
     private function adoptDiscountCode(User $user, string $url, string $code): void
     {
-        $host = strtolower((string) preg_replace('~^www\.~', '', (string) parse_url($url, PHP_URL_HOST)));
-        if ($host === '') {
-            return;
-        }
-        try {
-            $n = DB::connection('pgsql')->table('content.storefronts')
-                ->where('user_id', $user->id)
-                ->where(fn ($q) => $q->whereNull('discount_code')->orWhere('discount_code', ''))
-                ->where(fn ($q) => $q->where('url', 'like', '%'.$host.'%')->orWhere('source_url', 'like', '%'.$host.'%'))
-                ->update(['discount_code' => $code, 'updated_at' => now()]);
-            Log::info('link_in_bio.discount_code_adopted', ['user_id' => (string) $user->id, 'host' => $host, 'code' => $code, 'rows' => $n]);
-        } catch (\Throwable $e) {
-            report($e);
-        }
+        app(DiscountCodeAdopter::class)->adopt($user, $url, $code);
     }
 
     private function pageKey(string $url): string
@@ -550,6 +538,15 @@ class LinkInBioImporter
         // refused), and DOMDocument::loadHTML refuses an empty string — the
         // harvester has nothing to read either way.
         $links = $apiLinks ?? ($body === '' ? [] : $this->harvester->allOutboundLinks($body, $baseUrl));
+        // The anchor arm's tile titles (2026-09-02): the vendor arm records
+        // them from the API rows; a page read straight from its HTML has the
+        // same titles in its anchor text, and the discount-code sniff needs
+        // them either way.
+        if ($apiLinks === null && $body !== '') {
+            foreach ($this->harvester->anchorTitles($body, $baseUrl) as $anchorUrl => $anchorTitle) {
+                $this->vendorTitles[strtolower(trim($anchorUrl))] ??= $anchorTitle;
+            }
+        }
 
         // F12 (2026-08-20, the natalieannehair stan.store trace): the API and
         // inline unrollers return the platform's TILE links and never see the
@@ -783,7 +780,10 @@ class LinkInBioImporter
         }
 
         if (isset($placedKeys[$key]) && $context->user !== null) {
-            if ($placedKeys[$key] === $canonical) {
+            // Canonicals differing only by query string (youtube.com/@x beside
+            // youtube.com/@x?sub_confirmation=1 — jordan.dimitriadis,
+            // 2026-09-02) are one page under one key: fold, never card.
+            if ($placedKeys[$key] === $canonical || strtok($placedKeys[$key], '?') === strtok($canonical, '?')) {
                 // Its OWN bucket, not 'noted' (critic pass 2): 'noted' claims
                 // a card exists — the exact lie #R2 fixed — and a
                 // same-canonical fold writes nothing, deliberately.
@@ -914,7 +914,15 @@ class LinkInBioImporter
                 // seedCustom() (a PUBLIC link card) and a failed job persists
                 // the whole payload in public.failed_jobs — either way an
                 // unredacted secret must not reach this dispatch (#SEC-7).
-                CommerceProbeJob::dispatch((string) $context->user->id, SecretParams::redactUrl($url) ?? '');
+                // The tile's title may carry the store's discount code ("Gamma+ -
+                // CODE: TEEGAN10"); the storefront this probe mints lands on
+                // the queue after this import ends, so the probe adopts it.
+                $title = $this->vendorTitles[strtolower(trim($url))] ?? null;
+                CommerceProbeJob::dispatch(
+                    (string) $context->user->id,
+                    SecretParams::redactUrl($url) ?? '',
+                    discountCode: is_string($title) ? DiscountCodeSniffer::sniff($title) : null,
+                );
                 $tally['probed']++;
 
                 return;

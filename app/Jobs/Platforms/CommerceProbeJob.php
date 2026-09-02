@@ -14,6 +14,7 @@ use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\EventsSeeder;
 use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\ShopProductSeeder;
+use App\Services\Shop\DiscountCodeAdopter;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -91,6 +92,11 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
          * happened.
          */
         public readonly ?string $acceptedIntentId = null,
+        /**
+         * A discount code the link tile's title carried (DiscountCodeSniffer,
+         * 2026-09-02) — adopted by the storefront this probe mints, fill-if-empty.
+         */
+        public readonly ?string $discountCode = null,
     ) {
         $this->onQueue(config('partna.queues.scraping', 'scraping'));
     }
@@ -143,6 +149,9 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
 
         if (! $resolved && ! $this->suggestOnly) {
             $links->seedCustom($user, $this->url);
+        }
+        if ($resolved && $this->discountCode !== null) {
+            app(DiscountCodeAdopter::class)->adopt($user, $this->url, $this->discountCode);
         }
 
         // An accept that resolved is settled by the reconciler on its way

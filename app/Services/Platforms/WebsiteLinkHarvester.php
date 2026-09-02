@@ -944,6 +944,48 @@ class WebsiteLinkHarvester
     }
 
     /** Absolute, deduped, http(s)-only hrefs from the page (≤1000 to bound work — T9). */
+    /**
+     * Anchor text per outbound URL — the tile TITLES a link page read straight
+     * from its HTML carries ("Gamma+ - CODE: TEEGAN10"), for the same sniffs
+     * the vendor-API rows get (2026-09-02). Same anchors, same visibility
+     * rule and URL resolution as allOutboundLinks(); first non-empty text per
+     * URL wins, whitespace collapsed, capped at 200 characters.
+     *
+     * @return array<string, string> absolute url => title
+     */
+    public function anchorTitles(string $html, string $baseUrl): array
+    {
+        $doc = new \DOMDocument;
+        $prev = libxml_use_internal_errors(true);
+        $loaded = $doc->loadHTML($html, LIBXML_NOWARNING | LIBXML_NOERROR | LIBXML_NONET);
+        libxml_clear_errors();
+        libxml_use_internal_errors($prev);
+        if (! $loaded) {
+            return [];
+        }
+        $titles = [];
+        foreach ($doc->getElementsByTagName('a') as $a) {
+            $href = trim((string) $a->getAttribute('href'));
+            if ($href === '' || str_starts_with($href, '#') || $this->isHiddenAnchor($a)) {
+                continue;
+            }
+            $abs = $this->absolutize($href, $baseUrl);
+            if ($abs === null || isset($titles[$abs])) {
+                continue;
+            }
+            $text = trim((string) preg_replace('/\s+/u', ' ', (string) $a->textContent));
+            if ($text === '') {
+                continue;
+            }
+            $titles[$abs] = mb_substr($text, 0, 200);
+            if (count($titles) >= 1000) {
+                break;
+            }
+        }
+
+        return $titles;
+    }
+
     private function extractLinks(string $html, string $baseUrl): array
     {
         $doc = new \DOMDocument;

@@ -1045,3 +1045,29 @@ it('connects a harvested Square Appointments deep link as the booking provider, 
         ->and($row->payload['url'])->toContain('team_member_id=TM-qREuvGrHGnJ5Z');
     expect(DB::table('routing.link_observations')->where('surface_key', 'square.book')->value('verdict'))->toBe('place');
 });
+
+it('folds a link that differs from a placed one only by query string, instead of carding it', function () {
+    Queue::fake();
+    $pro = createTenant('bio-ytq');
+    bioPage('<html><body>
+        <a href="https://www.youtube.com/@acmebarbers">YouTube</a>
+        <a href="https://www.youtube.com/@acmebarbers?sub_confirmation=1">Subscribe</a>
+    </body></html>');
+
+    app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/bio-ytq', 'link_in_bio');
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'youtube')->whereNull('deleted_at')->count())->toBe(1);
+    expect(DB::table('content.items')->where('user_id', $pro->id)->where('kind', 'link')->whereNull('removed_at')->count())->toBe(0);
+});
+
+it('hands an unknown store tile\'s discount code to the commerce probe that will mint the storefront', function () {
+    Queue::fake();
+    $pro = createTenant('bio-code');
+    bioPage('<html><body>
+        <a href="https://gammaplus.example.au">Gamma+ - CODE: TEEGAN10</a>
+    </body></html>');
+
+    app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/bio-code', 'link_in_bio');
+
+    Queue::assertPushed(CommerceProbeJob::class, fn (CommerceProbeJob $job): bool => str_contains($job->url, 'gammaplus.example.au') && $job->discountCode === 'TEEGAN10');
+});

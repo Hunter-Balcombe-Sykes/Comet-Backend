@@ -13,6 +13,7 @@ use App\Jobs\Ingest\RunSourceJob;
 use App\Models\Core\Site\IntegrationConnection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -173,4 +174,34 @@ it('is wired into RunSourceJob — a run that errors flips the pending connectio
         ->toThrow(InvalidArgumentException::class);
 
     expect($connection->fresh()->last_refresh_status)->toBe('error');
+});
+
+it('stamps a resolved YouTube channel id onto the connection and retires the row for the same channel', function () {
+    Http::fake();
+    $userId = wbUser();
+    $byHandle = IntegrationConnection::withoutEvents(fn () => IntegrationConnection::create([
+        'user_id' => $userId, 'platform' => 'youtube', 'resource_id' => 'acmebarbers',
+        'payload' => ['url' => 'https://www.youtube.com/@acmebarbers', 'source' => 'link_in_bio'],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]));
+    $byChannel = IntegrationConnection::withoutEvents(fn () => IntegrationConnection::create([
+        'user_id' => $userId, 'platform' => 'youtube', 'resource_id' => 'UCeqsbOe_uSqwpH5dyTzGZrw',
+        'payload' => ['url' => 'https://www.youtube.com/channel/UCeqsbOe_uSqwpH5dyTzGZrw', 'source' => 'link_in_bio'],
+        'is_active' => true, 'last_refresh_status' => 'ok',
+    ]));
+    $sourceId = (string) Str::uuid();
+    DB::table('ingest.sources')->insert([
+        'id' => $sourceId, 'user_id' => $userId, 'connection_id' => $byHandle->id, 'source_key' => 'youtube',
+        'surface_key' => 'youtube.channel', 'identifier' => 'acmebarbers', 'cost_units' => 1, 'min_interval_secs' => 3600,
+        'max_interval_secs' => 604800, 'change_rate' => 0.5, 'next_attempt_at' => now()->subMinute(), 'visibility' => 1.0,
+        'in_flight_since' => now(), 'in_flight_run_id' => 'run-1', 'health' => 'ok', 'consecutive_failures' => 0,
+        'auto_sync' => true, 'scope' => 'all', 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    $runId = wbRun($sourceId, 'ok', [['code' => 'channel_resolved', 'message' => 'resolved', 'context' => ['channelId' => 'UCeqsbOe_uSqwpH5dyTzGZrw']]]);
+
+    app(IngestStatusWriteback::class)->afterRun($sourceId, $runId, 'ok');
+
+    expect($byHandle->fresh()->payload['channelId'])->toBe('UCeqsbOe_uSqwpH5dyTzGZrw');
+    expect(IntegrationConnection::query()->where('user_id', $userId)->where('platform', 'youtube')->whereNull('deleted_at')->count())->toBe(1);
+    expect($byChannel->fresh()?->deleted_at)->not->toBeNull();
 });

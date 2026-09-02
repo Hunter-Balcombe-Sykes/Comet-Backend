@@ -231,7 +231,7 @@ class RunExecutor
 
             $this->recordStreamSuccess($streamId, $result['covered']);
             $this->lander->clearGuardIfRecovered($streamId);
-            $notes = array_merge($notes, array_map(fn (Note $n) => ['code' => $n->code, 'message' => $n->message], $result['notes']));
+            $notes = array_merge($notes, array_map(fn (Note $n) => ['code' => $n->code, 'message' => $n->message, 'context' => $n->context], $result['notes']));
 
             // Landing → Projection, in the same run (plan §4): content rows
             // exist the moment records land, not on some later sweep. Only
