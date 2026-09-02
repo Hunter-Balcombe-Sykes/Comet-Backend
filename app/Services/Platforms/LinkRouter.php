@@ -314,7 +314,7 @@ class LinkRouter
         // paste must never trigger this. Only on a real seed — a conflict, gate
         // denial or lock contention wrote nothing to fetch for.
         if ($outcome->outcome === 'seeded'
-            && in_array($platform, [Platform::Fresha->value, Platform::Square->value], true)
+            && BookingProviders::includes($platform)
             && $ctx->autoConnectBooking
             && (bool) config('partna.connect.auto_booking.enabled', true)
         ) {

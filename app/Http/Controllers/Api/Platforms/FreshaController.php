@@ -20,9 +20,9 @@ use App\Services\Http\FetchBudget;
 use App\Services\Http\SafeUrlException;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
-use App\Services\Platforms\FreshaStaffMatcher;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\Platforms\StaffNameMatcher;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
@@ -47,7 +47,7 @@ class FreshaController extends ApiController
         private readonly FreshaScraper $scraper,
         private readonly FreshaServiceProjector $projector,
         private readonly FetchBudget $budget,
-        private readonly FreshaStaffMatcher $staffMatcher,
+        private readonly StaffNameMatcher $staffMatcher,
     ) {}
 
     protected function platform(): string
@@ -98,8 +98,8 @@ class FreshaController extends ApiController
         }
 
         // Fresha + Square are mutually exclusive booking providers (XOR).
-        if ($this->hasConflictingConnection($user, Platform::Square->value)) {
-            return $this->error('Disconnect Square before connecting Fresha — only one booking provider can be active at a time.', 409);
+        if (($conflict = $this->bookingProviderConflict($user)) !== null) {
+            return $conflict;
         }
 
         $validated = $request->validated();
@@ -147,8 +147,8 @@ class FreshaController extends ApiController
         // itself is unchanged and still mandatory: it is what re-asserts the
         // Square XOR against a concurrent Square connect.
         return $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user, $url, $menu): JsonResponse {
-            if ($this->hasConflictingConnection($user, Platform::Square->value)) {
-                return $this->error('Disconnect Square before connecting Fresha — only one booking provider can be active at a time.', 409);
+            if (($conflict = $this->bookingProviderConflict($user)) !== null) {
+                return $conflict;
             }
 
             // Back on the 10s default for the same reason the outer lock is
@@ -256,8 +256,8 @@ class FreshaController extends ApiController
         $row = null;
 
         $lockResponse = $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user, $url, $mode, &$row): JsonResponse {
-            if ($this->hasConflictingConnection($user, Platform::Square->value)) {
-                return $this->error('Disconnect Square before connecting Fresha — only one booking provider can be active at a time.', 409);
+            if (($conflict = $this->bookingProviderConflict($user)) !== null) {
+                return $conflict;
             }
 
             return $this->withConnectionLock($user, function () use ($user, $url, $mode, &$row): JsonResponse {
@@ -588,8 +588,8 @@ class FreshaController extends ApiController
             // SquareController::connect() all serialise on — a Square that
             // connected during the unlocked scrape above must block this write,
             // mirroring FreshaConnectFetch.php:170 for the async path.
-            if ($this->hasConflictingConnection($user, Platform::Square->value)) {
-                return $this->error('Disconnect Square before connecting Fresha — only one booking provider can be active at a time.', 409);
+            if (($conflict = $this->bookingProviderConflict($user)) !== null) {
+                return $conflict;
             }
 
             return $this->withConnectionLock($user, function () use ($user, $url, $location, $employee, $services): JsonResponse {

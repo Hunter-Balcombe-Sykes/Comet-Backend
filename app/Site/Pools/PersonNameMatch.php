@@ -55,7 +55,7 @@ namespace App\Site\Pools;
  * fail closed. Publishing a stranger's words under someone's name is the harm
  * this class exists to prevent; withholding a review is not.
  *
- * words() is shared with FreshaStaffMatcher, whose vanity-name tier already
+ * words() is shared with StaffNameMatcher, whose vanity-name tier already
  * solved "does this person's name appear in this free text" against real
  * scraped data — same tokenizer, same 3-character signal floor, one algorithm.
  *
@@ -309,7 +309,7 @@ class PersonNameMatch
 
     /**
      * Lowercase word tokens of a free-text string, punctuation and emoji
-     * treated as separators. Shared with FreshaStaffMatcher's vanity-name
+     * treated as separators. Shared with StaffNameMatcher's vanity-name
      * tier — same tokenizer on both sides of "does this person's name appear
      * in this text", so the two cannot drift apart the way the pool and the
      * DSAR export nearly did.

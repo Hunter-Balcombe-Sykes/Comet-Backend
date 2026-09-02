@@ -6,21 +6,33 @@ use App\Models\Core\User\User;
 use App\Site\Pools\PersonNameMatch;
 
 /**
- * Fuzzy-matches a user's own name against a scraped Fresha team so the
- * dashboard's team-member picker can pre-highlight "you" instead of opening
- * blank (2026-07-25, Phase 11 / Decision 1).
+ * Fuzzy-matches a user's own name against a booking provider's staff roster,
+ * so the dashboard's team-member picker can pre-highlight "you" instead of
+ * opening blank (2026-07-25, Phase 11 / Decision 1).
  *
- * Deliberately a SUGGESTION, not a write. Persisting a real `selection` here
- * would need the per-employee services fetch that FreshaController::
- * saveSelection() does, and would flip two documented invariants: FreshaFetch
- * 304s any row with no `selection` (team mode never sets one), and
- * connectStatus() discriminates team-vs-storewide on teamMenu's array-ness.
- * So the match rides INSIDE the teamMenu snapshot — an existing key, already
- * spread into connectStatus()'s team response — and the user's explicit pick
- * through saveSelection() stays the only thing that writes a selection. Per
- * Decision 1, no match simply means the picker opens unselected as before.
+ * Provider-neutral by contract: it takes a roster SHAPE, not a scrape. Any
+ * list of `['employeeId' => string, 'displayName' => string]` rows works —
+ * FreshaScraper::extractTeam() and SquareBookingPage::team() both produce it,
+ * and a third provider needs only to match those two keys. (Called
+ * FreshaStaffMatcher until 2026-09-02, when Square became the second caller
+ * and the name started describing the first caller rather than the job.)
+ *
+ * It only ever SUGGESTS — what a caller does with the answer is the caller's
+ * decision, and the two callers differ deliberately:
+ *   - Fresha does NOT persist it. A real `selection` would need the
+ *     per-employee services fetch FreshaController::saveSelection() does, and
+ *     would flip two documented invariants: FreshaFetch 304s any row with no
+ *     `selection` (team mode never sets one), and connectStatus()
+ *     discriminates team-vs-storewide on teamMenu's array-ness. So the match
+ *     rides INSIDE the teamMenu snapshot and the user's explicit pick through
+ *     saveSelection() stays the only thing that writes a selection.
+ *   - Square DOES persist it (SquareAutoSelectJob). It can, because there the
+ *     URL's own team_member_id IS the selection: no second fetch, and no
+ *     snapshot invariant riding on it.
+ *
+ * Per Decision 1, no match simply means the picker opens unselected.
  */
-final class FreshaStaffMatcher
+final class StaffNameMatcher
 {
     /** Exact full-name match. */
     private const SCORE_EXACT = 5;
@@ -73,7 +85,7 @@ final class FreshaStaffMatcher
      *
      * Unchanged behaviour — delegates to matchWithTier() so there is one algorithm.
      *
-     * @param  list<array<string,mixed>>  $team  FreshaScraper::extractTeam() output
+     * @param  list<array<string,mixed>>  $team  Roster rows carrying at least employeeId + displayName (FreshaScraper::extractTeam() / SquareBookingPage::team())
      */
     public function match(User $user, array $team): ?string
     {
@@ -85,7 +97,7 @@ final class FreshaStaffMatcher
      * records this: the tier distribution is the only measurement that lets the
      * "no tier restriction" decision be revisited on evidence rather than intuition.
      *
-     * @param  list<array<string,mixed>>  $team  FreshaScraper::extractTeam() output
+     * @param  list<array<string,mixed>>  $team  Roster rows carrying at least employeeId + displayName (FreshaScraper::extractTeam() / SquareBookingPage::team())
      * @return array{employeeId: ?string, tier: ?string}
      */
     public function matchWithTier(User $user, array $team): array

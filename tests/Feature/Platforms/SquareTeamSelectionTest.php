@@ -4,8 +4,8 @@ use App\Jobs\Platforms\SquareAutoSelectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\AutoBookingConnectDispatcher;
-use App\Services\Platforms\FreshaStaffMatcher;
 use App\Services\Platforms\SquareBookingClient;
+use App\Services\Platforms\StaffNameMatcher;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -174,7 +174,7 @@ it('auto-selects the one team member whose name is the account holder', function
     $user = squareTeamUser('sqauto1');
     connectSquare($user, SQ_ROOT_URL);
 
-    (new SquareAutoSelectJob((string) $user->id))->handle(app(SquareBookingClient::class), app(FreshaStaffMatcher::class));
+    (new SquareAutoSelectJob((string) $user->id))->handle(app(SquareBookingClient::class), app(StaffNameMatcher::class));
 
     $row = squareRow($user);
     expect($row->payload['url'])->toBe(SQ_CANONICAL_JESSE)
@@ -188,7 +188,7 @@ it('leaves the url alone when no team member matches the name', function () {
     $user = squareTeamUser('sqauto2', 'partna', 'Alex', 'Kim');
     connectSquare($user, SQ_ROOT_URL);
 
-    (new SquareAutoSelectJob((string) $user->id))->handle(app(SquareBookingClient::class), app(FreshaStaffMatcher::class));
+    (new SquareAutoSelectJob((string) $user->id))->handle(app(SquareBookingClient::class), app(StaffNameMatcher::class));
 
     expect(squareRow($user)->payload['url'])->toBe(SQ_ROOT_URL)
         ->and(squareRow($user)->payload['autoSelected'] ?? null)->toBeNull();
@@ -202,8 +202,8 @@ it('leaves a storewide-capable account and an already-named link alone without c
     connectSquare($named, SQ_JESSE_URL);
     $sent = count(Http::recorded());
 
-    (new SquareAutoSelectJob((string) $business->id))->handle(app(SquareBookingClient::class), app(FreshaStaffMatcher::class));
-    (new SquareAutoSelectJob((string) $named->id))->handle(app(SquareBookingClient::class), app(FreshaStaffMatcher::class));
+    (new SquareAutoSelectJob((string) $business->id))->handle(app(SquareBookingClient::class), app(StaffNameMatcher::class));
+    (new SquareAutoSelectJob((string) $named->id))->handle(app(SquareBookingClient::class), app(StaffNameMatcher::class));
 
     expect(squareRow($business)->payload['url'])->toBe(SQ_ROOT_URL)
         ->and(squareRow($named)->payload['url'])->toBe(SQ_JESSE_URL);

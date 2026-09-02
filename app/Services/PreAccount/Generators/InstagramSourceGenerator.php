@@ -177,7 +177,7 @@ class InstagramSourceGenerator implements SiteSourceGenerator
         //
         // ORDERING IS LOAD-BEARING: this must run BEFORE seed(), because seed()
         // routes the bio links (InstagramAutoSync → LinkRouter) and dispatches the
-        // Fresha auto-connect, and FreshaStaffMatcher reads first_name/last_name off
+        // Fresha auto-connect, and StaffNameMatcher reads first_name/last_name off
         // this row. Folded after seed(), the matcher reads nulls and every account
         // silently falls through to the storewide menu — the feature would look
         // implemented and do nothing. Under QUEUE_CONNECTION=sync that is not a race,

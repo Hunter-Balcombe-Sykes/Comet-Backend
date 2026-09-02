@@ -6,7 +6,7 @@ use App\Models\Core\User\User;
 use App\Services\Platforms\FreshaAutoSelector;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
-use App\Services\Platforms\FreshaStaffMatcher;
+use App\Services\Platforms\StaffNameMatcher;
 use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use App\Services\Platforms\Strategies\Fetch\FreshaFetch;
@@ -56,7 +56,7 @@ function freshaFetchWith(FreshaScraper $scraper): FreshaFetch
     return new FreshaFetch(
         $scraper,
         app(FreshaServiceProjector::class),
-        new FreshaAutoSelector($scraper, app(FreshaStaffMatcher::class), app(FreshaServiceProjector::class)),
+        new FreshaAutoSelector($scraper, app(StaffNameMatcher::class), app(FreshaServiceProjector::class)),
     );
 }
 

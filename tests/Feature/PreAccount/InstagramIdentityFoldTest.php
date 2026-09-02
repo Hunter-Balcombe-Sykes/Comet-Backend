@@ -22,7 +22,7 @@ it('parses a surname out of the instagram full name', function () {
 it('writes the name onto the user before the connection seeder runs', function () {
     // Guards the ordering fix: InstagramSourceGenerator must fold the name
     // BEFORE seed(), because seed() is what routes links and dispatches the
-    // Fresha auto-connect, and FreshaStaffMatcher reads first_name/last_name.
+    // Fresha auto-connect, and StaffNameMatcher reads first_name/last_name.
     $source = file_get_contents(base_path('app/Services/PreAccount/Generators/InstagramSourceGenerator.php'));
 
     $foldPosition = strpos($source, 'PersonNameParser::parse');

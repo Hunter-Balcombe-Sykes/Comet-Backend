@@ -12,9 +12,9 @@ use App\Services\Http\SafeUrlException;
 use App\Services\Platforms\FreshaAutoSelector;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
-use App\Services\Platforms\FreshaStaffMatcher;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\Platforms\StaffNameMatcher;
 use App\Services\Platforms\Strategies\Contracts\FetchStrategy;
 use App\Services\Site\AdvisoryLockTimeoutException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -60,7 +60,7 @@ final readonly class FreshaConnectFetch implements FetchStrategy
     public function __construct(
         private FreshaScraper $scraper,
         private FreshaServiceProjector $projector,
-        private FreshaStaffMatcher $staffMatcher,
+        private StaffNameMatcher $staffMatcher,
         private FreshaAutoSelector $autoSelector,
         private CacheLockService $cacheLocks,
     ) {}

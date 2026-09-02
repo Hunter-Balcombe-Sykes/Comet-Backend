@@ -10,12 +10,12 @@ use App\Http\Requests\Platforms\SaveSquareSelectionRequest;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\CacheKeyGenerator;
-use App\Services\Platforms\FreshaStaffMatcher;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\SquareBookingClient;
 use App\Services\Platforms\SquareBookingPage;
 use App\Services\Platforms\SquareSiteBookingResolver;
+use App\Services\Platforms\StaffNameMatcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Throwable;
@@ -41,7 +41,7 @@ class SquareController extends ApiController
 
     public function __construct(
         private readonly SquareBookingClient $client,
-        private readonly FreshaStaffMatcher $staffMatcher,
+        private readonly StaffNameMatcher $staffMatcher,
         private readonly SquareSiteBookingResolver $resolver,
     ) {}
 
@@ -76,8 +76,8 @@ class SquareController extends ApiController
         $url = $this->resolver->resolve($url) ?? $url;
 
         return $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user, $url): JsonResponse {
-            if ($this->hasConflictingConnection($user, Platform::Fresha->value)) {
-                return $this->error('Disconnect Fresha before connecting Square — only one booking provider can be active at a time.', 409);
+            if (($conflict = $this->bookingProviderConflict($user)) !== null) {
+                return $conflict;
             }
             $this->writeConnection($user, ['url' => $url]);
 
@@ -179,8 +179,8 @@ class SquareController extends ApiController
         $summary = $this->memberSummary($member);
 
         return $this->withCrossPlatformLock(CacheKeyGenerator::bookingXorLock((string) $user->id), function () use ($user, $newUrl, $summary): JsonResponse {
-            if ($this->hasConflictingConnection($user, Platform::Fresha->value)) {
-                return $this->error('Disconnect Fresha before connecting Square — only one booking provider can be active at a time.', 409);
+            if (($conflict = $this->bookingProviderConflict($user)) !== null) {
+                return $conflict;
             }
 
             return $this->withConnectionLock($user, function () use ($user, $newUrl, $summary): JsonResponse {

@@ -9,6 +9,7 @@ use App\Routing\IriCanonicalizer;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\Notifications\Dispatchers\IntegrationNotifier;
+use App\Services\Platforms\BookingProviders;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Payloads\LinkPayload;
 use App\Services\Site\AdvisoryLockTimeoutException;
@@ -453,6 +454,32 @@ trait ManagesIntegrationConnection
         return $user->integrationConnections()
             ->where('platform', $otherPlatform)
             ->exists();
+    }
+
+    /**
+     * The 409 for "another booking provider already holds this user's slot",
+     * or null when the slot is free.
+     *
+     * Resolves the rival from BookingProviders::others($this->platform())
+     * rather than naming a hardcoded sibling, so a third provider joins the
+     * XOR by joining that list — not by someone finding and editing all six
+     * call sites, where missing one fails OPEN (two booking providers live at
+     * once). Callers must ALREADY hold bookingXorLock: this is the check half
+     * of a check-then-write and races outside it (U1, 2026-07-25).
+     */
+    protected function bookingProviderConflict(User $user): ?JsonResponse
+    {
+        foreach (BookingProviders::others($this->platform()) as $rival) {
+            if ($this->hasConflictingConnection($user, $rival)) {
+                return $this->error(sprintf(
+                    'Disconnect %s before connecting %s — only one booking provider can be active at a time.',
+                    BookingProviders::label($rival),
+                    BookingProviders::label($this->platform()),
+                ), 409);
+            }
+        }
+
+        return null;
     }
 
     /**

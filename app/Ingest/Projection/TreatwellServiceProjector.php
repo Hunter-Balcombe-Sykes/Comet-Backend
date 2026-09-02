@@ -2,7 +2,7 @@
 
 namespace App\Ingest\Projection;
 
-use App\Ingest\Connectors\FreshaConnector;
+use App\Ingest\Support\Text;
 
 /**
  * Treatwell offer → the `service` kind (T27b, 2026-08-28). Structured price/
@@ -46,7 +46,7 @@ class TreatwellServiceProjector implements Projector
             'kind' => self::kind(),
             'headline' => $name,
             'facets' => array_filter([
-                'f_text' => $view->string('description') === null ? null : ['body' => mb_substr((string) $view->string('description'), 0, FreshaConnector::MAX_TEXT_LENGTH)],
+                'f_text' => $view->string('description') === null ? null : ['body' => mb_substr((string) $view->string('description'), 0, Text::MAX_LENGTH)],
                 'f_link' => $view->string('url') === null ? null : ['url' => $view->string('url')],
                 'f_duration' => $seconds === null || $seconds <= 0 ? null : ['seconds' => $seconds],
             ]),

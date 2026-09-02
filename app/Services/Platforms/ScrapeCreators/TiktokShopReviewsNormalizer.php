@@ -21,7 +21,7 @@ namespace App\Services\Platforms\ScrapeCreators;
 //  - total_reviews / review_ratings.review_count are numeric STRINGS.
 class TiktokShopReviewsNormalizer
 {
-    /** Matches FreshaConnector::MAX_TEXT_LENGTH's posture: bound stored review prose. */
+    /** Matches Ingest\Support\Text::MAX_LENGTH's posture: bound stored review prose. */
     private const MAX_TEXT_LENGTH = 2000;
 
     /**

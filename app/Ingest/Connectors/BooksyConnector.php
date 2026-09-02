@@ -16,6 +16,7 @@ use App\Ingest\Message\Unavailable;
 use App\Ingest\Runtime\Connector;
 use App\Ingest\Runtime\Io;
 use App\Ingest\Runtime\Pull;
+use App\Ingest\Support\Text;
 
 /**
  * T27b (owner, 2026-08-28): Booksy venue pages carry a complete schema.org
@@ -163,7 +164,7 @@ class BooksyConnector implements Connector
             $doc = array_filter([
                 'review_id' => 'rev-'.substr(sha1(json_encode([$body, $date, data_get($review, 'author.name')])), 0, 16),
                 'rating' => (float) $rating,
-                'text' => $body !== null && $body !== '' ? mb_substr($body, 0, FreshaConnector::MAX_TEXT_LENGTH) : null,
+                'text' => $body !== null && $body !== '' ? mb_substr($body, 0, Text::MAX_LENGTH) : null,
                 'author' => is_string(data_get($review, 'author.name')) ? data_get($review, 'author.name') : null,
                 'publish_time' => $date,
                 'venue_rating' => $venueRating,

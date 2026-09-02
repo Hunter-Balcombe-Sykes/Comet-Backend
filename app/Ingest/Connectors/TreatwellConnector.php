@@ -16,6 +16,7 @@ use App\Ingest\Message\Unavailable;
 use App\Ingest\Runtime\Connector;
 use App\Ingest\Runtime\Io;
 use App\Ingest\Runtime\Pull;
+use App\Ingest\Support\Text;
 
 /**
  * T27b (owner, 2026-08-28): Treatwell venue pages carry a schema.org @graph
@@ -121,7 +122,7 @@ class TreatwellConnector implements Connector
         return array_filter([
             'service_id' => 'offer-'.substr(sha1(mb_strtolower(($category ?? '').'|'.$name)), 0, 16),
             'name' => $name,
-            'description' => $description !== null && $description !== '' ? mb_substr($description, 0, FreshaConnector::MAX_TEXT_LENGTH) : null,
+            'description' => $description !== null && $description !== '' ? mb_substr($description, 0, Text::MAX_LENGTH) : null,
             'price' => is_numeric($offer['price'] ?? null) ? (float) $offer['price'] : null,
             'currency' => is_string($offer['priceCurrency'] ?? null) ? $offer['priceCurrency'] : null,
             'duration_seconds' => $this->isoDurationSeconds(is_string($durationIso) ? $durationIso : null),

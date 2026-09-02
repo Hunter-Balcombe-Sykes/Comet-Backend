@@ -4,6 +4,7 @@ use App\Ingest\Connectors\FreshaConnector;
 use App\Ingest\Projection\FreshaServiceProjector;
 use App\Ingest\Projection\ProjectionWriter;
 use App\Ingest\Projection\RecordView;
+use App\Ingest\Support\Text;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Content\FreshaServiceItems;
@@ -82,10 +83,10 @@ it('maps the real price shapes', function (string $price, string $qualifier, ?in
 // connector's — a RecordView built directly (as a future non-connector
 // producer could) still can't push an unbounded body into content.f_text.
 it('caps f_text.body even when the RecordView carries an oversized description', function () {
-    $huge = str_repeat('d', FreshaConnector::MAX_TEXT_LENGTH + 500);
+    $huge = str_repeat('d', Text::MAX_LENGTH + 500);
     $projection = (new FreshaServiceProjector)->project(new RecordView(['name' => 'X', 'description' => $huge]));
 
-    expect(mb_strlen($projection['facets']['f_text']['body']))->toBe(FreshaConnector::MAX_TEXT_LENGTH);
+    expect(mb_strlen($projection['facets']['f_text']['body']))->toBe(Text::MAX_LENGTH);
 });
 
 // ---------------------------------------------------------------------------

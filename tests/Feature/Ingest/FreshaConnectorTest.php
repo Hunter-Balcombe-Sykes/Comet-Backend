@@ -10,6 +10,7 @@ use App\Ingest\Message\Unavailable;
 use App\Ingest\Runtime\EffectRefused;
 use App\Ingest\Runtime\Io;
 use App\Ingest\Runtime\Pull;
+use App\Ingest\Support\Text;
 use Illuminate\Support\Facades\Log;
 
 // Tier C: the connector's real pull() against recorded responses. No network,
@@ -412,8 +413,8 @@ it('carries the vendor category id alongside its name', function () {
 });
 
 it('caps an oversized vendor name/description before it ever reaches a Record (#SEC-4)', function () {
-    $hugeName = str_repeat('n', FreshaConnector::MAX_TEXT_LENGTH + 500);
-    $hugeDescription = str_repeat('d', FreshaConnector::MAX_TEXT_LENGTH + 500);
+    $hugeName = str_repeat('n', Text::MAX_LENGTH + 500);
+    $hugeDescription = str_repeat('d', Text::MAX_LENGTH + 500);
     $item = array_merge(normalItem('s:1'), ['name' => $hugeName, 'description' => $hugeDescription]);
     $io = freshaIo(freshaResponseWith([['id' => '1', 'name' => 'Cuts', 'items' => [$item]]]));
     $pull = freshaPull('services', 'edward', config: ['selection_ref' => 'storewide']);
@@ -423,8 +424,8 @@ it('caps an oversized vendor name/description before it ever reaches a Record (#
         fn ($m) => $m instanceof Record,
     ));
 
-    expect(mb_strlen($records[0]->doc['name']))->toBe(FreshaConnector::MAX_TEXT_LENGTH)
-        ->and(mb_strlen($records[0]->doc['description']))->toBe(FreshaConnector::MAX_TEXT_LENGTH);
+    expect(mb_strlen($records[0]->doc['name']))->toBe(Text::MAX_LENGTH)
+        ->and(mb_strlen($records[0]->doc['description']))->toBe(Text::MAX_LENGTH);
 });
 
 it('counts rows it could not map instead of dropping them silently', function () {

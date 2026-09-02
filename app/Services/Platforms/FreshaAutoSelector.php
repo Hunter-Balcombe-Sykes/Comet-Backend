@@ -28,7 +28,7 @@ final readonly class FreshaAutoSelector
 {
     public function __construct(
         private FreshaScraper $scraper,
-        private FreshaStaffMatcher $matcher,
+        private StaffNameMatcher $matcher,
         private FreshaServiceProjector $projector,
     ) {}
 

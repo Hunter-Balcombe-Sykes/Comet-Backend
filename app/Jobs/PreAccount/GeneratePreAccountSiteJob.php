@@ -140,7 +140,7 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, Throttle
             // table marks every Instagram-origin site true, with only the dashboard
             // paste false (docs/superpowers/specs/2026-08-10-fresha-auto-route-
             // selection-design.md:103-108). FreshaAutoSelector decides whose menu —
-            // the account holder's when FreshaStaffMatcher identifies them, storewide
+            // the account holder's when StaffNameMatcher identifies them, storewide
             // when it cannot. Storewide understates prices, which that design accepts
             // as the trade against publishing nothing, bounded by the owner
             // correcting it after claim (payload.autoSelected surfaces the guess).

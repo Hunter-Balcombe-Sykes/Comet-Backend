@@ -2,7 +2,7 @@
 
 namespace App\Ingest\Projection;
 
-use App\Ingest\Connectors\FreshaConnector;
+use App\Ingest\Support\Text;
 
 /**
  * Square Appointments service → the `service` kind (2026-09-02). Price
@@ -48,7 +48,7 @@ class SquareServiceProjector implements Projector
             'kind' => self::kind(),
             'headline' => $name,
             'facets' => array_filter([
-                'f_text' => $description === null ? null : ['body' => mb_substr($description, 0, FreshaConnector::MAX_TEXT_LENGTH)],
+                'f_text' => $description === null ? null : ['body' => mb_substr($description, 0, Text::MAX_LENGTH)],
                 'f_link' => $url === null ? null : ['url' => $url],
                 'f_duration' => $seconds === null || $seconds <= 0 ? null : ['seconds' => $seconds],
             ]),

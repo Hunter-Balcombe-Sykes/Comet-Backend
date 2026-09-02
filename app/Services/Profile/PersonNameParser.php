@@ -8,7 +8,7 @@ namespace App\Services\Profile;
  * Instagram's fullName is a free-text vanity field, not a name column — it
  * routinely carries a trailing tagline ("SIMON DOYLE | Barber & Educator").
  * displayName keeps the raw string verbatim because that is what renders;
- * only the name PARTS are derived, and only for FreshaStaffMatcher's benefit.
+ * only the name PARTS are derived, and only for StaffNameMatcher's benefit.
  */
 final class PersonNameParser
 {

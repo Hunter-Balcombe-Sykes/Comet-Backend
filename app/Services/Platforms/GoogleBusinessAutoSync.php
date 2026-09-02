@@ -359,7 +359,7 @@ class GoogleBusinessAutoSync
             // fetch for), only Fresha, only a marked origin, only with the kill
             // switch on.
             if ($autoConnectBooking
-                && in_array($write['platform'], [Platform::Fresha->value, Platform::Square->value], true)
+                && in_array($write['platform'], self::BOOKING_PLATFORMS, true)
                 && ($findings[0]['outcome'] ?? null) === 'seeded'
                 && (bool) config('partna.connect.auto_booking.enabled', true)
             ) {

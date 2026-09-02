@@ -10,6 +10,7 @@ use App\Services\Accounts\AccountCapabilities;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\DailyCounterClaim;
 use App\Services\Platforms\AutoBookingConnectDispatcher;
+use App\Services\Platforms\BookingProviders;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Normalizers\TwitchNormalizer;
@@ -54,11 +55,12 @@ trait BuildsAutoSyncFindings
      * must equal their union or it silently under-covers one producer — the
      * same drift shape as the platformConnectionLock suffix bug — so it is
      * pinned by a reflection test (BookingXorConnectRaceTest).
+     *
+     * 2026-09-02: derived from BookingProviders::PLATFORMS rather than
+     * re-listed, so this side of that pin cannot drift by hand. GB's const
+     * stays a literal on purpose — see BookingProviders' docblock.
      */
-    private const BOOKING_SLOT_PLATFORMS = [
-        Platform::Fresha->value,
-        Platform::Square->value,
-    ];
+    private const BOOKING_SLOT_PLATFORMS = BookingProviders::PLATFORMS;
 
     /**
      * U1 addendum (orchestrator decision): the reservations family carries the

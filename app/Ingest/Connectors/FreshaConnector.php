@@ -17,6 +17,7 @@ use App\Ingest\Message\Unavailable;
 use App\Ingest\Runtime\Connector;
 use App\Ingest\Runtime\Io;
 use App\Ingest\Runtime\Pull;
+use App\Ingest\Support\Text;
 use App\Services\Platforms\ScrapedNameCasing;
 use Illuminate\Support\Facades\Log;
 
@@ -53,20 +54,6 @@ use Illuminate\Support\Facades\Log;
 class FreshaConnector implements Connector
 {
     private const GRAPHQL_URL = 'https://www.fresha.com/graphql';
-
-    /**
-     * #SEC-4: Fresha sets no bound on service name/description, and neither
-     * does content.f_text's DDL (supabase/migrations/20260727140000_content_
-     * schema.sql — "body" text, no CHECK/varchar(n)). 2000 is not invented —
-     * it is the existing cap for the same shape of data one layer over:
-     * Support\Html::plainText()'s default limit, applied to a vendor
-     * description landing in this same content.f_text table via
-     * Support\SchemaOrgEvent (Eventbrite/Humanitix), and Routing\
-     * LinkObserver's raw_url cap (LinkObserver.php:50). Public and shared
-     * with FreshaServiceProjector's belt-and-braces f_text cap so the two
-     * bounds cannot drift into two different numbers.
-     */
-    public const MAX_TEXT_LENGTH = 2000;
 
     public static function manifest(): Manifest
     {
@@ -335,7 +322,7 @@ class FreshaConnector implements Connector
         return array_filter([
             'review_id' => $id,
             'rating' => (float) $rating,
-            'text' => $text !== null && $text !== '' ? mb_substr($text, 0, self::MAX_TEXT_LENGTH) : null,
+            'text' => $text !== null && $text !== '' ? mb_substr($text, 0, Text::MAX_LENGTH) : null,
             'author' => is_string(data_get($node, 'author.name')) ? data_get($node, 'author.name') : null,
             'author_photo' => is_string(data_get($node, 'author.avatar.url')) ? data_get($node, 'author.avatar.url') : null,
             'publish_time' => is_string(data_get($node, 'date.iso')) ? data_get($node, 'date.iso') : null,
@@ -506,7 +493,7 @@ class FreshaConnector implements Connector
         }
         // #SEC-4: capped before it ever reaches a Record — an oversized
         // vendor name/description must not get as far as content.f_text.
-        $name = is_string($item['name'] ?? null) ? mb_substr(trim($item['name']), 0, self::MAX_TEXT_LENGTH) : '';
+        $name = is_string($item['name'] ?? null) ? mb_substr(trim($item['name']), 0, Text::MAX_LENGTH) : '';
         if ($name === '') {
             return null;
         }
@@ -534,7 +521,7 @@ class FreshaConnector implements Connector
             'name' => $name,
             'duration' => is_string($item['caption'] ?? null) ? $item['caption'] : null,
             // #SEC-4: same cap as $name above.
-            'description' => is_string($item['description'] ?? null) ? mb_substr($item['description'], 0, self::MAX_TEXT_LENGTH) : null,
+            'description' => is_string($item['description'] ?? null) ? mb_substr($item['description'], 0, Text::MAX_LENGTH) : null,
             'price' => is_string(data_get($item, 'price.formatted')) ? data_get($item, 'price.formatted') : null,
             'category' => $categoryName,
             'categoryId' => $categoryId,

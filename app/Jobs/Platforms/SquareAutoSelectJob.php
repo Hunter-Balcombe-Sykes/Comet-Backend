@@ -5,11 +5,11 @@ namespace App\Jobs\Platforms;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
-use App\Services\Platforms\FreshaStaffMatcher;
 use App\Services\Platforms\Payloads\SelectionPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\SquareBookingClient;
 use App\Services\Platforms\SquareBookingPage;
+use App\Services\Platforms\StaffNameMatcher;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -51,7 +51,7 @@ class SquareAutoSelectJob implements ShouldBeUnique, ShouldQueue
         return $this->userId.':square-auto-select';
     }
 
-    public function handle(SquareBookingClient $client, FreshaStaffMatcher $matcher): void
+    public function handle(SquareBookingClient $client, StaffNameMatcher $matcher): void
     {
         $user = User::find($this->userId);
         if ($user === null || $user->isPendingDeletion()) {

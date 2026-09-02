@@ -30,7 +30,42 @@ use Illuminate\Support\Facades\Log;
 final class AutoBookingConnectDispatcher
 {
     /**
-     * Resolve the user's Fresha row and hand it to ConnectFetchJob.
+     * Hand a freshly auto-seeded booking connection to whatever that
+     * provider's auto-connect actually is.
+     *
+     * The providers differ in KIND, not merely in detail, which is why this is
+     * a dispatch table and not one parameterised path: Fresha needs its salon
+     * scraped (ConnectFetchJob against the seeded row), Square needs no scrape
+     * at all — SquareAutoSelectJob reads the booking page's own widget JSON and
+     * stamps team_member_id onto the URL. Both spend the same install-wide
+     * daily budget, claimed ABOVE the table so a provider added later cannot
+     * quietly escape the ceiling.
+     *
+     * A match rather than an `if`, because the `if` shape had a real failure
+     * mode: anything that was not Square fell through to Fresha's branch and
+     * dispatched a Fresha scrape for it. Both callers gate on
+     * BookingProviders::PLATFORMS, so no live path reached it — but a third
+     * provider arriving here without an arm should be a log line, never a
+     * Fresha fetch against a row that is not Fresha's.
+     */
+    public function dispatchFor(string $userId, string $platform = 'fresha'): void
+    {
+        if (! $this->claimBudget()) {
+            return;
+        }
+
+        match ($platform) {
+            Platform::Fresha->value => $this->dispatchFreshaScrape($userId),
+            Platform::Square->value => $this->dispatchSquareAutoSelect($userId),
+            default => Log::warning('auto_booking_connect.no_provider_arm', [
+                'user_id' => $userId,
+                'platform' => $platform,
+            ]),
+        };
+    }
+
+    /**
+     * Fresha: re-query the seeded row and scrape it.
      *
      * Re-queried rather than passed in: the two legacy producers reach a seeded
      * row by completely different routes, and widening their return types to
@@ -39,20 +74,8 @@ final class AutoBookingConnectDispatcher
      * connectMode is stamped HERE, not at the write, because the write helpers
      * are shared with origins that must not be marked auto.
      */
-    public function dispatchFor(string $userId, string $platform = 'fresha'): void
+    private function dispatchFreshaScrape(string $userId): void
     {
-        if (! $this->claimBudget()) {
-            return;
-        }
-        // Square (2026-09-02): no salon scrape to run — the job reads the
-        // booking page's widget JSON itself and stamps team_member_id onto
-        // the URL. Same daily budget as Fresha's auto-connect.
-        if ($platform === Platform::Square->value) {
-            SquareAutoSelectJob::dispatch($userId)->afterCommit();
-
-            return;
-        }
-
         $row = IntegrationConnection::query()
             ->where('user_id', $userId)
             ->where('platform', Platform::Fresha->value)
@@ -65,6 +88,15 @@ final class AutoBookingConnectDispatcher
         $row->forceFill(['payload' => [...$row->payload, 'connectMode' => 'auto']])->saveQuietly();
 
         ConnectFetchJob::dispatch((string) $row->id, Platform::Fresha->value, systemInitiated: true)->afterCommit();
+    }
+
+    /**
+     * Square (2026-09-02): no salon scrape to run, and no row id needed — the
+     * job resolves the connection itself and rewrites the URL in place.
+     */
+    private function dispatchSquareAutoSelect(string $userId): void
+    {
+        SquareAutoSelectJob::dispatch($userId)->afterCommit();
     }
 
     /**
