@@ -2,10 +2,12 @@
 
 namespace App\Services\Media;
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Models\Core\User\User;
 use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Http\SafeUrlFetcher;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -509,6 +511,14 @@ final class MediaMirror
             $site = User::query()->find($userId)?->site;
             if ($site !== null) {
                 app(SiteCacheService::class)->invalidateSitePayload($site);
+                // The edge holds the rendered sitepage until a purge (the
+                // router overlays a day-long s-maxage) — so the payload
+                // rotating is not enough. One purge per site per 15s: a
+                // build wave lands hundreds of mirrors.
+                $subdomain = (string) ($site->subdomain ?? '');
+                if ($subdomain !== '' && Cache::add('media_mirror:purge:'.$subdomain, 1, 15)) {
+                    CloudflareCachePurgeJob::dispatch($subdomain);
+                }
             }
         } catch (\Throwable $e) {
             report($e);
