@@ -249,7 +249,7 @@ it('lands profilePic and displayName keys on the STAGE_MEDIA sign-up-preview not
 
     app(InstagramConnectionSeeder::class)->seed($connection, 'mediapreview', (string) $user->id, $profile);
 
-    $event = PreAccountBuildEvent::query()->where('build_id', $build->id)->where('stage', PreAccountBuildEvent::STAGE_MEDIA)->firstOrFail();
+    $event = PreAccountBuildEvent::query()->where('build_id', $build->id)->where('stage', PreAccountBuildEvent::STAGE_MEDIA)->where('status', 'landed')->firstOrFail();
     expect($event->payload)->toHaveKeys(['profilePic', 'displayName']);
     expect($event->payload['displayName'])->toBe('Media Preview');
 });

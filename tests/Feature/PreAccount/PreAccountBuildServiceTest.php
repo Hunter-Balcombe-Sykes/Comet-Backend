@@ -82,7 +82,7 @@ it('lands displayName and sourcePlatform alongside handle on the identity note',
 
     app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: []));
 
-    $event = PreAccountBuildEvent::query()->where('build_id', $build->id)->where('stage', PreAccountBuildEvent::STAGE_IDENTITY)->firstOrFail();
+    $event = PreAccountBuildEvent::query()->where('build_id', $build->id)->where('stage', PreAccountBuildEvent::STAGE_IDENTITY)->where('status', 'landed')->firstOrFail();
     expect($event->payload['sourcePlatform'])->toBe('instagram')
         ->and($event->payload['handle'])->toBe('identitypreview')
         ->and($event->payload)->toHaveKey('displayName');
