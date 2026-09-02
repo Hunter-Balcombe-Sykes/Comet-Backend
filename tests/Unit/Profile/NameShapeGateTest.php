@@ -207,7 +207,10 @@ it('prefers the username when the name field is not a person name at all', funct
 it('folds accents deterministically, never through iconv', function () {
     // Str::ascii gives 'Ben Bohmer' on macOS AND on Cloud's glibc;
     // iconv('ASCII//TRANSLIT') does not agree with itself across the two.
-    expect(NameShapeGate::handleCarriesName('benbohmermusic', 'Ben Böhmer'))->toBeTrue();
+    expect(NameShapeGate::handleCarriesName('benbohmermusic', 'Ben Böhmer'))->toBeTrue()
+        // The loop must reach the surname because 'thebohmerdj' contains no 'ben';
+        // this is the assertion that fails if the fold regresses to glibc's b?hmer.
+        ->and(NameShapeGate::handleCarriesName('thebohmerdj', 'Ben Böhmer'))->toBeTrue();
 });
 
 it('fails toward the name when there is no username to prefer', function () {
