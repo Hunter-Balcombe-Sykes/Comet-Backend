@@ -88,22 +88,26 @@ it('lands displayName and sourcePlatform alongside handle on the identity note',
         ->and($event->payload)->toHaveKey('displayName');
 });
 
-it('re-serves an existing LIVE build for the same source without re-scraping', function () {
+it('a second sign-up for the same source creates an independent build', function () {
+    // Owner (2026-09-03): the signup lane never dedupes — the same Instagram
+    // or Google Business source may start any number of sign-ups, each with
+    // its own build (and later its own user/site/token). SUPERSEDES the
+    // signup half of spec §4.1's re-serve; outreach lanes keep dedupe below.
     $svc = app(PreAccountBuildService::class);
     $first = $svc->requestBuild('partna', 'instagram', 'janedoe', null, hash('sha256', 'a'));
-    $second = $svc->requestBuild('business', 'instagram', '@JANEDOE', null, hash('sha256', 'b'));
+    $second = $svc->requestBuild('partna', 'instagram', '@JANEDOE', null, hash('sha256', 'b'));
 
-    expect($second['reused'])->toBeTrue()
-        ->and($second['build']->id)->toBe($first['build']->id)
-        // re-served build keeps its ORIGINAL account_type (spec §4.1) — read
-        // off the build row since Item 1a (no user exists pre-materialize).
-        ->and($second['build']->account_type)->toBe('partna');
-    Queue::assertPushed(GeneratePreAccountSiteJob::class, 1);
+    expect($second['reused'])->toBeFalse()
+        ->and($second['build']->id)->not->toBe($first['build']->id);
+    Queue::assertPushed(GeneratePreAccountSiteJob::class, 2);
 });
 
-it('retries a failed live build on dedupe hit (F3)', function () {
+it('retries a failed live build on dedupe hit (F3, outreach lane)', function () {
+    // The re-serve/retry machinery is outreach-only now — a failed SIGNUP
+    // build is simply left behind and the next signup builds fresh.
+    $staff = makePartnaStaff();
     $svc = app(PreAccountBuildService::class);
-    $first = $svc->requestBuild('partna', 'instagram', 'janedoe', null, hash('sha256', 'a'));
+    $first = $svc->requestBuild('partna', 'instagram', 'janedoe', null, null, staff: $staff);
     $first['build']->forceFill(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => 'scrape_failed'])->save(); // B11 SEC-4
 
     // GeneratePreAccountSiteJob is ShouldBeUnique (keyed on build id); the lock a
@@ -114,16 +118,18 @@ it('retries a failed live build on dedupe hit (F3)', function () {
     (new UniqueLock(app(Repository::class)))
         ->release(new GeneratePreAccountSiteJob($first['build']->id, $first['build']->source_type));
 
-    $second = $svc->requestBuild('partna', 'instagram', 'janedoe', null, hash('sha256', 'a'));
-    expect($second['build']->fresh()->build_state)->toBe(PreAccountBuild::STATE_PENDING)
+    $second = $svc->requestBuild('partna', 'instagram', 'janedoe', null, null, staff: $staff);
+    expect($second['reused'])->toBeTrue()
+        ->and($second['build']->fresh()->build_state)->toBe(PreAccountBuild::STATE_PENDING)
         ->and($second['build']->fresh()->failure_code)->toBeNull();
     Queue::assertPushed(GeneratePreAccountSiteJob::class, 2);
 });
 
-// Task 4: reserve() re-dispatches a paid scrape for a failed/stuck build,
-// reached from the dedupe early-return that sits ABOVE the per-IP cap — so a
-// public caller re-serving a failed build never counted against anything.
-it('meters re-serving a failed build against the same per-IP cap as new builds', function () {
+// Task 4's metering concern survives the signup lane losing re-serve: a
+// failed build stays LIVE (claimed_at is what drops it, not build_state),
+// so a re-sign-up for the same source is a NEW paid scrape metered by the
+// same per-IP cap.
+it('meters a re-sign-up for a source whose failed build is still live', function () {
     config(['partna.pre_account.max_unclaimed_per_ip' => 1]);
     $svc = app(PreAccountBuildService::class);
     $ip = hash('sha256', 'reserve-cap-ip');
@@ -131,9 +137,6 @@ it('meters re-serving a failed build against the same per-IP cap as new builds',
     $result = $svc->requestBuild('partna', 'instagram', 'reservecap', null, $ip);
     $result['build']->forceFill(['build_state' => PreAccountBuild::STATE_FAILED, 'failure_code' => 'scrape_failed'])->save();
 
-    // This caller is already at the cap (their one build, now failed but
-    // still "live" — claimed_at is what drops it, not build_state) — the
-    // re-serve must be metered exactly like a new build would be.
     $svc->requestBuild('partna', 'instagram', 'reservecap', null, $ip);
 })->throws(PreAccountBuildException::class);
 
@@ -179,19 +182,24 @@ it('staff builds record the staff id, skip the IP cap, and honour expires_days',
 // source (e.g. a coincidental duplicate) must not attach its address here:
 // that would silently hand the build's invite-gate to staff's address and
 // lock the actual signer-upper out.
-it('does not attach a staff-provided contact_email to a self-serve build on dedupe', function () {
+it('a staff build beside a live self-serve build creates its own row — the address never lands on the self-serve one', function () {
+    // Signup builds are invisible to the outreach dedupe (findLive excludes
+    // built_via=signup, mirroring the unique index), so staff outreach for a
+    // source someone self-signed-up with gets its OWN gated build instead of
+    // silently handing the self-serve build's invite gate to staff's address.
     $svc = app(PreAccountBuildService::class);
     $selfServe = $svc->requestBuild('partna', 'instagram', 'selfserve', null, hash('sha256', 'x'));
     expect($selfServe['build']->built_via)->toBe(PreAccountBuild::VIA_SIGNUP);
 
-    $reused = $svc->requestBuild(
+    $staffBuild = $svc->requestBuild(
         'partna', 'instagram', 'selfserve', null, null,
         staff: makePartnaStaff(), contactEmail: 'staff@example.com',
     );
 
-    expect($reused['reused'])->toBeTrue()
-        ->and($reused['build']->id)->toBe($selfServe['build']->id)
-        ->and($reused['build']->fresh()->contact_email)->toBeNull();
+    expect($staffBuild['reused'])->toBeFalse()
+        ->and($staffBuild['build']->id)->not->toBe($selfServe['build']->id)
+        ->and($staffBuild['build']->fresh()->contact_email)->toBe('staff@example.com')
+        ->and($selfServe['build']->fresh()->contact_email)->toBeNull();
 });
 
 it('attaches a staff-provided contact_email to an outreach build on dedupe', function () {
@@ -264,10 +272,11 @@ it('does not take the IP advisory lock for a staff build (no IP to cap)', functi
 
 // LIFE-4: reserve() re-dispatches a build stuck in pending/building past the SLA,
 // same as it already does for a STATE_FAILED build.
-it('re-dispatches a re-served build stuck in pending past the SLA', function () {
+it('re-dispatches a re-served outreach build stuck in pending past the SLA', function () {
     config(['partna.pre_account.stuck_build_sla_minutes' => 30]);
     $svc = app(PreAccountBuildService::class);
-    $first = $svc->requestBuild('partna', 'instagram', 'stuckpending', null, hash('sha256', 'stuck-a'));
+    $staff = makePartnaStaff();
+    $first = $svc->requestBuild('partna', 'instagram', 'stuckpending', null, null, staff: $staff);
 
     // Simulate a worker crash mid-scrape: still 'pending', last touched 31m ago.
     // Direct attribute assignment (not update()) — 'updated_at' isn't in
@@ -285,17 +294,18 @@ it('re-dispatches a re-served build stuck in pending past the SLA', function () 
     (new UniqueLock(app(Repository::class)))
         ->release(new GeneratePreAccountSiteJob($first['build']->id, $first['build']->source_type));
 
-    $second = $svc->requestBuild('partna', 'instagram', 'stuckpending', null, hash('sha256', 'stuck-b'));
+    $second = $svc->requestBuild('partna', 'instagram', 'stuckpending', null, null, staff: $staff);
 
     expect($second['reused'])->toBeTrue()
         ->and($second['build']->fresh()->build_state)->toBe(PreAccountBuild::STATE_PENDING);
     Queue::assertPushed(GeneratePreAccountSiteJob::class, 2);
 });
 
-it('re-dispatches a re-served build stuck in building past the SLA', function () {
+it('re-dispatches a re-served outreach build stuck in building past the SLA', function () {
     config(['partna.pre_account.stuck_build_sla_minutes' => 30]);
     $svc = app(PreAccountBuildService::class);
-    $first = $svc->requestBuild('partna', 'instagram', 'stuckbuilding', null, hash('sha256', 'stuck-c'));
+    $staff = makePartnaStaff();
+    $first = $svc->requestBuild('partna', 'instagram', 'stuckbuilding', null, null, staff: $staff);
     $first['build']->build_state = PreAccountBuild::STATE_BUILDING;
     $first['build']->updated_at = now()->subMinutes(45);
     $first['build']->save();
@@ -303,21 +313,22 @@ it('re-dispatches a re-served build stuck in building past the SLA', function ()
     (new UniqueLock(app(Repository::class)))
         ->release(new GeneratePreAccountSiteJob($first['build']->id, $first['build']->source_type));
 
-    $second = $svc->requestBuild('partna', 'instagram', 'stuckbuilding', null, hash('sha256', 'stuck-d'));
+    $second = $svc->requestBuild('partna', 'instagram', 'stuckbuilding', null, null, staff: $staff);
 
     expect($second['reused'])->toBeTrue()
         ->and($second['build']->fresh()->build_state)->toBe(PreAccountBuild::STATE_PENDING);
     Queue::assertPushed(GeneratePreAccountSiteJob::class, 2);
 });
 
-it('does not re-dispatch a re-served build still pending within the SLA', function () {
+it('does not re-dispatch a re-served outreach build still pending within the SLA', function () {
     config(['partna.pre_account.stuck_build_sla_minutes' => 30]);
     $svc = app(PreAccountBuildService::class);
-    $first = $svc->requestBuild('partna', 'instagram', 'freshpending', null, hash('sha256', 'stuck-e'));
+    $staff = makePartnaStaff();
+    $first = $svc->requestBuild('partna', 'instagram', 'freshpending', null, null, staff: $staff);
     $first['build']->updated_at = now()->subMinutes(5);
     $first['build']->save();
 
-    $second = $svc->requestBuild('partna', 'instagram', 'freshpending', null, hash('sha256', 'stuck-f'));
+    $second = $svc->requestBuild('partna', 'instagram', 'freshpending', null, null, staff: $staff);
 
     expect($second['reused'])->toBeTrue()
         ->and($second['build']->fresh()->build_state)->toBe(PreAccountBuild::STATE_PENDING);
@@ -472,24 +483,11 @@ it('raises CONTACT_EMAIL_CONFLICT when the build LOSES the insert race against a
     expect($competitor->fresh()->contact_email)->toBe('first@example.com');
 });
 
-it('does not attach a staff address to a SELF-SERVE build that wins the race', function () {
-    // The isOutreach() guard travels with the extracted helper — a race loser
-    // must not become the back door into a self-serve build's invite gate.
-    $staff = makePartnaStaff();
-    $competitor = seedRaceCompetitor($staff, 'raceselfserve', null);
-    $competitor->forceFill(['built_via' => PreAccountBuild::VIA_SIGNUP])->save();
-    $competitor->builtByStaff()->dissociate();
-    $competitor->save();
-    stageLostInsertRace($competitor);
-
-    $result = app(PreAccountBuildService::class)->requestBuild(
-        'partna', 'instagram', 'raceselfserve', null, null,
-        staff: $staff, contactEmail: 'staff@example.com',
-    );
-
-    expect($result['reused'])->toBeTrue()
-        ->and($competitor->fresh()->contact_email)->toBeNull();
-});
+// The old "does not attach a staff address to a SELF-SERVE build that wins
+// the race" test is gone with the scenario itself: signup rows left the
+// unique index (2026-09-03), so a staff insert can no longer collide with a
+// self-serve build at all. The guard it pinned is structural now — findLive
+// excludes built_via=signup — and the coexistence test above asserts it.
 
 // Handle seed (2026-09-02): a username that carries no part of the person's
 // own name is a chosen brand and seeds the handle. Fixtures are real dev

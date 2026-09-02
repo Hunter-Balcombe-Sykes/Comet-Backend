@@ -36,11 +36,15 @@ it('accepts a valid signup build and returns 202 with a build id', function () {
     Queue::assertPushed(GeneratePreAccountSiteJob::class);
 });
 
-it('re-serves an existing live build with 200 and its original account_type', function () {
-    $this->postJson('/api/public/signup/build', ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'janedoe'])->assertStatus(202);
+it('answers a repeat POST for the same source with 202 and a fresh build', function () {
+    // Owner (2026-09-03): the signup lane never re-serves — same source,
+    // independent build, every time.
+    $firstId = $this->postJson('/api/public/signup/build', ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'janedoe'])
+        ->assertStatus(202)->json('build_id');
 
     $res = $this->postJson('/api/public/signup/build', ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'JaneDoe']);
-    $res->assertStatus(200)->assertJsonPath('account_type', 'partna');
+    $res->assertStatus(202)->assertJsonPath('account_type', 'partna');
+    expect($res->json('build_id'))->not->toBe($firstId);
 });
 
 it('rejects a bad pairing with 422', function () {
@@ -153,32 +157,35 @@ it('returns a non-empty claim_token on a new build, and stores only its hash', f
     }
 });
 
-it('re-serves a live SIGN-UP build with a FRESH claim_token — rotation, not sharing (A.8/U28)', function () {
-    // REVERSED for the signup lane (owner decision U28, setup-dialog run):
-    // the flow's resume path re-POSTs the same handle after a lost draft and
-    // must get a working token back. issue() ROTATES the hash, so a squatter
-    // re-POSTing a victim's handle invalidates the victim's token rather
-    // than reading it — and the victim's own resume mints a fresh one the
-    // same way. Staff/outreach builds keep mint-once (see ManyChatBuildTest).
+it('a second sign-up POST for the same source creates an independent build with its own token', function () {
+    // SUPERSEDES U28's re-serve-with-rotation (owner, 2026-09-03): the same
+    // source may start any number of sign-ups, each a fresh build. No
+    // rotation is needed because nothing is shared — the first build's token
+    // hash is untouched, so a squatter re-POSTing a victim's handle gets a
+    // build of their OWN and cannot invalidate or read the victim's token.
+    // Staff/outreach builds keep one-live-build + mint-once (ManyChatBuildTest).
     $first = $this->withHeader('CF-Connecting-IP', '203.0.113.10')
         ->postJson('/api/public/signup/build', [
             'account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'dedupeme',
         ])->assertStatus(202)->json('claim_token');
 
-    $originalHash = PreAccountBuild::firstOrFail()->claim_token_hash;
+    $firstBuild = PreAccountBuild::firstOrFail();
+    $originalHash = $firstBuild->claim_token_hash;
 
     $res = $this->withHeader('CF-Connecting-IP', '203.0.113.11')
         ->postJson('/api/public/signup/build', [
             'account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'dedupeme',
-        ])->assertStatus(200);
+        ])->assertStatus(202);
 
     $token = $res->json('claim_token');
     expect($token)->toBeString()->not->toBe('')->not->toBe($first)
-        ->and($res->json('reused'))->toBeTrue();
+        ->and($res->json('reused'))->toBeFalse()
+        ->and($res->json('build_id'))->not->toBe($firstBuild->id)
+        ->and(PreAccountBuild::count())->toBe(2);
 
-    $freshHash = PreAccountBuild::firstOrFail()->claim_token_hash;
-    expect($freshHash)->not->toBe($originalHash)
-        ->and($freshHash)->toBe(hash('sha256', $token));
+    $second = PreAccountBuild::query()->whereKeyNot($firstBuild->id)->firstOrFail();
+    expect($firstBuild->fresh()->claim_token_hash)->toBe($originalHash)
+        ->and($second->claim_token_hash)->toBe(hash('sha256', $token));
 });
 
 it('never surfaces claim_token on the public poll endpoint', function () {

@@ -64,13 +64,21 @@ class PreAccountBuildService
         }
         $refLc = $generator->dedupeKey($ref);
 
-        // Dedupe: one LIVE build per source. Failed live builds retry (F3).
-        // Checked BEFORE the account_type/source_type pairing so re-serving an
-        // existing build never re-validates the pairing — the re-served build
-        // keeps its ORIGINAL account_type regardless of what this caller passed
-        // (spec §4.1); e.g. a claim-flow retry can legitimately arrive with a
-        // different (even mismatched) account_type than the build was created with.
-        if ($existing = $this->findLive($sourceType, $refLc)) {
+        // Which lane is this request? Signup builds NEVER dedupe (owner,
+        // 2026-09-03): the same source may start any number of independent
+        // sign-ups, each with its own build, user, site and claim token —
+        // no re-serve, no redirect to an existing build or account. The
+        // OUTREACH lanes (staff / early_access) keep one live build per
+        // source: CSV re-import idempotency, ManyChat webhook retries and
+        // the mint-only-on-NEW-build token rule all depend on it.
+        $via = $builtVia ?? ($staff !== null ? PreAccountBuild::VIA_STAFF : PreAccountBuild::VIA_SIGNUP);
+
+        // Outreach dedupe. Failed live builds retry (F3). Checked BEFORE the
+        // account_type/source_type pairing so re-serving an existing build
+        // never re-validates the pairing — the re-served build keeps its
+        // ORIGINAL account_type regardless of what this caller passed
+        // (spec §4.1).
+        if ($via !== PreAccountBuild::VIA_SIGNUP && ($existing = $this->findLive($sourceType, $refLc))) {
             $existing = $this->reconcileContactEmail($existing, $staff, $contactEmail);
 
             return ['build' => $this->reserve($existing, $staff, $ipHash), 'reused' => true];
@@ -94,7 +102,7 @@ class PreAccountBuildService
 
         try {
             $build = DB::connection('pgsql')->transaction(function () use (
-                $accountType, $sourceType, $ref, $refLc, $sourceName, $ipHash, $staff, $expiresAt, $contactEmail, $builtVia, $autoInvite
+                $accountType, $sourceType, $ref, $refLc, $sourceName, $ipHash, $staff, $expiresAt, $contactEmail, $via, $autoInvite
             ) {
                 // LIFE-2: signup-path abuse cap (F2), re-checked INSIDE the transaction
                 // under an advisory lock. The previous pre-transaction check-then-act let
@@ -124,7 +132,7 @@ class PreAccountBuildService
                     'source_type' => $sourceType,
                     'source_ref' => $ref,
                     'source_ref_lc' => $refLc,
-                    'built_via' => $builtVia ?? ($staff ? PreAccountBuild::VIA_STAFF : PreAccountBuild::VIA_SIGNUP),
+                    'built_via' => $via,
                     'created_ip_hash' => $staff ? null : $ipHash,
                     'expires_at' => $expiresAt,
                     'contact_email' => $contactEmail,
@@ -237,9 +245,16 @@ class PreAccountBuildService
 
     private function findLive(string $sourceType, string $refLc): ?PreAccountBuild
     {
+        // Mirrors pre_account_builds_live_source_unique's predicate: signup
+        // builds are invisible to the outreach dedupe (many can coexist per
+        // source), so a staff/webhook build for a source someone also
+        // self-signed-up with creates its OWN row — a staff contact_email
+        // can never land on, and a ManyChat token can never bind to, a
+        // self-serve build.
         return PreAccountBuild::live()
             ->where('source_type', $sourceType)
             ->where('source_ref_lc', $refLc)
+            ->where('built_via', '!=', PreAccountBuild::VIA_SIGNUP)
             ->first();
     }
 

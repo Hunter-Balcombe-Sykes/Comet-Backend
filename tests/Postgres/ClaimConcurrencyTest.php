@@ -216,6 +216,7 @@ beforeEach(function () {
         source_ref         text NOT NULL,
         source_ref_lc      text NOT NULL,
         build_state        text NOT NULL DEFAULT \'pending\',
+        built_via          text NOT NULL DEFAULT \'signup\',
         contact_email      text,
         claimed_at         timestamptz,
         expires_at         timestamptz,
@@ -224,11 +225,11 @@ beforeEach(function () {
         created_at         timestamptz NOT NULL DEFAULT now(),
         updated_at         timestamptz NOT NULL DEFAULT now()
     )');
-    // The real partial unique index — one LIVE build per source. Named AND
-    // shaped as in supabase/migrations/: (source_type, source_ref_lc), not
-    // source_key, which never existed outside this file (2026-08-28).
-    $pg->statement('CREATE UNIQUE INDEX pre_account_builds_live_source_unique
-        ON core.pre_account_builds (source_type, source_ref_lc) WHERE claimed_at IS NULL');
+    // The real partial unique index — one LIVE build per source for the
+    // OUTREACH lanes only; signup builds multiply freely since 2026-09-03
+    // (migration 20260903140000). Named AND shaped as in supabase/migrations/.
+    $pg->statement("CREATE UNIQUE INDEX pre_account_builds_live_source_unique
+        ON core.pre_account_builds (source_type, source_ref_lc) WHERE claimed_at IS NULL AND built_via <> 'signup'");
 
     // PruneExpiredPreAccountBuilds calls this before forceDelete (it is gated on
     // the driver being pgsql, which in THIS lane it genuinely is). A stub is
