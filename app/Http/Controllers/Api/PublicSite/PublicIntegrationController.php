@@ -67,6 +67,9 @@ class PublicIntegrationController extends ApiController
         $connections = IntegrationConnection::query()
             ->where('user_id', $userId)
             ->active()
+            // A.3 (proof catch 2026-09-03): pre-scrape rows are hidden until
+            // accepted — this public wire must not describe them.
+            ->visible()
             // Booking/reservations LEFT this exclusion list on 2026-07-25 (link
             // classification consolidation). Under Decision 10 every non-Fresha/
             // Square booking brand and every non-OpenTable/ResDiary/NowBookit

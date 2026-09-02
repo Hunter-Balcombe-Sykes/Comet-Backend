@@ -11,6 +11,7 @@ use App\Routing\RoutingContext;
 use App\Routing\SourceReconciler;
 use App\Routing\SuggestionApplier;
 use App\Routing\Verdict;
+use App\Site\Actions\ActionCandidates;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -24,6 +25,8 @@ beforeEach(function () {
     setupSitesTable();
     setupRoutingTables();
     setupContentTables();
+    setupSectionsTables();
+    setupBlocksTable();
 });
 
 function hiddenRoutingConnection(string $userId, array $overrides = []): IntegrationConnection
@@ -177,4 +180,35 @@ it('discard deletes the connection and its solo-sourced unpinned items, keeping 
     expect(DB::table('content.items')->where('id', $unpinned)->exists())->toBeFalse()
         ->and(DB::table('content.items')->where('id', $pinned)->exists())->toBeTrue()
         ->and(IntegrationConnection::query()->whereKey($connection->id)->exists())->toBeFalse();
+});
+
+it('keeps hidden rows off the public actions rail', function () {
+    $pro = createTenant('hidden-actions');
+    $site = $pro->site;
+    hiddenRoutingConnection((string) $pro->id, [
+        'surface_key' => 'square.book',
+        'routing_class' => 'booking',
+        'platform' => 'square',
+        'resource_id' => 'square',
+        'payload' => ['url' => 'https://book.squareup.com/appointments/mlhidden1'],
+    ]);
+
+    $actions = app(ActionCandidates::class)->forSite($pro, $site);
+    $ids = collect($actions['entries'] ?? $actions)->pluck('id');
+    expect($ids)->not->toContain('platform:square');
+});
+
+it('keeps hidden rows out of the public integrations wire', function () {
+    $pro = createTenant('hidden-pubint');
+    hiddenRoutingConnection((string) $pro->id, [
+        'surface_key' => 'square.book',
+        'routing_class' => 'booking',
+        'platform' => 'square',
+        'resource_id' => 'square',
+        'payload' => ['url' => 'https://book.squareup.com/appointments/mlhidden2'],
+    ]);
+
+    $response = $this->getJson('/api/public/profiles/'.$pro->handle.'/integrations');
+    $response->assertOk();
+    expect($response->json('data.square'))->toBeNull();
 });

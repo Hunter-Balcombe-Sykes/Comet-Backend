@@ -97,6 +97,9 @@ class ActionCandidates
         $connections = IntegrationConnection::query()
             ->where('user_id', $pro->id)
             ->where('is_active', true)
+            // A.3 (proof catch 2026-09-03): a hidden pre-scrape row put a
+            // 'Square' action on the public rail before anyone accepted it.
+            ->visible()
             ->orderBy('created_at')
             ->get(['id', 'user_id', 'platform', 'surface_key', 'routing_class', 'resource_id', 'payload', 'created_at']);
 
