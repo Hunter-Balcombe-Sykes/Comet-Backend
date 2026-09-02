@@ -215,3 +215,21 @@ it('tiktok cover prefers origin_cover over the (sometimes animated) cover (2026-
     $rows = (new TiktokVideosNormalizer)->rows(['aweme_list' => [['aweme_id' => '123456', 'desc' => 'x', 'create_time' => 1700000000, 'video' => ['cover' => ['url_list' => ['https://c/anim']], 'origin_cover' => ['url_list' => ['https://c/static.jpg']], 'duration' => 12000]]]], 'someone');
     expect($rows[0]['videoMeta']['coverUrl'])->toBe('https://c/static.jpg');
 });
+
+// O.2 (2026-09-02): the vendor's `account_deactivated: true` is a verdict on
+// the ACCOUNT, not a miss — the actor lane is never consulted (Apify cannot
+// un-delete a handle) and the effect answers noAnswer with the reason the
+// connector and the writeback key on.
+it('answers account_deactivated from the vendor verdict without ever calling the actor', function () {
+    Http::fake([
+        'api.scrapecreators.com/*' => Http::response(['success' => true, 'account_deactivated' => true, 'handle' => 'hairbydyson', 'message' => "Account doesn't exist"]),
+        'api.apify.com/*' => Http::response(['should' => 'never-be-reached'], 500),
+    ]);
+
+    $result = app(SocialActorDriver::class)->run(scFeedCtx('tiktok', ['username' => '@hairbydyson']));
+
+    expect($result->outcome)->toBe(BilledEffectOutcome::NoAnswer)
+        ->and($result->reason)->toBe(SocialActorDriver::REASON_ACCOUNT_DEACTIVATED);
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), 'api.apify.com'));
+    Http::assertSentCount(1);
+});

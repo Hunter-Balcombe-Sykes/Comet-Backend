@@ -87,6 +87,7 @@ class RunExecutor
         $totals = ['seen' => 0, 'changed' => 0, 'tombstoned' => 0];
         $streamOutcomes = [];
         $notes = [];
+        $unavailable = [];
         $retryAfter = null;
         $worstOutcome = 'ok';
 
@@ -145,6 +146,15 @@ class RunExecutor
                 $streamOutcomes[$streamName] = 'unavailable';
                 $worstOutcome = $this->worse($worstOutcome, 'unavailable');
                 $this->recordStreamFailure($streamId, 'unavailable');
+                // 2026-09-02: the run detail keeps WHY (O.2 — the writeback
+                // retires a deactivated account on it), and the notes the
+                // connector emitted BEFORE giving up. The second matters on
+                // its own: YoutubeRssConnector says what a handle resolved to
+                // and then the feed 404s (it does, intermittently — M-13);
+                // dropping the note here is what left jordan.dimitriadis with
+                // two YouTube rows that never merged.
+                $unavailable[$streamName] = ['reason' => $result['unavailable']->reason, 'status' => $result['unavailable']->status];
+                $notes = array_merge($notes, array_map(fn (Note $n) => ['code' => $n->code, 'message' => $n->message, 'context' => $n->context], $result['notes']));
 
                 continue;
             }
@@ -311,7 +321,7 @@ class RunExecutor
             'records_tombstoned' => $totals['tombstoned'],
             'effects_count' => (int) ($spend->n ?? 0),
             'cost_claimed' => (int) ($spend->units ?? 0),
-            'detail' => json_encode(['streams' => $streamOutcomes, 'notes' => array_slice($notes, 0, 20)]),
+            'detail' => json_encode(['streams' => $streamOutcomes, 'notes' => array_slice($notes, 0, 20), 'unavailable' => $unavailable]),
         ]);
 
         return ['outcome' => $worstOutcome, 'run_id' => $runId, 'streams' => $streamOutcomes, 'retry_after' => $retryAfter];

@@ -117,7 +117,7 @@ it('settles a failing effect as failed and rethrows, then refuses to retry a kno
 
         return 'should not run';
     });
-    expect($second)->toBe(['status' => 'failed', 'result' => null, 'cached' => true]);
+    expect($second)->toMatchArray(['status' => 'failed', 'result' => null, 'cached' => true]);
     expect($calls)->toBe(0); // a known failure is never retried automatically
 });
 

@@ -49,6 +49,13 @@ final class IngestStatusWriteback
         // note; the connection carries it from here so duplicates retire.
         $this->applyResolvedIdentity($connectionId, $runId);
 
+        // O.2 (2026-09-02): a DEFINITE verdict on the account outranks the
+        // pending gate below — a deactivated TikTok is retired whatever the
+        // row's status was, so the dashboard shows it as gone, not pending.
+        if ($this->retireIfDeactivated($connectionId, $runId)) {
+            return;
+        }
+
         $current = DB::table('site.platform_connections')
             ->where('id', $connectionId)
             ->whereNull('deleted_at')
@@ -75,6 +82,34 @@ final class IngestStatusWriteback
         }
 
         DB::table('site.platform_connections')->where('id', $connectionId)->update($update);
+    }
+
+    /** A stream that answered `account_deactivated` retires the connection. */
+    private function retireIfDeactivated(string $connectionId, string $runId): bool
+    {
+        $detail = DB::table('ingest.runs')->where('id', $runId)->value('detail');
+        $decoded = is_string($detail) ? json_decode($detail, true) : null;
+        $unavailable = is_array($decoded) && is_array($decoded['unavailable'] ?? null) ? $decoded['unavailable'] : [];
+        $deactivated = false;
+        foreach ($unavailable as $entry) {
+            if (is_array($entry) && ($entry['reason'] ?? null) === 'account_deactivated') {
+                $deactivated = true;
+            }
+        }
+        if (! $deactivated) {
+            return false;
+        }
+        DB::table('site.platform_connections')
+            ->where('id', $connectionId)
+            ->whereNull('deleted_at')
+            ->update([
+                'is_active' => false,
+                'last_refresh_status' => 'unavailable',
+                'last_refresh_error' => 'account_deactivated',
+                'updated_at' => now(),
+            ]);
+
+        return true;
     }
 
     private function applyResolvedIdentity(string $connectionId, string $runId): void

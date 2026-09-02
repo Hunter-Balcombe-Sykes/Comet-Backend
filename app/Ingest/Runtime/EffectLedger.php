@@ -53,7 +53,7 @@ class EffectLedger
      * @param  callable(): T  $effect
      * @param  (callable(): void)|null  $precheck  runs before the claim; throwing
      *                                             EffectNotAttempted refuses without writing a row
-     * @return array{status: string, result: mixed, cached: bool}
+     * @return array{status: string, result: mixed, cached: bool, reason?: string|null}
      */
     public function once(
         string $digest,
@@ -158,7 +158,12 @@ class EffectLedger
                 'meta' => json_encode(['error' => 'EffectNoAnswer', 'message' => mb_substr($e->getMessage(), 0, 500)]),
             ]);
 
-            return ['status' => 'failed', 'result' => null, 'cached' => false];
+            // The reason rides along (O.2, 2026-09-02): a driver that learned
+            // something DEFINITE about the account — ScrapeCreators' 200
+            // `account_deactivated: true` for a TikTok handle — says so here,
+            // and the connector can tell "the account is gone" from "the
+            // vendor was down" without a second call.
+            return ['status' => 'failed', 'result' => null, 'cached' => false, 'reason' => mb_substr($e->getMessage(), 0, 200)];
         } catch (\Throwable $e) {
             // Reaching here now means THE VENDOR CALL ITSELF threw — the settle
             // write is no longer inside this try (#MONEY-1). That distinction is
@@ -252,7 +257,7 @@ class EffectLedger
         }
     }
 
-    /** @return array{status: string, result: mixed, cached: bool} */
+    /** @return array{status: string, result: mixed, cached: bool, reason?: string|null} */
     private function verdictFor(object $row): array
     {
         if ($row->settled_at !== null) {
@@ -271,8 +276,13 @@ class EffectLedger
                 return ['status' => 'refused', 'result' => null, 'cached' => true];
             }
 
-            // A settled failure — known, charged, never auto-retried.
-            return ['status' => $row->status, 'result' => null, 'cached' => true];
+            // A settled failure — known, charged, never auto-retried. Its
+            // reason is replayed from the row so a cached verdict reads the
+            // same as a fresh one (O.2).
+            $meta = is_string($row->meta) ? json_decode($row->meta, true) : null;
+            $reason = is_array($meta) && is_string($meta['message'] ?? null) ? $meta['message'] : null;
+
+            return ['status' => $row->status, 'result' => null, 'cached' => true, 'reason' => $reason];
         }
 
         $claimedAt = strtotime((string) $row->claimed_at);

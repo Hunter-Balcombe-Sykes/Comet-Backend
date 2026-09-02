@@ -127,7 +127,7 @@ it('turns a driver no-answer into a failed verdict rather than an ok-with-null',
 
     $outcome = $io->effect('api', 'places.details', ['place_id' => 'ChIJabc']);
 
-    expect($outcome)->toBe(['status' => 'failed', 'cached' => false, 'data' => null]);
+    expect($outcome)->toMatchArray(['status' => 'failed', 'cached' => false, 'data' => null]);
 
     $row = DB::table('ingest.effects')->where('kind', 'api')->first();
     expect($row->status)->toBe('failed')
@@ -140,7 +140,7 @@ it('settles an answered-with-null as ok so a dead identifier is not re-billed', 
     ]));
 
     expect($io->effect('api', 'places.details', ['place_id' => 'ChIJgone']))
-        ->toBe(['status' => 'ok', 'cached' => false, 'data' => null]);
+        ->toMatchArray(['status' => 'ok', 'cached' => false, 'data' => null]);
 
     expect(DB::table('ingest.effects')->where('kind', 'api')->value('status'))->toBe('ok');
 });

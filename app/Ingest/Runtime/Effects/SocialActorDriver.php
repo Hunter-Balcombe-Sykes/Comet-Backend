@@ -81,6 +81,17 @@ final class SocialActorDriver implements BilledEffectDriver
         ],
     ];
 
+    /**
+     * A definite vendor verdict on the ACCOUNT, not on the request (O.2,
+     * 2026-09-02): ScrapeCreators answers a deactivated TikTok handle with a
+     * 200 `{account_deactivated: true, message: "Account doesn't exist"}`
+     * while tiktok.com serves a placeholder page. When the vendor lane sees
+     * it, the actor lane is not consulted — an Apify run cannot un-delete an
+     * account — and the effect answers noAnswer with THIS reason so the
+     * connection can be retired rather than left pending.
+     */
+    public const REASON_ACCOUNT_DEACTIVATED = 'account_deactivated';
+
     public function __construct(private readonly ApifyBudget $budget) {}
 
     public function supports(string $kind, string $name): bool
@@ -95,6 +106,11 @@ final class SocialActorDriver implements BilledEffectDriver
         // ── Vendor lane first (Item 8): before even the token checks, like
         // InstagramScraper — a usable vendor answer needs no Apify config.
         $vendorRows = $this->vendorRows($ctx);
+        if ($vendorRows === self::REASON_ACCOUNT_DEACTIVATED) {
+            $this->log('social.vendor.account_deactivated', $name, $ctx, []);
+
+            return BilledEffectResult::noAnswer(self::REASON_ACCOUNT_DEACTIVATED);
+        }
         if ($vendorRows !== null) {
             $this->log('social.vendor.ok', $name, $ctx, ['rows' => count($vendorRows)]);
 
@@ -193,7 +209,8 @@ final class SocialActorDriver implements BilledEffectDriver
      *
      * @return list<array<string, mixed>>|null
      */
-    private function vendorRows(BilledEffectContext $ctx): ?array
+    /** @return array<int, array<string, mixed>>|string|null rows, the deactivation verdict, or nothing */
+    private function vendorRows(BilledEffectContext $ctx): array|string|null
     {
         $name = $ctx->name;
         $spec = self::SPECS[$name];
@@ -233,6 +250,9 @@ final class SocialActorDriver implements BilledEffectDriver
             }
 
             // From here the call was billed upstream — the slot stays spent.
+            if (($body['account_deactivated'] ?? false) === true) {
+                return self::REASON_ACCOUNT_DEACTIVATED;
+            }
             $pageRows = $name === 'tiktok'
                 ? app(TiktokVideosNormalizer::class)->rows($body, $identifier)
                 : app(FacebookPostsNormalizer::class)->rows($body);

@@ -205,3 +205,48 @@ it('stamps a resolved YouTube channel id onto the connection and retires the row
     expect(IntegrationConnection::query()->where('user_id', $userId)->where('platform', 'youtube')->whereNull('deleted_at')->count())->toBe(1);
     expect($byChannel->fresh()?->deleted_at)->not->toBeNull();
 });
+
+// O.2 (2026-09-02): a stream that answered `account_deactivated` (ScrapeCreators'
+// verdict on a TikTok handle that no longer exists) retires the connection —
+// is_active off, the error named — instead of leaving it "pending" forever.
+// It outranks the pending gate: a row already settled by the legacy lane is
+// retired too, because the account being gone is a fact, not a lane's opinion.
+it('retires a connection whose run reports account_deactivated, whatever its status was', function () {
+    $userId = wbUser();
+    [$connection, $sourceId] = wbSourceFor($userId, 'ok');
+    $runId = (string) Str::uuid();
+    DB::table('ingest.runs')->insert([
+        'id' => $runId, 'source_id' => $sourceId, 'trigger' => 'schedule', 'started_at' => now(), 'finished_at' => now(),
+        'outcome' => 'unavailable', 'records_seen' => 0, 'records_changed' => 0, 'records_tombstoned' => 0,
+        'effects_count' => 1, 'cost_claimed' => 1,
+        'detail' => json_encode(['streams' => ['videos' => 'unavailable'], 'notes' => [], 'unavailable' => ['videos' => ['reason' => 'account_deactivated', 'status' => 404]]]),
+        'created_at' => now(),
+    ]);
+
+    app(IngestStatusWriteback::class)->afterRun($sourceId, $runId, 'unavailable');
+
+    $fresh = $connection->fresh();
+    expect($fresh->is_active)->toBeFalse()
+        ->and($fresh->last_refresh_status)->toBe('unavailable')
+        ->and($fresh->last_refresh_error)->toBe('account_deactivated');
+});
+
+it('leaves a plain vendor miss pending — only a deactivation verdict retires', function () {
+    $userId = wbUser();
+    [$connection, $sourceId] = wbSourceFor($userId, 'pending');
+    $runId = (string) Str::uuid();
+    DB::table('ingest.runs')->insert([
+        'id' => $runId, 'source_id' => $sourceId, 'trigger' => 'schedule', 'started_at' => now(), 'finished_at' => now(),
+        'outcome' => 'unavailable', 'records_seen' => 0, 'records_changed' => 0, 'records_tombstoned' => 0,
+        'effects_count' => 1, 'cost_claimed' => 1,
+        'detail' => json_encode(['streams' => ['videos' => 'unavailable'], 'notes' => [], 'unavailable' => ['videos' => ['reason' => "tiktok actor effect returned status 'failed'", 'status' => null]]]),
+        'created_at' => now(),
+    ]);
+
+    app(IngestStatusWriteback::class)->afterRun($sourceId, $runId, 'unavailable');
+
+    $fresh = $connection->fresh();
+    expect($fresh->is_active)->toBeTrue()
+        ->and($fresh->last_refresh_status)->toBe('unavailable')
+        ->and($fresh->last_refresh_error)->toBeNull();
+});

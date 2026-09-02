@@ -68,7 +68,7 @@ it('settles a no-answer as failed and returns instead of rethrowing', function (
         effect: fn () => throw new EffectNoAnswer('places returned 503'),
     );
 
-    expect($outcome)->toBe(['status' => 'failed', 'result' => null, 'cached' => false]);
+    expect($outcome)->toBe(['status' => 'failed', 'result' => null, 'cached' => false, 'reason' => 'places returned 503']);
 
     $row = DB::table('ingest.effects')->where('digest', 'no-answer-digest')->first();
 
@@ -95,7 +95,7 @@ it('holds a settled no-answer for the freshness window rather than re-running it
     });
 
     expect($ran)->toBeFalse()
-        ->and($second)->toBe(['status' => 'failed', 'result' => null, 'cached' => true]);
+        ->and($second)->toBe(['status' => 'failed', 'result' => null, 'cached' => true, 'reason' => '503']);
 });
 
 it('never deletes a row that is already settled', function () {

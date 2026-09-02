@@ -133,7 +133,7 @@ class HttpIo implements Io
             // A refused/abandoned/cached effect is not a failure of this run —
             // it is the ledger doing its job. The caller decides what an
             // absent result means for its stream.
-            return ['status' => $outcome['status'], 'cached' => $outcome['cached'], 'data' => null];
+            return ['status' => $outcome['status'], 'cached' => $outcome['cached'], 'data' => null, 'reason' => $outcome['reason'] ?? null];
         }
 
         return ['status' => 'ok', 'cached' => $outcome['cached'], 'data' => $outcome['result']];

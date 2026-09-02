@@ -70,7 +70,13 @@ class TiktokConnector implements Connector
         $effect = $io->effect('actor', 'tiktok', ['username' => $username]);
 
         if (($effect['status'] ?? null) !== 'ok') {
-            yield new Unavailable("tiktok actor effect returned status '{$effect['status']}'");
+            // A definite account verdict keeps its own name (O.2): the
+            // writeback retires the connection on it, where a plain vendor
+            // miss only leaves it pending for the next attempt.
+            $reason = ($effect['reason'] ?? null) === 'account_deactivated'
+                ? 'account_deactivated'
+                : "tiktok actor effect returned status '{$effect['status']}'";
+            yield new Unavailable($reason, $reason === 'account_deactivated' ? 404 : null);
 
             return;
         }
