@@ -821,6 +821,14 @@ async function passThrough(request) {
  * @param {Request} originRequest
  * @returns {Promise<Response>}
  */
+/** The origin's s-maxage in seconds, or null when it sends none. */
+function originSMaxAge(cacheControl) {
+    const m = /(?:^|,)\s*s-maxage=(\d+)/i.exec(cacheControl ?? "");
+    if (!m) return null;
+    const n = Number(m[1]);
+    return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 async function fetchAndCache(env, ctx, cacheKey, cache, originRequest) {
     // `cacheKey` is the normalised (query-stripped) cache key; `originRequest`
     // carries the full URL + the sanitized x-partna-handle header upstream.
@@ -829,7 +837,14 @@ async function fetchAndCache(env, ctx, cacheKey, cache, originRequest) {
     if (fresh.ok && originRequest.method === "GET") {
         // CFG-1: wrangler.toml `[vars]` is the configured source; fall back to the
         // module default if the var is missing or not a valid number.
-        const primaryTtl = Number(env.PRIMARY_CACHE_TTL_S) || PRIMARY_CACHE_TTL_S_DEFAULT;
+        // The origin's own s-maxage caps the edge TTL when it is SHORTER
+        // (2026-09-02): an unclaimed build renders with s-maxage=10 while
+        // its mirrors are still landing, and holding that first render for
+        // a day left the gallery on its seed reel until someone purged.
+        // Claimed sites still say 30–300s and take the configured TTL.
+        const originTtl = originSMaxAge(fresh.headers.get("Cache-Control"));
+        const configuredTtl = Number(env.PRIMARY_CACHE_TTL_S) || PRIMARY_CACHE_TTL_S_DEFAULT;
+        const primaryTtl = originTtl !== null && originTtl < configuredTtl ? originTtl : configuredTtl;
         const shadowTtl = Number(env.STALE_SHADOW_TTL_S) || STALE_SHADOW_TTL_S_DEFAULT;
         // EDGE-13: surface cache.put failures instead of letting a rejected
         // waitUntil promise vanish silently.
