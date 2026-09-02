@@ -6,11 +6,13 @@ use App\Jobs\PreAccount\BioMentionChainsJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\ProfileFetchFailure;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\PreAccount\BuildProgress;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Services\PreAccount\SourcePrefetch;
 use App\Services\Profile\BioIntel;
@@ -279,6 +281,11 @@ class InstagramSourceGenerator implements SiteSourceGenerator
             // connectMode=auto marker is still in flight (see the job's
             // FRESHA_RECHECK_SECONDS doc). Workplace lands ~1-2 min after
             // build instead of 10-12.
+            if ($intel->mentions !== []) {
+                // Setup progress (2026-09-02): the workplace is owed from the
+                // dispatch, not from the chain's first line (it ran after done).
+                BuildProgress::noteForUser((string) $user->id, PreAccountBuildEvent::STAGE_WORKPLACE, PreAccountBuildEvent::STATUS_STARTED, 'Checking '.BuildProgress::count(count($intel->mentions), 'place mentioned', 'places mentioned').' in your bio');
+            }
             BioMentionChainsJob::dispatch((string) $user->id, $intel->mentions)
                 ->afterCommit();
         }
