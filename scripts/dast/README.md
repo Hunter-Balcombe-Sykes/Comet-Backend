@@ -415,7 +415,6 @@ figure that matters is the decider count, not the route count.
 | 1 | `UserCustomerController::show` | `GET api/customers/{customer}` | 404 |
 | 2 | `UserEnquiryController::transition` | `POST api/enquiries/{id}/read` | 404 |
 | 2b | `UserEnquiryController::markSpam` | `POST api/enquiries/{id}/spam` | 404 |
-| 3 | `UserGalleryController::destroy` | `DELETE api/gallery/{image}` | 404 |
 | 4 | `UserUploadController::destroy` | `DELETE api/images/{image}` | 404 |
 | 5 | `UserDocumentController::destroy` | `DELETE api/documents/{document}` | 404 |
 | 6 | `ContentController::destroyUpload` | `DELETE api/content/uploads/{upload}` | 404 |
@@ -530,10 +529,13 @@ because in both the effective IDOR target is the parent, which *is* probed:
 **What this still does NOT prove.** Two things, stated plainly so a green log is not
 read as more than it is:
 
-1. **Verbs, not just deciders.** #3 probes `DELETE api/gallery/{image}` but not
-   `PATCH`, because a bodyless `PATCH` 422s on its `FormRequest` first. Both share
-   the same `SitePolicy` call, so the *decision* is covered; a divergence introduced
-   into one verb's handler alone would not be.
+1. **Verbs, not just deciders.** Every probe is a GET, a bodyless POST or a DELETE,
+   because a bodyless `PATCH`/`PUT` 422s on its `FormRequest` before reaching the
+   ownership check. Where a surface exposes both verbs the shared `SitePolicy` call
+   means the *decision* is covered, but a divergence introduced into one verb's
+   handler alone would not be. (The worked example here was `api/gallery/{image}`'s
+   DELETE-vs-PATCH pair, until that controller was deleted 2026-09-02 with the
+   gallery pool.)
 2. **Scope.** Only the two seeded identities' own ownership checks, through the app's
    code, on a local stack. Nothing about prod's `app_backend` restricted role or RLS
    (see "Limitation" at the bottom), and nothing about staff-side authorization —
@@ -583,10 +585,12 @@ requestor job would otherwise print "IDOR assertions passed" having proved nothi
 
 **Pool is not cosmetic.** `UserDocumentController::destroy` runs its
 `pool === POOL_DOCUMENTS` check *before* the ownership check, so probing it with a
-gallery-pool id 404s for the wrong reason on **both** identities — a vacuous pass.
-`ContentController::destroyUpload` has the opposite order, so its probe would be
-honest but its control would 404. `seed-identities.php` therefore seeds a
-documents-pool and a content-pool row on each identity, not one shared gallery row.
+non-documents id 404s for the wrong reason on **both** identities — a vacuous pass.
+`ContentController::destroyUpload` has the opposite order, so it needs a genuine
+content-pool row or its control would 404. `seed-identities.php` therefore seeds a
+documents-pool row plus two content-pool rows (distinct `sort_order`) on each
+identity, not one shared row. The third row was a 'gallery'-pool row until that
+pool was retired 2026-09-02.
 
 ## What updates automatically vs what you maintain by hand
 

@@ -660,11 +660,6 @@ parameters:
 			count: 1
 			path: app/Http/Resources/FeedbackResource.php
 
-		-
-			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'
-			identifier: nullsafe.neverNull
-			count: 2
-			path: app/Http/Resources/GalleryImageResource.php
 
 		-
 			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Support\\Carbon\. Use \-\> instead\.$#'

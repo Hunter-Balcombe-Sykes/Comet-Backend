@@ -60,10 +60,20 @@ const params = { headers: LOAD_HEADERS };
 
 // COV-TAIL-10: r.body.includes('"data"') passed for {"data":{}} — a degraded
 // build (empty engine outputs) reported 100% pass. These parse the body and
-// check real array lengths against seed.sql's known invariants (gallery is
-// hard-capped at 6/site by core.enforce_site_gallery_max6; services and
-// links counts are seed.sql's own generate_series bounds). Payload path:
-// IndividualProfileResource.php:98-116 -> data.profile.{gallery,services,links}.
+// check real array lengths against seed.sql's known invariants (services and
+// links counts are seed.sql's own generate_series bounds).
+//
+// The gallery arm was DROPPED 2026-09-02: `profile.gallery` left the wire on
+// 2026-08-14 (slice 7 unit E) and the site_media 'gallery' pool behind it on
+// 2026-09-01, so the check had been asserting an always-undefined key. It is
+// not repointed at `profile.pools.media` because that pool reads content.items
+// — seed.sql writes raw site.site_media rows, which never reach it. Restoring
+// media coverage means teaching seed.sql to mint content items (source +
+// source_item + item + media_asset), not swapping the key here.
+//
+// SEPARATELY BROKEN: seed.sql still inserts into site.services, DROPPED
+// 2026-08-18 (services cutover) — the seed raises 42P01 before it finishes, so
+// this harness cannot currently run at all. Both are one job.
 function hasSeededProfileShape(r) {
   if (!r.body) {
     return false;
@@ -82,7 +92,6 @@ function hasSeededProfileShape(r) {
   }
 
   return (
-    Array.isArray(profile.gallery) && profile.gallery.length === 6 &&
     Array.isArray(profile.services) && profile.services.length === 15 &&
     Array.isArray(profile.links) && profile.links.length === 10
   );
@@ -92,7 +101,7 @@ export default function () {
   const profile = http.get(`${ORIGIN}/api/public/profiles/${TEST_HANDLE}`, params);
   check(profile, {
     'profile 200': (r) => r.status === 200,
-    'profile has seeded gallery/services/links counts (6/15/10)': hasSeededProfileShape,
+    'profile has seeded services/links counts (15/10)': hasSeededProfileShape,
   });
 
   // Aggressively cacheable — exercises the other cheap read surfaces.
