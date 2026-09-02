@@ -12,6 +12,7 @@ use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Services\Platforms\IdentitySync;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\CardPayload;
@@ -20,6 +21,7 @@ use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\PreAccount\BuildProgress;
 use App\Site\Pools\AutoSyncSetting;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -636,6 +638,10 @@ class IntegrationConnectionObserver
         foreach ((array) config('partna.menu.platforms', []) as $slug => $spec) {
             $pattern = $spec['host_pattern'] ?? null;
             if (is_string($pattern) && $pattern !== '' && preg_match($pattern, $host)) {
+                // Setup progress (2026-09-02): the menu is OWED from the
+                // dispatch, not from the job's first line — the signup's
+                // "done" must not flip true in the queue gap between them.
+                BuildProgress::noteForUser((string) $connection->user_id, PreAccountBuildEvent::STAGE_MENU, PreAccountBuildEvent::STATUS_STARTED, 'Reading your menu');
                 MenuFetchJob::dispatch((string) $connection->user_id)->afterCommit();
 
                 return;

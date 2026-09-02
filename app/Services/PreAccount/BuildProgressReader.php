@@ -92,27 +92,35 @@ final class BuildProgressReader
             return false;
         }
 
-        $workplaceAnswered = $build->enriched_at !== null;
-        $workplaceStarted = false;
+        // EVERY stage that said it STARTED is owed an answer (landed, skipped
+        // or failed) before the setup is done (2026-09-02): the menu fetch a
+        // delivery platform triggers, the website scan, the store fill, the
+        // link-page scan, the workplace chain. Started rows are written at
+        // the DISPATCH (observer / auto-sync / enrich), so "done" cannot flip
+        // true in the queue gap before the job's first line. A stage nobody
+        // started is not owed — a bio with no mentions never starts the
+        // workplace chain (get_scissored), and that must not hold the setup
+        // to the ceiling.
+        $started = [];
+        $answered = [];
         $platformsAnswered = $build->source_type !== 'instagram';
         foreach ($events as $event) {
-            if ($event->stage === PreAccountBuildEvent::STAGE_WORKPLACE) {
-                if ($event->status === PreAccountBuildEvent::STATUS_STARTED) {
-                    $workplaceStarted = true;
-                } else {
-                    $workplaceAnswered = true;
-                }
+            if ($event->status === PreAccountBuildEvent::STATUS_STARTED) {
+                $started[$event->stage] = true;
+            } else {
+                $answered[$event->stage] = true;
             }
             if ($event->stage === PreAccountBuildEvent::STAGE_PLATFORMS) {
                 $platformsAnswered = true;
             }
         }
-        // A workplace is only OWED once something started looking for one
-        // (2026-09-02, get_scissored: a bio with no mentions never dispatches
-        // the chain, so no row and no skipped note ever come — the setup sat
-        // "building" to the ceiling with everything else landed).
-        if (! $workplaceStarted) {
-            $workplaceAnswered = true;
+        $workplaceAnswered = $build->enriched_at !== null
+            || isset($answered[PreAccountBuildEvent::STAGE_WORKPLACE])
+            || ! isset($started[PreAccountBuildEvent::STAGE_WORKPLACE]);
+        foreach ($started as $stage => $_) {
+            if ($stage !== PreAccountBuildEvent::STAGE_WORKPLACE && ! isset($answered[$stage])) {
+                return false;
+            }
         }
         // A failed, aged asset is settled too (2026-09-02, teegandyson: 2 of 22
         // dead CDN urls held the setup open to the ceiling).

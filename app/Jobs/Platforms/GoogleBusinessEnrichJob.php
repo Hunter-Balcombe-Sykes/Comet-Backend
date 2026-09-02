@@ -169,6 +169,8 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         $website = $gbp->website();
         $isLinkInBio = is_string($website) && $website !== '' && app(LinkInBioDetector::class)->matches($website);
         if ($isLinkInBio) {
+            // Setup progress (2026-09-02): the platforms row is owed from here.
+            BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_STARTED, 'Checking your website for platforms');
             LinkInBioScanJob::dispatch($this->userId, $website, $this->autoConnectBooking);
             Log::info('google_business.enrich_job.link_in_bio_unroll', ['user_id' => $this->userId, 'place_id' => $this->placeId]);
         }

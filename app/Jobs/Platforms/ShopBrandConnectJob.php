@@ -3,6 +3,7 @@
 namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\FeatureAvailability\FeatureAvailability;
@@ -10,6 +11,7 @@ use App\Services\Http\FetchBudget;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\ShopBrandProfiler;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
+use App\Services\PreAccount\BuildProgress;
 use App\Services\Shop\ShopConnections;
 use App\Services\Shop\StoreRecord;
 use App\Site\Documents\BuildState;
@@ -211,6 +213,8 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
         // store owes no fill. MUST be the Dispatchable static, not
         // Bus::dispatch(new ...): that skips PendingDispatch, and
         // ShouldBeUnique's UniqueLock::acquire() only runs there.
+        // Setup progress (2026-09-02): the store is owed from the dispatch.
+        BuildProgress::noteForUser((string) $store->userId, PreAccountBuildEvent::STAGE_SHOP, PreAccountBuildEvent::STATUS_STARTED, 'Syncing your store');
         ShopInitialFillJob::dispatch($this->collectionId);
 
         // The settle just stored the fetched favicon/logo — kick off the
