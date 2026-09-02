@@ -1,7 +1,7 @@
 # Stripe Subscriptions — Backend Design
 
 **Date:** 2026-09-02
-**Status:** Design approved; ready for implementation plan
+**Status:** Design approved; **revised 2026-09-02** after a codebase verification pass — see §18. Ready for implementation plan
 **Scope:** Partna backend (Laravel 12 + Supabase + PostgreSQL). Dashboard UI lives in the frontend repo and is called out where this design imposes obligations on it.
 **Author:** Brainstorm session with Josh
 
@@ -65,11 +65,13 @@ two never collide in a grep.
 | D8 | **Stripe Elements**, all billing UI self-hosted | Owner ruling. Never leaves `partna.au`. PCI scope stays SAQ-A — card data goes browser→Stripe directly |
 | D9 | **`stripe/stripe-php`, not Cashier** | Payouts/Connect are planned to return. Cashier does not do Connect, so under (A)+(B) it is a *second* integration carried alongside stripe-php forever. Also keeps subscription state as denormalised columns rather than a relation, preserving `AccountCapabilities` purity, and avoids two ledgers for one fact. Full reasoning in §5 |
 | D10 | Plan switches take effect **immediately, prorated**, both directions | Owner ruling |
-| D11 | On downgrade, Business-only content is **kept in the DB but stops rendering** | Fully reversible, zero data loss, and the tier stays a real boundary. This is a deliberate departure from an existing rule — see §12.1 |
+| D11 | On downgrade, Business-only content **keeps rendering; the WRITE seam closes** | **Corrected 2026-09-02** — the original ruling ("kept in the DB but stops rendering") depended on a render-time capability veto that was deleted from `presentPageIds` on 2026-09-01, over the exact capability this design would reuse, with *"none may be added back"* written at the site. The tier boundary lives on the writer instead. See §12.1 |
 | D12 | Disabled accounts are **pruned after 90 days**, handle released | Mirrors `builds:prune-expired`; reuses `AccountDeletionService::purge()` |
 | D13 | `past_due` stays **live**; disable on `unpaid` / `canceled` | Stripe's smart-retry window (~2–3 weeks) resolves most lapses, typically an expired card. Darkening a working business on the first failed charge and restoring it two days later is worse for everyone. Cost: a genuinely non-paying account stays live for the retry window |
 | D14 | Currency **AUD**, monthly interval only for v1 | Matches the pre-strip billing design; annual is a second price later |
 | D15 | Prices are **config**, per environment | Stripe test-mode and live-mode price IDs differ; they must not be hardcoded |
+| D16 | A claimer **inherits the build's `account_type`**; it is not chosen at claim | `account_type` is stamped when the pre-account build is created (`config('partna.pre_account.sources')` is keyed by it) and §8.5 makes the webhook its only later writer. Keeps D4's promise that claim needs no payment step and no frontend change. Switching product is a billing action (`POST /api/billing/plan`), not a settings edit |
+| D17 | `account_type` is **dropped, not rejected**, on `PATCH /api/me` | Closes the free-upgrade hole (§8.5) without 422-ing a stale dashboard that still posts the whole user object. Mirrors how `skeleton_id` is already handled |
 
 ---
 
@@ -132,7 +134,20 @@ billing_exempt           boolean     NOT NULL DEFAULT false
 ```
 
 `status` needs **no** migration: `'disabled'` is already legal under
-`users_status_check`. `account_type` is the plan; there is no `plan_key` (D1).
+`users_status_check` (verified against `20260726000000_baseline_pilot.sql:1176` —
+the CHECK admits `active|suspended|disabled|pending_deletion|unclaimed`).
+`account_type` is the plan; there is no `plan_key` (D1).
+
+**Which ledger is authoritative.** These columns and `billing.subscriptions` hold the
+same fact twice — the duplication D9 criticises Cashier for. The split is deliberate
+and the rule is one line: **`core.users` is the entitlement ledger, `billing.subscriptions`
+is the audit ledger.** Every read that decides what a user may see or do
+(`hasActiveSubscription()`, the publish gate, the middleware) reads the `core.users`
+columns and nothing else — that is what keeps the public read path free of a join and
+`AccountCapabilities` free of I/O. `billing.subscriptions` exists so Connect/payout
+tables have something to join later and so a mirror drift is diagnosable; no
+entitlement decision may read it. `billing:reconcile-subscriptions` (§7) is the only
+code allowed to compare the two.
 
 ### 6.2 `billing` schema
 
@@ -214,12 +229,30 @@ the anchor instead of letting Stripe derive it from API response time.
 - **No third-party call inside the row lock** — claim latency is unchanged.
 - **Stripe outage fails open** — the user still gets the free month they are owed.
   Exposure is bounded to 30 days of something already intended.
+- **The tier is inherited, not chosen** (D16). `account_type` already carries the
+  build's value before this transaction opens, and the claim writes nothing to it —
+  §8.5's sole-writer rule is in force from the first moment a subscription exists.
+  A claimer who was built as the wrong product switches via `POST /api/billing/plan`
+  once claimed; there is no tier field in the claim payload. **Consequence to accept:**
+  a `business` build that is claimed and never switched is billed as Business from the
+  first invoice. Staff correct a miscategorised build before it is claimed, through the
+  existing staff surface — not through a new public write path onto the tier column.
 
 `plan_event_at = NULL` is deliberate: the ordering guard's `IS NULL` branch lets the
 first genuine Stripe event through.
 
-**Idempotency.** The Stripe idempotency key is the user id, so a retry after a timeout
-returns the original customer rather than minting a duplicate.
+**Idempotency — two keys, and the column is the real guard.** The job makes *two*
+Stripe calls, so it needs **two distinct keys**, namespaced per operation:
+`partna:cust:{user_id}` and `partna:sub:{user_id}`. One key across both requests is not
+a smaller version of this — Stripe rejects a key replayed with a different request body,
+so the subscription call would fail outright against the customer call's key.
+
+**Stripe idempotency keys expire after 24 hours**, which matters because the caller most
+likely to retry is `billing:reconcile-subscriptions`, firing precisely when something has
+been stuck for a while. Past 24h the key protects nothing and a second customer is
+minted. The durable guard is therefore the **`stripe_customer_id IS NOT NULL` check plus
+its UNIQUE constraint**, re-read inside the job; the Stripe key only covers the
+same-hour timeout-and-retry case. A reconcile pass MUST NOT assume the key still holds.
 
 **Reconciliation.** `billing:reconcile-subscriptions`, scheduled, finds claimed
 accounts with `plan_status='trialing'` and `stripe_customer_id IS NULL` beyond a
@@ -264,8 +297,22 @@ UPDATE core.users
    SET plan_status = :status, plan_current_period_end = :period_end,
        account_type = :type, plan_event_at = :event_created
  WHERE id = :id
-   AND (plan_event_at IS NULL OR plan_event_at < :event_created);
+   AND (plan_event_at IS NULL OR plan_event_at <= :event_created);
 ```
+
+**The comparison is `<=`, not `<`, and that is load-bearing.** Stripe's `event.created`
+has **one-second** resolution, and a first charge routinely emits
+`customer.subscription.updated` and `invoice.payment_succeeded` inside the same second.
+Under a strict `<` the second event to be processed matches zero rows and is discarded
+as "superseded" — so a subscribe can project `trialing` and silently drop the `active`
+that followed it, which is the precise state this design gates the whole site on.
+
+`<=` is safe here only because the two guards are layered: exact replays are already
+stopped by `stripe_event_id UNIQUE` at step 2, so `<=` cannot re-apply an event, it can
+only let a genuine same-second sibling through. Within a single second the order is
+last-writer-wins and undecidable — which is the correct trade, because dropping a real
+transition is strictly worse than resolving a one-second tie arbitrarily. Anything
+needing a stronger ordering than one second must not be inferred from `event.created`.
 
 Without this, a late `customer.subscription.updated` arriving after a `deleted`
 silently resurrects a cancelled plan into a live entitlement.
@@ -281,11 +328,48 @@ silently resurrects a cancelled plan into a live entitlement.
 | `invoice.payment_failed` | Dunning notification to the owner |
 | `payment_method.attached` / `customer.updated` | Refresh `pm_type` / `pm_last_four` for the dashboard |
 
-### 8.5 `account_type` is written here and nowhere else
+### 8.5 `account_type` is written here and nowhere else — but it is not today
 
 A plan switch changes the Stripe price; the resulting webhook flips `account_type`.
 The initiating controller never writes it — otherwise a declined card leaves an
 account holding Business capabilities it is not paying for.
+
+⚠️ **This is a statement of intent, not of current fact, and closing the gap is a
+stage-4 deliverable — not a consequence of anything else in this design.** As shipped
+today the tier column is owner-writable:
+
+- `app/Models/Core/User/User.php` — `account_type` is in `$fillable`
+- `app/Http/Requests/Api/User/UpdateUserRequest.php:31` —
+  `'account_type' => ['sometimes', 'required', Rule::in([partna, business])]`
+
+So `PATCH /api/me {"account_type":"business"}` is a **free upgrade**, granting
+`can_use_multipage_site`, `can_book_storewide`, `google_business_full_sync` and
+`workplace_brand_is_site_identity` for nothing. It is the exact failure this section
+names as its own rationale, reachable by any authenticated user, and every other part
+of this design assumes it is already impossible.
+
+**The fix is one line, and it is deliberately not the obvious one.**
+
+*Remove the `account_type` rule from `UpdateUserRequest` — do NOT remove it from
+`$fillable`.* Un-filling the column looks like the stronger fix and is a trap: Eloquent
+factories construct through `fill()`, so `UserFactory` (`database/factories/UserFactory.php:39`)
+would silently drop the attribute and mint users with a NULL tier, taking
+`users_account_type_check` with it across ~250 test files that seed `account_type`
+directly. `UserBootstrapService`, `PreAccountBuildService`, `ShowcaseSeedCommand` and
+`FleetPlacesCommand` all mass-assign it legitimately too. The request rule is the entire
+owner-facing attack surface: `StaffUpdateUserRequest` does not accept the field at all,
+and the remaining writers are signup and build-creation, both of which run before any
+subscription exists.
+
+Removed, not `prohibited` (D17): an old dashboard still posting the whole user object is
+accepted and the field dropped, exactly as `skeleton_id` is handled on
+`PATCH /api/professional/site`. A 422 would break a client that is merely stale, and the
+security outcome is identical.
+
+**Pin it.** An architecture test asserting no Form Request outside the pre-account /
+bootstrap lane validates `account_type` — the rule is invisible at the call site and a
+future "let users pick their plan in settings" PR reintroduces it in one line without
+ever reading this spec.
 
 ---
 
@@ -308,6 +392,23 @@ would not know whether to republish a site the owner had deliberately unpublishe
 The unclaimed carve-out is untouched, so the demo fleet is unaffected (D3).
 `PublishGateTest`'s mutation gate is extended to cover the new clause.
 
+**This verdict rides the `handle.resolve` cache, and that has two consequences the
+implementation must not discover at runtime.** The clause is computed inside the
+resolve closure — deliberately, because computing it in `IndividualProfilePayloadBuilder`
+would bake a 404 into the rotation-keyed payload cache, which is never deleted, only
+abandoned. So:
+
+1. **Enforcement fails OPEN on warm cache at rollout.** `IndividualProfileController`'s
+   own docblock records that resolve entries written before a gate ships carry no key
+   for it, and `?? false` reads that absence as "not gated". At the moment stage 4 is
+   switched on, every warm entry therefore ignores billing standing for the remainder
+   of its TTL. This is the right direction to fail — nobody's site goes dark by
+   surprise — but it means **enforcement is not observable for the first TTL after
+   the flag flips**, and a verification pass run inside that window will read as a
+   false negative. Verify against a cold handle.
+2. **Busting it is not what §9.4's three lanes do.** See §9.4 — this is the correction
+   that matters most in this section.
+
 ### 9.2 Dashboard — `EnforceBillingStandingReadOnly`
 
 Modelled on `EnforcePendingDeletionReadOnly`. Safe methods pass; writes get
@@ -328,26 +429,67 @@ Two mandatory `withoutMiddleware()` exclusions:
 - **Account deletion and data export.** A GDPR right cannot be paywalled. Erasure and
   portability stay available regardless of billing standing.
 
-### 9.3 Capabilities
+### 9.3 Capabilities — a real layer for tier, an inert one for lapses
 
-`AccountCapabilities` keeps its current shape and purity. It already reads `status`, so
-`'disabled'` flows through existing constructor args. `account_type` reaches it the
-same way any other column change does. The projection job calls
-`AccountCapabilities::flushCache()` after writing.
+`AccountCapabilities` keeps its current shape and purity. `account_type` reaches it the
+way any other column change does, so a tier flip genuinely moves `can_use_multipage_site`,
+`can_book_storewide`, `google_business_full_sync` and `workplace_brand_is_site_identity` —
+that is what makes §12.1's write seam enforceable.
 
-### 9.4 Cache invalidation — all three lanes
+**Do not, however, read this as a third enforcement layer for non-payment.** The
+resolver does read `status`, but only into `can_be_reported` and
+`receive_moderation_notifications`. Setting `status = 'disabled'` withdraws **no**
+content capability whatsoever. All real lapse enforcement is exactly two things — the
+publish-gate clause (§9.1) and `EnforceBillingStandingReadOnly` (§9.2) — and a plan that
+counts capabilities as a third will under-test both.
+
+`AccountCapabilities::flushCache()` is likewise weaker than it looks: it nulls a
+**per-process** `WeakMap` keyed on the model instance. Called from the projection job it
+clears a queue worker's memo and has no effect on any web process, which rehydrates the
+user per request anyway. Keep the call (it is correct for the worker's own remaining
+work) but do not count it as invalidation — the cross-process staleness that actually
+matters is the payload and resolve caches, handled in §9.4.
+
+### 9.4 Cache invalidation — the three lanes are necessary and NOT sufficient
 
 The public payload is cached and CDN-fronted, so flipping `plan_status` changes nothing
 a visitor sees until TTL expiry. Every visibility transition — into `disabled` **and
-back out of it on payment** — fires the three-lane contract via the shared seam:
+back out of it on payment** — must invalidate, in a **post-commit** context:
 
 ```php
-SiteCacheLanes::bust($site);   // BuildState::bump() + sites.updated_at + Cloudflare purge
+SiteCacheLanes::bust([$site->id]);                        // lanes 1-3 (note: array of IDs)
+app(SiteCacheService::class)->invalidateSitePayload($site); // lane 4 — REQUIRED, see below
 ```
 
-Lane 2 is the one commonly skipped and the one that keeps serving the stale payload;
-lane 3 is what stops a dark site rendering from Cloudflare's cache. The restore
-direction matters equally: someone who has just paid must not wait out a TTL.
+**Corrected 2026-09-02.** The original text prescribed `SiteCacheLanes::bust($site)`
+alone and claimed it covered the restore-on-payment case. It does not, and the failure
+is silent in the worst direction — an account that has just paid stays dark.
+
+`SiteCacheLanes::bust()` (`app/Site/Documents/SiteCacheLanes.php`) does three things:
+`BuildState::bump()`, a **raw** `DB::connection('pgsql')->table('site.sites')->update([...])`,
+and a Cloudflare purge **delayed 15 s** (`EDGE_PURGE_DELAY_SECONDS`). Two problems:
+
+- **The signature is `bust(array $siteIds)`**, not `bust($site)`.
+- **The gate's verdict is not in any lane it touches.** §9.1's clause lives in the
+  `handle.resolve:{handle}` entry, not the payload. Lane 2 rolls the *payload* key —
+  but the request 404s at the resolve stage and never reaches it. And because lane 2
+  is a **raw query-builder update, `SiteObserver` never fires** (CLAUDE.md's own rule:
+  a write that bypasses Eloquent invalidates nothing), so
+  `SiteCacheService::invalidateSitePayload()` — the only code that deletes
+  `handle.resolve` and raises `handle.resolve.floor` — never runs.
+
+So `invalidateSitePayload($site)` is not belt-and-braces here; it is the only lane that
+clears the gate. It must be called **post-commit**: its own docblock states that
+`raiseResolveFloor` inside an open transaction publishes the post-write key before the
+data is visible, letting a racing reader cache pre-commit state under the authoritative
+key for the full payload TTL plus its stale window.
+
+Two residual caveats to state rather than discover. The resolve key is derived from
+`users.handle_lc` but busted by `site.subdomain`, so a **diverged** row is never busted
+(0 of 268 on dev as of 2026-09-01, repaired by `ConvergeSiteSubdomains`, not by a
+constraint). And lane 3's 15 s delay means the edge still serves a dark render for up
+to that long after payment — acceptable, but "someone who has just paid must not wait
+out a TTL" is true of the origin and approximately true of the edge, not exactly.
 
 ---
 
@@ -414,28 +556,69 @@ treats it as failure will report working cards as declined.
 
 ---
 
-## 12. Deliberate departures from existing rules
+## 12. Interactions with existing rules
 
-### 12.1 Paid capabilities gate presentation, not just creation
+### 12.1 The tier boundary is a WRITE seam. No render veto. (Corrected 2026-09-02)
 
-`SitepageDataResolverService::presentPageIds` establishes that a capability gates the
-*writer*, never the *renderer* — e.g. `menu` page presence follows a fetched Menu row
-plus the owner's display toggle, and `can_use_menu` gets no second vote. CLAUDE.md
-states it as: *"the page a menu already exists for is not this capability's to
-withdraw."*
+**The original ruling here has been reversed.** It read: *"capabilities derived from the
+paid tier DO gate presentation"* — content retained but hidden while downgraded — and
+justified itself as a narrow departure from a rule written for capabilities that swing
+by *accident of data*. That justification does not survive contact with the file it
+cites, and the mechanism it assumed no longer exists.
 
-That rule was written for capabilities that swing by **accident of data** (a Google
-listing filed under a different sector). Letting an accident retroactively hide
-someone's content would be indefensible.
+**What is actually in the code, as of 2026-09-01 — one day before this spec was
+written:**
 
-A paid downgrade is not an accident; it is a decision to stop paying. Under D11,
-**capabilities derived from the paid tier DO gate presentation.** Content is retained
-and restored on re-upgrade, but hidden while unpaid — otherwise one month of Business
-buys a multipage site forever and the tier stops being a boundary.
+- `SitepageId::BUSINESS_ONLY` (`= ['menu','reviews']`, gated on `can_use_multipage_site`)
+  and its successor `PAGE_CAPABILITY` were **both deleted**. Only
+  `STANDARD_ONLY = ['listen']` remains, and it gates *against* Business, not for it.
+  There is no constant left to hang a tier veto on.
+- `SitepageDataResolverService::presentPageIds` carries, at the exact line the veto
+  occupied: **`// NO capability veto stands here, and none may be added back.`** — and
+  the comment names `! $caps->can_use_multipage_site` over `SitepageId::BUSINESS_ONLY`
+  as the first of the two vetoes it is prohibiting. That is precisely the capability
+  and precisely the constant a tier veto would reuse.
+- `SitepageId.php` records why: ollies, a Google-sourced cafe filed
+  `account_type=partna`, shipped 105 ingested menu items in its public payload with no
+  page to render them. The rule the veto broke is stated as *"A page that exists but is
+  silently dropped at render is the failure mode that produced 'my Menu page disappeared
+  and nothing told me why'."*
 
-Both rules now live in `presentPageIds`. The implementation must carry a comment at the
-site naming which rule governs which case, so a future reader does not apply the wrong
-one.
+The accident-vs-decision distinction was a reasonable argument, but it points the wrong
+way here. **This design makes `account_type` strictly more volatile than `sector` ever
+was**: §8.5 hands sole write authority to an asynchronous third-party webhook, delivered
+out of order, behind a same-second ordering guard, over a network that fails. A render
+veto on that column re-creates the retired incident with a *worse* trigger — a page
+vanishing because a Stripe event was late.
+
+**The ruling (D11, owner decision 2026-09-02): gate the writer, leave the renderer
+alone.**
+
+| | Behaviour |
+|---|---|
+| `presentPageIds` | **Unchanged.** No tier clause is added. The prohibition stands |
+| Business-only write paths | Return **403** when the capability is false |
+| On downgrade | Existing pages keep rendering; no content is hidden, moved or deleted |
+| On re-upgrade | Writes unlock; nothing to restore, because nothing was withdrawn |
+
+**Accepted cost, stated plainly:** one month of Business buys a multipage site that
+keeps rendering after the downgrade. The tier boundary constrains what an account may
+*build*, not what it may *keep*. That is the same trade the codebase already made for
+Menu, and it is the cheaper mistake — the alternative silently unpublishes work the
+owner can see in their dashboard and cannot explain.
+
+Note this only ever bites a **paying** account swapping Business → Partna. An account
+that stops paying has its whole site 404'd by §9.1 regardless, so D11 never governs the
+non-payment case.
+
+**Implementation note.** The seam already exists and has a house shape: an inline
+capability check at the top of the mutating controller method, returning
+`$this->error('…', 403)` — see `MenuController` (three sites), `MenuContentController`,
+`SquareController` and `FreshaController::disconnect`. Use that, **not**
+`abort_unless(..., 403)`, which `tests/Feature/Architecture/InlineAuthBypassGuardTest`
+rejects. The distinction is documented at `MenuController`: a capability 403 is a
+role/restriction gate and is deliberately separate from the ownership gate that follows
+it. `tests/Feature/Platforms/SectorCapabilityGatingTest` is the pattern to extend.
 
 ### 12.2 `past_due` is treated as good standing
 
@@ -470,7 +653,7 @@ anywhere reads `hasActiveSubscription()` to make a decision.
 | 1 | Schema, config, `stripe/stripe-php`, webhook lane | **None** — nothing reads it. Verify signature, dedup and the ordering guard against Stripe test mode + `stripe listen` |
 | 2 | Claim seam, reconciliation, `billing:enroll-existing` | **None visible** — everyone becomes `trialing`; nothing gates on it |
 | 3 | Billing API + Elements frontend | **None visible** — people *can* pay; not paying still costs nothing |
-| 4 | **Enforcement**: publish-gate clause, middleware, cache lanes | ⚠️ **The dangerous one.** Behind `config('partna.billing.enforcement_enabled')` so it can be killed without a redeploy or rollback |
+| 4 | **Enforcement**: publish-gate clause, middleware, cache lanes + `invalidateSitePayload` (§9.4), the `account_type` closure (§8.5), Business-only write 403s (§12.1) | ⚠️ **The dangerous one.** Behind `config('partna.billing.enforcement_enabled')` so it can be killed without a redeploy or rollback. **Two items here are NOT covered by that flag and must ship regardless:** the §8.5 request-rule removal (an open free-upgrade hole today, independent of billing) and §12.1's write 403s (a capability gate, not an enforcement gate). **Verify against a cold handle** — §9.1 fails open for the first resolve TTL after the flag flips, so a warm-cache check reads as a false negative |
 | 5 | Prune job | Low — the first real deletion is 90 days after stage 4 regardless |
 
 ---
@@ -507,13 +690,31 @@ route through it, so this path is unaffected. That defect remains separate work.
   `subscription.deleted` and assert the cancelled state survives.
 - **Duplicate-delivery test** — same `stripe_event_id` twice, assert one projection.
 - **Postgres, not just SQLite.** The new columns and the conditional `UPDATE ... WHERE
-  plan_event_at < :x` need verifying against real DDL; a green `composer test` says
+  plan_event_at <= :x` need verifying against real DDL; a green `composer test` says
   nothing about a NOT NULL or CHECK mismatch.
 - **Publish-gate mutation gate** extended for the subscription clause.
 - **Deadlock regression test** — assert a `disabled` account can still reach the
   billing endpoints, the deletion endpoint and the export endpoint.
 - **Cache-lane test** — assert all three lanes fire on both the darken and the restore
-  transition (`PoolCacheLaneSeamTest` is the pattern).
+  transition (`PoolCacheLaneSeamTest` is the pattern), **and separately that
+  `handle.resolve:{handle}` is deleted and its floor raised** (§9.4). The lane assertions
+  pass without this; a test that only checks the three lanes reproduces the exact bug
+  this spec shipped with. The restore direction is the one that matters — assert a paid
+  account is served, not merely that a cache key moved.
+- **Same-second event test** (§8.3) — deliver `customer.subscription.updated` and
+  `invoice.payment_succeeded` bearing an **identical** `event.created`, assert both
+  project. This is the test that fails under the original `<` guard, and no other test
+  in this list catches it.
+- **Free-upgrade regression** (§8.5) — `PATCH /api/me {"account_type":"business"}` as a
+  `partna` account, assert 2xx **and** that `account_type` is unchanged. Plus the
+  architecture test pinning that no Form Request outside the pre-account/bootstrap lane
+  validates `account_type`.
+- **Downgrade retains presentation** (§12.1) — flip a site with Business-only pages to
+  `partna`, assert `presentPageIds` output is **unchanged** and the corresponding write
+  endpoints now 403. The negative half is the point: it is what stops a future PR
+  reintroducing the render veto.
+- **`status='disabled'` withdraws no capability** (§9.3) — a deliberately inverted
+  assertion, so nobody later mistakes capabilities for a third enforcement layer.
 
 ---
 
@@ -523,3 +724,29 @@ route through it, so this path is unaffected. That defect remains separate work.
   not affect any structure in this design.
 - **Stripe account / product setup** — create the two products and their AUD monthly
   prices in test mode, then live, and record the price IDs per environment.
+
+---
+
+## 18. Correction log
+
+This spec was reviewed against the codebase on 2026-09-02. Every claim below was a
+premise the design rested on that did not hold; each is now corrected in place.
+
+| § | Was | Now |
+|---|---|---|
+| D11 / §12.1 | Paid tier gates presentation | **Reversed.** Write-seam only — the render veto was deleted 2026-09-01 with *"none may be added back"* at the site, and `account_type` under this design is more volatile than the column that caused the original incident |
+| §8.5 | "`account_type` written here and nowhere else" | **Not true today.** `UpdateUserRequest:31` accepts it — an open free upgrade. Closed by removing the request rule, *not* by un-filling the column (250-test blast radius via factory `fill()`) |
+| §9.4 | `SiteCacheLanes::bust($site)` covers it | **It does not.** Wrong signature, and the gate's verdict lives in `handle.resolve`, which `bust()` never touches — its lane-2 raw update bypasses `SiteObserver`. Paid accounts would stay dark |
+| §8.3 | `plan_event_at < :event_created` | **`<=`.** `event.created` is second-resolution; a first charge emits two events in one second and the strict `<` silently drops the second |
+| §7 | One idempotency key (the user id) | **Two keys**, namespaced per operation; Stripe rejects a key replayed with a different body. Keys expire at 24 h, so `stripe_customer_id` is the durable guard |
+| §9.3 | "already reads `status`, so `'disabled'` flows through" | True but **inert** — `status` reaches only two moderation flags. Capabilities are not a third enforcement layer for lapses; `flushCache()` is per-process |
+| §9.1 | (unstated) | Enforcement **fails open for one resolve TTL** after the stage-4 flag flips. Verify cold |
+| §6.1 | (unstated) | `core.users` is the **entitlement** ledger; `billing.subscriptions` is the **audit** ledger and no entitlement read may touch it |
+| §7 / D16 | (unstated) | A claimer **inherits** the build's tier; there is no tier field in the claim payload |
+
+**Verified and unchanged:** `users_status_check` already admits `'disabled'`; the prior
+art at `8e97b9015^` is real; the `throttle:webhooks` group and the
+`VerifyResendWebhookSignature` pattern exist as described; §9.2's GDPR/deletion
+`withoutMiddleware` exclusions are already the house pattern (`routes/api/user.php:342-345`);
+no `subscription` symbol exists on the `User` model, so §1's naming hazard is correctly
+scoped; and composer/`config/services.php` carry no Stripe residue.
