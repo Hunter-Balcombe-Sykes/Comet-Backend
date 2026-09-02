@@ -42,6 +42,7 @@ class SourceReconciler
         private readonly ConnectionIdentity $identity,
         private readonly IriCanonicalizer $canonicaliser,
         private readonly AutoBookingConnectDispatcher $autoBookingConnect,
+        private readonly PreScrapeDispatcher $preScrape,
     ) {}
 
     /**
@@ -241,6 +242,15 @@ class SourceReconciler
             && (bool) config('partna.connect.auto_booking.enabled', true)
         ) {
             $this->autoBookingConnect->dispatchFor((string) $user->id, $placement->surfaceKey === 'square.book' ? 'square' : 'fresha');
+        }
+
+        // Pre-scrape (A.4): a sign-up build's freshly proposed AUTO-band
+        // suggestion starts syncing invisibly (hidden connection, A.3) so the
+        // setup dialog has real items behind the tick. AFTER the transaction
+        // and outside $settle's lock for the same reasons as the fresha gate
+        // above — the dispatcher re-reads the intent row it needs.
+        if ($verdict === Verdict::Choose && $intentId !== null && $context->isSignupBuild()) {
+            $this->preScrape->maybeApply($user, $placement, $surface, $intentId);
         }
 
         return $result;

@@ -1533,6 +1533,12 @@ return [
         // claim_token, or self-serve claiming 404s for everyone.
         'require_claim_proof' => (bool) env('PARTNA_PRE_ACCOUNT_REQUIRE_CLAIM_PROOF', false),
 
+        // A.4 kill switch: sign-up builds pre-scrape every auto-band
+        // suggestion that has a connector (hidden connection + ingest run,
+        // no cap — U22). Off = suggestions still appear, just without items
+        // behind them until accepted.
+        'pre_scrape_enabled' => (bool) env('PARTNA_PRE_ACCOUNT_PRE_SCRAPE_ENABLED', true),
+
         // LIFE-4: how long a build may sit in pending/building before it's treated
         // as stuck (worker crash, never reached failed()). Used by both the hourly
         // builds:reconcile-stuck watchdog and PreAccountBuildService::reserve() —
