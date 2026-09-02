@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\Platforms\CasesScannedNames;
+use App\Services\Platforms\ScrapedNameCasing;
 
 // B5 / backend-fixes item 3a — the spec's own examples, pinned.
 
@@ -55,4 +56,32 @@ it('handles null, empty and letterless strings without inventing case', function
     expect($caser->case(null))->toBeNull()
         ->and($caser->case('  '))->toBeNull()
         ->and($caser->case('123'))->toBe('123');
+});
+
+// CONNECTORS is documented as the vocabulary both re-casers share
+// (ScrapedNameCasing docblock), but titleCase() never read it — so the ingest
+// lane published "Just A Few Locs" and "Toner With Color". Six real dev names
+// were affected (2026-09-02).
+it('keeps connector words lowercase mid-name', function (string $in, string $out) {
+    expect(ScrapedNameCasing::titleCase($in))->toBe($out);
+})->with([
+    ['Just a Few Locs', 'Just a Few Locs'],
+    ['Toner with Color', 'Toner with Color'],
+    ['Curly Hair Treat and Cut', 'Curly Hair Treat and Cut'],
+    ['Restyle with consultation', 'Restyle with Consultation'],
+    ['Junior Zero and skin fade', 'Junior Zero and Skin Fade'],
+    ['Blow Wave Short Or with Color', 'Blow Wave Short Or with Color'],
+]);
+
+// First and last word always capitalise, even when they are connector words.
+it('still capitalises a connector word at either edge', function () {
+    expect(ScrapedNameCasing::titleCase('the works'))->toBe('The Works')
+        ->and(ScrapedNameCasing::titleCase('walk in'))->toBe('Walk In');
+});
+
+// A connector after '-', '(' or '/' opens a new clause the source capitalised
+// on purpose — "Manicure - With Gel Polish" sits beside "Manicure - No Gel
+// Polish" in live dev data, and downcasing only one of the pair is wrong.
+it('capitalises a connector that opens a new clause', function () {
+    expect(ScrapedNameCasing::titleCase('Manicure - With Gel Polish'))->toBe('Manicure - With Gel Polish');
 });

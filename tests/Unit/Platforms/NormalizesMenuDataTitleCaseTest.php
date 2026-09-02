@@ -81,7 +81,10 @@ it('preserves an all-caps mark but never promotes a lowercase one', function () 
     // Preserve, never promote. "gf"/"v" are ordinary words far more often than
     // they are marks, and a scrape gives no way to tell them apart — so a
     // lowercase source gets ordinary title case, nothing cleverer.
-    expect($harness->tc('SALT AND PEPPER SQUID GF'))->toBe('Salt And Pepper Squid GF');
+    // 2026-09-02: titleCase() now honours CONNECTORS mid-name, matching
+    // CasesScannedNames::scanTitleCase() (see CasesScannedNamesTest.php's
+    // 'SURF AND TURF' -> 'Surf and Turf'), so "and" here lowercases too.
+    expect($harness->tc('SALT AND PEPPER SQUID GF'))->toBe('Salt and Pepper Squid GF');
     expect($harness->tc('banana bread gf'))->toBe('Banana Bread Gf');
 });
 
