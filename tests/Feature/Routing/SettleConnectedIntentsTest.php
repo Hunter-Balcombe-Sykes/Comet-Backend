@@ -51,8 +51,11 @@ function connect(User $user, string $surface, string $resourceId, string $platfo
 
 it('settles a proposed intent whose account is already connected', function () {
     $pro = createTenant('settle-basic');
-    $intentId = settleIntent($pro);
+    // Connection first, intent after: a live connect now settles its own
+    // intent at the observer (A.9), so the command's population is rows that
+    // arrived AFTER the connect — the backfill this sweep exists for.
     $conn = connect($pro, 'shopify.store', '11461296187');
+    $intentId = settleIntent($pro);
 
     $this->artisan('routing:settle-connected')->assertSuccessful();
 
@@ -76,8 +79,8 @@ it('settles a blocked intent too, not only a proposed one', function () {
     // A cap_reached row naming an account the user has since connected is the
     // same stale question wearing a different reason.
     $pro = createTenant('settle-blocked');
-    $intentId = settleIntent($pro, ['state' => 'blocked', 'block_reason' => 'cap_reached']);
     connect($pro, 'shopify.store', '11461296187');
+    $intentId = settleIntent($pro, ['state' => 'blocked', 'block_reason' => 'cap_reached']);
 
     $this->artisan('routing:settle-connected')->assertSuccessful();
 
@@ -86,11 +89,11 @@ it('settles a blocked intent too, not only a proposed one', function () {
 
 it('folds case on the surfaces whose platform does (M-7)', function () {
     $pro = createTenant('settle-case');
+    connect($pro, 'tiktok.profile', 'stali', 'tiktok');
     $intentId = settleIntent($pro, [
         'surface_key' => 'tiktok.profile', 'routing_class' => 'social',
         'identifier' => 'STALi', 'canonical_url' => 'https://www.tiktok.com/@STALi',
     ]);
-    connect($pro, 'tiktok.profile', 'stali', 'tiktok');
 
     $this->artisan('routing:settle-connected')->assertSuccessful();
 
@@ -112,8 +115,8 @@ it('never touches a settled row', function () {
 
 it('writes nothing under --dry-run, and still reports what it would close', function () {
     $pro = createTenant('settle-dry');
-    $intentId = settleIntent($pro);
     connect($pro, 'shopify.store', '11461296187');
+    $intentId = settleIntent($pro);
 
     $this->artisan('routing:settle-connected', ['--dry-run' => true])
         ->expectsOutputToContain('1')

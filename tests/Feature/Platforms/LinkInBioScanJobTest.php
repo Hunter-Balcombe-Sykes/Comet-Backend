@@ -272,8 +272,15 @@ it('writes no payload finding and rings no bell for an unclaimed pre-account use
     expect($payload['username'])->toBe('venue');
     // No bell: unclaimed guard, carried verbatim from the legacy job.
     expect(DB::connection('pgsql')->table('notifications.notifications')->where('user_id', $user->id)->count())->toBe(0);
-    // But the conflict is NOT lost — it waits in the intent ledger.
-    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('block_reason', 'conflict')->count())->toBe(1);
+    // A.2 (setup-dialog run): an unclaimed non-paste build is a SIGN-UP
+    // context, and sign-up builds never auto-apply — so the conflict is no
+    // longer discovered here at all. The find still lands in the ledger as a
+    // banded suggestion for the setup dialog; the slot conflict surfaces at
+    // accept time (SuggestionApplier's slot_taken arm) instead of at scan.
+    $row = DB::table('routing.source_intents')->where('user_id', $user->id)->first();
+    expect($row)->not->toBeNull()
+        ->and((string) $row->state)->toBe('proposed')
+        ->and($row->block_reason)->not->toBe('conflict');
 });
 
 it('notifies a claimed owner about a conflict via the intent ledger', function () {

@@ -37,6 +37,9 @@ class MenuPhotoSweepJob implements ShouldBeUnique, ShouldQueue
     // AI spend: no automatic retries (same policy as the scan job).
     public int $tries = 1;
 
+    /** Moot at one attempt; declared for the job-hygiene policy. @var list<int> */
+    public array $backoff = [60];
+
     /** One sweep per person per setup session — a Back/Continue bounce must not re-bill. */
     public int $uniqueFor = 86400;
 
@@ -48,6 +51,16 @@ class MenuPhotoSweepJob implements ShouldBeUnique, ShouldQueue
     public function uniqueId(): string
     {
         return $this->userId;
+    }
+
+    public function failed(?\Throwable $e): void
+    {
+        // One attempt, AI spend: a failed sweep logs and waits for the person
+        // to re-cross the platforms passes another day — never auto-re-bills.
+        Log::warning('menu_photo_sweep.failed', [
+            'user_id' => $this->userId,
+            'error' => $e?->getMessage(),
+        ]);
     }
 
     public function handle(

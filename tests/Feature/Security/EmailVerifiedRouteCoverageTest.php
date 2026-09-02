@@ -25,6 +25,12 @@ const EMAIL_VERIFY_EXEMPT = [
     // BEFORE verification. The controller itself is read-only and only
     // returns the caller's own data.
     'POST api/bootstrap',
+    // A.8: the sign-up claim screen prefills name/handle/sector from the
+    // build BEFORE the claim (and therefore before verification — the person
+    // just created their auth user). Read-only, 404 once claimed, throttled,
+    // and returns only what the build itself scraped — same OV-A footing as
+    // /claim below, which is where verification is actually enforced.
+    'GET api/public/signup/builds/{build}/prefill',
     // Same OV-A pattern as bootstrap: /claim binds a fresh Supabase auth user
     // to an unclaimed pre-account site. ClaimController runs
     // RequireEmailVerified's exact dual-location `email_verified` read

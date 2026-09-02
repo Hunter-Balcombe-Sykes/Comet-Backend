@@ -260,6 +260,11 @@ it('reorderLayout touches the site and dispatches CloudflareCachePurgeJob (user-
     expect(Cache::get($siteKey))->not->toBeNull();
     expect(Cache::get($controlKey))->not->toBeNull();
 
+    // Backdated so the assertion below can see the touch: A.11 made every
+    // manual-item write bump updated_at too, so the fixture's own seeding
+    // already stamps the current second — same-second writes read equal.
+    DB::connection('pgsql')->table('site.sites')->where('id', $siteId)
+        ->update(['updated_at' => now()->subMinute()->toDateTimeString()]);
     $before = DB::connection('pgsql')->table('site.sites')->where('id', $siteId)->value('updated_at');
 
     // Full layout: swap which category comes first (a real reorder) while every

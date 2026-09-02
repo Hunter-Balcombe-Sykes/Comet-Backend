@@ -39,6 +39,16 @@ class ReparentBioItemsJob implements ShouldQueue
 
     public function __construct(public readonly string $connectionId) {}
 
+    public function failed(?\Throwable $e): void
+    {
+        // Best-effort fold: a failure leaves the manual seed AND the ingested
+        // twin both live (a visible duplicate, not data loss) — log and stop.
+        Log::warning('content.reparent_bio_items.failed', [
+            'connection_id' => $this->connectionId,
+            'error' => $e?->getMessage(),
+        ]);
+    }
+
     public function handle(ItemMerger $merger): void
     {
         $connection = IntegrationConnection::query()->find($this->connectionId);

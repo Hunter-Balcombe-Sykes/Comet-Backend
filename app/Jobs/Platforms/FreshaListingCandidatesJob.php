@@ -26,6 +26,9 @@ class FreshaListingCandidatesJob implements ShouldBeUnique, ShouldQueue
 
     public int $tries = 1;
 
+    /** Moot at one attempt; declared for the job-hygiene policy. @var list<int> */
+    public array $backoff = [60];
+
     public int $timeout = 60;
 
     public int $uniqueFor = 300;

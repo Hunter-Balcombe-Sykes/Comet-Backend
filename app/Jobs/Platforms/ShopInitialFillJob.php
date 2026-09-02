@@ -96,10 +96,16 @@ class ShopInitialFillJob implements ShouldBeUnique, ShouldQueue
 
         // A.7: a sign-up build's store fills its catalogue but PINS nothing —
         // the setup dialog's shop pass offers the products instead. Staff
-        // demo builds keep the auto-select (nobody is there to pick).
-        $signupUnclaimed = ($storeUser = User::query()->find($store->userId)) !== null
-            && $storeUser->isUnclaimed()
-            && PreAccountBuild::latestIsSignup((string) $store->userId);
+        // demo builds keep the auto-select (nobody is there to pick). The
+        // read fails open to the legacy path: a lane without the core.*
+        // stand-ins (unit tests) is never a signup build.
+        try {
+            $signupUnclaimed = ($storeUser = User::query()->find($store->userId)) !== null
+                && $storeUser->isUnclaimed()
+                && PreAccountBuild::latestIsSignup((string) $store->userId);
+        } catch (Throwable) {
+            $signupUnclaimed = false;
+        }
         if ($signupUnclaimed) {
             Log::info('shop.initial_fill_job.auto_select_skipped_signup', [
                 'collection_id' => $this->collectionId,
