@@ -93,15 +93,26 @@ final class BuildProgressReader
         }
 
         $workplaceAnswered = $build->enriched_at !== null;
+        $workplaceStarted = false;
         $platformsAnswered = $build->source_type !== 'instagram';
         foreach ($events as $event) {
-            if ($event->stage === PreAccountBuildEvent::STAGE_WORKPLACE
-                && in_array($event->status, [PreAccountBuildEvent::STATUS_SKIPPED, PreAccountBuildEvent::STATUS_FAILED], true)) {
-                $workplaceAnswered = true;
+            if ($event->stage === PreAccountBuildEvent::STAGE_WORKPLACE) {
+                if ($event->status === PreAccountBuildEvent::STATUS_STARTED) {
+                    $workplaceStarted = true;
+                } else {
+                    $workplaceAnswered = true;
+                }
             }
             if ($event->stage === PreAccountBuildEvent::STAGE_PLATFORMS) {
                 $platformsAnswered = true;
             }
+        }
+        // A workplace is only OWED once something started looking for one
+        // (2026-09-02, get_scissored: a bio with no mentions never dispatches
+        // the chain, so no row and no skipped note ever come — the setup sat
+        // "building" to the ceiling with everything else landed).
+        if (! $workplaceStarted) {
+            $workplaceAnswered = true;
         }
         // A failed, aged asset is settled too (2026-09-02, teegandyson: 2 of 22
         // dead CDN urls held the setup open to the ceiling).
