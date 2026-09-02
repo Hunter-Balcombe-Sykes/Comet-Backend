@@ -5,6 +5,7 @@ namespace App\Services\PreAccount;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\PreAccountBuildEvent;
+use Illuminate\Support\Facades\Log;
 
 /**
  * The setup progress ledger's one writer (2026-09-02). A producer — a job
@@ -75,7 +76,10 @@ final class BuildProgress
                 ->where('created_at', '>=', now()->subMinutes(self::LIVE_WINDOW_MINUTES))
                 ->value('id');
         } catch (\Throwable $e) {
-            report($e);
+            // Feed decoration only (2026-09-02): a lookup that cannot run —
+            // no table in a unit test, a connection blip — is not an
+            // exception report; the build carries on without the note.
+            Log::debug('pre_account.progress.lookup_skipped', ['user_id' => $userId, 'stage' => $stage, 'error' => $e->getMessage()]);
 
             return;
         }

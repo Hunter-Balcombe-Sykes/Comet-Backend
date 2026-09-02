@@ -635,7 +635,7 @@ it('lands an empty reviewSamples on the STAGE_LISTING sign-up-preview note pre-c
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
         ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
-    $event = PreAccountBuildEvent::query()->where('build_id', $build->id)->where('stage', PreAccountBuildEvent::STAGE_LISTING)->firstOrFail();
+    $event = PreAccountBuildEvent::query()->where('build_id', $build->id)->where('stage', PreAccountBuildEvent::STAGE_LISTING)->where('status', 'landed')->firstOrFail();
     expect($event->payload['reviewSamples'])->toBe([]);
 });
 

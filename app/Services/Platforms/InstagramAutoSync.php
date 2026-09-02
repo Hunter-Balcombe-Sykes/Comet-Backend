@@ -3,10 +3,12 @@
 namespace App\Services\Platforms;
 
 use App\Jobs\Platforms\LinkInBioScanJob;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Routing\ShortLinkExpander;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
+use App\Services\PreAccount\BuildProgress;
 use Throwable;
 
 // Seeds connections from the links found in an Instagram bio.
@@ -156,6 +158,8 @@ class InstagramAutoSync
                     // its own fetch can be slow or JS-heavy and would risk
                     // blowing InstagramConnectJob's timeout inline. Nothing
                     // about the bio-link URL itself is persisted.
+                    // Setup progress (2026-09-02): the platforms row is owed from here.
+                    BuildProgress::noteForUser($userId, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_STARTED, 'Checking your link page');
                     LinkInBioScanJob::dispatch($userId, $url, $autoConnectBooking);
 
                     continue;

@@ -66,6 +66,10 @@ class ShopInitialFillJob implements ShouldBeUnique, ShouldQueue
     public function handle(ShopConnections $shop, ShopCatalog $catalog, ShopAutoSelector $selector): void
     {
         $store = $shop->storeByCollection($this->collectionId);
+        if ($store !== null && $store->userId !== null) {
+            // Setup progress (2026-09-02): the store stage has STARTED.
+            BuildProgress::noteForUser((string) $store->userId, PreAccountBuildEvent::STAGE_SHOP, PreAccountBuildEvent::STATUS_STARTED, 'Syncing your store');
+        }
         if ($store === null || $store->userId === null) {
             return;
         }

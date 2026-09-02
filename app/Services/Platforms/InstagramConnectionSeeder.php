@@ -132,6 +132,8 @@ class InstagramConnectionSeeder
         // four vendor waits costs is what decides the remedy (plan A.4). One
         // log line per seed, whole ms, read back from cloud logs.
         $seedStart = hrtime(true);
+        // Setup progress (2026-09-02): the media stage has STARTED.
+        BuildProgress::noteForUser($userId, PreAccountBuildEvent::STAGE_MEDIA, PreAccountBuildEvent::STATUS_STARTED, 'Saving your latest photos and reels');
         $timing = ['latest_ms' => 0, 'fresh_ms' => 0, 'mirror_photo_ms' => 0, 'mirror_pic_ms' => 0, 'autosync_ms' => 0, 'fresh_refetched' => false];
 
         // The most-recent photo AND the most-recent reel, picked independently. The

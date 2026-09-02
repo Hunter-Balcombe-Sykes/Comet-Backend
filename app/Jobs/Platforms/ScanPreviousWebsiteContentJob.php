@@ -4,6 +4,7 @@ namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Routing\Importers\WebsiteImporter;
 use App\Services\Accounts\AccountCapabilities;
@@ -17,6 +18,7 @@ use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\LinkInBioDetector;
 use App\Services\Platforms\MenuScanApplier;
 use App\Services\Platforms\WebsiteLinkHarvester;
+use App\Services\PreAccount\BuildProgress;
 use App\Services\WebsiteScan\AboutProseExtractor;
 use App\Services\WebsiteScan\AboutTextExtractor;
 use App\Services\WebsiteScan\ContactEmailExtractor;
@@ -457,6 +459,10 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
      */
     private function resolveMenuPageUrl(string $html, string $baseUrl, WebsiteLinkHarvester $harvester, MetadataParser $metadataParser): ?string
     {
+        // Setup progress (2026-09-02): the website is owed from the scan's
+        // first line; WebsiteGalleryScanJob lands (or skips) it.
+        BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_WEBSITE, PreAccountBuildEvent::STATUS_STARTED, 'Looking at your website');
+
         return $this->menuPointerUrl($html, $baseUrl, $metadataParser)
             ?? $this->findPageLink($harvester->allOutboundLinks($html, $baseUrl), $baseUrl, 'menu');
     }
