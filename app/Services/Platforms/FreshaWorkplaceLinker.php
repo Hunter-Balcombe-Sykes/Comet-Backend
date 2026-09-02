@@ -4,13 +4,16 @@ namespace App\Services\Platforms;
 
 use App\Jobs\Platforms\GoogleBusinessEnrichJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Registry\Platform;
 use App\Services\PreAccount\BuildProgress;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -48,26 +51,20 @@ class FreshaWorkplaceLinker
     public function attempt(User $user, array $venue): array
     {
         $name = trim((string) ($venue['name'] ?? ''));
-        if ($name === '') {
-            return $this->outcome('skipped', null, 'no_name');
-        }
-        if (AccountCapabilities::for($user)->workplace_brand_is_site_identity) {
-            return $this->outcome('skipped', null, 'business_account');
-        }
-        if ($user->isPendingDeletion()) {
-            return $this->outcome('skipped', null, 'pending_deletion');
-        }
-        if ($user->integrationConnections()->where('platform', Platform::GoogleBusiness->value)->exists()) {
-            return $this->outcome('skipped', null, 'google_already_connected');
+        if (($reason = $this->guardReason($user, $name)) !== null) {
+            return $this->outcome('skipped', null, $reason);
         }
 
-        $candidates = $this->search($user, $venue);
+        $candidates = $this->candidates($user, $venue);
         if ($candidates === null) {
             return $this->outcome('failed', null, 'search_unavailable');
         }
 
-        $match = $this->pick($venue, $candidates);
-        if ($match === null) {
+        // The old pick() contract over the shared candidate list (A.5 split):
+        // confident = the name plus at least one corroborator, and two
+        // confident candidates is ambiguity, not confidence.
+        $confident = array_values(array_filter($candidates, fn (array $c) => count((array) $c['corroboration']) >= 2));
+        if (count($confident) !== 1) {
             Log::info('fresha.workplace_link.no_confident_match', [
                 'user_id' => (string) $user->id,
                 'venue' => $name,
@@ -76,6 +73,127 @@ class FreshaWorkplaceLinker
 
             return $this->outcome('no_match', null, 'no_confident_match');
         }
+
+        return $this->connect($user, $confident[0]);
+    }
+
+    /** The shared refusals; a reason string, or null when the lane may run. */
+    private function guardReason(User $user, string $name): ?string
+    {
+        if ($name === '') {
+            return 'no_name';
+        }
+        if (AccountCapabilities::for($user)->workplace_brand_is_site_identity) {
+            return 'business_account';
+        }
+        if ($user->isPendingDeletion()) {
+            return 'pending_deletion';
+        }
+        if ($user->integrationConnections()->where('platform', Platform::GoogleBusiness->value)->exists()) {
+            return 'google_already_connected';
+        }
+
+        return null;
+    }
+
+    /**
+     * Persist every name-agreeing candidate for the setup dialog's listing
+     * pass (A.5, decision 6) instead of connecting one. Details fetched once
+     * per candidate for photo/rating; a row the person already answered
+     * (adopted/dismissed/superseded) is never reopened. Returns how many
+     * proposed rows were written or refreshed.
+     */
+    public function proposeCandidates(User $user, array $venue, string $source): int
+    {
+        $name = trim((string) ($venue['name'] ?? ''));
+        if ($this->guardReason($user, $name) !== null) {
+            return 0;
+        }
+
+        $candidates = $this->candidates($user, $venue) ?? [];
+        if ($candidates === []) {
+            return 0;
+        }
+
+        $siteId = Site::query()->where('user_id', $user->id)->value('id');
+        $written = 0;
+        foreach ($candidates as $candidate) {
+            $existing = DB::table('site.workplace_candidates')
+                ->where('user_id', $user->id)
+                ->where('place_id', $candidate['id'])
+                ->first();
+            if ($existing !== null && (string) $existing->state !== 'proposed') {
+                continue;
+            }
+
+            $details = [];
+            try {
+                $fetched = $this->google->fetchPlaceDetails($candidate['id'], (string) $user->id);
+                $details = is_array($fetched) ? GoogleBusinessPayload::stripThirdPartyPii($fetched) : [];
+            } catch (Throwable $e) {
+                report($e);
+            }
+
+            $photo = null;
+            foreach ((array) ($details['photos'] ?? []) as $p) {
+                if (is_array($p) && is_string($p['url'] ?? null) && $p['url'] !== '') {
+                    $photo = $p['url'];
+                    break;
+                }
+            }
+
+            $fields = [
+                'site_id' => $siteId,
+                'name' => (string) ($details['name'] ?? $candidate['name']),
+                'address' => $details['address'] ?? $candidate['address'],
+                'lat' => $candidate['lat'],
+                'lng' => $candidate['lng'],
+                'photo_url' => $photo,
+                'rating' => is_numeric($details['rating'] ?? null) ? (float) $details['rating'] : null,
+                'review_count' => is_numeric($details['reviewCount'] ?? null) ? (int) $details['reviewCount'] : null,
+                'source' => $source,
+                'corroboration' => json_encode($candidate['corroboration']),
+                'state' => 'proposed',
+            ];
+            if ($existing === null) {
+                DB::table('site.workplace_candidates')->insert($fields + [
+                    'id' => (string) Str::uuid(),
+                    'user_id' => $user->id,
+                    'place_id' => $candidate['id'],
+                    'created_at' => now(),
+                ]);
+            } else {
+                DB::table('site.workplace_candidates')
+                    ->where('id', $existing->id)->update($fields);
+            }
+            $written++;
+        }
+
+        if ($written > 0) {
+            BuildProgress::noteForUser(
+                (string) $user->id,
+                PreAccountBuildEvent::STAGE_LISTING,
+                PreAccountBuildEvent::STATUS_LANDED,
+                BuildProgress::count($written, 'possible listing found', 'possible listings found'),
+                ['source' => $source, 'venue' => $name],
+            );
+        }
+
+        return $written;
+    }
+
+    /**
+     * Connect ONE candidate as the google-business connection — the write
+     * half of the old attempt(), unchanged: details fetched, Apify
+     * enrichment queued, and the observer folds the identity.
+     *
+     * @param  array{id:string, name:string, address:?string, lat:?float, lng:?float, corroboration?:mixed}  $candidate
+     * @return array{outcome:string, placeId:?string, reason:?string, connectionId?:string}
+     */
+    public function connect(User $user, array $candidate): array
+    {
+        $match = $candidate;
+        $name = (string) $candidate['name'];
 
         try {
             $details = $this->google->fetchPlaceDetails($match['id'], (string) $user->id);
@@ -128,7 +246,7 @@ class FreshaWorkplaceLinker
             'user_id' => (string) $user->id,
             'venue' => $name,
             'place_id' => $match['id'],
-            'corroborated_by' => $match['corroboration'],
+            'corroborated_by' => $match['corroboration'] ?? null,
         ]);
         // Setup progress (2026-09-02): the workplace row the feed shows.
         BuildProgress::noteForUser(
@@ -139,7 +257,7 @@ class FreshaWorkplaceLinker
             ['name' => $name, 'address' => $match['address'] ?? null, 'platform' => 'google-business'],
         );
 
-        return $this->outcome('connected', $match['id'], null);
+        return ['outcome' => 'connected', 'placeId' => (string) $match['id'], 'reason' => null, 'connectionId' => (string) $connection->id];
     }
 
     /**
@@ -164,20 +282,29 @@ class FreshaWorkplaceLinker
     }
 
     /**
-     * The one candidate that carries the venue's name and corroborates on
-     * distance, postcode or phone — or null.
+     * Every operational candidate that carries the venue's name, each with
+     * the corroborators it earned — 'name' always, plus any of distance,
+     * postcode, phone, or (when the venue offers no corroborator at all)
+     * the name-locality token match. No refusal on ambiguity: the caller
+     * decides — attempt() demands one confident row, proposeCandidates()
+     * writes them all for the person to pick (A.5).
      *
-     * @param  list<array<string,mixed>>  $candidates
-     * @return array{id:string, name:string, address:?string, lat:?float, lng:?float, corroboration:string}|null
+     * @return list<array{id:string, name:string, address:?string, lat:?float, lng:?float, corroboration:list<string>}>|null
+     *                                                                                                                       null = search unavailable
      */
-    private function pick(array $venue, array $candidates): ?array
+    public function candidates(User $user, array $venue): ?array
     {
+        $places = $this->search($user, $venue);
+        if ($places === null) {
+            return null;
+        }
+
         $venueName = $this->normaliseName((string) ($venue['name'] ?? ''));
         $venuePhone = $this->phoneDigits($venue['phone'] ?? null);
         $venuePostcode = trim((string) ($venue['postcode'] ?? ''));
 
-        $best = null;
-        foreach ($candidates as $place) {
+        $out = [];
+        foreach ($places as $place) {
             $id = $place['id'] ?? null;
             $displayName = data_get($place, 'displayName.text');
             if (! is_string($id) || ! is_string($displayName)) {
@@ -192,43 +319,40 @@ class FreshaWorkplaceLinker
 
             $lat = data_get($place, 'location.latitude');
             $lng = data_get($place, 'location.longitude');
-            $corroboration = null;
+            $corroboration = ['name'];
             if (isset($venue['lat'], $venue['lng']) && is_numeric($lat) && is_numeric($lng)
                 && $this->distanceMetres((float) $venue['lat'], (float) $venue['lng'], (float) $lat, (float) $lng) <= self::MAX_DISTANCE_M) {
-                $corroboration = 'distance';
-            } elseif ($venuePostcode !== '' && trim((string) data_get($place, 'postalAddress.postalCode', '')) === $venuePostcode) {
-                $corroboration = 'postcode';
-            } elseif ($venuePhone !== null) {
+                $corroboration[] = 'distance';
+            }
+            if ($venuePostcode !== '' && trim((string) data_get($place, 'postalAddress.postalCode', '')) === $venuePostcode) {
+                $corroboration[] = 'postcode';
+            }
+            if ($venuePhone !== null) {
                 foreach (['nationalPhoneNumber', 'internationalPhoneNumber'] as $field) {
                     if ($this->phoneDigits($place[$field] ?? null) === $venuePhone) {
-                        $corroboration = 'phone';
+                        $corroboration[] = 'phone';
                         break;
                     }
                 }
-            } elseif (! isset($venue['lat'], $venue['lng']) && $venuePostcode === '') {
-                // ($venuePhone is necessarily null here — the branch above took it.)
+            }
+            if (! isset($venue['lat'], $venue['lng']) && $venuePostcode === '' && $venuePhone === null) {
                 // T14/owner 2026-08-27: locality-corroborated hit for venues
                 // that OFFER no corroborator at all (a bio-mention venue whose
                 // IG bio carries only opening hours — measured on
                 // @star_barber_darwin). A locality-looking token from the
                 // venue NAME appearing in the candidate's own address is the
-                // agreement ("Star Barber DARWIN" ↔ "…Darwin NT…"). Fires
-                // only in this nothing-else-to-offer case; the single-
-                // candidate ambiguity guard below still applies.
+                // agreement ("Star Barber DARWIN" ↔ "…Darwin NT…").
                 foreach (preg_split('/\s+/', mb_strtolower((string) $venue['name'])) ?: [] as $token) {
                     if (mb_strlen($token) >= 4
                         && ! preg_match('/^(the|and|salon|studio|barbers?|barbershop|hair|beauty|nails?|spa|clinic|shop|store)$/u', $token)
                         && stripos((string) ($place['formattedAddress'] ?? ''), $token) !== false) {
-                        $corroboration = 'name-locality';
+                        $corroboration[] = 'name-locality';
                         break;
                     }
                 }
             }
-            if ($corroboration === null) {
-                continue;
-            }
 
-            $candidate = [
+            $out[] = [
                 'id' => $id,
                 'name' => $displayName,
                 'address' => is_string($place['formattedAddress'] ?? null) ? $place['formattedAddress'] : null,
@@ -236,14 +360,9 @@ class FreshaWorkplaceLinker
                 'lng' => is_numeric($lng) ? (float) $lng : null,
                 'corroboration' => $corroboration,
             ];
-            // Two confident candidates is ambiguity, not confidence.
-            if ($best !== null) {
-                return null;
-            }
-            $best = $candidate;
         }
 
-        return $best;
+        return $out;
     }
 
     /** Lower-cased, punctuation stripped, generic trade words dropped. */

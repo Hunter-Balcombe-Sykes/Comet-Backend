@@ -3,6 +3,7 @@
 namespace App\Routing;
 
 use App\Ingest\SourceProvisioner;
+use App\Jobs\Platforms\FreshaListingCandidatesJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
@@ -32,11 +33,19 @@ class PreScrapeDispatcher
             return;
         }
 
+        $surfaceKey = (string) $placement->surfaceKey;
+
+        // Fresha's venue page is readable without connecting anything, so it
+        // proposes listing candidates at ANY band (decision 5) — once, and
+        // only while no Google Business connection or candidate exists.
+        if ($surfaceKey === 'fresha.book') {
+            $this->maybeProposeFreshaListing($user, $intentId);
+        }
+
         if ($placement->band !== 'auto') {
             return;
         }
 
-        $surfaceKey = (string) $placement->surfaceKey;
         if (SourceProvisioner::sourceKeyFor($surfaceKey) === null) {
             return;
         }
@@ -84,5 +93,25 @@ class PreScrapeDispatcher
             ]);
             BuildProgress::noteForUser((string) $user->id, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_FAILED, $label.' could not sync');
         }
+    }
+
+    private function maybeProposeFreshaListing(User $user, string $intentId): void
+    {
+        if ($user->integrationConnections()->where('platform', 'google-business')->exists()) {
+            return;
+        }
+        if (DB::table('site.workplace_candidates')->where('user_id', $user->id)->exists()) {
+            return;
+        }
+
+        $url = DB::table('routing.source_intents')
+            ->where('id', $intentId)
+            ->where('user_id', $user->id)
+            ->value('canonical_url');
+        if (! is_string($url) || $url === '') {
+            return;
+        }
+
+        FreshaListingCandidatesJob::dispatch((string) $user->id, $url);
     }
 }

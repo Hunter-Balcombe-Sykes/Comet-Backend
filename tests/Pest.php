@@ -1219,6 +1219,27 @@ function setupSitesTable(): void
         // already exists / unsupported — ignore
     }
 
+    // site.workplace_candidates — the listing pass's offer rows (A.5). CHECKs
+    // copied from 20260902210000_workplace_candidates.sql.
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.workplace_candidates (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        site_id TEXT NULL,
+        place_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        address TEXT NULL,
+        lat REAL NULL,
+        lng REAL NULL,
+        photo_url TEXT NULL,
+        rating REAL NULL,
+        review_count INTEGER NULL,
+        source TEXT NOT NULL CHECK (source IN (\'bio_mention\', \'fresha\')),
+        corroboration TEXT NOT NULL DEFAULT \'[]\',
+        state TEXT NOT NULL DEFAULT \'proposed\' CHECK (state IN (\'proposed\', \'adopted\', \'dismissed\', \'superseded\')),
+        created_at TEXT NOT NULL,
+        UNIQUE (user_id, place_id)
+    )');
+
     // site.shop_brands + site.shop_products used to be provisioned here
     // (FOUND-25 relational storage, migration 20260704160000). Both tables are
     // GONE — dropped by 20260819000200 / 20260819000210 — and a store now lives

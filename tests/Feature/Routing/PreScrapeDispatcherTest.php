@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Platforms\FreshaListingCandidatesJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
@@ -10,6 +11,7 @@ use App\Routing\SourceReconciler;
 use App\Routing\Verdict;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 // A.4: a sign-up build's freshly proposed AUTO-band suggestion with a
 // connector pre-scrapes — hidden connection + ingest provisioning — while
@@ -98,4 +100,39 @@ it('does not mint a second row when the account is already held, hidden or visib
     preScrapeReconcile($user, 'auto');
 
     expect(IntegrationConnection::query()->where('user_id', $user->id)->count())->toBe(1);
+});
+
+it('dispatches the Fresha listing-candidates job at any band', function () {
+    Queue::fake();
+    $user = preScrapeSignupUser();
+
+    $iri = app(IriCanonicalizer::class)->canonicalize('https://www.fresha.com/a/anseo-studio-v0v92jna');
+    app(SourceReconciler::class)->reconcile(
+        new Placement(Verdict::Choose, 'fresha.book', 'anseo-studio-v0v92jna', 'below_threshold', 'held for setup review',
+            confidence: 50, band: 'suggest'),
+        RoutingContext::forUser($user, 'link_in_bio'),
+        $iri,
+    );
+
+    Queue::assertPushed(FreshaListingCandidatesJob::class, fn ($job) => $job->userId === (string) $user->id);
+});
+
+it('skips the Fresha venue read once a candidate already exists', function () {
+    Queue::fake();
+    $user = preScrapeSignupUser();
+    DB::table('site.workplace_candidates')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $user->id, 'place_id' => 'ChIJx',
+        'name' => 'Anseo Studio', 'source' => 'fresha', 'corroboration' => '["name"]',
+        'state' => 'proposed', 'created_at' => now(),
+    ]);
+
+    $iri = app(IriCanonicalizer::class)->canonicalize('https://www.fresha.com/a/anseo-studio-v0v92jna');
+    app(SourceReconciler::class)->reconcile(
+        new Placement(Verdict::Choose, 'fresha.book', 'anseo-studio-v0v92jna', 'below_threshold', 'held for setup review',
+            confidence: 50, band: 'suggest'),
+        RoutingContext::forUser($user, 'link_in_bio'),
+        $iri,
+    );
+
+    Queue::assertNotPushed(FreshaListingCandidatesJob::class);
 });

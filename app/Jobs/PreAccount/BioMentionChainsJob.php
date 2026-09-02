@@ -239,29 +239,28 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
                 // "Akro Studio" (no locality token) correctly returns
                 // no_match and falls through to the scrape for its postcode
                 // evidence. The gate does the deciding either way.
+                // A.5 (decision 6): the linker no longer connects from here —
+                // it WRITES every name-agreeing candidate for the setup
+                // dialog's listing pass, runners-up included, and the person
+                // picks. Places-first one hop still runs before the paid
+                // chained scrape.
                 $handleName = ucwords(str_replace(['_', '.'], ' ', $handle));
-                $oneHop = $linker->attempt($user, [
+                $oneHop = $linker->proposeCandidates($user, [
                     'name' => $handleName,
                     'street' => null, 'city' => null, 'postcode' => null,
                     'region' => null, 'country' => 'AU',
                     'lat' => null, 'lng' => null, 'phone' => null,
-                ]);
+                ], 'bio_mention');
                 Log::info('bio_mention.workplace_chain', [
                     'user_id' => $this->userId,
                     'mention' => $handle,
                     'venue' => $handleName,
-                    'outcome' => $oneHop['outcome'],
-                    'reason' => $oneHop['reason'],
+                    'candidates' => $oneHop,
                     'via' => 'places_first',
                 ]);
-                if ($oneHop['outcome'] === 'connected') {
+                if ($oneHop > 0) {
                     $workplaceDone = true;
 
-                    continue;
-                }
-                if ($oneHop['outcome'] !== 'no_match') {
-                    // skipped (google_already_connected / capability) — the
-                    // scrape would meet the same wall; move on.
                     continue;
                 }
 
@@ -277,16 +276,15 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
                 $venue = $this->venueFrom($profile, $handle);
                 foreach (array_unique([$venue['name'], $handleName]) as $candidateName) {
                     $attemptVenue = ['name' => $candidateName] + $venue;
-                    $outcome = $linker->attempt($user, $attemptVenue);
-                    $workplaceDone = $outcome['outcome'] === 'connected';
+                    $found = $linker->proposeCandidates($user, $attemptVenue, 'bio_mention');
+                    $workplaceDone = $found > 0;
                     Log::info('bio_mention.workplace_chain', [
                         'user_id' => $this->userId,
                         'mention' => $handle,
                         'venue' => $candidateName,
-                        'outcome' => $outcome['outcome'],
-                        'reason' => $outcome['reason'],
+                        'candidates' => $found,
                     ]);
-                    if ($outcome['outcome'] !== 'no_match') {
+                    if ($found > 0) {
                         break;
                     }
                 }

@@ -10,6 +10,7 @@ use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\FreshaWorkplaceLinker;
 use App\Services\Platforms\Registry\Platform;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -178,4 +179,60 @@ it('still refuses a no-corroborator venue whose name carries no locality token i
     ]);
 
     expect($outcome['outcome'])->toBe('no_match');
+});
+
+// ── A.5: candidates persisted for the setup dialog's listing pass ───────────
+
+it('proposeCandidates writes every name-agreeing venue and connects nothing', function () {
+    Http::fake([
+        'places.googleapis.com/v1/places:searchText' => Http::response(['places' => [
+            fwlPlace('ChIJconfident', 'Stairs Hair Salon', -37.83940, 144.99320),
+            fwlPlace('ChIJnamesake', 'Stairs Salon Northcote', -37.7700, 145.0000, '3070', '(03) 9000 0000'),
+        ]]),
+        'places.googleapis.com/v1/places/*' => Http::response([
+            'id' => 'ChIJconfident', 'displayName' => ['text' => 'Stairs Hair Salon'],
+            'rating' => 4.9, 'userRatingCount' => 120,
+        ]),
+    ]);
+    $user = fwlUser('candidates-two');
+
+    $written = app(FreshaWorkplaceLinker::class)->proposeCandidates($user, fwlVenue(), 'fresha');
+
+    expect($written)->toBe(2)
+        ->and(IntegrationConnection::query()->where('user_id', $user->id)->count())->toBe(0);
+
+    $rows = DB::table('site.workplace_candidates')
+        ->where('user_id', $user->id)->orderBy('place_id')->get();
+    expect($rows)->toHaveCount(2)
+        ->and($rows[0]->state)->toBe('proposed')
+        ->and(count(json_decode($rows[0]->corroboration, true)))->toBeGreaterThanOrEqual(2)
+        ->and(json_decode($rows[1]->corroboration, true))->toBe(['name']);
+});
+
+it('proposeCandidates never reopens a row the person already answered', function () {
+    Http::fake([
+        'places.googleapis.com/v1/places:searchText' => Http::response(['places' => [
+            fwlPlace('ChIJanswered', 'Stairs Hair Salon', -37.83940, 144.99320),
+        ]]),
+        'places.googleapis.com/v1/places/*' => Http::response(['id' => 'ChIJanswered']),
+    ]);
+    $user = fwlUser('candidates-answered');
+    DB::table('site.workplace_candidates')->insert([
+        'id' => (string) Str::uuid(), 'user_id' => $user->id, 'place_id' => 'ChIJanswered',
+        'name' => 'Stairs Hair Salon', 'source' => 'fresha', 'corroboration' => '["name"]',
+        'state' => 'dismissed', 'created_at' => now(),
+    ]);
+
+    $written = app(FreshaWorkplaceLinker::class)->proposeCandidates($user, fwlVenue(), 'fresha');
+
+    expect($written)->toBe(0)
+        ->and(DB::table('site.workplace_candidates')->where('user_id', $user->id)->value('state'))->toBe('dismissed');
+});
+
+it('proposeCandidates refuses a business account', function () {
+    Http::fake();
+    $user = fwlUser('candidates-biz', 'business');
+
+    expect(app(FreshaWorkplaceLinker::class)->proposeCandidates($user, fwlVenue(), 'bio_mention'))->toBe(0);
+    Http::assertNothingSent();
 });

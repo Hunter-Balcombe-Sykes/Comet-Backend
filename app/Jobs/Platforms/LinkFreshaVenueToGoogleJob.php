@@ -52,6 +52,17 @@ class LinkFreshaVenueToGoogleJob implements ShouldBeUnique, ShouldQueue
         if ($user === null) {
             return;
         }
+
+        // A.5: pre-claim the venue becomes listing CANDIDATES the setup
+        // dialog asks about; a claimed owner keeps the old single-confident
+        // auto-connect (they can disconnect it themselves).
+        if ($user->isUnclaimed()) {
+            $found = $linker->proposeCandidates($user, $this->venue, 'fresha');
+            Log::info('fresha.workplace_link.result', ['user_id' => $this->userId, 'candidates' => $found]);
+
+            return;
+        }
+
         $result = $linker->attempt($user, $this->venue);
         Log::info('fresha.workplace_link.result', ['user_id' => $this->userId, ...$result]);
     }

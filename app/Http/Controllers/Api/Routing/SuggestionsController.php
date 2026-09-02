@@ -14,6 +14,7 @@ use App\Routing\ConnectionIdentity;
 use App\Routing\SuggestionApplier;
 use App\Routing\SyncFindingsBridge;
 use App\Services\Cache\CacheKeyGenerator;
+use App\Services\Platforms\FreshaWorkplaceLinker;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\OpenTableService;
@@ -51,6 +52,9 @@ class SuggestionsController extends ApiController
 
     /** The one id the Google-listing suggestion answers to — it has no ledger row. */
     private const LISTING_ID = 'listing:opentable';
+
+    /** Workplace-candidate rows (A.5) — synthesized ids `candidate:<uuid>`. */
+    private const CANDIDATE_ID_PREFIX = 'candidate:';
 
     /** Where its dismissal is remembered, since it is derived on every read. */
     private const LISTING_REF = 'opentable.reserve:google-listing';
@@ -202,7 +206,63 @@ class SuggestionsController extends ApiController
             $suggestions[] = $listing;
         }
 
+        foreach ($this->workplaceCandidateSuggestions($user) as $candidateRow) {
+            $suggestions[] = $candidateRow;
+        }
+
         return $this->success(['suggestions' => $suggestions]);
+    }
+
+    /**
+     * Google Business listing candidates (A.5) as synthesized rows, the
+     * listing:opentable precedent: id `candidate:<uuid>`, settled by their
+     * own accept/dismiss branches rather than the intent ledger. Suppressed
+     * once a Google Business connection exists — they are offers to fill
+     * that one slot. Business accounts never have rows (the linker refuses
+     * to write them — brand is identity).
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function workplaceCandidateSuggestions(User $user): array
+    {
+        if ($user->integrationConnections()->where('platform', 'google-business')->exists()) {
+            return [];
+        }
+
+        $rows = DB::table('site.workplace_candidates')
+            ->where('user_id', $user->id)
+            ->where('state', 'proposed')
+            ->orderByDesc('created_at')
+            ->limit(10)
+            ->get();
+
+        return $rows->map(function (object $row): array {
+            $corroboration = json_decode((string) $row->corroboration, true);
+            $band = is_array($corroboration) && count($corroboration) >= 2 ? 'auto' : 'suggest';
+
+            return [
+                'id' => self::CANDIDATE_ID_PREFIX.$row->id,
+                'state' => 'proposed',
+                'blockReason' => null,
+                'surfaceKey' => 'google_business.listing',
+                'displayName' => (string) $row->name,
+                'brandKey' => 'google_business',
+                'routingClass' => 'content',
+                'identifier' => (string) $row->place_id,
+                'accountName' => $row->address,
+                'band' => $band,
+                'preselected' => $band === 'auto',
+                'photo' => $row->photo_url,
+                'rating' => $row->rating !== null ? (float) $row->rating : null,
+                'reviewCount' => $row->review_count !== null ? (int) $row->review_count : null,
+                'url' => 'https://www.google.com/maps/search/?api=1&query='.rawurlencode((string) $row->name).'&query_place_id='.rawurlencode((string) $row->place_id),
+                'origin' => (string) $row->source,
+                'firstSeenAt' => $row->created_at,
+                'conflictingConnectionId' => null,
+                'question' => 'Is this your listing on Google?',
+                'actions' => ['accept', 'dismiss'],
+            ];
+        })->all();
     }
 
     /**
@@ -274,6 +334,9 @@ class SuggestionsController extends ApiController
         if ($intentId === self::LISTING_ID) {
             return $this->acceptGoogleListing($user);
         }
+        if (str_starts_with($intentId, self::CANDIDATE_ID_PREFIX)) {
+            return $this->acceptWorkplaceCandidate($user, substr($intentId, strlen(self::CANDIDATE_ID_PREFIX)));
+        }
 
         $intent = $this->findIntent($user->id, $intentId);
 
@@ -342,6 +405,19 @@ class SuggestionsController extends ApiController
 
         if ($intentId === self::LISTING_ID) {
             $this->tombstone($user, self::LISTING_REF, 'listing suggestion dismissed');
+
+            return $this->success(['dismissed' => true]);
+        }
+
+        if (str_starts_with($intentId, self::CANDIDATE_ID_PREFIX)) {
+            $updated = DB::table('site.workplace_candidates')
+                ->where('id', substr($intentId, strlen(self::CANDIDATE_ID_PREFIX)))
+                ->where('user_id', $user->id)
+                ->where('state', 'proposed')
+                ->update(['state' => 'dismissed']);
+            if ($updated === 0) {
+                return $this->error('That suggestion is no longer available.', 404);
+            }
 
             return $this->success(['dismissed' => true]);
         }
@@ -466,6 +542,50 @@ class SuggestionsController extends ApiController
             'connectionId' => $connection->id,
             'surfaceKey' => 'opentable.reserve',
             'displayName' => 'OpenTable',
+        ]);
+    }
+
+    /** Adopt one workplace candidate (A.5): connect it, supersede its siblings. */
+    private function acceptWorkplaceCandidate(User $user, string $candidateId): JsonResponse
+    {
+        $row = DB::table('site.workplace_candidates')
+            ->where('id', $candidateId)
+            ->where('user_id', $user->id)
+            ->where('state', 'proposed')
+            ->first();
+        if ($row === null) {
+            return $this->error('That suggestion is no longer available.', 404);
+        }
+
+        // #SEC-9 discipline: through the Policy, like acceptGoogleListing.
+        $this->authorizeForUser($user, 'createForRoutingClass', [
+            new IntegrationConnection(['user_id' => $user->id]),
+            'content',
+        ]);
+
+        $result = app(FreshaWorkplaceLinker::class)->connect($user, [
+            'id' => (string) $row->place_id,
+            'name' => (string) $row->name,
+            'address' => $row->address,
+            'lat' => $row->lat !== null ? (float) $row->lat : null,
+            'lng' => $row->lng !== null ? (float) $row->lng : null,
+        ]);
+        if ($result['outcome'] !== 'connected') {
+            return $this->error('Could not connect that listing — please try again.', 502);
+        }
+
+        DB::table('site.workplace_candidates')->where('id', $row->id)->update(['state' => 'adopted']);
+        // The question was "which one is yours" — answering it settles ALL of
+        // them; a superseded sibling never re-renders.
+        DB::table('site.workplace_candidates')
+            ->where('user_id', $user->id)
+            ->where('state', 'proposed')
+            ->update(['state' => 'superseded']);
+
+        return $this->success([
+            'connectionId' => $result['connectionId'] ?? null,
+            'surfaceKey' => 'google_business.listing',
+            'displayName' => (string) $row->name,
         ]);
     }
 
