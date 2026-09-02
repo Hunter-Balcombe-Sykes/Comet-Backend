@@ -113,7 +113,7 @@ it('chain is a no-op without a GBP connection to read a place id from', function
 
 // ── SiteMediaObserver accent chain ───────────────────────────────────────────
 
-it('chains accent resolution when a gallery asset reaches READY with a dominant colour', function () {
+it('chains accent resolution when a media asset reaches READY with a dominant colour', function () {
     $user = mecUser('mec6');
     $site = Site::factory()->for($user, 'user')->create();
 
@@ -138,7 +138,7 @@ it('does not chain accent resolution for a still-processing or colourless asset'
     ]))->site()->associate($site)->save();
 
     (new SiteMedia([
-        'pool' => 'gallery', 'path' => 'images/n.webp', 'media_type' => 'image',
+        'pool' => 'content', 'path' => 'images/n.webp', 'media_type' => 'image',
         'processing_state' => 'ready', 'sort_order' => 1, 'is_active' => true,
     ]))->site()->associate($site)->save();
 

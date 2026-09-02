@@ -74,6 +74,11 @@ Set up the k6 load-test fixture on **dev**. Read `scripts/launch-check/k6/README
   were dropped 2026-09-02 (migration `20260902170000`) and the seed moved to the `content`
   pool, capped at 20. 6 is kept so earlier baseline results stay comparable — don't "fix"
   the seed to insert more without re-baselining.
+- **Expect `pools.media`=6, `pools.services`=15, `pools.custom_links`=10** at
+  `data.profile.pools.<pool>.items`. `profile.gallery`/`services`/`links` no longer exist.
+  After re-seeding, **fetch the profile twice** — the payload is SWR-cached off
+  `site.sites.updated_at` and the rebuild is deferred until after the response, so the
+  first request serves the stale body and will look under-seeded.
 - **Each media item needs a matching `site.media_variants` (webp) row** or its URL
   resolves empty and the profile looks under-seeded. `seed.sql` already does this — if you
   edit the seed, keep it.

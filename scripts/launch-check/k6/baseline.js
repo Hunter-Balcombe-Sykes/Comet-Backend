@@ -59,21 +59,27 @@ export const options = { scenarios, thresholds };
 const params = { headers: LOAD_HEADERS };
 
 // COV-TAIL-10: r.body.includes('"data"') passed for {"data":{}} — a degraded
-// build (empty engine outputs) reported 100% pass. These parse the body and
-// check real array lengths against seed.sql's known invariants (services and
-// links counts are seed.sql's own generate_series bounds).
+// build (empty engine outputs) reported 100% pass. This parses the body and
+// checks real array lengths against seed.sql's own generate_series bounds.
 //
-// The gallery arm was DROPPED 2026-09-02: `profile.gallery` left the wire on
-// 2026-08-14 (slice 7 unit E) and the site_media 'gallery' pool behind it on
-// 2026-09-01, so the check had been asserting an always-undefined key. It is
-// not repointed at `profile.pools.media` because that pool reads content.items
-// — seed.sql writes raw site.site_media rows, which never reach it. Restoring
-// media coverage means teaching seed.sql to mint content items (source +
-// source_item + item + media_asset), not swapping the key here.
+// REPOINTED 2026-09-02, and the old assertions were worse than stale — they
+// were unfalsifiable. This checked profile.{gallery,services,links}; NONE of
+// those three keys exists on the wire any more (verified against dev-api:
+// data.profile carries accountType, bio, brand, contact, displayName,
+// document, handle, headshot, newsletter, pools, publicContact, site_id,
+// workplace — and nothing else). `undefined` is not an Array, so the whole
+// check returned false on every request... which the run still passed,
+// because a k6 `check` that returns false is recorded, not fatal. Curated
+// content moved to data.profile.pools.<pool>.items; that is what is asserted
+// now, and seed.sql mints the content.* rows that fill them.
 //
-// SEPARATELY BROKEN: seed.sql still inserts into site.services, DROPPED
-// 2026-08-18 (services cutover) — the seed raises 42P01 before it finishes, so
-// this harness cannot currently run at all. Both are one job.
+// The counts are seed.sql's: 6 media, 15 services, 10 custom_links. All three
+// were confirmed non-zero end-to-end against dev-api after seeding — an
+// assertion nobody has watched pass is how the last one rotted.
+//
+// NOTE for anyone re-seeding by hand: the payload is SWR-cached off
+// site.sites.updated_at, and a rebuild is deferred until AFTER the response.
+// The first request following a seed serves the STALE body. Fetch twice.
 function hasSeededProfileShape(r) {
   if (!r.body) {
     return false;
@@ -87,13 +93,19 @@ function hasSeededProfileShape(r) {
   }
 
   const profile = body && body.data && body.data.profile;
-  if (!profile) {
+  if (!profile || !profile.pools) {
     return false;
   }
 
+  const count = (pool) => {
+    const p = profile.pools[pool];
+    return p && Array.isArray(p.items) ? p.items.length : -1;
+  };
+
   return (
-    Array.isArray(profile.services) && profile.services.length === 15 &&
-    Array.isArray(profile.links) && profile.links.length === 10
+    count('media') === 6 &&
+    count('services') === 15 &&
+    count('custom_links') === 10
   );
 }
 
@@ -101,7 +113,7 @@ export default function () {
   const profile = http.get(`${ORIGIN}/api/public/profiles/${TEST_HANDLE}`, params);
   check(profile, {
     'profile 200': (r) => r.status === 200,
-    'profile has seeded services/links counts (15/10)': hasSeededProfileShape,
+    'profile pools carry seeded media/services/links counts (6/15/10)': hasSeededProfileShape,
   });
 
   // Aggressively cacheable — exercises the other cheap read surfaces.
