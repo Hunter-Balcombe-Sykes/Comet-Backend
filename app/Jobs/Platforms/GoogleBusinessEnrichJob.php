@@ -344,12 +344,26 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
             return;
         }
 
-        // Setup progress (2026-09-02): the listing row the feed shows.
+        // Setup progress (2026-09-02): the listing row the feed shows. The
+        // enriched payload was written inside the transaction closure — read
+        // the row back (first(), never value(): the cast is what decodes it).
+        $connection->refresh();
+        $listingPayload = GoogleBusinessPayload::fromArray($connection->payload);
+        $listing = $listingPayload->toArray();
         BuildProgress::noteForUser(
             $this->userId,
             PreAccountBuildEvent::STAGE_LISTING,
             PreAccountBuildEvent::STATUS_LANDED,
             'Pulled the Google listing — hours, photos and reviews',
+            [
+                'name' => $listingPayload->name(),
+                'rating' => is_numeric($listing['rating'] ?? $listing['totalScore'] ?? null) ? (float) ($listing['rating'] ?? $listing['totalScore']) : null,
+                'reviews' => is_numeric($listing['reviewsCount'] ?? $listing['userRatingCount'] ?? null) ? (int) ($listing['reviewsCount'] ?? $listing['userRatingCount']) : null,
+                'photos' => array_slice(array_values(array_filter(array_map(
+                    static fn (array $p): ?string => $p['photoPicUrl'],
+                    $listingPayload->photos(),
+                ), static fn (?string $u): bool => $u !== null && $u !== '')), 0, 3),
+            ],
         );
 
         // Terminal success: clear both markers so a genuine later reconnect

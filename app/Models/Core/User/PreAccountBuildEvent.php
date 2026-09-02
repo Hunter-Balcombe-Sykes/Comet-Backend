@@ -39,13 +39,16 @@ class PreAccountBuildEvent extends BaseModel
 
     public const STAGE_WEBSITE = 'website';
 
+    /** Since migration 20260902050000 — the store and its products as they sync. */
+    public const STAGE_SHOP = 'shop';
+
     public const STAGE_READY = 'ready';
 
     public const STAGE_FAILED = 'failed';
 
     public const STAGES = [
         self::STAGE_IDENTITY, self::STAGE_MEDIA, self::STAGE_WORKPLACE, self::STAGE_PLATFORMS,
-        self::STAGE_LISTING, self::STAGE_MENU, self::STAGE_WEBSITE, self::STAGE_READY, self::STAGE_FAILED,
+        self::STAGE_LISTING, self::STAGE_MENU, self::STAGE_WEBSITE, self::STAGE_SHOP, self::STAGE_READY, self::STAGE_FAILED,
     ];
 
     public const STATUS_STARTED = 'started';

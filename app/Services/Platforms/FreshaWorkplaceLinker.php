@@ -136,7 +136,7 @@ class FreshaWorkplaceLinker
             PreAccountBuildEvent::STAGE_WORKPLACE,
             PreAccountBuildEvent::STATUS_LANDED,
             'Workplace: '.$name,
-            ['name' => $name],
+            ['name' => $name, 'address' => $match['address'] ?? null, 'platform' => 'google-business'],
         );
 
         return $this->outcome('connected', $match['id'], null);

@@ -15,6 +15,7 @@ use App\Models\Core\Site\Workplace;
 use App\Services\Platforms\IdentitySync;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\CardPayload;
+use App\Services\Platforms\Payloads\FeedPayload;
 use App\Services\Platforms\Payloads\GoogleBusinessPayload;
 use App\Services\Platforms\Payloads\InstagramPayload;
 use App\Services\Platforms\Registry\Platform;
@@ -70,7 +71,7 @@ class IntegrationConnectionObserver
         // one channel twice — by @handle and by UC id — and the rows dedupe
         // by resource_id, which differs. Once a connect fills channelId,
         // keep the OLDEST row for that channel and retire the rest.
-        $channelId = $connection->payload['channelId'] ?? null;
+        $channelId = $connection->platform === 'youtube' ? FeedPayload::fromArray((array) $connection->payload)->channelId : null;
         if ($connection->platform === 'youtube' && is_string($channelId) && $channelId !== '') {
             $this->retireDuplicateYoutubeRows($connection, $channelId);
         }

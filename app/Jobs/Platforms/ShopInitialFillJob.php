@@ -2,7 +2,9 @@
 
 namespace App\Jobs\Platforms;
 
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Services\Platforms\ShopCatalog;
+use App\Services\PreAccount\BuildProgress;
 use App\Services\Shop\ShopAutoSelector;
 use App\Services\Shop\ShopConnections;
 use Illuminate\Bus\Queueable;
@@ -11,6 +13,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -94,6 +97,32 @@ class ShopInitialFillJob implements ShouldBeUnique, ShouldQueue
                 'user_id' => $store->userId,
                 'error' => $e->getMessage(),
             ]);
+        }
+
+        // Setup progress (2026-09-02): the store row the signup card shows —
+        // its name/logo and the first few products' artwork.
+        try {
+            $products = DB::connection('pgsql')->table('content.items as i')
+                ->leftJoin('content.item_media as im', fn ($j) => $j->on('im.item_id', '=', 'i.id')->where('im.role', 'cover'))
+                ->leftJoin('content.media_assets as ma', 'ma.id', '=', 'im.asset_id')
+                ->where('i.user_id', (string) $store->userId)
+                ->where('i.kind', 'product')
+                ->whereNull('i.removed_at')
+                ->orderByDesc('i.created_at')
+                ->limit(4)
+                ->get(['i.headline_cache', 'ma.source_url'])
+                ->map(fn ($r) => ['name' => (string) $r->headline_cache, 'image' => is_string($r->source_url) ? $r->source_url : null])
+                ->all();
+            $storeName = $store->name ?: (string) (parse_url((string) $store->url, PHP_URL_HOST) ?: 'your store');
+            BuildProgress::noteForUser(
+                (string) $store->userId,
+                PreAccountBuildEvent::STAGE_SHOP,
+                PreAccountBuildEvent::STATUS_LANDED,
+                'Synced your store: '.$storeName,
+                ['store' => $storeName, 'url' => $store->url, 'logo' => $store->logoUrl, 'discountCode' => $store->discountCode ?: null, 'products' => $products],
+            );
+        } catch (Throwable $e) {
+            report($e);
         }
     }
 

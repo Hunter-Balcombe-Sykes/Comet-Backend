@@ -168,6 +168,10 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
             PreAccountBuildEvent::STAGE_WORKPLACE,
             PreAccountBuildEvent::STATUS_STARTED,
             'Checking '.BuildProgress::count(count($mentions), 'place mentioned', 'places mentioned').' in your bio',
+            ['mentions' => array_values(array_map(
+                static fn (array $m): array => ['handle' => (string) ($m['handle'] ?? ''), 'platform' => 'instagram', 'type' => (string) ($m['type'] ?? 'other')],
+                array_filter($mentions, static fn ($m) => is_array($m) && ($m['handle'] ?? '') !== ''),
+            ))],
         );
 
         // Item 4 (2026-09-01): multiple venue-shaped mentions are legal now —

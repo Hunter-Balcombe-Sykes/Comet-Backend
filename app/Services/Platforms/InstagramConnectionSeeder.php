@@ -272,7 +272,21 @@ class InstagramConnectionSeeder
             PreAccountBuildEvent::STAGE_MEDIA,
             PreAccountBuildEvent::STATUS_LANDED,
             'Grabbing your latest photos and reels',
-            ['thumbnails' => array_values(array_filter([...$images, $videoPoster]))],
+            [
+                // The seed artwork first, then the latest posts' own covers —
+                // the signup card shows these as they land (item 8).
+                'thumbnails' => array_values(array_unique(array_filter([
+                    ...$images,
+                    $videoPoster,
+                    ...array_slice(array_values(array_filter(array_map(
+                        static fn ($post) => is_array($post)
+                            ? (data_get($post, 'displayUrl') ?? data_get($post, 'display_url') ?? data_get($post, 'images.0'))
+                            : null,
+                        is_array(data_get($profile, 'latestPosts')) ? data_get($profile, 'latestPosts') : [],
+                    ), static fn ($u) => is_string($u) && $u !== '')), 0, 8),
+                ]))),
+                'avatar' => is_string($profilePic ?? null) && $profilePic !== '' ? $profilePic : null,
+            ],
         );
 
         // Preserve the google-business origin tag across a re-scrape (it drives the
