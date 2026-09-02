@@ -20,10 +20,6 @@ class FreshaScraper
 
     private const SCRAPE_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-    // Fresha's internal booking GraphQL — same call the booking page fires to
-    // load a single employee's filtered service menu.
-    private const GRAPHQL_URL = 'https://www.fresha.com/graphql';
-
     // Ceiling for the raw booking-GraphQL POST, clamped down by any open
     // FetchBudget (see fetchEmployeeServices()). Deliberately NOT
     // config('partna.http_fetch.timeout_seconds') (8): that key is
@@ -57,7 +53,7 @@ class FreshaScraper
     /** Drop the locale segment so we always cache the canonical /a/<slug> form. */
     public function stripLocale(string $url): string
     {
-        return preg_replace('#fresha\.com/[a-z]{2,3}(-[a-z]{2})?/a/#i', 'fresha.com/a/', $url) ?? $url;
+        return FreshaPage::stripLocale($url);
     }
 
     /**
@@ -72,11 +68,7 @@ class FreshaScraper
      */
     public function canonicalUrl(string $url): string
     {
-        return preg_replace(
-            '#^(https?://)(?:www\.)?fresha\.com/book-now/([a-z0-9-]+)(?:/[^?\#]*)?.*$#i',
-            'https://www.fresha.com/a/$2',
-            $url
-        ) ?? $url;
+        return FreshaPage::canonicalUrl($url);
     }
 
     /**
@@ -87,16 +79,12 @@ class FreshaScraper
      * SourceReconciler and SuggestionApplier write `intent.canonical_url`
      * verbatim, which for a Fresha link-in-bio is the share URL. Reading both
      * shapes here — rather than canonicalising inside the brand-agnostic
-     * reconciler — keeps the knowledge of Fresha's URL grammar in the one class
-     * that already owns it.
+     * reconciler — reaches into `FreshaPage`, the one class that owns Fresha's
+     * URL grammar for both lanes.
      */
     public function slugFromUrl(string $url): ?string
     {
-        // Host-anchored (an unanchored `/a/…` would match inside a foreign
-        // query string), optional locale segment (Fresha's own redirects land
-        // on `/en-GB/a/<slug>/booking?…`), same alternative as the catalog
-        // detector and SourceProvisioner::freshaSlug.
-        return preg_match('#^https?://(?:www\.)?fresha\.com/(?:[a-z]{2,3}(?:-[a-z]{2})?/)?(?:a|book-now)/([a-z0-9-]+)#i', $url, $m) ? $m[1] : null;
+        return FreshaPage::slugFromUrl($url);
     }
 
     /**
@@ -125,9 +113,13 @@ class FreshaScraper
         // Prefer the share form for the probe when we only hold a canonical
         // one: `/a/<old>` is exactly the page that goes 410, whereas Fresha
         // keeps the `book-now` alias redirecting.
+        //
+        // The stored share URL is reused VERBATIM (query string included).
+        // Whether that matters is Ruling A — do not collapse this to
+        // shareProbeUrl($given) without it.
         $probe = preg_match('#/book-now/#i', $url) === 1
             ? $url
-            : 'https://www.fresha.com/book-now/'.rawurlencode($given).'/all-offer';
+            : FreshaPage::shareProbeUrl($given);
 
         try {
             $response = $this->fetcher->fetch($probe, ['User-Agent' => self::SCRAPE_USER_AGENT]);
@@ -175,33 +167,13 @@ class FreshaScraper
      */
     public function extractVenue(array $location): ?array
     {
-        $address = data_get($location, 'address');
-        if (! is_array($address)) {
-            return null;
-        }
-        $str = static fn (mixed $v): ?string => is_string($v) && trim($v) !== '' ? trim($v) : null;
-        $num = static fn (mixed $v): ?float => is_numeric($v) ? (float) $v : null;
-
-        return [
-            'name' => $this->extractStoreName($location),
-            'street' => $str($address['streetAddress'] ?? null),
-            'city' => $str($address['cityName'] ?? null),
-            'postcode' => $str($address['postalCode'] ?? null),
-            'region' => $str($address['region1'] ?? null),
-            'country' => $str($address['countryCode'] ?? ($location['countryCode'] ?? null)),
-            'lat' => $num($address['latitude'] ?? null),
-            'lng' => $num($address['longitude'] ?? null),
-            'phone' => $str($location['contactNumber'] ?? null),
-            'mapsUrl' => $str($address['mapsUrl'] ?? null),
-        ];
+        return FreshaPage::extractVenue($location);
     }
 
     /** The salon's display name from the Fresha location blob. */
     public function extractStoreName(array $location): ?string
     {
-        $name = $location['name'] ?? null;
-
-        return is_string($name) && $name !== '' ? $name : null;
+        return FreshaPage::extractStoreName($location);
     }
 
     /** Fetch the page and return the decoded `location` object from __NEXT_DATA__. */
@@ -232,18 +204,20 @@ class FreshaScraper
             abort(502, "Fresha returned HTTP {$response['status']}");
         }
 
-        if (! preg_match('#<script id="__NEXT_DATA__"[^>]*>(.+?)</script>#s', $response['body'], $m)) {
+        // Two distinct 502s, deliberately: "the page shape moved" and "Fresha
+        // served us broken JSON" are different incidents. FreshaPage owns the
+        // regex; this lane owns what to do when it misses.
+        $json = FreshaPage::nextDataJson($response['body']);
+        if ($json === null) {
             abort(502, 'Fresha page did not contain __NEXT_DATA__ — structure may have changed.');
         }
 
-        $data = json_decode($m[1], true);
+        $data = json_decode($json, true);
         if (! is_array($data)) {
             abort(502, 'Failed to decode __NEXT_DATA__ JSON.');
         }
 
-        $location = data_get($data, 'props.pageProps.data.location', []);
-
-        return is_array($location) ? $location : [];
+        return FreshaPage::locationFrom($data) ?? [];
     }
 
     /**
@@ -251,22 +225,7 @@ class FreshaScraper
      */
     public function extractTeam(array $location): array
     {
-        $edges = data_get($location, 'employeeProfiles.edges', []);
-        if (! is_array($edges)) {
-            return [];
-        }
-
-        return array_values(array_map(static function (array $edge): array {
-            $node = $edge['node'] ?? [];
-
-            return [
-                'employeeId' => (string) ($node['employeeId'] ?? ''),
-                'displayName' => (string) ($node['displayName'] ?? ''),
-                'jobTitle' => $node['jobTitle'] ?? null,
-                'avatarUrl' => data_get($node, 'avatar.url'),
-                'rating' => isset($node['rating']) ? (float) $node['rating'] : null,
-            ];
-        }, $edges));
+        return FreshaPage::extractTeam($location);
     }
 
     /**
@@ -367,35 +326,12 @@ class FreshaScraper
 
         $clientVersion = config('services.fresha.client_version');
 
-        $payload = [
-            'operationName' => 'BookingFlow_Initialize_Mutation',
-            'variables' => [
-                'fullUpfrontPaymentEnabled' => true,
-                'discountsAndBenefitsEnabled' => false,
-                'input' => [
-                    'locationSlug' => $slug,
-                    'referer' => '',
-                    'options' => [
-                        'employeeId' => $employeeId,
-                        'shouldShowAllEmployees' => false,
-                        'isGroupBooking' => false,
-                        'isRebook' => false,
-                        'isFromLinkBuilder' => false,
-                        'clientChannelType' => 'MARKETPLACE',
-                        'cartId' => null,
-                        'offerItemId' => null,
-                        'offerItems' => null,
-                    ],
-                    'shouldAutoContinue' => true,
-                    'capabilities' => ['SERVICE_ADDONS', 'CONFIRMATION', 'FULL_UPFRONT_PAYMENT', 'MARKETPLACE_REFRESH'],
-                ],
-            ],
-            'extensions' => [
-                'persistedQuery' => ['version' => 1, 'sha256Hash' => config('services.fresha.booking_init_hash')],
-                'platform' => 'web',
-                'version' => $clientVersion,
-            ],
-        ];
+        $payload = FreshaPage::bookingFlowPayload(
+            $slug,
+            $employeeId,
+            (string) config('services.fresha.booking_init_hash'),
+            (string) $clientVersion,
+        );
 
         try {
             $response = Http::withHeaders([
@@ -405,7 +341,7 @@ class FreshaScraper
                 'x-graphql-operation-name' => 'mutation BookingFlow_Initialize_Mutation',
                 'origin' => 'https://www.fresha.com',
                 'User-Agent' => self::SCRAPE_USER_AGENT,
-            ])->timeout($timeout)->post(self::GRAPHQL_URL, $payload);
+            ])->timeout($timeout)->post(FreshaPage::GRAPHQL_URL, $payload);
         } catch (Throwable $e) {
             // Surface silent failures so a rotated BOOKING_INIT_HASH/client version
             // is visible in Nightwatch instead of silently degrading to the

@@ -27,8 +27,12 @@ namespace App\Services\Platforms;
  * period to the public services page.
  *
  * What must NOT differ between the two remaining re-casers is the vocabulary —
- * which marks survive, and which connectors drop to lowercase mid-name. Those
- * lived in two places and drifted; they live here once (2026-08-28).
+ * which marks survive, and which connectors drop to lowercase mid-name. Both
+ * live here once (2026-08-28), but that was only true of ALL_CAPS_MARKS until
+ * 2026-09-02: CasesScannedNames::scanTitleCase() read CONNECTORS from the
+ * start, while self::titleCase() below declared it and never read it, so the
+ * ingest lane published "Just A Few Locs" and "Toner With Color" until this
+ * class's own token loop was wired to it.
  */
 final class ScrapedNameCasing
 {
@@ -63,9 +67,15 @@ final class ScrapedNameCasing
         $s = rtrim($s, '.');
         $s = preg_replace('/\.\s+\(/', ' (', $s) ?? $s;
 
+        // First and last letter-run always capitalise, connector word or not.
+        preg_match_all('/\p{L}+/u', $s, $runs, PREG_OFFSET_CAPTURE);
+        $offsets = array_column($runs[0], 1);
+        $firstOffset = $offsets[0] ?? -1;
+        $lastOffset = $offsets === [] ? -1 : end($offsets);
+
         $out = preg_replace_callback(
             '/\p{L}+/u',
-            function (array $m) use ($s) {
+            function (array $m) use ($s, $firstOffset, $lastOffset) {
                 [$run, $offset] = $m[0];
 
                 // Typography the source meant: an interior capital ("McDonalds",
@@ -80,13 +90,33 @@ final class ScrapedNameCasing
                 }
 
                 $run = mb_strtolower($run);
+                $prev = $offset === 0 ? '' : $s[$offset - 1];
 
                 // ucwords()'s old delimiter set, kept exactly: a run capitalises
                 // at the start of the name or after '/', '-' or '('. An
                 // apostrophe is NOT a boundary — "O'brien's", as before. A
                 // multibyte character's trailing byte can never match one of
                 // these, which is the right answer for punctuation anyway.
-                $boundary = $offset === 0 || strpos(" \t\r\n\f\v/-(", $s[$offset - 1]) !== false;
+                $boundary = $offset === 0 || strpos(" \t\r\n\f\v/-(", $prev) !== false;
+
+                // CONNECTORS — the vocabulary this class exists to share, which
+                // titleCase() never actually read until 2026-09-02. Lowercase
+                // only MID-name, only after whitespace, and only when the
+                // preceding non-space character does not open a new clause.
+                // A clause opener is one of '-', '(', '/', ',' or ':' — the
+                // five characters in $opensClause's charset below.
+                // "Manicure - With Gel Polish" keeps its capital because '-'
+                // opens a clause; "Toner with Color" loses one because plain
+                // whitespace does not; "Cut, and Colour" keeps "And" for the
+                // same reason as '-' — the comma opens a fresh clause too.
+                $afterSpace = $prev !== '' && strpos(" \t\r\n\f\v", $prev) !== false;
+                $clauseHead = rtrim(substr($s, 0, $offset));
+                $opensClause = $clauseHead !== '' && strpos('-(/,:', substr($clauseHead, -1)) !== false;
+                $edge = $offset === $firstOffset || $offset === $lastOffset;
+
+                if (! $edge && $afterSpace && ! $opensClause && in_array($run, self::CONNECTORS, true)) {
+                    return $run;
+                }
 
                 return $boundary
                     ? mb_strtoupper(mb_substr($run, 0, 1)).mb_substr($run, 1)
