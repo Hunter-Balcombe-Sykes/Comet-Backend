@@ -17,8 +17,8 @@ result off the DB/wire (the campaign harness in the scratchpad, or
 `fleet:rebuild`), then deploy backend → dashboard → pages. Commit per
 item with the reasoning in the message; push at the end of the run.
 
-Test accounts for the final proof: jordan.dimitriadis (partna, Instagram —
-the case that surfaced 1–5), plus one business (GB) rebuild.
+Test accounts for the final proof: jordan.dimitriadis (1–5), teegandyson
+(6–8), jessejensz (9), plus one business (GB) rebuild for regression.
 
 ---
 
@@ -164,6 +164,134 @@ same newest-first tiebreak, so switching the default alone would not fix it.
 **Check.** `ActionSlotsTest`: with empty ranks, Book (services) → Contact →
 pages → platforms → items; with ranks present, ranks win. Jordan's final
 rebuild: `actions.entries[0]` is Book.
+
+## 6. Discount codes from link-in-bio titles (teegandyson: "Gamma+ - CODE: TEEGAN10")
+
+**Cause (confirmed).** The Linktree button title carried the code; the store
+(gammaplus.com.au, WooCommerce) was connected, and `content.storefronts`
+already has `discount_code` (StoreRecord::discountCode, the affiliate
+field) — but the unroll never reads button TITLES, so nothing wrote it.
+
+**Fix.**
+- `LinkInBioApiUnroller` / `LinkInBioImporter`: carry each entry's title
+  through as an observation attribute (the Linktree JSON has `title`).
+- New `app/Services/Shop/DiscountCodeSniffer.php` (pure): from a title or
+  description, extract a code — `CODE[:\s]+([A-Z0-9]{4,20})`, `use code X`,
+  `promo X`, `discount code X`, `X% off with X`; uppercase alphanumerics
+  only; never from the URL itself.
+- Importer: when a placed link is a STORE (shopify/woocommerce/squarespace/
+  bigcartel/generic) and its title sniffs a code, write `discount_code` on
+  that storefront if empty (ShopConnections/StoreRecord update path). Log
+  `link_in_bio.discount_code_adopted`.
+- Setup feed: the shop row (item 8) shows "Code TEEGAN10 saved" when adopted.
+
+**Check.** Sniffer unit table (the five shapes + negatives); importer test:
+a store entry titled "Gamma+ - CODE: TEEGAN10" → storefront
+`discount_code = TEEGAN10`; Teegan's rebuild shows it on the shop page.
+
+## 7. Feed rows that never settle ("Checking 2 places…" spinner, "Saving your media 20 of 22")
+
+**Cause (confirmed on teegandyson).**
+- The workplace `started` row keeps its spinner after the `landed` row for
+  the same stage arrives — `ProgressFeed` renders every event independently.
+- 2 of 22 eligible Instagram assets failed their one mirror attempt
+  (`mirror_attempts = 1`, `storage_path` null) and the done rule waits for
+  `mirrored >= total`, so the row spins until the 10-minute ceiling.
+
+**Fix.**
+- Dashboard `ProgressFeed`: derive per-stage state — a `started` row whose
+  stage has a later landed/skipped/failed row renders as done (tick), or
+  collapses into it (item 8 replaces the list anyway; keep this in the
+  shared feed model).
+- `BuildProgressReader::mediaCounts()`/`isDone()`: an eligible asset counts
+  as SETTLED when mirrored OR (attempted at least once and older than 2
+  minutes) — the mirror job's own retry budget is spent by then; report
+  `media.failed` so the row can read "Saved 20 of your 22 photos" instead
+  of spinning. Never let a dead CDN URL hold the setup open.
+
+**Check.** Reader test (one failed, aged asset → done); feed model test.
+
+## 8. Live signup card — one thing at a time, showing the actual content
+
+**Owner's outline (2026-09-02).** Replace the top strip + stacked list with a
+single card that shows the CURRENT stage only (the previous line fades out,
+the next fades in), and shows the real things being grabbed rather than
+"pulled the listing": the media as bigger thumbnails as they land; the bio
+mentions being checked as Instagram icon + @handle; the platforms being
+connected as icon + name; the Google listing's actual name/rating/photos;
+the store's products as they sync; the website photos. No "saving your
+media" text — show the images instead. Once the site is live: under the
+card, the URL in a copy field, a full-width Preview button (`#setup`), and a
+clear line that content keeps being added while the sync finishes. The
+same card mounts on the dashboard home.
+
+**Fix — backend (payload enrichment, same ledger).**
+- Stage set += `shop` (migration extends the CHECK); PreAccountBuildEvent
+  STAGE_SHOP.
+- Richer payloads, written by the producers that already write the rows:
+  identity `{handle, avatar}`; media `{thumbnails: up to 8, videoPosters}`;
+  workplace started `{mentions: [{handle, platform: 'instagram'}]}`, landed
+  `{name, photo, address}`; platforms (bio + Linktree, item 3) `{platforms:
+  [{slug, label, handle}]}`; listing `{name, rating, reviewCount, photos:
+  3}`; menu `{dishes, photos: 3}`; website `{photos: 4}`; shop `{store,
+  logo, products: [{name, image}] up to 4, discountCode}` from the store
+  fill (ShopInitialFillJob / ShopContentWriter); ready `{siteUrl}`.
+- The poll keeps `events` as the log; the card reads the LATEST event per
+  stage for its "now" view.
+
+**Fix — dashboard.** `components/blocks/setup-card.tsx` (new; replaces
+BuildStrip + ProgressFeed in the flow and the SiteBuildingCard body): stage
+text with a cross-fade (the app's motion tokens), a media grid (3-up,
+thumbnails at the card's width), platform/mention chips with the kit icon
+(PlatformTile) and label, listing/store/menu facts as short rows; after
+ready: address copy field (the dashboard's existing copy-field primitive),
+`Preview site` full-width button to `${siteUrl}#setup`, and the line
+"Content keeps landing while the sync finishes — your site updates
+itself." Fixture page under /dev/pages for the owner's visual pass.
+
+**Check.** tsc/lint/vitest; the owner's own signup for the visuals (no pane
+previews). Backend: PublicBuildEndpointsTest payload shapes.
+
+## 9. Square Appointments — routing fix + Fresha-parity connector (spec: `docs/2026-09-02-square-appointments-parity-plan.md`)
+
+**Cause (proven in the spec, §0.1 + Appendix A).** `square.book`'s detector is
+host-only, so a Square Appointments deep link scored 32 against booking's
+suggest bar of 55 and became a custom link on jessejensz; Google Business
+then filled the Square slot with the bare `square.site` root.
+
+**Method here (replaces the spec's per-task TDD ceremony; everything else in
+the spec stands — its Global Constraints, file lists, interfaces, Out of
+scope, and the blocked-file rule).** Read the spec's task in full before
+building it. Build Tasks 1→4 straight through on a feature branch off
+`development`, tests written alongside and run per task (targeted), the
+full suite in the background; after any `app/Catalog/Definitions` change
+run `php artisan catalog:compile && php artisan routing:corpus` and commit
+the regenerated `bootstrap/catalog/compiled.php` +
+`tests/fixtures/Routing/corpus-generated.php` in the same commit. Merge to
+`development` when 1–4 are green (that deploys). **STOP before Task 5 and
+ask the owner the spec's four open questions** (square.site root seeding,
+per-service vs per-variation items, no-match fallback, refresh button);
+Tasks 1–4 do not depend on them. Task 6 is dashboard (`main`); backend
+deploys before it. Task 7 repairs jessejensz after the deploy. Gate on
+AccountCapabilities, never account_type; no Square OAuth/Bookings API; no
+reviews stream; Fresha unchanged except the Task 6 team-step generalisation.
+
+- Task 1 — `Square.php` deep-link detector (`book.squareup.com/appointments/…`,
+  `app.squareup.com/appointments/book/…`) at DeepLinkWithSlug; detector +
+  importer tests; regenerate catalog + corpus.
+- Task 2 — `SourceProvisioner`: `sourceKeyFor('square.book') → square_book`,
+  identifier from the URL (merchant/unit/team_member_id).
+- Task 3 — `SquareBookingPage` pure reader of the public buyer-widget JSON
+  (parseUrl, widgetUrl, team, staffIdFor, services) + trimmed fixture.
+- Task 4 — `SquareBookingConnector` + `SquareServiceProjector`, registered in
+  both registries; per-service deep links.
+- Task 5 (after the owner answers) — `SquareBookingClient`, team endpoints on
+  the square group, `SquareAutoSelectJob`, SquareBinding, SourceReconciler /
+  LinkRouter auto-connect parity.
+- Task 6 — dashboard: one booking team step for Fresha and Square
+  (`BookingPlatform` type, platform-parameterised queries).
+- Task 7 — repair jessejensz (delete the wrong Square row + stray menu
+  source, re-import the Linktree) and verify on the live page.
 
 ---
 
