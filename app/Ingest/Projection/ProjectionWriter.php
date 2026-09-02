@@ -3656,6 +3656,16 @@ class ProjectionWriter
      * once PER ROW, so firing lanes 2+3 here would issue N sites.updated_at
      * writes and N edge purges for one request where one of each is correct.
      * The lanes are discharged once, at the request boundary, by the caller.
+     *
+     * AMENDED (2026-09-02, setup-dialog run A.11, owner plan): lane 2 —
+     * sites.updated_at — now rides here too. The setup dialog surfaces
+     * scan/sweep writes moments after they land, and the public payload cache
+     * keys off updated_at, so a batch that skipped it served stale for the
+     * TTL whenever a caller forgot the request-boundary bust (the forgotten
+     * lane the hub doc warns about). N timestamp writes per batch is the
+     * accepted cost — it is one indexed UPDATE per row against the same
+     * SQL round trip bumpSite already makes. Lane 3 (edge purge) stays at the
+     * request boundary; N purges per batch remains wrong.
      */
     private function bumpSite(string $userId): void
     {
@@ -3663,6 +3673,7 @@ class ProjectionWriter
         $siteId = DB::table('site.sites')->where('user_id', $userId)->value('id');
         if ($siteId !== null) {
             BuildState::bump((string) $siteId);
+            DB::table('site.sites')->where('id', $siteId)->update(['updated_at' => now()]);
         }
     }
 
