@@ -117,15 +117,30 @@ class InstagramConnectionSeeder
         return 'platforms/instagram/'.$connection->getKey();
     }
 
+    /** Whole milliseconds elapsed since an hrtime(true) mark. */
+    private static function msSince(int $mark): int
+    {
+        return (int) round((hrtime(true) - $mark) / 1_000_000);
+    }
+
     public function seed(IntegrationConnection $connection, string $username, string $userId, array $profile, bool $autoConnectBooking = false, ?BioIntel $intel = null): array
     {
         $folder = self::mirrorFolder($connection);
+
+        // Seed timing (2026-09-02): this method is the 11-19s between the
+        // build's identity landing and its media landing, and which of its
+        // four vendor waits costs is what decides the remedy (plan A.4). One
+        // log line per seed, whole ms, read back from cloud logs.
+        $seedStart = hrtime(true);
+        $timing = ['latest_ms' => 0, 'fresh_ms' => 0, 'mirror_photo_ms' => 0, 'mirror_pic_ms' => 0, 'autosync_ms' => 0, 'fresh_refetched' => false];
 
         // The most-recent photo AND the most-recent reel, picked independently. The
         // photo mirrors as the image; the reel mirrors its mp4 plus its own poster.
         // An oversized / failed video mirror leaves videoUrl null so a skeleton falls
         // back to the photo.
+        $mark = hrtime(true);
         $media = $this->scraper->latestMedia($profile, $userId);
+        $timing['latest_ms'] = self::msSince($mark);
 
         // R3 (2026-08-27): oe= pre-flight + refresh-by-shortcode before every
         // hero-media fetch — the actor's cached crawls can hand DEAD urls
@@ -134,8 +149,13 @@ class InstagramConnectionSeeder
         // is logged at seed time.
         $images = [];
         if ($media['photo'] && $media['photo']['thumbnailUrl']) {
+            $mark = hrtime(true);
             $photoSrc = $this->freshOrOriginal($media['photo']['thumbnailUrl'], $media['photo']['shortCode'] ?? null, 'image');
+            $timing['fresh_ms'] = self::msSince($mark);
+            $timing['fresh_refetched'] = $photoSrc !== null && $photoSrc !== $media['photo']['thumbnailUrl'];
+            $mark = hrtime(true);
             $photo = $photoSrc === null ? null : $this->mirrorOne($photoSrc, "{$folder}/photo.jpg");
+            $timing['mirror_photo_ms'] = self::msSince($mark);
             if ($photo) {
                 $images = [$photo];
             }
@@ -307,6 +327,7 @@ class InstagramConnectionSeeder
         // Held here because this method is the only thing that spans both.
         $ctx = new RouteContext(autoConnectBooking: $autoConnectBooking);
 
+        $mark = hrtime(true);
         $sync = $this->autoSync->seed($userId, $bioLinks, $autoConnectBooking, $ctx);
         $selection['syncFindings'] = $sync['findings'];
         $selection['unmatched'] = $sync['unmatched'];
@@ -319,6 +340,7 @@ class InstagramConnectionSeeder
             $this->identitySync->applyIdentity($user, $profile, $intel);
             $this->autoSaveUnmatchedLinks($user, $sync['unmatched'], $ctx);
         }
+        $timing['autosync_ms'] = self::msSince($mark);
 
         // The run card for the WHOLE scrape. probes_denied is the only place a
         // starved link survives: it becomes an ordinary card, indistinguishable
@@ -423,6 +445,13 @@ class InstagramConnectionSeeder
                 'consecutive_failures' => (int) $connection->consecutive_failures + 1,
             ])->saveQuietly();
         }
+
+        Log::info('pre_account.seed_timing', [
+            'user_id' => $userId,
+            ...$timing,
+            'total_ms' => self::msSince($seedStart),
+            'bio_links' => count($bioLinks),
+        ]);
 
         // 9d: the reel leaves this method's wall clock. AFTER the row write on
         // purpose — the job merges into the payload under the same lock, and
