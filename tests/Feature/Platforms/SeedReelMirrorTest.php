@@ -117,6 +117,39 @@ it('SeedReelMirrorJob merges the mirrored mp4 and poster into the payload', func
         ->and($connection->payload['username'])->toBe('reelswap1');
 });
 
+// A.4 (2026-09-02): the best-rendition upgrade left seed()'s critical path
+// (it was ~9s of a 14s seed) and runs here, on the mirror lane, before the
+// mp4 is fetched — so the reel still lands at its best quality, just later.
+it('SeedReelMirrorJob asks for the best rendition first and mirrors that mp4', function () {
+    Http::fake(fn ($request) => str_contains($request->url(), 'best.mp4')
+        ? Http::response(FakeMediaBytes::mp4(512), 200, ['Content-Type' => 'video/mp4'])
+        : (str_contains($request->url(), 'reel.mp4')
+            ? Http::response('', 404)
+            : Http::response(FakeMediaBytes::jpeg(), 200, ['Content-Type' => 'image/jpeg'])));
+
+    $user = reelMirrorUser('reelbest1');
+    $connection = reelMirrorConnection($user);
+    $connection->update(['payload' => ['username' => 'reelbest1', 'videoUrl' => null, 'videoPoster' => null]]);
+
+    $scraper = Mockery::mock(InstagramScraper::class)->makePartial();
+    $scraper->shouldReceive('bestReelRendition')
+        ->once()
+        ->with('reelbest1', (string) $user->id, 'reel')
+        ->andReturn('https://scontent.cdninstagram.com/best.mp4');
+    app()->instance(InstagramScraper::class, $scraper);
+
+    (new SeedReelMirrorJob((string) $connection->id, [
+        'thumbnailUrl' => 'https://scontent.cdninstagram.com/cover.jpg',
+        'videoUrl' => 'https://scontent.cdninstagram.com/reel.mp4',
+        'shortCode' => 'reel',
+    ], 'platforms/instagram/'.$connection->id))->handle(app(InstagramConnectionSeeder::class));
+
+    // The profile lane's reel.mp4 answers 404 above, so a non-null videoUrl
+    // can only have come from the best rendition.
+    expect($connection->fresh()->payload['videoUrl'])->not->toBeNull();
+    Http::assertSent(fn ($request) => str_contains($request->url(), 'best.mp4'));
+});
+
 it('SeedReelMirrorJob leaves the payload untouched when the mp4 drops', function () {
     Http::fake(['scontent.cdninstagram.com/*' => Http::response('', 404)]);
 

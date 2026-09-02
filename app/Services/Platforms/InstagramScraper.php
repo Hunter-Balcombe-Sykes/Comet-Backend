@@ -583,6 +583,35 @@ class InstagramScraper extends PlatformScraper
     }
 
     /**
+     * The SEED reel is the home background (2026-09-02, owner: it looks
+     * soft). The profile lane hands one mid rendition; the reels endpoint
+     * lists every rendition, so one budgeted call upgrades the chosen reel
+     * to its best mp4 when the shortcodes match. Off via config; every miss
+     * (no match, vendor miss, exception) answers null and the caller keeps
+     * the profile lane's url. Runs on the mirror lane, never on the seed.
+     */
+    public function bestReelRendition(string $username, ?string $userId, ?string $shortCode): ?string
+    {
+        if ($username === '' || $shortCode === null || $shortCode === ''
+            || ! (bool) config('partna.limits.scrapecreators.instagram_seed_reel_best', true)) {
+            return null;
+        }
+        try {
+            foreach ($this->fetchReelsDepth($username, $userId) ?? [] as $row) {
+                if (($row['shortcode'] ?? null) === $shortCode && is_string($row['video_url'] ?? null) && $row['video_url'] !== '') {
+                    Log::info('instagram.seed_reel.best_rendition', ['user_id' => $userId, 'short_code' => $shortCode]);
+
+                    return $row['video_url'];
+                }
+            }
+        } catch (Throwable $e) {
+            report($e);
+        }
+
+        return null;
+    }
+
+    /**
      * AUTO mode: the most-recent PHOTO and the most-recent VIDEO/REEL for the
      * account, picked independently. Apify returns pinned posts first (so a pinned
      * still photo can sit ahead of a newer reel), so we sort by post timestamp —
@@ -657,31 +686,13 @@ class InstagramScraper extends PlatformScraper
             }
         }
 
-        // The SEED reel is the home background (2026-09-02, owner: it looks
-        // soft). The profile lane hands one mid rendition; the reels endpoint
-        // lists every rendition, so one budgeted call upgrades the chosen
-        // reel to its best mp4 when the shortcodes match. Off via config;
-        // every miss keeps the profile lane's url.
-        $seedUpgraded = false;
-        $username = data_get($profile, 'username');
-        if ($video !== null && $userId !== null && is_string($username) && $username !== ''
-            && (bool) config('partna.limits.scrapecreators.instagram_seed_reel_best', true)) {
-            try {
-                foreach ($this->fetchReelsDepth($username, $userId) ?? [] as $row) {
-                    if (($row['shortcode'] ?? null) === ($video['shortCode'] ?? '__none__') && is_string($row['video_url'] ?? null) && $row['video_url'] !== '') {
-                        $video['videoUrl'] = $row['video_url'];
-                        $seedUpgraded = true;
-                        break;
-                    }
-                }
-            } catch (Throwable $e) {
-                report($e);
-            }
-        }
-
-        if ($seedUpgraded) {
-            Log::info('instagram.seed_reel.best_rendition', ['user_id' => $userId, 'short_code' => $video['shortCode'] ?? null]);
-        }
+        // The best-rendition upgrade for the seed reel used to run HERE, on
+        // the build's critical path. Measured 2026-09-02 (pre_account.seed_timing):
+        // this method cost 8.4-9.7s of a 14.3-14.5s seed, all of it that one
+        // budgeted reels call, while the mp4 it improves is mirrored OFF the
+        // ready path anyway (SeedReelMirrorJob). It now runs there —
+        // bestReelRendition(), called by mirrorReelAndSwap() — so the site is
+        // ready ~9s sooner and the reel still lands at its best quality.
 
         $diagnostics = [
             'posts' => count($posts),

@@ -255,6 +255,9 @@ it('InstagramConnectJob mirrors both the latest photo and the latest reel (mp4 +
     ]);
     $scraper->shouldReceive('profilePicUrl')->once()->andReturn(null);
     $scraper->shouldReceive('bioLinks')->once()->andReturn([]);
+    // The best-rendition lookup runs on the mirror lane now (A.4, 2026-09-02);
+    // a null answer keeps the profile lane's url, which is what this test mirrors.
+    $scraper->shouldReceive('bestReelRendition')->andReturn(null);
     // The seeder resolves its own InstagramScraper from the container — bind the
     // mock so seed() (called inside handle()) uses it too, not a real scraper.
     app()->instance(InstagramScraper::class, $scraper);

@@ -486,6 +486,18 @@ class InstagramConnectionSeeder
      */
     public function mirrorReelAndSwap(IntegrationConnection $connection, array $video, string $folder): void
     {
+        // Best rendition first (moved off the seed's critical path 2026-09-02,
+        // plan A.4 — it was ~9s of the 14s seed). The username is on the row
+        // seed() wrote before dispatching this job; a miss keeps the profile
+        // lane's url exactly as before.
+        $username = InstagramPayload::fromArray($connection->payload)->username;
+        $best = is_string($username) && $username !== ''
+            ? $this->scraper->bestReelRendition($username, (string) $connection->user_id, $video['shortCode'] ?? null)
+            : null;
+        if ($best !== null) {
+            $video['videoUrl'] = $best;
+        }
+
         $videoSrc = $this->freshOrOriginal($video['videoUrl'] ?? null, $video['shortCode'] ?? null, 'video');
         $videoUrl = $videoSrc === null ? null : $this->mirrorVideo($videoSrc, "{$folder}/reel.mp4");
         if ($videoUrl === null) {
