@@ -296,7 +296,15 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
             }
             $scanUser = is_array($scanItems) && $scanItems !== [] ? User::query()->find($this->userId) : null;
             if ($scanUser) {
-                app(MenuScanApplier::class)->apply($scanUser, $scanItems, enrichOnly: true);
+                // A.10: the rebuild JUST wrote the platform menu, so the
+                // sufficiency check reads fresh truth — a sufficient platform
+                // menu keeps this re-apply enrich-only with no new rows.
+                app(MenuScanApplier::class)->apply(
+                    $scanUser,
+                    $scanItems,
+                    enrichOnly: true,
+                    allowNew: ! GoogleMenuPhotoScanJob::platformMenuSufficient($this->userId),
+                );
             }
         } catch (Throwable $e) {
             report($e);

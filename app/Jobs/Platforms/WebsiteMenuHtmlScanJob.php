@@ -87,7 +87,10 @@ class WebsiteMenuHtmlScanJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $result = $applier->apply($user, $items, enrichOnly: true, source: self::SOURCE);
+        // A.10: same sufficiency rule as the photo scan — a platform-supplied
+        // menu makes every automatic scan enrich-only, no new scan-owned rows.
+        $allowNew = ! GoogleMenuPhotoScanJob::platformMenuSufficient($this->userId);
+        $result = $applier->apply($user, $items, enrichOnly: true, source: self::SOURCE, allowNew: $allowNew);
 
         Log::info('website_menu_html_scan.applied', [
             'user_id' => $this->userId,

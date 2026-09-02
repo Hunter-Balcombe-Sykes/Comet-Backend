@@ -10,6 +10,7 @@ use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Services\Onboarding\OnboardingSuggestions;
+use App\Services\Platforms\MenuPayloadComposer;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\PreAccount\BuildProgressReader;
 use App\Site\Pools\PoolResolver;
@@ -37,6 +38,7 @@ class SetupPayload
         private readonly PoolResolver $pools,
         private readonly OnboardingSuggestions $onboarding,
         private readonly PlatformRegistry $registry,
+        private readonly MenuPayloadComposer $menus,
     ) {}
 
     /** @return array<string, mixed> */
@@ -130,7 +132,7 @@ class SetupPayload
         }
 
         if ($key === 'menu') {
-            return $site === null ? null : $base + $this->menuPass($site);
+            return $site === null ? null : $base + $this->menuPass($user);
         }
 
         if ($key === 'logo') {
@@ -309,33 +311,39 @@ class SetupPayload
         ];
     }
 
-    /** @return array<string, mixed> */
-    private function menuPass(Site $site): array
+    /**
+     * The menu pass, from the composer's dashboard shape (A.10, decision 12):
+     * platform + owner-manual dishes arrive pre-selected in their real
+     * categories; scan/website-scan discoveries arrive unselected in `found`
+     * for the person to confirm. `found` is deduped by dish id — a
+     * multi-category dish is one decision, not one per membership.
+     *
+     * @return array<string, mixed>
+     */
+    private function menuPass(User $user): array
     {
-        $resolved = $this->pools->resolve($site, 'menus');
-        $items = $resolved['library'];
+        $composed = $this->menus->compose($user, $this->menus->load($user));
 
-        // Provenance split (decision 12, filled in by A.10): platform dishes
-        // arrive selected, scan/website finds arrive unselected in `found`.
-        $platform = [];
+        $categories = [];
         $found = [];
-        foreach ($items as $item) {
-            $provenance = $item['provenance'] ?? 'platform';
-            if ($provenance === 'platform') {
-                $platform[] = $item;
-            } else {
-                $found[] = $item;
+        $foundSeen = [];
+        foreach ($composed['categories'] as $category) {
+            $keep = [];
+            foreach ($category['items'] as $item) {
+                $provenance = (string) ($item['provenance'] ?? 'platform');
+                if ($provenance === 'platform' || $provenance === 'manual') {
+                    $keep[] = $item;
+                } elseif (! isset($foundSeen[(string) $item['id']])) {
+                    $found[] = $item;
+                    $foundSeen[(string) $item['id']] = true;
+                }
+            }
+            if ($keep !== []) {
+                $categories[] = ['id' => $category['id'], 'name' => $category['name'], 'items' => $keep];
             }
         }
 
-        $categories = [];
-        foreach ($platform as $item) {
-            $name = (string) ($item['category'] ?? 'Menu');
-            $categories[$name] ??= ['id' => md5($name), 'name' => $name, 'items' => []];
-            $categories[$name]['items'][] = $item;
-        }
-
-        return ['categories' => array_values($categories), 'found' => $found];
+        return ['categories' => $categories, 'found' => $found];
     }
 
     /** @return array<string, mixed> */
@@ -344,7 +352,7 @@ class SetupPayload
         $candidates = ['square' => [], 'full' => []];
         if ($site !== null) {
             try {
-                foreach (DB::table('site.logo_candidates')->where('site_id', $site->id)->where('state', 'proposed')->get() as $row) {
+                foreach (DB::table('site.logo_candidates')->where('site_id', $site->id)->where('state', 'proposed')->orderByDesc('trust')->get() as $row) {
                     $slot = (string) $row->slot;
                     $candidates[$slot][] = [
                         'id' => (string) $row->id,
@@ -354,7 +362,7 @@ class SetupPayload
                     ];
                 }
             } catch (\Throwable) {
-                // Table lands with A.10 — an empty offer until then.
+                // SQLite lanes without the sites stand-in — an empty offer.
             }
         }
 

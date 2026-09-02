@@ -4,7 +4,9 @@ namespace App\Services\Design;
 
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\SiteMedia;
+use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Media\MediaUploadService;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -61,7 +63,21 @@ class LogoAutoGrabber
     public function __construct(
         private readonly SafeUrlFetcher $fetcher,
         private readonly MediaUploadService $uploads,
+        private readonly LogoCandidates $candidatesStore,
     ) {}
+
+    /**
+     * A.10 (decision 13): on a sign-up BUSINESS build the brand mark is the
+     * site's identity, so auto-picking one candidate is a real decision made
+     * silently. Collect mode stores every slot-passing candidate instead and
+     * uploads nothing — the setup dialog's logo pass offers them.
+     */
+    private function collectMode(User $pro): bool
+    {
+        return $pro->isUnclaimed()
+            && AccountCapabilities::for($pro)->workplace_brand_is_site_identity
+            && PreAccountBuild::latestIsSignup((string) $pro->id);
+    }
 
     /**
      * @param  list<array<string, mixed>>  $candidates  analysis logo.candidates (v2)
@@ -92,13 +108,18 @@ class LogoAutoGrabber
         }
 
         $ranked = $this->rank($candidates);
+        $collect = $this->collectMode($pro);
 
         $decisions = [];
         if ($fullEmpty) {
-            $this->attemptSlot($pro, $site, SiteMedia::PURPOSE_LOGO_FULL, $ranked, $decisions);
+            $collect
+                ? $this->collectSlot($site, 'full', SiteMedia::PURPOSE_LOGO_FULL, $ranked, $decisions)
+                : $this->attemptSlot($pro, $site, SiteMedia::PURPOSE_LOGO_FULL, $ranked, $decisions);
         }
         if ($squareEmpty) {
-            $this->attemptSlot($pro, $site, SiteMedia::PURPOSE_LOGO_SQUARE, $ranked, $decisions);
+            $collect
+                ? $this->collectSlot($site, 'square', SiteMedia::PURPOSE_LOGO_SQUARE, $ranked, $decisions)
+                : $this->attemptSlot($pro, $site, SiteMedia::PURPOSE_LOGO_SQUARE, $ranked, $decisions);
         }
 
         return array_slice($decisions, 0, 12);
@@ -226,6 +247,105 @@ class LogoAutoGrabber
             }
 
             $decide('rejected:unfetchable');
+        }
+    }
+
+    /**
+     * Collect mode's slot walk: every candidate that PASSES the slot's shape
+     * gate is stored (bytes mirrored) rather than uploaded, up to
+     * LogoCandidates::MAX_PER_SLOT. Same ranking, same rejection reasons —
+     * only the terminal action differs from attemptSlot().
+     *
+     * @param  list<array<string, mixed>>  $ranked
+     * @param  list<array<string, mixed>>  $decisions
+     */
+    private function collectSlot(Site $site, string $slot, string $purpose, array $ranked, array &$decisions): void
+    {
+        $stored = 0;
+        foreach ($ranked as $candidate) {
+            if ($stored >= LogoCandidates::MAX_PER_SLOT) {
+                return;
+            }
+            $kind = (string) ($candidate['kind'] ?? '');
+            $ref = (string) ($candidate['url'] ?? ($kind === 'inline-svg' ? 'inline-svg' : ''));
+            $decide = function (string $outcome) use (&$decisions, $purpose, $kind, $ref): void {
+                $decisions[] = ['slot' => $purpose, 'kind' => $kind, 'ref' => mb_substr($ref, 0, 200), 'outcome' => $outcome];
+            };
+
+            if ($kind === 'inline-svg') {
+                $this->collectInlineSvg($site, $slot, $purpose, $candidate, $decide, $stored);
+
+                continue;
+            }
+
+            if (! is_string($candidate['url'] ?? null)) {
+                continue;
+            }
+
+            foreach (array_unique(array_filter([$this->upsizeUrl($candidate['url']), $candidate['url']])) as $url) {
+                $image = $this->pacedFetchImage($url);
+                if ($image === null) {
+                    continue;
+                }
+                [$bytes, $mime, $width, $height] = $image;
+
+                $reason = $this->slotRejection($purpose, $kind, $bytes, $mime, $width, $height);
+                if ($reason !== null) {
+                    $decide("rejected:{$reason} ({$width}x{$height})");
+
+                    continue 2; // smaller variant of the same asset can't pass either
+                }
+
+                if ($this->candidatesStore->store($site, $slot, $url, $bytes, $mime, (int) ($candidate['trust'] ?? 0), $width, $height)) {
+                    $decide("candidate-stored ({$width}x{$height})");
+                    $stored++;
+                } else {
+                    $decide('rejected:candidate-store-failed');
+                }
+
+                continue 2; // one stored row per asset — variants are the same mark
+            }
+
+            $decide('rejected:unfetchable');
+        }
+    }
+
+    /** The inline-SVG arm of collectSlot(): same safety/shape gates as tryInlineSvg(). @param callable(string): void $decide */
+    private function collectInlineSvg(Site $site, string $slot, string $purpose, array $candidate, callable $decide, int &$stored): void
+    {
+        if (! (bool) config('partna.logo_removal.enabled', false)) {
+            $decide('rejected:svg-pipeline-disabled');
+
+            return;
+        }
+        $svg = $candidate['svg'] ?? null;
+        if (! is_string($svg) || strlen($svg) > self::SVG_MAX_BYTES || ! $this->svgIsSafe($svg)) {
+            $decide('rejected:svg-unsafe');
+
+            return;
+        }
+        $aspect = $this->svgAspect($candidate);
+        if ($aspect !== null) {
+            $wantWide = $purpose === SiteMedia::PURPOSE_LOGO_FULL;
+            if ($wantWide && $aspect < self::FULL_ASPECT_MIN) {
+                $decide('rejected:not-wide');
+
+                return;
+            }
+            if (! $wantWide && ($aspect < self::SQUARE_ASPECT[0] || $aspect > self::SQUARE_ASPECT[1])) {
+                $decide('rejected:not-square');
+
+                return;
+            }
+        }
+
+        $w = is_numeric($candidate['w'] ?? null) ? (int) $candidate['w'] : null;
+        $h = is_numeric($candidate['h'] ?? null) ? (int) $candidate['h'] : null;
+        if ($this->candidatesStore->store($site, $slot, null, $svg, 'image/svg+xml', (int) ($candidate['trust'] ?? 0), $w, $h)) {
+            $decide('candidate-stored (svg)');
+            $stored++;
+        } else {
+            $decide('rejected:candidate-store-failed');
         }
     }
 

@@ -50,6 +50,7 @@ use App\Http\Controllers\Api\User\SiteManagement\UserSiteActionsController;
 use App\Http\Controllers\Api\User\SiteManagement\UserSiteController;
 use App\Http\Controllers\Api\User\SiteManagement\UserWorkplaceController;
 use App\Http\Controllers\Api\User\Uploads\UserDesignMediaController;
+use App\Http\Controllers\Api\User\Uploads\UserLogoCandidatesController;
 use App\Http\Controllers\Api\User\Uploads\UserUploadController;
 use App\Http\Middleware\Context\EnforcePendingDeletionReadOnly;
 use App\Http\Middleware\Context\LoadCurrentUser;
@@ -501,6 +502,12 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         Route::post('/design-media', [UserDesignMediaController::class, 'upload']);
         Route::delete('/design-media/{purpose}', [UserDesignMediaController::class, 'destroy'])
             ->where('purpose', '[a-z_]+');
+
+        // Stored logo candidates from a sign-up business build (A.10) — the
+        // setup dialog's logo pass; promote fills the singleton next door.
+        Route::get('/logo-candidates', [UserLogoCandidatesController::class, 'index']);
+        Route::post('/logo-candidates/{candidate}/promote', [UserLogoCandidatesController::class, 'promote'])
+            ->whereUuid('candidate');
 
         // Content library (browse + upload). The ordered "selection" verbs
         // retired with site.content_selection (slice 7 unit E) — curation is

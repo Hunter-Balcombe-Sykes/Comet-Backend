@@ -11,6 +11,7 @@ use App\Models\Core\User\User;
 use App\Routing\HiddenConnections;
 use App\Routing\SuggestionApplier;
 use App\Routing\WorkplaceCandidates;
+use App\Services\Design\LogoCandidates;
 use App\Site\Documents\SiteCacheLanes;
 use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolSectionProvisioner;
@@ -34,6 +35,7 @@ class SetupBatchApplier
         private readonly HiddenConnections $hidden,
         private readonly WorkplaceCandidates $candidates,
         private readonly PoolSectionProvisioner $provisioner,
+        private readonly LogoCandidates $logos,
     ) {}
 
     /**
@@ -70,6 +72,26 @@ class SetupBatchApplier
 
         if (($payload['teamMember'] ?? null) !== null) {
             $errors['teamMember'] = 'Team pick goes through the booking selection endpoint.';
+        }
+
+        // A.10: the logo pass's pick — {"square": id, "full": id}, each slot
+        // promoting one stored candidate to its real singleton.
+        $logo = $payload['logo'] ?? null;
+        if (is_array($logo) && $site instanceof Site) {
+            foreach (['square', 'full'] as $slot) {
+                $candidateId = $logo[$slot] ?? null;
+                if (! is_string($candidateId) || $candidateId === '') {
+                    continue;
+                }
+                try {
+                    if (! $this->logos->promote($user, $site, $candidateId)) {
+                        $errors['logo:'.$slot] = 'That logo candidate is no longer offered.';
+                    }
+                } catch (\Throwable $e) {
+                    report($e);
+                    $errors['logo:'.$slot] = 'Could not apply that logo.';
+                }
+            }
         }
 
         if ($site instanceof Site) {

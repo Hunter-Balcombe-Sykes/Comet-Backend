@@ -209,6 +209,21 @@ class MenuPayloadComposer
 
         $pins = $this->pinOrder($userId);
 
+        // Provenance per dish (decision 12): read off the category refs' own
+        // namespaces — the one place the source survives the projection.
+        $refsById = [];
+        foreach ($categories as $category) {
+            $refsById[(string) $category->id] = $category->external_ref === null
+                ? null
+                : (string) $category->external_ref;
+        }
+        $provenanceByItem = [];
+        foreach ($categoryIdsByItem as $itemId => $ids) {
+            $provenanceByItem[$itemId] = $this->provenanceFor(
+                array_map(fn (string $id) => $refsById[$id] ?? null, $ids),
+            );
+        }
+
         $out = [];
         foreach ($categories as $category) {
             $categoryId = (string) $category->id;
@@ -220,6 +235,7 @@ class MenuPayloadComposer
                     fn (string $itemId) => $this->item(
                         $models[$itemId],
                         $categoryIdsByItem[$itemId] ?? [$categoryId],
+                        $provenanceByItem[$itemId] ?? 'platform',
                     ),
                     $this->sortByPins($itemIdsByCategory[$categoryId] ?? [], $pins),
                 ),
@@ -227,6 +243,39 @@ class MenuPayloadComposer
         }
 
         return $out;
+    }
+
+    /**
+     * A dish's provenance from its categories' external_ref namespaces
+     * (decision 12): any bare `menu:<slug>` membership means a platform
+     * scrape structured this dish — 'platform'. Otherwise the owner source
+     * from the ref ('manual' | 'scan' | 'website-scan'), with 'manual'
+     * outranking the scans when memberships mix. No refs at all reads as
+     * 'platform' — the conservative side (the setup dialog pre-selects
+     * platform dishes rather than parking them in `found`).
+     *
+     * @param  list<?string>  $refs
+     */
+    private function provenanceFor(array $refs): string
+    {
+        $owner = null;
+        foreach ($refs as $ref) {
+            if ($ref === null) {
+                continue;
+            }
+            if (! MenuScanApplier::isOwnerCategoryRef($ref)) {
+                return 'platform';
+            }
+            foreach (MenuScanApplier::OWNER_CATEGORY_SOURCES as $source) {
+                if (str_starts_with($ref, 'menu:'.$source.':')) {
+                    $owner = $owner === 'manual' ? 'manual' : $source;
+
+                    break;
+                }
+            }
+        }
+
+        return $owner ?? 'platform';
     }
 
     /**
@@ -295,9 +344,13 @@ class MenuPayloadComposer
      * @param  list<string>  $categoryIds
      * @return array<string, mixed>
      */
-    private function item(MenuItem $item, array $categoryIds): array
+    private function item(MenuItem $item, array $categoryIds, string $provenance = 'platform'): array
     {
         return [
+            // Where this dish's structure came from (decision 12):
+            // 'platform' | 'manual' | 'scan' | 'website-scan'. Derived from
+            // the category ref namespaces — see provenanceFor().
+            'provenance' => $provenance,
             // Stable persisted id — mirrors PublicMenuController's `id` field.
             // Partna-Frontend's menu-item-detail URLs read THIS endpoint's id.
             'id' => (string) $item->id,

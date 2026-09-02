@@ -4,6 +4,10 @@ namespace App\Http\Controllers\Api\User\Setup;
 
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
+use App\Jobs\Platforms\MenuPhotoSweepJob;
+use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Setup\SetupBatchApplier;
 use App\Services\Setup\SetupPassRegistry;
 use App\Services\Setup\SetupPayload;
@@ -46,7 +50,9 @@ class SetupController extends ApiController
             if (! SetupPassRegistry::isValidStep($user, $data['step'])) {
                 return $this->error('Unknown setup step.', 422);
             }
+            $previous = $site->setup_step;
             $site->forceFill(['setup_step' => $data['step']])->save();
+            $this->maybeDispatchMenuSweep($user, $previous, $data['step']);
         }
 
         $fresh = $site->fresh();
@@ -57,6 +63,48 @@ class SetupController extends ApiController
                 'completed_at' => $fresh->setup_completed_at?->toIso8601String(),
             ],
         ]);
+    }
+
+    /**
+     * A.10: crossing OUT of the platforms passes on a food business with no
+     * ordering connection is the moment the platform lane has definitively
+     * not produced a menu AND the person is live in the dialog waiting for
+     * one — dispatch the deferred paid photo sweep (the tier 2 that
+     * GoogleMenuPhotoScanJob skips on sign-up builds). The job re-checks the
+     * ordering connection at run time and is unique per user per day, so a
+     * Back/Continue bounce never re-bills.
+     */
+    private function maybeDispatchMenuSweep(User $user, ?string $previous, string $step): void
+    {
+        $keys = SetupPassRegistry::keysFor($user);
+        $lastPlatforms = null;
+        foreach ($keys as $i => $key) {
+            if (str_starts_with($key, 'platforms.')) {
+                $lastPlatforms = $i;
+            }
+        }
+        $stepIdx = array_search($step, $keys, true);
+        $prevIdx = $previous === null ? 0 : array_search($previous, $keys, true);
+        if ($lastPlatforms === null || $stepIdx === false || $prevIdx === false) {
+            return;
+        }
+        if ($stepIdx <= $lastPlatforms || $prevIdx > $lastPlatforms) {
+            return; // not the platforms→content crossing
+        }
+
+        if (! AccountCapabilities::for($user)->can_use_menu) {
+            return;
+        }
+
+        $hasOrdering = IntegrationConnection::query()
+            ->where('user_id', $user->id)
+            ->where('routing_class', 'ordering')
+            ->exists();
+        if ($hasOrdering) {
+            return;
+        }
+
+        MenuPhotoSweepJob::dispatch((string) $user->id);
     }
 
     public function accept(Request $request, SetupBatchApplier $applier, SetupPayload $payload): JsonResponse

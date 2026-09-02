@@ -1251,6 +1251,21 @@ function setupSitesTable(): void
         UNIQUE (user_id, place_id)
     )');
 
+    // site.logo_candidates — the logo pass's stored candidates (A.10). CHECKs
+    // copied from 20260902230000_logo_candidates.sql.
+    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.logo_candidates (
+        id TEXT PRIMARY KEY NOT NULL,
+        site_id TEXT NOT NULL,
+        slot TEXT NOT NULL CHECK (slot IN (\'square\', \'full\')),
+        source_url TEXT NULL,
+        storage_path TEXT NOT NULL,
+        trust INTEGER NOT NULL DEFAULT 0,
+        width INTEGER NULL,
+        height INTEGER NULL,
+        state TEXT NOT NULL DEFAULT \'proposed\' CHECK (state IN (\'proposed\', \'promoted\', \'dismissed\')),
+        created_at TEXT NOT NULL
+    )');
+
     // site.shop_brands + site.shop_products used to be provisioned here
     // (FOUND-25 relational storage, migration 20260704160000). Both tables are
     // GONE — dropped by 20260819000200 / 20260819000210 — and a store now lives

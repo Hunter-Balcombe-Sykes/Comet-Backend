@@ -4,6 +4,7 @@ namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
+use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Content\ManualMenuItems;
@@ -49,16 +50,20 @@ class GoogleMenuPhotoScanJob implements ShouldBeUnique, ShouldQueue
      */
     public const PLATFORM_MENU_SUFFICIENT = 8;
 
-    /** OCR text shorter than this is not a menu photo (density filter). */
-    private const MENU_TEXT_MIN_CHARS = 150;
+    /**
+     * OCR text shorter than this is not a menu photo (density filter).
+     * Public with the three below since A.10: MenuPhotoSweepJob runs the
+     * deferred tier-2 sweep with the SAME thresholds — one definition.
+     */
+    public const MENU_TEXT_MIN_CHARS = 150;
 
     /** Hard cap on billed OCR calls per scan, across both photo tiers. */
-    private const MAX_OCR_CALLS = 30;
+    public const MAX_OCR_CALLS = 30;
 
     /** Stop OCR-ing once this many menu-dense photos are in hand. */
-    private const ENOUGH_DENSE_PAGES = 4;
+    public const ENOUGH_DENSE_PAGES = 4;
 
-    private const COMBINED_TEXT_CAP = 60000;
+    public const COMBINED_TEXT_CAP = 60000;
 
     public int $timeout = 280;
 
@@ -215,8 +220,13 @@ class GoogleMenuPhotoScanJob implements ShouldBeUnique, ShouldQueue
         $dense = $this->collectMenuTexts($extractor, $storedUrls, $ocrCalls);
 
         // Tier 2 (paid): one Apify photo-stream sweep, only when the free
-        // tier read nothing menu-like and OCR budget remains.
-        if ($dense === [] && $ocrCalls < self::MAX_OCR_CALLS) {
+        // tier read nothing menu-like and OCR budget remains. A.10: on a
+        // sign-up BUILD the paid sweep is deferred — most sign-up builds are
+        // abandoned before setup, so the spend waits for the person to show
+        // up (SetupController dispatches MenuPhotoSweepJob when they leave
+        // the platforms passes with no ordering connection).
+        $deferSweep = $user->isUnclaimed() && PreAccountBuild::latestIsSignup($this->userId);
+        if ($dense === [] && $ocrCalls < self::MAX_OCR_CALLS && ! $deferSweep) {
             $sweep = $imagesScraper->fetch($this->placeId, $this->userId) ?? [];
             $fresh = array_values(array_diff($sweep, $storedUrls));
             $dense = $this->collectMenuTexts($extractor, $fresh, $ocrCalls);
