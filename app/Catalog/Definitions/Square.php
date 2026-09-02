@@ -50,6 +50,25 @@ class Square
                 ->detect(
                     Detector::url('squareup.com')->strength(EvidenceStrength::ProfileLink),
                     Detector::url('square.site')->strength(EvidenceStrength::ProfileLink),
+                    // 2026-09-02: the Square Appointments deep link Square's own
+                    // "Book now" buttons and share sheets hand out. On the
+                    // host-only rule above it scored 32 (40 − 8 deep-path), under
+                    // booking's suggest bar of 55, so jessejensz's team-member
+                    // link was carded as a custom link while the studio's bare
+                    // square.site root took the Square slot. subdomain 20 + path
+                    // 35 + DeepLinkWithSlug 4 on the 40 base = 99 — auto even
+                    // after the 10-point indirect penalty. No captures(): the
+                    // surface is IdentifierKind::Url and the canonical URL (which
+                    // keeps team_member_id) is the identity.
+                    Detector::url('squareup.com')
+                        ->subdomain('#^book$#')
+                        ->path('#^/appointments/(?<merchant>[a-z0-9]{8,32})(?:/location/(?<location>[A-Z0-9]{8,32}))?(?:/(?:services|staff)(?:/[A-Za-z0-9]+)?)?/?$#i')
+                        ->strength(EvidenceStrength::DeepLinkWithSlug),
+                    // The booking_flow_url shape the buyer widget JSON carries.
+                    Detector::url('squareup.com')
+                        ->subdomain('#^app$#')
+                        ->path('#^/appointments/book/(?<merchant>[a-z0-9]{8,32})/(?<location>[A-Z0-9]{8,32})(?:/start)?/?$#i')
+                        ->strength(EvidenceStrength::DeepLinkWithSlug),
                 )
                 ->build(),
             SurfaceBuilder::for('square.order')

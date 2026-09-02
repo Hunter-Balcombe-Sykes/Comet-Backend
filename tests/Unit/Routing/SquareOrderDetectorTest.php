@@ -56,3 +56,25 @@ it('does not claim an /s/order path on a non-square host', function () {
 
     expect($projection->surfaceKey)->not->toBe('square.order');
 });
+
+it('places a Square Appointments deep link on square.book above the auto bar', function () {
+    $projection = squareProjection('https://book.squareup.com/appointments/7rn54rnv21ng7n/location/LAJZK7J54JGCW/services?buttonTextColor=ffffff&color=000000&team_member_id=TM-qREuvGrHGnJ5Z');
+    expect($projection->matched())->toBeTrue($projection->reason ?? '');
+    expect($projection->surfaceKey)->toBe('square.book');
+    expect($projection->confidence - RoutingPolicy::indirectPenalty())
+        ->toBeGreaterThanOrEqual(RoutingPolicy::autoThreshold('booking'));
+    expect($projection->margin)->toBeGreaterThanOrEqual(RoutingPolicy::minMargin());
+});
+
+it('places the app.squareup.com booking_flow_url shape on square.book above the auto bar', function () {
+    $projection = squareProjection('https://app.squareup.com/appointments/book/7rn54rnv21ng7n/LAJZK7J54JGCW/start');
+    expect($projection->surfaceKey)->toBe('square.book');
+    expect($projection->confidence - RoutingPolicy::indirectPenalty())
+        ->toBeGreaterThanOrEqual(RoutingPolicy::autoThreshold('booking'));
+});
+
+it('places a merchant root with no location on square.book', function () {
+    $projection = squareProjection('https://book.squareup.com/appointments/7rn54rnv21ng7n');
+    expect($projection->surfaceKey)->toBe('square.book');
+    expect($projection->confidence)->toBeGreaterThanOrEqual(RoutingPolicy::suggestThreshold('booking'));
+});

@@ -1026,3 +1026,22 @@ it('returns the same outcome and counts whether or not pacing runs', function ()
     // ran just by reading what import() returned.
     expect($paced)->toBe($unpaced);
 });
+
+it('connects a harvested Square Appointments deep link as the booking provider, not a card', function () {
+    Queue::fake();
+    $pro = createTenant('bio-square');
+    bioPage('<html><body>
+        <a href="https://book.squareup.com/appointments/7rn54rnv21ng7n/location/LAJZK7J54JGCW/services?buttonTextColor=ffffff&color=000000&team_member_id=TM-qREuvGrHGnJ5Z">Book</a>
+    </body></html>');
+
+    app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/bio-square', 'link_in_bio');
+
+    $row = IntegrationConnection::query()
+        ->where('user_id', $pro->id)->where('surface_key', 'square.book')->whereNull('deleted_at')->first();
+    expect($row)->not->toBeNull()
+        ->and($row->routing_class)->toBe('booking')
+        ->and($row->is_active)->toBeTrue()
+        ->and($row->payload['url'])->toContain('book.squareup.com/appointments/7rn54rnv21ng7n/location/LAJZK7J54JGCW')
+        ->and($row->payload['url'])->toContain('team_member_id=TM-qREuvGrHGnJ5Z');
+    expect(DB::table('routing.link_observations')->where('surface_key', 'square.book')->value('verdict'))->toBe('place');
+});
