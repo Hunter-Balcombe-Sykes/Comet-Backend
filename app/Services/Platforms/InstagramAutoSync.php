@@ -67,7 +67,7 @@ class InstagramAutoSync
      *                              two passes ONE run; when it is supplied it is
      *                              authoritative, so $autoConnectBooking must already be
      *                              set on it.
-     * @return array{findings: list<array<string,mixed>>, unmatched: list<array<string,mixed>>}
+     * @return array{findings: list<array<string,mixed>>, unmatched: list<array<string,mixed>>, scans: int}
      */
     public function seed(string $userId, array $bioLinks, bool $autoConnectBooking = false, ?RouteContext $ctx = null): array
     {
