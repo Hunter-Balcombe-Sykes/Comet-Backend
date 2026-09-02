@@ -136,7 +136,7 @@ it('reads a soft consumer site as rounded corners, ignoring pill sentinels', fun
     $html = '<style>.a{border-radius:16px}.b{border-radius:12px}.chip{border-radius:9999px}.c{border-radius:1.25rem}</style>';
 
     expect(app(DesignKitAutopilot::class)->fromWebsiteEvidence($html)['proposals']['corners'] ?? null)
-        ->toBe('rounded');
+        ->toBe('default');
 });
 
 it('reads a mid-radius site as default corners — a real proposal, since evidence beats the sector look', function () {
@@ -181,16 +181,16 @@ it('proposes no spacing below the evidence floor (fewer than 5 declarations)', f
 
 it('persists corners and spacing fill-if-empty but never clobbers a manual pick', function () {
     $siteId = autopilotSite();
-    DB::connection('pgsql')->table('site.design_kits')->updateOrInsert(['site_id' => $siteId], ['corners' => 'rounded']);
+    DB::connection('pgsql')->table('site.design_kits')->updateOrInsert(['site_id' => $siteId], ['corners' => 'default']);
 
     $wrote = app(DesignKitAutopilot::class)->persistFillIfEmpty($siteId, [
-        'corners' => 'sharp',    // manual 'rounded' stands
+        'corners' => 'sharp',    // manual 'default' stands
         'spacing' => 'spacious', // NULL → written
     ]);
 
     $kit = DB::connection('pgsql')->table('site.design_kits')->where('site_id', $siteId)->first();
     expect($wrote)->toBe(['spacing'])
-        ->and($kit->corners)->toBe('rounded')
+        ->and($kit->corners)->toBe('default')
         ->and($kit->spacing)->toBe('spacious');
 });
 

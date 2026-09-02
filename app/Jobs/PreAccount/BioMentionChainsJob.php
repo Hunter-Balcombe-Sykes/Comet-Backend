@@ -7,6 +7,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
+use App\Routing\Importers\LinkInBioImporter;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Platforms\FreshaWorkplaceLinker;
 use App\Services\Platforms\InstagramScraper;
@@ -15,6 +16,7 @@ use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\RouteContext;
 use App\Services\Platforms\ScrapeCreators\FindSocialProfilesClient;
 use App\Services\PreAccount\BuildProgress;
+use App\Services\Shop\DiscountCodeAdopter;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -81,6 +83,8 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
         // Item 9a: how many 30s Fresha-pending deferrals this dispatch has
         // already taken. Rides the job for the same reason mentions do.
         public readonly int $deferrals = 0,
+        /** lowercased brand handle => discount code found beside it in the bio (batch 3 E.3). @var array<string, string> */
+        public readonly array $codes = [],
     ) {
         $this->onQueue(config('partna.queues.signup', 'signup'));
     }
@@ -116,6 +120,33 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
         LinkRouter $router,
         FindSocialProfilesClient $discovery,
     ): void {
+        try {
+            $this->run($scraper, $linker, $router, $discovery);
+        } finally {
+            // Setup progress (2026-09-02): a chain that started (its own note or
+            // the dispatch's) always answers — landed when a workplace exists
+            // (the one-shot dedupe makes this a no-op after the linker's own
+            // row), skipped when none was found. A chain that ran after "done"
+            // (liam, +87s) left the row open for good otherwise.
+            $owner = User::query()->find($this->userId);
+            if ($owner !== null) {
+                $has = $this->hasWorkplace($owner);
+                BuildProgress::noteForUser(
+                    (string) $owner->id,
+                    PreAccountBuildEvent::STAGE_WORKPLACE,
+                    $has ? PreAccountBuildEvent::STATUS_LANDED : PreAccountBuildEvent::STATUS_SKIPPED,
+                    $has ? 'Found where you work' : 'No workplace found from your bio yet',
+                );
+            }
+        }
+    }
+
+    private function run(
+        InstagramScraper $scraper,
+        FreshaWorkplaceLinker $linker,
+        LinkRouter $router,
+        FindSocialProfilesClient $discovery,
+    ): void {
         $user = User::query()->find($this->userId);
         if (! $user) {
             return;
@@ -132,7 +163,7 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
                 'user_id' => $this->userId,
                 'deferrals' => $this->deferrals + 1,
             ]);
-            self::dispatch($this->userId, $this->mentions, $this->deferrals + 1)
+            self::dispatch($this->userId, $this->mentions, $this->deferrals + 1, $this->codes)
                 ->delay(self::FRESHA_RECHECK_SECONDS);
 
             return;
@@ -269,6 +300,23 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
             if ($website === '' || preg_match('~^https?://~i', $website) !== 1) {
                 continue;
             }
+            // Batch 3 E.2 (owner, 2026-09-02): a brand whose bio link is a
+            // Linktree (adidasau) is not a store — read that page and take
+            // its ONE store link instead. Nothing else on the page is routed.
+            $importer = app(LinkInBioImporter::class);
+            if ($importer->isVendorPage($website)) {
+                $store = $importer->storeLinkOn($website, $user);
+                Log::info('bio_mention.brand_link_in_bio', [
+                    'user_id' => $this->userId,
+                    'mention' => $handle,
+                    'page' => $website,
+                    'store' => $store,
+                ]);
+                if ($store === null) {
+                    continue;
+                }
+                $website = $store;
+            }
             try {
                 $result = $router->route($user, $website, new RouteContext);
                 Log::info('bio_mention.brand_chain', [
@@ -277,6 +325,13 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
                     'website' => $website,
                     'outcome' => $result->outcome,
                 ]);
+                // E.3: "@brand code LALOR" beside the mention → the store's
+                // discount code (matched on the store's host; no-op when the
+                // router placed nothing on that host).
+                $code = $this->codes[strtolower(ltrim($handle, '@'))] ?? null;
+                if ($code !== null) {
+                    app(DiscountCodeAdopter::class)->adopt($user, $website, $code);
+                }
             } catch (Throwable $e) {
                 report($e);
             }

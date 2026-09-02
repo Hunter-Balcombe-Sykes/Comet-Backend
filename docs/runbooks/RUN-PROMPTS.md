@@ -69,15 +69,21 @@ Set up the k6 load-test fixture on **dev**. Read `scripts/launch-check/k6/README
 5. Verify the edge route: `curl -sI https://loadtest.partna.au/ | grep -i '^HTTP'` → `200`.
 
 **Traps:**
-- **Gallery is 6, not more — that is correct, not a seed shortfall.** The
-  `core.enforce_site_gallery_max6` trigger hard-caps the gallery pool at 6 per site, so 6 is
-  the real-world ceiling for any production site. Do not "fix" the seed to insert more.
-- **Each gallery item needs a matching `site.media_variants` (webp) row** or its URL
+- **Media is 6, not more — that is a historical constant, not a seed shortfall.** It used
+  to be the `core.enforce_site_gallery_max6` ceiling; that trigger and the `gallery` pool
+  were dropped 2026-09-02 (migration `20260902170000`) and the seed moved to the `content`
+  pool, capped at 20. 6 is kept so earlier baseline results stay comparable — don't "fix"
+  the seed to insert more without re-baselining.
+- **Expect `pools.media`=6, `pools.services`=15, `pools.custom_links`=10** at
+  `data.profile.pools.<pool>.items`. `profile.gallery`/`services`/`links` no longer exist.
+  After re-seeding, **fetch the profile twice** — the payload is SWR-cached off
+  `site.sites.updated_at` and the rebuild is deferred until after the response, so the
+  first request serves the stale body and will look under-seeded.
+- **Each media item needs a matching `site.media_variants` (webp) row** or its URL
   resolves empty and the profile looks under-seeded. `seed.sql` already does this — if you
   edit the seed, keep it.
-- Both invariants are guarded by tests (`tests/Postgres/GalleryMax6TriggerTest.php`,
-  `IndividualProfileControllerTest`'s gallery-engine tests). If you change `seed.sql`,
-  re-check those.
+- The variants invariant is guarded by `IndividualProfileControllerTest`'s gallery-engine
+  tests. If you change `seed.sql`, re-check those.
 
 Report: the verified counts, whether KV synced, and whether the edge route is live.
 

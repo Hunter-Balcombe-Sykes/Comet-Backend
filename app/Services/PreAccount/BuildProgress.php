@@ -50,6 +50,13 @@ final class BuildProgress
                 && PreAccountBuildEvent::query()->where('build_id', $buildId)->where('stage', $stage)->where('status', $status)->exists()) {
                 return;
             }
+            // One STARTED per stage too (2026-09-02): the connection observer
+            // dispatches a menu fetch per delivery platform, and four
+            // "Reading your menu" rows say nothing four times.
+            if ($status === PreAccountBuildEvent::STATUS_STARTED
+                && PreAccountBuildEvent::query()->where('build_id', $buildId)->where('stage', $stage)->where('status', $status)->exists()) {
+                return;
+            }
             $event = new PreAccountBuildEvent;
             $event->forceFill([
                 'build_id' => $buildId,

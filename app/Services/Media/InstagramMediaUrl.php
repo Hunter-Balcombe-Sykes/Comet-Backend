@@ -193,6 +193,18 @@ class InstagramMediaUrl
     }
 
     /** Only Instagram's own CDNs are acceptable refresh targets. */
+    /**
+     * A Meta-signed CDN url (cdninstagram / fbcdn): it expires within days,
+     * and browsers refuse it cross-origin on our pages — never a servable
+     * public url, only a mirror source (owner, 2026-09-02).
+     */
+    public static function isMetaCdn(string $url): bool
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+
+        return $host !== '' && preg_match('/(^|\.)cdninstagram\.com$|(^|\.)fbcdn\.net$/', $host) === 1;
+    }
+
     private function validFbcdnUrl(string $url): bool
     {
         if ($url === '') {

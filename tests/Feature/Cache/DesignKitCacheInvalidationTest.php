@@ -132,7 +132,7 @@ it('advances updated_at on a design-kit-only update so the public profile cache 
     // corners is a real site.design_kits column (setupDesignKitsTable()) and a
     // legal value under DesignKitValidationRules::designKitRules().
     actingAsUser($pro)
-        ->patchJson('/api/site', ['design_kit' => ['corners' => 'rounded']])
+        ->patchJson('/api/site', ['design_kit' => ['corners' => 'sharp']])
         ->assertOk();
 
     $freshSite = Site::query()->findOrFail($siteId);
@@ -146,7 +146,7 @@ it('advances updated_at on a design-kit-only update so the public profile cache 
     // short-circuit that happened to still touch the row for some other reason.
     $kitCorners = DB::connection('pgsql')->table('site.design_kits')
         ->where('site_id', $siteId)->value('corners');
-    expect($kitCorners)->toBe('rounded');
+    expect($kitCorners)->toBe('sharp');
 
     // Proves nothing else dirtied the row alongside the kit write.
     expect($freshSite->settings)->toBe($originalSettings);

@@ -79,7 +79,6 @@ final class SectorStylePresets
         self::BEAUTY_PERSONAL_CARE => [
             'color_accent' => '#b8375a',
             'spacing' => 'spacious',
-            'corners' => 'rounded',
             'typography_uppercase' => false,
         ],
         // The gym-floor poster: big emerald-dark energy in caps.
@@ -129,7 +128,6 @@ final class SectorStylePresets
         // sentence case.
         self::EDUCATION_COACHING => [
             'color_accent' => '#2563eb',
-            'corners' => 'rounded',
             'typography_uppercase' => false,
         ],
     ];
@@ -146,7 +144,7 @@ final class SectorStylePresets
         // handwritten, not stamped.
         'cafe' => ['color_accent' => '#92400e', 'typography_uppercase' => false],
         // Caramel warmth, pastry-soft edges.
-        'bakery' => ['color_accent' => '#b45309', 'corners' => 'rounded', 'typography_uppercase' => false],
+        'bakery' => ['color_accent' => '#b45309', 'typography_uppercase' => false],
         // Late-night poster: the wine-red gets volume.
         'bar' => ['color_accent' => '#be123c', 'text_size' => 'large'],
         // Van-side type — read it from across the street.
@@ -175,7 +173,7 @@ final class SectorStylePresets
         'gym' => ['color_accent' => '#10b981'],
         // The full quiet flip — a counselling room must not look like a
         // gym floor.
-        'therapist' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#64748b', 'text_size' => 'medium', 'spacing' => 'spacious', 'corners' => 'rounded', 'typography_uppercase' => false],
+        'therapist' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#64748b', 'text_size' => 'medium', 'spacing' => 'spacious', 'typography_uppercase' => false],
         // Grounded sage calm; keeps the grotesque so it stays studio, not
         // clinic.
         'yoga-instructor' => ['color_accent' => '#5f7a61', 'text_size' => 'medium', 'spacing' => 'spacious', 'typography_uppercase' => false],
@@ -199,13 +197,13 @@ final class SectorStylePresets
         // Velvet-case luxe: gold, widely-set caps.
         'jewellery' => ['color_accent' => '#ca8a04', 'spacing' => 'spacious'],
         // Soft botanical — air and petals, not editorial pink caps.
-        'florist' => ['typography_font_family' => 'monument-grotesk', 'spacing' => 'spacious', 'corners' => 'rounded', 'typography_uppercase' => false],
+        'florist' => ['typography_font_family' => 'monument-grotesk', 'spacing' => 'spacious', 'typography_uppercase' => false],
         // Friendly counter, not runway.
-        'gift-shop' => ['corners' => 'rounded', 'typography_uppercase' => false],
+        'gift-shop' => ['typography_uppercase' => false],
         // Muted interior calm — the stone showroom.
         'homewares' => ['typography_font_family' => 'monument-grotesk', 'color_accent' => '#57534e', 'spacing' => 'spacious', 'typography_uppercase' => false],
         // Handmade warmth in the crafted face.
-        'artisan-maker' => ['typography_font_family' => 'forma-djr', 'color_accent' => '#9a3412', 'corners' => 'rounded', 'typography_uppercase' => false],
+        'artisan-maker' => ['typography_font_family' => 'forma-djr', 'color_accent' => '#9a3412', 'typography_uppercase' => false],
 
         // ── home_services (van-livery base — accents only, the bucket IS
         //    the trade look) ───────────────────────────────────────────
@@ -216,7 +214,7 @@ final class SectorStylePresets
 
         // ── hospitality (lounge base) ───────────────────────────────────
         // Romance: rose-gold, soft edges, over the bucket's air.
-        'wedding-planner' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#b76e79', 'corners' => 'rounded'],
+        'wedding-planner' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#b76e79'],
         // The mobile bar borrows the bar's poster energy, not the hotel's
         // murmur (spacing re-emits the default to undo the bucket's air).
         'bartender' => ['color_accent' => '#be123c', 'spacing' => 'default', 'typography_uppercase' => true],
@@ -239,7 +237,7 @@ final class SectorStylePresets
         // The gig poster, full volume.
         'musician' => ['typography_font_family' => 'monument-grotesk', 'color_accent' => '#e11d48', 'text_size' => 'large', 'corners' => 'sharp'],
         // Vibrant + friendly, feed-native.
-        'content-creator' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#db2777', 'corners' => 'rounded'],
+        'content-creator' => ['typography_font_family' => 'helvetica-neue', 'color_accent' => '#db2777'],
         // Literary restraint — ink-navy sentences in the crafted text cut.
         'writer' => ['color_accent' => '#1d3557', 'text_size' => 'small', 'typography_uppercase' => false],
 
@@ -249,6 +247,79 @@ final class SectorStylePresets
         // Movement poster over the friendly base.
         'dance-instructor' => ['color_accent' => '#db2777', 'text_size' => 'large', 'typography_uppercase' => true],
     ];
+
+    /**
+     * REGISTER (owner, 2026-09-02, batch 2 D.1): every sector reads either
+     * masculine or feminine by default, and the register — not the sector —
+     * decides corners, face and the fallback accent (the accent a site wears
+     * when nothing was scraped; a scraped or manual accent still wins).
+     *   masculine → square corners, the NB Architekt all-caps face, a neon.
+     *   feminine  → curved corners, any other face, a tonal pastel — pink for
+     *               the beauty/retail/hospitality buckets, baby blue elsewhere.
+     * A slug in either list overrides its bucket's reading.
+     */
+    public const MASCULINE = 'masculine';
+
+    public const FEMININE = 'feminine';
+
+    public const MASCULINE_ACCENT = '#00d856';
+
+    public const FEMININE_ACCENT_PINK = '#f7c5d8';
+
+    public const FEMININE_ACCENT_BLUE = '#bfe1f6';
+
+    /** @var list<string> */
+    private const MASCULINE_BUCKETS = [self::AUTOMOTIVE, self::HOME_SERVICES, self::HEALTH_FITNESS];
+
+    /** @var list<string> */
+    private const PINK_BUCKETS = [self::BEAUTY_PERSONAL_CARE, self::RETAIL_SHOPPING, self::HOSPITALITY];
+
+    /** @var list<string> */
+    private const MASCULINE_SLUGS = ['barber', 'tattoo-artist', 'it-services', 'videographer', 'musician', 'gym', 'bartender', 'plumber', 'electrician', 'landscaper', 'car-detailer', 'graphic-designer'];
+
+    /** @var list<string> */
+    private const FEMININE_SLUGS = ['yoga-instructor', 'therapist', 'nutritionist', 'dance-instructor', 'physiotherapist', 'cleaner'];
+
+    public static function registerFor(?string $bucket, string $slug): string
+    {
+        if (in_array($slug, self::MASCULINE_SLUGS, true)) {
+            return self::MASCULINE;
+        }
+        if (in_array($slug, self::FEMININE_SLUGS, true)) {
+            return self::FEMININE;
+        }
+
+        return in_array($bucket, self::MASCULINE_BUCKETS, true) ? self::MASCULINE : self::FEMININE;
+    }
+
+    /**
+     * The register's axes over a composed look.
+     *
+     * @param  array<string, string|bool>  $look
+     * @return array<string, string|bool>
+     */
+    public static function applyRegister(array $look, ?string $bucket, string $register): array
+    {
+        if ($register === self::MASCULINE) {
+            return array_merge($look, [
+                'corners' => 'sharp',
+                'typography_font_family' => 'nb-architekt',
+                'typography_uppercase' => true,
+                'color_accent' => self::MASCULINE_ACCENT,
+            ]);
+        }
+
+        $feminine = [
+            'corners' => 'default',
+            'color_accent' => in_array($bucket, self::PINK_BUCKETS, true) ? self::FEMININE_ACCENT_PINK : self::FEMININE_ACCENT_BLUE,
+        ];
+        if (($look['typography_font_family'] ?? null) === 'nb-architekt') {
+            $feminine['typography_font_family'] = 'helvetica-neue';
+            $feminine['typography_uppercase'] = false;
+        }
+
+        return array_merge($look, $feminine);
+    }
 
     /** @return list<string> every declared bucket key */
     public static function buckets(): array

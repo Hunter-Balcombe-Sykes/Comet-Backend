@@ -200,7 +200,7 @@ it('filters incoming keys against information_schema, not the physical table', f
 
     invokeWriteDesignKit($siteId, [
         'color_accent' => '#abcabc',  // in catalog → written
-        'corners' => 'rounded',       // real column, absent from catalog → dropped
+        'corners' => 'default',       // real column, absent from catalog → dropped
     ]);
 
     $row = DB::connection('pgsql')->table('site.design_kits')
@@ -302,7 +302,7 @@ it('dispatches the edge purge only after the design kit is on disk', function ()
     actingAsUser($pro)
         ->patchJson('/api/site', [
             'is_published' => false,
-            'design_kit' => ['corners' => 'rounded'],
+            'design_kit' => ['corners' => 'default'],
         ])
         ->assertOk();
 
@@ -310,7 +310,7 @@ it('dispatches the edge purge only after the design kit is on disk', function ()
     // consumer would re-render is already the new one.
     $kit = DB::connection('pgsql')->table('site.design_kits')
         ->where('site_id', $pro->site->id)->first();
-    expect($kit->corners)->toBe('rounded');
+    expect($kit->corners)->toBe('default');
 
     Queue::assertPushed(CloudflareCachePurgeJob::class, fn ($job) => $job->followUp === false);
 });
@@ -333,7 +333,7 @@ it('persists the selection columns', function () {
     invokeWriteDesignKit($siteId, [
         'text_size' => 'large',
         'spacing' => 'spacious',
-        'corners' => 'rounded',
+        'corners' => 'default',
         'effect_surface' => 'outline',
     ]);
 
@@ -342,7 +342,7 @@ it('persists the selection columns', function () {
 
     expect($row->text_size)->toBe('large')
         ->and($row->spacing)->toBe('spacious')
-        ->and($row->corners)->toBe('rounded')
+        ->and($row->corners)->toBe('default')
         ->and(property_exists($row, 'effect_surface'))->toBeFalse();
 });
 
@@ -391,7 +391,7 @@ it('accepts every legal selection value over HTTP and stores it', function () {
     foreach ([
         'text_size' => ['small', 'medium', 'large'],
         'spacing' => ['default', 'spacious'],
-        'corners' => ['sharp', 'default', 'rounded'],
+        'corners' => ['sharp', 'default'],
     ] as $column => $values) {
         foreach ($values as $value) {
             actingAsUser($pro)
@@ -418,13 +418,13 @@ it('silently drops the retired theme_mode key over HTTP', function () {
     // and the information_schema allowlist drops it before the write.
     actingAsUser($pro)
         ->patchJson('/api/site', [
-            'design_kit' => ['theme_mode' => 'dark', 'corners' => 'rounded'],
+            'design_kit' => ['theme_mode' => 'dark', 'corners' => 'default'],
         ])
         ->assertOk();
 
     $row = DB::connection('pgsql')->table('site.design_kits')
         ->where('site_id', $pro->site->id)->first();
-    expect($row->corners)->toBe('rounded')
+    expect($row->corners)->toBe('default')
         ->and(property_exists($row, 'theme_mode'))->toBeFalse();
 });
 

@@ -23,6 +23,8 @@ class PreAccountBuildCreatedResource extends ApiResource
     public function __construct(
         PreAccountBuild $resource,
         private readonly ?string $claimToken,
+        /** The POST re-served a live build for this source (owner, 2026-09-02). */
+        private readonly bool $reused = false,
     ) {
         parent::__construct($resource);
     }
@@ -34,6 +36,7 @@ class PreAccountBuildCreatedResource extends ApiResource
         return array_filter([
             ...$base,
             'claim_token' => $this->claimToken,
+            'reused' => $this->reused,
         ], fn ($v) => $v !== null);
     }
 }

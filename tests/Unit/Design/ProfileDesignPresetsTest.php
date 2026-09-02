@@ -14,30 +14,43 @@ it('returns the bucket base for a slug with no refinement', function () {
     $user = new User;
     $user->sector = 'restaurant'; // food_drink bucket, no slug refinement
 
-    expect(ProfileDesignPresets::forUser($user))
-        ->toBe(SectorStylePresets::forBucket(SectorStylePresets::FOOD_DRINK));
+    $bucket = SectorStylePresets::forBucket(SectorStylePresets::FOOD_DRINK);
+    $out = ProfileDesignPresets::forUser($user);
+
+    // The bucket's own axes survive; the register (feminine here) sets the
+    // corners and the fallback accent over them (owner, 2026-09-02).
+    expect($out['typography_font_family'])->toBe($bucket['typography_font_family'])
+        ->and($out['corners'])->toBe('default')
+        ->and($out['color_accent'])->toBe(SectorStylePresets::FEMININE_ACCENT_BLUE);
 });
 
 it('merges the slug refinement over the bucket base', function () {
     $user = new User;
     $user->sector = 'spa'; // beauty bucket + spa refinement
 
-    $expected = array_merge(
-        SectorStylePresets::forBucket(SectorStylePresets::BEAUTY_PERSONAL_CARE),
-        SectorStylePresets::forSlug('spa'),
-    );
     $out = ProfileDesignPresets::forUser($user);
 
-    expect($out)->toBe($expected)
-        ->and($out['color_accent'])->toBe('#0f766e')       // spa teal beats bucket rose
-        ->and($out['spacing'])->toBe('spacious')           // bucket look survives
-        ->and($out['corners'])->toBe('rounded')
+    expect($out['spacing'])->toBe('spacious')           // bucket look survives
+        ->and($out['corners'])->toBe('default')             // the feminine register: curved
+        ->and($out['color_accent'])->toBe(SectorStylePresets::FEMININE_ACCENT_PINK)
         ->and($out['typography_uppercase'])->toBeFalse()
         // The bucket authors NO font since the full-look rewrite (2026-08-27
         // — helvetica IS the package default, and re-emitting a default is
         // noise per the sparsity rule), so the key is absent and the
         // package default applies downstream.
         ->and($out)->not->toHaveKey('typography_font_family');
+});
+
+it('a masculine slug reads square, NB Architekt and neon whatever its bucket authored', function () {
+    $user = new User;
+    $user->sector = 'barber';
+
+    $out = ProfileDesignPresets::forUser($user);
+
+    expect($out['corners'])->toBe('sharp')
+        ->and($out['typography_font_family'])->toBe('nb-architekt')
+        ->and($out['typography_uppercase'])->toBeTrue()
+        ->and($out['color_accent'])->toBe(SectorStylePresets::MASCULINE_ACCENT);
 });
 
 it('styles a google-sourced sector too — fields, not sources', function () {

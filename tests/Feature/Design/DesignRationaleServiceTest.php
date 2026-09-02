@@ -76,6 +76,10 @@ it('shows only the manual line when every preset column is overridden', function
         'site_id' => $user->site->id,
         'color_accent' => '#123456',
         'typography_font_family' => 'geist',
+        // The register (masculine for a plumber, 2026-09-02) also sets the
+        // corners and uppercase axes — overridden here too.
+        'corners' => 'default',
+        'typography_uppercase' => false,
     ]);
 
     $out = app(DesignRationaleService::class)

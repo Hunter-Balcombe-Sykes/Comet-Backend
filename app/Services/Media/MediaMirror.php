@@ -2,8 +2,12 @@
 
 namespace App\Services\Media;
 
+use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
+use App\Models\Core\User\User;
 use App\Services\Analytics\Concerns\EscalatesRepeatedFaults;
+use App\Services\Cache\SiteCacheService;
 use App\Services\Http\SafeUrlFetcher;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -297,7 +301,7 @@ final class MediaMirror
             // row here we are entitled to write, and bumping the victim's
             // counter would be the same cross-tenant write #SEC-5 exists to
             // stop. The log line and the false return carry the signal instead.
-            return $wrote === 1 ? true : $this->fail($assetId, 'asset_unwritable', $sourceUrl, userId: $userId);
+            return $wrote === 1 ? $this->landed($userId) : $this->fail($assetId, 'asset_unwritable', $sourceUrl, userId: $userId);
         }
         // Checked BEFORE the file is read into a string, which is the other
         // half of #SCALE-3 (and closes #SCALE-15): every fetch here is capped
@@ -381,7 +385,7 @@ final class MediaMirror
             ] + $this->clearedMirrorState());
 
         // See the video branch: a zero-row UPDATE is a failure, not a success.
-        return $wrote === 1 ? true : $this->fail($assetId, 'asset_unwritable', $sourceUrl, userId: $userId);
+        return $wrote === 1 ? $this->landed($userId) : $this->fail($assetId, 'asset_unwritable', $sourceUrl, userId: $userId);
     }
 
     /**
@@ -492,6 +496,35 @@ final class MediaMirror
             'mirror_last_attempt_at' => now(),
             'mirror_last_reason' => null,
         ];
+    }
+
+    /**
+     * The bytes are ours: the site's payload rotates NOW (owner, 2026-09-02).
+     * Until this, a landed mirror sat behind the payload's TTL and the next
+     * projection, so a fresh site served raw CDN links — empty gallery cards
+     * — for minutes after the build read "done". A few cache deletes per
+     * landing is nothing next to that.
+     */
+    private function landed(string $userId): bool
+    {
+        try {
+            $site = User::query()->find($userId)?->site;
+            if ($site !== null) {
+                app(SiteCacheService::class)->invalidateSitePayload($site);
+                // The edge holds the rendered sitepage until a purge (the
+                // router overlays a day-long s-maxage) — so the payload
+                // rotating is not enough. One purge per site per 15s: a
+                // build wave lands hundreds of mirrors.
+                $subdomain = (string) ($site->subdomain ?? '');
+                if ($subdomain !== '' && Cache::add('media_mirror:purge:'.$subdomain, 1, 15)) {
+                    CloudflareCachePurgeJob::dispatch($subdomain);
+                }
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        return true;
     }
 
     /**

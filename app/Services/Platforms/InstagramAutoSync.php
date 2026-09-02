@@ -67,19 +67,21 @@ class InstagramAutoSync
      *                              two passes ONE run; when it is supplied it is
      *                              authoritative, so $autoConnectBooking must already be
      *                              set on it.
-     * @return array{findings: list<array<string,mixed>>, unmatched: list<array<string,mixed>>}
+     * @return array{findings: list<array<string,mixed>>, unmatched: list<array<string,mixed>>, scans: int}
      */
     public function seed(string $userId, array $bioLinks, bool $autoConnectBooking = false, ?RouteContext $ctx = null): array
     {
         // Dominant case today: the Apify actor returns no bio fields at all, so
         // the connect job calls this with []. Skip the user lookup entirely.
         if ($bioLinks === []) {
-            return ['findings' => [], 'unmatched' => []];
+            return ['findings' => [], 'unmatched' => [], 'scans' => 0];
         }
 
         $user = User::find($userId);
 
         $findings = [];
+
+        $scans = 0;
         $unmatched = [];
 
         // ONE context for the whole run — carries first-link-per-platform
@@ -161,6 +163,7 @@ class InstagramAutoSync
                     // Setup progress (2026-09-02): the platforms row is owed from here.
                     BuildProgress::noteForUser($userId, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_STARTED, 'Checking your link page');
                     LinkInBioScanJob::dispatch($userId, $url, $autoConnectBooking);
+                    $scans++;
 
                     continue;
                 }
@@ -218,7 +221,7 @@ class InstagramAutoSync
             }
         }
 
-        return ['findings' => $findings, 'unmatched' => $unmatched];
+        return ['findings' => $findings, 'unmatched' => $unmatched, 'scans' => $scans];
     }
 
     /** Override — adds Facebook normalizer support to the trait's implementation. */

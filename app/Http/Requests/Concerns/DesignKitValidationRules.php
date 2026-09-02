@@ -36,7 +36,7 @@ namespace App\Http\Requests\Concerns;
 //   text_size               small | medium | large      (5 font + 5 icon roles)
 //   spacing                 default | spacious          (4 gaps, 3 paddings,
 //                                                        3 card heights)
-//   corners                 sharp | default | rounded   (--dk-radius: 0/5.6/16px)
+//   corners                 sharp | default             (--dk-radius: 0/5.6px; rounded retired 2026-09-02)
 //
 // The three selection vocabularies mirror @partnaau/design-system's presets.ts
 // (TEXT_SIZE_PRESETS / SPACING_PRESETS / CORNER_PRESETS)
@@ -106,7 +106,7 @@ trait DesignKitValidationRules
             // The three selections (presets.ts mirror — see the header).
             'design_kit.text_size' => $selection('small,medium,large'),
             'design_kit.spacing' => $selection('default,spacious'),
-            'design_kit.corners' => $selection('sharp,default,rounded'),
+            'design_kit.corners' => $selection('sharp,default'),
         ];
     }
 }

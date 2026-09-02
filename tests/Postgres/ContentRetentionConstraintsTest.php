@@ -11,8 +11,8 @@
 // be proven for real against Postgres (see Tests\PostgresTestCase for the
 // skip-without-Postgres guard). Runs via `composer test:pg` / phpunit.pg.xml.
 //
-// Minimal self-provisioned schema (like tests/Postgres/GalleryMax6TriggerTest
-// .php): only content.f_review / content.source_items, not the full 33-table
+// Minimal self-provisioned schema (like tests/Postgres/ItemSlugAllocator*
+// Test.php): only content.f_review / content.source_items, not the full 33-table
 // content schema — those are the two tables the indexes and the orphan
 // predicate touch.
 

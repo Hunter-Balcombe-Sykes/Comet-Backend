@@ -211,15 +211,22 @@ function seedIdentity(string $label): array
  *                         + .../links/{platform} + .../overrides/{facet}/{column}
  *
  * POOL IS NOT COSMETIC. UserDocumentController::destroy runs its pool check
- * BEFORE the ownership check, so a gallery-pool id 404s there for the wrong
+ * BEFORE the ownership check, so a non-documents id 404s there for the wrong
  * reason on BOTH identities. ContentController::destroyUpload checks ownership
- * first and pool second, so its probe would be honest with a gallery id but its
- * CONTROL would 404. Hence a documents-pool and a content-pool row each, on both
- * identities. UserGalleryController and UserUploadController do not filter pool.
+ * first and pool second, so it needs a genuine content-pool row or its CONTROL
+ * would 404. Hence a documents-pool row plus content-pool rows on both
+ * identities. UserUploadController::destroy does not filter pool at all, so its
+ * fixture is simply a second content row — POOL_GALLERY filled that slot until
+ * it was retired (2026-09-01 writes, 2026-09-02 reads).
  *
  * site.site_media carries UNIQUE (site_id, pool, sort_order) WHERE deleted_at IS
- * NULL — the two gallery rows need distinct sort_order; different pools may
- * reuse 0.
+ * NULL, and createIdentity() has ALREADY written a content-pool row for this
+ * site at sort_order 0 (the column default). The two probe content rows must
+ * therefore start at 1, not 0 — seeding one at 0 collides with that row and
+ * takes the whole lane down before ZAP starts. That is exactly what happened
+ * between 2026-09-02 d68279aa5 (which moved createIdentity's row from the
+ * gallery pool to content, creating the clash) and this fix. The documents row
+ * is in its own pool and may reuse 0.
  *
  * @return array<string, string>
  */
@@ -241,8 +248,8 @@ function seedProbeFixtures(User $user, Site $site, string $label): array
     $db->table('site.site_media')->insert([
         [
             'id' => $mediaImageId, 'site_id' => $siteId,
-            'path' => "dast/{$label}/gallery-2.jpg", 'pool' => 'gallery',
-            'media_type' => 'image', 'sort_order' => 1,
+            'path' => "dast/{$label}/content-2.jpg", 'pool' => 'content',
+            'media_type' => 'image', 'sort_order' => 2,
             'created_at' => $now, 'updated_at' => $now,
         ],
         [
@@ -254,7 +261,7 @@ function seedProbeFixtures(User $user, Site $site, string $label): array
         [
             'id' => $mediaContentId, 'site_id' => $siteId,
             'path' => "dast/{$label}/content-1.jpg", 'pool' => 'content',
-            'media_type' => 'image', 'sort_order' => 0,
+            'media_type' => 'image', 'sort_order' => 1,
             'created_at' => $now, 'updated_at' => $now,
         ],
     ]);

@@ -5,7 +5,7 @@ namespace App\Http\Resources;
 use App\Models\Core\Site\SiteMedia;
 use Illuminate\Http\Request;
 
-// API resource for gallery / content pool media items.
+// API resource for content pool media items.
 //
 // Pass `include_variants: true` via withAdditional() (or the static make helper)
 // to include resolved variant/stream maps:

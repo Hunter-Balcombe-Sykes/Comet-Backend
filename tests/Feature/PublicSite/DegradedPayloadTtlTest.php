@@ -13,6 +13,7 @@
 // env" case safeQuery's own docblock describes.
 
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Design\SectorStylePresets;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Facades\Cache;
@@ -180,7 +181,8 @@ it('degrades the design_kit read to the presets layer instead of losing it entir
 
     expect($payload)->toHaveKeys(['profile', 'designKit', 'architectureId', 'publicConfig']);
     expect($payload['designKit'])->not->toBe([])
-        ->and($payload['designKit']['colors']['accent'] ?? null)->toBe('#e0491f');
+        // The register's fallback accent (feminine → baby blue) since 2026-09-02.
+        ->and($payload['designKit']['colors']['accent'] ?? null)->toBe(SectorStylePresets::FEMININE_ACCENT_BLUE);
 
     expect($builder->lastBuildDegraded())->toBeTrue();
 });

@@ -91,6 +91,10 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
         // Setup progress (2026-09-02): the link page is where most platforms
         // connect, so the feed's platforms row is written here too.
         $placed = array_values(array_filter((array) ($result['placed_platforms'] ?? []), 'is_string'));
+        if (($result['outcome'] ?? null) !== 'ok') {
+            // Setup progress (2026-09-02): an owed stage gets its answer.
+            BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_SKIPPED, "Couldn't read your link page — add platforms from the dashboard");
+        }
         if (($result['outcome'] ?? null) === 'ok') {
             $label = $placed === []
                 ? 'Checked your link page — nothing new to connect'
@@ -110,6 +114,8 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
 
     public function failed(Throwable $e): void
     {
+        // Setup progress (2026-09-02): an owed stage gets its answer.
+        BuildProgress::noteForUser((string) $this->userId, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_FAILED, "Couldn't read your link page");
         report($e);
         Log::error('platforms.link_in_bio_scan.failed', [
             'user_id' => $this->userId,

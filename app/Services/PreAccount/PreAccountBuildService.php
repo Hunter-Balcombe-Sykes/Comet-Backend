@@ -5,6 +5,7 @@ namespace App\Services\PreAccount;
 use App\Enums\AccountType;
 use App\Exceptions\Site\SubdomainUnavailableException;
 use App\Jobs\PreAccount\GeneratePreAccountSiteJob;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\PreAccountBuildEvent;
@@ -303,10 +304,42 @@ class PreAccountBuildService
                 // name and the source's mark before any media lands.
                 'displayName' => $user->display_name,
                 'sourcePlatform' => (string) $build->source_type,
+                // A business opens on its listing with the stars (2026-09-02):
+                // the Places details are already on the connection row the
+                // generator wrote, so the rating rides the first event instead
+                // of waiting ~30s for the enrich.
+                ...$this->listingStars($user),
             ],
         );
 
         return $user;
+    }
+
+    /**
+     * @return array{rating?: float, reviews?: int}
+     */
+    private function listingStars(User $user): array
+    {
+        try {
+            $payload = (array) IntegrationConnection::query()
+                ->where('user_id', $user->id)
+                ->where('platform', 'google-business')
+                ->whereNull('deleted_at')
+                ->value('payload');
+        } catch (\Throwable) {
+            return [];
+        }
+        $out = [];
+        $rating = $payload['rating'] ?? $payload['totalScore'] ?? null;
+        $reviews = $payload['reviewCount'] ?? $payload['reviewsCount'] ?? $payload['userRatingCount'] ?? null;
+        if (is_numeric($rating)) {
+            $out['rating'] = (float) $rating;
+        }
+        if (is_numeric($reviews)) {
+            $out['reviews'] = (int) $reviews;
+        }
+
+        return $out;
     }
 
     private function createProvisionalUserWithRetry(string $seed, string $accountType, ?string $sourceName, ?string $untrimmedSeed = null): User

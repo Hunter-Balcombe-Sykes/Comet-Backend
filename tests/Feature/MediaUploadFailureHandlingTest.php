@@ -52,7 +52,7 @@ it('dispatches video cleanup with directory base path when deleting media', func
     DB::connection('pgsql')->table('site_media')->insert([
         'id' => $mediaId,
         'site_id' => $professional->site->id,
-        'pool' => 'gallery',
+        'pool' => 'content',
         'path' => "videos/{$professional->id}/{$mediaId}/original_abc123.mp4",
         'sort_order' => 0,
         'is_active' => true,
@@ -82,7 +82,7 @@ it('dispatches video cleanup with directory base path when deleting media', func
     Queue::assertPushed(DeleteMediaArtifactsJob::class, function (DeleteMediaArtifactsJob $job) use ($professional, $mediaId) {
         return $job->mediaId === $mediaId
             && $job->basePath === "videos/{$professional->id}/{$mediaId}"
-            && $job->pool === 'gallery';
+            && $job->pool === 'content';
     });
 
     $deleted = SiteMedia::withTrashed()->findOrFail($mediaId);
@@ -101,7 +101,7 @@ it('returns 503 and soft-deletes media when video dispatch fails', function () {
 
     $video = UploadedFile::fake()->create('clip.mp4', 1024, 'video/mp4');
     $baseRequest = Request::create('/api/uploads', 'POST', [
-        'pool' => 'gallery',
+        'pool' => 'content',
         'alt_text' => 'Clip',
     ], [], [
         'video' => $video,
@@ -113,7 +113,7 @@ it('returns 503 and soft-deletes media when video dispatch fails', function () {
 
     $validator = Mockery::mock(Validator::class);
     $validator->shouldReceive('validated')->andReturn([
-        'pool' => 'gallery',
+        'pool' => 'content',
         'alt_text' => 'Clip',
     ]);
     $request->setValidator($validator);
@@ -151,7 +151,7 @@ it('returns 422 and creates no DB row when probe finds no video stream', functio
 
     $video = UploadedFile::fake()->create('clip.mp4', 512, 'video/mp4');
     $baseRequest = Request::create('/api/uploads', 'POST', [
-        'pool' => 'gallery',
+        'pool' => 'content',
         'alt_text' => 'Clip',
     ], [], ['video' => $video]);
 
@@ -160,7 +160,7 @@ it('returns 422 and creates no DB row when probe finds no video stream', functio
     $request->attributes->set('professional', $professional);
 
     $validator = Mockery::mock(Validator::class);
-    $validator->shouldReceive('validated')->andReturn(['pool' => 'gallery', 'alt_text' => 'Clip']);
+    $validator->shouldReceive('validated')->andReturn(['pool' => 'content', 'alt_text' => 'Clip']);
     $request->setValidator($validator);
 
     $mediaService = Mockery::mock(ImageVariantService::class);
@@ -190,7 +190,7 @@ it('returns 422 and creates no DB row when video exceeds maximum duration', func
 
     $video = UploadedFile::fake()->create('long.mp4', 512, 'video/mp4');
     $baseRequest = Request::create('/api/uploads', 'POST', [
-        'pool' => 'gallery',
+        'pool' => 'content',
         'alt_text' => 'Long clip',
     ], [], ['video' => $video]);
 
@@ -199,7 +199,7 @@ it('returns 422 and creates no DB row when video exceeds maximum duration', func
     $request->attributes->set('professional', $professional);
 
     $validator = Mockery::mock(Validator::class);
-    $validator->shouldReceive('validated')->andReturn(['pool' => 'gallery', 'alt_text' => 'Long clip']);
+    $validator->shouldReceive('validated')->andReturn(['pool' => 'content', 'alt_text' => 'Long clip']);
     $request->setValidator($validator);
 
     $mediaService = Mockery::mock(ImageVariantService::class);
@@ -229,7 +229,7 @@ it('returns 422 and creates no DB row when ffprobe cannot parse the container', 
 
     $video = UploadedFile::fake()->create('corrupt.mp4', 512, 'video/mp4');
     $baseRequest = Request::create('/api/uploads', 'POST', [
-        'pool' => 'gallery',
+        'pool' => 'content',
         'alt_text' => 'Bad file',
     ], [], ['video' => $video]);
 
@@ -238,7 +238,7 @@ it('returns 422 and creates no DB row when ffprobe cannot parse the container', 
     $request->attributes->set('professional', $professional);
 
     $validator = Mockery::mock(Validator::class);
-    $validator->shouldReceive('validated')->andReturn(['pool' => 'gallery', 'alt_text' => 'Bad file']);
+    $validator->shouldReceive('validated')->andReturn(['pool' => 'content', 'alt_text' => 'Bad file']);
     $request->setValidator($validator);
 
     $mediaService = Mockery::mock(ImageVariantService::class);

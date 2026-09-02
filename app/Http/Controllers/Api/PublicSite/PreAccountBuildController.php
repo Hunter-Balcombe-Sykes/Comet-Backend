@@ -61,7 +61,7 @@ class PreAccountBuildController extends ApiController
         $claimToken = $result['reused'] ? null : $this->tokens->issue($result['build']);
 
         return $this->success(
-            (new PreAccountBuildCreatedResource($result['build'], $claimToken))->resolve(),
+            (new PreAccountBuildCreatedResource($result['build'], $claimToken, (bool) $result['reused']))->resolve(),
             $result['reused'] ? 200 : 202,
         );
     }

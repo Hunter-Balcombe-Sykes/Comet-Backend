@@ -60,14 +60,14 @@ it('returns 403 when video_uploads flag is off for the professional', function (
     app()->instance(FeatureFlagService::class, $flagService);
 
     $video = UploadedFile::fake()->create('clip.mp4', 512, 'video/mp4');
-    $baseRequest = Request::create('/api/uploads', 'POST', ['pool' => 'gallery'], [], ['video' => $video]);
+    $baseRequest = Request::create('/api/uploads', 'POST', ['pool' => 'content'], [], ['video' => $video]);
 
     /** @var UploadImageRequest $request */
     $request = UploadImageRequest::createFromBase($baseRequest);
     $request->attributes->set('professional', $professional);
 
     $validator = Mockery::mock(Validator::class);
-    $validator->shouldReceive('validated')->andReturn(['pool' => 'gallery']);
+    $validator->shouldReceive('validated')->andReturn(['pool' => 'content']);
     $request->setValidator($validator);
 
     $mediaService = Mockery::mock(ImageVariantService::class);
@@ -118,14 +118,14 @@ it('allows image uploads regardless of video_uploads flag state', function () {
     app()->instance(FeatureFlagService::class, $flagService);
 
     $image = UploadedFile::fake()->image('photo.jpg', 100, 100);
-    $baseRequest = Request::create('/api/uploads', 'POST', ['pool' => 'gallery'], [], ['image' => $image]);
+    $baseRequest = Request::create('/api/uploads', 'POST', ['pool' => 'content'], [], ['image' => $image]);
 
     /** @var UploadImageRequest $request */
     $request = UploadImageRequest::createFromBase($baseRequest);
     $request->attributes->set('professional', $professional);
 
     $validator = Mockery::mock(Validator::class);
-    $validator->shouldReceive('validated')->andReturn(['pool' => 'gallery', 'alt_text' => null, 'caption' => null]);
+    $validator->shouldReceive('validated')->andReturn(['pool' => 'content', 'alt_text' => null, 'caption' => null]);
     $request->setValidator($validator);
 
     $mediaService = Mockery::mock(ImageVariantService::class);

@@ -227,7 +227,7 @@ it('explicit $site->touch() after a mass update dispatches CloudflareCachePurgeJ
 it('SiteMedia save changing only alt_text does NOT dispatch CloudflareCachePurgeJob', function () {
     $fixture = seedTouchFixture();
     $media = new SiteMedia([
-        'pool' => 'gallery',
+        'pool' => 'content',
         'path' => 'images/test.webp',
         'media_type' => 'image',
         'processing_state' => 'ready',
@@ -249,7 +249,7 @@ it('SiteMedia save changing only alt_text does NOT dispatch CloudflareCachePurge
 it('SiteMedia save changing is_active dispatches CloudflareCachePurgeJob', function () {
     $fixture = seedTouchFixture();
     $media = new SiteMedia([
-        'pool' => 'gallery',
+        'pool' => 'content',
         'path' => 'images/test2.webp',
         'media_type' => 'image',
         'processing_state' => 'ready',
@@ -270,7 +270,7 @@ it('SiteMedia save changing is_active dispatches CloudflareCachePurgeJob', funct
 it('SiteMedia save changing processing_state to ready dispatches CloudflareCachePurgeJob', function () {
     $fixture = seedTouchFixture();
     $media = new SiteMedia([
-        'pool' => 'gallery',
+        'pool' => 'content',
         'path' => 'images/pending.webp',
         'media_type' => 'image',
         'processing_state' => 'pending',

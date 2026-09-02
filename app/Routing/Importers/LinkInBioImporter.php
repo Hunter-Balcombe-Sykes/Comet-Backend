@@ -646,6 +646,59 @@ class LinkInBioImporter
      * untouched by the lane. Subdomain matching is the LinkInBioDetector
      * idiom (and load-bearing here: Komi pages are <user>.komi.io).
      */
+    /** A page on one of the link-in-bio vendors this importer can read. */
+    public function isVendorPage(string $url): bool
+    {
+        return $this->vendorService($url) !== null;
+    }
+
+    /**
+     * The ONE online-store link on a vendor page (batch 3 E.2, owner,
+     * 2026-09-02): a brand's Linktree is not a store, but usually holds one.
+     * Ranked: a commerce host or a shop-shaped path/title first, else the
+     * first link that is not a social/vendor/marketplace host (the brand's
+     * own site). Null when the page cannot be read or holds only socials.
+     */
+    public function storeLinkOn(string $pageUrl, ?User $user): ?string
+    {
+        $context = new RoutingContext($user, 'bio_harvest', $user === null);
+        $links = $this->vendorBioLinks($pageUrl, $context) ?? [];
+        $own = null;
+        foreach ($links as $link) {
+            if (preg_match('~^https?://~i', $link) !== 1) {
+                continue;
+            }
+            $host = strtolower((string) preg_replace('~^www\.~', '', (string) parse_url($link, PHP_URL_HOST)));
+            if ($host === '' || $this->isSocialHost($host)) {
+                continue;
+            }
+            $path = strtolower((string) parse_url($link, PHP_URL_PATH));
+            $title = strtolower($this->vendorTitles[strtolower(trim($link))] ?? '');
+            if (str_ends_with($host, 'myshopify.com')
+                || preg_match('~/(shop|store|collections|products|merch)(/|$)~', $path) === 1
+                || preg_match('~\b(shop|store|buy|merch)\b~', $title) === 1) {
+                return $link;
+            }
+            $own ??= $link;
+        }
+
+        return $own;
+    }
+
+    /** @var list<string> hosts that are never a brand's store */
+    private const SOCIAL_HOSTS = ['instagram.com', 'facebook.com', 'fb.com', 'tiktok.com', 'youtube.com', 'youtu.be', 'x.com', 'twitter.com', 'threads.net', 'snapchat.com', 'pinterest.com', 'linkedin.com', 'spotify.com', 'music.apple.com', 'apps.apple.com', 'play.google.com', 'soundcloud.com', 'discord.gg', 'discord.com', 'twitch.tv', 'whatsapp.com', 'wa.me', 't.me', 'linktr.ee', 'komi.io', 'pillar.io', 'lnk.bio', 'clk.bio', 'link.me', 'beacons.ai', 'amazon.com', 'amazon.com.au', 'ebay.com', 'ebay.com.au', 'partna.au'];
+
+    private function isSocialHost(string $host): bool
+    {
+        foreach (self::SOCIAL_HOSTS as $known) {
+            if ($host === $known || str_ends_with($host, '.'.$known)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function vendorService(string $pageUrl): ?string
     {
         $host = strtolower((string) parse_url($pageUrl, PHP_URL_HOST));

@@ -315,7 +315,7 @@ it('returns empty findings and unmatched for an empty bio-links list', function 
 
     $result = app(InstagramAutoSync::class)->seed((string) $user->id, []);
 
-    expect($result)->toBe(['findings' => [], 'unmatched' => []]);
+    expect($result)->toBe(['findings' => [], 'unmatched' => [], 'scans' => 0]);
 });
 
 it('skips malformed bio-link entries without throwing', function () {
@@ -323,7 +323,7 @@ it('skips malformed bio-link entries without throwing', function () {
 
     $result = app(InstagramAutoSync::class)->seed((string) $user->id, ['', '   ', 123, null]);
 
-    expect($result)->toBe(['findings' => [], 'unmatched' => []]);
+    expect($result)->toBe(['findings' => [], 'unmatched' => [], 'scans' => 0]);
 });
 
 // ── RULING 1 is REPEALED (Decision 8, 2026-07-25) ────────────────────────────

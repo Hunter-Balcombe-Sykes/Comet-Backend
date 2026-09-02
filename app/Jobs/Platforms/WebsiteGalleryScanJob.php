@@ -64,6 +64,10 @@ class WebsiteGalleryScanJob implements ShouldBeUnique, ShouldQueue
         }
 
         $decisions = $grabber->grabIfEmpty($user, $site, $this->candidateUrls);
+        if ($decisions === []) {
+            // Setup progress (2026-09-02): an owed stage gets its answer.
+            BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_WEBSITE, PreAccountBuildEvent::STATUS_SKIPPED, 'No photos to grab from your website');
+        }
         if ($decisions !== []) {
             Log::info('website_scan.gallery_grab', [
                 'user_id' => $this->userId,
@@ -89,6 +93,8 @@ class WebsiteGalleryScanJob implements ShouldBeUnique, ShouldQueue
 
     public function failed(Throwable $e): void
     {
+        // Setup progress (2026-09-02): an owed stage gets its answer.
+        BuildProgress::noteForUser((string) $this->userId, PreAccountBuildEvent::STAGE_WEBSITE, PreAccountBuildEvent::STATUS_FAILED, "Couldn't read your website");
         report($e);
         Log::error('website_scan.gallery_scan_failed', [
             'user_id' => $this->userId,

@@ -29,6 +29,12 @@ final class BuildProgressReader
     /** After this, finished regardless — the same clock the preparing page and the mirror TTL run on. */
     public const CEILING_MINUTES = 10;
 
+    /** How long a started stage is owed an answer before it stops blocking done. */
+    public const OWED_MINUTES = 4;
+
+    /** How many media assets must be settled (mirrored or failed) before done. */
+    public const MEDIA_SETTLED_ENOUGH = 12;
+
     /** The poll caps its feed; a build's ledger is a dozen rows, not a stream. */
     private const EVENT_CAP = 50;
 
@@ -106,7 +112,12 @@ final class BuildProgressReader
         $platformsAnswered = $build->source_type !== 'instagram';
         foreach ($events as $event) {
             if ($event->status === PreAccountBuildEvent::STATUS_STARTED) {
-                $started[$event->stage] = true;
+                // A stage that started and never answered stops blocking
+                // after OWED_MINUTES — a job that died without its failed()
+                // note must not hold the setup to the 10-minute ceiling.
+                if ($event->created_at->gt(now()->subMinutes(self::OWED_MINUTES))) {
+                    $started[$event->stage] = true;
+                }
             } else {
                 $answered[$event->stage] = true;
             }
@@ -124,9 +135,54 @@ final class BuildProgressReader
         }
         // A failed, aged asset is settled too (2026-09-02, teegandyson: 2 of 22
         // dead CDN urls held the setup open to the ceiling).
-        $mediaSaved = $media['total'] === 0 || ($media['mirrored'] + ($media['failed'] ?? 0)) >= $media['total'];
+        // Enough of the media, not ALL of it (2026-09-02): a listing with 67
+        // photos held "done" for the whole mirror queue while the pages
+        // already rendered from source urls. The first dozen settled — or
+        // every one when there are fewer — is the bar; the rest keep copying
+        // behind a site that is already whole.
+        $settled = $media['mirrored'] + ($media['failed'] ?? 0);
+        $mediaSaved = $media['total'] === 0 || $settled >= min($media['total'], self::MEDIA_SETTLED_ENOUGH);
 
-        return $workplaceAnswered && $platformsAnswered && $mediaSaved;
+        return $workplaceAnswered && $platformsAnswered && $mediaSaved && ! $this->stillConnecting($build);
+    }
+
+    /**
+     * "Live" means nothing is still connecting or syncing (owner, batch 3
+     * E.1, 2026-09-02 — sammylalor read "live", then products loaded onto
+     * /shop minutes later). Two queues the stage ledger could not see: a
+     * brand store's connect + first fill (content.storefronts: connect_status
+     * still pending, or settled but its products not yet auto-selected) and
+     * an ingest source's first pull (needs_eager_run / in flight). Each row
+     * is owed only for OWED_MINUTES from its own creation, so a stuck job
+     * cannot hold the card to the ceiling.
+     */
+    private function stillConnecting(PreAccountBuild $build): bool
+    {
+        if ($build->user_id === null) {
+            return false;
+        }
+        try {
+            $since = now()->subMinutes(self::OWED_MINUTES)->toDateTimeString();
+            $pg = DB::connection('pgsql');
+            $stores = $pg->table('content.storefronts')
+                ->where('user_id', $build->user_id)
+                ->where('created_at', '>', $since)
+                ->where(fn ($q) => $q->where('connect_status', 'pending')->orWhereNull('products_autoselected_at'))
+                ->exists();
+            if ($stores) {
+                return true;
+            }
+
+            return $pg->table('ingest.sources')
+                ->where('user_id', $build->user_id)
+                ->where('created_at', '>', $since)
+                ->where(fn ($q) => $q->where('needs_eager_run', true)->orWhereNotNull('in_flight_since'))
+                ->exists();
+        } catch (\Throwable $e) {
+            report($e);
+
+            return false;
+        }
     }
 
     /**

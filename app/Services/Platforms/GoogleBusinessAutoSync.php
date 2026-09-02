@@ -8,6 +8,7 @@ use App\Jobs\Platforms\MenuFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Routing\IriCanonicalizer;
 use App\Routing\LinkProjector;
@@ -19,6 +20,7 @@ use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\PreAccount\BuildProgress;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -1069,6 +1071,9 @@ class GoogleBusinessAutoSync
             return false;   // lock timeout — skip: no card, no dispatch
         }
 
+        // Setup progress (2026-09-02): the media the Instagram connect will
+        // seed is owed from here (Akro: done at 39s, media started at 65s).
+        BuildProgress::noteForUser($userId, PreAccountBuildEvent::STAGE_MEDIA, PreAccountBuildEvent::STATUS_STARTED, 'Saving your latest photos and reels');
         InstagramConnectJob::dispatch($userId, $username, $connection->id, autoConnectBooking: $autoConnectBooking);
 
         return true;

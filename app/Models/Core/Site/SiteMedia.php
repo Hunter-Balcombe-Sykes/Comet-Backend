@@ -22,7 +22,7 @@ use Illuminate\Support\Facades\Storage;
  * @property string|null $caption
  * @property int $sort_order
  * @property bool $is_active
- * @property string $pool One of POOL_* (gallery|content|documents|design).
+ * @property string $pool One of POOL_* (content|documents|design). 'gallery' was retired 2026-09-02.
  * @property string $media_type One of MEDIA_TYPE_* (image|video|document).
  * @property string $processing_state One of PROCESSING_STATE_* (pending|processing|ready|failed) — the DB CHECK also allows 'scanning'|'quarantined' for the dormant moderation pipeline (supabase/migrations/20260528020000_alter_site_media_for_scan_states.sql); no class constants exist for those two.
  * @property string|null $processing_error

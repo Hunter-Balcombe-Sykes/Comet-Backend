@@ -19,7 +19,7 @@ function seedMediaRow(string $mediaType, string $state, int $updatedMinutesAgo):
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $id,
         'site_id' => (string) Str::uuid(),
-        'pool' => 'gallery',
+        'pool' => 'content',
         'path' => '',
         'sort_order' => 0,
         'is_active' => true,
