@@ -181,9 +181,13 @@ class OnboardingSuggestions
         // Platform slugs AND routing classes in one set — see CONNECTED_FAMILIES.
         // A class and a slug can share a string ('booking' is both), which is
         // harmless here: both spellings mean the same connection is present.
+        // ->visible(): a hidden pre-scrape row (A.3) is an OFFER, not a
+        // connection — counting it here would suppress the very ask the
+        // setup dialog exists to surface.
         $connected = IntegrationConnection::query()
             ->where('user_id', $user->id)
             ->where('is_active', true)
+            ->visible()
             ->get(['platform', 'routing_class'])
             ->flatMap(fn (IntegrationConnection $row) => array_filter([
                 (string) $row->platform,

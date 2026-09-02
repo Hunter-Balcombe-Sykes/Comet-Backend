@@ -190,3 +190,25 @@ it('keeps asking for the sector until a human picks one', function (string $acco
     'partna, manual pick' => ['partna', 'manual', false],
     'business, manual pick' => ['business', 'manual', false],
 ]);
+
+it('ignores hidden pre-scrape connections — an offer is not a connection', function () {
+    // A.3 hidden rows ingest ahead of acceptance; counting one as connected
+    // would suppress the very ask/suggestion the setup dialog surfaces it
+    // through (F.1 fresh-eyes review, 2026-09-03).
+    $user = onboardingUser('obhidden', 'business', 'hair-salon');
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'instagram', 'resource_id' => 'instagram',
+        'payload' => ['username' => 'salon'], 'is_active' => true,
+        'visibility' => IntegrationConnection::VISIBILITY_HIDDEN,
+    ]);
+    IntegrationConnection::create([
+        'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
+        'payload' => ['url' => 'https://fresha.com/a/x'], 'is_active' => true,
+        'visibility' => IntegrationConnection::VISIBILITY_HIDDEN,
+    ]);
+
+    $json = actingAsUser($user)->getJson('/api/onboarding/suggestions')->assertOk()->json();
+
+    expect($json['askInstagram'])->toBeTrue();
+    expect(array_column($json['suggestions'], 'key'))->toBe(['booking']);
+});
