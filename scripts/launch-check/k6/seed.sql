@@ -43,23 +43,25 @@ BEGIN
     (v_user, v_site, 'newsletter', 'sections', 'Newsletter', 4, true, true, '{"input_placeholder":"Your email"}'::jsonb),
     (v_user, v_site, 'workplace',  'sections', 'Workplace',  5, true, true, '{"name":"Test Studio","city":"Melbourne"}'::jsonb);
 
-  -- ---- gallery media — 6 ready images (site.site_media 'gallery' pool is hard-capped
-  -- at 6 per site by the core.enforce_site_gallery_max6 trigger, baseline_pilot.sql:191 —
-  -- this is the real-world ceiling for any production site, so 6 IS representative) ----
+  -- ---- content media — 6 ready images. The 'gallery' pool was retired
+  -- (2026-09-01 writes / 2026-09-02 reads) along with its 6-per-site trigger;
+  -- media now lands in the 'content' pool, capped at 20 by
+  -- config('partna.image_pools.content.max'). 6 is kept as the seeded count
+  -- because it is what every baseline result on file was measured against. ----
   INSERT INTO site.site_media
     (site_id, bucket, path, alt_text, sort_order, is_active, pool, media_type, processing_state)
   SELECT v_site, 'public-assets', 'loadtest/img-' || g || '.webp',
-         'Gallery image ' || g, g, true, 'gallery', 'image', 'ready'
+         'Gallery image ' || g, g, true, 'content', 'image', 'ready'
   FROM generate_series(1, 6) g;
 
-  -- ---- gallery media variants — required for a non-empty gallery URL. Raw SQL
-  -- bypasses SiteMediaObserver / ProcessImageVariantsJob (the real upload
-  -- pipeline that normally writes these), so getGallery() filters every item
-  -- out on url==='' without this: SiteMedia::variantUrls() only reads
-  -- artifact_type='webp' rows, keyed by variant_key ('optimized' preferred).
+  -- ---- media variants — required for a non-empty media URL. Raw SQL bypasses
+  -- SiteMediaObserver / ProcessImageVariantsJob (the real upload pipeline that
+  -- normally writes these), so every item resolves url==='' without them:
+  -- SiteMedia::variantUrls() only reads artifact_type='webp' rows, keyed by
+  -- variant_key ('optimized' preferred).
   INSERT INTO site.media_variants (media_id, variant_key, artifact_type, disk, path)
   SELECT id, 'optimized', 'webp', 'media', 'loadtest/img-' || sort_order || '-optimized.webp'
-  FROM site.site_media WHERE site_id = v_site AND pool = 'gallery';
+  FROM site.site_media WHERE site_id = v_site AND pool = 'content';
 
   -- ---- services — 15 owner-authored (source NULL => public-visible) ----
   INSERT INTO site.services

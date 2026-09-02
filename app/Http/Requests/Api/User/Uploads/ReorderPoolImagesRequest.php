@@ -5,7 +5,7 @@ namespace App\Http\Requests\Api\User\Uploads;
 use App\Http\Requests\BaseFormRequest;
 use Illuminate\Validation\Rule;
 
-// V2: Validates media pool reordering — pool type (gallery/content), optional media type filter, and distinct UUID array.
+// V2: Validates media pool reordering — pool type (content), optional media type filter, and distinct UUID array.
 class ReorderPoolImagesRequest extends BaseFormRequest
 {
     public function rules(): array

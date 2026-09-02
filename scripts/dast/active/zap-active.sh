@@ -131,8 +131,8 @@ bash "$HERE/active/tier2.sh" "$OUTDIR"
 # VERB CHOICE IS DELIBERATE. Every entry is a GET, a bodyless POST or a DELETE.
 # Laravel validates a FormRequest BEFORE the controller method runs, so a
 # bodyless PATCH/PUT returns 422 without ever reaching the ownership check and
-# tells you nothing — e.g. PATCH /api/gallery/{image} would 422 on
-# UpdateGalleryImageRequest. Where a surface offers only a write verb, the
+# tells you nothing — e.g. PATCH /api/site would 422 on UpdateSiteRequest
+# before any ownership check. Where a surface offers only a write verb, the
 # DELETE is used and the control consumes a dedicated fixture (see
 # seed-identities.php's FIXTURE -> CONSUMER map). Never "simplify" one of these
 # to a PATCH without sending a valid body.

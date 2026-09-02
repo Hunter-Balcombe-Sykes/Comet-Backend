@@ -53,7 +53,7 @@ use Tests\Support\Architecture\PostgresLaneDdlScanner;
  * contributes at least one checked (file, table) pair for only 32 of them (59%, measured
  * 2026-09-01). The other 22 contribute zero — mostly legitimately, because they are pure
  * constraint/FK/domain tests that drive no app code at all (SectionShapeDomainTest,
- * IngestCascadeDeletionTest, GalleryMax6TriggerTest), but a few genuinely drive app code by a
+ * IngestCascadeDeletionTest), but a few genuinely drive app code by a
  * route this guard cannot see: StaffFeatureFlagOverrideEndpointTest exercises its target
  * entirely over HTTP (a route dispatch, not a `use App\...;` import), and
  * ClaimConcurrencyTest's collaborator is reached the same invisible way. Their tables get no

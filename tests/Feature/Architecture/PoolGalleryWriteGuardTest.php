@@ -48,13 +48,48 @@ it('nothing in app/ writes site_media into the retired gallery pool', function (
     expect($offenders)->toBe([]);
 });
 
+// scripts/ writes into a REAL Postgres database, unlike the SQLite test lane —
+// so a leftover 'gallery' literal there is a runtime failure against the
+// tightened site_media_pool_check (migration 20260902170000), not a cosmetic
+// one. Both seeders had one when that migration was written (the DAST
+// identity seeder and the k6 load seed); this is the guard that would have
+// caught them. SQL is matched as well as PHP because the k6 seed is raw SQL.
+it('nothing in scripts/ seeds site_media into the retired gallery pool', function () {
+    $offenders = [];
+    $patterns = [
+        "'pool' => 'gallery'",
+        '"pool" => "gallery"',
+        "'gallery', 'image'",      // positional INSERT ... SELECT column list
+        "pool = 'gallery'",        // WHERE/UPDATE against the retired lane
+    ];
+
+    $finder = Finder::create()->files()->in(base_path('scripts'))
+        ->name('*.php')->name('*.sql')
+        ->notPath('launch-check/k6/results');   // archived run output, not code
+
+    foreach ($finder as $file) {
+        $contents = $file->getContents();
+        foreach ($patterns as $pattern) {
+            if (str_contains($contents, $pattern)) {
+                $offenders[] = 'scripts/'.$file->getRelativePathname().' contains '.$pattern;
+            }
+        }
+    }
+
+    expect($offenders)->toBe([]);
+});
+
 // Positive control: the sweep above passing on a clean tree proves nothing
 // about the patterns themselves — this proves the exact write shape the
 // grabber used until Item 5 would be caught.
 it('would catch the write shapes the sweep exists for', function () {
     $regression = '$this->uploads->upload(pool: SiteMedia::POOL_GALLERY, isVideo: false);';
     $insert = "SiteMedia::query()->create(['pool' => 'gallery']);";
+    $seedSql = "SELECT v_site, 'loadtest.webp', g, true, 'gallery', 'image', 'ready'";
+    $seedWhere = "FROM site.site_media WHERE site_id = v_site AND pool = 'gallery';";
 
     expect(str_contains($regression, 'pool: SiteMedia::POOL_GALLERY'))->toBeTrue()
-        ->and(str_contains($insert, "'pool' => 'gallery'"))->toBeTrue();
+        ->and(str_contains($insert, "'pool' => 'gallery'"))->toBeTrue()
+        ->and(str_contains($seedSql, "'gallery', 'image'"))->toBeTrue()
+        ->and(str_contains($seedWhere, "pool = 'gallery'"))->toBeTrue();
 });
