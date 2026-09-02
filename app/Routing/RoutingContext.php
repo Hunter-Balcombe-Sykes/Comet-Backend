@@ -62,4 +62,16 @@ final readonly class RoutingContext
     {
         return $this->origin === 'paste';
     }
+
+    /**
+     * A sign-up build harvesting its owner's links: a real, still-unclaimed
+     * user on any indirect origin (decision 1, setup-dialog run). In this
+     * context nothing auto-connects — every above-floor find becomes a
+     * banded Choose the setup dialog asks about. A paste is excluded: the
+     * dashboard preview's confirm flow is a direct request whoever pastes.
+     */
+    public function isSignupBuild(): bool
+    {
+        return $this->user?->isUnclaimed() === true && $this->origin !== 'paste';
+    }
 }

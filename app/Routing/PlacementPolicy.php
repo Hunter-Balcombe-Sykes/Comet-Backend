@@ -123,6 +123,20 @@ class PlacementPolicy
         $auto = RoutingPolicy::autoThreshold($routingClass);
         $suggest = RoutingPolicy::suggestThreshold($routingClass);
 
+        // Sign-up builds connect nothing by themselves (A.2): every
+        // above-floor projection is a Choose the setup dialog renders, banded
+        // so the auto tier arrives pre-ticked. The floor is lower than the
+        // normal suggest threshold — rejecting a marginal find there is one
+        // untick, not a wrong CTA on a live page.
+        if ($context->isSignupBuild()) {
+            if ($confidence >= RoutingPolicy::signupSuggestFloor($routingClass)) {
+                return new Placement(Verdict::Choose, $surfaceKey, $projection->identifier, 'below_threshold', 'held for setup review',
+                    confidence: $confidence, band: $confidence >= $auto ? 'auto' : 'suggest');
+            }
+
+            return new Placement(Verdict::Note, $surfaceKey, $projection->identifier, 'below_threshold', 'kept as a link');
+        }
+
         if ($confidence >= $auto && $projection->margin >= RoutingPolicy::minMargin()) {
             return new Placement(Verdict::Place, $surfaceKey, $projection->identifier, confidence: $confidence, band: 'auto');
         }

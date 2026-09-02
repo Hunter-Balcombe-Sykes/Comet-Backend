@@ -78,11 +78,21 @@ class SourceReconciler
         // commerce lane's OWN writes (origin commerce_probe) must pass
         // through, or this arm intercepts the very writer it delegates to
         // (SuggestionsInboxTest's accept flow caught exactly that).
-        if ($routingClass === 'shop' && $placement->verdict === Verdict::Place
+        // On a sign-up build decide() never emits Place (A.2), so the arm
+        // also catches the Choose band there — otherwise a harvested store
+        // root would write a bare proposed intent with none of the commerce
+        // lane's enrichment (shop name, deep-page rules) behind it.
+        if ($routingClass === 'shop'
+            && ($placement->verdict === Verdict::Place
+                || ($context->isSignupBuild() && $placement->verdict === Verdict::Choose))
             && ! $context->isDirectRequest() && $context->origin !== 'commerce_probe') {
             CommerceProbeJob::dispatch(
                 (string) $user->id,
                 $iri->canonical ?? SecretParams::redactUrl($iri->raw) ?? '',
+                // A sign-up build's store root must SUGGEST, never bare-connect
+                // (A.2): the full commerce lane would otherwise stand up a
+                // storefront nobody asked for before the account is claimed.
+                suggestOnly: $context->isSignupBuild(),
             );
 
             return $result;

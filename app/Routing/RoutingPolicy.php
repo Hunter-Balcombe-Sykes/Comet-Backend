@@ -40,6 +40,15 @@ class RoutingPolicy
     /** Harvested (not pasted) links need more confidence to write unattended. */
     private const INDIRECT_PENALTY = 10;
 
+    /**
+     * Sign-up builds surface more and connect nothing (U17): a person
+     * answering the setup dialog can reject a marginal find in one click,
+     * so the floor for SHOWING a suggestion sits below the normal suggest
+     * threshold. The auto threshold itself is untouched — it still decides
+     * the band (pre-ticked or not), just never a self-serve connect.
+     */
+    private const SIGNUP_FLOOR_DISCOUNT = 15;
+
     public static function autoThreshold(string $routingClass): int
     {
         return self::THRESHOLDS[$routingClass]['auto'] ?? 75;
@@ -48,6 +57,11 @@ class RoutingPolicy
     public static function suggestThreshold(string $routingClass): int
     {
         return self::THRESHOLDS[$routingClass]['suggest'] ?? 50;
+    }
+
+    public static function signupSuggestFloor(string $routingClass): int
+    {
+        return max(0, self::suggestThreshold($routingClass) - self::SIGNUP_FLOOR_DISCOUNT);
     }
 
     public static function minMargin(): int
