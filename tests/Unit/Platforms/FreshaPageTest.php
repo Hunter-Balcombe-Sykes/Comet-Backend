@@ -134,20 +134,43 @@ it('extracts the team, and an empty list when the edges are missing', function (
         ->and(FreshaPage::extractTeam(['employeeProfiles' => ['edges' => 'nope']]))->toBe([]);
 });
 
-// The shape both lanes fire at Fresha. Pinned key-for-key because the two
-// used to be hand-synced from a docblock instruction.
+// The shape both lanes fire at Fresha. Pinned key-for-key, exhaustively —
+// a regression that renamed clientChannelType or dropped cartId must fail
+// here, which is exactly the drift class FreshaPage exists to make
+// impossible. The two used to be hand-synced from a docblock instruction.
 it('builds the booking-flow persisted-query payload both lanes send', function () {
     $payload = FreshaPage::bookingFlowPayload('anseo-studio-v0v92jna', 'emp-1', 'abc123', '1.2.3');
 
-    expect($payload['operationName'])->toBe('BookingFlow_Initialize_Mutation')
-        ->and($payload['variables']['input']['locationSlug'])->toBe('anseo-studio-v0v92jna')
-        ->and($payload['variables']['input']['options']['employeeId'])->toBe('emp-1')
-        // The picker screen has an empty screenServices — never send true.
-        ->and($payload['variables']['input']['options']['shouldShowAllEmployees'])->toBeFalse()
-        ->and($payload['variables']['input']['capabilities'])
-        ->toBe(['SERVICE_ADDONS', 'CONFIRMATION', 'FULL_UPFRONT_PAYMENT', 'MARKETPLACE_REFRESH'])
-        ->and($payload['extensions']['persistedQuery'])->toBe(['version' => 1, 'sha256Hash' => 'abc123'])
-        ->and($payload['extensions']['version'])->toBe('1.2.3');
+    expect($payload)->toBe([
+        'operationName' => 'BookingFlow_Initialize_Mutation',
+        'variables' => [
+            'fullUpfrontPaymentEnabled' => true,
+            'discountsAndBenefitsEnabled' => false,
+            'input' => [
+                'locationSlug' => 'anseo-studio-v0v92jna',
+                'referer' => '',
+                'options' => [
+                    'employeeId' => 'emp-1',
+                    // The picker screen has an empty screenServices — never send true.
+                    'shouldShowAllEmployees' => false,
+                    'isGroupBooking' => false,
+                    'isRebook' => false,
+                    'isFromLinkBuilder' => false,
+                    'clientChannelType' => 'MARKETPLACE',
+                    'cartId' => null,
+                    'offerItemId' => null,
+                    'offerItems' => null,
+                ],
+                'shouldAutoContinue' => true,
+                'capabilities' => ['SERVICE_ADDONS', 'CONFIRMATION', 'FULL_UPFRONT_PAYMENT', 'MARKETPLACE_REFRESH'],
+            ],
+        ],
+        'extensions' => [
+            'persistedQuery' => ['version' => 1, 'sha256Hash' => 'abc123'],
+            'platform' => 'web',
+            'version' => '1.2.3',
+        ],
+    ]);
 });
 
 it('sends a null employeeId for the storewide menu', function () {
