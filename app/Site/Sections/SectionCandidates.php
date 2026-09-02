@@ -341,16 +341,20 @@ class SectionCandidates
             // fills its image half, never padded.
             'latest_n_per_auto_source' => $this->applyExists($query, $negated, function ($q) use ($values) {
                 $n = max(1, (int) config('partna.pools.auto_latest_n', 5));
+                // Per-connection override (A.7, decision 10): a source
+                // connection may carry display_settings.auto_latest_n —
+                // the sign-up Instagram is created with 1 — read per row,
+                // absent = the config N above.
                 foreach (PoolRegistry::latestArmsFor($values) as $toggle => $kinds) {
                     if (in_array('media', $kinds, true)) {
-                        $this->connectionSourceLatestArm($q, ['media'], $n, [$toggle, 'photos'], 'video');
-                        $this->connectionSourceLatestArm($q, ['media'], $n, [$toggle, 'photos'], 'image');
+                        $this->connectionSourceLatestArm($q, ['media'], $n, [$toggle, 'photos'], 'video', perConnectionN: true);
+                        $this->connectionSourceLatestArm($q, ['media'], $n, [$toggle, 'photos'], 'image', perConnectionN: true);
                         $kinds = array_values(array_diff($kinds, ['media']));
                         if ($kinds === []) {
                             continue;
                         }
                     }
-                    $this->connectionSourceLatestArm($q, $kinds, $n, [$toggle, 'photos']);
+                    $this->connectionSourceLatestArm($q, $kinds, $n, [$toggle, 'photos'], perConnectionN: true);
                 }
             }),
 
@@ -407,9 +411,9 @@ class SectionCandidates
      * @param  list<string>  $values
      * @param  list<string>  $toggles
      */
-    private function connectionSourceLatestArm($q, array $values, int $n, array $toggles, ?string $mediaClass = null): void
+    private function connectionSourceLatestArm($q, array $values, int $n, array $toggles, ?string $mediaClass = null, bool $perConnectionN = false): void
     {
-        $q->orWhereExists(function ($e) use ($values, $n, $toggles, $mediaClass) {
+        $q->orWhereExists(function ($e) use ($values, $n, $toggles, $mediaClass, $perConnectionN) {
             $e->from('content.source_items')
                 ->join('content.sources', 'content.sources.id', '=', 'content.source_items.source_id')
                 ->join('site.platform_connections', 'site.platform_connections.id', '=', 'content.sources.connection_id')
@@ -462,6 +466,20 @@ class SectionCandidates
             // No ORDER BY inside the LIMIT, deliberately: which N rows come back
             // is irrelevant when only their COUNT is read, and min(N, total) is
             // deterministic even though the row set is not.
+            //
+            // Per-connection N (A.7): the threshold becomes COALESCE(the
+            // connection's own display_settings.auto_latest_n, config N),
+            // read in SQL because the connection is a per-row join. The
+            // bounded LIMIT then needs a ceiling ≥ any override, not the
+            // config N — 50 keeps SCALE-2's bound while never under-counting.
+            $nExpr = '?';
+            $limit = $n;
+            if ($perConnectionN) {
+                $nExpr = $e->getConnection()->getDriverName() === 'sqlite'
+                    ? "COALESCE(CAST(json_extract(site.platform_connections.display_settings, '$.auto_latest_n') AS INTEGER), ?)"
+                    : "COALESCE((site.platform_connections.display_settings->>'auto_latest_n')::int, ?)";
+                $limit = max($n, 50);
+            }
             $e->whereRaw(
                 '(select count(*) from (select 1 from content.source_items as si2'
                 .' join content.items as i2 on i2.id = si2.item_id'
@@ -478,8 +496,8 @@ class SectionCandidates
                 .' or (COALESCE(p2.published_from, i2.first_seen_at) = COALESCE(p1.published_from, content.items.first_seen_at)'
                 .' and i2.id > content.items.id))))'
                 .' limit ?) as bounded'
-                .') < ?',
-                [...($kinds ?? []), $n, $n]
+                .') < '.$nExpr,
+                [...($kinds ?? []), $limit, $n]
             );
         });
     }

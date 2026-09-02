@@ -77,6 +77,19 @@ class PreAccountBuild extends BaseModel
 
     public const VIA_EARLY_ACCESS = 'early_access';
 
+    /**
+     * Whether this user's NEWEST build is the self-serve sign-up lane (A.7).
+     * The discriminator several fill lanes gate on: a sign-up build offers
+     * (setup dialog) where a staff/outreach demo build auto-fills.
+     */
+    public static function latestIsSignup(string $userId): bool
+    {
+        return static::query()
+            ->where('user_id', $userId)
+            ->latest('created_at')
+            ->value('built_via') === self::VIA_SIGNUP;
+    }
+
     protected $table = 'core.pre_account_builds';
 
     public $incrementing = false;

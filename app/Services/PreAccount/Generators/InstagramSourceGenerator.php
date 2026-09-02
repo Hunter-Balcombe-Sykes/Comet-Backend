@@ -171,6 +171,17 @@ class InstagramSourceGenerator implements SiteSourceGenerator
             ],
         );
 
+        // Media newest-1 (A.7, decision 10): a sign-up build's Instagram
+        // publishes ONE photo and one reel by default — the media arm reads
+        // this per-connection override; the global N is untouched. Set once:
+        // a person raising it later must not be re-clamped by a rebuild.
+        if (PreAccountBuild::latestIsSignup((string) $user->id)
+            && ! array_key_exists('auto_latest_n', (array) $connection->display_settings)) {
+            $connection->forceFill([
+                'display_settings' => array_merge((array) $connection->display_settings, ['auto_latest_n' => 1]),
+            ])->saveQuietly();
+        }
+
         // Scraped identity onto the user row (spec §4): placeholder → real values.
         // Read BOTH field shapes, as InstagramConnector and InstagramConnectionSeeder
         // already do: actors drift between camelCase and Instagram's raw GraphQL

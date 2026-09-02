@@ -130,3 +130,22 @@ it('reshapes stale kind_is shop sections to the pins+latest default (2026-08-17 
     $rule = json_decode((string) DB::table('site.sections')->where('id', $section->id)->value('rule'), true);
     expect($rule)->toBe(['all' => PoolRegistry::sectionShape('shop')['rule']]);
 });
+
+it('honours a per-connection auto_latest_n override — one from the sign-up IG, config N elsewhere (A.7)', function () {
+    config(['partna.pools.auto_latest_n' => 2]);
+    [$pro, $siteId] = poolTenant();
+    $ig = poolSource($pro->id, poolConnection($pro->id, 'instagram.profile', ['auto_latest_n' => 1]));
+    $gb = poolSource($pro->id, poolConnection($pro->id, 'google_business.location'));
+    poolItem($pro->id, $ig, 'media', 'IG old', '2026-08-01T00:00:00Z');
+    $igNew = poolItem($pro->id, $ig, 'media', 'IG new', '2026-08-03T00:00:00Z');
+    poolItem($pro->id, $gb, 'media', 'GB old', '2026-08-01T12:00:00Z');
+    $gbMid = poolItem($pro->id, $gb, 'media', 'GB mid', '2026-08-02T00:00:00Z');
+    $gbNew = poolItem($pro->id, $gb, 'media', 'GB new', '2026-08-04T00:00:00Z');
+
+    $data = poolGet($pro, 'media');
+    $ids = array_column($data['selection'], 'id');
+    sort($ids);
+    $expected = [$igNew, $gbMid, $gbNew];
+    sort($expected);
+    expect($ids)->toBe($expected);
+});

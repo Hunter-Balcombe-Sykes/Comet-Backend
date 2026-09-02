@@ -29,6 +29,7 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupWorkplacesTable();
+    setupPreAccountBuildsTable(); // A.7: the IG generator reads built_via
 
     config([
         'services.deepseek.key' => 'test-key',

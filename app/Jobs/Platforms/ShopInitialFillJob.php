@@ -2,7 +2,9 @@
 
 namespace App\Jobs\Platforms;
 
+use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\PreAccountBuildEvent;
+use App\Models\Core\User\User;
 use App\Services\Platforms\ShopCatalog;
 use App\Services\PreAccount\BuildProgress;
 use App\Services\Shop\ShopAutoSelector;
@@ -92,15 +94,28 @@ class ShopInitialFillJob implements ShouldBeUnique, ShouldQueue
             ]);
         }
 
-        try {
-            $selector->selectInitial($this->collectionId);
-        } catch (Throwable $e) {
-            report($e);
-            Log::warning('shop.initial_fill_job.auto_select_failed', [
+        // A.7: a sign-up build's store fills its catalogue but PINS nothing —
+        // the setup dialog's shop pass offers the products instead. Staff
+        // demo builds keep the auto-select (nobody is there to pick).
+        $signupUnclaimed = ($storeUser = User::query()->find($store->userId)) !== null
+            && $storeUser->isUnclaimed()
+            && PreAccountBuild::latestIsSignup((string) $store->userId);
+        if ($signupUnclaimed) {
+            Log::info('shop.initial_fill_job.auto_select_skipped_signup', [
                 'collection_id' => $this->collectionId,
                 'user_id' => $store->userId,
-                'error' => $e->getMessage(),
             ]);
+        } else {
+            try {
+                $selector->selectInitial($this->collectionId);
+            } catch (Throwable $e) {
+                report($e);
+                Log::warning('shop.initial_fill_job.auto_select_failed', [
+                    'collection_id' => $this->collectionId,
+                    'user_id' => $store->userId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
 
         // Setup progress (2026-09-02): the store row the signup card shows —

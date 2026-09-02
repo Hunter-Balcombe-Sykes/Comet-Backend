@@ -144,8 +144,13 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, Throttle
             // when it cannot. Storewide understates prices, which that design accepts
             // as the trade against publishing nothing, bounded by the owner
             // correcting it after claim (payload.autoSelected surfaces the guess).
+            // …EXCEPT the self-serve sign-up lane (A.7, 2026-09-02): there a
+            // person IS on the other end — the setup dialog asks them minutes
+            // later — so booking becomes a pre-scraped suggestion (A.4), not
+            // a silent connect. Staff/outreach demo builds keep the auto
+            // connect: they may sit unclaimed for weeks with nobody to ask.
             $generator->generate(
-                $user, $site, $build->source_ref, true, $prefetch,
+                $user, $site, $build->source_ref, $build->built_via !== PreAccountBuild::VIA_SIGNUP, $prefetch,
             );
         } catch (SourceGenerationException $e) {
             // SEC-4: build_state/failure_code are no longer fillable — forceFill so a

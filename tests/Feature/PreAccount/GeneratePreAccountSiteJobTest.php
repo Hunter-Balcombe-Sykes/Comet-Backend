@@ -393,3 +393,55 @@ it('retires the route when the job dies outright, where $user was never in scope
         fn (SyncSubdomainToKvJob $job) => $job->userId === (string) $build->user_id,
     );
 });
+
+// A.7: the sign-up lane offers booking (pre-scrape suggestion) instead of the
+// silent auto-connect; the staff demo lane keeps it — nobody is there to ask.
+it('passes autoConnectBooking=false for a sign-up build and true for a staff build', function (string $via, bool $expected) {
+    $user = User::factory()->create(['status' => 'unclaimed', 'display_name' => 'Flag']);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'flag'.substr((string) $user->id, 0, 6), 'is_published' => false]);
+    $build = PreAccountBuild::factory()->make(['source_type' => 'instagram', 'built_via' => $via]);
+    $build->build_state = PreAccountBuild::STATE_PENDING;
+    $build->user()->associate($user);
+    $build->save();
+
+    $captured = new stdClass;
+    $this->mock(SourceGeneratorRegistry::class, function ($mock) use ($captured) {
+        $gen = new class($captured) implements SiteSourceGenerator
+        {
+            public function __construct(private stdClass $captured) {}
+
+            public function prefetch(string $sourceRef, ?string $sourceName, ?string $userId = null): SourcePrefetch
+            {
+                return new SourcePrefetch(payload: []);
+            }
+
+            public function normalizeRef(string $raw): string
+            {
+                return $raw;
+            }
+
+            public function dedupeKey(string $normalizedRef): string
+            {
+                return $normalizedRef;
+            }
+
+            public function handleSeed(string $normalizedRef, ?string $sourceName): string
+            {
+                return $normalizedRef;
+            }
+
+            public function generate(User $user, Site $site, string $sourceRef, bool $autoConnectBooking = false, ?SourcePrefetch $prefetch = null): void
+            {
+                $this->captured->autoConnectBooking = $autoConnectBooking;
+            }
+        };
+        $mock->shouldReceive('for')->andReturn($gen);
+    });
+
+    (new GeneratePreAccountSiteJob($build->id, $build->source_type, publish: false))->handle(app(SourceGeneratorRegistry::class));
+
+    expect($captured->autoConnectBooking)->toBe($expected);
+})->with([
+    'signup' => [PreAccountBuild::VIA_SIGNUP, false],
+    'staff' => [PreAccountBuild::VIA_STAFF, true],
+]);

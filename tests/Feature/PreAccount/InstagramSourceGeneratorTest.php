@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Storage;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable(); // also creates site.platform_connections (tests/Pest.php)
+    setupPreAccountBuildsTable(); // A.7: the generator reads built_via for the newest-1 override
 });
 
 it('normalizes typed refs', function () {
