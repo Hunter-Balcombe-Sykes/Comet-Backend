@@ -4,6 +4,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Content\LinkPoolReader;
 use App\Services\Content\LinkPoolWriter;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -48,4 +49,20 @@ it('lists a stored custom link with its full card shape', function () {
     expect($cards[0]['description'])->toBe('Best');
     expect($cards[0]['favicon'])->toBeNull();
     expect($cards[0]['logo'])->toBeNull();
+});
+
+it('stamps the catalog platform onto a link whose host it knows, and nothing onto one it does not', function () {
+    $user = customLinksUser('clinkpf');
+    $writer = app(LinkPoolWriter::class);
+
+    $youtube = $writer->add($user, 'https://www.youtube.com/@acmebarbers', 'Acme on YouTube');
+    $custom = $writer->add($user, 'https://acme-barbers.example', 'Acme');
+    // The enrich job's second pass re-adds the same URL — one row, not two.
+    $writer->add($user, 'https://www.youtube.com/@acmebarbers', 'Acme on YouTube', enrich: false);
+
+    $stamped = DB::connection('pgsql')->table('content.item_links')->where('item_id', $youtube)->get();
+    expect($stamped)->toHaveCount(1)
+        ->and($stamped[0]->platform)->toBe('youtube')
+        ->and($stamped[0]->url)->toBe('https://www.youtube.com/@acmebarbers');
+    expect(DB::connection('pgsql')->table('content.item_links')->where('item_id', $custom)->exists())->toBeFalse();
 });

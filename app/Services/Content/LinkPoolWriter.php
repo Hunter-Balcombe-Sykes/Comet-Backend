@@ -7,9 +7,11 @@ use App\Jobs\Content\EnrichPoolLinkJob;
 use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Platforms\WebsiteLinkHarvester;
 use App\Site\Documents\SiteCacheLanes;
 use App\Site\Pools\PoolSectionProvisioner;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * Convergence Phase 6: the live write lane for the `custom_links` pool.
@@ -51,6 +53,7 @@ class LinkPoolWriter
     public function __construct(
         private readonly ProjectionWriter $writer,
         private readonly PoolSectionProvisioner $sections,
+        private readonly WebsiteLinkHarvester $harvester,
     ) {}
 
     public static function coordFor(string $url): string
@@ -138,6 +141,7 @@ class LinkPoolWriter
         }
 
         $itemId = $this->writer->writeManualItem($userId, $coord, $projection);
+        $this->stampPlatform($itemId, $url);
 
         // An explicit add un-deletes, exactly as the hand-add lane does:
         // upsertSourceItem() clears source_items.removed_at, but the user-level
@@ -174,6 +178,38 @@ class LinkPoolWriter
         }
 
         return $itemId;
+    }
+
+    /**
+     * Item 4 (2026-09-02): a link whose host the catalog knows (a YouTube
+     * channel, a Google Form, a Linktree) gets that platform written as a
+     * hand-saved item_links row — the same row ItemLinkController writes for
+     * a typed platform link. PoolResolver folds it into the item's primary
+     * link, so the wire's `platform` is set and the sitepage can wear the
+     * brand tile as the card's face when no share image ever lands (277 of
+     * the links pool had neither, measured 2026-09-02). Unknown hosts get
+     * nothing; a re-add (the enrich job's second pass) is an idempotent upsert.
+     */
+    private function stampPlatform(string $itemId, string $url): void
+    {
+        $classified = $this->harvester->classify($url);
+        $platform = $classified === null ? '' : trim($classified['platform']);
+        if ($platform === '') {
+            return;
+        }
+        $links = DB::connection('pgsql')->table('content.item_links');
+        $updated = $links->where('item_id', $itemId)->where('platform', $platform)
+            ->update(['url' => $url, 'updated_at' => now()]);
+        if ($updated === 0) {
+            DB::connection('pgsql')->table('content.item_links')->insert([
+                'id' => (string) Str::uuid(),
+                'item_id' => $itemId,
+                'platform' => $platform,
+                'url' => $url,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
     }
 
     /**
