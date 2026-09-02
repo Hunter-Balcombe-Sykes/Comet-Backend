@@ -155,7 +155,7 @@ it('rethrows delete cleanup failures so the queue can retry', function () {
         ->once()
         ->andThrow(new RuntimeException('cleanup boom'));
 
-    $job = new DeleteMediaArtifactsJob((string) Str::uuid(), 'videos/test/media', 'gallery');
+    $job = new DeleteMediaArtifactsJob((string) Str::uuid(), 'videos/test/media', 'content');
     $job->withFakeQueueInteractions();
 
     expect(fn () => $job->handle($service))->toThrow(RuntimeException::class, 'cleanup boom');
@@ -294,7 +294,7 @@ function seedSiteImageRow(string $mediaType): string
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $id,
         'site_id' => (string) Str::uuid(),
-        'pool' => 'gallery',
+        'pool' => 'content',
         'path' => '',
         'sort_order' => 0,
         'is_active' => true,

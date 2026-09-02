@@ -10,7 +10,7 @@ uses(TestCase::class)->in(__FILE__);
 // from request input. Trusted write paths set it through ->site()->associate($site)
 // instead, which bypasses $fillable entirely.
 it('does not allow site_id to be mass-assigned on SiteMedia', function () {
-    $media = new SiteMedia(['site_id' => 'attacker-site-id', 'pool' => 'gallery']);
+    $media = new SiteMedia(['site_id' => 'attacker-site-id', 'pool' => 'content']);
 
     expect($media->site_id)->toBeNull();
 });
