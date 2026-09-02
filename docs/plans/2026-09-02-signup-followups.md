@@ -315,6 +315,30 @@ and/or phone, save them as their public contact details at scrape time.
 → publicContact filled, zero link cards for them; second run does not
 overwrite an owner-edited value.
 
+## 11. Instagram reel quality (the scroll home background looks soft)
+
+**Cause (confirmed in code + recorded payloads).** Not a transcode problem —
+the mirror stores the original bytes. The seed reel (the home background)
+comes from the PROFILE lane's single `video_url`, a mid rendition; the
+reels endpoint returns `video_versions` with a 1276-wide rendition, and
+`InstagramReelsNormalizer` reads only `[0]`. The reels lane itself is
+behind `instagram_depth_enabled = false`.
+
+**Fix.**
+- `InstagramReelsNormalizer` + `InstagramScraper::videoUrlFromPost()`: pick
+  the highest-width `video_versions` entry (ties → highest bandwidth) when
+  the array is present; keep `video_url` as the fallback.
+- The seed reel: source it from the reels endpoint for the ONE most-recent
+  reel (a single budgeted ScrapeCreators call under the instagram key,
+  independent of the depth flag) so the home background gets the best
+  rendition; the profile lane's URL stays the fallback when the call misses.
+- Pool videos: same best-rendition pick wherever the projection reads a
+  reel; existing mirrored files are replaced on the next refresh only when
+  the picked rendition is wider than what is stored (no bulk re-mirror).
+
+**Check.** Normalizer test with the recorded reels fixture (1276 chosen over
+720/480); Jordan/Teegan rebuilds: the stored home mp4's width ≥ 1080.
+
 ---
 
 ## Final proof (after every item ships)
