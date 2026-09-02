@@ -98,18 +98,19 @@ class SetupPayload
             ];
         }
 
-        if (isset(SetupPassRegistry::ITEM_POOLS[$key])) {
+        $itemPool = SetupPassRegistry::itemPool($key);
+        if ($itemPool !== null) {
             if ($site === null) {
                 return null;
             }
-            $resolved = $this->pools->resolve($site, SetupPassRegistry::ITEM_POOLS[$key]);
+            $resolved = $this->pools->resolve($site, $itemPool);
             $items = $resolved['library'];
             if ($items === []) {
                 return null; // the server omits an empty item pass (wire §2)
             }
 
             return $base + [
-                'sources' => $this->sourcesFor($user, SetupPassRegistry::ITEM_POOLS[$key]),
+                'sources' => $this->sourcesFor($user, $itemPool),
                 'items' => $items,
             ];
         }

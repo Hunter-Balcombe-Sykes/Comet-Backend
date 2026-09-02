@@ -1,3 +1,4 @@
+-- ROLLBACK: DROP TABLE site.workplace_candidates;
 -- Google Business listing candidates (setup-dialog run A.5, decision 6).
 -- FreshaWorkplaceLinker used to search, pick ONE confident venue and connect
 -- it in a single call, refusing on ambiguity — runners-up were discarded.

@@ -1,3 +1,4 @@
+-- ROLLBACK: ALTER TABLE site.platform_connections DROP COLUMN visibility;
 -- Hidden connections (setup-dialog run A.3, decision 4). A sign-up build's
 -- pre-scrape connects platforms invisibly: ingest runs so the setup dialog
 -- has real items to offer, but the row is excluded from the public payload,

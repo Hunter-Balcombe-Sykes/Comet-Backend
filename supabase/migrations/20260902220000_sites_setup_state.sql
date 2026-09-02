@@ -1,3 +1,4 @@
+-- ROLLBACK: ALTER TABLE site.sites DROP COLUMN setup_step, DROP COLUMN setup_completed_at;
 -- Setup dialog state (A.9, decision 7). setup_step records the pass being
 -- shown so a closed dialog reopens where it left; setup_completed_at is the
 -- one "done" bit /me exposes for the open decision. The completed backfill

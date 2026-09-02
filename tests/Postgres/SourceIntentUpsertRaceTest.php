@@ -90,6 +90,7 @@ beforeEach(function () {
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now()
     )');
+    $pg->statement('ALTER TABLE routing.source_intents ADD COLUMN IF NOT EXISTS band text');
 
     $pg->statement('CREATE UNIQUE INDEX idx_source_intents_live
         ON routing.source_intents (user_id, surface_key, identifier)

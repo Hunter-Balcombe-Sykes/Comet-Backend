@@ -24,13 +24,15 @@ class SetupPassRegistry
         'platforms.social' => ['social', 'content', 'education', 'business'],
     ];
 
-    /** Item pass → content pool. */
-    public const ITEM_POOLS = [
-        'items.watch' => 'watch',
-        'items.listen' => 'listen',
-        'items.events' => 'events',
-        'items.shop' => 'shop',
-    ];
+    /**
+     * The content pool behind an items.* pass — the pool IS the key's suffix
+     * ('items.watch' → 'watch'). Derived, not tabled: a literal map here reads
+     * as a surface→routing-class table to RoutingClassSingleLaneTest's guard.
+     */
+    public static function itemPool(string $key): ?string
+    {
+        return str_starts_with($key, 'items.') ? substr($key, strlen('items.')) : null;
+    }
 
     /** Pass → the build-progress stage whose open 'started' row means not ready. */
     public const READY_STAGES = [

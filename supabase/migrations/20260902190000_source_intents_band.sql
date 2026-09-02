@@ -1,3 +1,4 @@
+-- ROLLBACK: ALTER TABLE routing.source_intents DROP COLUMN band;
 -- The placement decision's band, persisted at write time (setup-dialog run
 -- A.1, decision 2). The wire cannot re-derive auto-vs-suggest later: the
 -- thresholds are context-adjusted at decision time (indirect penalty,

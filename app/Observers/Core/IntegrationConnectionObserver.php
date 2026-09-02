@@ -213,7 +213,13 @@ class IntegrationConnectionObserver
                     ]);
             }
         } catch (\Throwable $e) {
-            report($e);
+            // Log, don't report(): the daily routing:settle-connected sweep
+            // re-covers anything this misses, so a settle hiccup is noise on
+            // the exception rail (and the connect that triggered it succeeded).
+            Log::warning('routing.settle_on_connect_failed', [
+                'connection_id' => (string) $connection->id,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 

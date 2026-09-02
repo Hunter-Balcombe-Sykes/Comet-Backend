@@ -1,3 +1,5 @@
+-- ROLLBACK: NONE. Nulling setup_completed_at back out would also clear rows
+-- the setup dialog has legitimately stamped since this backfill ran.
 -- Backfill for 20260902220000: existing sites are marked setup-complete —
 -- the dialog is the SIGN-UP onboarding, and springing it on every
 -- established account would be noise, not help. Runs outside the DDL
