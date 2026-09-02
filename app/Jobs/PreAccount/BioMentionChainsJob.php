@@ -116,6 +116,33 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
         LinkRouter $router,
         FindSocialProfilesClient $discovery,
     ): void {
+        try {
+            $this->run($scraper, $linker, $router, $discovery);
+        } finally {
+            // Setup progress (2026-09-02): a chain that started (its own note or
+            // the dispatch's) always answers — landed when a workplace exists
+            // (the one-shot dedupe makes this a no-op after the linker's own
+            // row), skipped when none was found. A chain that ran after "done"
+            // (liam, +87s) left the row open for good otherwise.
+            $owner = User::query()->find($this->userId);
+            if ($owner !== null) {
+                $has = $this->hasWorkplace($owner);
+                BuildProgress::noteForUser(
+                    (string) $owner->id,
+                    PreAccountBuildEvent::STAGE_WORKPLACE,
+                    $has ? PreAccountBuildEvent::STATUS_LANDED : PreAccountBuildEvent::STATUS_SKIPPED,
+                    $has ? 'Found where you work' : 'No workplace found from your bio yet',
+                );
+            }
+        }
+    }
+
+    private function run(
+        InstagramScraper $scraper,
+        FreshaWorkplaceLinker $linker,
+        LinkRouter $router,
+        FindSocialProfilesClient $discovery,
+    ): void {
         $user = User::query()->find($this->userId);
         if (! $user) {
             return;
