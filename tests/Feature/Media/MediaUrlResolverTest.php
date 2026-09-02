@@ -81,6 +81,13 @@ it('passes source_url through unchanged, last in precedence', function () {
     expect($out[$asset->id])->toBe(['url' => 'https://i.ytimg.com/vi/x/hqdefault.jpg', 'width' => 480, 'height' => 360]);
 });
 
+it('omits a raw Instagram / Facebook CDN source_url until the mirror lands', function () {
+    $ig = assetRow(['id' => 'ig', 'source_url' => 'https://scontent-bos5-1.cdninstagram.com/o1/v/t2/x.jpg']);
+    $fb = assetRow(['id' => 'fb', 'source_url' => 'https://scontent-lga3-1.xx.fbcdn.net/v/t51/y.jpg']);
+
+    expect(app(MediaUrlResolver::class)->resolve([$ig, $fb]))->toBe([]);
+});
+
 it('omits an asset that resolves to nothing — absent, never null', function () {
     $pointerless = assetRow();
     $deadPointer = assetRow(['site_media_id' => (string) Str::uuid()]); // no variants exist

@@ -10,7 +10,8 @@ use Illuminate\Support\Facades\Storage;
  *
  * Precedence per asset: storage_path (owned bytes, 1b's Instagram mirror
  * feeds this) → site_media_id (best webp rendition out of the working
- * variant pipeline) → source_url (vendor link, passed through) → omitted.
+ * variant pipeline) → source_url (vendor link, passed through — unless it
+ * is a Meta CDN link, which is omitted until mirrored) → omitted.
  * An unresolvable asset is ABSENT from the result, never null — the ten
  * ref-only Google assets degrade to an empty gallery, not broken images.
  *
@@ -68,7 +69,11 @@ class MediaUrlResolver
             ];
         }
 
-        if (! empty($asset->source_url)) {
+        // A raw Meta CDN link is NOT servable (owner, 2026-09-02): it is
+        // signed to expire, and the browser blocks it cross-origin — the
+        // gallery showed empty cards until the mirror landed. Omit it; the
+        // item appears once its bytes are ours.
+        if (! empty($asset->source_url) && ! InstagramMediaUrl::isMetaCdn((string) $asset->source_url)) {
             return [
                 'url' => (string) $asset->source_url,
                 'width' => $asset->width === null ? null : (int) $asset->width,
