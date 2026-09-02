@@ -26,7 +26,7 @@ beforeEach(function () {
     setupContentTables();
 });
 
-function hiddenConnection(string $userId, array $overrides = []): IntegrationConnection
+function hiddenRoutingConnection(string $userId, array $overrides = []): IntegrationConnection
 {
     $connection = new IntegrationConnection(array_merge([
         'user_id' => $userId,
@@ -64,8 +64,8 @@ function seedHiddenTestIntent(string $userId, array $overrides = []): string
 
 it('keeps hidden rows out of the connections list', function () {
     $pro = createTenant('hidden-list');
-    hiddenConnection($pro->id);
-    hiddenConnection($pro->id, ['resource_id' => 'visible-one', 'visibility' => 'visible']);
+    hiddenRoutingConnection($pro->id);
+    hiddenRoutingConnection($pro->id, ['resource_id' => 'visible-one', 'visibility' => 'visible']);
 
     $response = actingAsUser($pro)->getJson('/api/routing/connections');
 
@@ -77,7 +77,7 @@ it('keeps hidden rows out of the connections list', function () {
 it('does not let a hidden row hold a surface slot against the cap', function () {
     $pro = createTenant('hidden-cap');
     // instagram.profile is a single-account surface (max_accounts 1).
-    hiddenConnection($pro->id, ['resource_id' => 'hidden-dj']);
+    hiddenRoutingConnection($pro->id, ['resource_id' => 'hidden-dj']);
 
     $iri = app(IriCanonicalizer::class)->canonicalize('https://www.instagram.com/real-dj/');
     app(SourceReconciler::class)->reconcile(
@@ -93,7 +93,7 @@ it('does not let a hidden row hold a surface slot against the cap', function () 
 
 it('keeps asking about an intent whose only matching connection is hidden', function () {
     $pro = createTenant('hidden-inbox');
-    hiddenConnection($pro->id, ['resource_id' => 'someone']);
+    hiddenRoutingConnection($pro->id, ['resource_id' => 'someone']);
     seedHiddenTestIntent($pro->id); // instagram.profile / someone
 
     $response = actingAsUser($pro)->getJson('/api/routing/suggestions');
@@ -117,7 +117,7 @@ it('applies a suggestion as a hidden connection that settles the intent but skip
 it('reveal flips visibility and runs the skipped publish effects', function () {
     Queue::fake();
     $pro = createTenant('hidden-reveal');
-    $connection = hiddenConnection($pro->id);
+    $connection = hiddenRoutingConnection($pro->id);
     Queue::assertNotPushed(CloudflareCachePurgeJob::class);
 
     app(HiddenConnections::class)->reveal($connection);
@@ -129,7 +129,7 @@ it('reveal flips visibility and runs the skipped publish effects', function () {
 it('reveal of an ordering connection dispatches the menu fetch the hidden create skipped', function () {
     Queue::fake();
     $pro = createTenant('hidden-menu');
-    $connection = hiddenConnection($pro->id, [
+    $connection = hiddenRoutingConnection($pro->id, [
         'surface_key' => 'uber_eats.order',
         'routing_class' => 'ordering',
         'resource_id' => 'akro-studio',
@@ -144,7 +144,7 @@ it('reveal of an ordering connection dispatches the menu fetch the hidden create
 
 it('discard deletes the connection and its solo-sourced unpinned items, keeping pinned ones', function () {
     $pro = createTenant('hidden-discard');
-    $connection = hiddenConnection($pro->id);
+    $connection = hiddenRoutingConnection($pro->id);
 
     $sourceId = (string) Str::uuid();
     DB::table('content.sources')->insert([
