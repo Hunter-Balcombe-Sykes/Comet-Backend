@@ -359,11 +359,11 @@ class GoogleBusinessAutoSync
             // fetch for), only Fresha, only a marked origin, only with the kill
             // switch on.
             if ($autoConnectBooking
-                && $write['platform'] === Platform::Fresha->value
+                && in_array($write['platform'], [Platform::Fresha->value, Platform::Square->value], true)
                 && ($findings[0]['outcome'] ?? null) === 'seeded'
                 && (bool) config('partna.connect.auto_booking.enabled', true)
             ) {
-                $this->dispatchAutoBookingConnect($userId);
+                $this->dispatchAutoBookingConnect($userId, $write['platform']);
             }
 
             return $findings;
@@ -401,8 +401,11 @@ class GoogleBusinessAutoSync
             ]];
         }
         if ($provider === Platform::Square->value) {
+            // 2026-09-02: a *.square.site root is a website, not a booking
+            // page — one GET resolves it to the Appointments deep link the
+            // site links out to, when it does (the one network call here).
             return ['platform' => Platform::Square->value, 'resourceId' => Platform::Square->value, 'payload' => [
-                'url' => $url, 'source' => 'google-business',
+                'url' => app(SquareSiteBookingResolver::class)->resolve($url) ?? $url, 'source' => 'google-business',
             ]];
         }
 

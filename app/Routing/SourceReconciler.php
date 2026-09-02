@@ -226,11 +226,11 @@ class SourceReconciler
         // booking path against a lock it already holds. Do not move it.
         if ($verdict === Verdict::Place
             && $connectionId !== null
-            && $placement->surfaceKey === 'fresha.book'
+            && in_array($placement->surfaceKey, ['fresha.book', 'square.book'], true)
             && $user->isUnclaimed()
             && (bool) config('partna.connect.auto_booking.enabled', true)
         ) {
-            $this->autoBookingConnect->dispatchFor((string) $user->id);
+            $this->autoBookingConnect->dispatchFor((string) $user->id, $placement->surfaceKey === 'square.book' ? 'square' : 'fresha');
         }
 
         return $result;

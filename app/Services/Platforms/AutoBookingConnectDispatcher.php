@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Jobs\Platforms\ConnectFetchJob;
+use App\Jobs\Platforms\SquareAutoSelectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\DailyCounterClaim;
@@ -38,9 +39,17 @@ final class AutoBookingConnectDispatcher
      * connectMode is stamped HERE, not at the write, because the write helpers
      * are shared with origins that must not be marked auto.
      */
-    public function dispatchFor(string $userId): void
+    public function dispatchFor(string $userId, string $platform = 'fresha'): void
     {
         if (! $this->claimBudget()) {
+            return;
+        }
+        // Square (2026-09-02): no salon scrape to run — the job reads the
+        // booking page's widget JSON itself and stamps team_member_id onto
+        // the URL. Same daily budget as Fresha's auto-connect.
+        if ($platform === Platform::Square->value) {
+            SquareAutoSelectJob::dispatch($userId)->afterCommit();
+
             return;
         }
 

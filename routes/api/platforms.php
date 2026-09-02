@@ -68,7 +68,12 @@ $registerIntegrationRoutes = function (string $base): void {
         ->middleware($middleware)
         ->group(function () {
             Route::post('/connect', [SquareController::class, 'connect'])->defaults('platform', 'square')->middleware('platform.available');
+            // Square Appointments parity (2026-09-02): the roster + team-member
+            // selection Fresha has, on the same three routes.
+            Route::get('/team', [SquareController::class, 'team']);
             Route::get('/selection', [SquareController::class, 'selection']);
+            Route::post('/selection', [SquareController::class, 'saveSelection']);
+            Route::post('/selection/storewide', [SquareController::class, 'saveStorewide']);
             Route::delete('/', [SquareController::class, 'forget']);
         });
 

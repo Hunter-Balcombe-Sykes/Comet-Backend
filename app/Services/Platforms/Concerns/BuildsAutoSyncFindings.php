@@ -644,7 +644,7 @@ trait BuildsAutoSyncFindings
      * connectMode is stamped HERE, not in resolveWrite(), because resolveWrite
      * is shared with origins that must not be marked auto.
      */
-    protected function dispatchAutoBookingConnect(string $userId): void
+    protected function dispatchAutoBookingConnect(string $userId, string $platform = 'fresha'): void
     {
         // Delegates since 2026-08-19: a third producer (the routing lane's
         // SourceReconciler, for unclaimed pre-account sites) needed this and
@@ -653,7 +653,7 @@ trait BuildsAutoSyncFindings
         // property. The implementation moved to AutoBookingConnectDispatcher;
         // this method stays so both legacy producers are unchanged and the
         // shared-cap invariant still reads true.
-        app(AutoBookingConnectDispatcher::class)->dispatchFor($userId);
+        app(AutoBookingConnectDispatcher::class)->dispatchFor($userId, $platform);
     }
 
     /**

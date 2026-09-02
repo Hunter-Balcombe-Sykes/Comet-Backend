@@ -14,7 +14,10 @@ use App\Services\Platforms\Strategies\Detect\HostMatch;
  * contract, moved VERBATIM from the retired hand-written registration.
  * Connect stays bespoke (SquareController — routes(Bespoke), no
  * ConnectStrategy, no capability gate here: square gates itself inline,
- * like fresha). Not refreshable; no fetch strategy.
+ * like fresha). Not refreshable in the registry sense and no fetch
+ * strategy — since 2026-09-02 the services come from the square_book
+ * ingest connector, so the dashboard's refresh button reaches
+ * RefreshController::refreshIngestOnly() and re-pulls that source.
  */
 final class SquareBinding
 {

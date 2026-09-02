@@ -46,6 +46,21 @@ final class SquareBookingPage
         return self::WIDGET_URL.rawurlencode($merchant).($unit === null ? '' : '?unit_token='.rawurlencode($unit));
     }
 
+    /**
+     * The canonical booking-page URL the connection stores: merchant,
+     * optional location, optional team member — the same shape
+     * SourceProvisioner::squareBookingUrl() reduces a pasted link to.
+     */
+    public static function bookingUrl(string $merchant, ?string $unit, ?string $teamMember): string
+    {
+        $url = self::BOOK_URL.rawurlencode(strtolower($merchant));
+        if ($unit !== null && $unit !== '') {
+            $url .= '/location/'.rawurlencode(strtoupper($unit));
+        }
+
+        return $teamMember === null ? $url : $url.'?team_member_id='.rawurlencode($teamMember);
+    }
+
     public static function bookingDeepLink(string $merchant, string $unit, string $serviceId, ?string $teamMember): string
     {
         $url = self::BOOK_URL.rawurlencode($merchant).'/location/'.rawurlencode($unit).'/services/'.rawurlencode($serviceId);
