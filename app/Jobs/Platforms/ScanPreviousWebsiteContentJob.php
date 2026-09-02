@@ -388,6 +388,10 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         if ($galleryCandidates !== []) {
             // 9e: candidates already extracted — the old +30s was dead time.
             WebsiteGalleryScanJob::dispatch($this->userId, $this->siteId, $galleryCandidates);
+        } else {
+            // Setup progress (2026-09-02): the website stage started above and
+            // is owed an answer — nothing to grab is an answer.
+            BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_WEBSITE, PreAccountBuildEvent::STATUS_SKIPPED, 'No photos to grab from your website');
         }
 
         // Everything below is DESIGN evidence — the site's logo, accent and
@@ -604,6 +608,8 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
 
     public function failed(Throwable $e): void
     {
+        // Setup progress (2026-09-02): an owed stage gets its answer.
+        BuildProgress::noteForUser((string) $this->userId, PreAccountBuildEvent::STAGE_WEBSITE, PreAccountBuildEvent::STATUS_FAILED, "Couldn't read your website");
         report($e);
         Log::error('website_scan.content_scan_failed', [
             'user_id' => $this->userId,

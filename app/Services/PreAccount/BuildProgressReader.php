@@ -29,6 +29,9 @@ final class BuildProgressReader
     /** After this, finished regardless — the same clock the preparing page and the mirror TTL run on. */
     public const CEILING_MINUTES = 10;
 
+    /** How long a started stage is owed an answer before it stops blocking done. */
+    public const OWED_MINUTES = 4;
+
     /** The poll caps its feed; a build's ledger is a dozen rows, not a stream. */
     private const EVENT_CAP = 50;
 
@@ -106,7 +109,12 @@ final class BuildProgressReader
         $platformsAnswered = $build->source_type !== 'instagram';
         foreach ($events as $event) {
             if ($event->status === PreAccountBuildEvent::STATUS_STARTED) {
-                $started[$event->stage] = true;
+                // A stage that started and never answered stops blocking
+                // after OWED_MINUTES — a job that died without its failed()
+                // note must not hold the setup to the 10-minute ceiling.
+                if ($event->created_at->gt(now()->subMinutes(self::OWED_MINUTES))) {
+                    $started[$event->stage] = true;
+                }
             } else {
                 $answered[$event->stage] = true;
             }

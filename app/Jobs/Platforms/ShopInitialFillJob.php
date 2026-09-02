@@ -133,6 +133,14 @@ class ShopInitialFillJob implements ShouldBeUnique, ShouldQueue
 
     public function failed(Throwable $e): void
     {
+        // Setup progress (2026-09-02): an owed stage gets its answer.
+        try {
+            $store = app(\App\\Services\\Shop\\ShopConnections::class)->storeByCollection($this->collectionId);
+            if ($store !== null && $store->userId !== null) {
+                BuildProgress::noteForUser((string) $store->userId, PreAccountBuildEvent::STAGE_SHOP, PreAccountBuildEvent::STATUS_FAILED, "Couldn't sync your store just now");
+            }
+        } catch (Throwable) {
+        }
         report($e);
         Log::error('shop.initial_fill_job.failed', [
             'collection_id' => $this->collectionId,

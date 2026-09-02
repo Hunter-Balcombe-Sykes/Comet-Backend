@@ -214,6 +214,8 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         // per-platform sync status is safe to write right here.
         if (array_filter($menus) === []) {
             $this->writePlatformSyncStatus($storeLinks, $menus, $menu, $now);
+            // Setup progress (2026-09-02): an owed stage gets its answer.
+            BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_MENU, PreAccountBuildEvent::STATUS_SKIPPED, "Couldn't read your menu yet — it will retry");
             $menu->forceFill(['fetch_status' => 'unavailable', 'last_fetched_at' => $now])->save();
 
             // 9e: this is a terminal state for anything waiting on the fetch —
@@ -1559,6 +1561,8 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 
     public function failed(Throwable $e): void
     {
+        // Setup progress (2026-09-02): an owed stage gets its answer.
+        BuildProgress::noteForUser((string) $this->userId, PreAccountBuildEvent::STAGE_MENU, PreAccountBuildEvent::STATUS_FAILED, "Couldn't read your menu just now");
         report($e);
         Log::error('menu.fetch_job.failed', ['user_id' => $this->userId, 'error' => $e->getMessage()]);
 
