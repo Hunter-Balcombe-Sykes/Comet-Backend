@@ -14,6 +14,8 @@ use App\Ingest\Message\Unavailable;
 use App\Ingest\Projection\ProjectionWriter;
 use App\Ingest\Projection\ProjectorRegistry;
 use App\Ingest\Runtime\Effects\BilledEffectDriverRegistry;
+use App\Models\Core\User\User;
+use App\Services\Cache\SiteCacheService;
 use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -88,6 +90,7 @@ class RunExecutor
         $streamOutcomes = [];
         $notes = [];
         $unavailable = [];
+        $siteInvalidated = false;
         $retryAfter = null;
         $worstOutcome = 'ok';
 
@@ -262,6 +265,15 @@ class RunExecutor
                     // `ingest:project` re-derives without fetching and passes
                     // nothing; see ProjectionWriter::projectStream().
                     $this->projections->projectStream($source, $streamId, $streamName, fetchedInRunId: $runId);
+                    // Content just landed in the pools: rotate the public
+                    // payload cache once per run (2026-09-02) — it keys off
+                    // site.updated_at, which projection never touches, so the
+                    // sitepage and the sign-up card otherwise read the
+                    // pre-ingest payload for up to the TTL plus its stale window.
+                    if (! $siteInvalidated) {
+                        $siteInvalidated = true;
+                        $this->invalidateSiteFor($source);
+                    }
                 } catch (\Throwable $e) {
                     report($e);
                     // JOB-4: a projection failure must move the run outcome off 'ok' —
@@ -330,6 +342,23 @@ class RunExecutor
     /**
      * @return array{records: list<Record>, covered: ?Covered, bookmark: ?Bookmark, notes: list<Note>, deferred: ?Deferred, unavailable: ?Unavailable}
      */
+    /** @param array<string, mixed> $source */
+    private function invalidateSiteFor(array $source): void
+    {
+        try {
+            $userId = (string) ($source['user_id'] ?? '');
+            if ($userId === '') {
+                return;
+            }
+            $site = User::query()->find($userId)?->site;
+            if ($site !== null) {
+                app(SiteCacheService::class)->invalidateSitePayload($site);
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
     private function drain(Connector $connector, Pull $pull, Io $io): array
     {
         $out = ['records' => [], 'covered' => null, 'bookmark' => null, 'notes' => [], 'deferred' => null, 'unavailable' => null];

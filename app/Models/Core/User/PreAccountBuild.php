@@ -7,6 +7,7 @@ use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\Staff\PartnaStaff;
+use App\Services\Cache\SiteCacheService;
 use Database\Factories\Core\User\PreAccountBuildFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -174,6 +175,20 @@ class PreAccountBuild extends BaseModel
 
             if ($stamps !== []) {
                 $this->forceFill($stamps)->saveQuietly();
+                // The public payload cache keys off site.updated_at, which
+                // content landing never touches (2026-09-02): rotate it here,
+                // at the one moment we know the pools just filled, so the
+                // sign-up card's wire read and the sitepage's reload see the
+                // content instead of the pre-ingest empty payload for up to
+                // the TTL and its stale window.
+                try {
+                    $site = $this->user?->site;
+                    if ($site !== null) {
+                        app(SiteCacheService::class)->invalidateSitePayload($site);
+                    }
+                } catch (\Throwable $e) {
+                    report($e);
+                }
                 foreach ($stamps as $column => $at) {
                     Log::info('pre_account.tier', [
                         'build_id' => $this->id,

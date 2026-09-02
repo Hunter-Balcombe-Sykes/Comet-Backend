@@ -32,6 +32,9 @@ final class BuildProgressReader
     /** How long a started stage is owed an answer before it stops blocking done. */
     public const OWED_MINUTES = 4;
 
+    /** How many media assets must be settled (mirrored or failed) before done. */
+    public const MEDIA_SETTLED_ENOUGH = 12;
+
     /** The poll caps its feed; a build's ledger is a dozen rows, not a stream. */
     private const EVENT_CAP = 50;
 
@@ -132,7 +135,13 @@ final class BuildProgressReader
         }
         // A failed, aged asset is settled too (2026-09-02, teegandyson: 2 of 22
         // dead CDN urls held the setup open to the ceiling).
-        $mediaSaved = $media['total'] === 0 || ($media['mirrored'] + ($media['failed'] ?? 0)) >= $media['total'];
+        // Enough of the media, not ALL of it (2026-09-02): a listing with 67
+        // photos held "done" for the whole mirror queue while the pages
+        // already rendered from source urls. The first dozen settled — or
+        // every one when there are fewer — is the bar; the rest keep copying
+        // behind a site that is already whole.
+        $settled = $media['mirrored'] + ($media['failed'] ?? 0);
+        $mediaSaved = $media['total'] === 0 || $settled >= min($media['total'], self::MEDIA_SETTLED_ENOUGH);
 
         return $workplaceAnswered && $platformsAnswered && $mediaSaved;
     }
