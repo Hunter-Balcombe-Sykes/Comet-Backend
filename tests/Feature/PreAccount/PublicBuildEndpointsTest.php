@@ -403,3 +403,20 @@ it('noteForUser writes nothing for a claimed or stale build, and note() never th
     BuildProgress::note((string) Str::uuid(), PreAccountBuildEvent::STAGE_MENU, PreAccountBuildEvent::STATUS_LANDED, 'orphan');
     expect(true)->toBeTrue();
 });
+
+// ── B.2: the industry step's sector picker ──────────────────────────────────
+
+it('serves the sector taxonomy to any verified JWT, no user row needed', function () {
+    $user = claimJwtUser((string) Str::uuid(), 'signer@example.test');
+
+    $response = actingAsUser($user)->getJson('/api/public/signup/sector-options')
+        ->assertStatus(200)
+        ->json();
+
+    expect($response['groups'])->toBeArray()->not->toBeEmpty();
+    expect($response['groups'][0])->toHaveKeys(['group', 'options']);
+});
+
+it('refuses the sector taxonomy without a JWT', function () {
+    $this->getJson('/api/public/signup/sector-options')->assertStatus(401);
+});

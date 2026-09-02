@@ -10,6 +10,7 @@ use App\Models\Core\User\PreAccountBuild;
 use App\Services\PreAccount\ClaimTokenIssuer;
 use App\Services\PreAccount\PreAccountBuildException;
 use App\Services\PreAccount\PreAccountBuildService;
+use App\Services\Profile\SectorTaxonomy;
 use Illuminate\Http\JsonResponse;
 
 // Public, unauthenticated pre-account (site-first signup) build + poll
@@ -75,6 +76,16 @@ class PreAccountBuildController extends ApiController
             (new PreAccountBuildCreatedResource($result['build'], $claimToken, (bool) $result['reused']))->resolve(),
             $result['reused'] ? 200 : 202,
         );
+    }
+
+    // GET /api/public/signup/sector-options — the industry step's picker
+    // (B.2). The taxonomy is static and carries no user data, but the step is
+    // only reachable authenticated, so it sits behind the same supabase.jwt
+    // gate as prefill: /profile/sector-options can't serve it (that route
+    // needs a core.users row, which doesn't exist until the claim commits).
+    public function sectorOptions(): JsonResponse
+    {
+        return $this->success(['groups' => SectorTaxonomy::all()]);
     }
 
     // GET /api/public/signup/builds/{build}/prefill — the sign-up flow's name

@@ -189,6 +189,10 @@ Route::get('/public/signup/builds/{build}', [PreAccountBuildController::class, '
 Route::get('/public/signup/builds/{build}/prefill', [PreAccountBuildController::class, 'prefill'])
     ->whereUuid('build')
     ->middleware(['supabase.jwt', 'throttle:public-site']);
+// Industry-step picker (B.2): the static sector taxonomy for a signer-upper
+// who has no core.users row yet, so /profile/sector-options can't answer.
+Route::get('/public/signup/sector-options', [PreAccountBuildController::class, 'sectorOptions'])
+    ->middleware(['supabase.jwt', 'throttle:public-site']);
 // Setup progress for the sitepage overlay (2026-09-02): {done, stage} by
 // handle — a visitor holds no build id. Nothing about the person beyond what
 // the live page already shows; its own throttle bucket.
