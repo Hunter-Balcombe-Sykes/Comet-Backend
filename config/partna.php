@@ -2242,6 +2242,11 @@ return [
         'streaming' => env('PARTNA_QUEUE_STREAMING', 'streaming'),
         // Platform scraping jobs (InstagramConnectJob etc).
         'scraping' => env('PARTNA_QUEUE_SCRAPING', 'scraping'),
+        // Signup-priority lane (2026-09-02). Listed FIRST on supervisor-long so a
+        // new build's own jobs (generate, prewarm, approve, bio chains, Square/
+        // Google enrich) never queue behind the PREVIOUS signup's ~10-job
+        // scraping fan-out — measured 34s and 57s of "posted → building" wait.
+        'signup' => env('PARTNA_QUEUE_SIGNUP', 'signup'),
         // Platform refresh fan-out (RefreshConnectionJob, dispatched by integrations:refresh).
         'platform_refresh' => env('PARTNA_QUEUE_PLATFORM_REFRESH', 'platform_refresh'),
         // Deferred-connect content fetch (ConnectFetchJob — Unit 11 W5 / LIFE-13..20).

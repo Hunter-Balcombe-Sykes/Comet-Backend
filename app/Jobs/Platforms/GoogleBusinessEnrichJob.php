@@ -89,7 +89,7 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         bool $autoConnectBooking = false,
     ) {
         $this->autoConnectBooking = $autoConnectBooking;
-        $this->onQueue(config('partna.queues.scraping', 'scraping'));
+        $this->onQueue(config('partna.queues.signup', 'signup'));
     }
 
     // Key on user + place: a true duplicate (retry / double connect of the same

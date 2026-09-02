@@ -343,6 +343,29 @@ it('InstagramConnectJob is dispatched to the scraping queue', function () {
     expect((new InstagramConnectJob('u', 'someuser', 'c'))->queue)->toBe('scraping');
 });
 
+// 2026-09-02: the build-critical pre-account jobs moved to 'signup', listed
+// FIRST on supervisor-long, so a new signup never waits behind the previous
+// one's ~10-job scraping fan-out (measured 34-57s of queue wait). Pin both
+// halves: the job routes to 'signup', and 'signup' outranks 'scraping' on the
+// lane that consumes both — a "tidy up" that reorders them restores the wait.
+it('the pre-account build job is dispatched to the signup queue, ahead of scraping churn', function () {
+    expect((new GeneratePreAccountSiteJob('b', 'instagram'))->queue)->toBe('signup');
+
+    $horizon = require base_path('config/horizon.php');
+    $queue = $horizon['defaults']['supervisor-long']['queue'];
+
+    expect(array_search('signup', $queue, true))->toBe(0, 'signup must be the first queue on supervisor-long')
+        ->and(array_search('scraping', $queue, true))->toBeGreaterThan(0);
+});
+
+it('signup queue is covered in every Horizon environment', function () {
+    foreach (['production', 'development', 'local'] as $env) {
+        expect(envCoversQueue($env, 'signup'))->toBeTrue(
+            "signup queue must appear in at least one {$env} supervisor queue list"
+        );
+    }
+});
+
 // ── Scrape budget vs job timeout (2026-08-11) ────────────────────────────────
 //
 // The thin-scrape retry made the Instagram scrape budget TWO run-sync calls, not
@@ -793,7 +816,7 @@ it('the four Unit F wait-time thresholds have the expected values', function () 
         ->and($waits['redis:media-mirror'])->toBe(900)
         ->and($waits['redis:ingest'])->toBe(1800)
         ->and($waits['redis:notifications,mail'])->toBe(300)
-        ->and($waits['redis_scraping:scraping,gdpr'])->toBe(3600)
+        ->and($waits['redis_scraping:signup,scraping,gdpr'])->toBe(3600)
         // Unchanged from before Unit F — the one key that was already correct.
         ->and($waits['redis_video:videos'])->toBe(300);
 });

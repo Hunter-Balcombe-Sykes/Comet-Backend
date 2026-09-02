@@ -62,7 +62,7 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, Throttle
         public readonly string $sourceType,
         public readonly bool $publish = false,
     ) {
-        $this->onQueue(config('partna.queues.scraping', 'scraping'));
+        $this->onQueue(config('partna.queues.signup', 'signup'));
     }
 
     public function uniqueId(): string

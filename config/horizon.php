@@ -136,7 +136,7 @@ return [
         // ordinary Monday. 3600s = 60min is the point one worker genuinely
         // can't absorb its own dispatch rate, clear of the 660s retry_after
         // tier this lane is built around.
-        'redis_scraping:scraping,gdpr' => 3600,
+        'redis_scraping:signup,scraping,gdpr' => 3600,
 
         // Lane 5 — supervisor-videos: single-queue supervisor, so the
         // comma-join is a no-op and this key already matched what Horizon
@@ -313,9 +313,18 @@ return [
         // entirely (measured 2026-09-01). These jobs are HTTP waits; three
         // workers is concurrency for independent work, and the vendor
         // limiters still gate per-vendor pressure exactly as before.
+        //
+        // 'signup' listed FIRST (2026-09-02). Three workers did not stop a new
+        // signup queueing behind the previous one's fan-out: each build puts
+        // ~10 jobs on 'scraping' (bio chains, link-page scan, commerce probes,
+        // gallery/menu scans, link enrichment), and strict priority served
+        // them in arrival order — measured 34s (jordan.dimitriadis) and 57s
+        // (jessejensz) from POST to "building". The build-critical jobs now
+        // ride 'signup' ahead of that churn; the long scrapes stay on 'scraping'.
+        // Same lane, same connection/retry_after — a queue NAME, not a worker.
         'supervisor-long' => [
             'connection' => 'redis_scraping',
-            'queue' => ['scraping', 'gdpr'],
+            'queue' => ['signup', 'scraping', 'gdpr'],
             'balance' => false,
             'maxProcesses' => 1,
             'maxTime' => 0,

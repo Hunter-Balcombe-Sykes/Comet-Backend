@@ -41,7 +41,7 @@ class PrewarmInstagramProfileJob implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public readonly string $username)
     {
-        $this->onQueue(config('partna.queues.scraping', 'scraping'));
+        $this->onQueue(config('partna.queues.signup', 'signup'));
     }
 
     public function uniqueId(): string

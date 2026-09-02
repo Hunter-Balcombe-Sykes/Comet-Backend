@@ -82,7 +82,7 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
         // already taken. Rides the job for the same reason mentions do.
         public readonly int $deferrals = 0,
     ) {
-        $this->onQueue(config('partna.queues.scraping', 'scraping'));
+        $this->onQueue(config('partna.queues.signup', 'signup'));
     }
 
     /**

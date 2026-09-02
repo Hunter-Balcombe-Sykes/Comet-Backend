@@ -43,7 +43,7 @@ class SquareAutoSelectJob implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public readonly string $userId)
     {
-        $this->onQueue(config('partna.queues.scraping', 'scraping'));
+        $this->onQueue(config('partna.queues.signup', 'signup'));
     }
 
     public function uniqueId(): string

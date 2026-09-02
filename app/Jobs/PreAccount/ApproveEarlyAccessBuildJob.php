@@ -59,7 +59,7 @@ class ApproveEarlyAccessBuildJob implements ShouldBeUnique, ShouldQueue, Throttl
          *  invite-gate (PreAccountBuild::isOutreach) recognises it as outreach. */
         public readonly ?string $approvedByStaffId = null,
     ) {
-        $this->onQueue(config('partna.queues.scraping', 'scraping'));
+        $this->onQueue(config('partna.queues.signup', 'signup'));
     }
 
     public function uniqueId(): string
