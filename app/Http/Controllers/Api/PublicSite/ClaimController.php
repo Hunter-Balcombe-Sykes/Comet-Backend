@@ -58,6 +58,8 @@ class ClaimController extends ApiController
                 $validated['subdomain'],
                 (bool) $validated['marketing_opt_in'],
                 $validated['claim_token'] ?? null,
+                // A.8 (decision 8): the sign-up flow's answers ride the claim.
+                array_intersect_key($validated, array_flip(['handle', 'first_name', 'last_name', 'display_name', 'sector'])),
             );
         } catch (RuntimeException $e) {
             // $extra (not $errors) puts `code` at the TOP level of the response
@@ -89,6 +91,9 @@ class ClaimController extends ApiController
                 // not and must not exist.
                 StaffProvisioningGuard::REJECTION => $this->error('Staff accounts do not have a Partna site.', 409, [], ['code' => 'STAFF_ACCOUNT_NO_PROFILE']),
                 'EMAIL_ALREADY_REGISTERED' => $this->error('This email is already registered.', 409, [], ['code' => 'EMAIL_ALREADY_REGISTERED']),
+                // A.8: the handle chosen in the sign-up flow was taken in the
+                // meantime — the frontend returns to the handle step.
+                'HANDLE_TAKEN' => $this->error('That address was just taken — pick another.', 409, [], ['code' => 'HANDLE_TAKEN']),
                 'CLAIM_EMAIL_MISMATCH' => $this->error('This site is reserved for a different email address.', 409, [], ['code' => 'CLAIM_EMAIL_MISMATCH']),
                 default => throw $e,
             };

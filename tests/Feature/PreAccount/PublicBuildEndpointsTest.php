@@ -153,25 +153,32 @@ it('returns a non-empty claim_token on a new build, and stores only its hash', f
     }
 });
 
-it('returns NO claim_token on a dedupe re-serve, even from a different caller', function () {
-    $this->withHeader('CF-Connecting-IP', '203.0.113.10')
+it('re-serves a live SIGN-UP build with a FRESH claim_token — rotation, not sharing (A.8/U28)', function () {
+    // REVERSED for the signup lane (owner decision U28, setup-dialog run):
+    // the flow's resume path re-POSTs the same handle after a lost draft and
+    // must get a working token back. issue() ROTATES the hash, so a squatter
+    // re-POSTing a victim's handle invalidates the victim's token rather
+    // than reading it — and the victim's own resume mints a fresh one the
+    // same way. Staff/outreach builds keep mint-once (see ManyChatBuildTest).
+    $first = $this->withHeader('CF-Connecting-IP', '203.0.113.10')
         ->postJson('/api/public/signup/build', [
             'account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'dedupeme',
-        ])->assertStatus(202)->assertJsonPath('claim_token', fn ($t) => is_string($t) && $t !== '');
+        ])->assertStatus(202)->json('claim_token');
 
-    $original = PreAccountBuild::firstOrFail();
-    $originalHash = $original->claim_token_hash;
+    $originalHash = PreAccountBuild::firstOrFail()->claim_token_hash;
 
-    // Different caller (different source IP), same source_ref → re-serve, not
-    // a new build. Minting here would hand a working takeover capability to
-    // anyone who can guess a live source_ref (spec §5.4).
     $res = $this->withHeader('CF-Connecting-IP', '203.0.113.11')
         ->postJson('/api/public/signup/build', [
             'account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'dedupeme',
         ])->assertStatus(200);
 
-    $res->assertJsonMissingPath('claim_token');
-    expect(PreAccountBuild::firstOrFail()->claim_token_hash)->toBe($originalHash);
+    $token = $res->json('claim_token');
+    expect($token)->toBeString()->not->toBe('')->not->toBe($first)
+        ->and($res->json('reused'))->toBeTrue();
+
+    $freshHash = PreAccountBuild::firstOrFail()->claim_token_hash;
+    expect($freshHash)->not->toBe($originalHash)
+        ->and($freshHash)->toBe(hash('sha256', $token));
 });
 
 it('never surfaces claim_token on the public poll endpoint', function () {

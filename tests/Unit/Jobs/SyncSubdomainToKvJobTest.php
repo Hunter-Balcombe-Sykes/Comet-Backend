@@ -803,7 +803,10 @@ it('writes a TTL-bearing individual entry for an unclaimed owner with a live bui
         'primary_email' => null,
     ]);
     Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'janedoe']);
-    $build = PreAccountBuild::factory()->make(['expires_at' => now()->addDays(30)]);
+    // VIA_STAFF explicitly: since A.8 an unclaimed SIGN-UP build is withheld
+    // from KV entirely (the factory defaults to signup); the pre-claim demo
+    // routing this test pins is the staff/outreach lane's.
+    $build = PreAccountBuild::factory()->make(['expires_at' => now()->addDays(30), 'built_via' => PreAccountBuild::VIA_STAFF]);
     $build->user()->associate($user);
     $build->save();
 
@@ -967,6 +970,42 @@ it('was ALREADY retiring a buildless unclaimed account — the new gate is consi
     $kv = Mockery::mock(CloudflareKvService::class);
     $kv->shouldNotReceive('put');
     $kv->shouldReceive('delete')->once()->with('nobuildrow');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($proId))->handle($kv);
+});
+
+// ── A.8: a sign-up build is not routable until claimed ──────────────────────
+
+function kvUnclaimedSignup(string $handle): string
+{
+    $proId = kvUnclaimedWithBuild($handle, PreAccountBuild::STATE_READY);
+    DB::connection('pgsql')->table((new PreAccountBuild)->getTable())
+        ->where('user_id', $proId)
+        ->update(['built_via' => PreAccountBuild::VIA_SIGNUP]);
+
+    return $proId;
+}
+
+it('withholds the route for an unclaimed SIGN-UP build (A.8)', function () {
+    $proId = kvUnclaimedSignup('midsignup');
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('put');
+    $kv->shouldReceive('delete')->once()->with('midsignup');
+    app()->instance(CloudflareKvService::class, $kv);
+
+    (new SyncSubdomainToKvJob($proId))->handle($kv);
+});
+
+it('routes the same account permanently once claimed (A.8)', function () {
+    $proId = kvUnclaimedSignup('claimedsignup');
+    DB::connection('pgsql')->table('core.users')->where('id', $proId)->update(['status' => 'active']);
+
+    $kv = Mockery::mock(CloudflareKvService::class);
+    $kv->shouldNotReceive('delete');
+    $kv->shouldReceive('put')->once()->with('claimedsignup', ['type' => 'individual'], null);
+    $kv->shouldReceive('bulkPut')->once()->with([]);
     app()->instance(CloudflareKvService::class, $kv);
 
     (new SyncSubdomainToKvJob($proId))->handle($kv);

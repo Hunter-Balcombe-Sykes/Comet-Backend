@@ -55,10 +55,21 @@ class PreAccountBuildController extends ApiController
         // #W2-SEC-1: mint ONLY for a NEW build, never on the dedupe/re-serve
         // path — minting there would let anyone who POSTs a guessable
         // source_ref fetch a working takeover capability for someone else's
-        // build (spec §5.4). A caller who lost this token on a genuinely new
-        // build has no self-serve recovery here by design; the only reissue
-        // path is staff, POST /api/staff/builds/{build}/claim-token.
-        $claimToken = $result['reused'] ? null : $this->tokens->issue($result['build']);
+        // build (spec §5.4)…
+        //
+        // …EXCEPT a live SIGN-UP build (A.8, owner decision U28): the flow's
+        // resume path re-POSTs the same handle after a lost draft and must
+        // get a working token back, or the person is locked out of their own
+        // signup. issue() ROTATES the hash, so a squatter re-POSTing a
+        // victim's handle invalidates the victim's token rather than sharing
+        // it — the victim's own resume mints a fresh one the same way.
+        // Staff/outreach builds keep mint-once (reissue is staff-only).
+        $claimToken = null;
+        if (! $result['reused']) {
+            $claimToken = $this->tokens->issue($result['build']);
+        } elseif ($result['build']->built_via === PreAccountBuild::VIA_SIGNUP && $result['build']->claimed_at === null) {
+            $claimToken = $this->tokens->issue($result['build']);
+        }
 
         return $this->success(
             (new PreAccountBuildCreatedResource($result['build'], $claimToken, (bool) $result['reused']))->resolve(),

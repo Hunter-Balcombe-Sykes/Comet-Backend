@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api\PublicSite;
 
 use App\Http\Requests\BaseFormRequest;
+use App\Services\Profile\SectorTaxonomy;
 
 // Claim a pre-account (site-first signup) site by subdomain. authorize() is
 // inherited final from BaseFormRequest (always true) — the claim invariants
@@ -27,6 +28,18 @@ class ClaimSiteRequest extends BaseFormRequest
         return [
             'subdomain' => ['required', 'string', 'max:63'],
             'marketing_opt_in' => ['boolean'],
+            // A.8 (decision 8): the sign-up flow's own answers ride the claim.
+            // All optional so the ManyChat claim page and older clients keep
+            // claiming; the service applies only what arrives. The handle rule
+            // mirrors SubdomainAvailabilityService::check()'s shape gate.
+            'handle' => ['sometimes', 'nullable', 'string', 'min:3', 'max:63', 'regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/i'],
+            'first_name' => ['sometimes', 'nullable', 'string', 'max:80'],
+            'last_name' => ['sometimes', 'nullable', 'string', 'max:80'],
+            'display_name' => ['sometimes', 'nullable', 'string', 'max:80'],
+            'sector' => ['sometimes', 'nullable', 'string', 'max:80',
+                fn (string $attr, mixed $value, \Closure $fail) => $value !== null && ! SectorTaxonomy::isValid((string) $value)
+                    ? $fail('Unknown sector.') : null,
+            ],
             // The frontend reads ?t= off the claim page URL and forwards it in
             // the BODY, so the token never reaches OUR access logs or Referer.
             // (It is still in the frontend's URL — the contract requires the

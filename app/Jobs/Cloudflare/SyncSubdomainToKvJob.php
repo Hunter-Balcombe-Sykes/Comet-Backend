@@ -153,6 +153,18 @@ class SyncSubdomainToKvJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
             return;
         }
 
+        // A.8 (setup-dialog run): a SIGN-UP build is not routable until it is
+        // claimed. The person is mid-flow — they have not chosen their handle
+        // yet, and serving the generated subdomain would publish a page whose
+        // address is about to change. "Unclaimed = routable" remains the
+        // staff/outreach demo lane's rule. The claim's post-commit sync
+        // re-runs this job with status active, which adds the route.
+        if ($pro->isUnclaimed() && $this->latestBuildIsSignup($pro)) {
+            $this->retire($kv, $pro);
+
+            return;
+        }
+
         $current = strtolower(trim((string) $pro->handle));
 
         // Read the site once — needed for both the moderation gate below and the
@@ -241,6 +253,15 @@ class SyncSubdomainToKvJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
             ->value('build_state');
 
         return $state === 'failed';
+    }
+
+    /** Same discipline as latestBuildFailed() — straight off the table. */
+    private function latestBuildIsSignup(User $pro): bool
+    {
+        return DB::table((new PreAccountBuild)->getTable())
+            ->where('user_id', $pro->id)
+            ->orderByDesc('created_at')
+            ->value('built_via') === PreAccountBuild::VIA_SIGNUP;
     }
 
     private function retire(CloudflareKvService $kv, ?User $pro): void

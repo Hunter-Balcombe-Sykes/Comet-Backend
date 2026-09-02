@@ -14,6 +14,7 @@ use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Services\Cache\SiteCacheService;
 use App\Services\Cache\UserCacheService;
+use App\Services\Site\SubdomainAvailabilityService;
 use App\Services\User\EmailReuseGuard;
 use App\Services\User\SignupSideEffects;
 use App\Services\User\StaffProvisioningGuard;
@@ -36,6 +37,7 @@ class ClaimSiteService
         private readonly SiteCacheService $siteCache,
         private readonly ClaimTokenIssuer $tokens,
         private readonly StaffProvisioningGuard $staffGuard,
+        private readonly SubdomainAvailabilityService $availability,
     ) {}
 
     /**
@@ -43,9 +45,9 @@ class ClaimSiteService
      *
      * @throws RuntimeException CLAIM_NOT_FOUND|ALREADY_CLAIMED|BUILD_FAILED|ACCOUNT_EXISTS|EMAIL_ALREADY_REGISTERED|CLAIM_EMAIL_MISMATCH|CLAIM_NOT_INVITED|STAFF_ACCOUNT_NO_PROFILE
      */
-    public function claim(string $uid, string $verifiedEmail, string $subdomain, bool $marketingOptIn = false, ?string $claimToken = null): array
+    public function claim(string $uid, string $verifiedEmail, string $subdomain, bool $marketingOptIn = false, ?string $claimToken = null, array $profile = []): array
     {
-        $result = DB::connection('pgsql')->transaction(function () use ($uid, $verifiedEmail, $subdomain, $marketingOptIn, $claimToken) {
+        $result = DB::connection('pgsql')->transaction(function () use ($uid, $verifiedEmail, $subdomain, $marketingOptIn, $claimToken, $profile) {
             $site = Site::query()->whereRaw('lower(subdomain) = ?', [strtolower(trim($subdomain))])->first();
             if (! $site) {
                 throw new RuntimeException('CLAIM_NOT_FOUND');
@@ -172,6 +174,11 @@ class ClaimSiteService
                 }
                 throw $e;
             }
+
+            // A.8 (decision 8): the sign-up flow's own answers land inside the
+            // same transaction as the binds — the person chose a handle and
+            // typed their names minutes ago; the claim is where they stick.
+            $this->applyClaimProfile($professional, $site, $profile);
 
             // #W1-PRIV-1 commit 3: this is the only place a verified human email
             // gets bound to an account (bootstrap's create branch is HTTP-dead —
@@ -498,5 +505,72 @@ class ClaimSiteService
         // connections all set after_commit=false, so without this the guarantee is
         // only the position of this call.
         RefreshConnectionJob::dispatch($connection->id, 'google-business', manual: true)->afterCommit();
+    }
+
+    /**
+     * The sign-up flow's answers, applied at claim (A.8, decision 8). Every
+     * field is optional — the ManyChat claim page sends none of them.
+     *
+     * @param  array{handle?: ?string, first_name?: ?string, last_name?: ?string, display_name?: ?string, sector?: ?string}  $profile
+     */
+    private function applyClaimProfile(User $professional, Site $site, array $profile): void
+    {
+        $handle = strtolower(trim((string) ($profile['handle'] ?? '')));
+        if ($handle !== '') {
+            $this->assignHandle($professional, $site, $handle);
+        }
+
+        foreach (['first_name', 'last_name'] as $field) {
+            $value = trim((string) ($profile[$field] ?? ''));
+            if ($value !== '') {
+                $professional->{$field} = $value;
+            }
+        }
+        $displayName = trim((string) ($profile['display_name'] ?? ''));
+        if ($displayName !== '') {
+            $professional->display_name = $displayName;
+        }
+
+        // Stamped 'manual' ONLY when the answer differs from the stored value:
+        // confirming a scraped guess must not upgrade its provenance and lock
+        // the Google refiner out (SectorProvenance ladder).
+        $sector = trim((string) ($profile['sector'] ?? ''));
+        if ($sector !== '' && $sector !== (string) $professional->sector) {
+            $professional->sector = $sector;
+            $professional->sector_source = 'manual';
+        }
+
+        if ($professional->isDirty()) {
+            $professional->save();
+        }
+    }
+
+    /**
+     * First handle set (A.8): lock the site row, availability-check against
+     * everyone else, and write subdomain + handle/handle_lc together — the
+     * RenameSubdomainAction sync block with its had-a-handle gate removed.
+     * No alias and no cooldown stamp: a sign-up build's generated subdomain
+     * was never routable (SyncSubdomainToKvJob withholds it pre-claim), so
+     * there is nothing to redirect from.
+     */
+    private function assignHandle(User $professional, Site $site, string $incoming): void
+    {
+        Site::query()->whereKey($site->id)->lockForUpdate()->get();
+
+        if ($incoming !== strtolower((string) $site->subdomain)) {
+            $check = $this->availability->check($incoming, ownSiteId: (string) $site->id);
+            if (! $check['available']) {
+                throw new RuntimeException('HANDLE_TAKEN');
+            }
+            $site->subdomain = $incoming;
+            // saveQuietly: the post-commit block already re-syncs KV + purges
+            // for the final handle; a plain save would double-dispatch.
+            $site->saveQuietly();
+        }
+
+        $professional->forceFill([
+            'handle' => $incoming,
+            'handle_lc' => $incoming,
+        ]);
     }
 }
