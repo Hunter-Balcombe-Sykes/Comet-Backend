@@ -12,8 +12,11 @@ use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Routing\IriCanonicalizer;
 use App\Routing\LinkProjector;
+use App\Routing\LinkRoutingService;
 use App\Routing\Projection;
+use App\Routing\RoutingContext;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Accounts\AccountCapabilitySet;
 use App\Services\Cache\ApifyBudget;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
@@ -74,6 +77,7 @@ class GoogleBusinessAutoSync
         private readonly LinkRouter $linkRouter,
         private readonly IriCanonicalizer $canonicalizer,
         private readonly LinkProjector $projector,
+        private readonly LinkRoutingService $routing,
     ) {}
 
     /**
@@ -109,6 +113,21 @@ class GoogleBusinessAutoSync
             return $findings;
         }
         $capabilities = AccountCapabilities::for($user);
+
+        // A.13 (Phase-A proof catch, 2026-09-03): the self-serve sign-up lane
+        // connects NOTHING from a Google listing. Every platform link Google
+        // hands us routes through the reconciler instead — a banded Choose the
+        // setup dialog renders, with auto-band surfaces pre-scraped into
+        // hidden connections (A.3/A.4). Staff/ManyChat builds
+        // ($autoConnectBooking) keep the direct seed below — they sit
+        // unclaimed for weeks with nobody to answer a dialog — and so does
+        // the post-claim dashboard connect (the user asked for the sync).
+        if (! $autoConnectBooking && RoutingContext::forUser($user, 'google_business')->isSignupBuild()) {
+            $this->seedWorkplace($userId, $gbPayload ?? []);
+            $this->routeSignupFindings($user, $enrichment, $capabilities, $gbPayload, $businessName);
+
+            return $findings;
+        }
 
         // Booking (only-if-empty): synced for every account type EXCEPT a food
         // business, which books via Reservations instead (2026-07-15 sector
@@ -155,6 +174,76 @@ class GoogleBusinessAutoSync
         }
 
         return $findings;
+    }
+
+    /**
+     * A.13: the sign-up lane's replacement for the direct seeds — collect the
+     * same URLs the seeders below would have written and hand each to the
+     * routing front door. PlacementPolicy's isSignupBuild() arm turns them
+     * into banded Choose intents; PreScrapeDispatcher pre-scrapes the auto
+     * band into hidden connections. A brandless custom booking link
+     * (direct.book) has no projector rule, so on this lane it becomes a Note
+     * observation rather than a card — accepted: the website importer sees
+     * the merchant's own site anyway. Best-effort per URL, like every seed.
+     *
+     * @param  array<string,mixed>  $enrichment
+     * @param  array<string,mixed>|null  $gbPayload
+     */
+    private function routeSignupFindings(User $user, array $enrichment, AccountCapabilitySet $capabilities, ?array $gbPayload, ?string $businessName): void
+    {
+        $urls = [];
+
+        if ($capabilities->can_use_booking) {
+            try {
+                $write = $this->resolveBookingWrite((string) $user->id, $enrichment, $businessName);
+                $urls[] = $write !== null ? $this->urlOf($write) : null;
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
+
+        // Same M-12 gate as the direct path: a platform page listed AS the
+        // website means the crawled socials are that platform's own chrome.
+        $website = $this->safeUrl(data_get($gbPayload ?? [], 'website'));
+        if (! ($website !== null && app(PreviousWebsiteGate::class)->isPlatformUrl($website))) {
+            foreach (['facebook', 'tiktok', 'twitter', 'linkedin', 'instagram'] as $key) {
+                $urls[] = $this->safeUrl(data_get($enrichment, 'socials.'.$key));
+            }
+        }
+
+        if ($capabilities->google_business_full_sync) {
+            if ($capabilities->can_use_reservations) {
+                try {
+                    $write = $this->resolveReservationWrite((string) $user->id, $enrichment, $businessName);
+                    $urls[] = $write !== null ? $this->urlOf($write) : null;
+                } catch (Throwable $e) {
+                    report($e);
+                }
+            }
+            if ($capabilities->can_use_online_ordering) {
+                // One representative URL per store, same grouping as seedOrdering.
+                $stores = [];
+                foreach ((array) data_get($enrichment, 'order.providers') as $provider) {
+                    $url = $this->safeUrl(data_get($provider, 'url'));
+                    if ($url === null) {
+                        continue;
+                    }
+                    $stores[$this->storeKey($url) ?? $url][] = $provider;
+                }
+                foreach ($stores as $group) {
+                    $urls[] = $this->safeUrl(data_get($this->preferredProvider($group), 'url'));
+                }
+            }
+        }
+
+        $context = RoutingContext::forUser($user, 'google_business');
+        foreach (array_unique(array_filter($urls)) as $url) {
+            try {
+                $this->routing->route($url, $context);
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
     }
 
     /**
