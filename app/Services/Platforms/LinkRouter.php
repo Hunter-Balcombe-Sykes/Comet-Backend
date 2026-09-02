@@ -286,6 +286,13 @@ class LinkRouter
         // treatwell.book, …), so the branch is on "is this one of the two rich
         // flows" rather than on a single shared slug. The payload shape is
         // unchanged — the dashboard renders "Book with {provider}" off it.
+        //
+        // Deliberately NOT BookingProviders::includes() (2026-09-02), even
+        // though the two sets coincide today: this asks "does this brand have
+        // a rich resolveWrite flow", which is a different question from "is
+        // this brand in the booking XOR". A third XOR member that had no
+        // resolveWrite flow would be sent down this branch wrongly. The
+        // membership test 28 lines below IS the XOR question and does use it.
         if ($platform === Platform::Fresha->value || $platform === Platform::Square->value) {
             $write = $this->resolveWrite($platform, $url);
         } else {

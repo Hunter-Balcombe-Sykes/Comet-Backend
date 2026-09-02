@@ -469,6 +469,13 @@ trait ManagesIntegrationConnection
      */
     protected function bookingProviderConflict(User $user): ?JsonResponse
     {
+        // Inert for the seven non-booking controllers that also take this
+        // trait: others('shop') is the WHOLE family, so without this guard a
+        // ShopController calling it would 409 against both providers.
+        if (! BookingProviders::includes($this->platform())) {
+            return null;
+        }
+
         foreach (BookingProviders::others($this->platform()) as $rival) {
             if ($this->hasConflictingConnection($user, $rival)) {
                 return $this->error(sprintf(

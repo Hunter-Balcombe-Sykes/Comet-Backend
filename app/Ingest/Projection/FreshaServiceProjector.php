@@ -2,7 +2,6 @@
 
 namespace App\Ingest\Projection;
 
-use App\Ingest\Connectors\FreshaConnector;
 use App\Ingest\Support\Text;
 
 /**
@@ -61,10 +60,10 @@ class FreshaServiceProjector implements Projector
             'kind' => self::kind(),
             'headline' => $name,
             'facets' => array_filter([
-                // #SEC-4 belt-and-braces: the connector already caps this at
-                // yield time (Text::MAX_LENGTH); re-capping
-                // here means a future producer that skips the connector's
-                // guard still can't push an unbounded body into content.f_text.
+                // #SEC-4 belt-and-braces: the connector already caps this
+                // at yield time (Text::MAX_LENGTH); re-capping here means a
+                // future producer that skips the connector's guard still
+                // can't push an unbounded body into content.f_text.
                 'f_text' => $view->string('description') === null ? null : ['body' => mb_substr($view->string('description'), 0, Text::MAX_LENGTH)],
                 // The service's booking deep link (FreshaConnector::bookingDeepLink).
                 'f_link' => $view->string('url') === null ? null : ['url' => $view->string('url')],

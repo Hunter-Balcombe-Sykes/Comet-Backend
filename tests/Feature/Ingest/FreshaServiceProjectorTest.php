@@ -1,6 +1,5 @@
 <?php
 
-use App\Ingest\Connectors\FreshaConnector;
 use App\Ingest\Projection\FreshaServiceProjector;
 use App\Ingest\Projection\ProjectionWriter;
 use App\Ingest\Projection\RecordView;

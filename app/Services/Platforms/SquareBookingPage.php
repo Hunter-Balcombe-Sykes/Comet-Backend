@@ -2,6 +2,8 @@
 
 namespace App\Services\Platforms;
 
+use App\Ingest\Support\Text;
+
 /**
  * Pure reader of Square Appointments' buyer widget JSON — what
  * `GET https://app.squareup.com/appointments/api/buyer/widget/{merchant}?unit_token={unit}`
@@ -180,7 +182,7 @@ final class SquareBookingPage
             $out[] = array_filter([
                 'service_id' => $id,
                 'name' => $name,
-                'description' => $description !== '' ? mb_substr($description, 0, 2000) : null,
+                'description' => $description !== '' ? mb_substr($description, 0, Text::MAX_LENGTH) : null,
                 'price' => $counted[0]['price'],
                 'price_qualifier' => count($prices) > 1 ? 'from' : 'exact',
                 'currency' => is_string($svc['currency_code'] ?? null) ? $svc['currency_code'] : $currencyDefault,

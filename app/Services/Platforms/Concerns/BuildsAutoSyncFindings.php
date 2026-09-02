@@ -48,11 +48,15 @@ trait BuildsAutoSyncFindings
     private const SEED_LOCK_BLOCK = 3;
 
     /**
-     * U1: booking platforms a finding's `apply` recipe could remove/write —
-     * the UNION of GoogleBusinessAutoSync::BOOKING_PLATFORMS (includes
-     * 'booking') and InstagramAutoSync::BOOKING_PLATFORMS (does not). The two
-     * seed-side consts stay separate and deliberately differ; this third list
-     * must equal their union or it silently under-covers one producer — the
+     * U1: booking platforms a finding's `apply` recipe could remove/write.
+     *
+     * This once read "the UNION of GoogleBusinessAutoSync::BOOKING_PLATFORMS
+     * (includes 'booking') and InstagramAutoSync::BOOKING_PLATFORMS" — both
+     * halves are now false and were when written: GB's const carries no
+     * 'booking' (see it, below), and InstagramAutoSync has no such const at
+     * all since its seed path moved to LinkRouter. GB's is the only remaining
+     * peer, and this list must still equal it or it silently under-covers that
+     * producer — the
      * same drift shape as the platformConnectionLock suffix bug — so it is
      * pinned by a reflection test (BookingXorConnectRaceTest).
      *

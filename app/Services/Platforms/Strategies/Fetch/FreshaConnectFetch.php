@@ -9,6 +9,7 @@ use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\FeatureAvailability\FeatureAvailability;
 use App\Services\Http\SafeUrlException;
+use App\Services\Platforms\BookingProviders;
 use App\Services\Platforms\FreshaAutoSelector;
 use App\Services\Platforms\FreshaScraper;
 use App\Services\Platforms\FreshaServiceProjector;
@@ -283,7 +284,7 @@ final readonly class FreshaConnectFetch implements FetchStrategy
                     // as a canary: the pending row already 409s a concurrent Square
                     // connect, so reaching this branch means that pre-existing,
                     // out-of-scope interleaving race actually fired.
-                    if ($user->integrationConnections()->where('platform', Platform::Square->value)->exists()) {
+                    if ($user->integrationConnections()->whereIn('platform', BookingProviders::others(Platform::Fresha->value))->exists()) {
                         $violation = new FetchUnavailableException('fresha_xor_violated', FetchUnavailableException::GENERIC_USER_MESSAGE);
                         report($violation);
 
