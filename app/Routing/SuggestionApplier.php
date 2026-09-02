@@ -3,6 +3,7 @@
 namespace App\Routing;
 
 use App\Catalog\LegacyPlatformMap;
+use App\Jobs\Content\ReparentBioItemsJob;
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
@@ -201,6 +202,14 @@ class SuggestionApplier
                         LegacyPlatformMap::legacyFor((string) $intent->surface_key),
                         systemInitiated: true,
                     )->afterCommit();
+
+                    // A.6(c): the bio scrape may have seeded this platform's
+                    // videos/tracks as manual library items before ingest
+                    // lands the real rows — fold the duplicates once items
+                    // exist. The job self-releases until the source has rows.
+                    ReparentBioItemsJob::dispatch((string) $connection->id)
+                        ->delay(now()->addSeconds(60))
+                        ->afterCommit();
                 }
             }
 

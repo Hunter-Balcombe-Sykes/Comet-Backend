@@ -83,6 +83,9 @@ class LinkPoolWriter
         ?string $logo = null,
         bool $enrich = true,
         ?string $origin = null,
+        // false = library only (A.6): a sign-up scrape's found link is an
+        // OFFER the setup dialog ticks, never a card already on the page.
+        bool $pin = true,
     ): string {
         $url = trim($url);
         $coord = self::coordFor($url);
@@ -155,7 +158,7 @@ class LinkPoolWriter
             ->update(['removed_at' => null, 'updated_at' => now()]);
 
         $site = $user->site;
-        if ($site instanceof Site) {
+        if ($pin && $site instanceof Site) {
             $this->pin($site, $itemId);
             SiteCacheLanes::bust([(string) $site->id]);
         }

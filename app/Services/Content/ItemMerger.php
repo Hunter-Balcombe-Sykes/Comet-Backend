@@ -48,10 +48,26 @@ final class ItemMerger
     {
         [$kept, $discarded] = $this->survivorFirst($left, $right);
 
-        $pairs = $this->coordPairs($left, $right);
-        $warnings = $this->coordWarnings($left, $right);
+        return $this->foldPair($user, $kept, $discarded, $reason, 'older first_seen_at');
+    }
 
-        $result = DB::transaction(function () use ($user, $kept, $discarded, $pairs, $reason, $warnings): array {
+    /**
+     * merge() with the survivor CHOSEN by the caller (A.6 reparent): the
+     * ingested twin keeps the row whatever its age — the bio-seeded manual
+     * item is usually older, so survivorFirst() would keep the wrong one.
+     */
+    public function fold(User $user, Item $kept, Item $discarded, string $reason = 'reparent'): array
+    {
+        return $this->foldPair($user, $kept, $discarded, $reason, 'caller-chosen');
+    }
+
+    /** @return array{keptItemId: string, discardedItemId: string, decisionsWritten: int, warnings: list<string>} */
+    private function foldPair(User $user, Item $kept, Item $discarded, string $reason, string $survivorRule): array
+    {
+        $pairs = $this->coordPairs($kept, $discarded);
+        $warnings = $this->coordWarnings($kept, $discarded);
+
+        $result = DB::transaction(function () use ($user, $kept, $discarded, $pairs, $reason, $warnings, $survivorRule): array {
             $written = $this->recordDecisions($user, $pairs, 'same');
             $moved = $this->foldInto($kept, $discarded);
 
@@ -63,7 +79,7 @@ final class ItemMerger
                 'detail' => json_encode([
                     'decisionPairs' => count($pairs),
                     'moved' => $moved,
-                    'survivorRule' => 'older first_seen_at',
+                    'survivorRule' => $survivorRule,
                 ]),
                 'merged_at' => now(),
             ]);

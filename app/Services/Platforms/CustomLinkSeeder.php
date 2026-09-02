@@ -175,7 +175,10 @@ class CustomLinkSeeder
                     return 'cap_full';
                 }
 
-                $this->linkWriter->add($user, $normalized, origin: $origin);
+                // A sign-up build's found links go to the library only — the
+                // setup dialog's links pass offers them (A.6); a claimed
+                // owner's seed keeps today's pin-on-add.
+                $this->linkWriter->add($user, $normalized, origin: $origin, pin: ! $user->isUnclaimed());
 
                 return $already ? 'exists' : 'created';
             });
