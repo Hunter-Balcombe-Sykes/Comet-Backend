@@ -48,6 +48,18 @@ final class SquareSiteBookingResolver
             return null;
         }
         if (preg_match(self::PATTERN, $html, $m) !== 1) {
+            // A Square Online site can EMBED Appointments (homepage type
+            // "appointments") instead of linking out — the config JSON then
+            // carries the merchant token but no appointments URL anywhere in
+            // the HTML (Akro Studio, A.12 proof, 2026-09-03). Only trust the
+            // token when the site declares the appointments feature, so a
+            // plain storefront with a stray merchant_id stays a website.
+            $embedsAppointments = preg_match('~"featuresets"\s*:\s*\[[^\]]*"appointments"~', $html) === 1
+                || preg_match('~"(?:homePage|typeID)"\s*:\s*"appointments"~', $html) === 1;
+            if ($embedsAppointments && preg_match('~"merchant_id"\s*:\s*"(ML[A-Z0-9]{8,24})"~', $html, $t) === 1) {
+                return SquareBookingPage::bookingUrl($t[1], null, null);
+            }
+
             return null;
         }
         $parsed = SquareBookingPage::parseUrl($m[0]);
