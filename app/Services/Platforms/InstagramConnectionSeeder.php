@@ -374,7 +374,7 @@ class InstagramConnectionSeeder
                 fn (array $finding) => (string) ($finding['platform'] ?? ''),
                 $sync['findings'],
             ))));
-            if ($platforms !== [] || (int) ($sync['scans'] ?? 0) === 0) {
+            if ($platforms !== [] || $sync['scans'] === 0) {
                 BuildProgress::noteForUser(
                     $userId,
                     PreAccountBuildEvent::STAGE_PLATFORMS,
@@ -385,7 +385,7 @@ class InstagramConnectionSeeder
                     ['platforms' => BuildProgress::platformEntries($userId, $platforms)],
                 );
             }
-        } elseif ((int) ($sync['scans'] ?? 0) === 0) {
+        } elseif ($sync['scans'] === 0) {
             // The feed's platforms row must always get an answer — the
             // progress reader waits on it for Instagram builds. Unless a
             // link-page scan was just dispatched (2026-09-02): that scan
