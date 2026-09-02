@@ -907,3 +907,27 @@ it('lists a retired-for-no-identifier connection in the backfill report, not jus
         ->expectsOutputToContain('no_identifier')
         ->assertSuccessful();
 });
+
+it('provisions the Square Appointments connector for a square.book deep link, keeping the team member', function () {
+    $userId = provisionerUser();
+    $conn = makeConnection($userId, ['platform' => 'square', 'surface_key' => 'square.book', 'payload' => [
+        'url' => 'https://book.squareup.com/appointments/7rn54rnv21ng7n/location/LAJZK7J54JGCW/services?buttonTextColor=ffffff&color=000000&team_member_id=TM-qREuvGrHGnJ5Z',
+    ]]);
+
+    $result = app(SourceProvisioner::class)->sync($conn);
+
+    expect($result['source_key'])->toBe('square_book');
+    $row = DB::table('ingest.sources')->where('connection_id', $conn->id)->first();
+    expect($row->source_key)->toBe('square_book')
+        ->and($row->identifier)->toBe('https://book.squareup.com/appointments/7rn54rnv21ng7n/location/LAJZK7J54JGCW?team_member_id=TM-qREuvGrHGnJ5Z');
+});
+
+it('provisions nothing for a square.book connection whose url is a bare square.site root', function () {
+    $userId = provisionerUser();
+    $conn = makeConnection($userId, ['platform' => 'square', 'surface_key' => 'square.book', 'payload' => ['url' => 'https://akro-studio.square.site/']]);
+
+    $result = app(SourceProvisioner::class)->sync($conn);
+
+    expect($result['status'])->toBe('skipped')->and($result['reason'])->toBe('no_identifier');
+    expect(DB::table('ingest.sources')->where('connection_id', $conn->id)->exists())->toBeFalse();
+});

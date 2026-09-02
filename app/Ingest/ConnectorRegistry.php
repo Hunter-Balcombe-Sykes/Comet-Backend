@@ -24,6 +24,7 @@ use App\Ingest\Connectors\ResidentAdvisorConnector;
 use App\Ingest\Connectors\SoundcloudTracksConnector;
 use App\Ingest\Connectors\SpotifyPodcastsConnector;
 use App\Ingest\Connectors\SpotifyTracksConnector;
+use App\Ingest\Connectors\SquareBookingConnector;
 use App\Ingest\Connectors\SquareMenuConnector;
 use App\Ingest\Connectors\ThreadsConnector;
 use App\Ingest\Connectors\TiktokConnector;
@@ -82,6 +83,7 @@ final class ConnectorRegistry
         'spotify' => SpotifyTracksConnector::class,
         'spotify_podcasts' => SpotifyPodcastsConnector::class,
         'square' => SquareMenuConnector::class,
+        'square_book' => SquareBookingConnector::class,
         'threads' => ThreadsConnector::class,
         'tiktok' => TiktokConnector::class,
         'tiktok_shop' => TiktokShopConnector::class,

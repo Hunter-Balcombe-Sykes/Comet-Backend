@@ -66,6 +66,7 @@ final class ProjectorRegistry
         'soundcloud' => ['tracks' => SoundcloudTrackProjector::class],
         'spotify' => ['tracks' => SpotifyTrackProjector::class, 'releases' => SpotifyReleaseProjector::class],
         'square' => ['menu' => MenuItemProjector::class],
+        'square_book' => ['services' => SquareServiceProjector::class],
         'threads' => ['media' => ThreadsMediaProjector::class],
         'tiktok' => ['videos' => TiktokVideoProjector::class],
         'tiktok_shop' => ['reviews' => TiktokShopReviewProjector::class],

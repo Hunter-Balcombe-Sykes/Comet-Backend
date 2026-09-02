@@ -30,7 +30,7 @@ final class SquareBookingPage
         $unit = null;
         if (preg_match('~^/appointments/(?:book/)?([a-z0-9]{8,32})(?:/(?:location/)?([A-Z0-9]{8,32}))?~i', $path, $m) === 1) {
             $merchant = strtolower($m[1]);
-            $unit = isset($m[2]) && $m[2] !== '' ? strtoupper($m[2]) : null;
+            $unit = ($m[2] ?? '') !== '' ? strtoupper($m[2]) : null;
         }
         $tm = $query['team_member_id'] ?? null;
 

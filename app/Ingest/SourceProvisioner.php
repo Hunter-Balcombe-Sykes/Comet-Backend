@@ -490,7 +490,7 @@ class SourceProvisioner
             && preg_match('/^TM[A-Za-z0-9_-]{4,64}$/', $query['team_member_id']) === 1
             ? $query['team_member_id'] : null;
         $url = 'https://book.squareup.com/appointments/'.strtolower($m[1]);
-        if (isset($m[2]) && $m[2] !== '') {
+        if (($m[2] ?? '') !== '') {
             $url .= '/location/'.strtoupper($m[2]);
         }
 
