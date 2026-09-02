@@ -243,6 +243,16 @@ class SourceProvisioner
     /** The brand half of a surface key, when a registered connector serves it. */
     public static function sourceKeyFor(string $surfaceKey): ?string
     {
+        // A surface may own a connector of its own (square.book → square_book)
+        // when its brand's connector serves a DIFFERENT surface (square →
+        // SquareMenuConnector serves square.order). Surface-specific first,
+        // brand second; the brand fallback is unchanged for every other key.
+        if (str_contains($surfaceKey, '.')) {
+            $bySurface = str_replace('.', '_', $surfaceKey);
+            if (ConnectorRegistry::has($bySurface)) {
+                return $bySurface;
+            }
+        }
         $brand = strstr($surfaceKey, '.', true);
         if ($brand === false || $brand === '') {
             return null;
@@ -367,6 +377,12 @@ class SourceProvisioner
             // Menu brands: only a URL the platform's own menu host-pattern
             // recognises is a scrapeable store — a square.book (squareup.com)
             // booking link must never provision a menu source.
+            // Square Appointments (2026-09-02): the booking page URL itself,
+            // cleaned. A bare square.site root carries no merchant id and is
+            // NOT a booking page we can read — null, which also ends the menu
+            // scrape a booking connection used to provision for that host.
+            'square_book' => $this->squareBookingUrl($payload['url'] ?? null)
+                ?? $this->squareBookingUrl($resource),
             'square' => $this->menuStoreUrl('square', $payload['url'] ?? null)
                 ?? $this->menuStoreUrl('square', $resource),
             'uber_eats' => $this->menuStoreUrl('uber-eats', $payload['url'] ?? null)
@@ -449,6 +465,38 @@ class SourceProvisioner
      * URL-ish shape.
      */
     /** The locale-qualified venue path of a booksy.com URL, or null. */
+    /**
+     * The Square Appointments booking URL reduced to what identifies the
+     * page: merchant, optional location, and the team_member_id the owner's
+     * link carries. Presentation params (buttonTextColor, color, locale,
+     * referrer) are dropped so a re-paste with different button colours is
+     * the same source.
+     */
+    private function squareBookingUrl(mixed $value): ?string
+    {
+        if (! is_string($value) || ! preg_match('~^https?://~i', $value)) {
+            return null;
+        }
+        $parts = parse_url(trim($value));
+        $host = strtolower((string) ($parts['host'] ?? ''));
+        if (! in_array($host, ['book.squareup.com', 'app.squareup.com', 'squareup.com', 'www.squareup.com'], true)) {
+            return null;
+        }
+        if (preg_match('~^/appointments/(?:book/)?([a-z0-9]{8,32})(?:/(?:location/)?([A-Z0-9]{8,32}))?~i', (string) ($parts['path'] ?? ''), $m) !== 1) {
+            return null;
+        }
+        parse_str((string) ($parts['query'] ?? ''), $query);
+        $teamMember = isset($query['team_member_id']) && is_string($query['team_member_id'])
+            && preg_match('/^TM[A-Za-z0-9_-]{4,64}$/', $query['team_member_id']) === 1
+            ? $query['team_member_id'] : null;
+        $url = 'https://book.squareup.com/appointments/'.strtolower($m[1]);
+        if (isset($m[2]) && $m[2] !== '') {
+            $url .= '/location/'.strtoupper($m[2]);
+        }
+
+        return $teamMember === null ? $url : $url.'?team_member_id='.rawurlencode($teamMember);
+    }
+
     private function booksyPath(mixed $value): ?string
     {
         if (! is_string($value)) {
