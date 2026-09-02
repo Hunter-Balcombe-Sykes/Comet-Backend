@@ -293,6 +293,28 @@ reviews stream; Fresha unchanged except the Task 6 team-step generalisation.
 - Task 7 — repair jessejensz (delete the wrong Square row + stray menu
   source, re-import the Linktree) and verify on the live page.
 
+## 10. Linktree email / phone → the person's public contact info
+
+**Owner's ask (2026-09-02).** When the Linktree carries the person's email
+and/or phone, save them as their public contact details at scrape time.
+
+**Fix.**
+- `LinkInBioApiUnroller` / `LinkInBioImporter`: recognise contact entries —
+  `mailto:` / `tel:` hrefs, Linktree's typed entries (`EMAIL_ADDRESS`,
+  `PHONE`), and a `socialLinks` email/phone when present — and hand them to
+  the same fill-if-empty identity fold the Instagram seeder uses
+  (`IdentitySync::applyIdentity` → `publicContact.email` / `.phone`), so an
+  owner-edited value is never overwritten. Validate: RFC-shaped email, E.164
+  phone via the existing phone normaliser; skip role addresses only if the
+  owner says so (default: keep — it is what they published).
+- Never card a contact entry as a link (a `mailto:` "Email me" button is
+  contact, not a link card); tally `contact`.
+- Setup feed: identity/platforms row mentions "Saved your email and phone".
+
+**Check.** Importer test: a Linktree with an email button and a `tel:` entry
+→ publicContact filled, zero link cards for them; second run does not
+overwrite an owner-edited value.
+
 ---
 
 ## Final proof (after every item ships)
