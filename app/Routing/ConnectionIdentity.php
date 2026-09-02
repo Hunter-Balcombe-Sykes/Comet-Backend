@@ -85,6 +85,11 @@ final class ConnectionIdentity
             ->where('user_id', $user->id)
             ->where('surface_key', $surfaceKey)
             ->whereNull('deleted_at')
+            // Hidden rows are not "already connected" (A.3): an alias match
+            // against one would auto-place onto a connection the person has
+            // never accepted. The pre-scrape lane dedupes by exact
+            // resource_id instead (SuggestionApplier's direct lookup).
+            ->visible()
             ->get(['id', 'resource_id', 'canonical_key', 'payload']);
 
         if ($ignoreConnectionId !== null) {

@@ -211,6 +211,7 @@ class SitepageDataResolverService
                     fn () => IntegrationConnection::query()
                         ->where('user_id', $userId)
                         ->where('is_active', true)
+                        ->visible()
                         ->get(['id', 'user_id', 'platform', 'payload'])
                         ->all(),
                     [],

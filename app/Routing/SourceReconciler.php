@@ -399,6 +399,9 @@ class SourceReconciler
             ->where('user_id', $user->id)
             ->where('surface_key', $surfaceKey)
             ->whereNull('deleted_at')
+            // A hidden pre-scrape row holds no slot (A.3): the person has not
+            // accepted it, so it must not block what they actually connect.
+            ->visible()
             ->when($aliasConnectionId !== null, fn ($q) => $q->where('id', '!=', $aliasConnectionId))
             ->where('resource_id', '!=', $identifier)
             ->count();

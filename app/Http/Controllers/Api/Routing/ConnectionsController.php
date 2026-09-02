@@ -31,6 +31,7 @@ class ConnectionsController extends ApiController
 
         $connections = IntegrationConnection::query()
             ->where('user_id', $user->id)
+            ->visible()
             ->orderBy('routing_class')
             ->orderBy('sort_order')
             ->orderBy('id')

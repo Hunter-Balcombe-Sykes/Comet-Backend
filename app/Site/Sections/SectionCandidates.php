@@ -417,7 +417,9 @@ class SectionCandidates
                 ->whereNull('content.source_items.removed_at')
                 ->where('content.sources.kind', 'connection')
                 ->whereNull('site.platform_connections.deleted_at')
-                ->where('site.platform_connections.is_active', true);
+                ->where('site.platform_connections.is_active', true)
+                // Hidden rows never publish (A.3); the library keeps them.
+                ->where('site.platform_connections.visibility', 'visible');
             foreach ($toggles as $toggle) {
                 // Sparse toggle: absent = ON, so only an explicit false turns a
                 // source off. The JSON grammar compiles per driver (->> on pg,
@@ -555,6 +557,7 @@ class SectionCandidates
                 ->where('sf.is_individual', false)
                 ->whereNull('spc.deleted_at')
                 ->where('spc.is_active', true)
+                ->where('spc.visibility', 'visible')
                 ->where(fn ($w) => $w
                     ->whereNull('spc.display_settings->auto_sync_latest')
                     ->orWhere('spc.display_settings->auto_sync_latest', '!=', false))

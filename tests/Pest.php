@@ -1153,6 +1153,7 @@ function setupSitesTable(): void
         payload TEXT NOT NULL DEFAULT \'{}\',
         sort_order INTEGER NOT NULL DEFAULT 0,
         is_active INTEGER NOT NULL DEFAULT 1,
+        visibility TEXT NOT NULL DEFAULT \'visible\' CHECK (visibility IN (\'visible\', \'hidden\')),
         last_visited_at TEXT NULL,
         last_refreshed_at TEXT NULL,
         last_refresh_status TEXT NULL CHECK (last_refresh_status IN (\'ok\',\'unavailable\',\'error\',\'pending\',\'action_needed\')),

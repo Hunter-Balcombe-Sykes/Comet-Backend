@@ -85,6 +85,9 @@ class SuggestionsController extends ApiController
             ->where('user_id', $user->id)
             ->whereIn('surface_key', $intents->pluck('surface_key')->unique()->all())
             ->whereNull('deleted_at')
+            // Hidden pre-scrape rows (A.3) must not settle the question the
+            // card exists to ask — "already connected" means visibly so.
+            ->visible()
             ->orderBy('created_at')
             ->get(['id', 'surface_key', 'resource_id', 'canonical_key', 'payload'])
             ->groupBy('surface_key');

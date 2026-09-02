@@ -83,10 +83,19 @@ class IntegrationConnectionObserver
         // status-only writes like last_visited_at / refresh status. Both
         // downstream jobs are ShouldBeUnique + idempotent, so a burst
         // coalesces to one purge + one rebuild.
-        if ($connection->wasRecentlyCreated
+        // Hidden pre-scrape rows (A.3) skip every public-facing effect — KV
+        // bump, edge purge, site touch, identity fold, menu fetch, Instagram
+        // auto — but KEEP ingest provisioning below: the whole point of a
+        // hidden connect is real items in the library before the person says
+        // yes. HiddenConnections::reveal() flips visibility, and that flip
+        // (wasChanged('visibility'), no longer hidden) is the connect moment
+        // for each gate here.
+        if (! $connection->isHidden()
+            && ($connection->wasRecentlyCreated
             || $connection->wasChanged('payload')
             || $connection->wasChanged('display_settings')
-            || $connection->wasChanged('is_active')) {
+            || $connection->wasChanged('is_active')
+            || $connection->wasChanged('visibility'))) {
             $this->refresher->refresh($connection);
 
             // Roll site.updated_at so the public.profile:{handle}:{ts} cache key
@@ -129,7 +138,8 @@ class IntegrationConnectionObserver
         // both land here. IdentitySync writes workplaces + users, never the
         // connection, so there is no recursion.
         if ($connection->platform === Platform::GoogleBusiness->value
-            && ($connection->wasRecentlyCreated || $connection->wasChanged('payload'))) {
+            && ! $connection->isHidden()
+            && ($connection->wasRecentlyCreated || $connection->wasChanged('payload') || $connection->wasChanged('visibility'))) {
             $this->syncIdentityFromGoogle($connection);
         }
 
@@ -154,7 +164,9 @@ class IntegrationConnectionObserver
         // never breaks the save). Slice 7 unit E retired the two sibling hooks
         // that seeded/reserved site.content_selection rows; pool:media pins are
         // the curation lane now, and they carry no connect-time seed.
-        if ($connection->wasRecentlyCreated && $connection->platform === Platform::Instagram->value) {
+        if (($connection->wasRecentlyCreated || $connection->wasChanged('visibility'))
+            && ! $connection->isHidden()
+            && $connection->platform === Platform::Instagram->value) {
             $this->enableContentInstagramAuto($connection);
         }
     }
@@ -617,7 +629,10 @@ class IntegrationConnectionObserver
         if ((string) $connection->routing_class !== 'ordering') {
             return;
         }
-        if (! ($connection->wasRecentlyCreated || $connection->wasChanged('payload') || ($connection->wasChanged('is_active') && $connection->is_active))) {
+        if ($connection->isHidden()) {
+            return;
+        }
+        if (! ($connection->wasRecentlyCreated || $connection->wasChanged('payload') || ($connection->wasChanged('is_active') && $connection->is_active) || $connection->wasChanged('visibility'))) {
             return;
         }
         $url = (string) (CardPayload::fromArray((array) $connection->payload)->url() ?? '');

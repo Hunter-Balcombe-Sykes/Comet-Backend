@@ -23,6 +23,7 @@ use Illuminate\Validation\ValidationException;
  * @property string|null $created_by_detector Detector id that auto-created this row (P2 router provenance).
  * @property string|null $created_by_catalog_digest Catalog artefact digest at auto-create time.
  * @property string $resource_id
+ * @property string $visibility 'visible' | 'hidden' (A.3): hidden pre-scrape rows ingest but touch no consumer-facing surface until revealed.
  * @property string|null $canonical_key Normalized identity key for account-row dedupe (FOUND-14); NULL for event- and link- prefixed resource rows.
  * @property string|null $resource_kind One of 'event'|'link', or NULL for account rows (platform_connections_resource_kind_check).
  * @property array<string, mixed> $payload User-curated selection + last-fetched upstream snapshot; shape varies per platform archetype — see the typed read boundaries in App\Services\Platforms\Payloads (FeedPayload, SelectionPayload, CardPayload, etc.), each a DIFFERENT subset/union of keys. NOT NULL with default '{}' in Postgres AND in the SQLite test mirror.
@@ -89,6 +90,17 @@ class IntegrationConnection extends BaseModel
      * individual-products bucket anchors — and conflating them would close a
      * lane nobody decided to close.
      */
+    /**
+     * Hidden connections (A.3): a sign-up pre-scrape connects the platform
+     * invisibly so ingest can run before the person has said yes. Hidden rows
+     * ingest but are excluded from the public payload, the connection list,
+     * caps, page presence, the inbox connected-filter and the pool publish
+     * rules; the library keeps their items. Orthogonal to `is_active`.
+     */
+    public const VISIBILITY_VISIBLE = 'visible';
+
+    public const VISIBILITY_HIDDEN = 'hidden';
+
     public const RETIRED_SURFACES = [
         'partna.custom_link',
         'partna.order_link',
@@ -130,6 +142,7 @@ class IntegrationConnection extends BaseModel
         'refresh_etag',
         'refresh_last_modified',
         'display_settings',
+        'visibility',
     ];
 
     protected $casts = [
@@ -292,6 +305,17 @@ class IntegrationConnection extends BaseModel
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
+    }
+
+    /** Excludes hidden pre-scrape rows (A.3) — the default for every consumer-facing read. */
+    public function scopeVisible($query)
+    {
+        return $query->where('visibility', self::VISIBILITY_VISIBLE);
+    }
+
+    public function isHidden(): bool
+    {
+        return (string) $this->visibility === self::VISIBILITY_HIDDEN;
     }
 
     /**

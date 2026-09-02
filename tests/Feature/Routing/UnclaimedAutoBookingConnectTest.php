@@ -42,7 +42,13 @@ function freshaBioPage(): void
     )]);
 }
 
-it('auto-connects a Fresha link that arrives via an aggregator unroll for an unclaimed user', function () {
+it('suggests (never auto-connects) a Fresha link that arrives via an aggregator unroll for an unclaimed user', function () {
+    // REVERSED by the setup-dialog run (A.2, owner decision 1, 2026-09-02):
+    // R14's auto-connect gave the demo site a booking CTA, but the new
+    // sign-up contract is "nothing is connected for them except the source
+    // platform" — the harvest becomes a banded Choose the setup dialog asks,
+    // and the Fresha venue itself reaches the person via the pre-scrape
+    // lane's listing candidates (A.4/A.5), not a silent connect.
     Queue::fake();
     freshaBioPage();
 
@@ -51,11 +57,14 @@ it('auto-connects a Fresha link that arrives via an aggregator unroll for an unc
 
     app(LinkInBioImporter::class)->import($user, 'https://example.com/simon');
 
-    // The connection must actually have been placed — otherwise the dispatch
-    // assertion below could pass for the wrong reason on a lane that never ran.
-    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
 
-    Queue::assertPushed(ConnectFetchJob::class);
+    $intent = \Illuminate\Support\Facades\DB::table('routing.source_intents')
+        ->where('user_id', $user->id)->where('surface_key', 'fresha.book')->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->state)->toBe('proposed');
+
+    Queue::assertNotPushed(ConnectFetchJob::class);
 });
 
 it('does NOT auto-connect for a claimed user — they keep the picker', function () {

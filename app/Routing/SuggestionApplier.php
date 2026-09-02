@@ -67,7 +67,7 @@ class SuggestionApplier
      *
      * @param  array<string, mixed>  $surface  compiled catalog surface data
      */
-    public function apply(User $user, object $intent, array $surface): IntegrationConnection
+    public function apply(User $user, object $intent, array $surface, bool $hidden = false): IntegrationConnection
     {
         // Capability re-check at APPLY time (2026-08-04): intents are durable
         // and the account's capability set can change between record and
@@ -97,7 +97,7 @@ class SuggestionApplier
             throw new AuthorizationException($denied);
         }
 
-        return DB::transaction(function () use ($user, $intent, $surface) {
+        return DB::transaction(function () use ($user, $intent, $surface, $hidden) {
             // Replacing an incumbent. Two shapes share this column:
             //  - a booking-class CONFLICT: demote it rather than delete it —
             //    the user asked for a different primary, not for their data
@@ -171,6 +171,11 @@ class SuggestionApplier
                         'suggestion',
                     ),
                     'is_active' => true,
+                    // A pre-scrape apply (A.4) is born hidden: it ingests but
+                    // stays off every consumer-facing surface until the setup
+                    // dialog reveals or discards it. Only a row created here —
+                    // an existing row's visibility is its owner's business.
+                    'visibility' => $hidden ? IntegrationConnection::VISIBILITY_HIDDEN : IntegrationConnection::VISIBILITY_VISIBLE,
                     // Issue-13 fix: same predicate as the dispatch below.
                     'last_refresh_status' => ConnectionPayload::contentIsOwed((string) $intent->surface_key, (string) $intent->routing_class) ? 'pending' : 'ok',
                 ]);
