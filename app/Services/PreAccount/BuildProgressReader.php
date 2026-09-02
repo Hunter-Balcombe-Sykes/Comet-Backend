@@ -143,7 +143,46 @@ final class BuildProgressReader
         $settled = $media['mirrored'] + ($media['failed'] ?? 0);
         $mediaSaved = $media['total'] === 0 || $settled >= min($media['total'], self::MEDIA_SETTLED_ENOUGH);
 
-        return $workplaceAnswered && $platformsAnswered && $mediaSaved;
+        return $workplaceAnswered && $platformsAnswered && $mediaSaved && ! $this->stillConnecting($build);
+    }
+
+    /**
+     * "Live" means nothing is still connecting or syncing (owner, batch 3
+     * E.1, 2026-09-02 — sammylalor read "live", then products loaded onto
+     * /shop minutes later). Two queues the stage ledger could not see: a
+     * brand store's connect + first fill (content.storefronts: connect_status
+     * still pending, or settled but its products not yet auto-selected) and
+     * an ingest source's first pull (needs_eager_run / in flight). Each row
+     * is owed only for OWED_MINUTES from its own creation, so a stuck job
+     * cannot hold the card to the ceiling.
+     */
+    private function stillConnecting(PreAccountBuild $build): bool
+    {
+        if ($build->user_id === null) {
+            return false;
+        }
+        try {
+            $since = now()->subMinutes(self::OWED_MINUTES)->toDateTimeString();
+            $pg = DB::connection('pgsql');
+            $stores = $pg->table('content.storefronts')
+                ->where('user_id', $build->user_id)
+                ->where('created_at', '>', $since)
+                ->where(fn ($q) => $q->where('connect_status', 'pending')->orWhereNull('products_autoselected_at'))
+                ->exists();
+            if ($stores) {
+                return true;
+            }
+
+            return $pg->table('ingest.sources')
+                ->where('user_id', $build->user_id)
+                ->where('created_at', '>', $since)
+                ->where(fn ($q) => $q->where('needs_eager_run', true)->orWhereNotNull('in_flight_since'))
+                ->exists();
+        } catch (\Throwable $e) {
+            report($e);
+
+            return false;
+        }
     }
 
     /**

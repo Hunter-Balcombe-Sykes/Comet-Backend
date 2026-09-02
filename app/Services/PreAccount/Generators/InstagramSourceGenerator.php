@@ -284,7 +284,7 @@ class InstagramSourceGenerator implements SiteSourceGenerator
             // Setup progress (2026-09-02): the workplace is owed from the
             // dispatch, not from the chain's first line (it ran after done).
             BuildProgress::noteForUser((string) $user->id, PreAccountBuildEvent::STAGE_WORKPLACE, PreAccountBuildEvent::STATUS_STARTED, 'Checking '.BuildProgress::count(count($intel->mentions), 'place mentioned', 'places mentioned').' in your bio');
-            BioMentionChainsJob::dispatch((string) $user->id, $intel->mentions)
+            BioMentionChainsJob::dispatch((string) $user->id, $intel->mentions, 0, self::discountCodesBeside((string) $biography, $intel->mentions))
                 ->afterCommit();
         }
 
@@ -307,5 +307,39 @@ class InstagramSourceGenerator implements SiteSourceGenerator
 
         // PRIV-2 lives in InstagramConnectionSeeder::seed() — per-writer, so it covers
         // every caller. A post-seed trim here missed the ones that skip this generator.
+    }
+
+    /**
+     * "@elitesuppsaustralia code LALOR" (batch 3 E.3, owner, 2026-09-02): a
+     * code named within 40 characters of a brand mention, either side —
+     * "code X", "use X", "promo X", "X off" — keyed by the lowercased
+     * handle for the brand chain to adopt once that store lands.
+     *
+     * @param  list<array{handle: string, label: string, type: string}>  $mentions
+     * @return array<string, string>
+     */
+    public static function discountCodesBeside(string $biography, array $mentions): array
+    {
+        $codes = [];
+        if (trim($biography) === '') {
+            return $codes;
+        }
+        foreach ($mentions as $mention) {
+            $handle = strtolower(ltrim($mention['handle'], '@'));
+            if ($handle === '') {
+                continue;
+            }
+            $h = preg_quote($handle, '~');
+            $after = '~@'.$h.'\b[^@\n]{0,40}?\b(?:code|use|promo|discount)\s*[:\-]?\s*["\']?([A-Za-z0-9]{3,20})["\']?~iu';
+            $before = '~\b(?:code|use|promo|discount)\s*[:\-]?\s*["\']?([A-Za-z0-9]{3,20})["\']?[^@\n]{0,40}?@'.$h.'\b~iu';
+            foreach ([$after, $before] as $pattern) {
+                if (preg_match($pattern, $biography, $m) === 1 && ! in_array(strtolower($m[1]), ['code', 'use', 'promo', 'discount', 'off', 'the', 'my', 'for'], true)) {
+                    $codes[$handle] = $m[1];
+                    break;
+                }
+            }
+        }
+
+        return $codes;
     }
 }
