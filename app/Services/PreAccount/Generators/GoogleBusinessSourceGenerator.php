@@ -62,7 +62,13 @@ class GoogleBusinessSourceGenerator implements SiteSourceGenerator
     public function prefetch(string $sourceRef, ?string $sourceName, ?string $userId = null): SourcePrefetch
     {
         try {
-            $details = $this->service->fetchPlaceDetails($sourceRef, $userId ?? 'pre-account');
+            // The per-user Places cap keys on this id (2026-09-02): one shared
+            // 'pre-account' bucket meant EVERY signup's prefetch drew from the
+            // same 180-a-day allowance, and a busy day of business signups
+            // failed the rest with "scrape_failed". Per place instead: a
+            // single listing can still not drain the platform (the global cap
+            // stands), and one prospect's rebuilds only ever bill themselves.
+            $details = $this->service->fetchPlaceDetails($sourceRef, $userId ?? 'pre-account:'.$sourceRef);
         } catch (PlacesBudgetExhaustedException) {
             // RV-6: a budget stop is not a bad place_id — FAILURE_SCRAPE_FAILED
             // is the resettable failure state (build re-runs), never
