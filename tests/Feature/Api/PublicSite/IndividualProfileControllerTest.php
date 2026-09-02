@@ -282,7 +282,7 @@ it('maps the selection columns into the selections group', function () {
         'site_id' => $siteId,
         'text_size' => 'large',
         'spacing' => 'spacious',
-        'corners' => 'rounded',
+        'corners' => 'default',
     ]);
 
     $data = $this->getJson('/api/public/profiles/solo-dk-selections')->assertOk()->json('data');
@@ -290,7 +290,7 @@ it('maps the selection columns into the selections group', function () {
     expect($data['designKit']['selections'])->toBe([
         'textSize' => 'large',
         'spacing' => 'spacious',
-        'corners' => 'rounded',
+        'corners' => 'default',
     ]);
     // An exact match must win over the prefix maps: `text_size` would
     // otherwise have landed in text.size.

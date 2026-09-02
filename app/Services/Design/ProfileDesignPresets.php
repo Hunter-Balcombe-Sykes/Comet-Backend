@@ -87,9 +87,12 @@ final class ProfileDesignPresets
             return [];
         }
 
-        return array_merge(
+        $look = array_merge(
             SectorStylePresets::forBucket($bucket),
             SectorStylePresets::forSlug($slug),
         );
+
+        // The register's axes win over both tiers (owner, 2026-09-02).
+        return SectorStylePresets::applyRegister($look, $bucket, SectorStylePresets::registerFor($bucket, $slug));
     }
 }

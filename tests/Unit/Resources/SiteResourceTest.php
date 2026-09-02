@@ -2,6 +2,7 @@
 
 use App\Http\Resources\SiteResource;
 use App\Models\Core\Site\Site;
+use App\Services\Design\SectorStylePresets;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -205,9 +206,10 @@ describe('withResolvedDesignKit', function () {
         // with the preset-only migration. The bucket's font survives, which is
         // what proves the BASE tier applied — and the accent below proves the
         // slug refinement layered over it.
-        expect($array['design_kit']->typography_font_family)->toBe('forma-djr')
-            // slug refinement (plumber) wins over the home_services bucket's own accent
-            ->and($array['design_kit']->color_accent)->toBe('#0369a1')
+        // Since 2026-09-02 the register decides face and fallback accent over
+        // both tiers: a plumber reads masculine — NB Architekt, the neon.
+        expect($array['design_kit']->typography_font_family)->toBe('nb-architekt')
+            ->and($array['design_kit']->color_accent)->toBe(SectorStylePresets::MASCULINE_ACCENT)
             ->and($array['design_kit_manual'])->toBe([]);
     });
 });

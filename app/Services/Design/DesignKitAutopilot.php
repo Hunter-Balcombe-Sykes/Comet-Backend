@@ -176,7 +176,8 @@ class DesignKitAutopilot
             return 'sharp';
         }
 
-        return $median < 10.8 ? 'default' : 'rounded';
+        // 'rounded' retired 2026-09-02 (owner): anything soft is the curved rung.
+        return 'default';
     }
 
     /**
