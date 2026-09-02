@@ -26,9 +26,28 @@ final class BuildProgress
     /**
      * @param  array<string, mixed>  $payload
      */
+    /**
+     * Stages that land once per build. A second `landed` row for one of them
+     * is a second producer describing the same thing (FreshaWorkplaceLinker
+     * and the Google enrich both said "Workplace: STUDIO.MJ" on the
+     * jordan.dimitriadis rebuild, 2026-09-02) — the feed keeps the first.
+     * Shop and platforms repeat by design (one row per store / per page).
+     */
+    private const ONE_SHOT_STAGES = [
+        PreAccountBuildEvent::STAGE_IDENTITY,
+        PreAccountBuildEvent::STAGE_WORKPLACE,
+        PreAccountBuildEvent::STAGE_LISTING,
+        PreAccountBuildEvent::STAGE_WEBSITE,
+    ];
+
     public static function note(string $buildId, string $stage, string $status, string $label, array $payload = []): void
     {
         try {
+            if ($status === PreAccountBuildEvent::STATUS_LANDED
+                && in_array($stage, self::ONE_SHOT_STAGES, true)
+                && PreAccountBuildEvent::query()->where('build_id', $buildId)->where('stage', $stage)->where('status', $status)->exists()) {
+                return;
+            }
             $event = new PreAccountBuildEvent;
             $event->forceFill([
                 'build_id' => $buildId,

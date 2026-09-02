@@ -366,3 +366,61 @@ behind `instagram_depth_enabled = false`.
    feed's platforms row from the Linktree.
 2. One business rebuild for regression (the-famished-wolf GB place).
 3. Deploy backend → dashboard → pages; spot-check the live pages by curl.
+
+---
+
+## Results — executed 2026-09-02 (all items shipped; proofs on live dev rebuilds)
+
+Commits (Comet-Backend `development`): `1b018444d` `135b32d2b` `9479cfa53`
+(batches A–C), `60e2a1d32` `ae25d5bde` `e69156dcb` `36f51a138` `4390e9a37`
+(Square Tasks 1–5), `321bc8ec3` (item 4 platform stamp), `0a09fe5e6`
+(proof-run fixes), plus the feed dedupe. Monorepo `main`: `1f09e59c`
+(dashboard, Square Task 6), `c5b8f992` (pages, item 4 brand tile — pages
+version `72d41a16` live).
+
+**Proof builds (public flow, harness, dev):** jordan.dimitriadis,
+teegandyson, certifiedbarberboy → jessejensz (Square Task 7 done as a
+rebuild rather than a hand repair), and one business build (Akro Studio,
+Google Business `ChIJza0QVMRp1moRbAhUmX6J27M`). Every build reached `ready`
+in 25–100 s to content_filled; feeds settled to `done`.
+
+| Item | Proof |
+|---|---|
+| 1 TikTok covers | Jordan's watch pool: 2 TikTok videos, 0 without thumbnail. |
+| 2 Name/handle | `jordandimitriadis` / "Jordan Dimitriadis"; Teegan "Teegan Dyson"; Jesse "Jesse Jensz". |
+| 3 YouTube once | First pass still made two rows + a card — two gaps the plan missed (below). After `0a09fe5e6`: one youtube connection (`UCeqsbOe…`), one source, zero YouTube link cards. |
+| 4 Imageless links | forms.gle card has its share image; a YouTube link card carried `platform: youtube` on the wire (stamped from the catalog) before the fold removed it; the links rail renders the kit wordmark when a platform link has no cover. `content:enrich-pool-links --missing` re-queued 111 links on dev. |
+| 5 Actions | actions[0] = Book on all four builds (cold-start tier), then Contact, then platforms. |
+| 6 Discount code | First pass: empty — the Gamma+ tile is an unknown domain, its store is minted by CommerceProbeJob AFTER the import, so the fill-if-empty found no row. Fixed: the probe carries the sniffed code; rebuild shows `gammaplus.com.au → TEEGAN10`. |
+| 7 Feed settles | All four feeds reached `done`; no stuck "Checking 2 places" / "Saving media" rows. Jordan's feed had two "Workplace" landed rows from two producers → one-shot stages now keep the first. |
+| 8 Live card | Shipped earlier (`270bea50`); owner to check visuals. |
+| 9 Square | jessejensz rebuild: `square.book` connection is the deep link (`…/7rn54rnv21ng7n/location/LAJZK7J54JGCW?team_member_id=TM-qREuvGrHGnJ5Z`), `square_book` source ok, 3 services for that team member (Haircut and Beard Trim, Beard Trim, Haircut and Style), NO `square` menu source, NO book.squareup.com link card. Dashboard: BookingTeamStep serves `/platforms/square/{team,selection,selection/storewide}`. |
+| 10 Linktree contact | Works as designed; Teegan's Linktree carries no mailto:/tel: (verified against the page), so nothing to fill. |
+| 11 Reel quality | Best rendition is picked, but ScrapeCreators serves at most 720×1280 for portrait reels (original 1080×1920 is not offered; Teegan's landscape reel got 1276×718). A sharper home reel needs a different source. |
+
+**Found and fixed during the proof (not in the original items):**
+- `youtube.com/@x` beside `youtube.com/@x?sub_confirmation=1` on one link
+  page carded the second (same key, query-only canonical difference).
+- `youtube.com/channel/UC…` beside `youtube.com/@handle`: link-page rows
+  never carry `channelId`, so the duplicate rule had nothing to key on. The
+  RSS connector now notes the resolved id; runs persist note context;
+  `IngestStatusWriteback` stamps it with a real save → the observer retires
+  the other row.
+- Tile titles for the HTML (non-vendor) link-page arm, so the discount
+  sniff works there too.
+- A pasted or Google-harvested `*.square.site` root resolves to the
+  Appointments deep link when the site links out to one
+  (`SquareSiteBookingResolver`).
+
+**Open, recorded (not fixed here):**
+- Akro Studio's square.site builds its booking page from a Square merchant
+  token (`MLSE…`) and never links to `book.squareup.com/appointments/<id>`;
+  the widget API rejects the token, so that connection stays the root URL
+  (Book button works; no services). Only a Square-side id mapping would fix it.
+- Teegan's TikTok `@hairbydyson`: ScrapeCreators answers 404
+  `account_deactivated` (tiktok.com serves a placeholder 200). The source is
+  correctly `unavailable`; a retired-account rule for the connection is a
+  possible follow-up.
+- A first pull that fails schedules the next attempt at the source's max
+  interval (7 days for TikTok) — long for a brand-new site; worth a
+  first-run backoff.
