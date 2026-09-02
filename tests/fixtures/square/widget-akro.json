@@ -1,0 +1,81 @@
+{
+  "unit_token": "LAJZK7J54JGCW",
+  "business": {
+    "name": "Akro Studio",
+    "phone": "+61 3 9000 0000",
+    "email": "hello@akro.studio",
+    "timezone": "Australia/Melbourne",
+    "currency_code": "AUD",
+    "profile_image": {"url": "https://square-web-production-f.squarecdn.com/files/akro-logo.png"}
+  },
+  "active_business_locations": [
+    {
+      "id": "LAJZK7J54JGCW",
+      "name": "Akro Studio",
+      "website_url": "https://akro-studio.square.site/",
+      "instagram_url": "https://www.instagram.com/akro.studio/"
+    }
+  ],
+  "categories": [
+    {"id": "CAT-CUTS", "name": "Cuts"},
+    {"id": "CAT-BEARDS", "name": "Beards"}
+  ],
+  "staff": [
+    {
+      "id": "qgev4xbopoqbvs",
+      "employee_token": "TM-qREuvGrHGnJ5Z",
+      "first_name": "Jesse",
+      "last_name": "Jensz",
+      "short_name": "Jesse J.",
+      "long_name": "Jesse Jensz",
+      "bio": "Skin fades and beard work.",
+      "profile_image": {"url": "https://square-web-production-f.squarecdn.com/files/jesse.jpg"}
+    },
+    {
+      "id": "w0uh2k4m7n3p",
+      "employee_token": "TM-b7Kd2mXq9Lp4R",
+      "first_name": "Sam",
+      "last_name": "Rowe",
+      "short_name": "Sam R.",
+      "long_name": "Sam Rowe",
+      "bio": "",
+      "profile_image": {"url": "https://square-web-production-f.squarecdn.com/files/sam.jpg"}
+    }
+  ],
+  "services": [
+    {
+      "id": "JGQS7AK63SUIASWDSCTRSGVK",
+      "item_token": "JGQS7AK63SUIASWDSCTRSGVK",
+      "name": "Beard Trim",
+      "description": "Shape, line up and hot towel finish.",
+      "category_token": "CAT-BEARDS",
+      "currency_code": "AUD",
+      "variations": [
+        {"id": "VAR-BEARD-SENIOR", "price_cents": 8000, "service_time": 1800, "staff_ids": ["qgev4xbopoqbvs"], "is_visible_in_default_booking": true},
+        {"id": "VAR-BEARD-JUNIOR", "price_cents": 4000, "service_time": 1800, "staff_ids": ["w0uh2k4m7n3p"], "is_visible_in_default_booking": true}
+      ]
+    },
+    {
+      "id": "BUZZ4K2M9P7Q1R5S8T3V6W0X",
+      "item_token": "BUZZ4K2M9P7Q1R5S8T3V6W0X",
+      "name": "Buzz Cut",
+      "description": "",
+      "category_token": "CAT-CUTS",
+      "currency_code": "AUD",
+      "variations": [
+        {"id": "VAR-BUZZ", "price_cents": 3500, "service_time": 900, "staff_ids": ["w0uh2k4m7n3p"], "is_visible_in_default_booking": true}
+      ]
+    },
+    {
+      "id": "FADE9X8W7V6U5T4S3R2Q1P0N",
+      "item_token": "FADE9X8W7V6U5T4S3R2Q1P0N",
+      "name": "Haircut and Style",
+      "description": "Cut, wash and style.",
+      "category_token": "CAT-CUTS",
+      "currency_code": "AUD",
+      "variations": [
+        {"id": "VAR-FADE", "price_cents": 6500, "service_time": 2700, "staff_ids": ["qgev4xbopoqbvs", "w0uh2k4m7n3p"], "is_visible_in_default_booking": true}
+      ]
+    }
+  ]
+}
