@@ -338,3 +338,51 @@ it('releaseStranded() releases a claim older than 2h, files a stranded anomaly, 
     // The fresh claim must not have generated an anomaly of its own.
     expect(DB::table('ingest.anomalies')->where('source_id', $fresh)->count())->toBe(0);
 });
+
+// O.1 (2026-09-02): a source that has never landed (needs_eager_run still
+// set) is a signup's connection whose card reads "pending" until it does;
+// the exponential curve was built for sources with history (TikTok's 12h
+// minimum → a full day after one vendor blip). The first three failures of a
+// first pull retry within 15 minutes; the fourth falls back to the curve.
+it('release() retries a never-landed source within 15 minutes for its first three failures, then backs off normally', function () {
+    $id = seedSourceForScheduler([
+        'consecutive_failures' => 0,
+        'min_interval_secs' => 43_200,
+        'max_interval_secs' => 604_800,
+        'needs_eager_run' => 1,
+    ]);
+    $scheduler = new SourceScheduler;
+
+    foreach ([1, 2, 3] as $n) {
+        $before = now();
+        $scheduler->release($id, 'unavailable', false);
+        $row = DB::table('ingest.sources')->where('id', $id)->first();
+        expect((int) $row->consecutive_failures)->toBe($n)
+            ->and((bool) $row->needs_eager_run)->toBeTrue();
+        $expectedAt = $before->copy()->addSeconds(SourceScheduler::FIRST_PULL_RETRY_SECONDS)->getTimestamp();
+        expect(abs(strtotime((string) $row->next_attempt_at) - $expectedAt))->toBeLessThanOrEqual(2);
+    }
+
+    // Fourth failure: min(604800, 43200 * 2^4) = 604800 — the ordinary curve.
+    $before = now();
+    $scheduler->release($id, 'unavailable', false);
+    $row = DB::table('ingest.sources')->where('id', $id)->first();
+    $expectedAt = $before->copy()->addSeconds(604_800)->getTimestamp();
+    expect(abs(strtotime((string) $row->next_attempt_at) - $expectedAt))->toBeLessThanOrEqual(2);
+});
+
+it('release() keeps the ordinary backoff for a source that has landed before, even on its first failure', function () {
+    $id = seedSourceForScheduler([
+        'consecutive_failures' => 0,
+        'min_interval_secs' => 43_200,
+        'max_interval_secs' => 604_800,
+        'needs_eager_run' => 0,
+    ]);
+    $before = now();
+
+    (new SourceScheduler)->release($id, 'unavailable', false);
+
+    $row = DB::table('ingest.sources')->where('id', $id)->first();
+    $expectedAt = $before->copy()->addSeconds(86_400)->getTimestamp();
+    expect(abs(strtotime((string) $row->next_attempt_at) - $expectedAt))->toBeLessThanOrEqual(2);
+});

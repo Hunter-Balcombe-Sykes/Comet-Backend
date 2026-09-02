@@ -152,6 +152,11 @@ class SourceScheduler
      * interval and a busy one earns a shorter, without anybody tuning a
      * config value per platform.
      */
+    /** How many failed FIRST pulls retry fast, and how fast (O.1). */
+    public const FIRST_PULL_FAST_RETRIES = 3;
+
+    public const FIRST_PULL_RETRY_SECONDS = 900;
+
     public function release(string $sourceId, string $outcome, bool $changed, ?int $retryAfterSeconds = null): void
     {
         $source = DB::table('ingest.sources')->where('id', $sourceId)->first();
@@ -209,6 +214,17 @@ class SourceScheduler
             // maximum interval — a broken source must not vanish forever, it
             // must simply stop being expensive.
             $backoff = min((int) $source->max_interval_secs, (int) $source->min_interval_secs * (2 ** min(6, $failures)));
+            // FIRST-PULL BACKOFF (O.1, 2026-09-02): a source that has never
+            // landed — needs_eager_run is still set, since only a qualifying
+            // outcome clears it — is a signup's connection whose card reads
+            // "pending" until it does. The exponential curve was built for a
+            // source with history (TikTok: 12h min → a day's wait after ONE
+            // vendor blip, a week after three); for a first pull the person
+            // is waiting, so the first three failures retry within 15
+            // minutes. From the fourth the ordinary curve applies.
+            if ((bool) $source->needs_eager_run && $failures <= self::FIRST_PULL_FAST_RETRIES) {
+                $backoff = min($backoff, self::FIRST_PULL_RETRY_SECONDS);
+            }
             $update['next_attempt_at'] = now()->addSeconds($backoff);
         }
 
