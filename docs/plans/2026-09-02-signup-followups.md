@@ -293,6 +293,22 @@ reviews stream; Fresha unchanged except the Task 6 team-step generalisation.
 - Task 7 — repair jessejensz (delete the wrong Square row + stray menu
   source, re-import the Linktree) and verify on the live page.
 
+**Owner's answers to the spec's four open questions (2026-09-02) — Task 5
+is unblocked:**
+1. Bare `square.site` root: the strongest setup, cost no object — do BOTH:
+   probe the root's HTML once for a `book.squareup.com/appointments/
+   {merchant}` link and, when found, store THAT as the Square booking
+   connection; when no appointments link exists, route the root to the
+   branded `direct.book` card (never the Square slot). One branch in
+   `resolveBookingWrite`, the probe through SafeUrlFetcher, budgeted like
+   the other one-shot probes.
+2. Variations: one pool item per service, "From $X" (Fresha parity).
+3. No `team_member_id` and no name match on a partna account: land the
+   whole menu (Fresha's storewide fallback); the owner picks their team
+   member in the Task 6 step afterwards.
+4. Refresh: exactly what Fresha has today — mirror `RefreshController`'s
+   treatment of Fresha for Square, no new behaviour.
+
 ## 10. Linktree email / phone → the person's public contact info
 
 **Owner's ask (2026-09-02).** When the Linktree carries the person's email
