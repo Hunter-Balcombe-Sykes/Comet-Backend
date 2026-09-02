@@ -102,9 +102,13 @@ final class ScrapedNameCasing
                 // CONNECTORS — the vocabulary this class exists to share, which
                 // titleCase() never actually read until 2026-09-02. Lowercase
                 // only MID-name, only after whitespace, and only when the
-                // preceding non-space character does not open a new clause:
-                // "Manicure - With Gel Polish" keeps its capital, "Toner with
-                // Color" loses one.
+                // preceding non-space character does not open a new clause.
+                // A clause opener is one of '-', '(', '/', ',' or ':' — the
+                // five characters in $opensClause's charset below.
+                // "Manicure - With Gel Polish" keeps its capital because '-'
+                // opens a clause; "Toner with Color" loses one because plain
+                // whitespace does not; "Cut, and Colour" keeps "And" for the
+                // same reason as '-' — the comma opens a fresh clause too.
                 $afterSpace = $prev !== '' && strpos(" \t\r\n\f\v", $prev) !== false;
                 $clauseHead = rtrim(substr($s, 0, $offset));
                 $opensClause = $clauseHead !== '' && strpos('-(/,:', substr($clauseHead, -1)) !== false;

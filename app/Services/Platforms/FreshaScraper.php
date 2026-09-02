@@ -79,15 +79,11 @@ class FreshaScraper
      * SourceReconciler and SuggestionApplier write `intent.canonical_url`
      * verbatim, which for a Fresha link-in-bio is the share URL. Reading both
      * shapes here — rather than canonicalising inside the brand-agnostic
-     * reconciler — keeps the knowledge of Fresha's URL grammar in the one class
-     * that already owns it.
+     * reconciler — reaches into `FreshaPage`, the one class that owns Fresha's
+     * URL grammar for both lanes.
      */
     public function slugFromUrl(string $url): ?string
     {
-        // Host-anchored (an unanchored `/a/…` would match inside a foreign
-        // query string), optional locale segment (Fresha's own redirects land
-        // on `/en-GB/a/<slug>/booking?…`), same alternative as the catalog
-        // detector and SourceProvisioner::freshaSlug.
         return FreshaPage::slugFromUrl($url);
     }
 

@@ -1084,6 +1084,8 @@ Three legitimate outcomes:
 
 Note that even under outcome 2 this is **not** de-duplication with the connector: `extractServices` parses the venue page's `location.services` tree while `FreshaConnector::mapServiceItem()` parses the booking flow's `screenServices.categories`. Different documents, different output shapes, different id grammars (`s:` vs `s:|p:`). Moving it is cohesion only.
 
+The "18 of 116, and those 18 are the gate difference" framing predates Task 0 (`8ac36ec38`) and is no longer the whole story. Task 0 made `titleCase()` read `CONNECTORS`, so the two casers now also diverge wherever a connector word follows a clause opener (`-`, `(`, `/`, `,`, `:`) — `titleCase()` capitalises it there, `scanTitleCase()` never touches it because it gates on the whole string. That is a SEPARATE axis from the ALL-CAPS-vs-mixed-case gate this section is about, and it fires independent of it: `MANICURE - WITH GEL POLISH` → `titleCase`: `Manicure - With Gel Polish`, `scanTitleCase`: `Manicure - with Gel Polish`; `SPECIAL: WITH GEL` → `titleCase`: `Special: With Gel`, `scanTitleCase`: `Special: with Gel`; `CUT, AND COLOUR` → `titleCase`: `Cut, And Colour`, `scanTitleCase`: `Cut, and Colour`. Whoever answers this ruling should weigh both axes, not just the gate.
+
 ---
 
 ## The other `FreshaServiceProjector` — answered

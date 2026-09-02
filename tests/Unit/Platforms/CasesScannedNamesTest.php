@@ -62,6 +62,9 @@ it('handles null, empty and letterless strings without inventing case', function
 // (ScrapedNameCasing docblock), but titleCase() never read it — so the ingest
 // lane published "Just A Few Locs" and "Toner With Color". Six real dev names
 // were affected (2026-09-02).
+// CONNECTORS also carries '&', but titleCase()'s token regex is \p{L}+ and
+// '&' is not a letter — the callback never sees it as a run, so it is
+// unreachable through this method and gets no row here. Not a gap.
 it('keeps connector words lowercase mid-name', function (string $in, string $out) {
     expect(ScrapedNameCasing::titleCase($in))->toBe($out);
 })->with([
@@ -71,6 +74,10 @@ it('keeps connector words lowercase mid-name', function (string $in, string $out
     ['Restyle with consultation', 'Restyle with Consultation'],
     ['Junior Zero and skin fade', 'Junior Zero and Skin Fade'],
     ['Blow Wave Short Or with Color', 'Blow Wave Short Or with Color'],
+    ['Bowl of Broth', 'Bowl of Broth'],
+    ['Sticky Pork on Rice', 'Sticky Pork on Rice'],
+    ['Corn on the Cob', 'Corn on the Cob'],
+    ['Orin Swift, 8 Years in the Desert', 'Orin Swift, 8 Years in the Desert'],
 ]);
 
 // First and last word always capitalise, even when they are connector words.
@@ -84,4 +91,19 @@ it('still capitalises a connector word at either edge', function () {
 // Polish" in live dev data, and downcasing only one of the pair is wrong.
 it('capitalises a connector that opens a new clause', function () {
     expect(ScrapedNameCasing::titleCase('Manicure - With Gel Polish'))->toBe('Manicure - With Gel Polish');
+});
+
+// ACCEPTED, DELIBERATE cost of the per-token gate (2026-09-02 fix wave
+// measurement): titleCase() gates per TOKEN, so it also processes mixed-case
+// strings, unlike scanTitleCase() below which gates on the WHOLE STRING and
+// leaves any already mixed-case input alone. A vendor's standalone capital
+// "A" — "Vitamin A Facial", not the English article "a" — falls to the same
+// rule that correctly produces "Just a Few Locs". Measured against all 3895
+// distinct dev `content.items` menu names (kind='menu_item'): 2 real names hit
+// this exact standalone-capital-letter class ("… A …" downcased to "… a …"
+// where the source meant a letter, not "a"), out of 230 names titleCase()
+// changes overall — not a bug, a known and accepted narrow cost.
+it('downcases a standalone capital connector letter even in a mixed-case name — accepted cost', function () use ($caser) {
+    expect(ScrapedNameCasing::titleCase('Vitamin A Facial'))->toBe('Vitamin a Facial')
+        ->and($caser->case('Vitamin A Facial'))->toBe('Vitamin A Facial');
 });

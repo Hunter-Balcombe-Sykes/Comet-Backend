@@ -1,10 +1,11 @@
 <?php
 
 use App\Services\Platforms\FreshaPage;
+use Tests\Support\Fixtures\Recorded;
 
 function freshaRecordedPage(string $name): string
 {
-    return file_get_contents(dirname(__DIR__, 2).'/fixtures/recorded/fresha/'.$name);
+    return Recorded::html('fresha/'.$name);
 }
 
 /** The venue-page location blob, hand-built: the recorded fixtures are book-now pages and carry none (see Task 1 Step 1 note). */
