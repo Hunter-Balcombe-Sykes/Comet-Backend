@@ -122,7 +122,8 @@ class ShopInitialFillJob implements ShouldBeUnique, ShouldQueue
                 ['store' => $storeName, 'url' => $store->url, 'logo' => $store->logoUrl, 'discountCode' => $store->discountCode ?: null, 'products' => $products],
             );
         } catch (Throwable $e) {
-            report($e);
+            // Feed decoration only — never an exception report for it.
+            Log::debug('shop.initial_fill_job.progress_note_skipped', ['collection_id' => $this->collectionId, 'error' => $e->getMessage()]);
         }
     }
 

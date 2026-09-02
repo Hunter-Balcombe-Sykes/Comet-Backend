@@ -115,6 +115,8 @@ class PersonNameMatch
         'pizzeria', 'property', 'pub', 'roasters', 'salon', 'shop', 'skin',
         'spa', 'store', 'studio', 'studios', 'tattoo', 'tattooist', 'tattoos',
         'therapies', 'therapist', 'therapy', 'trainer', 'training', 'wedding',
+        // 2026-09-02, in step with NameShapeGate::DESCRIPTORS.
+        'specialist', 'specialists', 'expert', 'experts', 'pro', 'educator', 'mentor',
         'weddings', 'wellness', 'yoga',
 
         // Trades the write-side gate already knew and this list did not. Every

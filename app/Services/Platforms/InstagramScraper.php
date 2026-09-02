@@ -679,9 +679,12 @@ class InstagramScraper extends PlatformScraper
             }
         }
 
+        if ($seedUpgraded) {
+            Log::info('instagram.seed_reel.best_rendition', ['user_id' => $userId, 'short_code' => $video['shortCode'] ?? null]);
+        }
+
         $diagnostics = [
             'posts' => count($posts),
-            'seedReelUpgraded' => $seedUpgraded,
             'videos' => $this->totalVideoCount($sorted),
             'pickedPhoto' => $photo !== null,
             'pickedVideo' => $video !== null,

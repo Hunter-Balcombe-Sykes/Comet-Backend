@@ -109,12 +109,12 @@ it('buildActions(): does NOT mark the build degraded on a genuine zero-row popul
 });
 
 it('newest-mode actions never call the popularity reader, so a DB fault there does not degrade the build', function () {
-    // Isolation control for the buildActions() cases above: with mode left at
-    // the default ('newest') AND smart_page_order off, neither call site
-    // reaches the reader at all — proves the fault-case assertions above are
-    // actually attributable to the popularity read, not some ambient effect
-    // of the missing table on this fixture.
-    [$pro, $site] = popularityDegradedTenant(['smart_page_order' => false]);
+    // Isolation control for the buildActions() cases above: with mode set to
+    // 'newest' (the default is smart since 2026-09-02, so it is explicit now)
+    // AND smart_page_order off, neither call site reaches the reader at all —
+    // proves the fault-case assertions above are actually attributable to
+    // the popularity read, not some ambient effect of the missing table.
+    [$pro, $site] = popularityDegradedTenant(['smart_page_order' => false, 'actions' => ['mode' => 'newest']]);
 
     $builder = app(IndividualProfilePayloadBuilder::class);
     $builder->build($pro, $site);

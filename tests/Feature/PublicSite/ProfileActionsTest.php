@@ -70,7 +70,7 @@ it('is always present — an empty site serves mode newest with no entries', fun
     $tenant = createTenant('pa-empty');
     $payload = actionsPayload($tenant);
 
-    expect($payload['actions'])->toBe(['mode' => 'newest', 'entries' => []]);
+    expect($payload['actions'])->toBe(['mode' => 'smart', 'entries' => []]);
 });
 
 it('serves platforms and pool items in newest order, every ref resolving against the served pools', function () {
@@ -81,10 +81,11 @@ it('serves platforms and pool items in newest order, every ref resolving against
     $payload = actionsPayload($tenant);
     $entries = $payload['actions']['entries'];
 
-    expect($payload['actions']['mode'])->toBe('newest')
-        ->and(array_column($entries, 'id'))->toBe(['item:'.$linkId, 'platform:instagram'])
-        ->and($entries[0])->toMatchArray(['position' => 0, 'kind' => 'item', 'label' => 'New thing', 'url' => 'https://example.com/new-thing', 'locked' => false, 'ref' => ['pool' => 'custom_links', 'itemId' => $linkId]])
-        ->and($entries[1])->toMatchArray(['position' => 1, 'kind' => 'platform', 'label' => 'Instagram', 'url' => 'https://www.instagram.com/maha', 'thumb' => null, 'ref' => null]);
+    // smart + cold-start prior (2026-09-02): a platform outranks a single item.
+    expect($payload['actions']['mode'])->toBe('smart')
+        ->and(array_column($entries, 'id'))->toBe(['platform:instagram', 'item:'.$linkId])
+        ->and($entries[1])->toMatchArray(['position' => 1, 'kind' => 'item', 'label' => 'New thing', 'url' => 'https://example.com/new-thing', 'locked' => false, 'ref' => ['pool' => 'custom_links', 'itemId' => $linkId]])
+        ->and($entries[0])->toMatchArray(['position' => 0, 'kind' => 'platform', 'label' => 'Instagram', 'url' => 'https://www.instagram.com/maha', 'thumb' => null, 'ref' => null]);
 
     $pools = json_decode(json_encode($payload['profile']['pools']), true);
     $servedIds = array_column($pools['custom_links']['items'], 'id');

@@ -81,7 +81,9 @@ it('replays the kimcosmik ledger: connections, cards, and probes land where the 
     // Legacy wave landed 3 connections from this page; the ruling lands 8+1.
     expect($result['connected'])->toBe(9)
         ->and($result['items'])->toBe(2)
-        ->and($result['noted'])->toBe(1)
+        // 0 since 2026-09-02: the one noted link is a page of a platform the
+        // account already has connected, and that folds now instead of carding.
+        ->and($result['noted'])->toBe(0)
         ->and($result['probed'])->toBe(2)
         ->and($result['suggested'])->toBe(1);
 

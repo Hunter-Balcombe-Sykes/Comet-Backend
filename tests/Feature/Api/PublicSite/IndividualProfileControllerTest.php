@@ -196,7 +196,7 @@ it('returns 200 with the skeleton-system envelope shape for an individual', func
     // `blocks[]`, not as `profile.links` (left 2026-08-19), and not as an
     // action — the unified list draws items from the content pools only.
     expect($raw)->not->toContain('"blocks":');
-    expect($data['actions'])->toBe(['mode' => 'newest', 'entries' => []]);
+    expect($data['actions'])->toBe(['mode' => 'smart', 'entries' => []]);
     expect(array_keys($data))->not->toContain('rankedActions', 'ordering');
 });
 
