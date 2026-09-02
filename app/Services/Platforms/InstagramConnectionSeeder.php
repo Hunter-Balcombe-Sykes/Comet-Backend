@@ -295,18 +295,17 @@ class InstagramConnectionSeeder
             PreAccountBuildEvent::STATUS_LANDED,
             'Grabbing your latest photos and reels',
             [
-                // The seed artwork first, then the latest posts' own covers —
-                // the signup card shows these as they land (item 8).
+                // The seed artwork only — the mirrored photo and the reel
+                // poster. The latest posts' own covers used to ride along,
+                // but they are raw Instagram CDN urls and the browser refuses
+                // them (Cross-Origin-Resource-Policy: ERR_BLOCKED_BY_RESPONSE,
+                // measured 2026-09-02 on the sign-up card: 5 of 6 boxes empty).
+                // The card fills its montage from the public wire's mirrored
+                // pool once content_filled_at lands (plan Decision 5).
                 'thumbnails' => array_values(array_unique(array_filter([
                     ...$images,
                     $videoPoster,
-                    ...array_slice(array_values(array_filter(array_map(
-                        static fn ($post) => is_array($post)
-                            ? (data_get($post, 'displayUrl') ?? data_get($post, 'display_url') ?? data_get($post, 'images.0'))
-                            : null,
-                        is_array(data_get($profile, 'latestPosts')) ? data_get($profile, 'latestPosts') : [],
-                    ), static fn ($u) => is_string($u) && $u !== '')), 0, 8),
-                ]))),
+                ], static fn ($u) => is_string($u) && $u !== ''))),
                 'avatar' => is_string($profilePic ?? null) && $profilePic !== '' ? $profilePic : null,
                 // Sign-up preview (2026-09-02, A.5): the mirrored profile pic
                 // (never a raw CDN URL) and the name, so the identity scene can
