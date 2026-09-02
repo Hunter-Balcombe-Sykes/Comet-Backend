@@ -82,6 +82,7 @@ beforeEach(function () {
         is_active boolean NOT NULL DEFAULT true,
         deleted_at timestamptz NULL
     )');
+    $pg->statement("ALTER TABLE site.platform_connections ADD COLUMN IF NOT EXISTS visibility text NOT NULL DEFAULT 'visible'");
 
     // subdomain + updated_at: projectStream() fires all three cache lanes via
     // SiteCacheLanes::bust(), which touches updated_at (the origin payload

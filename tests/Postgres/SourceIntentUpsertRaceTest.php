@@ -139,6 +139,7 @@ beforeEach(function () {
         updated_at timestamptz,
         deleted_at timestamptz
     )');
+    $pg->statement("ALTER TABLE site.platform_connections ADD COLUMN IF NOT EXISTS visibility text NOT NULL DEFAULT 'visible'");
 
     $this->userId = (string) Str::uuid();
 });

@@ -152,6 +152,7 @@ beforeEach(function () {
         deleted_at timestamptz,
         CONSTRAINT reject_all CHECK (id IS NULL)
     )');
+    $pg->statement("ALTER TABLE site.platform_connections ADD COLUMN IF NOT EXISTS visibility text NOT NULL DEFAULT 'visible'");
 
     $this->userId = (string) Str::uuid();
 });

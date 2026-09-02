@@ -43,6 +43,7 @@ beforeEach(function () {
         resource_id text NOT NULL,
         deleted_at timestamptz
     )');
+    $pg->statement("ALTER TABLE site.platform_connections ADD COLUMN IF NOT EXISTS visibility text NOT NULL DEFAULT 'visible'");
 
     $pg->statement("CREATE TABLE routing.item_tombstones (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

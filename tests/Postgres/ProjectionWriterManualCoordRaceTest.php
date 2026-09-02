@@ -71,6 +71,7 @@ beforeEach(function () {
         resource_id text,
         deleted_at timestamptz
     )');
+    $pg->statement("ALTER TABLE site.platform_connections ADD COLUMN IF NOT EXISTS visibility text NOT NULL DEFAULT 'visible'");
 
     $pg->statement("CREATE TABLE site.sites (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

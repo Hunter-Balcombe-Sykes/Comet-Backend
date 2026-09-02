@@ -140,6 +140,7 @@ beforeEach(function () {
         updated_at timestamptz,
         deleted_at timestamptz
     )');
+    $pg->statement("ALTER TABLE site.platform_connections ADD COLUMN IF NOT EXISTS visibility text NOT NULL DEFAULT 'visible'");
 
     // VERBATIM from supabase/migrations/20260727110005_connections_idx_unique_active.sql
     // (CONCURRENTLY dropped — it cannot run inside this lane's DDL batch, and
