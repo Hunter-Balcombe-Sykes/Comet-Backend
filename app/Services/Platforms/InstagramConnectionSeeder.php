@@ -305,7 +305,7 @@ class InstagramConnectionSeeder
                 'thumbnails' => array_values(array_unique(array_filter([
                     ...$images,
                     $videoPoster,
-                ], static fn ($u) => is_string($u) && $u !== ''))),
+                ]))),
                 'avatar' => is_string($profilePic ?? null) && $profilePic !== '' ? $profilePic : null,
                 // Sign-up preview (2026-09-02, A.5): the mirrored profile pic
                 // (never a raw CDN URL) and the name, so the identity scene can
