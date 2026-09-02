@@ -164,3 +164,57 @@ it('title-cases an ALL-CAPS person name and leaves a descriptor phrase with no p
     $brand = NameShapeGate::apply(['displayName' => 'MELBOURNE HAIR SPECIALIST', 'firstName' => null, 'lastName' => null], 'mhs2020', 'MELBOURNE HAIR SPECIALIST');
     expect($brand['displayName'])->toBe('MELBOURNE HAIR SPECIALIST');
 });
+
+// Handle seed (2026-09-02): which of the two strings a build has — the IG
+// username and the IG Name field — should seed the handle. Fixtures are real
+// dev builds; the expectations are the owner-approved outcomes.
+
+it('keeps the name when the username carries part of it', function () {
+    expect(NameShapeGate::handleCarriesName('ryanfitzsimonshair', 'Ryan Fitzsimons'))->toBeTrue()
+        ->and(NameShapeGate::handleCarriesName('by.dannydixon', 'Danny Dixon'))->toBeTrue()
+        ->and(NameShapeGate::handleCarriesName('jordan.dimitriadis', 'Jordan Dimitriadis'))->toBeTrue()
+        // Persona-looking username, but "sam" is right there in it.
+        ->and(NameShapeGate::handleCarriesName('sammy.pdf', 'Sam Akhurst'))->toBeTrue()
+        // Leetspeak in the username does not hide the given name.
+        ->and(NameShapeGate::handleCarriesName('rubytallu1ah', 'Ruby Warren'))->toBeTrue()
+        // Only the SURNAME survives in the username; one token is enough.
+        ->and(NameShapeGate::handleCarriesName('emdinonhair', 'Emma Dinon'))->toBeTrue()
+        ->and(NameShapeGate::handleCarriesName('georgetheosteo', 'George Sotiri'))->toBeTrue()
+        // "Jo" is two letters and skipped; "bentley" carries the decision.
+        ->and(NameShapeGate::handleCarriesName('joannebentleymakeup', 'Jo Bentley'))->toBeTrue();
+});
+
+it('prefers the username when it carries no part of the name', function () {
+    // The case that motivated the change.
+    expect(NameShapeGate::handleCarriesName('themetapunter', 'Joe Osborne'))->toBeFalse()
+        ->and(NameShapeGate::handleCarriesName('certifiedbarberboy', 'Jesse Jensz'))->toBeFalse()
+        ->and(NameShapeGate::handleCarriesName('barberfaydos', 'Jaiden Acallar'))->toBeFalse()
+        ->and(NameShapeGate::handleCarriesName('_designdivine_', 'Christiana Masina'))->toBeFalse();
+});
+
+it('prefers the username when the name field is not a person name at all', function () {
+    // These are the ~30 dev builds whose handle is today a slugged description.
+    expect(NameShapeGate::handleCarriesName('hoasisbeauty', 'Heavenly Oasis Laser Skin Beauty'))->toBeFalse()
+        ->and(NameShapeGate::handleCarriesName('sweetcakesofmine', 'Melbourne Cake decorator'))->toBeFalse()
+        ->and(NameShapeGate::handleCarriesName('makeupbykatarina', 'MELBOURNE MAKE UP ARTIST'))->toBeFalse()
+        ->and(NameShapeGate::handleCarriesName('nailsbylaurissa', 'Sydney Nail Artist'))->toBeFalse()
+        // One token is not a person's full name. `lucy` / `amber` are handles
+        // the next Lucy and the next Amber cannot have.
+        ->and(NameShapeGate::handleCarriesName('nailsbyluuce', 'Lucy'))->toBeFalse()
+        ->and(NameShapeGate::handleCarriesName('get_scissored', 'Amber'))->toBeFalse();
+});
+
+it('folds accents deterministically, never through iconv', function () {
+    // Str::ascii gives 'Ben Bohmer' on macOS AND on Cloud's glibc;
+    // iconv('ASCII//TRANSLIT') does not agree with itself across the two.
+    expect(NameShapeGate::handleCarriesName('benbohmermusic', 'Ben Böhmer'))->toBeTrue();
+});
+
+it('fails toward the name when there is no username to prefer', function () {
+    // Returning false here would seed HandleAllocator with '' -> 'professional'.
+    expect(NameShapeGate::handleCarriesName('', 'Joe Osborne'))->toBeTrue()
+        ->and(NameShapeGate::handleCarriesName('___', 'Joe Osborne'))->toBeTrue()
+        // A blank name is not a name; the username wins.
+        ->and(NameShapeGate::handleCarriesName('somebrand', ''))->toBeFalse()
+        ->and(NameShapeGate::handleCarriesName('somebrand', '   '))->toBeFalse();
+});
