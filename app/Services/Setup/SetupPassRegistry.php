@@ -16,7 +16,7 @@ class SetupPassRegistry
     /** Pass → the connect roster categories (PlatformCategory) it draws from. */
     public const GROUP_CATEGORIES = [
         'platforms.booking' => ['booking'],
-        'platforms.ordering' => ['online-ordering', 'reservations', 'booking'],
+        'platforms.ordering' => ['online-ordering', 'reservations', 'booking', 'ordering'],
         'platforms.events' => ['events'],
         'platforms.stores' => ['shop'],
         'platforms.watch' => ['streaming'],

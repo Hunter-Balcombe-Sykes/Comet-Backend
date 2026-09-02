@@ -161,3 +161,21 @@ it('a hidden pre-scrape create does NOT settle the standing intent', function ()
 
     expect(DB::table('routing.source_intents')->where('id', $intentId)->value('state'))->toBe('proposed');
 });
+
+it('renders a registry-less brand (shopify) in the stores pass via its routing class', function () {
+    $pro = createTenant('setup-shopify');
+    setupSeedIntent((string) $pro->id, [
+        'surface_key' => 'shopify.store',
+        'routing_class' => 'shop',
+        'identifier' => '64035750019',
+        'canonical_url' => 'https://64035750019.myshopify.com',
+        'origin' => 'commerce_probe',
+    ]);
+
+    $response = actingAsUser($pro)->getJson('/api/site/setup');
+
+    $stores = collect($response->json('passes'))->firstWhere('key', 'platforms.stores');
+    expect($stores['suggestions'])->toHaveCount(1)
+        ->and($stores['suggestions'][0]['surfaceKey'])->toBe('shopify.store')
+        ->and($stores['suggestions'][0]['preselected'])->toBeTrue();
+});

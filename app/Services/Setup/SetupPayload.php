@@ -209,6 +209,12 @@ class SetupPayload
             }
             $legacy = LegacyPlatformMap::legacyFor((string) $intent->surface_key);
             $category = $this->registry->get((string) $legacy)?->getCategory()?->value;
+            // A registry-less brand (shopify — purged with commerce — routes
+            // to a real surface but has no platform registry entry) still
+            // deserves its pass: the surface's routing class is in the pass
+            // map's category vocabulary for every class we route (A.12 proof
+            // catch — jordan's auto-band shopify.store never rendered).
+            $category ??= (($surface['routing_class'] ?? '') !== '') ? (string) $surface['routing_class'] : null;
             if ($category === null) {
                 continue;
             }
