@@ -37,6 +37,13 @@ final readonly class Placement
          */
         public ?int $confidence = null,
         public ?string $band = null,
+        /**
+         * The identified thing's own icon URL (a store's favicon/logo off the
+         * probe that fetched it) — same network-born rationale as
+         * identifierLabel above, surfaced so a suggestion card can wear the
+         * store's mark rather than the provider's (owner, 2026-09-03).
+         */
+        public ?string $identifierIcon = null,
     ) {}
 
     /** This placement with a display name attached; null leaves it as-is. */
@@ -63,6 +70,33 @@ final readonly class Placement
             $label,
             $this->confidence,
             $this->band,
+            $this->identifierIcon,
+        );
+    }
+
+    public function withIcon(?string $icon): self
+    {
+        $icon = $icon === null ? null : trim($icon);
+
+        // Only a real absolute URL — this is scraped input that ends up in an
+        // <img src> on the dashboard; anything else is dropped, not "fixed".
+        if ($icon === null || $icon === '' || ! str_starts_with($icon, 'http')) {
+            return $this;
+        }
+
+        $icon = Str::limit($icon, 2000, '');
+
+        return new self(
+            $this->verdict,
+            $this->surfaceKey,
+            $this->identifier,
+            $this->blockReason,
+            $this->explanation,
+            $this->conflictingConnectionId,
+            $this->identifierLabel,
+            $this->confidence,
+            $this->band,
+            $icon,
         );
     }
 

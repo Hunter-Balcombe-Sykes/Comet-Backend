@@ -70,6 +70,7 @@ beforeEach(function () {
         routing_class text NOT NULL,
         identifier text NOT NULL,
         identifier_label text,
+        identifier_icon text,
         canonical_url text,
         state text NOT NULL DEFAULT \'proposed\'
             CHECK (state IN (\'proposed\', \'applied\', \'blocked\', \'dismissed\', \'superseded\')),

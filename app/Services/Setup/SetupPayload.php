@@ -198,7 +198,7 @@ class SetupPayload
             ->where('user_id', $user->id)
             ->whereIn('surface_key', $intents->pluck('surface_key')->unique()->all())
             ->whereNull('deleted_at')
-            ->get(['id', 'surface_key', 'resource_id', 'visibility', 'last_refresh_status']);
+            ->get(['id', 'surface_key', 'resource_id', 'visibility', 'last_refresh_status', 'payload']);
         $byKey = $connections->keyBy(fn (IntegrationConnection $c) => $c->surface_key.'|'.$c->resource_id);
 
         $rows = [];
@@ -234,8 +234,14 @@ class SetupPayload
                 'surfaceKey' => (string) $intent->surface_key,
                 'brandKey' => $surface['brand_key'] ?? null,
                 'displayName' => $surface['display_name'] ?? (string) $intent->surface_key,
-                'accountName' => $intent->identifier_label ?? null,
-                'avatar' => null,
+                // The account's OWN name, always when one can be known (owner,
+                // 2026-09-03): the probe's label, then the synced connection's
+                // payload, then a URL/handle-derived last resort — the card
+                // must read "Studio MJ", never just "fresha.com".
+                'accountName' => $intent->identifier_label
+                    ?? self::connectionName($connection)
+                    ?? self::derivedAccountName((string) $intent->surface_key, $intent->canonical_url, (string) $intent->identifier),
+                'avatar' => $intent->identifier_icon ?? self::connectionIcon($connection),
                 'url' => $intent->canonical_url,
                 'origin' => (string) $intent->origin,
                 'originLabel' => self::ORIGIN_LABELS[(string) $intent->origin] ?? null,
@@ -248,6 +254,74 @@ class SetupPayload
         }
 
         return $rows;
+    }
+
+    /** A human name off the synced connection's payload, when one exists. */
+    private static function connectionName(?IntegrationConnection $connection): ?string
+    {
+        if ($connection === null) {
+            return null;
+        }
+        $payload = (array) ($connection->payload ?? []);
+        foreach (['name', 'fullName', 'shop_name', 'store', 'title'] as $key) {
+            $value = $payload[$key] ?? null;
+            if (is_string($value) && trim($value) !== '') {
+                return trim($value);
+            }
+        }
+
+        return null;
+    }
+
+    /** The account's own icon off the synced connection's payload. */
+    private static function connectionIcon(?IntegrationConnection $connection): ?string
+    {
+        if ($connection === null) {
+            return null;
+        }
+        $payload = (array) ($connection->payload ?? []);
+        foreach (['profilePicUrl', 'logo', 'favicon', 'avatar'] as $key) {
+            $value = $payload[$key] ?? null;
+            if (is_string($value) && str_starts_with($value, 'http')) {
+                return $value;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Last-resort name derivation when neither a probe nor a sync has named
+     * the account yet. Fresha booking slugs always end in a venue hash
+     * (`studio-mj-erbhmhhy`), so the trailing token drops and the rest
+     * title-cases; profile/channel surfaces fall back to the handle itself
+     * unless it is an opaque platform id (a YouTube UC… channel id).
+     */
+    private static function derivedAccountName(string $surfaceKey, ?string $url, string $identifier): ?string
+    {
+        if (str_starts_with($surfaceKey, 'fresha.') && is_string($url)) {
+            if (preg_match('#fresha\.com/(?:book-now|a)/([a-z0-9-]+)#i', $url, $m) === 1) {
+                $tokens = array_values(array_filter(explode('-', strtolower($m[1]))));
+                if (count($tokens) >= 2) {
+                    array_pop($tokens);
+                }
+                if ($tokens !== []) {
+                    return ucwords(implode(' ', $tokens));
+                }
+            }
+
+            return null;
+        }
+
+        if (str_ends_with($surfaceKey, '.profile') || str_ends_with($surfaceKey, '.channel')) {
+            $handle = ltrim($identifier, '@');
+            $opaque = preg_match('/^UC[A-Za-z0-9_-]{20,}$/', $handle) === 1;
+            if (! $opaque && preg_match('/^[A-Za-z0-9._-]{2,30}$/', $handle) === 1) {
+                return $handle;
+            }
+        }
+
+        return null;
     }
 
     /**

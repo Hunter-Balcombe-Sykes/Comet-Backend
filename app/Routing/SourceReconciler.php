@@ -514,6 +514,9 @@ class SourceReconciler
         if ($placement->identifierLabel !== null) {
             $fields['identifier_label'] = $placement->identifierLabel;
         }
+        if ($placement->identifierIcon !== null) {
+            $fields['identifier_icon'] = $placement->identifierIcon;
+        }
 
         // 1. A live intent already exists -> advance it.
         if ($id = $this->advanceLiveIntent($user, $placement->surfaceKey, $identifier, $fields)) {
@@ -535,6 +538,7 @@ class SourceReconciler
             'routing_class' => $routingClass,
             'identifier' => $identifier,
             'identifier_label' => $placement->identifierLabel,
+            'identifier_icon' => $placement->identifierIcon,
             'canonical_url' => $iri->canonical,
             'state' => $verdict->intentState(),
             'block_reason' => $blockReason,

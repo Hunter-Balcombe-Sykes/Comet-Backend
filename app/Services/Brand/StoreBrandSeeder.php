@@ -87,7 +87,12 @@ class StoreBrandSeeder
         // Attached HERE because this is the one place holding both the probe
         // and the placement — PlacementPolicy is a decision function and has
         // no business knowing what a network call returned.
-        $placement = $placement->withLabel($probe->evidence['shop_name'] ?? null);
+        $placement = $placement
+            ->withLabel($probe->evidence['shop_name'] ?? null)
+            ->withIcon(
+                (is_string($probe->evidence['favicon'] ?? null) ? $probe->evidence['favicon'] : null)
+                    ?? (is_string($probe->evidence['logo'] ?? null) ? $probe->evidence['logo'] : null)
+            );
 
         // A pasted link's probe (owner ask, 2026-08-18) OFFERS the store rather
         // than installing it: the user typed a URL into the link box, and a
@@ -97,11 +102,12 @@ class StoreBrandSeeder
         // path builds the store through this same seeder.
         if ($suggestOnly && $placement->verdict === Verdict::Place) {
             $placement = (new Placement(Verdict::Choose, $placement->surfaceKey, $placement->identifier, 'below_threshold', 'offered from a pasted link'))
-                // Carry the name across the downgrade. This rebuild is
-                // positional, so a new Placement field is silently dropped
+                // Carry the name AND icon across the downgrade. This rebuild
+                // is positional, so a new Placement field is silently dropped
                 // here unless it is named — which is exactly how the store's
                 // name failed to reach the suggestion it is FOR.
-                ->withLabel($placement->identifierLabel);
+                ->withLabel($placement->identifierLabel)
+                ->withIcon($placement->identifierIcon);
         }
 
         // The probe leaves the same trace a paste does. "Why is this store on

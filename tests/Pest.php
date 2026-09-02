@@ -3548,6 +3548,7 @@ function setupRoutingTables(): void
         routing_class TEXT NOT NULL,
         identifier TEXT NOT NULL,
         identifier_label TEXT NULL,
+        identifier_icon TEXT NULL,
         canonical_url TEXT NULL,
         state TEXT NOT NULL DEFAULT \'proposed\' CHECK (state IN (\'proposed\', \'applied\', \'blocked\', \'dismissed\', \'superseded\')),
         block_reason TEXT NULL CHECK (block_reason IS NULL OR block_reason IN (
