@@ -82,10 +82,14 @@ it('passes source_url through unchanged, last in precedence', function () {
 });
 
 it('omits a raw Instagram / Facebook CDN source_url until the mirror lands', function () {
-    $ig = assetRow(['id' => 'ig', 'source_url' => 'https://scontent-bos5-1.cdninstagram.com/o1/v/t2/x.jpg']);
+    $ig = assetRow(['id' => 'ig', 'source_url' => 'https://scontent-bos5-1.cdninstagram.com/v/t51.2885-15/x.jpg?oe=7A000000']);
     $fb = assetRow(['id' => 'fb', 'source_url' => 'https://scontent-lga3-1.xx.fbcdn.net/v/t51/y.jpg']);
+    // A Meta VIDEO still serves from its source url — the progressive
+    // serve that lets a reel play while its mirror drains.
+    $reel = assetRow(['id' => 'reel', 'source_url' => 'https://scontent-bos5-1.cdninstagram.com/o1/v/t2/f2/m86/fresh.mp4?oe=7A000000']);
 
-    expect(app(MediaUrlResolver::class)->resolve([$ig, $fb]))->toBe([]);
+    $out = app(MediaUrlResolver::class)->resolve([$ig, $fb, $reel]);
+    expect(array_keys($out))->toBe(['reel']);
 });
 
 it('omits an asset that resolves to nothing — absent, never null', function () {

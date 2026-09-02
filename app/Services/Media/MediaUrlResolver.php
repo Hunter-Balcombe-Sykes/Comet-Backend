@@ -73,7 +73,7 @@ class MediaUrlResolver
         // signed to expire, and the browser blocks it cross-origin — the
         // gallery showed empty cards until the mirror landed. Omit it; the
         // item appears once its bytes are ours.
-        if (! empty($asset->source_url) && ! InstagramMediaUrl::isMetaCdn((string) $asset->source_url)) {
+        if (! empty($asset->source_url) && ! self::unservableMetaImage((string) $asset->source_url)) {
             return [
                 'url' => (string) $asset->source_url,
                 'width' => $asset->width === null ? null : (int) $asset->width,
@@ -107,5 +107,22 @@ class MediaUrlResolver
                 fn (MediaVariant $v) => $rank[$v->variant_key] ?? PHP_INT_MAX
             )->first())
             ->all();
+    }
+
+    /**
+     * A Meta CDN IMAGE is omitted until mirrored — the browser blocks it
+     * cross-origin, so it only ever rendered as a blank card. A Meta VIDEO
+     * keeps serving from its (refreshed) source url: the progressive serve
+     * that lets a reel play while its mirror drains (2026-08-28) — video
+     * elements are not subject to the same block.
+     */
+    private static function unservableMetaImage(string $url): bool
+    {
+        if (! InstagramMediaUrl::isMetaCdn($url)) {
+            return false;
+        }
+        $path = strtolower((string) parse_url($url, PHP_URL_PATH));
+
+        return preg_match('~\.(mp4|m4v|mov|webm|m3u8)$~', $path) !== 1 && ! str_contains($path, '/o1/v/');
     }
 }

@@ -5,6 +5,7 @@
 // stored partial — the dashboard design editor's only read surface.
 
 use App\Models\Core\User\User;
+use App\Services\Design\SectorStylePresets;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -83,7 +84,8 @@ it('a different sector bucket resolves correctly over HTTP too', function () {
     actingAsUser($owner)
         ->getJson('/api/site')
         ->assertOk()
-        ->assertJsonPath('site.design_kit.typography_font_family', 'forma-djr')
-        ->assertJsonPath('site.design_kit.color_accent', '#0369a1')
+        // A plumber reads masculine since 2026-09-02: NB Architekt, the neon.
+        ->assertJsonPath('site.design_kit.typography_font_family', 'nb-architekt')
+        ->assertJsonPath('site.design_kit.color_accent', SectorStylePresets::MASCULINE_ACCENT)
         ->assertJsonPath('site.design_kit_manual', []);
 });
