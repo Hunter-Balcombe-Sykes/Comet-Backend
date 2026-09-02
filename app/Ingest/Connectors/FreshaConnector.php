@@ -18,18 +18,17 @@ use App\Ingest\Runtime\Connector;
 use App\Ingest\Runtime\Io;
 use App\Ingest\Runtime\Pull;
 use App\Ingest\Support\Text;
+use App\Services\Platforms\FreshaPage;
 use App\Services\Platforms\ScrapedNameCasing;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Fresha via its pinned internal booking-flow GraphQL — a THIN wrapper around
- * the exact persisted-query shape `FreshaScraper::fetchEmployeeServices()`
- * already fires against the real vendor (same URL, same operation name, same
- * `extensions.persistedQuery{version,sha256Hash}` envelope), generalised from
- * one employee's filtered menu to whichever menu the owner
- * chose -- `Pull.config['selection_ref']` carries an employee id or the
- * literal 'storewide'. `shouldShowAllEmployees: true` returns the employee
- * PICKER screen with an empty `screenServices` and must never be sent here.
+ * Fresha via its pinned internal booking-flow GraphQL. The request shape —
+ * URL, operation name, persisted-query envelope — comes from
+ * App\Services\Platforms\FreshaPage, shared with FreshaScraper, so the two
+ * lanes cannot drift; this connector generalises it from one employee's
+ * filtered menu to whichever menu the owner chose. `Pull.config['selection_ref']`
+ * carries an employee id or the literal 'storewide'.
  *
  * `services` parses `data.bookingFlowInitialize.screenServices.categories`
  * exactly like the scraper does — including its `primaryAction`/
@@ -53,8 +52,6 @@ use Illuminate\Support\Facades\Log;
  */
 class FreshaConnector implements Connector
 {
-    private const GRAPHQL_URL = 'https://www.fresha.com/graphql';
-
     public static function manifest(): Manifest
     {
         return new Manifest(
@@ -229,14 +226,19 @@ class FreshaConnector implements Connector
      */
     private function resolveCurrentSlug(string $slug, Io $io): ?string
     {
-        $response = $io->get('https://www.fresha.com/book-now/'.rawurlencode($slug).'/all-offer');
+        // Probe form is deliberately the synthesised share alias, NOT a stored
+        // URL — this lane is handed a slug and has no URL to replay. Whether
+        // that differs from the dashboard lane in a way that matters is an
+        // open ruling; do not "unify" it here.
+        $response = $io->get(FreshaPage::shareProbeUrl($slug));
         // No `?? 0`: Io::get() returns array{status: int, body: string, headers: array}.
         if ($response['status'] !== 200) {
             return null;
         }
-        $final = (string) ($response['headers']['final-url'] ?? '');
 
-        return preg_match('#^https?://(?:www\.)?fresha\.com/(?:[a-z]{2,3}(?:-[a-z]{2})?/)?(?:a|book-now)/([a-z0-9-]+)#i', $final, $m) ? $m[1] : null;
+        // Io renames SafeUrlFetcher's `finalUrl` to `headers['final-url']`;
+        // reading the right key is transport, the grammar below is not.
+        return FreshaPage::slugFromUrl((string) ($response['headers']['final-url'] ?? ''));
     }
 
     /**
@@ -346,13 +348,9 @@ class FreshaConnector implements Connector
         if ($response['status'] !== 200 || $response['body'] === '') {
             return null;
         }
-        if (! preg_match('#<script id="__NEXT_DATA__"[^>]*>(.+?)</script>#s', $response['body'], $m)) {
-            return null;
-        }
-        $data = json_decode($m[1], true);
-        $location = is_array($data) ? data_get($data, 'props.pageProps.data.location') : null;
+        $data = FreshaPage::parseNextData($response['body']);
 
-        return is_array($location) ? $location : null;
+        return $data === null ? null : FreshaPage::locationFrom($data);
     }
 
     /** The venue's ISO-4217 currency from its public location page, or null. */
@@ -535,42 +533,12 @@ class FreshaConnector implements Connector
         $hash = (string) config('services.fresha.booking_init_hash');
 
         // 'storewide' is the reserved token for "the location's own menu";
-        // anything else is an employee id. shouldShowAllEmployees:true returns
-        // the employee-PICKER screen, whose screenServices is {} -- which is
-        // why this stream landed zero records from 2026-07-28 (spec §1.3).
+        // anything else is an employee id.
         $employeeId = ($selectionRef === null || $selectionRef === 'storewide') ? null : $selectionRef;
 
-        $body = [
-            'operationName' => 'BookingFlow_Initialize_Mutation',
-            'variables' => [
-                'fullUpfrontPaymentEnabled' => true,
-                'discountsAndBenefitsEnabled' => false,
-                'input' => [
-                    'locationSlug' => $slug,
-                    'referer' => '',
-                    'options' => [
-                        'employeeId' => $employeeId,
-                        'shouldShowAllEmployees' => false,
-                        'isGroupBooking' => false,
-                        'isRebook' => false,
-                        'isFromLinkBuilder' => false,
-                        'clientChannelType' => 'MARKETPLACE',
-                        'cartId' => null,
-                        'offerItemId' => null,
-                        'offerItems' => null,
-                    ],
-                    'shouldAutoContinue' => true,
-                    'capabilities' => ['SERVICE_ADDONS', 'CONFIRMATION', 'FULL_UPFRONT_PAYMENT', 'MARKETPLACE_REFRESH'],
-                ],
-            ],
-            'extensions' => [
-                'persistedQuery' => ['version' => 1, 'sha256Hash' => $hash],
-                'platform' => 'web',
-                'version' => $clientVersion,
-            ],
-        ];
+        $body = FreshaPage::bookingFlowPayload($slug, $employeeId, $hash, $clientVersion);
 
-        $response = $io->post(self::GRAPHQL_URL, $body, [
+        $response = $io->post(FreshaPage::GRAPHQL_URL, $body, [
             'content-type' => 'application/json',
             'x-client-platform' => 'web',
             'x-client-version' => $clientVersion,
