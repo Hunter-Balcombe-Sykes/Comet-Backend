@@ -165,6 +165,12 @@ final class RawCacheCallScanner
         // entry above, this one was caught by the guard on the way in rather
         // than after landing behind a red CI step.
         'app/Catalog/DetectorSuspensions.php', // Cache::remember/forget of the detector kill-switch set. ONE constant key ('catalog:detector-suspensions') holding a global list of catalog-level detector ids — no user, no site, no tenant identity of any kind, so there is no key to construct and nothing for CacheKeyGenerator to scope. Same reasoning as RecordScheduledTaskHeartbeat (a global beacon key) and LinkProjector above (catalog-level identifiers only). A *CacheService for a single constant key would be ceremony, not isolation. TTL is enforced (config partna.catalog.suspension_cache_ttl_seconds, floored at 1) and asserted behaviourally in DetectorSuspensionSourceTest.
+
+        // Added 2026-09-02. This one DID land behind a red step — `21bcbe272`
+        // ("A landed mirror purges the edge HTML too") went in while the test
+        // job was already failing, so GS-1 never ran on it; the fifth round of
+        // the same story the sections above record.
+        'app/Services/Media/MediaMirror.php', // Cache::add SETNX debouncing the edge purge to one per site per 15s, because a build wave lands hundreds of mirrors and each would otherwise dispatch its own CloudflareCachePurgeJob. Key is 'media_mirror:purge:{subdomain}' — a subdomain is globally unique and publicly addressable (it IS the site's URL), so the key is site-scoped by construction, carries no tenant-private identity, and cannot collide across tenants. Same idiom and same reasoning as ProjectionWriter's media_mirror log throttle directly above and LogLeadRateLimits/AnalyticsDedupGuard. The whole block sits inside landed()'s try/catch, so a cache outage costs the debounce — an extra purge — not the mirror.
     ];
 
     /**
