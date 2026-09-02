@@ -54,6 +54,9 @@ class WebsiteGalleryScanJob implements ShouldBeUnique, ShouldQueue
 
     public function handle(GalleryAutoGrabber $grabber): void
     {
+        // Setup progress (2026-09-02): say the stage has STARTED, so the
+        // signup card's status line names the job actually running.
+        BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_WEBSITE, PreAccountBuildEvent::STATUS_STARTED, 'Looking at your website');
         $user = User::find($this->userId);
         $site = Site::find($this->siteId);
         if ($user === null || $site === null) {

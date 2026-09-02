@@ -72,6 +72,9 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
 
     public function handle(LinkInBioImporter $importer): void
     {
+        // Setup progress (2026-09-02): say the stage has STARTED, so the
+        // signup card's status line names the job actually running.
+        BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_STARTED, 'Checking your link page');
         $user = User::find($this->userId);
         if ($user === null) {
             return;

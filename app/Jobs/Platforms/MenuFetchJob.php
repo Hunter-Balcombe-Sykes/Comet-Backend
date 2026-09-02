@@ -122,6 +122,8 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
 
     public function handle(MenuSource $source, MenuApifyScraper $scraper, MenuMerger $merger): void
     {
+        // Setup progress (2026-09-02): the menu stage has STARTED.
+        BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_MENU, PreAccountBuildEvent::STATUS_STARTED, 'Reading your menu');
         $plan = $source->resolveAll($this->userId);
 
         // No connected menu-platform link (registry-driven, FOUND-23) → clear any

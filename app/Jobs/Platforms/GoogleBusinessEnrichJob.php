@@ -121,6 +121,9 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
 
     public function handle(GoogleBusinessApifyScraper $scraper, GoogleBusinessAutoSync $autoSync, WebsiteLinkHarvester $harvester): void
     {
+        // Setup progress (2026-09-02): say the stage has STARTED, so the
+        // signup card's status line names the job actually running.
+        BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_LISTING, PreAccountBuildEvent::STATUS_STARTED, 'Pulling your Google listing');
         $connection = $this->connection();
         if (! $connection) {
             return;
