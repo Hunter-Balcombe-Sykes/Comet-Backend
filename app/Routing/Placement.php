@@ -29,6 +29,14 @@ final readonly class Placement
          * at the decision, rather than being back-filled into the input.
          */
         public ?string $identifierLabel = null,
+        /**
+         * The effective (context-adjusted) confidence the policy compared to
+         * its thresholds, and which band it landed in ('auto'|'suggest').
+         * Set only on Place/Choose — the verdicts an inbox card can render —
+         * so the wire can say "preselected" without re-deriving thresholds.
+         */
+        public ?int $confidence = null,
+        public ?string $band = null,
     ) {}
 
     /** This placement with a display name attached; null leaves it as-is. */
@@ -53,6 +61,8 @@ final readonly class Placement
             $this->explanation,
             $this->conflictingConnectionId,
             $label,
+            $this->confidence,
+            $this->band,
         );
     }
 

@@ -3509,6 +3509,7 @@ function setupRoutingTables(): void
         conflicting_connection_id TEXT NULL,
         connection_id TEXT NULL,
         confidence INTEGER NULL CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 100)),
+        band TEXT NULL CHECK (band IS NULL OR band IN (\'auto\', \'suggest\')),
         origin TEXT NOT NULL CHECK (origin IN (\'paste\', \'website_import\', \'link_in_bio\', \'bio_harvest\', \'google_business\', \'staff\', \'reproject\', \'commerce_probe\')),
         import_run_id TEXT NULL,
         detector_id TEXT NULL,

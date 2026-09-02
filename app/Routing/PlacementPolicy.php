@@ -124,7 +124,7 @@ class PlacementPolicy
         $suggest = RoutingPolicy::suggestThreshold($routingClass);
 
         if ($confidence >= $auto && $projection->margin >= RoutingPolicy::minMargin()) {
-            return new Placement(Verdict::Place, $surfaceKey, $projection->identifier);
+            return new Placement(Verdict::Place, $surfaceKey, $projection->identifier, confidence: $confidence, band: 'auto');
         }
 
         if ($confidence >= $suggest) {
@@ -136,14 +136,15 @@ class PlacementPolicy
             // WHICH surface, not whether. Direct paste keeps the confirm
             // flow: it is a wire contract with the dashboard preview.
             if (! $context->isDirectRequest() && $projection->margin >= RoutingPolicy::minMargin()) {
-                return new Placement(Verdict::Place, $surfaceKey, $projection->identifier);
+                return new Placement(Verdict::Place, $surfaceKey, $projection->identifier, confidence: $confidence, band: 'suggest');
             }
 
             $why = $confidence < $auto
                 ? 'below auto-apply threshold'
                 : 'two rules matched too closely to decide automatically';
 
-            return new Placement(Verdict::Choose, $surfaceKey, $projection->identifier, 'below_threshold', $why);
+            return new Placement(Verdict::Choose, $surfaceKey, $projection->identifier, 'below_threshold', $why,
+                confidence: $confidence, band: $confidence >= $auto ? 'auto' : 'suggest');
         }
 
         return new Placement(Verdict::Note, $surfaceKey, $projection->identifier, 'below_threshold', 'kept as a link');

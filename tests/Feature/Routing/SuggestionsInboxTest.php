@@ -52,6 +52,24 @@ it('lists what the router recognised but would not act on alone', function () {
     expect($response->json('suggestions'))->toHaveCount(2);
 });
 
+it('emits band and preselected so the setup dialog ticks the auto band by default', function () {
+    $pro = createTenant('inbox-band');
+    seedIntent($pro->id, ['identifier' => 'auto-one', 'band' => 'auto', 'confidence' => 82]);
+    seedIntent($pro->id, ['identifier' => 'suggest-one', 'band' => 'suggest', 'confidence' => 61]);
+    seedIntent($pro->id, ['identifier' => 'legacy-one']); // pre-A.1 row, band null
+
+    $response = actingAsUser($pro)->getJson('/api/routing/suggestions');
+
+    $response->assertOk();
+    $bySuggestion = collect($response->json('suggestions'))->keyBy('identifier');
+    expect($bySuggestion['auto-one']['band'])->toBe('auto')
+        ->and($bySuggestion['auto-one']['preselected'])->toBeTrue()
+        ->and($bySuggestion['suggest-one']['band'])->toBe('suggest')
+        ->and($bySuggestion['suggest-one']['preselected'])->toBeFalse()
+        ->and($bySuggestion['legacy-one']['band'])->toBeNull()
+        ->and($bySuggestion['legacy-one']['preselected'])->toBeFalse();
+});
+
 it('asks the question in the user\'s words, not the reconciler\'s', function () {
     $pro = createTenant('inbox-question');
     seedIntent($pro->id, ['state' => 'blocked', 'block_reason' => 'below_threshold']);

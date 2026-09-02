@@ -152,6 +152,11 @@ class SuggestionsController extends ApiController
                 // displayName is the catalog's SURFACE label ("Shopify
                 // store"), not this storefront's. NULL is normal.
                 'accountName' => $intent->identifier_label ?? null,
+                // The decision's band, persisted at write (A.1). 'preselected'
+                // is derived HERE so every consumer (inbox, setup dialog)
+                // agrees on what "ticked by default" means.
+                'band' => $intent->band ?? null,
+                'preselected' => ($intent->band ?? null) === 'auto',
                 'url' => $intent->canonical_url,
                 'origin' => $intent->origin,
                 'firstSeenAt' => $intent->first_seen_at,

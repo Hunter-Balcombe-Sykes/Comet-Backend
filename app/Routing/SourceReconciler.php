@@ -472,9 +472,17 @@ class SourceReconciler
             'block_reason' => $blockReason,
             'conflicting_connection_id' => $conflictId,
             'canonical_url' => $iri->canonical,
-            'confidence' => null,
             'updated_at' => $now,
         ];
+
+        // Same coalesce-don't-clobber rule as identifier_label below: a later
+        // pass through a lane that carried no decision-band (a cap-reached
+        // Hold, a Note) must not blank the confidence an earlier Place/Choose
+        // recorded — the setup dialog preselects off `band`.
+        if ($placement->band !== null) {
+            $fields['confidence'] = $placement->confidence;
+            $fields['band'] = $placement->band;
+        }
 
         // Only when this pass carried one. A later pass through a lane that
         // has no name (the myshopify.com detector never fetches) must not
@@ -508,6 +516,8 @@ class SourceReconciler
             'state' => $verdict->intentState(),
             'block_reason' => $blockReason,
             'conflicting_connection_id' => $conflictId,
+            'confidence' => $placement->confidence,
+            'band' => $placement->band,
             'origin' => $context->origin,
             'import_run_id' => $context->importRunId,
             'catalog_digest' => CompiledCatalog::digest(),

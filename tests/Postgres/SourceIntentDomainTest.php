@@ -99,6 +99,7 @@ beforeEach(function () {
     $state = sourceIntentCheckDomain('state');
     $blockReason = sourceIntentCheckDomain('block_reason');
     $origin = sourceIntentCheckDomain('origin');
+    $band = sourceIntentCheckDomain('band');
 
     $inList = fn (array $values) => implode(',', array_map(fn ($v) => "'{$v}'", $values));
 
@@ -107,7 +108,8 @@ beforeEach(function () {
         state text NOT NULL DEFAULT 'proposed' CHECK (state IN ({$inList($state)})),
         block_reason text CHECK (block_reason IS NULL OR block_reason IN ({$inList($blockReason)})),
         origin text NOT NULL CHECK (origin IN ({$inList($origin)})),
-        confidence smallint CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 100))
+        confidence smallint CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 100)),
+        band text CHECK (band IS NULL OR band IN ({$inList($band)}))
     )");
 });
 
@@ -251,3 +253,34 @@ it('rejects a confidence outside the 0-100 range', function (int $confidence) {
     expect($thrown)->not->toBeNull("Expected confidence={$confidence} to be rejected.");
     expect($thrown->getCode())->toBe('23514');
 })->with([-1, 101]);
+
+it('accepts NULL and both band values the policy writes', function (?string $band) {
+    // 'auto' | 'suggest': app/Routing/PlacementPolicy.php decide() — the only
+    // writer of Placement::$band; SourceReconciler persists it verbatim.
+    DB::connection('pgsql')->table('routing.source_intent_scratch')->insert(['origin' => 'paste', 'band' => $band]);
+
+    if ($band === null) {
+        expect(DB::connection('pgsql')->table('routing.source_intent_scratch')->whereNull('band')->exists())->toBeTrue();
+    } else {
+        expect(DB::connection('pgsql')->table('routing.source_intent_scratch')->where('band', $band)->exists())->toBeTrue();
+    }
+})->with([null, 'auto', 'suggest']);
+
+it('rejects a band outside the domain', function () {
+    $thrown = null;
+    try {
+        DB::connection('pgsql')->table('routing.source_intent_scratch')->insert(['origin' => 'paste', 'band' => 'manual']);
+    } catch (QueryException $e) {
+        $thrown = $e;
+    }
+
+    expect($thrown)->not->toBeNull();
+    expect($thrown->getCode())->toBe('23514');
+});
+
+it('the band domain is exactly the 2 values the migration declares', function () {
+    $domain = sourceIntentCheckDomain('band');
+    sort($domain);
+
+    expect($domain)->toBe(['auto', 'suggest']);
+});
