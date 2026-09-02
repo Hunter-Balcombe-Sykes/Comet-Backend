@@ -98,6 +98,11 @@ class UserDashboardResource extends ApiResource
             'timezone' => $this->timezone,
             'status' => $this->status,
             'onboarding_step' => $this->onboarding_step,
+            // Setup dialog state (A.9) — the home page's open decision.
+            'setup' => [
+                'step' => $this->site?->setup_step,
+                'completed_at' => $this->site?->setup_completed_at?->toIso8601String(),
+            ],
             'public_contact_number' => $this->public_contact_number,
             'public_contact_email' => $this->public_contact_email,
             // Owner-authored About Me paragraph (Identity page binds to this).

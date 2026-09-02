@@ -13,8 +13,8 @@ use App\Models\Core\User\User;
 use App\Routing\ConnectionIdentity;
 use App\Routing\SuggestionApplier;
 use App\Routing\SyncFindingsBridge;
+use App\Routing\WorkplaceCandidates;
 use App\Services\Cache\CacheKeyGenerator;
-use App\Services\Platforms\FreshaWorkplaceLinker;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\OpenTableService;
@@ -410,12 +410,7 @@ class SuggestionsController extends ApiController
         }
 
         if (str_starts_with($intentId, self::CANDIDATE_ID_PREFIX)) {
-            $updated = DB::table('site.workplace_candidates')
-                ->where('id', substr($intentId, strlen(self::CANDIDATE_ID_PREFIX)))
-                ->where('user_id', $user->id)
-                ->where('state', 'proposed')
-                ->update(['state' => 'dismissed']);
-            if ($updated === 0) {
+            if (! app(WorkplaceCandidates::class)->dismiss($user, substr($intentId, strlen(self::CANDIDATE_ID_PREFIX)))) {
                 return $this->error('That suggestion is no longer available.', 404);
             }
 
@@ -548,44 +543,25 @@ class SuggestionsController extends ApiController
     /** Adopt one workplace candidate (A.5): connect it, supersede its siblings. */
     private function acceptWorkplaceCandidate(User $user, string $candidateId): JsonResponse
     {
-        $row = DB::table('site.workplace_candidates')
-            ->where('id', $candidateId)
-            ->where('user_id', $user->id)
-            ->where('state', 'proposed')
-            ->first();
-        if ($row === null) {
-            return $this->error('That suggestion is no longer available.', 404);
-        }
-
         // #SEC-9 discipline: through the Policy, like acceptGoogleListing.
         $this->authorizeForUser($user, 'createForRoutingClass', [
             new IntegrationConnection(['user_id' => $user->id]),
             'content',
         ]);
 
-        $result = app(FreshaWorkplaceLinker::class)->connect($user, [
-            'id' => (string) $row->place_id,
-            'name' => (string) $row->name,
-            'address' => $row->address,
-            'lat' => $row->lat !== null ? (float) $row->lat : null,
-            'lng' => $row->lng !== null ? (float) $row->lng : null,
-        ]);
-        if ($result['outcome'] !== 'connected') {
+        try {
+            $result = app(WorkplaceCandidates::class)->adopt($user, $candidateId);
+        } catch (\RuntimeException) {
             return $this->error('Could not connect that listing — please try again.', 502);
         }
-
-        DB::table('site.workplace_candidates')->where('id', $row->id)->update(['state' => 'adopted']);
-        // The question was "which one is yours" — answering it settles ALL of
-        // them; a superseded sibling never re-renders.
-        DB::table('site.workplace_candidates')
-            ->where('user_id', $user->id)
-            ->where('state', 'proposed')
-            ->update(['state' => 'superseded']);
+        if ($result === null) {
+            return $this->error('That suggestion is no longer available.', 404);
+        }
 
         return $this->success([
-            'connectionId' => $result['connectionId'] ?? null,
+            'connectionId' => $result['connectionId'],
             'surfaceKey' => 'google_business.listing',
-            'displayName' => (string) $row->name,
+            'displayName' => $result['name'],
         ]);
     }
 

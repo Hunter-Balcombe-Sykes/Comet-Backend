@@ -13,6 +13,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\PreAccountBuildEvent;
+use App\Routing\ConnectionIdentity;
 use App\Services\Platforms\IdentitySync;
 use App\Services\Platforms\IntegrationConnectionCacheRefresher;
 use App\Services\Platforms\Payloads\CardPayload;
@@ -168,6 +169,51 @@ class IntegrationConnectionObserver
             && ! $connection->isHidden()
             && $connection->platform === Platform::Instagram->value) {
             $this->enableContentInstagramAuto($connection);
+        }
+
+        // A.9: a VISIBLE connect answers any standing proposed intent for the
+        // same account — the settle gap SuggestionsController::index's
+        // docblock recorded now has its home. Hidden pre-scrape creates skip
+        // this: their intent was settled by the lane that made them.
+        if ($connection->wasRecentlyCreated && ! $connection->isHidden()) {
+            $this->settleMatchingIntents($connection);
+        }
+    }
+
+    /** Best-effort: a settle failure must never fail the connect that triggered it. */
+    private function settleMatchingIntents(IntegrationConnection $connection): void
+    {
+        try {
+            $intents = DB::table('routing.source_intents')
+                ->where('user_id', $connection->user_id)
+                ->where('surface_key', $connection->surface_key)
+                ->whereIn('state', ['proposed', 'blocked'])
+                ->get(['id', 'surface_key', 'identifier']);
+            if ($intents->isEmpty()) {
+                return;
+            }
+
+            $identity = app(ConnectionIdentity::class);
+            $rows = collect([$connection]);
+            foreach ($intents as $intent) {
+                if ($identity->matchWithin($rows, (string) $intent->surface_key, (string) $intent->identifier) === null) {
+                    continue;
+                }
+                // Live-state re-check in the WHERE, same as routing:settle-connected:
+                // the person can answer the card between read and write.
+                DB::table('routing.source_intents')
+                    ->where('id', $intent->id)
+                    ->whereIn('state', ['proposed', 'blocked'])
+                    ->update([
+                        'state' => 'applied',
+                        'block_reason' => null,
+                        'connection_id' => $connection->id,
+                        'resolved_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+            }
+        } catch (\Throwable $e) {
+            report($e);
         }
     }
 

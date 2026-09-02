@@ -77,6 +77,31 @@ class PreAccountBuildController extends ApiController
         );
     }
 
+    // GET /api/public/signup/builds/{build}/prefill — the sign-up flow's name
+    // step pre-fill (A.9/B.2, wire §8). JWT-gated (same middleware as claim):
+    // the anonymous poll must never carry a person's name. 404 for a claimed
+    // build — its person is past the flow.
+    public function prefill(PreAccountBuild $build): JsonResponse
+    {
+        if ($build->claimed_at !== null) {
+            return $this->error('Not found.', 404);
+        }
+
+        $build->loadMissing('user.site');
+        $user = $build->user;
+        if ($user === null) {
+            return $this->error('Not found.', 404);
+        }
+
+        return $this->success([
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'display_name' => $user->display_name,
+            'handle' => $user->site?->subdomain,
+            'sector' => $user->sector,
+        ]);
+    }
+
     // GET /api/public/signup/builds/{build} — opaque-UUID poll; 404-not-403 on
     // anything unknown (public enumeration standard). Route-model binding
     // (whereUuid + the app's global ModelNotFoundException→404 handler)

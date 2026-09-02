@@ -27,6 +27,8 @@ use Illuminate\Support\Facades\DB;
  * @property Carbon $updated_at
  * @property Carbon|null $subdomain_changed_at
  * @property Carbon|null $unpublished_at
+ * @property string|null $setup_step Setup dialog pass being shown (A.9); written only by SetupController.
+ * @property Carbon|null $setup_completed_at Setup dialog done-bit (A.9); backfilled now() for pre-existing sites.
  * @property string $architecture_id One of ARCHITECTURE_IDS ('staple'|'scroll'), CHECK-constrained (sites_architecture_id_check) — plain string, NOT a Postgres enum (see class comment below). Fillable and on the dashboard wire again since 2026-08-24 (reopens the 2026-08-20 lockdown — see UpdateSiteRequest). The public payload derives architectureId from it (IndividualProfileResource).
  * @property string $moderation_state One of 'active'|'warned'|'hidden' (sites_moderation_state_check).
  * @property string|null $custom_domain Lowercase-unique connected FQDN (Cloudflare for SaaS).
@@ -144,6 +146,8 @@ class Site extends BaseModel
         'is_published' => 'boolean',
         'settings' => 'array',
         'subdomain_changed_at' => 'datetime',
+        // Setup dialog state (A.9) — written only by SetupController via forceFill.
+        'setup_completed_at' => 'datetime',
         'unpublished_at' => 'datetime',
         'custom_domain_verified_at' => 'datetime',
         'custom_domain_primary' => 'boolean',

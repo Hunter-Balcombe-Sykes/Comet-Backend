@@ -39,6 +39,7 @@ use App\Http\Controllers\Api\User\Notifications\UserEmailSubscriptionController;
 use App\Http\Controllers\Api\User\Onboarding\OnboardingController;
 use App\Http\Controllers\Api\User\Profile\SectorController;
 use App\Http\Controllers\Api\User\Profile\SectorOptionsController;
+use App\Http\Controllers\Api\User\Setup\SetupController;
 use App\Http\Controllers\Api\User\Site\HandleReclaimController;
 use App\Http\Controllers\Api\User\Site\SubdomainAvailabilityController;
 use App\Http\Controllers\Api\User\SiteManagement\CustomDomainController;
@@ -306,6 +307,12 @@ Route::middleware(['user.api', EnforcePendingDeletionReadOnly::class, 'throttle:
         // Post-claim signup setup steps (signup-v2 E/F) — flags + ≤2 sector
         // suggestions, server-computed for both account types.
         Route::get('/onboarding/suggestions', [OnboardingController::class, 'suggestions']);
+
+        // Setup dialog (A.9, setup-dialog run): the pass composer, the step
+        // recorder, and the per-Continue batch accept.
+        Route::get('/site/setup', [SetupController::class, 'show']);
+        Route::put('/site/setup', [SetupController::class, 'update']);
+        Route::post('/site/setup/accept', [SetupController::class, 'accept']);
 
         // Account Deletion — self-service lifecycle.
         // `idempotent` middleware closes the concurrent-double-submit race that

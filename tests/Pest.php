@@ -1064,6 +1064,8 @@ function setupSitesTable(): void
         booking_mode TEXT NULL CHECK (booking_mode IS NULL OR booking_mode IN (\'manual\',\'none\')),
         manual_booking_url TEXT NULL,
         shop_link_mode TEXT NOT NULL DEFAULT \'checkout\',
+        setup_step TEXT NULL,
+        setup_completed_at TEXT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )');
@@ -1075,6 +1077,15 @@ function setupSitesTable(): void
         );
     } catch (Throwable $e) {
         // Column already exists or SQLite doesn't support this syntax — ignore
+    }
+
+    // Setup-dialog state (A.9) — defensive ALTER for any pre-existing test table.
+    foreach (['setup_step', 'setup_completed_at'] as $setupCol) {
+        try {
+            DB::connection('pgsql')->statement("ALTER TABLE site.sites ADD COLUMN IF NOT EXISTS {$setupCol} TEXT NULL");
+        } catch (Throwable $e) {
+            // already exists / unsupported — ignore
+        }
     }
 
     // Custom-domain columns — defensive ALTER for any pre-existing test table

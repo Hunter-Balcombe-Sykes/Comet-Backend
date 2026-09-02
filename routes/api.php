@@ -184,6 +184,11 @@ Route::post('/public/signup/prewarm', PublicSignupPrewarmController::class)
 Route::get('/public/signup/builds/{build}', [PreAccountBuildController::class, 'show'])
     ->whereUuid('build')
     ->middleware('throttle:public-site');
+// Sign-up name-step pre-fill (A.9/B.2, wire §8) — JWT-gated, never on the
+// anonymous poll: it returns the provisional person's name.
+Route::get('/public/signup/builds/{build}/prefill', [PreAccountBuildController::class, 'prefill'])
+    ->whereUuid('build')
+    ->middleware(['supabase.jwt', 'throttle:public-site']);
 // Setup progress for the sitepage overlay (2026-09-02): {done, stage} by
 // handle — a visitor holds no build id. Nothing about the person beyond what
 // the live page already shows; its own throttle bucket.
