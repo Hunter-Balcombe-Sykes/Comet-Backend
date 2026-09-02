@@ -10,6 +10,7 @@ use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
+use App\Services\Profile\NameShapeGate;
 use App\Services\User\HandleAllocator;
 use App\Services\User\SiteProvisioningService;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -268,10 +269,29 @@ class PreAccountBuildService
         $accountType = (string) ($build->account_type ?: 'partna');
         $sourceName = $prefetch->displayName
             ?? ($build->source_name !== null && trim((string) $build->source_name) !== '' ? (string) $build->source_name : null);
-        $seed = $prefetch->displayName
-            ?? $this->generators->for($build->source_type)->handleSeed($build->source_ref, $build->source_name);
+        // Both handleSeed() implementations are pure returns (the IG one hands
+        // back the normalized ref, the GB one the listing name), so evaluating
+        // it eagerly instead of through ?? costs nothing and buys the username
+        // as a value the rule below can read.
+        $generatorSeed = $this->generators->for($build->source_type)->handleSeed($build->source_ref, $build->source_name);
+        $seed = $prefetch->displayName ?? $generatorSeed;
+        $untrimmedSeed = $prefetch->untrimmedName;
 
-        $user = $this->createProvisionalUserWithRetry($seed, $accountType, $sourceName, $prefetch->untrimmedName);
+        // 2026-09-02, owner-approved: an Instagram username carrying no part of
+        // the person's own name is a chosen brand, not noise around the name —
+        // themetapunter/"Joe Osborne" keeps its handle where
+        // ryanfitzsimonshair/"Ryan Fitzsimons" still trims. The cleaned name
+        // becomes the ladder fallback, so a taken brand handle lands on
+        // 'joeosborne' rather than 'themetapunter1'. Instagram only: a Google
+        // listing has no username to prefer.
+        if ($build->source_type === 'instagram'
+            && $prefetch->displayName !== null
+            && ! NameShapeGate::handleCarriesName($generatorSeed, $prefetch->displayName)) {
+            $seed = $generatorSeed;
+            $untrimmedSeed = $prefetch->displayName;
+        }
+
+        $user = $this->createProvisionalUserWithRetry($seed, $accountType, $sourceName, $untrimmedSeed);
 
         try {
             $this->siteProvisioning->createSiteForHandle(

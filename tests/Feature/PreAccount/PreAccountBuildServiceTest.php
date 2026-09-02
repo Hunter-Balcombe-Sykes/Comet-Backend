@@ -490,3 +490,55 @@ it('does not attach a staff address to a SELF-SERVE build that wins the race', f
     expect($result['reused'])->toBeTrue()
         ->and($competitor->fresh()->contact_email)->toBeNull();
 });
+
+// Handle seed (2026-09-02): a username that carries no part of the person's
+// own name is a chosen brand and seeds the handle. Fixtures are real dev
+// builds — see docs/plans/2026-09-02-handle-seed-prefers-brand-username.md.
+
+it('seeds the handle from a brand username that carries no part of the name', function () {
+    $svc = app(PreAccountBuildService::class);
+    $build = $svc->requestBuild('partna', 'instagram', 'themetapunter', null, hash('sha256', 'tmp'))['build'];
+
+    $svc->materializeIdentity($build, new SourcePrefetch(payload: [], displayName: 'Joe Osborne'));
+
+    $user = $build->refresh()->user;
+    expect($user->handle_lc)->toBe('themetapunter')
+        // Handle and subdomain converge or nothing downstream resolves.
+        ->and($user->site->subdomain)->toBe('themetapunter')
+        // Only the address moved: the person is still called by their name.
+        ->and($user->display_name)->toBe('Joe Osborne');
+});
+
+it('still trims a username that decorates the person own name', function () {
+    $svc = app(PreAccountBuildService::class);
+    $build = $svc->requestBuild('partna', 'instagram', 'ryanfitzsimonshair', null, hash('sha256', 'rfs'))['build'];
+
+    $svc->materializeIdentity($build, new SourcePrefetch(payload: [], displayName: 'Ryan Fitzsimons'));
+
+    expect($build->refresh()->user->handle_lc)->toBe('ryanfitzsimons');
+});
+
+it('falls back to the person name when the brand username is taken', function () {
+    // The ladder HandleAllocator already has: untrimmedSeed before a digit.
+    $other = User::factory()->create(['handle' => 'themetapunter', 'handle_lc' => 'themetapunter']);
+    Site::factory()->create(['user_id' => $other->id, 'subdomain' => 'themetapunter']);
+
+    $svc = app(PreAccountBuildService::class);
+    $build = $svc->requestBuild('partna', 'instagram', 'themetapunter', null, hash('sha256', 'tmp2'))['build'];
+
+    $svc->materializeIdentity($build, new SourcePrefetch(payload: [], displayName: 'Joe Osborne'));
+
+    // 'joeosborne', NOT 'themetapunter1'.
+    expect($build->refresh()->user->handle_lc)->toBe('joeosborne');
+});
+
+it('leaves a google business build seeding from the listing name', function () {
+    // A place_id is opaque — there is no username to prefer, and this branch
+    // must never fire for GB.
+    $svc = app(PreAccountBuildService::class);
+    $build = $svc->requestBuild('business', 'google_business', 'ChIJfamishedwolf', 'The Famished Wolf', hash('sha256', 'fw'))['build'];
+
+    $svc->materializeIdentity($build, new SourcePrefetch(payload: [], displayName: 'The Famished Wolf'));
+
+    expect($build->refresh()->user->handle_lc)->toBe('thefamishedwolf');
+});

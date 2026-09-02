@@ -2,6 +2,8 @@
 
 namespace App\Services\Profile;
 
+use Illuminate\Support\Str;
+
 /**
  * Judges the SHAPE of a derived name, after BioIntelligence's gateNames() has
  * judged its PROVENANCE.
@@ -51,6 +53,88 @@ final class NameShapeGate
     public static function isDescriptor(string $token): bool
     {
         return in_array(mb_strtolower(trim($token, " \t\n\r\0\x0B.,'\"")), self::DESCRIPTORS, true);
+    }
+
+    /**
+     * Whether an Instagram username carries the person's OWN name, and so is
+     * decoration around it rather than a brand in its own right.
+     *
+     * The handle seed turns on this question (2026-09-02, owner-approved after
+     * both candidate rules were run over the 120 live IG builds on dev).
+     * `ryanfitzsimonshair`/"Ryan Fitzsimons" carries "ryan", so the cleaned
+     * name still wins and trims the noise. `themetapunter`/"Joe Osborne"
+     * carries neither token — that username is a chosen brand and keeps the
+     * handle.
+     *
+     * FALSE for a name field that is not a person's name at all ("Melbourne
+     * Cake decorator", bare "Lucy"): those are the ~30 dev builds whose handle
+     * is today a slugged description or a first name the next Lucy cannot have.
+     *
+     * Fails toward the NAME when there is no username to prefer, so an empty
+     * ref can never seed HandleAllocator with 'professional'.
+     */
+    public static function handleCarriesName(string $username, string $name): bool
+    {
+        $handle = self::letters($username);
+        if ($handle === '') {
+            return true;
+        }
+
+        if (! self::isPersonShaped($name)) {
+            return false;
+        }
+
+        foreach (preg_split('/\s+/u', trim($name)) ?: [] as $token) {
+            $letters = self::letters($token);
+            // 3 is the evidence floor: a two-letter token ("jo", "an") appears
+            // inside an unrelated handle by accident far too often to be proof
+            // that the person put their own name there.
+            if (mb_strlen($letters) >= 3 && str_contains($handle, $letters)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The shape of a person's full name: two or three tokens, each at least two
+     * letters, none a descriptor. "Lucy" (one token) and "Melbourne Cake
+     * decorator" (every token a descriptor) are both rejected, which is the
+     * point — neither is a name, and neither should seed a handle.
+     */
+    private static function isPersonShaped(string $name): bool
+    {
+        $tokens = array_values(array_filter(
+            preg_split('/\s+/u', trim($name)) ?: [],
+            static fn (string $token): bool => $token !== '',
+        ));
+
+        if (count($tokens) < 2 || count($tokens) > 3) {
+            return false;
+        }
+
+        foreach ($tokens as $token) {
+            if (mb_strlen(self::letters($token)) < 2 || self::isDescriptor($token)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Lowercase ASCII letters only.
+     *
+     * Str::ascii, NEVER iconv('UTF-8', 'ASCII//TRANSLIT', …): iconv delegates to
+     * the C library, so "Böhmer" folds to `bo"hmer` on macOS and `b?hmer` on
+     * Cloud's glibc, and this value is COMPARED. Str::slug folds through the
+     * same Str::ascii table, so this predicate and HandleAllocator::base()
+     * cannot disagree about an accented name.
+     */
+    private static function letters(string $value): string
+    {
+        return mb_strtolower((string) preg_replace('/[^a-z]/i', '', Str::ascii($value)));
     }
 
     /**
