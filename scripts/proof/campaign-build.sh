@@ -35,7 +35,14 @@ while [ "$(date +%s)" -lt $END ]; do
   fi
   if [ "$TIERS" != "{}" ] && [ -n "$TIERS" ]; then
     echo "{\"t\":$(now),\"event\":\"tiers\",\"tiers\":$TIERS,\"dt\":$(python3 -c "print(round($(now)-$T0,1))")}" >> "$OUT"
-    [ "$STATE" = "ready" ] && echo "$TIERS" | python3 -c "import json,sys; t=json.load(sys.stdin); sys.exit(0 if ('content_filled_at' in t and 'enriched_at' in t) else 1)" && break
+  fi
+  # enriched_at is google_business-only; waiting on it hung an instagram
+  # build's poll forever (A.12, 2026-09-03). ready + content filled = done;
+  # a ready build missing content tiers still exits after 90s grace.
+  if [ "$STATE" = "ready" ]; then
+    [ -z "$READY_T" ] && READY_T=$(date +%s)
+    echo "$TIERS" | python3 -c "import json,sys; sys.exit(0 if 'content_filled_at' in json.load(sys.stdin) else 1)" 2>/dev/null && break
+    [ $(( $(date +%s) - READY_T )) -gt 90 ] && break
   fi
   [ "$STATE" = "failed" ] && break
 done
