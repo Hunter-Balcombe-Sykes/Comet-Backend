@@ -59,7 +59,7 @@ final class ActionSlots
 
         $lockedIds = array_flip($locks);
         $fill = array_values(array_filter(
-            self::order($candidates, $settings->mode === 'smart' ? $ranks : []),
+            self::order($candidates, $settings->mode === 'smart' ? $ranks : [], coldStart: $settings->mode === 'smart' && $ranks === []),
             static fn (array $c): bool => ! isset($lockedIds[$c['id']]),
         ));
 
@@ -93,9 +93,16 @@ final class ActionSlots
      * @param  array<string, int>  $ranks
      * @return list<array<string, mixed>>
      */
-    public static function order(array $candidates, array $ranks): array
+    public static function order(array $candidates, array $ranks, bool $coldStart = false): array
     {
-        usort($candidates, static function (array $a, array $b) use ($ranks): int {
+        usort($candidates, static function (array $a, array $b) use ($ranks, $coldStart): int {
+            if ($coldStart) {
+                $ta = self::coldStartTier($a);
+                $tb = self::coldStartTier($b);
+                if ($ta !== $tb) {
+                    return $ta <=> $tb;
+                }
+            }
             $ra = $ranks[$a['id']] ?? null;
             $rb = $ranks[$b['id']] ?? null;
             if ($ra !== $rb) {
@@ -130,6 +137,36 @@ final class ActionSlots
         });
 
         return $candidates;
+    }
+
+    /**
+     * COLD START (owner, 2026-09-02): with no popularity data — every fresh
+     * signup — smart fell through to newest-first and put a barber's
+     * last-created custom link above Book. What a visitor most wants is what
+     * the site is FOR: Book first (the services page, or a booking platform),
+     * then Contact, other pages, destination platforms, single items last.
+     * Ranks take over the moment they exist. Never applied in `newest`.
+     *
+     * @param  array<string, mixed>  $c
+     */
+    public static function coldStartTier(array $c): int
+    {
+        $id = (string) ($c['id'] ?? '');
+        $kind = (string) ($c['kind'] ?? '');
+        $page = (string) ($c['meta']['page'] ?? '');
+        if ($id === 'page:services' || ($kind === 'platform' && $page === 'services')) {
+            return 0;
+        }
+        if ($id === 'page:contact') {
+            return 1;
+        }
+
+        return match ($kind) {
+            'page' => 2,
+            'platform' => 3,
+            'category' => 4,
+            default => 5,
+        };
     }
 
     /** @param  array<string, mixed>  $c */

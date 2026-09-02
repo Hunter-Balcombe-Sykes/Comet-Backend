@@ -45,7 +45,7 @@ class InstagramReelsNormalizer
             }
 
             $code = is_string($media['code'] ?? null) ? trim($media['code']) : '';
-            $video = $this->firstUrl($media['video_versions'] ?? null);
+            $video = self::bestVideoUrl($media['video_versions'] ?? null);
             if ($code === '' || $video === null) {
                 // A reel without an mp4 cannot fill the video surface this
                 // lane exists for (plan 11b) — skip rather than land a husk.
@@ -75,6 +75,36 @@ class InstagramReelsNormalizer
     }
 
     /** @param mixed $versions the first entry's url, from a candidates/versions list */
+    /**
+     * The best rendition (2026-09-02): highest width, then bandwidth — the
+     * vendor lists several (1276/720/480 on the recorded capture) and `[0]`
+     * is not reliably the best. Any url-bearing entry beats none.
+     */
+    public static function bestVideoUrl(mixed $versions): ?string
+    {
+        if (! is_array($versions)) {
+            return null;
+        }
+        $best = null;
+        $bestScore = -1;
+        foreach ($versions as $v) {
+            if (! is_array($v)) {
+                continue;
+            }
+            $url = $v['url'] ?? null;
+            if (! is_string($url) || $url === '') {
+                continue;
+            }
+            $score = ((int) ($v['width'] ?? 0)) * 100000 + (int) ($v['bandwidth'] ?? 0);
+            if ($best === null || $score > $bestScore) {
+                $best = $url;
+                $bestScore = $score;
+            }
+        }
+
+        return $best;
+    }
+
     private function firstUrl(mixed $versions): ?string
     {
         $first = is_array($versions) ? ($versions[0] ?? null) : null;

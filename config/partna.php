@@ -456,6 +456,10 @@ return [
             // spend decision the owner flips deliberately, not a side effect
             // of deploying the code.
             'instagram_depth_enabled' => (bool) env('PARTNA_SC_INSTAGRAM_DEPTH_ENABLED', false),
+            // 2026-09-02: one reels call per build to give the seed reel (the
+            // home background) its best rendition — independent of the depth
+            // flag, under the same instagram budget.
+            'instagram_seed_reel_best' => (bool) env('PARTNA_SC_INSTAGRAM_SEED_REEL_BEST', true),
             'instagram_depth' => [
                 'reels_limit' => (int) env('PARTNA_SC_IG_DEPTH_REELS_LIMIT', 12),
                 'highlights_limit' => (int) env('PARTNA_SC_IG_DEPTH_HIGHLIGHTS_LIMIT', 10),

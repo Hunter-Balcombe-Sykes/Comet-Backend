@@ -324,3 +324,10 @@ it('spends no credit when a latest_n scope is already filled by the window', fun
     expect($records)->toHaveCount(2);
     Http::assertNothingSent();
 });
+
+it('picks the widest video rendition, then bandwidth, from video_versions (2026-09-02)', function () {
+    $v = [['url' => 'https://c/480.mp4', 'width' => 480, 'bandwidth' => 100], ['url' => 'https://c/1276.mp4', 'width' => 1276, 'bandwidth' => 900], ['url' => 'https://c/720.mp4', 'width' => 720, 'bandwidth' => 400]];
+    expect(InstagramReelsNormalizer::bestVideoUrl($v))->toBe('https://c/1276.mp4')
+        ->and(InstagramReelsNormalizer::bestVideoUrl([['url' => 'https://c/a.mp4'], ['url' => 'https://c/b.mp4', 'width' => 0, 'bandwidth' => 5]]))->toBe('https://c/b.mp4')
+        ->and(InstagramReelsNormalizer::bestVideoUrl(null))->toBeNull();
+});

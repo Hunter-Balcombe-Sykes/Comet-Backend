@@ -64,7 +64,11 @@ class TiktokVideosNormalizer
     /** @param array<string, mixed> $video */
     private function coverUrl(array $video): ?string
     {
-        foreach (['cover', 'origin_cover'] as $key) {
+        // origin_cover first (2026-09-02): TikTok's `cover` can point at the
+        // short animated cover clip — an mp4 the mirror stores faithfully and
+        // the card then cannot draw (melbournehairspecialist, 1 of 21). The
+        // static origin JPEG is the cover; the others are fallbacks.
+        foreach (['origin_cover', 'cover', 'dynamic_cover'] as $key) {
             $urls = is_array($video[$key] ?? null) ? ($video[$key]['url_list'] ?? null) : null;
             $first = is_array($urls) ? ($urls[0] ?? null) : null;
             if (is_string($first) && $first !== '') {

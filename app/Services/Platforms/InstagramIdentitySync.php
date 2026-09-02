@@ -191,6 +191,16 @@ class InstagramIdentitySync
         $user->save();
     }
 
+    /**
+     * A published contact from a NON-Instagram source (the Linktree tiles,
+     * 2026-09-02) rides the same fill-if-empty fold as applyContactFields —
+     * an owner-authored value is never touched.
+     */
+    public function applyPublicContact(User $user, ?string $email, ?string $phone): void
+    {
+        $this->applyContactFields($user, ['businessEmail' => $email, 'businessPhoneNumber' => $phone]);
+    }
+
     private function applyContactFields(User $user, array $payload): void
     {
         // INERT ON THE SCRAPE PATH, BY DESIGN — do not "fix" by swapping actors

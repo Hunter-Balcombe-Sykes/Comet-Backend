@@ -210,3 +210,8 @@ it('skips the vendor lane when its budget is exhausted, without touching the Api
     Http::assertNotSent(fn ($request) => str_contains($request->url(), 'api.scrapecreators.com'));
     Http::assertSent(fn ($request) => str_contains($request->url(), 'api.apify.com'));
 });
+
+it('tiktok cover prefers origin_cover over the (sometimes animated) cover (2026-09-02)', function () {
+    $rows = (new TiktokVideosNormalizer)->rows(['aweme_list' => [['aweme_id' => '123456', 'desc' => 'x', 'create_time' => 1700000000, 'video' => ['cover' => ['url_list' => ['https://c/anim']], 'origin_cover' => ['url_list' => ['https://c/static.jpg']], 'duration' => 12000]]]], 'someone');
+    expect($rows[0]['videoMeta']['coverUrl'])->toBe('https://c/static.jpg');
+});

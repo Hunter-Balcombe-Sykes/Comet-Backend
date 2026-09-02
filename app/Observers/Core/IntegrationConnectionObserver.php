@@ -66,6 +66,15 @@ class IntegrationConnectionObserver
     {
         $this->maybeFetchMenu($connection);
 
+        // YouTube duplicates (2026-09-02, jordan): the Linktree lane can place
+        // one channel twice — by @handle and by UC id — and the rows dedupe
+        // by resource_id, which differs. Once a connect fills channelId,
+        // keep the OLDEST row for that channel and retire the rest.
+        $channelId = $connection->payload['channelId'] ?? null;
+        if ($connection->platform === 'youtube' && is_string($channelId) && $channelId !== '') {
+            $this->retireDuplicateYoutubeRows($connection, $channelId);
+        }
+
         // Purge + preset resolve both gate on MEANINGFUL changes only — a
         // connect (created), a payload refresh, or an (de)activation — not
         // status-only writes like last_visited_at / refresh status. Both
@@ -543,6 +552,32 @@ class IntegrationConnectionObserver
      * that ever changes the comparison fails SAFE: it can only skip a cleanup,
      * never delete the live folder.
      */
+    private function retireDuplicateYoutubeRows(IntegrationConnection $connection, string $channelId): void
+    {
+        try {
+            $rows = IntegrationConnection::query()
+                ->where('user_id', $connection->user_id)
+                ->where('platform', 'youtube')
+                ->whereNull('deleted_at')
+                ->where(fn ($q) => $q->where('resource_id', $channelId)->orWhere('payload->channelId', $channelId))
+                ->orderBy('created_at')
+                ->get();
+            if ($rows->count() < 2) {
+                return;
+            }
+            $keep = $rows->first();
+            foreach ($rows as $row) {
+                if ((string) $row->id === (string) $keep->id) {
+                    continue;
+                }
+                Log::info('youtube.duplicate_channel_retired', ['user_id' => (string) $connection->user_id, 'channel_id' => $channelId, 'kept' => (string) $keep->id, 'retired' => (string) $row->id]);
+                $row->delete();
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
     public function updated(IntegrationConnection $connection): void
     {
         if ($connection->platform !== Platform::Instagram->value) {

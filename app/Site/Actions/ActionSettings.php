@@ -20,7 +20,10 @@ final class ActionSettings
 {
     public const MODES = ['newest', 'smart', 'manual'];
 
-    public const DEFAULT_MODE = 'newest';
+    /** `smart` since 2026-09-02 (owner): a fresh site's stack led with its
+     *  newest custom link. Smart with no popularity data applies the
+     *  cold-start prior in ActionSlots::order(); ranks take over after. */
+    public const DEFAULT_MODE = 'smart';
 
     /**
      * D2 (2026-08-27): per-pool default overrides. `newest` is honest for
@@ -93,9 +96,11 @@ final class ActionSettings
 
     public function poolMode(string $pool): string
     {
+        // Pools keep `newest` as their own default (D2): the ACTIONS default moved
+        // to smart on 2026-09-02, and a recency pool must not follow it.
         return $this->poolModes[$pool]
             ?? self::POOL_DEFAULT_MODES[$pool]
-            ?? self::DEFAULT_MODE;
+            ?? 'newest';
     }
 
     /**

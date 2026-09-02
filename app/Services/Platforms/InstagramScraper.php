@@ -657,8 +657,31 @@ class InstagramScraper extends PlatformScraper
             }
         }
 
+        // The SEED reel is the home background (2026-09-02, owner: it looks
+        // soft). The profile lane hands one mid rendition; the reels endpoint
+        // lists every rendition, so one budgeted call upgrades the chosen
+        // reel to its best mp4 when the shortcodes match. Off via config;
+        // every miss keeps the profile lane's url.
+        $seedUpgraded = false;
+        $username = data_get($profile, 'username');
+        if ($video !== null && $userId !== null && is_string($username) && $username !== ''
+            && (bool) config('partna.limits.scrapecreators.instagram_seed_reel_best', true)) {
+            try {
+                foreach ($this->fetchReelsDepth($username, $userId) ?? [] as $row) {
+                    if (($row['shortcode'] ?? null) === ($video['shortCode'] ?? '__none__') && is_string($row['video_url'] ?? null) && $row['video_url'] !== '') {
+                        $video['videoUrl'] = $row['video_url'];
+                        $seedUpgraded = true;
+                        break;
+                    }
+                }
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
+
         $diagnostics = [
             'posts' => count($posts),
+            'seedReelUpgraded' => $seedUpgraded,
             'videos' => $this->totalVideoCount($sorted),
             'pickedPhoto' => $photo !== null,
             'pickedVideo' => $video !== null,
@@ -698,9 +721,11 @@ class InstagramScraper extends PlatformScraper
 
     private function videoUrlFromPost(array $post): ?string
     {
-        $vid = data_get($post, 'videoUrl')
-            ?? data_get($post, 'video_url')
-            ?? data_get($post, 'video_versions.0.url');
+        // Best rendition when the vendor lists several (2026-09-02); the
+        // single-url shapes otherwise.
+        $vid = InstagramReelsNormalizer::bestVideoUrl(data_get($post, 'video_versions'))
+            ?? data_get($post, 'videoUrl')
+            ?? data_get($post, 'video_url');
 
         return is_string($vid) && $vid !== '' ? $vid : null;
     }

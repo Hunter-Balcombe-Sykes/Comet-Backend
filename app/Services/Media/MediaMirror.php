@@ -224,6 +224,13 @@ final class MediaMirror
         // bytes off the front of the file rather than a substr of the whole
         // body — same test, none of the memory.
         if ($this->isIsoBaseMedia($temp, $bytes)) {
+            // A video body for an asset every item uses as an IMAGE (cover /
+            // poster / logo roles only) is not that image — TikTok's `cover`
+            // can be its animated clip (2026-09-02). Refuse rather than store
+            // a file the card cannot draw; the row keeps its source URL.
+            if ($this->isImageOnlyAsset($assetId)) {
+                return $this->fail($assetId, 'video_body_for_image_role', $sourceUrl, userId: $userId);
+            }
             if ($bytes > self::MAX_VIDEO_BYTES) {
                 return $this->fail($assetId, 'video_too_large', $sourceUrl, userId: $userId);
             }
@@ -375,6 +382,28 @@ final class MediaMirror
 
         // See the video branch: a zero-row UPDATE is a failure, not a success.
         return $wrote === 1 ? true : $this->fail($assetId, 'asset_unwritable', $sourceUrl, userId: $userId);
+    }
+
+    /**
+     * True when every item_media row pointing at this asset is an image role
+     * — the asset was minted as a cover/poster/logo, never as the video.
+     * Fail-open (false) on any read problem: the sniff branch then stores
+     * what it fetched, as before.
+     */
+    private function isImageOnlyAsset(string $assetId): bool
+    {
+        try {
+            $roles = DB::connection('pgsql')->table('content.item_media')
+                ->where('asset_id', $assetId)
+                ->pluck('role')
+                ->all();
+        } catch (\Throwable $e) {
+            report($e);
+
+            return false;
+        }
+
+        return $roles !== [] && ! in_array('video', $roles, true);
     }
 
     /**

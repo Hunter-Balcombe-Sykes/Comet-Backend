@@ -26,7 +26,7 @@ class LinktreeLinksNormalizer
 {
     /**
      * @param  array<string, mixed>  $body  the full vendor response body
-     * @return array{username: string, links: non-empty-list<array{url: string, title?: string, id?: int|string, type?: string}>, profilePictureUrl?: string}|null
+     * @return array{username: string, links: list<array{url: string, title?: string, id?: int|string, type?: string}>, contacts?: non-empty-list<array{kind: string, value: string}>, profilePictureUrl?: string}|null
      */
     public function normalize(array $body): ?array
     {
@@ -38,12 +38,25 @@ class LinktreeLinksNormalizer
 
         $rows = [];
         $seen = [];
+        $contacts = [];
         foreach ($links as $link) {
             if (! is_array($link)) {
                 continue;
             }
 
             $url = trim((string) ($link['url'] ?? ''));
+            // Contact tiles (owner, 2026-09-02): a mailto:/tel: button is the
+            // person's public contact, kept on its own key — never a link.
+            if (preg_match('~^mailto:([^?]+)~i', $url, $cm) === 1) {
+                $contacts[] = ['kind' => 'email', 'value' => trim(rawurldecode($cm[1]))];
+
+                continue;
+            }
+            if (preg_match('~^tel:([^?]+)~i', $url, $pm) === 1) {
+                $contacts[] = ['kind' => 'phone', 'value' => trim(rawurldecode($pm[1]))];
+
+                continue;
+            }
             if (preg_match('~^https?://~i', $url) !== 1 || isset($seen[$url])) {
                 continue;
             }
@@ -69,11 +82,14 @@ class LinktreeLinksNormalizer
             $rows[] = $row;
         }
 
-        if ($rows === []) {
+        if ($rows === [] && $contacts === []) {
             return null;
         }
 
         $page = ['username' => $username, 'links' => $rows];
+        if ($contacts !== []) {
+            $page['contacts'] = $contacts;
+        }
 
         $picture = $body['profilePictureUrl'] ?? null;
         if (is_string($picture) && $picture !== '') {

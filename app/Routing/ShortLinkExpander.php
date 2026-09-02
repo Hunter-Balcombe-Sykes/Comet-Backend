@@ -46,6 +46,10 @@ class ShortLinkExpander
      */
     private const PLATFORM_SHORT_HOSTS = [
         'on.soundcloud.com', 'spotify.link', 'spoti.fi', 'fb.watch', 'fb.me',
+        // Google Forms short links (2026-09-02, teegandyson): forms.gle answers
+        // a browser-shaped fetch with a client-side deep-link page and no
+        // share meta; the docs.google.com destination carries og:image.
+        'forms.gle',
     ];
 
     /** @return list<string> */

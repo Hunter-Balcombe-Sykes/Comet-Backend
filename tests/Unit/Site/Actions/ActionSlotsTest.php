@@ -155,3 +155,19 @@ it('newest puts undated synced items after dated ones even when seen more recent
     $r = ActionSlots::resolve([$undated, $dated], [], settingsOf(['mode' => 'newest']));
     expect(ids($r['entries']))->toBe(['item:c5', 'item:c0']);
 });
+
+it('smart with NO ranks puts Book (services page / booking platform) first, then Contact, pages, platforms, items — the cold-start prior (2026-09-02)', function () {
+    $mk = fn (string $id, string $kind, string $at, array $meta = []) => ['id' => $id, 'kind' => $kind, 'label' => $id, 'url' => 'https://x/'.$id, 'thumb' => null, 'connectedAt' => $at, 'ref' => null, 'meta' => $meta];
+    $candidates = [
+        $mk('item:forms', 'item', '2026-09-02T00:00:09+00:00', ['pool' => 'custom_links']),
+        $mk('platform:tiktok', 'platform', '2026-09-02T00:00:08+00:00', ['platformKey' => 'tiktok', 'page' => null]),
+        $mk('page:contact', 'page', '2026-09-02T00:00:07+00:00', ['pageId' => 'contact']),
+        $mk('platform:fresha', 'platform', '2026-09-02T00:00:06+00:00', ['platformKey' => 'fresha', 'page' => 'services']),
+        $mk('page:watch', 'page', '2026-09-02T00:00:05+00:00', ['pageId' => 'watch']),
+        $mk('page:services', 'page', '2026-09-02T00:00:04+00:00', ['pageId' => 'services']),
+    ];
+    $smart = ActionSlots::resolve($candidates, [], settingsOf(['mode' => 'smart']));
+    expect(ids($smart['entries'] ?? $smart))->toBe(['platform:fresha', 'page:services', 'page:contact', 'page:watch', 'platform:tiktok', 'item:forms']);
+    $newest = ActionSlots::resolve($candidates, [], settingsOf(['mode' => 'newest']));
+    expect(ids($newest['entries'] ?? $newest)[0])->toBe('item:forms');
+});

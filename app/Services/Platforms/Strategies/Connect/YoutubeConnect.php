@@ -67,6 +67,9 @@ class YoutubeConnect implements DeferredConnect
 
         return ConnectResult::ok([
             'handle' => $handle,
+            // The channel's identity across URL shapes (2026-09-02): the
+            // observer retires a second row for the same channelId.
+            'channelId' => (string) $profile['id'],
             // The channel's own face for the dashboard's connect summary and
             // connections table (ConnectionDisplayName::avatarFor reads
             // `avatarUrl` before it falls back to the latest video's thumbnail).

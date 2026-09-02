@@ -33,7 +33,7 @@ final class BuildProgressReader
     private const EVENT_CAP = 50;
 
     /**
-     * @return array{done: bool, stage: string|null, events: list<array<string, mixed>>, media: array{mirrored: int, total: int}}
+     * @return array{done: bool, stage: string|null, events: list<array<string, mixed>>, media: array{mirrored: int, total: int, failed: int}}
      */
     public function forPoll(PreAccountBuild $build): array
     {
@@ -78,7 +78,7 @@ final class BuildProgressReader
      * feed had visibly not finished. The ceiling still bounds all of it.
      *
      * @param  list<PreAccountBuildEvent>  $events
-     * @param  array{mirrored: int, total: int}  $media
+     * @param  array{mirrored: int, total: int, failed?: int}  $media
      */
     public function isDone(PreAccountBuild $build, array $events, array $media): bool
     {
@@ -103,7 +103,9 @@ final class BuildProgressReader
                 $platformsAnswered = true;
             }
         }
-        $mediaSaved = $media['total'] === 0 || $media['mirrored'] >= $media['total'];
+        // A failed, aged asset is settled too (2026-09-02, teegandyson: 2 of 22
+        // dead CDN urls held the setup open to the ceiling).
+        $mediaSaved = $media['total'] === 0 || ($media['mirrored'] + ($media['failed'] ?? 0)) >= $media['total'];
 
         return $workplaceAnswered && $platformsAnswered && $mediaSaved;
     }
@@ -171,25 +173,30 @@ final class BuildProgressReader
      * 39 owned + 79 Shopify images) counted them and could only finish on
      * the ceiling, "39 of 118" on screen the whole way.
      *
-     * @return array{mirrored: int, total: int}
+     * `failed` (2026-09-02): eligible, unmirrored, attempted at least once and
+     * older than two minutes — the mirror job's own retry budget is spent by
+     * then, and a dead CDN url must never hold the setup open.
+     *
+     * @return array{mirrored: int, total: int, failed: int}
      */
     private function mediaCounts(PreAccountBuild $build): array
     {
         if ($build->user_id === null) {
-            return ['mirrored' => 0, 'total' => 0];
+            return ['mirrored' => 0, 'total' => 0, 'failed' => 0];
         }
         try {
+            $cutoff = now()->subMinutes(2)->toDateTimeString();
             $row = DB::connection('pgsql')->table('content.media_assets')
                 ->where('user_id', $build->user_id)
                 ->where('mirror_eligible', true)
-                ->selectRaw('count(*) as total, count(storage_path) as mirrored')
+                ->selectRaw('count(*) as total, count(storage_path) as mirrored, sum(case when storage_path is null and mirror_attempts >= 1 and created_at < ? then 1 else 0 end) as failed', [$cutoff])
                 ->first();
         } catch (\Throwable $e) {
             report($e);
 
-            return ['mirrored' => 0, 'total' => 0];
+            return ['mirrored' => 0, 'total' => 0, 'failed' => 0];
         }
 
-        return ['mirrored' => (int) ($row->mirrored ?? 0), 'total' => (int) ($row->total ?? 0)];
+        return ['mirrored' => (int) ($row->mirrored ?? 0), 'total' => (int) ($row->total ?? 0), 'failed' => (int) ($row->failed ?? 0)];
     }
 }

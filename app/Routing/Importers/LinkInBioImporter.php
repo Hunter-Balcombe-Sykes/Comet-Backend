@@ -3,6 +3,7 @@
 namespace App\Routing\Importers;
 
 use App\Jobs\Platforms\CommerceProbeJob;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
@@ -14,6 +15,7 @@ use App\Services\Http\SafeUrlFetcher;
 use App\Services\Notifications\FindingsNotifier;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\EventsSeeder;
+use App\Services\Platforms\InstagramIdentitySync;
 use App\Services\Platforms\LinkInBioApiUnroller;
 use App\Services\Platforms\LinkInBioDetector;
 use App\Services\Platforms\LinkInBioInlinePayloadReader;
@@ -25,6 +27,7 @@ use App\Services\Platforms\ScrapeCreators\LinktreeLinksNormalizer;
 use App\Services\Platforms\ScrapeCreators\PillarLinksNormalizer;
 use App\Services\Platforms\ScrapeCreators\ScrapeCreatorsClient;
 use App\Services\Platforms\WebsiteLinkHarvester;
+use App\Services\Shop\DiscountCodeSniffer;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Sleep;
@@ -124,14 +127,22 @@ class LinkInBioImporter
      * @param  string  $kind  'link_in_bio' (a page the user named) | 'bio_harvest' (URLs lifted off a profile)
      * @return array{outcome: string, observations: int, connected: int, suggested: int, noted: int, dropped: int, skipped_chrome: int, pages: int, pages_unavailable: int, unavailable_reasons: array<string, int>}
      */
+    /** Vendor tile titles by lowercased url — the discount-code sniff reads them (2026-09-02). */
+    private array $vendorTitles = [];
+
+    /** Contact tiles the vendor lane surfaced (mailto:/tel:) — folded into publicContact (2026-09-02). */
+    private array $vendorContacts = [];
+
     public function import(User $user, string|array $bioPageUrls, string $kind = 'link_in_bio'): array
     {
+        $this->vendorTitles = [];
+        $this->vendorContacts = [];
         if (! in_array($kind, self::KINDS, true)) {
             $kind = 'link_in_bio';
         }
 
         $pages = $this->normalisePages($bioPageUrls);
-        $empty = ['observations' => 0, 'connected' => 0, 'suggested' => 0, 'noted' => 0, 'items' => 0, 'probed' => 0, 'dropped' => 0, 'folded' => 0, 'skipped_chrome' => 0, 'pages' => 0, 'pages_unavailable' => 0, 'unavailable_reasons' => [], 'bio_url_seeded' => false];
+        $empty = ['observations' => 0, 'connected' => 0, 'suggested' => 0, 'noted' => 0, 'items' => 0, 'probed' => 0, 'placed_platforms' => [], 'contacts' => 0, 'dropped' => 0, 'folded' => 0, 'skipped_chrome' => 0, 'pages' => 0, 'pages_unavailable' => 0, 'unavailable_reasons' => [], 'bio_url_seeded' => false];
 
         if ($pages === []) {
             return ['outcome' => 'unavailable'] + $empty;
@@ -146,7 +157,7 @@ class LinkInBioImporter
         }
 
         $context = RoutingContext::forUser($user, $kind, $runId);
-        $tally = ['connected' => 0, 'suggested' => 0, 'noted' => 0, 'items' => 0, 'probed' => 0, 'dropped' => 0, 'folded' => 0, 'skipped_chrome' => 0];
+        $tally = ['connected' => 0, 'suggested' => 0, 'noted' => 0, 'items' => 0, 'probed' => 0, 'placed_platforms' => [], 'contacts' => 0, 'dropped' => 0, 'folded' => 0, 'skipped_chrome' => 0];
         $seen = [];
         $probedHosts = [];
         $placedKeys = [];
@@ -309,6 +320,32 @@ class LinkInBioImporter
             );
         }
 
+        // Contact tiles → the person's public contact, fill-if-empty (owner,
+        // 2026-09-02): the same fold the Instagram seeder uses.
+        $contactsApplied = 0;
+        if ($this->vendorContacts !== []) {
+            $email = null;
+            $phone = null;
+            foreach ($this->vendorContacts as $contact) {
+                if (($contact['kind'] ?? null) === 'email' && $email === null && filter_var((string) ($contact['value'] ?? ''), FILTER_VALIDATE_EMAIL)) {
+                    $email = (string) $contact['value'];
+                }
+                if (($contact['kind'] ?? null) === 'phone' && $phone === null && preg_match('/^\+?[0-9 ().-]{6,20}$/', (string) ($contact['value'] ?? '')) === 1) {
+                    $phone = (string) $contact['value'];
+                }
+            }
+            if ($email !== null || $phone !== null) {
+                try {
+                    app(InstagramIdentitySync::class)->applyPublicContact($user, $email, $phone);
+                    $contactsApplied = ($email !== null ? 1 : 0) + ($phone !== null ? 1 : 0);
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+            }
+        }
+        $tally['contacts'] = $contactsApplied;
+        $tally['placed_platforms'] = array_values(array_unique(array_filter((array) ($tally['placed_platforms'] ?? []), 'is_string')));
+
         return ['outcome' => $outcome, 'observations' => $observations, 'pages' => $fetched, 'pages_unavailable' => $unavailable, 'unavailable_reasons' => $unavailableReasons, 'bio_url_seeded' => $bioUrlSeeded] + $tally;
     }
 
@@ -448,6 +485,28 @@ class LinkInBioImporter
         }
     }
 
+    /**
+     * Fill-if-empty: an owner-set code is never overwritten. Matched by the
+     * store's host so a tile url with a path still finds the storefront.
+     */
+    private function adoptDiscountCode(User $user, string $url, string $code): void
+    {
+        $host = strtolower((string) preg_replace('~^www\.~', '', (string) parse_url($url, PHP_URL_HOST)));
+        if ($host === '') {
+            return;
+        }
+        try {
+            $n = DB::connection('pgsql')->table('content.storefronts')
+                ->where('user_id', $user->id)
+                ->where(fn ($q) => $q->whereNull('discount_code')->orWhere('discount_code', ''))
+                ->where(fn ($q) => $q->where('url', 'like', '%'.$host.'%')->orWhere('source_url', 'like', '%'.$host.'%'))
+                ->update(['discount_code' => $code, 'updated_at' => now()]);
+            Log::info('link_in_bio.discount_code_adopted', ['user_id' => (string) $user->id, 'host' => $host, 'code' => $code, 'rows' => $n]);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
     private function pageKey(string $url): string
     {
         return strtolower(rtrim(preg_replace('~^https?://(?:www\.)?~i', '', $url) ?? $url, '/'));
@@ -579,7 +638,7 @@ class LinkInBioImporter
             match ($result['verdict']) {
                 'place' => $this->handlePlaced($url, $result, $context, $tally, $placedKeys),
                 'choose', 'hold' => $tally['suggested']++,
-                default => $this->handleUnrouted($url, $result, $context, $tally, $probedHosts, $droppedReasons),
+                default => $this->handleUnrouted($url, $result, $context, $tally, $probedHosts, $droppedReasons, $placedKeys),
             };
         }
     }
@@ -662,6 +721,16 @@ class LinkInBioImporter
             return null;
         }
 
+        foreach ($page['links'] as $row) {
+            $title = $row['title'] ?? '';
+            if ($title !== '') {
+                $this->vendorTitles[strtolower(trim($row['url']))] = $title;
+            }
+        }
+        foreach ($page['contacts'] ?? [] as $contact) {
+            $this->vendorContacts[] = $contact;
+        }
+
         return $normalizer->urls($page);
     }
 
@@ -697,6 +766,21 @@ class LinkInBioImporter
         // instagram.com/<handle> — one page, two canonicals, and the second
         // became an "Instagram" card beside the fold.
         $canonical = str_replace('://www.', '://', strtolower(trim((string) ($result['canonicalUrl'] ?? $url))));
+
+        if (is_array($routed) && $context->user !== null) {
+            // The setup feed's platforms row reads this (2026-09-02).
+            $tally['placed_platforms'][] = (string) ($routed['brandKey'] ?? '');
+            // A store tile whose TITLE carries a code ("Gamma+ - CODE: TEEGAN10")
+            // gives that store its discount code, fill-if-empty (owner,
+            // 2026-09-02); the storefront row is minted inside the placement.
+            if (($routed['routingClass'] ?? null) === 'shop') {
+                $title = $this->vendorTitles[strtolower(trim($url))] ?? null;
+                $code = is_string($title) ? DiscountCodeSniffer::sniff($title) : null;
+                if ($code !== null) {
+                    $this->adoptDiscountCode($context->user, $url, $code);
+                }
+            }
+        }
 
         if (isset($placedKeys[$key]) && $context->user !== null) {
             if ($placedKeys[$key] === $canonical) {
@@ -735,7 +819,7 @@ class LinkInBioImporter
      * @param  array<string, true>  $probedHosts
      * @param  array<string, int>  $droppedReasons  reason => count, for the run detail
      */
-    private function handleUnrouted(string $url, array $result, RoutingContext $context, array &$tally, array &$probedHosts, array &$droppedReasons): void
+    private function handleUnrouted(string $url, array $result, RoutingContext $context, array &$tally, array &$probedHosts, array &$droppedReasons, array &$placedKeys): void
     {
         // A pre-account build has no user, so nothing can be carded or probed;
         // the Note is counted where a claimed account would have seeded a
@@ -838,6 +922,29 @@ class LinkInBioImporter
         }
 
         if ($result['verdict'] === 'note') {
+            // A KNOWN brand's URL that only a query string kept from its
+            // detector (youtube.com/@handle?sub_confirmation=1 — jordan,
+            // 2026-09-02): route the bare URL once before carding it.
+            if (($result['reason'] ?? null) === 'no-rule-matched') {
+                $bare = (string) preg_replace('~[?#].*$~', '', $url);
+                if ($bare !== $url && $bare !== '') {
+                    $again = $this->routing->route($bare, $context);
+                    if (($again['verdict'] ?? null) === 'place') {
+                        $this->handlePlaced($bare, $again, $context, $tally, $placedKeys);
+
+                        return;
+                    }
+                }
+            }
+            // A page of a platform the person already has connected is not
+            // a link card beside the connection — fold it (2026-09-02).
+            $slug = is_array($classified ?? null) ? $classified['platform'] : '';
+            if ($slug !== ''
+                && IntegrationConnection::query()->where('user_id', $context->user->id)->where('platform', $slug)->whereNull('deleted_at')->exists()) {
+                $tally['folded']++;
+
+                return;
+            }
             $tally['noted']++;
             $this->seeder->seedCustom($context->user, $url);
 

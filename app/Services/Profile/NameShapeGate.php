@@ -35,6 +35,9 @@ final class NameShapeGate
         'services', 'shop', 'skin', 'spa', 'store', 'studio', 'stylist', 'tattoo', 'tattooist',
         'tension', 'therapies', 'therapist', 'therapy', 'trainer', 'training', 'tutor', 'wedding',
         'weddings', 'yoga',
+        // 2026-09-02 (melbournehairspecialist): the qualifiers that made
+        // "MELBOURNE HAIR SPECIALIST" read as a name.
+        'specialist', 'specialists', 'expert', 'experts', 'pro', 'educator', 'mentor',
         // AU/NZ/UK/US places that turn up as the leading token of a vanity string
         'adelaide', 'auckland', 'brisbane', 'canberra', 'chicago', 'darwin', 'gold', 'hobart', 'london',
         'melbourne', 'newcastle', 'perth', 'sydney', 'wellington', 'york',
@@ -148,6 +151,22 @@ final class NameShapeGate
      */
     public static function nameFromHandle(string $handle): ?string
     {
+        // The person's OWN word boundary first (2026-09-02): `jordan.dimitriadis`
+        // / `jordan_dimitriadis` is two alphabetic parts the person separated
+        // themselves and needs no surname dictionary — the scan below is for
+        // run-together handles, and its lists miss real names (neither
+        // "jordan" nor "dimitriadis" is in them; melbournehairspecialist).
+        if (preg_match('/^([a-z]{2,})[._]([a-z]{2,})(?:[._]([a-z]{2,}))?$/i', trim($handle), $m) === 1) {
+            $parts = array_map(
+                static fn (string $p): string => mb_strtolower($p),
+                array_values(array_filter([$m[1], $m[2], $m[3] ?? ''], static fn (string $p): bool => $p !== '')),
+            );
+            $noise = array_filter($parts, static fn (string $p): bool => self::isDescriptor($p) || in_array($p, self::COMMON_SUFFIXES, true));
+            if ($noise === []) {
+                return implode(' ', array_map(static fn (string $p): string => mb_convert_case($p, MB_CASE_TITLE, 'UTF-8'), $parts));
+            }
+        }
+
         $h = mb_strtolower((string) preg_replace('/[^a-z]/i', '', $handle));
         foreach (self::COMMON_SUFFIXES as $suffix) {
             if (str_ends_with($h, $suffix) && mb_strlen($h) - mb_strlen($suffix) >= 8) {
@@ -217,6 +236,18 @@ final class NameShapeGate
                     [$first, $last] = explode(' ', $fromHandle, 2);
                 }
             }
+        }
+
+        // ALL-CAPS person names read as shouting on the page (owner,
+        // 2026-09-02): two or three alphabetic tokens, none a descriptor, in
+        // caps → title case. Brand strings keep their casing.
+        if ($display !== '' && mb_strtoupper($display) === $display
+            && preg_match('/^[\p{L}\p{M}\'\-]+(?: [\p{L}\p{M}\'\-]+){1,2}$/u', $display) === 1
+            && array_filter(explode(' ', $display), static fn (string $t): bool => self::isDescriptor($t)) === []) {
+            $title = static fn (string $v): string => mb_convert_case(mb_strtolower($v), MB_CASE_TITLE, 'UTF-8');
+            $display = $title($display);
+            $first = $first !== '' ? $title($first) : '';
+            $last = $last !== '' ? $title($last) : '';
         }
 
         return [

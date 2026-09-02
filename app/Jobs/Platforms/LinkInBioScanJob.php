@@ -2,8 +2,10 @@
 
 namespace App\Jobs\Platforms;
 
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Routing\Importers\LinkInBioImporter;
+use App\Services\PreAccount\BuildProgress;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -82,6 +84,25 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
             'bio_page_url' => $this->bioPageUrl,
             ...$result,
         ]);
+
+        // Setup progress (2026-09-02): the link page is where most platforms
+        // connect, so the feed's platforms row is written here too.
+        $placed = array_values(array_filter((array) ($result['placed_platforms'] ?? []), 'is_string'));
+        if (($result['outcome'] ?? null) === 'ok') {
+            $label = $placed === []
+                ? 'Checked your link page — nothing new to connect'
+                : 'Connected '.BuildProgress::count(count($placed), 'platform', 'platforms').' from your link page';
+            if ((int) ($result['contacts'] ?? 0) > 0) {
+                $label .= ' — saved your contact details';
+            }
+            BuildProgress::noteForUser(
+                $this->userId,
+                PreAccountBuildEvent::STAGE_PLATFORMS,
+                $placed === [] ? PreAccountBuildEvent::STATUS_SKIPPED : PreAccountBuildEvent::STATUS_LANDED,
+                $label,
+                ['platforms' => $placed],
+            );
+        }
     }
 
     public function failed(Throwable $e): void

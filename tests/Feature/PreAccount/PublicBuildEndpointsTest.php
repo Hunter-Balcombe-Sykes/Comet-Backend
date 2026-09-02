@@ -357,6 +357,22 @@ it('carries a progress block from the first poll, fills it from the ledger, and 
     $this->getJson("/api/public/signup/builds/{$build->id}")
         ->assertJsonPath('progress.media.mirrored', 2)
         ->assertJsonPath('progress.done', true);
+
+    // A dead CDN url that failed its attempt and aged past the retry window
+    // is settled, not pending (teegandyson, 2026-09-02: 2 of 22 held the
+    // setup open to the ceiling).
+    DB::connection('pgsql')->table('content.media_assets')->insert([
+        ['id' => (string) Str::uuid(), 'user_id' => (string) $build->user_id, 'fingerprint' => 'dead-1', 'storage_path' => null, 'mirror_eligible' => 1, 'mirror_attempts' => 1, 'created_at' => now()->subMinutes(3)->toDateTimeString()],
+        ['id' => (string) Str::uuid(), 'user_id' => (string) $build->user_id, 'fingerprint' => 'fresh-1', 'storage_path' => null, 'mirror_eligible' => 1, 'mirror_attempts' => 1, 'created_at' => $now],
+    ]);
+    $this->getJson("/api/public/signup/builds/{$build->id}")
+        ->assertJsonPath('progress.media.total', 4)
+        ->assertJsonPath('progress.media.failed', 1)
+        ->assertJsonPath('progress.done', false);
+    DB::connection('pgsql')->table('content.media_assets')->where('fingerprint', 'fresh-1')->update(['created_at' => now()->subMinutes(3)->toDateTimeString()]);
+    $this->getJson("/api/public/signup/builds/{$build->id}")
+        ->assertJsonPath('progress.media.failed', 2)
+        ->assertJsonPath('progress.done', true);
 });
 
 it('noteForUser writes nothing for a claimed or stale build, and note() never throws', function () {

@@ -3,11 +3,11 @@
 use App\Models\Core\Site\Site;
 use App\Site\Actions\ActionSettings;
 
-it('defaults to newest with no slots', function () {
+it('defaults to smart with no slots (2026-09-02; was newest)', function () {
     $s = ActionSettings::fromSite(null);
-    expect($s->mode)->toBe('newest')->and($s->slots)->toBe([]);
+    expect($s->mode)->toBe('smart')->and($s->slots)->toBe([]);
     $s = ActionSettings::fromSite(new Site(['settings' => ['actions' => ['mode' => 'bogus']]]));
-    expect($s->mode)->toBe('newest');
+    expect($s->mode)->toBe('smart');
 });
 
 it('reads mode and sorts slots by position, dropping malformed rows', function () {

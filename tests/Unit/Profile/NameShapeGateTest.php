@@ -148,3 +148,19 @@ it('strips the fabricated split off a brand name — the re-audit exhibits', fun
     );
     expect($tension['firstName'])->toBeNull()->and($tension['lastName'])->toBeNull();
 });
+
+it("takes the person's own separator in the handle before any dictionary — jordan.dimitriadis (melbournehairspecialist, 2026-09-02)", function () {
+    expect(NameShapeGate::nameFromHandle('jordan.dimitriadis'))->toBe('Jordan Dimitriadis')
+        ->and(NameShapeGate::nameFromHandle('jordan_dimitriadis'))->toBe('Jordan Dimitriadis')
+        ->and(NameShapeGate::nameFromHandle('studio.mj'))->toBeNull()
+        ->and(NameShapeGate::nameFromHandle('jordan.au'))->toBeNull();
+    $out = NameShapeGate::apply(['displayName' => 'MELBOURNE HAIR SPECIALIST', 'firstName' => null, 'lastName' => null], 'jordan.dimitriadis', 'MELBOURNE HAIR SPECIALIST');
+    expect($out)->toBe(['displayName' => 'Jordan Dimitriadis', 'firstName' => 'Jordan', 'lastName' => 'Dimitriadis']);
+});
+
+it('title-cases an ALL-CAPS person name and leaves a descriptor phrase with no person handle alone', function () {
+    $out = NameShapeGate::apply(['displayName' => 'JORDAN DIMITRIADIS', 'firstName' => 'JORDAN', 'lastName' => 'DIMITRIADIS'], 'someone', 'JORDAN DIMITRIADIS');
+    expect($out['displayName'])->toBe('Jordan Dimitriadis')->and($out['firstName'])->toBe('Jordan')->and($out['lastName'])->toBe('Dimitriadis');
+    $brand = NameShapeGate::apply(['displayName' => 'MELBOURNE HAIR SPECIALIST', 'firstName' => null, 'lastName' => null], 'mhs2020', 'MELBOURNE HAIR SPECIALIST');
+    expect($brand['displayName'])->toBe('MELBOURNE HAIR SPECIALIST');
+});
