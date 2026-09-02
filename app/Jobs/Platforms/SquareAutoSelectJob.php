@@ -116,4 +116,10 @@ class SquareAutoSelectJob implements ShouldBeUnique, ShouldQueue
             'tier' => $match['tier'],
         ]);
     }
+
+    public function failed(Throwable $e): void
+    {
+        report($e);
+        Log::warning('square.auto_select.failed', ['user_id' => $this->userId, 'error' => $e->getMessage()]);
+    }
 }

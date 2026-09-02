@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use Illuminate\Support\Facades\Http;
+use App\Services\Http\SafeUrlFetcher;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -17,6 +17,8 @@ use Throwable;
  */
 final class SquareSiteBookingResolver
 {
+    public function __construct(private readonly SafeUrlFetcher $fetcher) {}
+
     private const PATTERN = '~https?://(?:[a-z0-9-]+\.)*squareup\.com/appointments/(?:book/)?[a-z0-9]{8,32}[^"\'\s<>]*~i';
 
     public static function isSiteRoot(string $url): bool
@@ -33,11 +35,13 @@ final class SquareSiteBookingResolver
             return null;
         }
         try {
-            $response = Http::timeout(10)->withHeaders(['Accept' => 'text/html'])->get($url);
-            if (! $response->ok()) {
+            // A user-supplied host (*.square.site, regex-checked above), so the
+            // SSRF-safe fetcher with its size cap, never a bare Http call.
+            $response = $this->fetcher->fetch($url, ['Accept' => 'text/html']);
+            if ($response['status'] !== 200) {
                 return null;
             }
-            $html = html_entity_decode($response->body(), ENT_QUOTES | ENT_HTML5);
+            $html = html_entity_decode($response['body'], ENT_QUOTES | ENT_HTML5);
         } catch (Throwable $e) {
             Log::info('square.site_booking_resolver.unreachable', ['url' => $url, 'error' => $e->getMessage()]);
 

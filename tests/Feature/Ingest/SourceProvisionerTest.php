@@ -4,6 +4,7 @@ use App\Ingest\Manifest\CostClass;
 use App\Ingest\SourceProvisioner;
 use App\Models\Core\Site\IntegrationConnection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 // The connect-time seam (plan §4): a platform connection with a registered
@@ -99,6 +100,9 @@ it('provisions tiktok from the username and facebook from every real page-url sh
 });
 
 it('derives the fresha slug from the booking url and the youtube handle as a resolvable identifier', function () {
+    // No network: the eager run's handle resolution would otherwise re-key
+    // the source onto the resolved channel id (IngestStatusWriteback, 2026-09-02).
+    Http::fake();
     $userId = provisionerUser();
 
     $fresha = makeConnection($userId, ['platform' => 'fresha', 'payload' => ['url' => 'https://fresha.com/a/brotherwolf-south-melbourne-s82k3a7o']]);
@@ -109,6 +113,9 @@ it('derives the fresha slug from the booking url and the youtube handle as a res
 });
 
 it('provisions youtube from the router-shaped payload (username, not handle)', function () {
+    // No network: the eager run's handle resolution would otherwise re-key
+    // the source onto the resolved channel id (IngestStatusWriteback, 2026-09-02).
+    Http::fake();
     // The routing lane writes ConnectionPayload::forWrite → {url, source,
     // username} for handle-kind surfaces; the legacy connect flow wrote
     // `handle`. Both spellings of the same fact must provision. This is the

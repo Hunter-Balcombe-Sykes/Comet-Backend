@@ -2,7 +2,7 @@
 
 namespace App\Services\Platforms;
 
-use Illuminate\Support\Facades\Http;
+use App\Services\Http\SafeUrlFetcher;
 use RuntimeException;
 
 /**
@@ -13,6 +13,8 @@ use RuntimeException;
  */
 final class SquareBookingClient
 {
+    public function __construct(private readonly SafeUrlFetcher $fetcher) {}
+
     /**
      * @return array<string, mixed>
      *
@@ -21,14 +23,14 @@ final class SquareBookingClient
      */
     public function widget(string $merchant, ?string $unit): array
     {
-        $response = Http::withHeaders(['Accept' => 'application/json'])
-            ->timeout((int) config('partna.http_fetch.connect_budget_seconds', 20))
-            ->get(SquareBookingPage::widgetUrl($merchant, $unit));
+        // Fixed vendor host, but through the one outbound fetcher (Rule 2):
+        // budget, size cap and redirect policy in one place.
+        $response = $this->fetcher->fetch(SquareBookingPage::widgetUrl($merchant, $unit), ['Accept' => 'application/json']);
 
-        if (! $response->ok()) {
-            throw new RuntimeException("square widget returned {$response->status()}");
+        if ($response['status'] !== 200) {
+            throw new RuntimeException("square widget returned {$response['status']}");
         }
-        $doc = $response->json();
+        $doc = json_decode($response['body'], true);
         if (! is_array($doc) || ! is_array($doc['services'] ?? null)) {
             throw new RuntimeException('square widget response carried no services[] — shape may have changed');
         }
