@@ -186,6 +186,7 @@ function gbEnrichFlakySeedAutoSync(): GoogleBusinessAutoSync
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    setupRoutingTables();   // A.13: the unclaimed enrich routes intents now
 });
 
 // ── LIFE-10: lock + re-read-and-merge ───────────────────────────────────────
@@ -461,9 +462,16 @@ it('does not persist syncFindings for an unclaimed pre-account owner (PRIV-2)', 
     expect($conn->apify_status)->toBe('ok');
     expect($conn->payload)->toHaveKey('apifyFetchedAt');
     expect($scraper->calls)->toBe(1);
+    // A.13 (2026-09-03): an unclaimed signup owner's listing links no longer
+    // seed connections — they route as banded intents for the setup dialog.
+    // The enrich still produced its output; it just lands one lane over.
     expect(IntegrationConnection::query()
         ->where('user_id', $user->id)
         ->where('platform', '!=', 'google-business')
+        ->exists())->toBeFalse();
+    expect(DB::table('routing.source_intents')
+        ->where('user_id', $user->id)
+        ->where('surface_key', 'facebook.profile')
         ->exists())->toBeTrue();
 });
 
