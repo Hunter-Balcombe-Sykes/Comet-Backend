@@ -4,6 +4,7 @@ use App\Models\Core\Site\Site;
 use App\Services\Analytics\ContentPopularityReader;
 use App\Services\Cache\CacheLockService;
 use App\Services\Content\ContentItemSlugAllocator;
+use App\Services\Media\InstagramMediaUrl;
 use App\Services\Media\MediaUrlResolver;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use App\Services\PublicSite\SitepageDataResolverService;
@@ -80,7 +81,7 @@ function degradedPoolResolver(string $failingPool, array $answers): PoolResolver
                 app(SectionCandidates::class),
                 app(ContentItemSlugAllocator::class),
                 app(MediaUrlResolver::class),
-                app(\App\Services\Media\InstagramMediaUrl::class),
+                app(InstagramMediaUrl::class),
                 app(ContentPopularityReader::class),
                 app(CacheLockService::class),
             );

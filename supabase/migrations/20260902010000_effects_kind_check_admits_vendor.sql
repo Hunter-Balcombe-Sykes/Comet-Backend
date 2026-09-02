@@ -23,6 +23,19 @@ ALTER TABLE "ingest"."effects" DROP CONSTRAINT IF EXISTS "effects_kind_check";
 ALTER TABLE "ingest"."effects"
     ADD CONSTRAINT "effects_kind_check" CHECK ("kind" IN ('http', 'actor', 'api', 'ai', 'vendor')) NOT VALID;
 
+COMMIT;
+
+-- VALIDATE in its OWN transaction (CONVENTIONS.md §2): bundled with the
+-- ADD ... NOT VALID above, the validation scan would inherit that statement's
+-- heavier lock instead of running under SHARE UPDATE EXCLUSIVE, which is a
+-- write stall on a populated table. Split 2026-09-02 — the guard
+-- (scripts/guard-no-unsafe-migrations.php check 8) had been reporting this,
+-- but CI's `test` job aborts at the composer-audit step BEFORE reaching the
+-- guard, so nothing enforced it.
+BEGIN;
+SET LOCAL lock_timeout      = '5s';
+SET LOCAL statement_timeout = '30s';
+
 ALTER TABLE "ingest"."effects" VALIDATE CONSTRAINT "effects_kind_check";
 
 COMMIT;

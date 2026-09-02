@@ -163,6 +163,8 @@
   fixture: { id: unknown }
 - route: "api/platforms/spotify/accounts/{id}"
   fixture: { id: unknown }
+- route: "api/platforms/spotify_podcasts/accounts/{id}"
+  fixture: { id: unknown }
 - route: "api/platforms/ticketek/accounts/{id}"
   fixture: { id: unknown }
 - route: "api/platforms/ticketmaster/accounts/{id}"

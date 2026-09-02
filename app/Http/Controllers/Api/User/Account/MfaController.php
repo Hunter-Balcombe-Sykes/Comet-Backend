@@ -83,11 +83,11 @@ class MfaController extends ApiController
         // email instead, never silently nowhere.
         try {
             $professional = User::query()->where('auth_user_id', $uid)->first();
-            $email = (string) ($professional?->primary_email ?? '');
+            $email = (string) ($professional->primary_email ?? '');
             $name = $professional?->display_name;
             if ($email === '') {
                 $staff = PartnaStaff::query()->where('auth_user_id', $uid)->first();
-                $email = (string) ($staff?->primary_email ?? '');
+                $email = (string) ($staff->primary_email ?? '');
                 $name = $staff?->name;
             }
             if ($email !== '') {

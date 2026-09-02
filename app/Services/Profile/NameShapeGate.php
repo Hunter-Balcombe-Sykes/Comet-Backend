@@ -159,7 +159,10 @@ final class NameShapeGate
         if (preg_match('/^([a-z]{2,})[._]([a-z]{2,})(?:[._]([a-z]{2,}))?$/i', trim($handle), $m) === 1) {
             $parts = array_map(
                 static fn (string $p): string => mb_strtolower($p),
-                array_values(array_filter([$m[1], $m[2], $m[3] ?? ''], static fn (string $p): bool => $p !== '')),
+                // No array_values(): $m[1]/$m[2] are [a-z]{2,} so never falsy,
+                // leaving only the OPTIONAL third part filterable — and it is
+                // trailing, so what survives is already a list.
+                array_filter([$m[1], $m[2], $m[3] ?? ''], static fn (string $p): bool => $p !== ''),
             );
             $noise = array_filter($parts, static fn (string $p): bool => self::isDescriptor($p) || in_array($p, self::COMMON_SUFFIXES, true));
             if ($noise === []) {
