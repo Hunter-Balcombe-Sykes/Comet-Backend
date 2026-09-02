@@ -89,6 +89,23 @@ it('media-mirror has its own dedicated supervisor and serves nothing else', func
         );
 });
 
+// 2026-09-02: the two queues a signup's tail depends on — 'cloudflare'
+// (SyncSubdomainToKvJob makes the site resolve) and 'platform_connect' (the
+// Fresha/Square ConnectFetchJob behind "Book") — outrank 'default', which
+// carries the same build's doc-rebuild and purge churn. Measured before the
+// move: KV live 9s after ready; a Fresha connect waited 35s. Pin it so a
+// "tidy up" cannot put 'default' back in front of a user-visible spinner.
+it('cloudflare and platform_connect are listed BEFORE default on supervisor-1, so a build\'s own churn cannot delay its KV publish or connects', function () {
+    $horizon = require base_path('config/horizon.php');
+    $queue = $horizon['defaults']['supervisor-1']['queue'];
+
+    $defaultIndex = array_search('default', $queue, true);
+
+    expect($defaultIndex)->not->toBeFalse()
+        ->and(array_search('cloudflare', $queue, true))->toBeLessThan($defaultIndex)
+        ->and(array_search('platform_connect', $queue, true))->toBeLessThan($defaultIndex);
+});
+
 it('media-mirror no longer rides supervisor-1, whose churn starved it', function () {
     $horizon = require base_path('config/horizon.php');
     $queue = $horizon['defaults']['supervisor-1']['queue'];
@@ -810,7 +827,7 @@ it('the four Unit F wait-time thresholds have the expected values', function () 
 
     // Exact equality, not a range — so a "tidy up" pass can't silently loosen
     // one of these back toward the accidental-60s failure mode.
-    expect($waits['redis:'.ModerationQueue::HIGH.',default,cloudflare,cache-warm,images,streaming,platform_refresh,platform_connect,analytics,cloudflare_bulk'])->toBe(900)
+    expect($waits['redis:'.ModerationQueue::HIGH.',cloudflare,platform_connect,default,cache-warm,images,streaming,platform_refresh,analytics,cloudflare_bulk'])->toBe(900)
         // Item 9b: media-mirror left supervisor-1's composite key for its own
         // lane; same 900s clock (signed-URL expiry), now on its own key.
         ->and($waits['redis:media-mirror'])->toBe(900)

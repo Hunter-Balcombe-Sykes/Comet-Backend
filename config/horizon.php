@@ -90,9 +90,9 @@ return [
     */
     'waits' => [
         // Lane 1 — supervisor-1 (balance=>false, 2 procs in prod/dev): covers
-        // platform_refresh/platform_connect/analytics/cloudflare_bulk (OBS-6's
-        // named queues), which sit at the bottom of this strict-priority list
-        // and are the first to starve. 900s = 15min: a 180s Cloudflare purge plus
+        // platform_refresh/analytics/cloudflare_bulk (OBS-6's named queues),
+        // which sit at the bottom of this strict-priority list and are the
+        // first to starve (platform_connect moved above 'default' 2026-09-02). 900s = 15min: a 180s Cloudflare purge plus
         // a batch of image jobs projects well under this on routine load
         // (integrations:refresh's staggered dispatch keeps delayed jobs out
         // of readyNow entirely); a lane that can't clear in a quarter of
@@ -103,7 +103,7 @@ return [
         // reads back exactly the composite key the supervisor registers. Reorder
         // `defaults.supervisor-1.queue` and this string MUST move with it, or the
         // lane silently falls back to the accidental 60s ceiling.
-        'redis:'.ModerationQueue::HIGH.',default,cloudflare,cache-warm,images,streaming,platform_refresh,platform_connect,analytics,cloudflare_bulk' => 900,
+        'redis:'.ModerationQueue::HIGH.',cloudflare,platform_connect,default,cache-warm,images,streaming,platform_refresh,analytics,cloudflare_bulk' => 900,
 
         // Lane 1b — supervisor-mirror (2026-09-01, Item 9b): media-mirror's
         // own lane. 900s: mirrors are background byte-copies whose assets
@@ -254,7 +254,17 @@ return [
             // I/O waits; nothing here is CPU-bound. Rejected alternative: raising
             // this supervisor's maxProcesses — that scales the churn (doc rebuilds,
             // purges) along with the mirrors and keeps the starvation coupling.
-            'queue' => [ModerationQueue::HIGH, 'default', 'cloudflare', 'cache-warm', 'images', 'streaming', 'platform_refresh', 'platform_connect', 'analytics', 'cloudflare_bulk'],
+            //
+            // 2026-09-02: 'cloudflare' and 'platform_connect' moved ABOVE 'default'.
+            // Both are the tail of a signup a person is watching — SyncSubdomainToKvJob
+            // is what makes the site resolve, and ConnectFetchJob is the Fresha/Square
+            // connect behind the "Book" button — while 'default' carries that same
+            // build's doc-rebuild and purge churn. Measured on the 2026-09-02
+            // baseline: KV live 9s after ready (jordan), and the Fresha source
+            // created at 49s did not start until 84s. Ordering only; 'cloudflare_bulk'
+            // stays last for the R3-CACHE-1 reason above, 'analytics' stays below
+            // 'images' for the k6 phase 3b reason above.
+            'queue' => [ModerationQueue::HIGH, 'cloudflare', 'platform_connect', 'default', 'cache-warm', 'images', 'streaming', 'platform_refresh', 'analytics', 'cloudflare_bulk'],
             'balance' => false,
             'maxProcesses' => 1,
             'maxTime' => 0,
