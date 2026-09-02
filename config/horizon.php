@@ -400,10 +400,14 @@ return [
             'connection' => 'redis',
             'queue' => ['ingest'],
             'balance' => 'auto',
-            // 1, not 2: a 15-minute dispatcher with 300s jobs has no need of
-            // two concurrent workers at pilot scale, and every extra permitted
-            // worker is heap this box does not have (see the ceiling note
-            // below). Raise it WITH a resize, not before one.
+            // 2 on deployed envs (2026-09-02), was 1. The old "a 15-minute
+            // dispatcher with 300s jobs has no need of two workers" reasoning
+            // predates #LIFE-5: first pulls are now EAGER on connect, so a
+            // signup's TikTok and YouTube runs arrive together and one worker
+            // ran them back to back (53-60s, jordan.dimitriadis) — and two
+            // people signing up at once serialise entirely. Gated on the
+            // ceiling note below: 24h of dev logs showed zero memory kills
+            // after the 09-01 wave's four extra workers, so this is the fifth.
             'maxProcesses' => 1,
             'maxTime' => 0,
             'maxJobs' => 0,
@@ -466,13 +470,15 @@ return [
         // box that is a WATCH item, not a proven fit: deploy, watch for OOM
         // restarts in cloud logs, and either resize the box (owner
         // pre-approved) or trim supervisor-long to 2 if memory bites.
+        // 2026-09-02: 24h of dev logs clean of memory kills → supervisor-ingest
+        // 1→2 (12 total). Same watch item; trim ingest first if it bites.
         'production' => [
             'supervisor-1' => ['maxProcesses' => 2],
             'supervisor-mail' => ['maxProcesses' => 2],
             'supervisor-long' => ['maxProcesses' => 3],
             'supervisor-mirror' => ['maxProcesses' => 2],
             'supervisor-videos' => ['maxProcesses' => 1],
-            'supervisor-ingest' => ['maxProcesses' => 1],
+            'supervisor-ingest' => ['maxProcesses' => 2],
         ],
 
         'development' => [
@@ -481,7 +487,7 @@ return [
             'supervisor-long' => ['maxProcesses' => 3],
             'supervisor-mirror' => ['maxProcesses' => 2],
             'supervisor-videos' => ['maxProcesses' => 1],
-            'supervisor-ingest' => ['maxProcesses' => 1],
+            'supervisor-ingest' => ['maxProcesses' => 2],
         ],
 
         'local' => [
