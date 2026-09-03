@@ -103,7 +103,16 @@ class LinkRoutingService
             'explanation' => $isNote
                 ? (self::isStorefrontCandidate($projection, $placement)
                     ? "We'll keep this as a link on your site — and if it turns out to be your online store, we'll offer to add it as one."
-                    : "We'll keep this as a link on your site.")
+                    // PlacementPolicy computes a SPECIFIC reason for most Notes
+                    // (which capability gated it, which brand retired, why the
+                    // match was too weak to name an account) — prefer it over
+                    // the generic line so a gated paste preview says WHY
+                    // ("booking is not available for this account") instead of
+                    // a uniform "we'll keep this as a link" that reads the same
+                    // for every reason. Found by the 2026-09-04 overnight
+                    // suggestion-pipeline sweep: the specific text was computed
+                    // and then unconditionally discarded here.
+                    : ($placement->explanation ?? "We'll keep this as a link on your site."))
                 : $placement->explanation,
             'conflictingConnectionId' => $placement->conflictingConnectionId,
             // Owner ask (2026-08-18): a pasted Shopify / WooCommerce / other

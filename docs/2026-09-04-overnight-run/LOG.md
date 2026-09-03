@@ -371,3 +371,44 @@ a TryBooking eventlist organiser page with the connect hint") pinning the
 exact fixed behavior. Ran the full `EventPagePoolAddTest` +
 `EventsPoolTest` suites together: 26 passed, 0 failed. `pint --test` and
 targeted `phpstan analyse` on the changed file both clean.
+
+## W8 — suggestion-pipeline end-to-end sweep (Verdict outcomes, inbox, accept/dismiss, conflict/cap, capability gates)
+
+Created 6 dedicated test users (`suggestion-sweep-01` through `-06`,
+partna/business/food-business/non-food-business account shapes) and drove
+real `PlacementPolicy`/`SourceReconciler`/`SuggestionsController` calls
+against them via direct controller/service invocation (`partna:as` was
+tried first but requires a real `auth_user_id`, which these dedicated
+sweep accounts deliberately don't carry — switched to the same
+direct-invocation pattern W7 used). 6 scenarios, 22 steps total, 8 flagged
+as deviating from the scripted "expected" outcome. Investigated every one
+individually rather than trusting the sweep-agent's framing at face value:
+
+**5 of the 8 were scenario-design artifacts, not pipeline bugs** — my own
+test scripting used `origin='website_import'` to simulate "a link found on
+the user's own bio-link page," but `website_import` specifically means a
+partna's WORKPLACE website scan (`RoutingCapabilityGate::WORKPLACE_SOURCED_ORIGINS`'s
+own docblock), which correctly triggers the foreign-identity gate
+(`foreignIdentityDenial()`) for identity-asserting routing classes (social/
+content) on a partna account — the origin I should have used for "found on
+the user's own page" is `bio_harvest`, not `website_import`. This affected
+the async-verify-accept step (suggestion-sweep-01 step 3, github.profile),
+the per-surface cap/swap steps (suggestion-sweep-03 steps 2-4, instagram),
+and one step where an earlier step in the SAME scenario had already
+occupied the one `reservations`-class slot, correctly triggering an
+exclusive-class conflict instead of the clean Choose the script expected
+(suggestion-sweep-01 step 4) — the actual thing under test there, tombstone
+suppression on dismiss, passed perfectly. No code changes; these are
+sweep-design notes for any future run using these scripts.
+
+**1 finding (`sibling_branch` mislabeling a genuine cross-brand conflict) was investigated and confirmed as intentional, not a bug.** `SourceReconciler::isSettledWorkplaceSlot()`'s docblock explicitly reasons about TWO distinct cases sharing one block_reason: genuine same-brand multi-branch chains (the originally-measured Fresha incident, six branches becoming five noisy "use this instead?" cards), AND — a separate, explicitly-reasoned bullet — "a link off their employer's site does not get to propose replacing" a self-asserted connection, brand-agnostic by design ("an account says who you are, a booking link says how to reach you"). My suggestion-sweep-02 scenario pasted Calendly (`owner_scope='self'`) then harvested Acuity via `website_import` (`owner_scope='workplace'`) — exactly the second, deliberate case. The resulting inbox-exclusion (`SuggestionsController::index()` drops all `sibling_branch` intents by design) is therefore working as intended, if confusingly named for this second case. Not fixed — reusing one block_reason for two related "don't ask" cases avoids a schema change for a labelling nuance, and I don't have standing to redesign this UX call unilaterally on an autonomous run.
+
+### F7 — `LinkRoutingService::describe()` discarded the specific capability-gate reason for every Note
+
+**Symptom**: a capability-gated paste/preview (e.g. a business account without `can_use_reservations` pasting an OpenTable link) correctly comes back as `verdict=note, blockReason=null` (a Note is never dropped) — but the WIRE `explanation` field always read a generic "We'll keep this as a link on your site.", identical for every Note regardless of WHY. The specific sentence `RoutingCapabilityGate::denialFor()` computes per routing_class (`"reservations are not available for this account"`, distinct text for booking/ordering) never reached the response, the `routing.link_observations` row, or anywhere else — only the short code `block_reason='gate'` survived, indistinguishable from a booking- or ordering-denial without re-deriving which capability failed.
+
+**Root cause**: `LinkRoutingService::describe()`'s `isNote` branch unconditionally replaces `explanation` with one of two hardcoded strings, discarding `$placement->explanation` — which `PlacementPolicy::decide()` DOES populate with the specific reason for essentially every Note case. Unlike the `blockReason`-Reject-only behavior two lines above (which carries an explicit comment justifying it — "the dashboard disables submit whenever blockReason is set... a Note is kept as a link") and the `sibling_branch` case above (also richly justified), this override had no comment explaining why the specific text should be thrown away, which was the deciding signal this one was an oversight, not a deliberate simplification.
+
+**Fix**: `app/Routing/LinkRoutingService.php` — for a Note that isn't the storefront-candidate special case, prefer `$placement->explanation` (falling back to the old generic line only if it's somehow unset). The storefront-candidate branch is untouched.
+
+**Verified**: added `->assertJsonPath('explanation', 'reservations are not available for this account')` to the existing `RoutingEndpointTest.php` test `'gates a reservations link for an account that cannot use reservations'` (which already exercised this exact scenario but never checked `explanation`). Ran `tests/Feature/Routing/` + `tests/Unit/Routing/` in full: 622 passed, 0 failed — confirms no other test was pinning the old generic string for a gated case. `pint --test` and targeted `phpstan analyse` both clean.

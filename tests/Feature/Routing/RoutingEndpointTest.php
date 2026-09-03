@@ -256,7 +256,11 @@ it('gates a reservations link for an account that cannot use reservations', func
         ->assertJsonPath('verdict', 'note')
         ->assertJsonPath('outcome', 'link')
         ->assertJsonPath('blockReason', null)
-        ->assertJsonPath('routedTo', null);
+        ->assertJsonPath('routedTo', null)
+        // F7 (2026-09-04 overnight sweep): the SPECIFIC gate reason
+        // PlacementPolicy computed must survive to the wire, not the generic
+        // "we'll keep this as a link" line every other Note shares.
+        ->assertJsonPath('explanation', 'reservations are not available for this account');
 
     expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0)
         ->and(app(LinkPoolReader::class)->cards($pro->refresh()))->toHaveCount(1)
