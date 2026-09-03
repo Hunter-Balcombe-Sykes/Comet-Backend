@@ -74,4 +74,44 @@ final readonly class RoutingContext
     {
         return $this->user?->isUnclaimed() === true && $this->origin !== 'paste';
     }
+
+    /**
+     * A build with a real person waiting at the other end — the only kind that
+     * may spend money speculatively.
+     *
+     * This is deliberately NOT isSignupBuild(). That one is a SAFETY predicate:
+     * PlacementPolicy and SourceReconciler use it to force suggest-don't-connect
+     * for every unclaimed build, and narrowing it would let staff/ManyChat
+     * outreach builds start auto-connecting — strictly worse. So the cost gate
+     * gets its own predicate instead, and the two are allowed to disagree.
+     *
+     * The distinction matters because pre-scrape is billed: 15 of 32 ingest
+     * connectors are CostClass::Actor (Apify). isSignupBuild() is true for ANY
+     * unclaimed non-paste user, so an outreach build — which PreAccountBuild's
+     * own comments say "may sit unclaimed for weeks with nobody to ask" — was
+     * buying the same paid scrapes as someone seconds from the setup dialog.
+     *
+     * Deliberately reuses PreAccountBuild::isOutreach() rather than testing
+     * built_via here. That predicate is keyed on WHO CREATED THE ROW
+     * (built_by_staff_id) as well as built_via, precisely because the public
+     * build endpoint sets built_via='signup' by default — a bare
+     * `built_via === VIA_SIGNUP` test would be the exact mistake its docblock
+     * warns about. It also fails SAFE (classifies as outreach when unsure),
+     * which is the direction a spending gate wants.
+     *
+     * A missing build row therefore also means no spend.
+     *
+     * Costs one query per BUILD, not per link — the HasOne caches on the User
+     * instance that the routing loop reuses.
+     */
+    public function isSelfServeSignup(): bool
+    {
+        if (! $this->isSignupBuild()) {
+            return false;
+        }
+
+        $build = $this->user?->preAccountBuild;
+
+        return $build !== null && ! $build->isOutreach();
+    }
 }

@@ -249,7 +249,13 @@ class SourceReconciler
         // setup dialog has real items behind the tick. AFTER the transaction
         // and outside $settle's lock for the same reasons as the fresha gate
         // above — the dispatcher re-reads the intent row it needs.
-        if ($verdict === Verdict::Choose && $intentId !== null && $context->isSignupBuild()) {
+        // isSelfServeSignup(), NOT isSignupBuild(): pre-scrape SPENDS (15 of 32
+        // connectors are CostClass::Actor), and isSignupBuild() is true for any
+        // unclaimed non-paste user — so outreach builds, which may sit
+        // unclaimed for weeks with nobody to ask, were buying the same paid
+        // scrapes as someone seconds from the setup dialog. Every other use of
+        // isSignupBuild() is a SAFETY gate and must keep its wider meaning.
+        if ($verdict === Verdict::Choose && $intentId !== null && $context->isSelfServeSignup()) {
             $this->preScrape->maybeApply($user, $placement, $surface, $intentId);
         }
 

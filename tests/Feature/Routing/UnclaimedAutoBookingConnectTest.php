@@ -24,6 +24,7 @@ use Illuminate\Support\Facades\Queue;
  */
 beforeEach(function () {
     setupUsersTable();
+    setupPreAccountBuildsTable();
     setupSitesTable();
     setupNotificationsTable();
     setupRoutingTables();
