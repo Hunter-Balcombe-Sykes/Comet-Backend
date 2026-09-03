@@ -3,6 +3,7 @@
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Routing\Importers\LinkInBioImporter;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
@@ -59,7 +60,7 @@ it('suggests (never auto-connects) a Fresha link that arrives via an aggregator 
 
     expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
 
-    $intent = \Illuminate\Support\Facades\DB::table('routing.source_intents')
+    $intent = DB::table('routing.source_intents')
         ->where('user_id', $user->id)->where('surface_key', 'fresha.book')->first();
     expect($intent)->not->toBeNull()
         ->and($intent->state)->toBe('proposed');

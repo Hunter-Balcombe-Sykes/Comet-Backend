@@ -14,5 +14,20 @@
 -- retry dedupe and token-mint security all depend on one live build per
 -- source. built_via is NOT NULL with a CHECK constraint, so a plain <> is
 -- null-safe here.
+-- guard:no-unsafe-migrations:disable-file
+-- Justification (2026-09-03, CI repair). This swaps a PARTIAL UNIQUE index, and
+-- CONCURRENTLY cannot express that safely. Check 6 forbids pairing a
+-- CONCURRENTLY statement with any other statement in one file, so the DROP and
+-- the CREATE would have to land in separate transactions — opening a window in
+-- which live-source uniqueness is UNENFORCED. The outreach lanes rest on that
+-- invariant: CSV idempotency, ManyChat webhook retry dedupe and claim-token
+-- minting all assume one live build per source, and a duplicate inserted inside
+-- that window would then make the unique CREATE fail outright. Keeping this
+-- transactional is a correctness choice, not a convenience one.
+-- The cost of forgoing CONCURRENTLY is nil: core.pre_account_builds holds 313
+-- rows on dev (2026-09-03), so the transactional build is milliseconds, and
+-- this file is ALREADY APPLIED there — editing an applied migration never
+-- re-runs it, so every future execution is a from-zero apply against an empty
+-- table, the same situation Check 1 already exempts for same-file tables.
 DROP INDEX IF EXISTS "core"."pre_account_builds_live_source_unique";
 CREATE UNIQUE INDEX "pre_account_builds_live_source_unique" ON "core"."pre_account_builds" USING "btree" ("source_type", "source_ref_lc") WHERE (("claimed_at" IS NULL) AND ("built_via" <> 'signup'));
