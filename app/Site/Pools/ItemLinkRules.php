@@ -23,7 +23,11 @@ class ItemLinkRules
 {
     /** @var array<string, list<string>> pool → the platforms a link may name */
     public const ROSTER = [
-        'watch' => ['youtube', 'vimeo', 'twitch'],
+        // TikTok joined 2026-09-03: its /@handle/video/<id> shape is a real
+        // `video` kind in MediaPageReader::classifyItem(), so the pool can
+        // hold one — and a roster that omitted it would refuse the hand-added
+        // alternate link for an item the paste lane happily creates.
+        'watch' => ['youtube', 'vimeo', 'twitch', 'tiktok'],
         'listen' => [
             'spotify', 'soundcloud', 'mixcloud', 'tidal',
             'apple-music', 'apple-podcast', 'youtube-music', 'bandcamp',
@@ -55,6 +59,7 @@ class ItemLinkRules
         'youtube' => ['youtube.com', 'youtu.be'],
         'vimeo' => ['vimeo.com'],
         'twitch' => ['twitch.tv'],
+        'tiktok' => ['tiktok.com'],
         'spotify' => ['open.spotify.com', 'spotify.link'],
         'soundcloud' => ['soundcloud.com', 'on.soundcloud.com'],
         'mixcloud' => ['mixcloud.com'],
