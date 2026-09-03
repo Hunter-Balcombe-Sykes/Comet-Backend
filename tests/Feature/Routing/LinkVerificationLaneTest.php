@@ -6,6 +6,7 @@ use App\Routing\SuggestionApplier;
 use App\Routing\Verification\LinkVerifier;
 use App\Routing\Verification\VerificationVerdict;
 use App\Services\Setup\SetupBatchApplier;
+use App\Services\Setup\SetupPayload;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -28,6 +29,13 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupRoutingTables();
+    // SetupPayload reads across the whole setup surface, so the wire assertion
+    // at the bottom of this file needs the same DDL chain SetupControllerTest
+    // provisions — not just the routing tables the lane itself touches.
+    setupContentTables();
+    setupIngestTables();
+    setupPreAccountBuildsTable();
+    setupPreAccountBuildEventsTable();
 });
 
 function seedIntent(string $userId, array $overrides = []): string
@@ -188,4 +196,24 @@ it('takes the same detour from the setup dialog — one rule, both accept lanes'
         ->and(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
 
     Queue::assertPushed(VerifyLinkJob::class, fn ($job) => $job->intentId === $intentId);
+});
+
+it('tells the setup dialog a row is being checked, ticked and locked', function () {
+    Queue::fake();
+    $pro = createTenant('verify-wire', ['account_type' => 'business', 'sector' => 'restaurant']);
+    $intentId = seedIntent($pro->id, array_merge(verifiableIntent(), ['state' => 'verifying']));
+
+    $row = collect(app(SetupPayload::class)->for($pro)['passes'] ?? [])
+        ->flatMap(fn (array $pass) => $pass['suggestions'] ?? [])
+        ->firstWhere('id', $intentId);
+
+    // Without this the row comes back from Continue looking exactly as it did
+    // before the tick, which reads as "nothing happened" — the person answered
+    // and the wait is OURS.
+    expect($row)->not->toBeNull()
+        ->and($row['verifying'])->toBeTrue()
+        ->and($row['preselected'])->toBeTrue()
+        // Neither verb is offered while the queue holds it: accept would
+        // re-park it and dismiss would race the job that is answering.
+        ->and($row['actions'])->toBe([]);
 });

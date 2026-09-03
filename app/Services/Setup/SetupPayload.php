@@ -255,6 +255,12 @@ class SetupPayload
             }
 
             $band = $intent->band ?? null;
+            // 'verifying' is the one state the PERSON cannot clear: they ticked
+            // it, Continue accepted it, and we are the ones still working. A
+            // row that came back looking exactly as it did before the tick
+            // reads as "nothing happened" — so the state goes on the wire and
+            // the card says it is being checked.
+            $verifying = (string) $intent->state === 'verifying';
             $rows[] = [
                 '_category' => $category,
                 'id' => (string) $intent->id,
@@ -275,10 +281,16 @@ class SetupPayload
                 'origin' => (string) $intent->origin,
                 'originLabel' => self::ORIGIN_LABELS[(string) $intent->origin] ?? null,
                 'band' => $band,
-                'preselected' => $band === 'auto' || $hidden,
+                // A verifying row stays TICKED. The tick is the person's own
+                // answer and it was accepted; un-ticking it while we check
+                // would ask them the same question twice.
+                'preselected' => $band === 'auto' || $hidden || $verifying,
                 'syncing' => $hidden && (string) ($connection->last_refresh_status ?? '') === 'pending',
+                'verifying' => $verifying,
                 'connectionId' => $visible ? (string) $connection->id : null,
-                'actions' => ['accept', 'dismiss'],
+                // Nothing to accept or dismiss while the queue holds it — the
+                // accept lane would re-park it and a dismiss would race the job.
+                'actions' => $verifying ? [] : ['accept', 'dismiss'],
             ];
         }
 
@@ -323,6 +335,10 @@ class SetupPayload
                 'band' => null,
                 'preselected' => true,
                 'syncing' => (string) ($connection->last_refresh_status ?? '') === 'pending',
+                // An intent-less connection already exists, so there is no
+                // check outstanding — the key is present on every row so the
+                // client never has to distinguish absent from false.
+                'verifying' => false,
                 'connectionId' => (string) $connection->id,
                 'actions' => [],
             ];
