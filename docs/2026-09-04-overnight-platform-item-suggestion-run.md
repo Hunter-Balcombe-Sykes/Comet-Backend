@@ -46,7 +46,17 @@ didn't have):
    against dev-api post-deploy**. Two failed fix attempts on one finding →
    `BLOCKED-F<n>` with what was tried, move on (per stop-gate doctrine —
    never ride one thread into exhaustion).
-7. **Guardrails**: dev ref only, never prod (`edplucmvkcnokyygxqsb`); all
+7. **Guardrails**: any new call site that fetches a URL — an oEmbed lookup
+   for a new W4 platform, a live-verification curl the plan asks for —
+   must sit in one of CLAUDE.md's four outbound-HTTP categories (default:
+   category B, `SafeUrlFetcher`, since these are always user/scrape-
+   supplied URLs), pinned by `OutboundHttpGuardTest.php`'s own CI job.
+   Every discriminator this run adds to `classify()`'s hand-enumerated
+   event/social blocks stays PURE regex against the URL string — no new
+   fetch — matching every existing brand in those blocks; if a brand
+   genuinely needs a fetch to disambiguate (unlikely, but Etix/Skiddle/etc.
+   are unresearched), route it through `SafeUrlFetcher`, never a bare
+   `Http::get()`. Dev ref only, never prod (`edplucmvkcnokyygxqsb`); all
    users are test users, no owner credentials, no browser sign-ups; never
    force-push; never re-add retired surfaces / dropped tables / 3rd account
    type / Stripe / Shopify; every pool mutation bumps all 3 cache lanes;
@@ -82,14 +92,18 @@ can't resolve), so an events brand absent from the hand block gets category
 suggestion or a pasteable item.
 
 **B — Social hosts undercount (real, medium-confidence, softer failure
-mode than events).** 27 catalog surfaces carry `Shelf::Social`.
-`SOCIAL_HOSTS`/`SOCIAL_PLATFORM` name 15: instagram, facebook, tiktok,
-twitter/x, linkedin, snapchat, threads, discord, reddit, telegram,
-whatsapp, patreon, github, behance, dribbble (youtube/spotify/soundcloud/
-vimeo/twitch/deezer/skool also live in this map but aren't Social-shelf).
-**Missing 12**: bluesky, buymeacoffee, cameo, cash_app, codepen, gitlab,
-kick, ko_fi, paypal, tumblr, venmo, vsco. (Pinterest is NOT a gap — it's
-deliberately in `LINK_ONLY_HOSTS`, confirmed by reading that constant.)
+mode than events).** 28 catalog surfaces carry `Shelf::Social` (critic-
+verified count; the plan originally said 27, undercounting by omitting
+Pinterest from the total while discussing it separately below).
+`SOCIAL_HOSTS`/`SOCIAL_PLATFORM` name 15 Social-shelf brands: instagram,
+facebook, tiktok, twitter/x, linkedin, snapchat, threads, discord, reddit,
+telegram, whatsapp, patreon, github, behance, dribbble (youtube/spotify/
+soundcloud/vimeo/twitch/deezer/skool/**substack** — 8, critic-corrected
+from 7 — also live in this map but aren't Social-shelf). **Missing 12**:
+bluesky, buymeacoffee, cameo, cash_app, codepen, gitlab, kick, ko_fi,
+paypal, tumblr, venmo, vsco. (Pinterest is NOT a gap — it's deliberately
+in `LINK_ONLY_HOSTS`, confirmed by reading that constant; it's the 28th
+Social-shelf surface, correctly excluded from `SOCIAL_HOSTS` on purpose.)
 Because `classifyFromCatalog()` still recognises these hosts and
 `PROMOTABLE_ROUTING_CLASS` excludes `social` on purpose (a catalog social
 surface isn't thereby an account the owner controls, per the code's own
@@ -101,7 +115,8 @@ under-classified, not vanished, but still wrong and still worth closing
 since these are all live, connectable catalog surfaces added recently.
 
 **C — Item-URL grammar gaps in `MediaPageReader::classifyItem()`.** Covers
-exactly 11 platforms: youtube, youtube-music, vimeo, twitch, tiktok,
+exactly 12 platforms (critic-corrected from an 11-count typo — the list
+itself was always right): youtube, youtube-music, vimeo, twitch, tiktok,
 spotify, soundcloud, mixcloud, apple-music, apple-podcast, bandcamp,
 tidal. **No item-vs-account grammar at all** for: audiomack, beatport,
 deezer, dailymotion, rumble, feature_fm, hypeddit, laylo, linkfire,
@@ -111,6 +126,13 @@ these blocks: a single-item paste into watch/listen pools, a hand-added
 alternate item link, AND (per `MediaParentSuggester`, confirmed clean —
 see below) the parent-account suggestion, since that suggester only fires
 off `classifyItem()`'s `authorUrl` output.
+
+**C2 — `accountPlatformLabel()` missing a youtube-music branch (critic
+finding, real gap, folded into W4).** `classifyItem()` names
+`youtube-music` as a distinct platform, but `accountPlatformLabel()`
+(`MediaPageReader.php:300-363`) only branches on `youtube.com`/
+`m.youtube.com` — a YouTube Music channel/profile URL returns `null`
+instead of a connect-hint. Add a `music.youtube.com` branch in W4.
 
 **D — `MediaParentSuggester` (confirmed CLEAN, no fix needed).** Read in
 full. Reuses the real projector + `PlacementPolicy` + tombstone check +
@@ -156,7 +178,14 @@ No code changes. Each agent returns a structured list, not prose.
 - W1a: enumerate every `is_connectable=true` surface in
   `bootstrap/catalog/compiled.php` grouped by `routing_class`; diff against
   `BOOKING_HOSTS`/`RESERVATION_HOSTS`/`ORDERING_HOSTS` keys (confirms/refutes
-  §1G — expect near-zero real gaps, but prove it, don't assume).
+  §1G — expect near-zero real gaps, but prove it, don't assume). Known
+  deliberate exception, do NOT flag as a mismatch: `ORDERING_PLATFORM` has
+  one more entry than `ORDERING_HOSTS` (`'Square Online' => 'square.order'`),
+  matched separately via `isSquareOrderingUrl()`'s path-qualified check
+  (`WebsiteLinkHarvester.php:257-262`), not a missing-row bug. If W1a finds
+  any OTHER real booking/reservations/ordering gap, it does not get its own
+  workstream — file it as an F<n> in LOG.md and fix it inside W3 (same
+  paired-map mechanics as the social-host fix).
 - W1b: confirm the 12 social gaps and 14 events gaps in §1 against the
   live compiled catalog (`is_connectable`, `legacy_platform`) — catch any
   surface that's detect-only (not connectable) and so correctly excluded.
@@ -219,6 +248,18 @@ returning a structured pass/fail table, not prose. Any failure → an F<n>
 in LOG.md → fixed under the Probe→Critic→Gate loop above, not silently
 patched inline.
 
+Edge-case dimensions are NOT applied uniformly to every surface (critic
+finding) — a brand-realistic subset only, derived from that brand's own
+`Detector` pattern in `app/Catalog/Definitions/`: e.g. don't manufacture an
+"m." mobile-subdomain variant for a booking brand that has no mobile
+subdomain, don't invent a generic `/locale/` prefix when a brand's real
+locale form is documented differently (Spotify's is `/intl-xx/`, not a
+bare prefix). Each agent reads the surface's own detector(s) first, then
+picks which of (tracking-param noise, trailing slash, www/no-www, case,
+mobile subdomain, locale prefix, http/https) actually apply to that brand's
+real URL shape, and says which it skipped and why — an unlabelled skip
+reads as untested, not as passing.
+
 ### W7 — Full item-path sweep (pool × platform)
 For every platform now in `MediaPageReader` (11 existing + up to 11 new
 from W4) and every platform now in `ItemLinkRules::ROSTER['events']` (9
@@ -245,6 +286,16 @@ every expected suggestion is present, correctly labelled, and NOT missing
 re-harvest. Structured pass/fail per user per scenario, not prose. This is
 the workstream most likely to surface genuinely new bugs — budget the most
 critic cycles here.
+
+Critic-cost note (critic finding on this plan): the two-independent-
+critics scheme in §0.4 doubles review cost per fix, and W8 is the highest-
+volume workstream. Don't serialize it — run scenario batches through
+parallel agent pipelines (pipeline/parallel in the Workflow script, not a
+loop of individual agent() calls) so the doubled critic cost is absorbed
+in wall-clock parallelism, not by skipping the second critic. Only drop to
+a single critic for a LOW-severity finding (a label/copy mismatch, not a
+wrong verdict or a lost suggestion) — state which tier a finding is before
+deciding critic count.
 
 ### W9 — Completeness critic + close-out
 A dedicated agent (not one that did W2-W8's fixes) re-reads this file's §1
