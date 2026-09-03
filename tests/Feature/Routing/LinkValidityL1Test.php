@@ -1,17 +1,33 @@
 <?php
 
 use App\Catalog\CompiledCatalog;
+use App\Models\Core\User\User;
 use App\Routing\IriCanonicalizer;
 use App\Routing\LinkProjector;
 use App\Routing\LinkValidity;
+use App\Routing\PlacementPolicy;
 use App\Routing\Projection;
+use App\Routing\RoutingContext;
 use App\Routing\Rulepack;
+use App\Routing\Verdict;
+use Illuminate\Support\Str;
 
 /**
  * B.4 — L1 is defined on the detector contract that already exists, NOT on a
  * parallel "host + path" grammar. The cases below are the ones that decide
  * whether the definition is the right one; each is a real URL shape.
  */
+beforeEach(function () {
+    setupUsersTable();
+    setupSitesTable();
+});
+
+/** A restaurant business — the capability gate must not be what answers these. */
+function l1GateUser(): User
+{
+    return createTenant('l1-gate-'.Str::random(6), ['account_type' => 'business', 'sector' => 'restaurant']);
+}
+
 function projectFor(string $url): Projection
 {
     $iri = app(IriCanonicalizer::class)->canonicalize($url);
@@ -177,3 +193,62 @@ it('does not read a brand marketing or discovery page as an account', function (
         expect(LinkValidity::l1(projectFor($url)))->not->toBe(LinkValidity::PASS, $url);
     }
 })->group('catalog');
+
+/**
+ * Gate 3 — the same question, asked at the ONE place every lane passes through.
+ *
+ * These pin the owner's rule ("never let it be saved if it fails as a
+ * connectable + active platform") at the routing policy rather than in any one
+ * lane's code, which is what makes paste, harvest and the setup dialog agree
+ * with the manual connect strategy instead of each deciding for itself.
+ */
+it('keeps a brand-domain match as a LINK rather than claiming it is an account', function () {
+    $placement = (new PlacementPolicy)->decide(
+        projectFor('https://www.doordash.com/promo'),
+        RoutingContext::forUser(l1GateUser(), 'paste'),
+    );
+
+    // Note, not Reject: the person still gets their link. What they do not get
+    // is an ordering CTA pointed at a marketing page, a connection whose
+    // identifier is the whole URL, or a card with no restaurant name on it —
+    // the three symptoms of the single defect this gate closes.
+    expect($placement->verdict)->toBe(Verdict::Note)
+        ->and($placement->verdict->writesIntent())->toBeFalse()
+        ->and($placement->identifier)->toBeNull()
+        ->and($placement->blockReason)->toBe('invalid_identifier');
+});
+
+it('still routes a real store page on the same brand', function () {
+    $placement = (new PlacementPolicy)->decide(
+        projectFor('https://www.doordash.com/store/souva-king-wollongong-23852127/'),
+        RoutingContext::forUser(l1GateUser(), 'paste'),
+    );
+
+    // Choose, not Place: a real DoorDash deep link scores below the ordering
+    // class's auto threshold, so it is a suggestion. That is the pre-existing
+    // confidence behaviour and not what this gate decides — what matters here
+    // is that it writes an intent at all, which the branch above does not.
+    expect(LinkValidity::l1(projectFor('https://www.doordash.com/store/souva-king-wollongong-23852127/')))
+        ->toBe(LinkValidity::PASS)
+        ->and($placement->verdict->writesIntent())->toBeTrue()
+        ->and($placement->identifier)->not->toBeNull();
+});
+
+it('leaves a surface we have no shape on file for exactly as it was', function () {
+    // easi.order is one of the nine connectable surfaces with no specific
+    // detector anywhere. We cannot say a link there is wrong, so we do not:
+    // it routes as before and is checked at accept time by the L2 lane.
+    expect(LinkValidity::hasShape('easi.order'))->toBeFalse();
+
+    $projection = projectFor('https://www.easi.com.au/whatever');
+    expect(LinkValidity::l1($projection))->toBe(LinkValidity::WEAK);
+
+    // It still lands on Note — but via the CONFIDENCE floor, which is where a
+    // host-only match has always landed (HostOnlyDetectorFloorTest pins that
+    // every recovered host-only match scores below every suggest threshold).
+    // The distinction the reason carries is the whole point: Gate 3 did not
+    // fire, so nothing here refused the link on shape grounds.
+    $placement = (new PlacementPolicy)->decide($projection, RoutingContext::forUser(l1GateUser(), 'paste'));
+    expect($placement->blockReason)->not->toBe('invalid_identifier')
+        ->and($placement->blockReason)->toBe('below_threshold');
+});

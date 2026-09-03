@@ -7,6 +7,7 @@ use App\Services\Platforms\ScrapeCreators\KomiLinksNormalizer;
 use App\Services\Platforms\ScrapeCreators\LinkbioLinksNormalizer;
 use App\Services\Platforms\ScrapeCreators\LinkmeLinksNormalizer;
 use App\Services\Platforms\ScrapeCreators\PillarLinksNormalizer;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
@@ -189,7 +190,15 @@ it('scans a Komi page like a Linktree one — vendor links off an anchor-free sh
     expect($result['outcome'])->toBe('ok')
         ->and($result['observations'])->toBe(27)
         ->and($result['bio_url_seeded'])->toBeFalse();
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'tiktok'])->exists())->toBeTrue();
+    // Nothing a harvester found ever auto-connects (owner, 2026-09-03): the
+    // TikTok link off the vendor-normalized shell lands as a proposed
+    // suggestion, not a live connection.
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'tiktok'])->exists())->toBeFalse();
+    $intent = DB::table('routing.source_intents')
+        ->where(['user_id' => $user->id, 'surface_key' => 'tiktok.profile'])->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->identifier)->toBe('kimkardashian')
+        ->and((string) $intent->state)->toBe('proposed');
     Http::assertSent(fn ($request) => str_contains($request->url(), 'api.scrapecreators.com/v1/komi')
         && $request['url'] === 'https://kimkardashian.komi.io/');
 });

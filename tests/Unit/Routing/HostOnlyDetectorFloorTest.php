@@ -78,10 +78,14 @@ it('keeps every recovered host-only match below the lowest suggest threshold', f
     // carry a `(?<handle>)` capture detector (F12), so a profile-shaped URL is
     // ProfileLink evidence like x.com/{handle} — see the test below. Only the
     // genuinely host-only shapes must stay below suggest.
+    // booksy.com/en-us/{id}_{slug} LEFT this list 2026-09-03 for the same
+    // reason ko-fi and github left it in F12: the pattern fleet gave Booksy a
+    // real `(?<business>\d+)_` detector, so that URL is now a deep-link match
+    // at 79, not a host-only recovery. It stays asserted as booksy.book by the
+    // test above — what changed is that we can now say WHICH salon.
     $recovered = [
         'https://ko-fi.com/gold',              // reserved path → host-only fallback
         'https://ra.co/events/1234567',
-        'https://booksy.com/en-us/12345_the-salon',
         'https://github.com/features/actions', // multi-segment → host-only fallback
     ];
 

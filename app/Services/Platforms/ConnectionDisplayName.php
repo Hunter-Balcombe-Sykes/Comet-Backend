@@ -94,6 +94,23 @@ final class ConnectionDisplayName
                     return '+'.$m[1];
                 }
             }
+            // A STORE surface is asked for its store name BEFORE its captured
+            // identifier (2026-09-03). On an ordering/booking surface the thing
+            // a detector captures is a store SLUG, not a handle, and a slug is
+            // not a name until it is humanised: DoorDash's
+            // /store/souva-king-wollongong-23852127 captures exactly that
+            // string, and printing it verbatim is the same defect as the Uber
+            // Eats card reading "def.uber.com" — a machine identifier shown
+            // where the restaurant's name belongs.
+            //
+            // Safe to run first because storeNameFromUrl already refuses every
+            // surface that is not .order/.reserve/.book, so no profile surface
+            // changes hands here. It also strips the trailing -{id} and drops
+            // hex booking keys, which the raw capture cannot.
+            $store = self::storeNameFromUrl($surfaceKey, $url);
+            if ($store !== null) {
+                return $store;
+            }
             $handle = self::handleFromUrl($surfaceKey, $url);
             // All-digits is an id wearing a handle, never a name — the same
             // FI-6 rule the key loop applies (plan-03 batch 4, 2026-08-27:
@@ -101,10 +118,6 @@ final class ConnectionDisplayName
             // captured from the URL).
             if ($handle !== null && ! self::looksOpaque($handle) && preg_match('/^\d+$/', $handle) !== 1) {
                 return $isSubreddit ? 'r/'.$handle : self::prefixed($surfaceKey, $handle);
-            }
-            $store = self::storeNameFromUrl($surfaceKey, $url);
-            if ($store !== null) {
-                return $store;
             }
         }
         if ($name !== null && $nameIsContentTitle) {

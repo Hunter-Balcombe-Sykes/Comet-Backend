@@ -3,6 +3,9 @@
 namespace App\Services\Platforms\Strategies\Connect;
 
 use App\Catalog\CompiledCatalog;
+use App\Routing\IriCanonicalizer;
+use App\Routing\LinkProjector;
+use App\Routing\LinkValidity;
 use App\Services\Platforms\PlatformInput;
 use App\Services\Platforms\Strategies\Contracts\ConnectResult;
 use App\Services\Platforms\Strategies\Contracts\ConnectStrategy;
@@ -65,6 +68,10 @@ final class BrandLinkConnect implements ConnectStrategy
             return ConnectResult::fail('That does not look like a '.$this->label.' link.');
         }
 
+        if (($refusal = $this->shapeRefusal($url)) !== null) {
+            return ConnectResult::fail($refusal);
+        }
+
         // Stored shape matches the card the link lane already writes for every
         // other brand of this kind, and matches this platform's DSAR allowlist
         // entry (url, name, favicon, logo, provider). favicon/logo are resolved
@@ -76,6 +83,50 @@ final class BrandLinkConnect implements ConnectStrategy
             'name' => $classified['label'],
             'provider' => $this->label,
         ], $this->slug);
+    }
+
+    /**
+     * The manual lane asks the SAME question the accept lane asks (2026-09-03,
+     * owner: "across manual and auto adding make it so we use the same setup").
+     *
+     * Until now these two lanes disagreed about what a valid link is. The auto
+     * lane canonicalises and projects a URL through the catalog, so it knows
+     * whether a rule matched the account or merely the brand's domain. This one
+     * called WebsiteLinkHarvester::classify(), which asks only "is this host
+     * ours?" — so doordash.com/promo, ubereats.com/au and a brand's careers
+     * page all connected as somebody's store, and the connection they produced
+     * had the whole URL as its identifier: nameless on the card, unverifiable,
+     * un-refreshable. That is the same single defect as the Uber Eats naming
+     * bug, reached through the other door.
+     *
+     * We refuse ONLY where we can say what right looks like — a surface with at
+     * least one specific detector on file. A surface with no shape at all (9 of
+     * them today) is not one we are entitled to judge, so it connects as before.
+     * A brand-domain link that we cannot place is likewise let through: the
+     * suspension lane fails open, and a kill-switched detector must not turn
+     * into a wall of refusals for links that were fine yesterday.
+     */
+    private function shapeRefusal(string $url): ?string
+    {
+        $surface = $this->surfaceKey === null ? null : CompiledCatalog::surface($this->surfaceKey);
+        if (! LinkValidity::applies($surface)) {
+            return null;
+        }
+
+        $projection = app(LinkProjector::class)->project(app(IriCanonicalizer::class)->canonicalize($url));
+        if ($projection->surfaceKey !== $this->surfaceKey
+            || LinkValidity::l1($projection) !== LinkValidity::WEAK) {
+            return null;
+        }
+
+        [$hasShape, $hint] = LinkValidity::shapeFor((string) $this->surfaceKey);
+        if (! $hasShape) {
+            return null;
+        }
+
+        return $hint === null
+            ? 'That is a '.$this->label.' link, but not a page for a specific account. Paste the link to your own '.$this->label.' page.'
+            : 'That is a '.$this->label.' link, but not a page for a specific account. Paste the link to your own page — they look like '.$hint;
     }
 
     /**

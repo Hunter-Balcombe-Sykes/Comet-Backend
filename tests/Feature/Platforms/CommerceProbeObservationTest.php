@@ -131,6 +131,14 @@ it('asks the ORIGIN the store question when the deep page is unreachable (T4 —
     // and the store was never suggested. The fallback asks the origin.
     // example.com, not a made-up subdomain: SafeUrlFetcher resolves DNS
     // before fetching (SSRF guard), and Http::fake can't intercept DNS.
+    //
+    // Since 2026-09-03 a harvested SHOP-class link is ALWAYS delegated
+    // suggestOnly: true (SourceReconciler no longer conditions it on
+    // isSignupBuild()), and PlacementPolicy mints Place only for a request
+    // the user confirmed — neither is true of a discovery probe, so the
+    // root-origin fallback that used to auto-connect the store now asks the
+    // same question every other harvest find does: a proposed suggestion,
+    // not a connection.
     $user = probeObservationUser();
     Bus::fake();
     Http::fake([
@@ -142,13 +150,14 @@ it('asks the ORIGIN the store question when the deep page is unreachable (T4 —
         '*' => Http::response('', 404),
     ]);
 
-    app()->call([new CommerceProbeJob((string) $user->id, 'https://example.com/pages/dead-education-page'), 'handle']);
+    app()->call([new CommerceProbeJob((string) $user->id, 'https://example.com/pages/dead-education-page', suggestOnly: true), 'handle']);
 
-    $connection = IntegrationConnection::query()
-        ->where('user_id', $user->id)->first();
-    expect($connection)->not->toBeNull()
-        ->and($connection->surface_key)->toBe('shopify.store')
-        ->and($connection->resource_id)->toBe('987654');
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->count())->toBe(0);
+    $intent = DB::table('routing.source_intents')->where('user_id', $user->id)->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->surface_key)->toBe('shopify.store')
+        ->and($intent->identifier)->toBe('987654')
+        ->and((string) $intent->state)->toBe('proposed');
 });
 
 it('files a REACHABLE deep store page as a suggestion, never an auto-connect (FI-10)', function () {

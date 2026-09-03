@@ -124,6 +124,34 @@ class PlacementPolicy
             return new Placement(Verdict::Note, $surfaceKey, $projection->identifier, 'gate', 'action classes need a claimed account');
         }
 
+        // ── Gate 3: does this link identify an ACCOUNT, or just a brand? ────
+        // The owner's rule, at the ONE place every lane passes through
+        // (2026-09-03): "never let it be saved if it fails as a connectable +
+        // active platform". A URL that matched nothing but the brand's
+        // registrable domain names no account — the identifier the projector
+        // hands back is the whole URL — so it cannot support a CTA, a refresh,
+        // or a name on a card. Note is the right answer rather than a refusal:
+        // Note's standing promise is "kept as a link, never dropped", so the
+        // person still gets their link, minus the false claim that we know
+        // whose account it is.
+        //
+        // Scoped to surfaces that have a shape ON FILE. The nine connectable
+        // surfaces with no specific detector anywhere are ones we have no
+        // standing to judge; they stay on the old path and are checked at
+        // accept time by the L2 lane instead. That asymmetry is the point: we
+        // refuse a claim only where we can say what a real one looks like.
+        //
+        // This is what makes paste and harvest agree with the manual connect
+        // lane, which asks the same question in BrandLinkConnect::shapeRefusal.
+        if (LinkValidity::applies($surface)
+            && LinkValidity::l1($projection) === LinkValidity::WEAK
+            && LinkValidity::hasShape($surfaceKey)) {
+            // identifier deliberately null: a host-only match's "identifier" IS
+            // the URL, and passing it on is how the nameless-card row got
+            // written in the first place.
+            return new Placement(Verdict::Note, $surfaceKey, null, 'invalid_identifier', 'matched the brand, not an account page');
+        }
+
         // ── Confidence ──────────────────────────────────────────────────────
         $confidence = $projection->confidence;
         if (! $context->isDirectRequest()) {

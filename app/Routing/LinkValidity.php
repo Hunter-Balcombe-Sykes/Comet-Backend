@@ -120,6 +120,131 @@ final class LinkValidity
     }
 
     /**
+     * Does this surface know what a real account link LOOKS like?
+     *
+     * The difference between "this link is wrong" and "we cannot tell" — and
+     * the only thing that entitles us to REFUSE a link outright. A surface with
+     * at least one specific detector has a shape on file, so a URL that matched
+     * only its bare-domain sibling is a link we can say is not an account page.
+     * A surface with no specific detector at all (9 of them as of 2026-09-03)
+     * has no such standing: refusing there would be inventing a rule.
+     *
+     * @return array{0: bool, 1: ?string} [has a shape, a generic hint like
+     *                                    "https://www.doordash.com/store/…"]
+     */
+    /**
+     * The boolean half of shapeFor(), without building the hint.
+     *
+     * Separate because this one runs on the ROUTING path — every link of every
+     * harvest passes through PlacementPolicy — where the hint is never used and
+     * a surface like OpenTable would otherwise cost 48 preg_match calls per
+     * link to compute a string nobody reads.
+     */
+    public static function hasShape(string $surfaceKey): bool
+    {
+        $surface = CompiledCatalog::surface($surfaceKey);
+        if ($surface === null) {
+            return false;
+        }
+
+        $detectors = CompiledCatalog::detectors();
+        foreach ($surface['detectors'] as $id) {
+            if (isset($detectors[$id]) && self::detectorIsSpecific($detectors[$id])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static function shapeFor(string $surfaceKey): array
+    {
+        $surface = CompiledCatalog::surface($surfaceKey);
+        if ($surface === null) {
+            return [false, null];
+        }
+
+        $detectors = CompiledCatalog::detectors();
+        $hasShape = false;
+
+        foreach ($surface['detectors'] as $id) {
+            $detector = $detectors[$id] ?? null;
+            if ($detector === null || ! self::detectorIsSpecific($detector)) {
+                continue;
+            }
+            // A shape on file is enough to refuse; the hint is a bonus. They are
+            // found in one pass because a surface can carry several specific
+            // detectors and only some of them record an example — Uber Eats has
+            // the shape but no note, so it refuses with the plain sentence.
+            $hasShape = true;
+
+            // The pattern fleet recorded a REAL, live-verified URL in each
+            // detector's note as `e.g. https://…`. Reusing it is what lets the
+            // refusal say "paste the link to your store page, like
+            // https://www.doordash.com/store/…" instead of a bare "invalid".
+            $hint = self::exampleFromNote($detector);
+            if ($hint !== null) {
+                return [true, $hint];
+            }
+        }
+
+        return [$hasShape, null];
+    }
+
+    /**
+     * A note's `e.g. https://…` reduced to its SHAPE — the same path with the
+     * account's own segment replaced by an ellipsis.
+     *
+     * The fleet's examples are real, live-verified pages belonging to real
+     * businesses, which is what makes them trustworthy as catalog evidence and
+     * exactly what makes them wrong to quote at a user: "paste a link like
+     * https://www.quandoo.com.au/place/ricks-place-92706" hands a stranger's
+     * restaurant to someone trying to connect their own. The origin and the
+     * routing segment are the whole message anyway — the last segment is the
+     * part they are supposed to supply.
+     */
+    /**
+     * @param  array<string, mixed>  $detector
+     */
+    private static function exampleFromNote(array $detector): ?string
+    {
+        $pattern = (string) ($detector['path_pattern'] ?? '');
+        $capture = (string) ($detector['identifier_capture'] ?? '');
+        if (preg_match('~\bhttps?://\S+~', (string) ($detector['note'] ?? ''), $m) !== 1
+            || $pattern === '' || $capture === '') {
+            return null;
+        }
+
+        $url = rtrim($m[0], '.,;)');
+        $parts = parse_url($url);
+        $host = $parts['host'] ?? null;
+        $path = (string) ($parts['path'] ?? '');
+        if (! is_string($host) || $host === '' || $path === '') {
+            return null;
+        }
+
+        // Mask the segment the detector's OWN capture matched, rather than
+        // guessing which segment is the variable one. The naive guess — "keep
+        // the first segment" — is right for /store/{slug} and wrong for
+        // /{slug}/menu, where it would print a real restaurant's name at
+        // someone trying to connect their own. Running the real pattern is the
+        // only thing that knows which part is theirs to supply.
+        if (@preg_match($pattern, $path, $captured) !== 1
+            || ! isset($captured[$capture]) || $captured[$capture] === '') {
+            return null;
+        }
+        $identifier = (string) $captured[$capture];
+
+        $segments = array_values(array_filter(explode('/', $path), fn ($s) => $s !== ''));
+        $masked = array_map(fn ($s) => str_contains($s, $identifier) ? '…' : $s, $segments);
+        if ($masked === $segments) {
+            return null;
+        }
+
+        return ($parts['scheme'] ?? 'https').'://'.$host.'/'.implode('/', $masked);
+    }
+
+    /**
      * Whether L1 is a question worth asking for this surface at all.
      *
      * Only CONNECTABLE surfaces can hold a wrong claim: a Note-only surface
