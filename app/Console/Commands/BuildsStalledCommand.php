@@ -35,7 +35,7 @@ class BuildsStalledCommand extends Command
         $this->table(
             ['handle', 'build', 'state', 'source', 'via', 'claimed', 'stalled at'],
             $rows->map(fn (PreAccountBuild $b) => [
-                (string) ($b->user?->site?->subdomain ?? '—'),
+                (string) ($b->user?->site->subdomain ?? '—'),
                 (string) $b->id,
                 (string) $b->build_state,
                 $b->source_type.':'.$b->source_ref,

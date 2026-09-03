@@ -78,10 +78,15 @@ class BuildSettleService
             return false;
         }
 
+        // An orphaned build (the user row went away under it) has nobody to
+        // welcome; the sweep logs and moves on rather than throwing.
         $user = $build->user;
-        $email = (string) ($user?->primary_email ?? '');
-        $handle = (string) ($user?->site?->subdomain ?? '');
-        if ($user === null || $email === '' || $handle === '') {
+        if ($user === null) {
+            return false;
+        }
+        $email = (string) ($user->primary_email ?? '');
+        $handle = (string) ($user->site->subdomain ?? '');
+        if ($email === '' || $handle === '') {
             return false;
         }
 
@@ -120,6 +125,6 @@ class BuildSettleService
      */
     private function isPublished(PreAccountBuild $build): bool
     {
-        return (bool) ($build->user?->site?->is_published ?? false);
+        return (bool) ($build->user?->site->is_published ?? false);
     }
 }
