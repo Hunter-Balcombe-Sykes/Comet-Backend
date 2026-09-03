@@ -1713,31 +1713,31 @@ Claude-Session: https://claude.ai/code/session_01DnVGqDa1pvojPxUdbcKCKH
 
 Nothing new is written here. This is the gate before the branch is offered for merge.
 
-- [ ] **Step 1: Pint gate**
+- [x] **Step 1: Pint gate**
 
 Run: `php artisan pint --test`
 Expected: PASS. Note that `pint --test` is the gate, not `pint` — a clean `pint` run says nothing.
 
 ⚠️ The Pint baseline is not clean repo-wide. If `--test` reports pre-existing violations in files this branch never touched, leave them alone and say so explicitly rather than reformatting unrelated files.
 
-- [ ] **Step 2: Static analysis**
+- [x] **Step 2: Static analysis**
 
 Run: `./vendor/bin/phpstan analyse --memory-limit=1G`
 Expected: PASS. PHPStan surfaces latent findings in untouched files; if a failure is not in this branch's diff, report it as pre-existing rather than fixing it here.
 
-- [ ] **Step 3: Full suite**
+- [x] **Step 3: Full suite**
 
 Run: `composer test`
 Expected: PASS. This takes roughly 20 minutes; run it once, in the background, and wait — do not poll it with `sleep`.
 
-- [ ] **Step 4: Postgres lane**
+- [x] **Step 4: Postgres lane**
 
 Run: `composer test:pg`
 Expected: PASS. This lane is a **required CI check** and is not part of `composer test`, so a green cheap run says nothing about it. Task 2 touched `tests/Postgres/ClaimConcurrencyTest.php`; this is where that lands.
 
 If it reports a missing column on `core.pre_account_builds`, **add** the column to the stand-in. Never thin a table or relax an assertion to make this pass.
 
-- [ ] **Step 5: Report honestly**
+- [x] **Step 5: Report honestly**
 
 Write down, per lane: the command, the actual counts, and any failure verbatim. If a lane was not run, say which and why. Do not describe the branch as verified on the strength of a lane that was skipped.
 
