@@ -216,6 +216,40 @@ of both `test` and `test:ci` in `composer.json`, matching the `dev`
 script's established pattern. Left `test:pg`/`test:schema`/`test:authz`
 untouched — narrow dedicated lanes, no evidence they approach 300s.
 
+### X3 — `SourceIntentDomainTest` had stale state-domain expectations, failing the required `postgres-tests` CI lane (pre-existing, unrelated to tonight's work)
+
+**What**: pushing tonight's commits surfaced that `postgres-tests` (a
+required CI check, `composer test:pg`) had already been red on the
+immediately preceding commit (`c7efe16f1`, a docs-only plan-doc commit from
+earlier this run) and on every commit before it back to at least
+2026-09-03. `Tests\Postgres\SourceIntentDomainTest` asserted
+`routing.source_intents_state_check` has exactly 5 values
+(`applied, blocked, dismissed, proposed, superseded`) and that only
+`dismissed`/`superseded` are written outside `Verdict::intentState()`.
+Neither was updated when `20260903220001_source_intents_verifying_state.sql`
+(same day, earlier work this session) added a real 6th state, `verifying`,
+now actively written by `SuggestionsController`'s verify-queue path and
+`SetupBatchApplier`, and read back by `VerifyLinkJob` and
+`CheckStuckSourceIntentsCommand`. The same run's CI log also showed the
+"No unsafe migration locking patterns" step failing — that one is X1,
+already fixed by the commit just before this one.
+
+**Fix**: updated `tests/Postgres/SourceIntentDomainTest.php` — the
+domain-size assertion now expects 6 values including `verifying`; the
+"written outside Verdict::intentState()" dataset now includes `verifying`
+with its real call sites cited (matching the file's own documentation
+convention for `dismissed`); the file's top docblock documents `verifying`
+alongside `dismissed`/`superseded`.
+
+**Verified**: no local Postgres available to run `composer test:pg`
+directly, so verified against live dev Postgres instead (project
+`glncumufgaqcmqhzwrxm`) via `execute_sql`:
+`source_intents_state_check` = `CHECK (state = ANY (ARRAY['proposed',
+'verifying', 'applied', 'blocked', 'dismissed', 'superseded']))`,
+`convalidated = true` — matches the fix exactly. `pint`/`phpstan` clean.
+CI's own `postgres-tests` run on this push is the final confirmation
+(pending at time of writing).
+
 **Verified**: re-ran `composer test` with the fix — completed normally,
 no timeout. Full clean Gate result for tonight's entire batch: **11196
 passed, 0 failed** (11 deprecated + 1 warning + 2 skipped, all pre-existing
@@ -223,3 +257,55 @@ and unrelated — PHP 8.5 `ReflectionMethod::setAccessible()` deprecation
 notices in test helpers untouched by tonight's work; not fixed, out of
 scope). Duration 1272.6s (~21min) — well past Composer's 300s default,
 confirming the fix was load-bearing, not incidental.
+
+## W6 — full connect-path sweep (all 181 catalog surfaces)
+
+Workflow (15 agents) drove every catalog surface's real example URL through
+the actual `LinkProjector` (the routing-decision layer, not the looser
+harvester), plus 3-6 realistic noise variants per surface (tracking params,
+trailing slash, www/no-www, case, mobile subdomain, locale prefix, scheme)
+chosen per-brand from that brand's own `Detector` pattern. 181/181 surfaces
+covered, 336 tool calls, 0 agent errors.
+
+**Result: only 1 real, actionable finding.** 5 other "failures" were
+by-design, confirmed via each surface's own docblock: `direct.book`,
+`bandcamp.store`, `generic.store`, `partna.manual_product`,
+`google_business.listing` all deliberately register zero `Detector` rules
+(reached via a different mechanism — JSON-LD probe, Places API, or manual
+entry — never via URL-shape routing). Not bugs; correctly working as
+documented.
+
+### F5 — `nowbookit.reserve`'s hand-written probe URL didn't match its own detector's required shape
+
+**Symptom**: W6 found `tests/fixtures/catalog/probe-urls.php`'s
+`nowbookit.reserve` example (`?RestaurantId=1234567`) fails to resolve via
+`LinkProjector` — and all 5 noise variants built on it failed identically
+(same root cause, not 5 separate bugs). `Nowbookit.php`'s detector requires
+BOTH `accountid` AND `venueid` query params (case-insensitively spelled);
+`corpus-generated.php`'s synthetic fixture already has the correct shape
+(`?accountid=100000&venueid=100001`), and `corpus-real.php`'s own comment
+already documents this surface as "genuinely requires BOTH... deliberately
+NOT covered" by real-world evidence. So the router layer itself was never
+wrong — only the hand-written probe fixture was.
+
+Why `CatalogClassificationSweepTest` never caught this: it exercises
+`WebsiteLinkHarvester::classify()`, not `LinkProjector` — and the harvester
+uses a deliberately looser HOST-ONLY regex (`RESERVATION_HOSTS['NowBookit']
+= '~(^|\.)nowbookit\.com$~'`) with no query-param check, by design (the
+harvester's job is "does this look like a reservation platform", the
+router's job is "is this a specific connectable account" — two different
+strictness levels at two different layers). The bad probe URL happened to
+still pass the loose check, so it never tripped the sweep test's
+invisible/link-only ratchets.
+
+**Fix**: `tests/fixtures/catalog/probe-urls.php` — changed the
+`nowbookit.reserve` entry to the real shape
+(`https://acmestore.nowbookit.com/?accountid=100000&venueid=100001`),
+matching `corpus-generated.php`'s already-correct fixture.
+
+**Verified**: tinker-confirmed both layers now agree —
+`LinkProjector::project()` → `matched=1, surface=nowbookit.reserve`;
+`WebsiteLinkHarvester::classify()` → `{"platform":"nowbookit","category":"reservations","label":"NowBookit"}`.
+Ran `CatalogClassificationSweepTest` + `WebsiteLinkHarvesterTest` +
+`RoutingCorpusTest` together: 80 passed, 1 skipped (report-printer, env-gated),
+0 failed. `pint --test` clean on the changed file.

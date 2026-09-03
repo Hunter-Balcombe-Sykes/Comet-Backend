@@ -58,7 +58,7 @@ return [
     // Reservations — hand-table hosts (RESERVATION_HOSTS)
     'chope.reserve' => 'https://chope.co/singapore-restaurants/restaurant/acme',
     'eat_app.reserve' => 'https://eatapp.co/book/acme-restaurant',
-    'nowbookit.reserve' => 'https://www.nowbookit.com/Reservations/Create?RestaurantId=1234567',
+    'nowbookit.reserve' => 'https://acmestore.nowbookit.com/?accountid=100000&venueid=100001',
     'quandoo.reserve' => 'https://www.quandoo.com/place/acme-restaurant-1234567',
     'resdiary.reserve' => 'https://acme.resdiary.com/',
     'resy.reserve' => 'https://resy.com/cities/syd/venue/acme',
