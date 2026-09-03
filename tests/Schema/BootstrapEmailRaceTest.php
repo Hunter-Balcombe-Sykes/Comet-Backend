@@ -146,6 +146,48 @@ it('still completes a brand-new signup end-to-end after the locked re-fetch was 
     }
 });
 
+it('throws EMAIL_ALREADY_REGISTERED when the email is held by an UNBOUND row (auth_user_id null)', function () {
+    // 2026-09-03: deleting a Supabase auth user out from under a claimed row
+    // nulls core.users.auth_user_id via the FK but leaves status='active' and
+    // primary_email intact. The guard's `auth_user_id != $uid` could never
+    // match that row — `NULL != 'uid'` is NULL in SQL, not true — so the email
+    // read as free, the save hit users_email_unique, and the 23505 re-check
+    // failed identically: the claim rethrew and sign-up's Finish answered a
+    // bare 500 "An error occurred".
+    $orphanHandle = 'orphanrow'.Str::lower(Str::random(6));
+    DB::connection('pgsql')->table('core.users')->insert([
+        'id' => (string) Str::uuid(),
+        'auth_user_id' => null, // the auth user is gone; the address is not
+        'handle' => $orphanHandle,
+        'handle_lc' => $orphanHandle,
+        'display_name' => 'Orphan Row',
+        'first_name' => 'Orphan',
+        'primary_email' => 'stranded@example.com',
+        'account_type' => 'partna',
+        'status' => 'active',
+        'created_at' => now()->toDateTimeString(),
+        'updated_at' => now()->toDateTimeString(),
+    ]);
+
+    $newcomerAuthId = seedRaceAuthId();
+    $newcomerHandle = 'newcomer'.Str::lower(Str::random(6));
+
+    try {
+        expect(fn () => app(UserBootstrapService::class)->bootstrap($newcomerAuthId, raceBootstrapPayload([
+            'handle' => $newcomerHandle,
+            'handle_lc' => $newcomerHandle,
+            'display_name' => 'Newcomer',
+            'primary_email' => 'Stranded@Example.com', // different case, same lower()
+            'first_name' => 'Newcomer',
+        ])))->toThrow(RuntimeException::class, 'EMAIL_ALREADY_REGISTERED');
+
+        expect(User::query()->where('auth_user_id', $newcomerAuthId)->exists())->toBeFalse();
+    } finally {
+        User::query()->where('handle', $orphanHandle)->forceDelete();
+        cleanupRaceAuthId($newcomerAuthId);
+    }
+});
+
 it('throws EMAIL_ALREADY_REGISTERED via the pre-check when the email is already taken by a different auth user (common case)', function () {
     // A pre-existing (already-committed) rival — no race involved. This is the
     // ordinary path: guardAgainstEmailReuseByDifferentAuthUser() finds the row and
