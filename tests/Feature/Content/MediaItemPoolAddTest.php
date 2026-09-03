@@ -147,18 +147,52 @@ it('refuses a known SOCIAL profile with the connect hint, not "unknown" (T3)', f
         ->assertJsonFragment(['message' => 'That looks like an Instagram profile — connect it as a platform to bring its content in automatically, or add it to your Links page.']);
 });
 
-it('never calls a social ITEM url a profile — reels and posts get the honest refusal (T3 critic)', function () {
+it('never calls a social ITEM url a profile — reels get the honest refusal (T3 critic)', function () {
     [$user] = makeShopUser(withSite: true);
 
+    // Instagram has no item grammar: a reel is not a profile, and saying so
+    // ("we don't recognise this") is the honest answer. Giving it the profile
+    // hand-off would tell someone to connect an account they just pasted a
+    // single post from.
     actingAsUser($user)->postJson('/api/content/pools/watch/items', [
         'url' => 'https://www.instagram.com/reel/Cxxxxxxxxxx/',
     ])->assertStatus(422)
         ->assertJsonFragment(['message' => "We don't recognise this link as a video — add it to your Links page instead."]);
+});
+
+it('takes a TikTok video into Watch, and still hands off its profile', function () {
+    // TikTok used to sit in the case above, refused as unrecognised. That was
+    // a GAP, not a decision (2026-09-03): its /@handle/video/<id> shape is as
+    // plain as YouTube's, and its oEmbed is public and unauthenticated. The
+    // property the case above defends — an item is never called a profile —
+    // is unchanged and now proven from the other side: the video is taken,
+    // and only the bare handle gets the connect hand-off.
+    [$user] = makeShopUser(withSite: true);
+    mipMockFetch([
+        'tiktok.com/oembed' => json_encode([
+            'title' => 'Rip The Script',
+            'thumbnail_url' => 'https://p16.tiktokcdn.com/cover.jpg',
+            'author_url' => 'https://www.tiktok.com/@nike',
+        ]),
+    ]);
+
+    $res = actingAsUser($user)->postJson('/api/content/pools/watch/items', [
+        'url' => 'https://www.tiktok.com/@nike/video/7647200302189251854?is_from_webapp=1',
+    ])->assertCreated();
+
+    $item = collect($res->json('selection'))->firstWhere('headline', 'Rip The Script');
+    expect($item)->not->toBeNull()
+        ->and($item['kind'])->toBe('video');
+
+    // Share junk is stripped: the canonical is what folds a pasted item onto
+    // its synced twin, so it must not carry the query string it arrived with.
+    expect(DB::table('content.f_link')->value('url'))
+        ->toBe('https://www.tiktok.com/@nike/video/7647200302189251854');
 
     actingAsUser($user)->postJson('/api/content/pools/watch/items', [
-        'url' => 'https://www.tiktok.com/@someuser/video/7123456789012345678',
+        'url' => 'https://www.tiktok.com/@nike',
     ])->assertStatus(422)
-        ->assertJsonFragment(['message' => "We don't recognise this link as a video — add it to your Links page instead."]);
+        ->assertJsonFragment(['message' => "That looks like a TikTok profile, not a single video. Connect TikTok as a platform to bring its content in automatically, or paste one video's link."]);
 });
 
 it('refuses a known store-platform host with the store hand-off (T4)', function () {

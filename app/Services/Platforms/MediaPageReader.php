@@ -29,6 +29,10 @@ class MediaPageReader extends PlatformScraper
         'spotify' => 'https://open.spotify.com/oembed?url=',
         'soundcloud' => 'https://soundcloud.com/oembed?format=json&url=',
         'mixcloud' => 'https://app.mixcloud.com/oembed/?format=json&url=',
+        // Public, unauthenticated, and returns the spec's title/thumbnail_url/
+        // author_url — so the generic parser below needs nothing special for
+        // it. Verified live 2026-09-03.
+        'tiktok' => 'https://www.tiktok.com/oembed?url=',
     ];
 
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
@@ -66,7 +70,7 @@ class MediaPageReader extends PlatformScraper
         // called "Twitch" is not.
         if (in_array(strtolower(trim($meta['title'])), [
             'twitch', 'tidal', 'youtube', 'vimeo', 'spotify', 'soundcloud',
-            'mixcloud', 'bandcamp', 'apple music', 'apple podcasts',
+            'mixcloud', 'bandcamp', 'apple music', 'apple podcasts', 'tiktok',
         ], true)) {
             return null;
         }
@@ -190,6 +194,21 @@ class MediaPageReader extends PlatformScraper
             return ['platform' => 'twitch', 'kind' => 'video', 'canonical' => 'https://clips.twitch.tv'.$path];
         }
 
+        // ── TikTok: /@handle/video/<digits> is one video ─────────────────
+        // The handle is part of the canonical URL, not decoration — TikTok
+        // 404s /video/<id> on its own. Lowercased like the SoundCloud and
+        // Bandcamp arms because the canonical is what the identity spine
+        // folds on, and TikTok treats the handle case-insensitively.
+        //
+        // The vm.tiktok.com / tiktok.com/t/<code> share forms are DELIBERATELY
+        // absent: they carry no video id, only a redirect token, and resolving
+        // one costs a network call. classifyItem() is pure grammar and never
+        // fetches — see the method docblock.
+        if (in_array($host, ['tiktok.com', 'm.tiktok.com'], true)
+            && preg_match('~^/@([\w.]{1,24})/video/(\d{6,25})$~', $path, $m)) {
+            return ['platform' => 'tiktok', 'kind' => 'video', 'canonical' => 'https://www.tiktok.com/@'.strtolower($m[1]).'/video/'.$m[2]];
+        }
+
         // ── Spotify: /track|/album|/episode (optional /intl-xx prefix) ───
         if ($host === 'open.spotify.com' && preg_match('~^(?:/intl-[a-z]{2,5})?/(track|album|episode)/([A-Za-z0-9]{10,30})$~', $path, $m)) {
             $kind = ['track' => 'track', 'album' => 'release', 'episode' => 'episode'][$m[1]];
@@ -304,8 +323,17 @@ class MediaPageReader extends PlatformScraper
             && ! preg_match('~^/(videos|directory|downloads|jobs|turbo|settings|subscriptions|wallet|drops|search|p)\b~i', $path)) {
             return 'Twitch';
         }
-        if ($host === 'open.spotify.com' && preg_match('~^(?:/intl-[a-z]{2,5})?/(artist|show|user)/~', $path)) {
+        // `playlist` joined artist/show/user on 2026-09-03: a playlist is not
+        // one track, so the Listen pool must refuse it — and the advice that
+        // hangs off this label ("connect Spotify to bring its content in, or
+        // paste one track's link") is exactly right for a playlist. Without a
+        // label it fell through to the generic "not a track" error, which
+        // tells the person nothing about what to do instead.
+        if ($host === 'open.spotify.com' && preg_match('~^(?:/intl-[a-z]{2,5})?/(artist|show|user|playlist)/~', $path)) {
             return 'Spotify';
+        }
+        if (in_array($host, ['tiktok.com', 'm.tiktok.com'], true) && preg_match('~^/@[\w.]{1,24}/?$~', $path)) {
+            return 'TikTok';
         }
         if ($host === 'soundcloud.com' && preg_match('~^/[a-z0-9_-]+/?$~i', $path)
             && ! preg_match('~^/(discover|search|upload|stream|library|charts|feed|you|messages|notifications|settings|pro|premium|mobile|imprint|terms-of-use|jobs|blog|pages)\b~i', $path)) {
