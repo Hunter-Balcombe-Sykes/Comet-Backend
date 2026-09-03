@@ -53,6 +53,21 @@ class Noterro
                         ->from(IdentifierSource::Path)
                         ->strength(EvidenceStrength::DeepLinkWithSlug)
                         ->note('e.g. https://app.noterro.com/calendars/bookOnlineStepOne/4e36d0f16322400e5f80b35dd033baa5'),
+                    // The same booking path is served on the BARE host, and
+                    // that is the form people actually hold: Noterro's own
+                    // booking links omit the subdomain and 302 to the tenant
+                    // site (verified 2026-09-03 — noterro.com/calendars/
+                    // bookOnlineStepOne/bd467b8d… → 200 at nourish.noterro.com).
+                    // A subdomain-constrained detector can never match a bare
+                    // host (LinkProjector:222 returns null on a null subdomain),
+                    // so these were falling through to the host-only rule and
+                    // connecting with no identifier.
+                    Detector::url('noterro.com')
+                        ->path('#^/calendars/bookOnlineStepOne/(?<id>[a-f0-9]{32})#i')
+                        ->captures('id')
+                        ->from(IdentifierSource::Path)
+                        ->strength(EvidenceStrength::DeepLinkWithSlug)
+                        ->note('e.g. https://noterro.com/calendars/bookOnlineStepOne/bd467b8df43f6629db182c54f305bbc2'),
                 )
                 ->build(),
         ];

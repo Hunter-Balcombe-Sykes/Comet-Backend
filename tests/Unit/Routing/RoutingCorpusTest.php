@@ -56,6 +56,41 @@ it('places every generated positive on its own surface with its own identifier',
     expect($failures)->toBe([], count($failures).' corpus positive(s) regressed:'.PHP_EOL.implode(PHP_EOL, $failures));
 });
 
+it('places every REAL platform URL on its own surface with its own identifier', function () {
+    // The half the generated corpus structurally cannot cover: URLs taken from
+    // the live platforms rather than synthesised from our own patterns. A
+    // generated case proves a pattern is self-consistent; only a real one can
+    // prove the pattern agrees with the platform — or that a connectable
+    // surface has no pattern at all. See the fixture's own header for the four
+    // defects this found on 2026-09-03.
+    $cases = require base_path('tests/fixtures/Routing/corpus-real.php');
+    expect(count($cases))->toBeGreaterThan(250);
+
+    $failures = [];
+    foreach ($cases as $case) {
+        $projection = corpusProjector()->project(corpusCanonicalizer()->canonicalize($case['url']));
+
+        if (! $projection->matched()) {
+            $failures[] = "{$case['url']} → no match ({$projection->reason}), expected {$case['surface']}";
+
+            continue;
+        }
+        if ($projection->surfaceKey !== $case['surface']) {
+            $failures[] = "{$case['url']} → {$projection->surfaceKey}, expected {$case['surface']}";
+
+            continue;
+        }
+        // Recorded identifiers are asserted because losing the capture is the
+        // exact shape of the Ticketmaster and Noterro defects: the URL still
+        // matched its surface, and connected carrying nothing.
+        if ($case['identifier'] !== null && $projection->identifier !== $case['identifier']) {
+            $failures[] = "{$case['url']} → identifier '{$projection->identifier}', expected '{$case['identifier']}'";
+        }
+    }
+
+    expect($failures)->toBe([], count($failures).' real-URL case(s) regressed:'.PHP_EOL.implode(PHP_EOL, $failures));
+});
+
 it('never places a surface for anything in the negative corpus', function () {
     $cases = require base_path('tests/fixtures/Routing/corpus-negatives.php');
     expect(count($cases))->toBeGreaterThan(150);

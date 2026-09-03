@@ -55,12 +55,20 @@ class Deliveroo
                         self::TLDS,
                     ),
                     array_map(
+                        // The locale segment is OPTIONAL, not absent: the UK
+                        // site serves /menu/… bare, while the multilingual
+                        // markets prefix it (deliveroo.fr/fr/menu/…, and .be
+                        // carries both /fr/ and /nl/). Without the optional
+                        // group those markets matched only the host-only rule
+                        // above and connected with no identifier. Additive by
+                        // construction — an optional leading group cannot cost
+                        // the bare form its match.
                         static fn (string $tld) => Detector::url("deliveroo.{$tld}")
-                            ->path('#^/menu/[^/]+/[^/]+/(?<slug>[\w-]+)#')
+                            ->path('#^(?:/[a-z]{2}(?:-[a-z]{2})?)?/menu/[^/]+/[^/]+/(?<slug>[\w-]+)#')
                             ->captures('slug')
                             ->from(IdentifierSource::Path)
                             ->strength(EvidenceStrength::DeepLinkWithSlug)
-                            ->note('e.g. https://deliveroo.co.uk/menu/london/enfield/the-meeting-bar-and-restaurant'),
+                            ->note('e.g. https://deliveroo.co.uk/menu/london/enfield/the-meeting-bar-and-restaurant and https://deliveroo.fr/fr/menu/montauban/aussonne/mcdonalds-montauban-aussonne'),
                         self::TLDS,
                     ),
                 ))
