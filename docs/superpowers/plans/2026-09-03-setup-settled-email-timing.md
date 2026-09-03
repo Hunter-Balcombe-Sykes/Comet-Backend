@@ -466,7 +466,7 @@ Claude-Session: https://claude.ai/code/session_01DnVGqDa1pvojPxUdbcKCKH
   public static function brandLabelFor(string $surfaceKey): ?string;
   ```
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/Feature/PreAccount/ConnectedPlatformNamesTest.php`:
 
@@ -534,12 +534,12 @@ it('renders the plain welcome when nothing connected', function () {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `./vendor/bin/pest tests/Feature/PreAccount/ConnectedPlatformNamesTest.php tests/Feature/Mail/WelcomeMailTest.php`
 Expected: FAIL — `Class "App\Services\PreAccount\ConnectedPlatformNames" not found`, and `WelcomeMail::__construct()` rejects a third argument.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `app/Services/Platforms/ConnectionDisplayName.php`, add a public method and make the existing private one delegate to it (no logic duplicated):
 
@@ -643,12 +643,12 @@ In `app/Http/Controllers/Dev/MailPreviewController.php:164`, give the preview a 
 
 If `setupPlatformConnectionsTable()` does not exist in `tests/Pest.php`, find the helper the existing platform-connection tests use (grep `platform_connections` under `tests/`) and use that name instead.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `./vendor/bin/pest tests/Feature/PreAccount/ConnectedPlatformNamesTest.php tests/Feature/Mail/WelcomeMailTest.php`
 Expected: PASS, 5 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 php artisan pint app/Services/Platforms/ConnectionDisplayName.php app/Services/PreAccount/ConnectedPlatformNames.php app/Mail/Account/WelcomeMail.php app/Http/Controllers/Dev/MailPreviewController.php tests/Feature/PreAccount/ConnectedPlatformNamesTest.php tests/Feature/Mail/WelcomeMailTest.php

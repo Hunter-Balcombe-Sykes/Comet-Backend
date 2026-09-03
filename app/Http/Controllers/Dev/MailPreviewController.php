@@ -161,7 +161,7 @@ class MailPreviewController extends Controller
                 'two-factor-enabled' => ['label' => 'Two-factor enabled', 'make' => fn () => new TwoFactorEnabledMail('sam@example.com', 'Sam')],
             ],
             'Account' => [
-                'welcome' => ['label' => 'Welcome', 'make' => fn () => new WelcomeMail('sam@example.com', 'sams-cafe')],
+                'welcome' => ['label' => 'Welcome', 'make' => fn () => new WelcomeMail('sam@example.com', 'sams-cafe', ['Instagram', 'Google Business'])],
                 'weekly-digest' => ['label' => 'Weekly digest', 'make' => fn () => new WeeklyDigestMail('sam@example.com', 'Sam', '4–10 Aug', 214, 161, 38, 'Instagram', 17, 'https://api.partna.au/preview-unsubscribe')],
                 'deletion-requested' => ['label' => 'Deletion requested', 'make' => fn () => new AccountDeletionRequestedMail('Sam', 'https://app.partna.au/account/deletion/confirm?token=preview')],
                 'deletion-scheduled' => ['label' => 'Deletion scheduled', 'make' => fn () => new AccountDeletionScheduledMail('Sam', now()->addDays(30)->toDayDateTimeString().' (UTC)', 'https://app.partna.au/account/deletion/cancel?token=preview')],

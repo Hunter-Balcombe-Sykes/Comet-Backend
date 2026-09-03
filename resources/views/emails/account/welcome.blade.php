@@ -14,6 +14,15 @@
         Your site is live at <a href="{{ $siteUrl }}" style="color:#1367fb; text-decoration:none;">{{ $handle }}.partna.au</a>.
     </p>
 
+    {{-- Empty renders the pre-existing email verbatim: a thin scrape that
+         connected nothing is real and not rare, and must not leave a heading
+         with nothing under it. --}}
+    @if (! empty($connectedPlatforms))
+        <p class="body-text text-primary" style="margin: 0 0 16px 0; font-size: 17px; line-height: 1.47; color: #171717;">
+            Already connected: {{ implode(', ', $connectedPlatforms) }}.
+        </p>
+    @endif
+
     <p class="body-text text-primary" style="margin: 0 0 8px 0; font-size: 17px; line-height: 1.47; color: #171717;">
         Three things worth doing first:
     </p>
