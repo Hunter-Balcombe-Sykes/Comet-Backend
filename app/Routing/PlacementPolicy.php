@@ -102,6 +102,16 @@ class PlacementPolicy
             if ($denied !== null) {
                 return new Placement(Verdict::Note, $surfaceKey, $projection->identifier, 'gate', $denied);
             }
+
+            // ── Gate 1a: whose page was this link found on? ──────────────────
+            // A partna's previous_website is their WORKPLACE's site, so the
+            // profiles on it belong to the venue and its staff, not to them.
+            // Reject rather than Note: a Note keeps it as a public link card
+            // on their page, which is the same wrong claim one layer down.
+            $foreign = RoutingCapabilityGate::foreignIdentityDenial($context->user, $routingClass, $context->origin);
+            if ($foreign !== null) {
+                return Placement::reject($foreign, $surfaceKey);
+            }
         }
 
         // ── Gate 2: the routing gate matrix ─────────────────────────────────

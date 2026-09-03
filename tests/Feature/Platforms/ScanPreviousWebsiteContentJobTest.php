@@ -568,3 +568,30 @@ it('a second scan run does not re-dispatch the paid Instagram scrape — the pla
         ->where('user_id', $user->id)->latest('created_at')->first();
     expect($notification)->not->toBeNull();
 });
+
+// The partna counterpart of the test above, and the second half of the
+// 2026-09-03 workplace-identity fix. For a partna the scanned page is the
+// WORKPLACE's website (WorkplaceObserver dispatches this job off the workplace
+// row), so its Instagram is the salon's. seed()'s social branch used to file
+// it as this account's own — and, per this class's docblock, pay Apify to
+// scrape it. Both stop here: the socials are dropped from the harvest INPUT,
+// which is the caller's knowledge ("this page isn't theirs"), not a bypass of
+// seed()'s own capability gates. The business case above is untouched.
+it('does not seed — or pay to scrape — the workplace website\'s Instagram for a partna account', function () {
+    config(['services.apify.token' => 'apify-token']);
+    Bus::fake([InstagramConnectJob::class]);
+    [$user, $site] = spwcjUser('spwcj-workplace-ig', 'partna', 'barber');
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
+
+    Http::fake(['example.com' => Http::response('<a href="https://instagram.com/thebarberclubau">Follow the shop</a>', 200)]);
+
+    $budget = new ApifyBudget;
+    $before = $budget->remaining('instagram');
+
+    spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
+
+    Bus::assertNotDispatched(InstagramConnectJob::class);
+    expect($budget->remaining('instagram'))->toBe($before);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'instagram')->exists())
+        ->toBeFalse();
+});

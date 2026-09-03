@@ -43,7 +43,14 @@ it('routes every link it finds through the same pipeline a paste uses', function
 it('counts one decision per distinct link, not per occurrence', function () {
     // A site linking its Instagram in the header and the footer wants one
     // connection, not two attempts at the same one.
-    $pro = createTenant('importer-dupes');
+    //
+    // Explicitly a BUSINESS account: this test is about the importer's
+    // dedupe, and it uses a social link as the vehicle. On a partna the page
+    // being scanned is the workplace's, so its socials are refused outright
+    // (RoutingCapabilityGate::foreignIdentityDenial) and there would be no
+    // intent to count either way — which would pass this test for the wrong
+    // reason rather than exercising the dedupe.
+    $pro = createTenant('importer-dupes', ['account_type' => 'business']);
     websitePage('<html><body>
         <a href="https://www.instagram.com/someshop">Header</a>
         <a href="https://www.instagram.com/someshop">Footer</a>
@@ -65,7 +72,10 @@ it('connects a suggest-band link it found on a page', function () {
     // clearing the suggest threshold with a clean margin now connects instead
     // of waiting in the inbox. (Pre-ruling this test pinned the opposite —
     // 0 connections, state 'proposed'.)
-    $pro = createTenant('importer-suggests');
+    // Business, for the same reason as the dedupe test above: a partna's
+    // scanned page is their workplace's, and its socials never reach the
+    // banding this test is about.
+    $pro = createTenant('importer-suggests', ['account_type' => 'business']);
     websitePage('<html><body><a href="https://www.instagram.com/someshop">IG</a></body></html>');
 
     app(WebsiteImporter::class)->import($pro, 'https://example.com/');

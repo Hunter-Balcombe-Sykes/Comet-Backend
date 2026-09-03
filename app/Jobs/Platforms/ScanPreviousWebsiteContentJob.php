@@ -330,6 +330,28 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         // seed() wholesale, not private sub-methods (the fix for the
         // capability-gate-bypass bug class this job's design deliberately avoids).
         $harvested = $harvester->harvestHtml($html, $baseUrl);
+
+        // Same ruling as the design-evidence gate at the foot of this method,
+        // applied to IDENTITY instead of brand: when this website is the
+        // workplace's, the socials on it are the venue's and (on a staff page)
+        // its staff's. seed()'s social branch would file them as this
+        // account's own — for lukemunnn it produced a conflict finding whose
+        // `apply` payload swapped their own Instagram for the shop's.
+        //
+        // Dropped at the INPUT rather than inside seedSocials(): seed() is
+        // called wholesale here precisely so its own capability gates cannot
+        // be bypassed (see this class's docblock), and the fact that this
+        // particular page is not the user's own is the CALLER's knowledge, not
+        // the seeder's. The Google-listing connect path is untouched — that
+        // one is still governed by owner ruling R14 (2026-08-18).
+        if ($harvested !== [] && ! AccountCapabilities::for($user)->workplace_brand_is_site_identity) {
+            unset($harvested['socials']);
+            Log::info('website_scan.workplace_socials_skipped', [
+                'user_id' => $this->userId,
+                'reason' => 'workplace_brand_is_site_identity=false',
+            ]);
+        }
+
         if ($harvested !== []) {
             // seed() returns the findings LIST directly (unlike InstagramAutoSync's
             // ['findings' => …, 'unmatched' => …] wrapper).

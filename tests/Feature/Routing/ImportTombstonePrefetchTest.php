@@ -70,7 +70,12 @@ function itpTwentyInstagramLinks(array $refusedHandles): string
 it('issues one tombstone query per import run, not one per link (SCALE-20)', function () {
     // example.com resolves for real under SafeUrlFetcher's SSRF check even
     // through Http::fake() — same reasoning as WebsiteImporterTest.
-    $pro = createTenant('scale20-prefetch');
+    // Business: the 20 links are Instagram profiles, and this test is about
+    // the tombstone QUERY COUNT plus the resulting band split. On a partna the
+    // scanned page is the workplace's, so every social is refused before it
+    // reaches banding (RoutingCapabilityGate::foreignIdentityDenial) and the
+    // 1/17/2 split this pins would collapse to 0/0/20.
+    $pro = createTenant('scale20-prefetch', ['account_type' => 'business']);
     itpTombstone($pro, 'instagram.profile', 'refused_a');
     itpTombstone($pro, 'instagram.profile', 'refused_b');
 

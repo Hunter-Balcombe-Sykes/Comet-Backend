@@ -153,7 +153,23 @@ class GoogleBusinessAutoSync
         // in seedWorkplace() already routes the website itself through the
         // engine; chrome socials are dropped wholesale.
         $website = $this->safeUrl(data_get($gbPayload ?? [], 'website'));
-        if ($website !== null && app(PreviousWebsiteGate::class)->isPlatformUrl($website)) {
+        if (! $capabilities->workplace_brand_is_site_identity) {
+            // R14 (2026-08-18) said socials seed for every account type, on the
+            // premise of "an individual who CONNECTS THEIR listing". That premise
+            // does not hold in the pre-account flow: a partna never connects a
+            // listing as their own identity — the one attached to them is the
+            // venue's, put there by FreshaWorkplaceLinker. So these socials are
+            // the salon's, and seeding them produced lukemunnn's finding, whose
+            // `apply` payload swapped their own Instagram for @Youthofdulwich.
+            //
+            // Narrowed, not revoked: R14's other clauses (workplace, booking,
+            // website scan for every type) are untouched, and a business account
+            // — whose listing IS its identity — still seeds socials as before.
+            Log::info('google_business.socials_skipped_workplace_listing', [
+                'user_id' => $userId,
+                'reason' => 'workplace_brand_is_site_identity=false',
+            ]);
+        } elseif ($website !== null && app(PreviousWebsiteGate::class)->isPlatformUrl($website)) {
             Log::info('google_business.socials_skipped_platform_website', [
                 'user_id' => $userId,
                 'host' => parse_url($website, PHP_URL_HOST),
