@@ -66,12 +66,22 @@ class Ticketmaster
                             self::TLDS,
                         ),
                         array_map(
+                            // The leading segment is NOT required to end in
+                            // '-tickets'. Venue pages append the locality
+                            // ('marvel-stadium-tickets-docklands',
+                            // 'the-o2-tickets-london'), and the non-English
+                            // TLDs in the list above don't use the English word
+                            // at all. `/artist/<digits>` and `/venue/<digits>`
+                            // are already distinctive on their own, so the
+                            // word bought nothing and cost every venue link its
+                            // identifier — those fell through to the host-only
+                            // rule and connected with no id at all.
                             fn (string $tld) => Detector::url("ticketmaster.{$tld}")
-                                ->path('#^/[\w-]+-tickets/(?:artist|venue)/(?<id>\d+)/?$#i')
+                                ->path('#^/[\w-]+/(?:artist|venue)/(?<id>\d+)/?$#i')
                                 ->captures('id')
                                 ->from(IdentifierSource::Path)
                                 ->strength(EvidenceStrength::DeepLinkWithSlug)
-                                ->note('e.g. https://www.ticketmaster.com/imagine-dragons-tickets/artist/1435919 and https://www.ticketmaster.com.au/marvel-stadium-tickets-docklands/venue/303717'),
+                                ->note('e.g. https://www.ticketmaster.com/imagine-dragons-tickets/artist/1435919 and https://www.ticketmaster.com.au/marvel-stadium-tickets-docklands/venue/303717 — both verified live (HTTP 200) 2026-09-03'),
                             self::TLDS,
                         ),
                     ),
