@@ -309,3 +309,65 @@ matching `corpus-generated.php`'s already-correct fixture.
 Ran `CatalogClassificationSweepTest` + `WebsiteLinkHarvesterTest` +
 `RoutingCorpusTest` together: 80 passed, 1 skipped (report-printer, env-gated),
 0 failed. `pint --test` clean on the changed file.
+
+## W7 — full item-path sweep (listen/watch/events pools, `PoolItemCreateController`)
+
+Workflow (3 agents, one per pool) pasted real item URLs from
+`tests/fixtures/Content/item-url-corpus.php` through the real
+`PoolItemCreateController::store()` (direct controller invocation, matching
+`PoolLaneTest.php`'s own pattern) against `connect-sweep-01`, covering
+base-item creation, account-vs-item refusal, malformed-URL handling (never a
+500), and the `MediaParentSuggester` connection point.
+
+**listen pool (15 platforms) and watch pool (6 platforms): 100% clean.** No
+bugs — every base item, account-not-item refusal, malformed-URL case, and
+parent-suggestion write behaved correctly.
+
+**events pool (23 platforms): 9 findings, all one root cause; only 1 was a real bug.**
+
+### F6 — TryBooking's `/eventlist/` organiser page had no organiser detection, unlike its Eventbrite/Humanitix siblings
+
+**Symptom**: pasting `https://www.trybooking.com/eventlist/constantreader`
+(an organiser's whole event listing, not a single event) into the events
+pool silently created a bare, dateless `kind='event'` card titled just
+`trybooking.com` instead of being refused with the same "that looks like an
+organiser page" hint Eventbrite/Humanitix pages get.
+
+**Root cause**: `EventPageReader::organiserPlatformLabel()` — the check
+`PoolItemCreateController::store()` runs BEFORE attempting to read a page as
+an event — only had arms for Eventbrite (`/o/<id>`) and Humanitix
+(`/host/<slug>`). TryBooking had none, so its organiser URL fell through to
+`EventPageReader::read()` (which correctly finds no Event JSON-LD on a
+listing page and returns null), and from there to the generic
+claimed-host card fallback — a DELIBERATE, already-tested behavior
+(`EventPagePoolAddTest.php`'s `'falls through to the plain card when a KNOWN
+platform page carries no event markup'`, comment: "the old card behaviour,
+kept only for claimed hosts: titled by host"). TryBooking's organiser page
+was never meant to reach that fallback at all — it was meant to be caught
+earlier, the same way Eventbrite/Humanitix's are.
+
+**Fix**: added a TryBooking arm to `organiserPlatformLabel()` matching
+`/eventlist/<slug>` (same URL-shape-only style as its Eventbrite/Humanitix
+siblings — no existence check, consistent with how those two work too).
+
+**The other 8 findings from the same sweep (humanitix, luma, partiful,
+ticketek, oztix, megatix, tickethype malformed-URL cases, all "BUG: 201,
+kind='event' for a nonexistent path") are NOT bugs** — re-checked against
+`EventPagePoolAddTest.php:109`'s existing, passing, deliberately-worded test
+and confirmed this is the intended design: any URL a KNOWN events platform's
+host claims, but that doesn't yield real Event JSON-LD (dead link, or a real
+page that just isn't structured as an event), gets the same bare
+host-titled card as a real page with no markup — the codebase treats "we
+recognise this platform but can't confirm a real event" as an acceptable
+degraded card, not a refusal, and that decision is already covered by a
+passing test with an explicit comment acknowledging it. Overriding that
+would be redesigning an intentional, tested UX decision, not fixing a bug —
+out of scope for this run. Only TryBooking's narrower, structural
+inconsistency (missing organiser detection that its own siblings have) was
+a genuine gap.
+
+**Verified**: added a regression test (`EventPagePoolAddTest.php`, "refuses
+a TryBooking eventlist organiser page with the connect hint") pinning the
+exact fixed behavior. Ran the full `EventPagePoolAddTest` +
+`EventsPoolTest` suites together: 26 passed, 0 failed. `pint --test` and
+targeted `phpstan analyse` on the changed file both clean.

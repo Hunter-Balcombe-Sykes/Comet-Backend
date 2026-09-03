@@ -82,6 +82,17 @@ class EventPageReader extends PlatformScraper
         if (preg_match('~^https?://(?:events\.)?humanitix\.com/host/[a-z0-9-]+~i', PlatformInput::urlish($url))) {
             return 'Humanitix';
         }
+        // /eventlist/<organiser> is TryBooking's whole-organiser listing page —
+        // the same shape class as Eventbrite's /o/ and Humanitix's /host/ above.
+        // Found missing by the 2026-09-04 overnight item-path sweep (F6):
+        // WebsiteLinkHarvester's TryBooking arm is host-only unconditional, so
+        // without this check an organiser's listing page fell all the way
+        // through to the generic claimed-host card fallback and was written as
+        // a bare, dateless 'event' — not refused with the connect hint its
+        // siblings give.
+        if (preg_match('~^https?://(?:www\.)?trybooking\.com/eventlist/[a-z0-9-]+~i', PlatformInput::urlish($url))) {
+            return 'TryBooking';
+        }
 
         return null;
     }
