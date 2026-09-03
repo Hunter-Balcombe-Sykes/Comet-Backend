@@ -145,10 +145,38 @@ class SetupPayload
     /** @return list<array<string, mixed>> */
     private function listingCandidates(User $user): array
     {
-        if ($user->integrationConnections()->where('platform', 'google-business')->exists()) {
-            return [];
+        // A connected listing renders as a candidate row too (owner,
+        // 2026-09-03, item 12): picking one from search must ADD it to the
+        // list auto-selected, keeping every other suggestion — not blank the
+        // pass the way the old early-return did.
+        $rows = [];
+        $connected = $user->integrationConnections()
+            ->where('platform', 'google-business')
+            ->whereNull('deleted_at')
+            ->latest('created_at')
+            ->first();
+        if ($connected !== null) {
+            $payload = (array) ($connected->payload ?? []);
+            $rows[] = [
+                'id' => 'connected:'.$connected->id,
+                'name' => (string) ($payload['name'] ?? 'Your listing'),
+                'address' => isset($payload['address']) && is_string($payload['address']) ? $payload['address'] : null,
+                'photo' => isset($payload['photo']) && is_string($payload['photo']) ? $payload['photo'] : null,
+                'rating' => isset($payload['rating']) && is_numeric($payload['rating']) ? (float) $payload['rating'] : null,
+                'reviewCount' => isset($payload['reviewCount']) && is_numeric($payload['reviewCount']) ? (int) $payload['reviewCount'] : null,
+                'band' => 'auto',
+                'preselected' => true,
+                'source' => 'connected',
+                'state' => 'connected',
+            ];
         }
 
+        return [...$rows, ...$this->proposedWorkplaceRows($user)];
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function proposedWorkplaceRows(User $user): array
+    {
         return DB::table('site.workplace_candidates')
             ->where('user_id', $user->id)
             ->where('state', 'proposed')
@@ -190,15 +218,11 @@ class SetupPayload
             ->orderByDesc('first_seen_at')
             ->limit(200)
             ->get();
-        if ($intents->isEmpty()) {
-            return [];
-        }
 
         $connections = IntegrationConnection::query()
             ->where('user_id', $user->id)
-            ->whereIn('surface_key', $intents->pluck('surface_key')->unique()->all())
             ->whereNull('deleted_at')
-            ->get(['id', 'surface_key', 'resource_id', 'visibility', 'last_refresh_status', 'payload']);
+            ->get(['id', 'surface_key', 'resource_id', 'platform', 'visibility', 'last_refresh_status', 'payload']);
         $byKey = $connections->keyBy(fn (IntegrationConnection $c) => $c->surface_key.'|'.$c->resource_id);
 
         $rows = [];
@@ -241,7 +265,9 @@ class SetupPayload
                 'accountName' => $intent->identifier_label
                     ?? self::connectionName($connection)
                     ?? self::derivedAccountName((string) $intent->surface_key, $intent->canonical_url, (string) $intent->identifier),
-                'avatar' => $intent->identifier_icon ?? self::connectionIcon($connection),
+                'avatar' => $intent->identifier_icon
+                    ?? self::connectionIcon($connection)
+                    ?? self::storeFavicon((string) $intent->surface_key, $intent->canonical_url),
                 'url' => $intent->canonical_url,
                 'origin' => (string) $intent->origin,
                 'originLabel' => self::ORIGIN_LABELS[(string) $intent->origin] ?? null,
@@ -253,7 +279,72 @@ class SetupPayload
             ];
         }
 
+        // Item 23 (owner, 2026-09-03): a connection minted WITHOUT an intent
+        // (the add panel's manual connect, an OAuth return) must still render
+        // in its pass — the pass rows used to come only from intents, which
+        // is why "Connect does nothing". Union visible intent-less
+        // connections in as rows of their own.
+        $covered = $intents->map(fn (object $i) => $i->surface_key.'|'.$i->identifier)->flip();
+        foreach ($connections as $connection) {
+            if ((string) $connection->platform === 'google-business') {
+                continue; // the listing pass's job, not a platform pass row
+            }
+            if ($connection->isHidden() || isset($covered[$connection->surface_key.'|'.$connection->resource_id])) {
+                continue;
+            }
+            $surface = CompiledCatalog::surface((string) $connection->surface_key);
+            if ($surface === null) {
+                continue;
+            }
+            $legacy = LegacyPlatformMap::legacyFor((string) $connection->surface_key);
+            $category = $this->registry->get((string) $legacy)?->getCategory()->value
+                ?? ((($surface['routing_class'] ?? '') !== '') ? (string) $surface['routing_class'] : null);
+            if ($category === null) {
+                continue;
+            }
+            $payload = (array) ($connection->payload ?? []);
+            $url = isset($payload['url']) && is_string($payload['url']) ? $payload['url'] : null;
+            $rows[] = [
+                '_category' => $category,
+                'id' => 'connection:'.$connection->id,
+                'surfaceKey' => (string) $connection->surface_key,
+                'brandKey' => $surface['brand_key'] ?? null,
+                'displayName' => $surface['display_name'] ?? (string) $connection->surface_key,
+                'accountName' => self::connectionName($connection)
+                    ?? self::derivedAccountName((string) $connection->surface_key, $url, (string) $connection->resource_id),
+                'avatar' => self::connectionIcon($connection)
+                    ?? self::storeFavicon((string) $connection->surface_key, $url),
+                'url' => $url,
+                'origin' => 'manual',
+                'originLabel' => null,
+                'band' => null,
+                'preselected' => true,
+                'syncing' => (string) ($connection->last_refresh_status ?? '') === 'pending',
+                'connectionId' => (string) $connection->id,
+                'actions' => [],
+            ];
+        }
+
         return $rows;
+    }
+
+    /**
+     * Item 14 (owner, 2026-09-03): a store card must wear the store's own
+     * mark. When neither the probe nor the sync produced an icon, the
+     * storefront's favicon (via Google's favicon service — a plain image URL
+     * the browser fetches) beats the platform brand tile.
+     */
+    private static function storeFavicon(string $surfaceKey, ?string $url): ?string
+    {
+        if (! str_ends_with($surfaceKey, '.store') || ! is_string($url)) {
+            return null;
+        }
+        $host = parse_url($url, PHP_URL_HOST);
+        if (! is_string($host) || $host === '') {
+            return null;
+        }
+
+        return 'https://www.google.com/s2/favicons?domain='.rawurlencode($host).'&sz=128';
     }
 
     /** A human name off the synced connection's payload, when one exists. */

@@ -162,6 +162,82 @@ it('a hidden pre-scrape create does NOT settle the standing intent', function ()
     expect(DB::table('routing.source_intents')->where('id', $intentId)->value('state'))->toBe('proposed');
 });
 
+it('disconnect tears down the connection and reverts the intent to proposed (item 21)', function () {
+    $pro = createTenant('setup-disc');
+    $connection = new IntegrationConnection([
+        'user_id' => $pro->id, 'surface_key' => 'instagram.profile', 'routing_class' => 'social',
+        'resource_id' => 'someone', 'payload' => [], 'is_active' => true, 'visibility' => 'visible',
+    ]);
+    $connection->save();
+    $intentId = setupSeedIntent($pro->id, ['state' => 'applied', 'connection_id' => $connection->id]);
+
+    $response = actingAsUser($pro)->postJson('/api/site/setup/accept', [
+        'pass' => 'platforms.social',
+        'disconnect' => [$intentId],
+    ]);
+
+    $response->assertOk();
+    expect($response->json('errors'))->toBe([])
+        ->and(DB::table('routing.source_intents')->where('id', $intentId)->value('state'))->toBe('proposed')
+        ->and(DB::table('routing.source_intents')->where('id', $intentId)->value('connection_id'))->toBeNull()
+        ->and(IntegrationConnection::query()->whereKey($connection->id)->whereNull('deleted_at')->exists())->toBeFalse();
+});
+
+it('a visible connection WITHOUT an intent still renders in its pass, connected (item 23)', function () {
+    $pro = createTenant('setup-manual');
+    $connection = new IntegrationConnection([
+        'user_id' => $pro->id, 'surface_key' => 'youtube.channel', 'routing_class' => 'content',
+        'resource_id' => 'somechannel', 'payload' => ['url' => 'https://youtube.com/@somechannel'],
+        'is_active' => true, 'visibility' => 'visible',
+    ]);
+    $connection->save();
+
+    $passes = collect(actingAsUser($pro)->getJson('/api/site/setup')->json('passes'));
+    $social = $passes->firstWhere('key', 'platforms.social');
+    $row = collect($social['suggestions'])->firstWhere('surfaceKey', 'youtube.channel');
+
+    expect($row)->not->toBeNull()
+        ->and($row['id'])->toBe('connection:'.$connection->id)
+        ->and($row['connectionId'])->toBe((string) $connection->id);
+});
+
+it('a connected google-business listing renders as a candidate row without blanking the pass (item 12)', function () {
+    $pro = createTenant('setup-listing');
+    $connection = new IntegrationConnection([
+        'user_id' => $pro->id, 'surface_key' => 'google-business.listing', 'routing_class' => 'business',
+        'platform' => 'google-business', 'resource_id' => 'place-1',
+        'payload' => ['name' => 'Natalie Anne Hair', 'address' => '1 George St'],
+        'is_active' => true, 'visibility' => 'visible',
+    ]);
+    $connection->save();
+
+    $passes = collect(actingAsUser($pro)->getJson('/api/site/setup')->json('passes'));
+    $listing = $passes->firstWhere('key', 'listing');
+    $connected = collect($listing['candidates'])->firstWhere('state', 'connected');
+
+    expect($connected)->not->toBeNull()
+        ->and($connected['id'])->toBe('connected:'.$connection->id)
+        ->and($connected['name'])->toBe('Natalie Anne Hair')
+        ->and($connected['preselected'])->toBeTrue();
+});
+
+it('a store suggestion with no icon backfills the storefront favicon (item 14)', function () {
+    $pro = createTenant('setup-favicon');
+    setupSeedIntent((string) $pro->id, [
+        'surface_key' => 'shopify.store',
+        'routing_class' => 'shop',
+        'identifier' => 'natalieannehaircare',
+        'canonical_url' => 'https://natalieannehaircare.com',
+        'origin' => 'commerce_probe',
+    ]);
+
+    $passes = collect(actingAsUser($pro)->getJson('/api/site/setup')->json('passes'));
+    $stores = $passes->firstWhere('key', 'platforms.stores');
+
+    expect($stores['suggestions'][0]['avatar'])
+        ->toBe('https://www.google.com/s2/favicons?domain=natalieannehaircare.com&sz=128');
+});
+
 it('renders a registry-less brand (shopify) in the stores pass via its routing class', function () {
     $pro = createTenant('setup-shopify');
     setupSeedIntent((string) $pro->id, [

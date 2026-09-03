@@ -48,6 +48,11 @@ class SetupBatchApplier
         $site = $user->site;
 
         $adopt = $payload['adopt'] ?? null;
+        // 'connected:<id>' is the ALREADY-connected listing row SetupPayload
+        // composes — adopting it is a no-op, not an error.
+        if (is_string($adopt) && str_starts_with($adopt, 'connected:')) {
+            $adopt = null;
+        }
         if (is_string($adopt) && $adopt !== '') {
             try {
                 if ($this->candidates->adopt($user, $adopt) === null) {
@@ -67,6 +72,20 @@ class SetupBatchApplier
             } catch (\Throwable $e) {
                 report($e);
                 $errors['accept:'.$intentId] = 'Could not connect that platform.';
+            }
+        }
+
+        // Unticking a connected suggestion and pressing Continue DISCONNECTS
+        // it (owner, 2026-09-03): the connection is torn down and the intent
+        // reverts to proposed, so the row returns to the suggested band.
+        foreach ((array) ($payload['disconnect'] ?? []) as $rowId) {
+            try {
+                if (! $this->disconnectOne($user, (string) $rowId)) {
+                    $errors['disconnect:'.$rowId] = 'That platform is not connected.';
+                }
+            } catch (\Throwable $e) {
+                report($e);
+                $errors['disconnect:'.$rowId] = 'Could not disconnect that platform.';
             }
         }
 
@@ -151,6 +170,61 @@ class SetupBatchApplier
         $this->applier->apply($user, $intent, $surface);
 
         return true;
+    }
+
+    /**
+     * Tear down one connected suggestion (wire §4 `disconnect`). The row id is
+     * an intent id, or `connection:<id>` for a connection SetupPayload
+     * surfaced without an intent. The connection is model-deleted (observer
+     * cascade cleans up) and any intent reverts to proposed so the row goes
+     * back to the suggested band.
+     */
+    private function disconnectOne(User $user, string $rowId): bool
+    {
+        if (str_starts_with($rowId, 'connection:')) {
+            $connection = IntegrationConnection::query()
+                ->whereKey(substr($rowId, strlen('connection:')))
+                ->where('user_id', $user->id)
+                ->whereNull('deleted_at')
+                ->first();
+            if ($connection === null) {
+                return false;
+            }
+            $connection->delete();
+
+            return true;
+        }
+
+        $intent = DB::table('routing.source_intents')
+            ->where('id', $rowId)
+            ->where('user_id', $user->id)
+            ->first();
+        if ($intent === null) {
+            return false;
+        }
+
+        $connection = IntegrationConnection::query()
+            ->when($intent->connection_id !== null, fn ($q) => $q->whereKey($intent->connection_id))
+            ->when($intent->connection_id === null, fn ($q) => $q
+                ->where('surface_key', $intent->surface_key)
+                ->where('resource_id', $intent->identifier))
+            ->where('user_id', $user->id)
+            ->whereNull('deleted_at')
+            ->first();
+        if ($connection !== null) {
+            $connection->delete();
+        }
+
+        DB::table('routing.source_intents')
+            ->where('id', $intent->id)
+            ->update([
+                'state' => 'proposed',
+                'connection_id' => null,
+                'resolved_at' => null,
+                'updated_at' => now(),
+            ]);
+
+        return $connection !== null || (string) $intent->state === 'applied';
     }
 
     /** @param  array<string, string>  $errors */

@@ -119,6 +119,8 @@ class SetupController extends ApiController
             'select.*' => ['string'],
             'exclude' => ['sometimes', 'array', 'max:200'],
             'exclude.*' => ['string'],
+            'disconnect' => ['sometimes', 'array', 'max:100'],
+            'disconnect.*' => ['string'],
             'adopt' => ['sometimes', 'nullable', 'string'],
             'teamMember' => ['sometimes', 'nullable', 'string'],
             'logo' => ['sometimes', 'nullable', 'array'],
