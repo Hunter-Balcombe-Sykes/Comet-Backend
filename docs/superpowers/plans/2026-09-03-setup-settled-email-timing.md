@@ -1408,7 +1408,7 @@ Claude-Session: https://claude.ai/code/session_01DnVGqDa1pvojPxUdbcKCKH
 - Consumes: the sweep from Task 5 now owns this send.
 - Produces: no new API. `ClaimNotifier` itself is unchanged, and the manual staff endpoint still calls it directly.
 
-- [ ] **Step 1: Update the tests to expect the new owner**
+- [x] **Step 1: Update the tests to expect the new owner**
 
 In `tests/Feature/PreAccount/GeneratePreAccountSiteJobTest.php`, the assertion at line 139 expects `ClaimInviteMail` queued by the job. Change it to assert the job does **not** send, then that the sweep does:
 
@@ -1453,12 +1453,12 @@ The file also has a sibling test *"does not notify when an unpublished build wit
 
 Apply the same two changes to `ApproveEarlyAccessBuildJobTest.php` for both assertions (lines 82 and 116). Read each test's setup and copy it into the companion test rather than inventing fixtures — the early-access lane's build differs from the job lane's (it arrives already associated with an `early_access_signups` row).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `./vendor/bin/pest tests/Feature/PreAccount/GeneratePreAccountSiteJobTest.php tests/Feature/PreAccount/ApproveEarlyAccessBuildJobTest.php`
 Expected: FAIL — the jobs still send, so `assertNotQueued` fails.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `GeneratePreAccountSiteJob`, remove the invite call from the publish block, leaving the publish and KV sync:
 
@@ -1481,19 +1481,19 @@ Drop the now-unused `use App\Services\PreAccount\ClaimNotifier;` import.
 
 Apply the equivalent change in `ApproveEarlyAccessBuildJob`: remove the `ClaimNotifier` call and its constructor/`handle()` parameter, plus the import. Read the file first — the notifier arrives as a `handle()` argument at line ~72, so removing it changes that signature.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `./vendor/bin/pest tests/Feature/PreAccount`
 Expected: PASS across the lane.
 
-- [ ] **Step 5: Verify the staff override survived**
+- [x] **Step 5: Verify the staff override survived**
 
 The manual endpoint must still send on an unsettled build (owner ruling: staff can override).
 
 Run: `./vendor/bin/pest tests/Feature/PreAccount/StaffInviteEndpointTest.php`
 Expected: PASS, unchanged — that file should need no edits at all. If it needed edits, something touched `ClaimNotifier` or the endpoint, which this task must not do.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 php artisan pint app/Jobs/PreAccount/GeneratePreAccountSiteJob.php app/Jobs/PreAccount/ApproveEarlyAccessBuildJob.php tests/Feature/PreAccount/GeneratePreAccountSiteJobTest.php tests/Feature/PreAccount/ApproveEarlyAccessBuildJobTest.php

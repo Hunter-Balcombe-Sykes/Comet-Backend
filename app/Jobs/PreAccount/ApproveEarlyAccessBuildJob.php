@@ -8,7 +8,6 @@ use App\Jobs\Platforms\ThrottledByProvider;
 use App\Models\Core\EarlyAccess\EarlyAccessSignup;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\PreAccountBuild;
-use App\Services\PreAccount\ClaimNotifier;
 use App\Services\PreAccount\PreAccountBuildService;
 use App\Services\PreAccount\SourceGenerationException;
 use App\Services\PreAccount\SourceGeneratorRegistry;
@@ -69,7 +68,6 @@ class ApproveEarlyAccessBuildJob implements ShouldBeUnique, ShouldQueue, Throttl
 
     public function handle(
         SourceGeneratorRegistry $registry,
-        ClaimNotifier $notifier,
         PreAccountBuildService $builds,
     ): void {
         $signup = EarlyAccessSignup::find($this->signupId);
@@ -226,8 +224,10 @@ class ApproveEarlyAccessBuildJob implements ShouldBeUnique, ShouldQueue, Throttl
 
         $signup->forceFill(['status' => EarlyAccessSignup::STATUS_INVITED, 'invited_at' => now()])->save();
 
-        // After the writes commit: invite the person to claim (email; DM stub).
-        $notifier->notify($build->fresh());
+        // The invite is NOT sent here (2026-09-03), for the same reason it left
+        // GeneratePreAccountSiteJob: build_state=ready means the site exists,
+        // not that the cascade that fills it has finished. builds:settle-sweep
+        // sends it once the build actually settles.
     }
 
     public function failed(Throwable $e): void

@@ -19,6 +19,7 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupPreAccountBuildsTable();
+    setupPreAccountBuildEventsTable();
     config(['app.frontend_url' => 'https://app.partna.au']);
 });
 
@@ -89,7 +90,7 @@ it('no-ops on a claimed or already-ready build', function () {
     expect($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_READY);
 });
 
-it('notifies via email when a published build with contact_email reaches ready', function () {
+it('leaves the invite to the sweep, which sends it once settled', function () {
     Mail::fake();
     // Real dispatch runs inline under QUEUE_CONNECTION=sync (tests) and would hit
     // missing alias-table setup unrelated to this test — fake it like the sibling
@@ -135,7 +136,17 @@ it('notifies via email when a published build with contact_email reaches ready',
 
     (new GeneratePreAccountSiteJob($build->id, $build->source_type, publish: true))->handle(app(SourceGeneratorRegistry::class));
 
+    // The invite moved off build_state=ready (2026-09-03): ready means the site
+    // exists, not that the cascade finished. The job publishes and stamps ready
+    // but sends nothing; builds:settle-sweep owns the send now.
     expect($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_READY);
+    Mail::assertNotQueued(ClaimInviteMail::class);
+
+    // Settle it, then let the sweep do the send.
+    $build->fresh()->forceFill(['content_filled_at' => now(), 'enriched_at' => now()])->save();
+    markBuildPlatformsLanded($build);
+    $this->artisan('builds:settle-sweep');
+
     Mail::assertQueued(ClaimInviteMail::class, fn ($m) => $m->recipientEmail === 'lead@example.com');
 });
 
