@@ -256,6 +256,24 @@ final class BuildProgressReader
     }
 
     /**
+     * The two reads outcome() needs, for callers that are not the poll — the
+     * settle sweep asks the same question the browser does, off the same
+     * queries, so the two answers cannot drift.
+     *
+     * @return list<PreAccountBuildEvent>
+     */
+    public function eventsFor(PreAccountBuild $build): array
+    {
+        return $this->events($build);
+    }
+
+    /** @return array{mirrored: int, total: int, failed: int} */
+    public function mediaCountsFor(PreAccountBuild $build): array
+    {
+        return $this->mediaCounts($build);
+    }
+
+    /**
      * @return list<PreAccountBuildEvent>
      */
     private function events(PreAccountBuild $build): array

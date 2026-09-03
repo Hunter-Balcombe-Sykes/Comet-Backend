@@ -693,7 +693,7 @@ The one place that decides what happens when a build reaches a terminal outcome.
   public function welcomeIfDue(PreAccountBuild $build): bool;
   ```
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/Feature/PreAccount/BuildSettleServiceTest.php`:
 
@@ -849,12 +849,12 @@ it('does not invite when auto_invite is false — that build is the staff eyebal
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `./vendor/bin/pest tests/Feature/PreAccount/BuildSettleServiceTest.php`
 Expected: FAIL — `Class "App\Services\PreAccount\BuildSettleService" not found`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `app/Services/PreAccount/BuildSettleService.php`:
 
@@ -991,12 +991,12 @@ class BuildSettleService
 
 Register the service in `AppServiceProvider` only if the codebase registers comparable services explicitly; otherwise Laravel's container autowires it from the constructor types and no registration is needed. Check how `ClaimNotifier` is resolved (`app(ClaimNotifier::class)` at its call sites, no binding) and follow that.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `./vendor/bin/pest tests/Feature/PreAccount/BuildSettleServiceTest.php`
 Expected: PASS, 9 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 php artisan pint app/Services/PreAccount/BuildSettleService.php app/Services/PreAccount/BuildProgressReader.php tests/Feature/PreAccount/BuildSettleServiceTest.php
