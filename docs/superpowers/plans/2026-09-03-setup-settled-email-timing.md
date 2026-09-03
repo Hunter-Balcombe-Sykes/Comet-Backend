@@ -1034,7 +1034,7 @@ Claude-Session: https://claude.ai/code/session_01DnVGqDa1pvojPxUdbcKCKH
 - Consumes: `BuildSettleService::evaluate()` (Task 4).
 - Produces: `php artisan builds:settle-sweep`, scheduled `everyMinute()`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/Feature/PreAccount/SettleSweepCommandTest.php`:
 
@@ -1130,12 +1130,12 @@ it('keeps going when one build throws', function () {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `./vendor/bin/pest tests/Feature/PreAccount/SettleSweepCommandTest.php`
 Expected: FAIL — `The command "builds:settle-sweep" does not exist.`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `app/Console/Commands/SettleSweepCommand.php`:
 
@@ -1217,7 +1217,7 @@ Schedule::command('builds:settle-sweep')
     ->onFailure($reportScheduledFailure('builds-settle-sweep'));
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `./vendor/bin/pest tests/Feature/PreAccount/SettleSweepCommandTest.php`
 Expected: PASS, 5 tests.
@@ -1226,7 +1226,7 @@ Confirm the schedule registered. Expected: one `builds:settle-sweep` row at `* *
 
 Run: `php artisan schedule:list | grep settle-sweep`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 php artisan pint app/Console/Commands/SettleSweepCommand.php routes/console.php tests/Feature/PreAccount/SettleSweepCommandTest.php

@@ -287,6 +287,18 @@ Schedule::command('builds:prune-expired')
     ->runInBackground()
     ->onFailure($reportScheduledFailure('prune-expired-pre-account-builds'));
 
+// Setup-settled email timing (2026-09-03): nothing announces the moment a
+// build finishes filling in, so this asks. Every minute, bounded to a
+// 30-minute creation window -- cost scales with builds in flight, not table
+// size, and every build predating the feature is far older than the window,
+// which is what made the cutover safe with no backfill.
+Schedule::command('builds:settle-sweep')
+    ->everyMinute()
+    ->onOneServer()
+    ->withoutOverlapping(5)
+    ->runInBackground()
+    ->onFailure($reportScheduledFailure('builds-settle-sweep'));
+
 // Slice 1b D4: collect borrowed (Google Places) media assets past the ~30-day
 // photo-url expiry that no live item references. Not housekeeping — the Places
 // terms grant photos no caching exemption, so this is how borrowed content
