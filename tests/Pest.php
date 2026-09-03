@@ -3555,7 +3555,8 @@ function setupRoutingTables(): void
         state TEXT NOT NULL DEFAULT \'proposed\' CHECK (state IN (\'proposed\', \'verifying\', \'applied\', \'blocked\', \'dismissed\', \'superseded\')),
         block_reason TEXT NULL CHECK (block_reason IS NULL OR block_reason IN (
             \'gate\', \'capability\', \'conflict\', \'cap_reached\', \'needs_confirmation\',
-            \'tombstoned\', \'unservable\', \'invalid_identifier\', \'duplicate\', \'not_found\'
+            \'tombstoned\', \'unservable\', \'invalid_identifier\', \'duplicate\',
+            \'not_found\', \'sibling_branch\'
         )),
         conflicting_connection_id TEXT NULL,
         connection_id TEXT NULL,
@@ -4265,10 +4266,17 @@ function setupBrandAssetRefsTable(): void
 }
 
 /**
- * Stand-in for core.pre_account_build_events (migration 20260902030000) —
- * the setup progress ledger BuildProgress::note() appends to. Column set
- * mirrors the migration exactly; the CHECK lists are enforced by the
- * producers' constants in tests, not here.
+ * Stand-in for core.pre_account_build_events (migration 20260902030000,
+ * 'shop' added by 20260902050000) — the setup progress ledger
+ * BuildProgress::note() appends to. Column set mirrors the migration exactly.
+ *
+ * The two CHECK lists were deliberately left off here at first, on the
+ * grounds that the producers' own constants enforce them. They are declared
+ * now because that reasoning only covers the producers we already have: a new
+ * writer that invents a stage would pass every SQLite test and then hit a
+ * constraint violation on Postgres, which is the exact drift class
+ * SchemaDriftGuardTest exists to catch (CLAUDE.md, "Tests run SQLite, prod is
+ * Postgres"). Keep both lists in step with the migrations above.
  */
 function setupPreAccountBuildEventsTable(): void
 {
@@ -4276,8 +4284,8 @@ function setupPreAccountBuildEventsTable(): void
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.pre_account_build_events (
         id TEXT PRIMARY KEY NOT NULL,
         build_id TEXT NOT NULL,
-        stage TEXT NOT NULL,
-        status TEXT NOT NULL,
+        stage TEXT NOT NULL CHECK (stage IN (\'identity\', \'media\', \'workplace\', \'platforms\', \'listing\', \'menu\', \'website\', \'shop\', \'ready\', \'failed\')),
+        status TEXT NOT NULL CHECK (status IN (\'started\', \'landed\', \'skipped\', \'failed\')),
         label TEXT NOT NULL,
         payload TEXT NOT NULL DEFAULT \'{}\',
         created_at TEXT NOT NULL

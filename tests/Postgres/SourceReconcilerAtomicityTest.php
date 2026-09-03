@@ -153,6 +153,13 @@ beforeEach(function () {
         CONSTRAINT reject_all CHECK (id IS NULL)
     )');
     $pg->statement("ALTER TABLE site.platform_connections ADD COLUMN IF NOT EXISTS visibility text NOT NULL DEFAULT 'visible'");
+    // owner_scope landed 2026-09-03 (c8ddc01a7) and SourceReconciler::applyIntent
+    // assigns it on EVERY apply, but no stand-in gained the column — so this lane
+    // went red with 42703 before the reject_all CHECK under test could fire, which
+    // is exactly the trap the block comment above already warns about twice. The
+    // static guard cannot see it: the write is Eloquent attribute assignment, which
+    // emits no literal column string for PostgresLaneReadCoverageTest to find.
+    $pg->statement('ALTER TABLE site.platform_connections ADD COLUMN IF NOT EXISTS owner_scope text');
 
     $this->userId = (string) Str::uuid();
 });

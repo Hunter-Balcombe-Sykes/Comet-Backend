@@ -182,7 +182,7 @@ class SourceReconciler
                 $incumbent = $this->incumbentFor($user, $routingClass, $placement->surfaceKey, $identifier, $aliasConnectionId);
                 if ($incumbent !== null) {
                     $verdict = Verdict::Hold;
-                    $blockReason = 'conflict';
+                    $blockReason = $this->isSettledWorkplaceSlot($user, $context, $incumbent) ? 'sibling_branch' : 'conflict';
                     $conflictId = $incumbent;
                 }
             }
@@ -431,6 +431,64 @@ class SourceReconciler
             ->when($aliasConnectionId !== null, fn ($q) => $q->where('id', '!=', $aliasConnectionId))
             ->where(fn ($q) => $q->where('surface_key', '!=', $surfaceKey)->orWhere('resource_id', '!=', $identifier))
             ->value('id');
+    }
+
+    /**
+     * Is this link merely ANOTHER BRANCH of a workplace whose slot is already
+     * settled — a question that has been ANSWERED rather than one still to ask?
+     *
+     * A chain's locations page carries one booking link per branch, and Fresha
+     * models every branch as its own business (separate venue id, separate
+     * owner id, empty `additionalLocations`), so ConnectionIdentity correctly
+     * refuses to merge them and the XOR above holds every one after the first.
+     * Six branches then became five "use this one instead?" cards — measured
+     * on dev 2026-09-03, teegandyson and liamsaunders, five rows each. The
+     * slot was never actually in dispute.
+     *
+     * Two things settle it, and BOTH are already recorded, so neither costs a
+     * fetch:
+     *
+     *  · the incumbent is the account holder's OWN (`owner_scope` 'self') —
+     *    harvested from their bio or typed by them. A link off their
+     *    employer's site does not get to propose replacing that. This is the
+     *    booking-lane counterpart of the 2026-09-03 identity gate, which drew
+     *    the line at "an account says who you are, a booking link says how to
+     *    reach you" and so left the action classes wide.
+     *  · the incumbent's roster NAMED them (`selection.mode` 'employee').
+     *    FreshaAutoSelector reaches that only via StaffNameMatcher AND a
+     *    successful per-employee services fetch, so it is a positive
+     *    identification of THIS person at THAT branch — strictly stronger
+     *    evidence than a bare name match.
+     *
+     * A 'storewide' incumbent deliberately still conflicts: the roster did not
+     * name them, so which branch is theirs is genuinely unknown and the
+     * question is real.
+     *
+     * Scoped through ownerScopeFor() — the same derivation that stamps the
+     * column — so this refuses a HARVEST, never a platform: a business
+     * account's own website is its own brand and never lands here, and a
+     * partna PASTING a branch link is stating a fact about themselves, which
+     * still asks.
+     *
+     * One query, only on the already-rare conflict branch, and never on the
+     * happy path.
+     */
+    private function isSettledWorkplaceSlot(User $user, RoutingContext $context, string $incumbentId): bool
+    {
+        if (RoutingCapabilityGate::ownerScopeFor($user, $context->origin) !== 'workplace') {
+            return false;
+        }
+
+        $incumbent = IntegrationConnection::query()
+            ->whereKey($incumbentId)
+            ->first(['owner_scope', 'payload']);
+
+        if ($incumbent === null) {
+            return false;
+        }
+
+        return $incumbent->owner_scope === 'self'
+            || data_get($incumbent->payload, 'selection.mode') === 'employee';
     }
 
     /** $aliasConnectionId: see incumbentFor() — an alias is not a second account. */

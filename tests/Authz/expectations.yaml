@@ -123,6 +123,16 @@
   expect: exempt
   reason: "{purpose} is a design-slot name (logo_full, placeholder, …) validated against SiteMedia::designSingletonPurposes(); the site is resolved from the caller, not the path — there is no identity-B key to substitute."
 
+# {candidate} IS a real resource id (site.logo_candidates.id), so this is the
+# `unknown` form and not an exemption: LogoCandidates::promote() looks it up
+# with ->where('site_id', $site->id) and returns false for anything that is not
+# this site's proposed row, which the controller renders as 404 by the
+# public-enumeration convention. The probe proves that scoped lookup 404s
+# rather than 500ing or leaking. Reflection cannot bind it because the
+# controller takes `string $candidate`, not a model.
+- route: "api/logo-candidates/{candidate}/promote"
+  fixture: { candidate: unknown }
+
 # ── Account / session ────────────────────────────────────────────────────────
 - route: "api/account/mfa/factors/{factorId}"
   expect: exempt
