@@ -44,6 +44,19 @@ class VerifyLinkJob implements ShouldQueue
 
     public int $tries = 3;
 
+    /**
+     * Short and rising, because a person is waiting on the card to stop saying
+     * "checking". Three tries at 5s then 15s puts the last attempt ~20s out,
+     * inside the window someone will actually sit through — a minute-scale
+     * backoff would be indistinguishable from the job never running.
+     *
+     * The retries are for a flaky upstream, not for a definite answer: a
+     * NotFound is a RESULT and returns without throwing, so it never reaches
+     * this. Only a throw does, and failing all three is the same as Blocked —
+     * the link still lands, unverified (see failed() below).
+     */
+    public array $backoff = [5, 15];
+
     /** Bounded: a person is waiting on the other end of this. */
     public int $timeout = 30;
 
