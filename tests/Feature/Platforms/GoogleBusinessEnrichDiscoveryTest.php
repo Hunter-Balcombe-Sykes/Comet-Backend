@@ -52,7 +52,14 @@ function gbdFixture(): array
 // Socials seed for EVERY account type (owner ruling R14), so a standard
 // partna account is the sharper default here — it proves the discovery union
 // needs no gate of its own beyond the capability checks seed() already makes.
-function gbdUser(string $h, string $accountType = 'partna'): User
+// Defaults to BUSINESS since 2026-09-03. This file's subject is the social
+// DISCOVERY lane — find-social-profiles filling a network the listing itself
+// did not carry — and that lane now runs only where the listing IS the
+// account's own identity. On a partna the attached listing is the workplace's,
+// so its socials are refused before discovery can fill anything
+// (RoutingCapabilityGate::foreignIdentityDenial), and every assertion here
+// would read null for a reason that has nothing to do with discovery.
+function gbdUser(string $h, string $accountType = 'business'): User
 {
     return User::create([
         'handle' => $h,

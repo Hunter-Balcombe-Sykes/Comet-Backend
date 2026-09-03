@@ -399,7 +399,7 @@ it('does not re-seed an ordering store the user already has (only-if-empty per s
     expect($orders->first()->payload['name'])->toBe('Mine');
 });
 
-it('syncs booking + socials + workplace for a standard (partna) account, but never reservations/ordering (R14)', function () {
+it('syncs booking + workplace for a standard (partna) account, but never its socials, reservations or ordering', function () {
     config(['services.apify.token' => 'apify-token']);
     Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
     Bus::fake([InstagramConnectJob::class]);
@@ -412,17 +412,28 @@ it('syncs booking + socials + workplace for a standard (partna) account, but nev
     // Booking IS synced for every account type (Google's appointment link, only-if-empty).
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'booking')->exists())->toBeTrue();
 
-    // Ruling R14 (overnight 2026-08-18): socials + workplace seed for every
-    // account type; only reservations + ordering stay business/food-gated.
+    // Ruling R14 (overnight 2026-08-18) held that socials + workplace seed for
+    // every account type. Its WORKPLACE half stands, and is asserted below.
     foreach (['opentable', 'reservations', 'online-ordering'] as $businessOnly) {
         expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', $businessOnly)->exists())
             ->toBeFalse("expected no {$businessOnly} row for a partna account");
     }
+
+    // Its SOCIALS half was narrowed 2026-09-03 (owner). R14's premise was "an
+    // individual who CONNECTS THEIR listing" — but in the pre-account flow the
+    // listing attached to a partna is the WORKPLACE's, put there by
+    // FreshaWorkplaceLinker, so these rows were the salon's accounts landing on
+    // the person's page. lukemunnn got a finding offering to swap their own
+    // Instagram for the shop's @Youthofdulwich. A business account, whose
+    // listing IS its identity, still seeds socials — pinned by
+    // WorkplaceListingSocialsGateTest.
     foreach (['facebook', 'tiktok'] as $social) {
         expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', $social)->exists())
-            ->toBeTrue("expected a {$social} row for a partna account (R14)");
+            ->toBeFalse("expected no {$social} row for a partna: the listing is the workplace's");
     }
-    Bus::assertDispatched(InstagramConnectJob::class);
+
+    // ...and no paid Instagram scrape of the salon's profile either.
+    Bus::assertNotDispatched(InstagramConnectJob::class);
 });
 
 it('seeds no booking when the only booking link is the business website', function () {
