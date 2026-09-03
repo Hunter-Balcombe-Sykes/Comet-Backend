@@ -12,7 +12,17 @@
 // Choose -> proposed, Hold -> blocked); 'dismissed' is written directly by
 // SuggestionsController::dismiss(), 'superseded' is reserved but currently
 // unwritten (grep confirms no literal 'superseded' assignment to this
-// column — only in comments). `origin` flows through RoutingContext and has
+// column — only in comments). 'verifying' was added 2026-09-03
+// (20260903220001_source_intents_verifying_state.sql) and is also written
+// directly, outside Verdict::intentState() — SuggestionsController's
+// verify-queue path and SetupBatchApplier both write it, and
+// CheckStuckSourceIntentsCommand/VerifyLinkJob read it back. Fixed
+// 2026-09-04: this file's own hardcoded expectations were never updated
+// when that migration landed, so the state-domain-size assertion below and
+// the "written outside Verdict::intentState()" dataset both silently
+// missed it — caught only because tonight's push surfaced the Postgres CI
+// lane already failing on origin c7efe16f1, unrelated to tonight's own
+// diff. `origin` flows through RoutingContext and has
 // four known call sites today: RoutingController ('paste'), WebsiteImporter
 // ('website_import'), LinkInBioImporter ('link_in_bio' | 'bio_harvest') and
 // CommerceProbeJob ('commerce_probe') — StoreBrandSeeder defaults to 'paste'
@@ -128,13 +138,15 @@ it('every non-null Verdict::intentState() output is in the state domain', functi
     expect(DB::connection('pgsql')->table('routing.source_intent_scratch')->where('state', $state)->exists())->toBeTrue();
 })->with(Verdict::cases());
 
-it('accepts the state literals written outside Verdict::intentState() (dismissed, superseded)', function (string $state) {
+it('accepts the state literals written outside Verdict::intentState() (dismissed, superseded, verifying)', function (string $state) {
     // dismissed: app/Http/Controllers/Api/Routing/SuggestionsController.php:113
     // superseded: reserved, currently unwritten (grep finds it only in comments)
+    // verifying: app/Http/Controllers/Api/Routing/SuggestionsController.php:426,
+    //   app/Services/Setup/SetupBatchApplier.php:185
     DB::connection('pgsql')->table('routing.source_intent_scratch')->insert(['state' => $state, 'origin' => 'paste']);
 
     expect(DB::connection('pgsql')->table('routing.source_intent_scratch')->where('state', $state)->exists())->toBeTrue();
-})->with(['dismissed', 'superseded']);
+})->with(['dismissed', 'superseded', 'verifying']);
 
 it('rejects a state outside the domain', function () {
     $thrown = null;
@@ -148,11 +160,11 @@ it('rejects a state outside the domain', function () {
     expect($thrown->getCode())->toBe('23514');
 });
 
-it('the state domain is exactly the 5 values the migration declares', function () {
+it('the state domain is exactly the 6 values the migration declares', function () {
     $domain = sourceIntentCheckDomain('state');
     sort($domain);
 
-    expect($domain)->toBe(['applied', 'blocked', 'dismissed', 'proposed', 'superseded']);
+    expect($domain)->toBe(['applied', 'blocked', 'dismissed', 'proposed', 'superseded', 'verifying']);
 });
 
 it('accepts every block_reason literal actually written by the app', function (string $reason) {
