@@ -8,8 +8,8 @@
 // A synthesised URL is built FROM a detector's own pattern, so it proves the
 // pattern is self-consistent and nothing more: it cannot tell you the pattern
 // disagrees with the platform, and it cannot see a surface that has no
-// detector at all. Both were live here on 2026-09-03 and both were found by
-// this corpus, not by the generated one —
+// detector at all. 527 detectors "round-tripped" while four surfaces were
+// broken in production, all four found here on 2026-09-03 —
 //
 //   · ticketmaster.tickets  '#^/[\w-]+-tickets/…#' required the first segment
 //     to END in '-tickets', but every venue page appends the locality
@@ -27,12 +27,39 @@
 // projection, so a page going dark makes a row stale documentation rather
 // than a failure. Re-run the sweep rather than trusting age.
 //
-// Deliberately NOT covered, each for a stated reason rather than an oversight:
-//   · generic.store        a hostless fallback bucket — it has no domain to match
+// COVERAGE: 168 of the catalog's 182 surfaces. The 14 absent are absent for a
+// stated reason, not for want of looking:
+//
+//   no public URL by design   direct.book · google_business.listing (Places,
+//                             not a link) · google_appointments.book (private
+//                             tokenised share links) · partna.manual_product ·
+//                             partna.storefront · generic.store (a hostless
+//                             fallback bucket — it has no domain to match)
+//   already retired           genbook.book (→ Booksy) · menulog.order (closed
+//                             2025-11-26) · mr_yum.order (→ me&u) ·
+//                             postmates.order (→ Uber Eats) ·
+//                             schedulicity.book (→ Vagaro)
+//   real, unreachable here    easi.order (app-only, no web ordering) ·
+//                             grubhub.order (geo-blocked outside US/CA; the
+//                             pages exist)
+//
+// Two of those last rows are worth someone's attention rather than mine, since
+// retiring a LIVE company's surface on one pass of evidence would be wrong:
+//   · shortcuts.book     both hosts (shortcuts.com.au, shortcuts.net) now 301
+//     to shortcutssoftware.com. The company is alive; the domains we detect on
+//     are redirect stubs, and no tenant booking URL was found on either.
+//   · wix_bookings.book  anchored to wixapps.net, which appears to be Wix's
+//     internal widget backend rather than anything a business would paste.
+// A wrong host is inert — it matches nothing — so neither is urgent.
+//
+// Also deliberately NOT covered:
 //   · bandcamp.store       routing is owned by bandcamp.artist, by its own note
-//   · skipthedishes.order  the site 403s every automated request, so the
-//                          one-segment vs '/slug/menu' question is unresolved
-//                          in BOTH directions and no honest row can be written
+//   · nowbookit.reserve    genuinely requires BOTH accountid and venueid, and
+//                          NowBookitService::parseIds() agrees
+//   · skipthedishes.order  the site 403s every automated request, so whether
+//                          its restaurant pages are '/slug' or '/slug/menu' is
+//                          unresolved in BOTH directions and no honest row can
+//                          be written
 
 return [
     ['url' => 'https://ou.abacus.co/en/Store/2016674/', 'surface' => 'abacus.order', 'identifier' => null],
@@ -50,6 +77,8 @@ return [
     ['url' => 'https://audiomack.com/ment-for-promotion', 'surface' => 'audiomack.artist', 'identifier' => 'ment-for-promotion'],
     ['url' => 'https://immolation.bandcamp.com', 'surface' => 'bandcamp.artist', 'identifier' => 'immolation'],
     ['url' => 'https://unurnment-maggotstomp.bandcamp.com', 'surface' => 'bandcamp.artist', 'identifier' => 'unurnment-maggotstomp'],
+    ['url' => 'https://www.bandsintown.com/a/1-akon', 'surface' => 'bandsintown.artist', 'identifier' => '1'],
+    ['url' => 'https://www.bandsintown.com/a/100-carrie-underwood', 'surface' => 'bandsintown.artist', 'identifier' => '100'],
     ['url' => 'https://www.bark.com/en/gb/company/kii-accountants-limited/bAn3/', 'surface' => 'bark.company', 'identifier' => 'kii-accountants-limited'],
     ['url' => 'https://www.bark.com/en/gb/company/sak-accountants-limited/0BYzZ/', 'surface' => 'bark.company', 'identifier' => 'sak-accountants-limited'],
     ['url' => 'https://www.beatport.com/artist/example/106671', 'surface' => 'beatport.artist', 'identifier' => '106671'],
@@ -87,6 +116,8 @@ return [
     ['url' => 'https://community.circle.so', 'surface' => 'circle.community', 'identifier' => 'community'],
     ['url' => 'https://makerpad.circle.so', 'surface' => 'circle.community', 'identifier' => 'makerpad'],
     ['url' => 'https://classpass.com/studios/real-pilates-tribeca--new-york', 'surface' => 'classpass.book', 'identifier' => 'real-pilates-tribeca--new-york'],
+    ['url' => 'https://absolute-physio.au1.cliniko.com/bookings', 'surface' => 'cliniko.book', 'identifier' => 'absolute-physio'],
+    ['url' => 'https://active-physiotherapy.au1.cliniko.com/bookings', 'surface' => 'cliniko.book', 'identifier' => 'active-physiotherapy'],
     ['url' => 'https://codepen.io/chriscoyier', 'surface' => 'codepen.profile', 'identifier' => 'chriscoyier'],
     ['url' => 'https://codepen.io/nickylew', 'surface' => 'codepen.profile', 'identifier' => 'nickylew'],
     ['url' => 'https://www.dailymotion.com/eurosport', 'surface' => 'dailymotion.channel', 'identifier' => 'eurosport'],
@@ -101,6 +132,8 @@ return [
     ['url' => 'https://dice.fm/venue/the-vera-project-wmmg', 'surface' => 'dice.events', 'identifier' => 'the-vera-project-wmmg'],
     ['url' => 'https://discord.com/invite/minecraft', 'surface' => 'discord.server', 'identifier' => 'minecraft'],
     ['url' => 'https://discord.com/invite/reddit', 'surface' => 'discord.server', 'identifier' => 'reddit'],
+    ['url' => 'https://www.doordash.com/store/1-for-1-pizza-ottawa-24965114/', 'surface' => 'doordash.order', 'identifier' => '1-for-1-pizza-ottawa-24965114'],
+    ['url' => 'https://www.doordash.com/store/1-luv-island-restaurant-killeen-414729/', 'surface' => 'doordash.order', 'identifier' => '1-luv-island-restaurant-killeen-414729'],
     ['url' => 'https://dribbble.com/google', 'surface' => 'dribbble.profile', 'identifier' => 'google'],
     ['url' => 'https://dribbble.com/simonpan', 'surface' => 'dribbble.profile', 'identifier' => 'simonpan'],
     ['url' => 'https://eatapp.co/aoki-teppanyaki-waikiki-2005-kalia-rd-honolulu-hi-96815-united-states', 'surface' => 'eat_app.reserve', 'identifier' => null],
@@ -121,6 +154,8 @@ return [
     ['url' => 'https://fareharbor.com/embeds/book/mybesttour/items/282660/?full-items=yes', 'surface' => 'fareharbor.book', 'identifier' => 'mybesttour'],
     ['url' => 'https://ffm.to/picture-perfect-jb', 'surface' => 'feature_fm.release', 'identifier' => null],
     ['url' => 'https://ffm.to/sotart', 'surface' => 'feature_fm.release', 'identifier' => null],
+    ['url' => 'https://www.fiverr.com/weblaboratory', 'surface' => 'fiverr.profile', 'identifier' => 'weblaboratory'],
+    ['url' => 'https://www.fiverr.com/zlatkoilievski', 'surface' => 'fiverr.profile', 'identifier' => 'zlatkoilievski'],
     ['url' => 'https://www.flickr.com/photos/library_of_congress/', 'surface' => 'flickr.photos', 'identifier' => 'library_of_congress'],
     ['url' => 'https://www.flickr.com/photos/thomashawk/', 'surface' => 'flickr.photos', 'identifier' => 'thomashawk'],
     ['url' => 'https://www.fresha.com/a/casagrande-salon-new-york-109-west-38th-street-vyxapsq2', 'surface' => 'fresha.book', 'identifier' => 'casagrande-salon-new-york-109-west-38th-street-vyxapsq2'],
@@ -132,6 +167,8 @@ return [
     ['url' => 'https://zhairstudio.glossgenius.com', 'surface' => 'glossgenius.book', 'identifier' => 'zhairstudio'],
     ['url' => 'https://dvassallo.gumroad.com', 'surface' => 'gumroad.store', 'identifier' => 'dvassallo'],
     ['url' => 'https://samrends.gumroad.com', 'surface' => 'gumroad.store', 'identifier' => 'samrends'],
+    ['url' => 'https://www.halaxy.com/profile/dr-shukri-abi/audiologist/120340', 'surface' => 'halaxy.book', 'identifier' => '120340'],
+    ['url' => 'https://www.halaxy.com/profile/mrs-mandy-nyhof/audiologist/121076', 'surface' => 'halaxy.book', 'identifier' => '121076'],
     ['url' => 'https://heyyou.com.au/restaurant/5834/custom-cafe', 'surface' => 'hey_you.order', 'identifier' => null],
     ['url' => 'https://huawei.heyyou.com.au/restaurant/7200/fress-cafe', 'surface' => 'hey_you.order', 'identifier' => null],
     ['url' => 'https://heyzine.com/flip-book/953357ac7c.html', 'surface' => 'heyzine.publication', 'identifier' => null],
@@ -175,6 +212,8 @@ return [
     ['url' => 'https://medium.com/@waitbutwhy', 'surface' => 'medium.profile', 'identifier' => 'waitbutwhy'],
     ['url' => 'https://megatix.com.au/SnowMachineQueenstownAud', 'surface' => 'megatix.tickets', 'identifier' => null],
     ['url' => 'https://megatix.com.au/events/kelmscott-agricultural-show-2026', 'surface' => 'megatix.tickets', 'identifier' => null],
+    ['url' => 'https://outlook.office365.com/owa/calendar/12boxesLimited@12boxes.london/bookings/', 'surface' => 'microsoft_bookings.book', 'identifier' => null],
+    ['url' => 'https://outlook.office365.com/owa/calendar/4thandBailey1@4thandbailey.com/bookings/', 'surface' => 'microsoft_bookings.book', 'identifier' => null],
     ['url' => 'https://clients.mindbodyonline.com/classic/ws?studioid=12339&stype=-101', 'surface' => 'mindbody.book', 'identifier' => '12339'],
     ['url' => 'https://clients.mindbodyonline.com/classic/ws?studioid=8649', 'surface' => 'mindbody.book', 'identifier' => '8649'],
     ['url' => 'https://www.mixcloud.com/Losmejoresmixesdelaweb/', 'surface' => 'mixcloud.player', 'identifier' => 'Losmejoresmixesdelaweb'],
@@ -185,10 +224,16 @@ return [
     ['url' => 'https://noterro.com/calendars/bookOnlineStepOne/bd467b8df43f6629db182c54f305bbc2', 'surface' => 'noterro.book', 'identifier' => 'bd467b8df43f6629db182c54f305bbc2'],
     ['url' => 'https://bookings.obeeapp.com/atablebistro', 'surface' => 'obee.reserve', 'identifier' => null],
     ['url' => 'https://obee.com.au/oltrealimentariecucina/', 'surface' => 'obee.reserve', 'identifier' => null],
+    ['url' => 'https://www.opentable.com.au/restaurant/profile/1000972', 'surface' => 'opentable.reserve', 'identifier' => '1000972'],
+    ['url' => 'https://www.opentable.com.au/restaurant/profile/10018', 'surface' => 'opentable.reserve', 'identifier' => '10018'],
     ['url' => 'https://orcd.co/MEMelodies', 'surface' => 'orchard.release', 'identifier' => null],
     ['url' => 'https://orcd.co/fentanylzombieapocalypse', 'surface' => 'orchard.release', 'identifier' => null],
     ['url' => 'https://mortons.order.online', 'surface' => 'order_online.order', 'identifier' => null],
     ['url' => 'https://sbarro.order.online', 'surface' => 'order_online.order', 'identifier' => null],
+    ['url' => 'https://ordermate.online/moroccansoupbar/menu', 'surface' => 'ordermate.order', 'identifier' => 'moroccansoupbar'],
+    ['url' => 'https://ordermate.online/rocksalt/menu', 'surface' => 'ordermate.order', 'identifier' => 'rocksalt'],
+    ['url' => 'https://1bodytherapies.book.app/', 'surface' => 'ovatu.book', 'identifier' => null],
+    ['url' => 'https://curlygirls.book.app/', 'surface' => 'ovatu.book', 'identifier' => null],
     ['url' => 'https://tickets.oztix.com.au/default.aspx?Event=246798', 'surface' => 'oztix.tickets', 'identifier' => null],
     ['url' => 'https://tickets.oztix.com.au/default.aspx?Event=247204', 'surface' => 'oztix.tickets', 'identifier' => null],
     ['url' => 'https://partiful.com/u/ApPZNvxoatJ6zaKJZ73w', 'surface' => 'partiful.events', 'identifier' => 'ApPZNvxoatJ6zaKJZ73w'],
@@ -218,8 +263,14 @@ return [
     ['url' => 'https://skydiveauckland.rezdy.com/', 'surface' => 'rezdy.book', 'identifier' => 'skydiveauckland'],
     ['url' => 'https://rumble.com/c/DanBongino', 'surface' => 'rumble.channel', 'identifier' => 'DanBongino'],
     ['url' => 'https://rumble.com/c/Tectone', 'surface' => 'rumble.channel', 'identifier' => 'Tectone'],
+    ['url' => 'https://53degrees.seetickets.com/event/limehouse-lizzy/53-degrees/3633054', 'surface' => 'see_tickets.tickets', 'identifier' => null],
+    ['url' => 'https://53degrees.seetickets.com/event/the-smiths-ltd/53-degrees/3632531', 'surface' => 'see_tickets.tickets', 'identifier' => null],
+    ['url' => 'https://booking.setmore.com/scheduleappointment/01ec586a-c6db-4375-9cb6-0604245073ec/services/79abff20-a9fc-4bbe-a7b4-4b30a770072e', 'surface' => 'setmore.book', 'identifier' => 'booking'],
+    ['url' => 'https://booking.setmore.com/scheduleappointment/0356841d-875c-46d1-acef-4203a49baf22/services/cd0e1206-f7fa-47c8-aa3a-cdf24c3cb74e', 'surface' => 'setmore.book', 'identifier' => 'booking'],
     ['url' => 'https://www.sevenrooms.com/reservations/howtocookawolf', 'surface' => 'sevenrooms.reserve', 'identifier' => 'howtocookawolf'],
     ['url' => 'https://www.sevenrooms.com/reservations/komodo', 'surface' => 'sevenrooms.reserve', 'identifier' => 'komodo'],
+    ['url' => 'https://000de8-2.myshopify.com/collections/all', 'surface' => 'shopify.store', 'identifier' => '000de8-2'],
+    ['url' => 'https://007airsoft.myshopify.com/', 'surface' => 'shopify.store', 'identifier' => '007airsoft'],
     ['url' => 'https://menstondental.simplybook.it/v2/#book', 'surface' => 'simplybook_me.book', 'identifier' => 'menstondental'],
     ['url' => 'https://swimtravel.simplybook.me/v2/', 'surface' => 'simplybook_me.book', 'identifier' => 'swimtravel'],
     ['url' => 'https://www.skiddle.com/whats-on/Liverpool/Blackstone-Street-Warehouse/Circus-Birthday-Liverpool-Saturday-26th-September/42368835/', 'surface' => 'skiddle.tickets', 'identifier' => null],
@@ -244,6 +295,8 @@ return [
     ['url' => 'https://1832brew.square.site/s/order', 'surface' => 'square.order', 'identifier' => null],
     ['url' => 'https://square.link/u/EeJTW6Zn', 'surface' => 'square.payment_link', 'identifier' => null],
     ['url' => 'https://square.link/u/kgDLTp9d', 'surface' => 'square.payment_link', 'identifier' => null],
+    ['url' => 'https://altiba9.squarespace.com/shop', 'surface' => 'squarespace.store', 'identifier' => null],
+    ['url' => 'https://angelinavillalobos.squarespace.com/shop', 'surface' => 'squarespace.store', 'identifier' => null],
     ['url' => 'https://stan.store/AG3Dlabs', 'surface' => 'stan.store', 'identifier' => 'AG3Dlabs'],
     ['url' => 'https://stan.store/AI_Artists', 'surface' => 'stan.store', 'identifier' => 'AI_Artists'],
     ['url' => 'https://www.strava.com/clubs/1-Percent-Running-Club', 'surface' => 'strava.club', 'identifier' => '1-Percent-Running-Club'],
@@ -306,12 +359,16 @@ return [
     ['url' => 'https://www.upwork.com/freelancers/~01fca70a05a2bbe938', 'surface' => 'upwork.profile', 'identifier' => '~01fca70a05a2bbe938'],
     ['url' => 'https://www.vagaro.com/arlettebeautyspanyc', 'surface' => 'vagaro.book', 'identifier' => 'arlettebeautyspanyc'],
     ['url' => 'https://www.vagaro.com/twhitebeautystudio1', 'surface' => 'vagaro.book', 'identifier' => 'twhitebeautystudio1'],
+    ['url' => 'https://venmo.com/u/A34BuildersLLC', 'surface' => 'venmo.profile', 'identifier' => 'A34BuildersLLC'],
+    ['url' => 'https://venmo.com/u/AAGraphx', 'surface' => 'venmo.profile', 'identifier' => 'AAGraphx'],
     ['url' => 'https://venue.ink/@intheimagestudio', 'surface' => 'venue_ink.book', 'identifier' => null],
     ['url' => 'https://venue.ink/@paigesofinktattoos/page/info', 'surface' => 'venue_ink.book', 'identifier' => null],
     ['url' => 'https://vimeo.com/channels/premieres', 'surface' => 'vimeo.account', 'identifier' => 'premieres'],
     ['url' => 'https://vimeo.com/channels/staffpicks', 'surface' => 'vimeo.account', 'identifier' => 'staffpicks'],
     ['url' => 'https://vsco.co/listentosims/gallery', 'surface' => 'vsco.profile', 'identifier' => 'listentosims'],
     ['url' => 'https://vsco.co/peytonmmedia/gallery', 'surface' => 'vsco.profile', 'identifier' => 'peytonmmedia'],
+    ['url' => 'https://api.whatsapp.com/send?phone=34610753993&text=Hola%2C%20he%20visto%20tu%20p%C3%A1gina%20web%20y%20me%20gustar%C3%ADa%20recibir%20m%C3%A1s%20informaci%C3%B3n%20sobre%20las%20sesio', 'surface' => 'whatsapp.chat', 'identifier' => null],
+    ['url' => 'https://api.whatsapp.com/send?phone=6287774257479&text=Hallo+admin+Mitra+Sinergi+saya+ingin+berkonsultasi+tentang+pemasangan+CCTV', 'surface' => 'whatsapp.chat', 'identifier' => null],
     ['url' => 'https://wolt.com/en/fin/helsinki/restaurant/ravintola-mountain', 'surface' => 'wolt.order', 'identifier' => 'ravintola-mountain'],
     ['url' => 'https://wolt.com/en/fin/helsinki/restaurant/sushinroll', 'surface' => 'wolt.order', 'identifier' => 'sushinroll'],
     ['url' => 'https://woocommerce.com/products/stripe/', 'surface' => 'woocommerce.store', 'identifier' => null],
@@ -320,10 +377,14 @@ return [
     ['url' => 'https://x.com/NASA', 'surface' => 'x.profile', 'identifier' => 'NASA'],
     ['url' => 'https://www.yelp.com.au/biz/hunter-and-barrel-sydney', 'surface' => 'yelp.listing', 'identifier' => 'hunter-and-barrel-sydney'],
     ['url' => 'https://www.yelp.com.au/biz/mr-wong-sydney', 'surface' => 'yelp.listing', 'identifier' => 'mr-wong-sydney'],
+    ['url' => 'https://aavbryant.youcanbook.me/', 'surface' => 'youcanbookme.book', 'identifier' => null],
+    ['url' => 'https://cabinet-osteo-energetique-clisson-vallet.youcanbook.me/', 'surface' => 'youcanbookme.book', 'identifier' => null],
     ['url' => 'https://www.youtube.com/@MrBeast', 'surface' => 'youtube.channel', 'identifier' => 'MrBeast'],
     ['url' => 'https://www.youtube.com/@mkbhd', 'surface' => 'youtube.channel', 'identifier' => 'mkbhd'],
     ['url' => 'https://music.youtube.com/channel/UCANLZYMidaCbLQFWXBC95Jg', 'surface' => 'youtube_music.channel', 'identifier' => 'UCANLZYMidaCbLQFWXBC95Jg'],
     ['url' => 'https://music.youtube.com/channel/UCDGmojLIoWpXok597xYo8cg', 'surface' => 'youtube_music.channel', 'identifier' => 'UCDGmojLIoWpXok597xYo8cg'],
+    ['url' => 'https://allureinfinite.zenoti.com/webstoreNew/services/84424898-da66-4df1-94ed-b3da6c0cca53', 'surface' => 'zenoti.book', 'identifier' => 'allureinfinite'],
+    ['url' => 'https://genejuarez.zenoti.com/webstoreNew/services/ac809d0b-3b41-42aa-9f06-ad8edbf3c26b', 'surface' => 'zenoti.book', 'identifier' => 'genejuarez'],
     ['url' => 'https://www.zomato.com/bangalore/seven-rivers-brewing-co-taj-mg-road-bangalore/info', 'surface' => 'zomato.order', 'identifier' => 'seven-rivers-brewing-co-taj-mg-road-bangalore'],
     ['url' => 'https://www.zomato.com/bangalore/the-trinity-square-taj-mg-road-bangalore/info', 'surface' => 'zomato.order', 'identifier' => 'the-trinity-square-taj-mg-road-bangalore'],
 ];
