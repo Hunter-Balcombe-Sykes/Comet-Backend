@@ -6,12 +6,24 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
 use App\Catalog\SurfaceBuilder;
 
-/** TryBooking — events/ticketing, detect-only. MarketplaceListing: a ticket seller, not a profile. */
+/**
+ * TryBooking — events/ticketing, detect-only. MarketplaceListing: a ticket
+ * seller, not a profile. TryBooking's ordinary event links
+ * (trybooking.com/<CODE>, /events/landing?eid=) are one-off bookings with no
+ * stable identity and are deliberately NOT detected. TryBooking also offers
+ * every account one persistent "Event Listing Page" — a host/organiser's own
+ * branded page aggregating all their current and past events, exactly the
+ * kind of link a professional would put on their profile. Confirmed live:
+ * trybooking.com/eventlist/trybookingschool (TryBooking's own demo listing,
+ * "This is a demonstration Event Listing Page made by the team at
+ * TryBooking").
+ */
 class Trybooking
 {
     public static function brand(): Brand
@@ -36,6 +48,12 @@ class Trybooking
                 ->refreshEvery(0)
                 ->detect(
                     Detector::url('trybooking.com')->strength(EvidenceStrength::MarketplaceListing),
+                    Detector::url('trybooking.com')
+                        ->path('#^/eventlist/(?<tag>[\w-]+)/?$#i')
+                        ->captures('tag')
+                        ->from(IdentifierSource::Path)
+                        ->strength(EvidenceStrength::DeepLinkWithSlug)
+                        ->note('e.g. https://www.trybooking.com/eventlist/trybookingschool'),
                 )
                 ->build(),
         ];

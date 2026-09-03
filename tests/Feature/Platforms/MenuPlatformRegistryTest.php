@@ -182,6 +182,7 @@ it('MenuFetchJob persists a per-platform offer + storefront for the registered p
     ];
     test()->mock(MenuApifyScraper::class, function ($m) use ($menulogMenu) {
         $m->shouldReceive('fetchStores')->once()->andReturn(['menulog' => $menulogMenu]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));

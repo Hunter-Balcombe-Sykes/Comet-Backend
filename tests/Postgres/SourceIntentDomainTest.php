@@ -157,11 +157,11 @@ it('the state domain is exactly the 5 values the migration declares', function (
 
 it('accepts every block_reason literal actually written by the app', function (string $reason) {
     // conflict / cap_reached: app/Routing/SourceReconciler.php:63-70
-    // below_threshold: app/Routing/PlacementPolicy.php:109,112 (Verdict::Choose)
+    // needs_confirmation: app/Routing/PlacementPolicy.php:109,112 (Verdict::Choose)
     DB::connection('pgsql')->table('routing.source_intent_scratch')->insert(['origin' => 'paste', 'block_reason' => $reason]);
 
     expect(DB::connection('pgsql')->table('routing.source_intent_scratch')->where('block_reason', $reason)->exists())->toBeTrue();
-})->with(['conflict', 'cap_reached', 'below_threshold']);
+})->with(['conflict', 'cap_reached', 'needs_confirmation']);
 
 it('accepts NULL and every reserved-but-unwritten block_reason value', function () {
     $table = DB::connection('pgsql')->table('routing.source_intent_scratch');

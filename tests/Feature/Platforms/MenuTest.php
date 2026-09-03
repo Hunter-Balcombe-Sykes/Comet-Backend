@@ -321,6 +321,7 @@ it('scrapes and stores the relational menu on source change', function () {
             'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
             'categories' => [['name' => 'Pizzas', 'items' => [['name' => 'Margherita', 'pickupPrice' => 12.5, 'deliveryPrice' => 12.5, 'image' => 'https://ue/marg.jpg']]]],
         ]]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
@@ -360,6 +361,7 @@ it('lands the scrape on the coord MenuProjectionMapper derives, with the store c
             'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
             'categories' => [['name' => 'Pizzas', 'items' => [['name' => 'Margherita', 'pickupPrice' => 12.5, 'deliveryPrice' => 12.5]]]],
         ]]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
@@ -405,7 +407,10 @@ it('seeds a pool:menus pin for a dish that has none and never rewrites one the o
     $run2 = $run1;
     $run2['uber-eats']['categories'][0]['items'][] = ['name' => 'Pie', 'pickupPrice' => 9.0, 'deliveryPrice' => 9.0];
 
-    $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->twice()->andReturn($run1, $run2));
+    $this->mock(MenuApifyScraper::class, function ($m) use ($run1, $run2) {
+        $m->shouldReceive('fetchStores')->twice()->andReturn($run1, $run2);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
+    });
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
     $pins = fn () => DB::connection('pgsql')->table('site.section_items as si')
@@ -442,6 +447,7 @@ it('writes one storefront per menu_platform_links row so a two-platform dish kee
                 'categories' => [['name' => 'Mains', 'items' => [['name' => 'Burrito', 'pickupPrice' => 15.5, 'deliveryPrice' => 15.5]]]],
             ],
         ]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
@@ -497,6 +503,7 @@ it('reuses category and item ids across rebuilds when names match (stable identi
     ]];
     $this->mock(MenuApifyScraper::class, function ($m) use ($run1, $run2) {
         $m->shouldReceive('fetchStores')->twice()->andReturn($run1, $run2);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
@@ -541,6 +548,7 @@ it('collapses a same-named dish in two categories into ONE item with BOTH member
     ]];
     $this->mock(MenuApifyScraper::class, function ($m) use ($runs) {
         $m->shouldReceive('fetchStores')->times(3)->andReturn($runs, $runs, $runs);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
@@ -601,6 +609,7 @@ it('re-scrapes when a connected platform last came back unavailable', function (
             'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
             'categories' => [['name' => 'Pizzas', 'items' => [['name' => 'Margherita', 'pickupPrice' => 12.5, 'deliveryPrice' => 12.5]]]],
         ]]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
@@ -623,6 +632,7 @@ it('forces a re-scrape and replaces the menu even when the url is unchanged', fu
             'store' => ['name' => 'Ollies', 'rating' => 4.5, 'reviewCount' => 100, 'currency' => 'AUD'],
             'categories' => [['name' => 'Fresh', 'items' => [['name' => 'New', 'pickupPrice' => 9.0, 'deliveryPrice' => 9.0]]]],
         ]]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
@@ -683,6 +693,7 @@ it('does not mark the platform sync status ok when persist() fails after a succe
             'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
             'categories' => [['name' => 'Pizzas', 'items' => [['name' => 'Margherita', 'pickupPrice' => 12.5, 'deliveryPrice' => 12.5]]]],
         ]]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     // Subclass forces persist() (the content write) to fail deterministically
@@ -719,6 +730,7 @@ it('still marks the platform sync status ok when persist() succeeds (control)', 
             'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
             'categories' => [['name' => 'Pizzas', 'items' => [['name' => 'Margherita', 'pickupPrice' => 12.5, 'deliveryPrice' => 12.5]]]],
         ]]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
@@ -869,6 +881,7 @@ it('captures and serves the uber eats item currency and store dining modes end t
                 'name' => 'Margherita', 'pickupPrice' => 12.5, 'deliveryPrice' => 12.5, 'currency' => 'AUD',
             ]]]],
         ]]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
@@ -979,6 +992,7 @@ it('unions both platforms and persists a per-platform availability list', functi
                 ],
             ],
         ]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     (new MenuFetchJob((string) $user->id))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
@@ -1069,7 +1083,10 @@ it('wholesale rebuild produces identical menu structure across two forced runs w
     ];
 
     // Run #1 — first build.
-    $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->once()->andReturn($scraperOutput));
+    $this->mock(MenuApifyScraper::class, function ($m) use ($scraperOutput) {
+        $m->shouldReceive('fetchStores')->once()->andReturn($scraperOutput);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
+    });
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
     $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
@@ -1081,7 +1098,10 @@ it('wholesale rebuild produces identical menu structure across two forced runs w
     $linkCount1 = $platformEntries();
 
     // Run #2 — identical scraper output, forced rebuild.
-    $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->once()->andReturn($scraperOutput));
+    $this->mock(MenuApifyScraper::class, function ($m) use ($scraperOutput) {
+        $m->shouldReceive('fetchStores')->once()->andReturn($scraperOutput);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
+    });
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
     $menu->refresh();
@@ -1115,7 +1135,10 @@ it('persists identical category positions across two scrapes even when the upstr
             ],
         ],
     ];
-    $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->once()->andReturn($run1Output));
+    $this->mock(MenuApifyScraper::class, function ($m) use ($run1Output) {
+        $m->shouldReceive('fetchStores')->once()->andReturn($run1Output);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
+    });
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
     $categoryPositions = fn () => app(ManualMenuItems::class)->categories((string) $user->id)
@@ -1131,7 +1154,10 @@ it('persists identical category positions across two scrapes even when the upstr
         $run1Output['uber-eats']['categories'][0], // Featured items
         $run1Output['uber-eats']['categories'][1], // Mains
     ];
-    $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->once()->andReturn($run2Output));
+    $this->mock(MenuApifyScraper::class, function ($m) use ($run2Output) {
+        $m->shouldReceive('fetchStores')->once()->andReturn($run2Output);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
+    });
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
     expect($categoryPositions())->toBe($positions1);
@@ -1477,6 +1503,7 @@ it('preserves scan-sourced categories and items across a forced scraper rebuild 
                 'categories' => [['name' => 'Fresh', 'items' => [['name' => 'New Scraped Dish', 'pickupPrice' => 9.0, 'deliveryPrice' => 9.0]]]],
             ]],
         );
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
@@ -1535,7 +1562,10 @@ it('never retires a dish the owner deleted, hand-added or had photo-scanned', fu
         'categories' => [['name' => 'Mains', 'items' => [['name' => 'Survivor', 'pickupPrice' => 9.0, 'deliveryPrice' => 9.0]]]],
     ]];
 
-    $this->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->twice()->andReturn($full, $empty));
+    $this->mock(MenuApifyScraper::class, function ($m) use ($full, $empty) {
+        $m->shouldReceive('fetchStores')->twice()->andReturn($full, $empty);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
+    });
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 
     Menu::query()->where('user_id', $user->id)->firstOrFail()->forceFill([
@@ -1562,6 +1592,7 @@ it('preserves scan-sourced content when the user disconnects their only ordering
             'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
             'categories' => [['name' => 'Mains', 'items' => [['name' => 'Scraped Dish', 'pickupPrice' => 10.0, 'deliveryPrice' => 10.0]]]],
         ]]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
     $menu = Menu::query()->where('user_id', $user->id)->firstOrFail();
@@ -1617,6 +1648,7 @@ it('re-scrapes after a disconnect + reconnect to the same store — a stale plat
                 'categories' => [['name' => 'Mains', 'items' => [['name' => 'Post-Reconnect Dish', 'pickupPrice' => 11.0, 'deliveryPrice' => 11.0]]]],
             ]],
         );
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     // Connect → real scrape (handle(), not seedMenu()) so a genuine
@@ -1784,10 +1816,13 @@ function menuContentId(User $user, string $name): string
 /** Mock one Uber Eats scrape returning $categories verbatim. */
 function mockMenuScrape(array $categories): void
 {
-    test()->mock(MenuApifyScraper::class, fn ($m) => $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => [
-        'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
-        'categories' => $categories,
-    ]]));
+    test()->mock(MenuApifyScraper::class, function ($m) use ($categories) {
+        $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => [
+            'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
+            'categories' => $categories,
+        ]]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
+    });
 }
 
 function runMenuFetch(User $user): void

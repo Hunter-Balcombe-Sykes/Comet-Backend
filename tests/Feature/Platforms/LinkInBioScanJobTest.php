@@ -15,6 +15,7 @@ use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
+    setupPreAccountBuildsTable();
     setupSitesTable();
     setupNotificationsTable();
     setupRoutingTables();
@@ -49,7 +50,7 @@ function libIgConnection(User $user, array $payload = []): IntegrationConnection
     ]);
 }
 
-it('unrolls a link-in-bio page into a seeded integration and a commerce probe, without persisting the bio-link url itself', function () {
+it('unrolls a link-in-bio page into a proposed booking suggestion and a commerce probe, without persisting the bio-link url itself', function () {
     Queue::fake(); // do not let CustomLinkSeeder's EnrichLinkCardJob actually run
     $user = User::factory()->create(['account_type' => 'business']);
     Http::fake([
@@ -61,7 +62,12 @@ it('unrolls a link-in-bio page into a seeded integration and a commerce probe, w
 
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(app(LinkInBioImporter::class));
 
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeTrue();
+    // Nothing a harvester found ever auto-connects (owner, 2026-09-03): the
+    // Fresha find lands as a proposed suggestion, not a live connection.
+    $intent = DB::table('routing.source_intents')->where(['user_id' => $user->id, 'surface_key' => 'fresha.book'])->first();
+    expect($intent)->not->toBeNull()
+        ->and((string) $intent->state)->toBe('proposed');
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeFalse();
     // The unclassified blog link goes to a commerce probe (signup-v2 C4) — the
     // probe job owns the custom-link fallback on a miss.
     Queue::assertPushed(
@@ -112,7 +118,14 @@ it("excludes links back to the bio page's own host — platform chrome, not the 
 
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(app(LinkInBioImporter::class));
 
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeTrue();
+    // The Fresha link is still routed and proposed (not dropped) — only the
+    // own-host chrome links are excluded. Nothing a harvester found
+    // auto-connects (owner, 2026-09-03), so this is a suggestion, not a
+    // connection.
+    $intent = DB::table('routing.source_intents')->where(['user_id' => $user->id, 'surface_key' => 'fresha.book'])->first();
+    expect($intent)->not->toBeNull()
+        ->and((string) $intent->state)->toBe('proposed');
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeFalse();
     expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(0);
 });
 
@@ -273,14 +286,18 @@ it('writes no payload finding and rings no bell for an unclaimed pre-account use
     // No bell: unclaimed guard, carried verbatim from the legacy job.
     expect(DB::connection('pgsql')->table('notifications.notifications')->where('user_id', $user->id)->count())->toBe(0);
     // A.2 (setup-dialog run): an unclaimed non-paste build is a SIGN-UP
-    // context, and sign-up builds never auto-apply — so the conflict is no
-    // longer discovered here at all. The find still lands in the ledger as a
-    // banded suggestion for the setup dialog; the slot conflict surfaces at
-    // accept time (SuggestionApplier's slot_taken arm) instead of at scan.
+    // context, so PlacementPolicy bands this as a Choose rather than
+    // auto-applying. Since 2026-09-03 SourceReconciler's exclusive-class
+    // conflict check widened to cover every indirect Choose, not just Place
+    // (nothing a harvester finds ever reaches Place any more) — so the
+    // collision with the incumbent fresha connection is still caught here,
+    // as a blocked intent, exactly as it would be for a claimed user. The
+    // slot conflict is filed now; only the BELL is deferred (unclaimed guard
+    // below), not the discovery.
     $row = DB::table('routing.source_intents')->where('user_id', $user->id)->first();
     expect($row)->not->toBeNull()
-        ->and((string) $row->state)->toBe('proposed')
-        ->and($row->block_reason)->not->toBe('conflict');
+        ->and((string) $row->state)->toBe('blocked')
+        ->and($row->block_reason)->toBe('conflict');
 });
 
 it('notifies a claimed owner about a conflict via the intent ledger', function () {
@@ -307,11 +324,19 @@ it('notifies a claimed owner about a conflict via the intent ledger', function (
     expect(DB::connection('pgsql')->table('notifications.notifications')->where('user_id', $user->id)->count())->toBe(1);
 });
 
-it('still writes a card for a link skipped because its platform already won the slot', function () {
-    // First-link-per-platform is a rule about CONNECTIONS — you have one Fresha
-    // account. It must not delete the SECOND link: a creator with a profile link
-    // and a specific booking link had one of them silently disappear, which is
-    // the "nothing vanishes" promise broken by the one outcome the loop forgot.
+it('merges two links for the same booking slot into one proposed suggestion instead of a connection plus a duplicate card', function () {
+    // First-link-per-platform used to be a rule about CONNECTIONS: the first
+    // URL auto-connected and a second, distinct URL for the same slot was
+    // carded rather than silently dropped (the legacy "nothing vanishes"
+    // promise). Since 2026-09-03 neither Fresha link reaches Verdict::Place
+    // on this harvest origin — both are Verdict::Choose — so
+    // handlePlaced()'s first-connects/second-cards logic never runs at all
+    // (LinkInBioImporter's routing switch only calls it on 'place'; 'choose'
+    // just increments the suggested tally). The two same-slug URLs instead
+    // fold into ONE proposed routing.source_intents row keyed by
+    // surface_key+identifier — the second route() call updates the same
+    // live intent rather than inserting a second one — so there is one
+    // suggestion, zero connections, and zero cards.
     Queue::fake();
     $user = libSite(User::factory()->create(['account_type' => 'business']));
     Http::fake([
@@ -324,8 +349,12 @@ it('still writes a card for a link skipped because its platform already won the 
 
     (new LinkInBioScanJob((string) $user->id, 'https://linktr.ee/venue'))->handle(app(LinkInBioImporter::class));
 
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeTrue();
-    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(1);
+    $intents = DB::table('routing.source_intents')->where('user_id', $user->id)->get();
+    expect($intents)->toHaveCount(1)
+        ->and((string) $intents[0]->surface_key)->toBe('fresha.book')
+        ->and((string) $intents[0]->state)->toBe('proposed');
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeFalse();
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(0);
 });
 
 it('writes no card for a link already synced to a live connection', function () {

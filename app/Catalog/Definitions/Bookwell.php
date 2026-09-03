@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -34,6 +35,18 @@ class Bookwell
                 ->refreshEvery(0)
                 ->detect(
                     Detector::url('bookwell.com.au')->strength(EvidenceStrength::ProfileLink),
+                    // Venue pages: /venue/<slug>/<suburb>/<postcode>, or with
+                    // an 'nb' segment before the slug for a second listing
+                    // variant — both verified live (bookwell.com.au search
+                    // results). The plural /venues/... listing pages can't
+                    // match: the pattern requires the literal singular
+                    // "/venue/" immediately after the host.
+                    Detector::url('bookwell.com.au')
+                        ->path('#^/venue/(?:nb/)?(?<slug>[a-z0-9-]+)/[a-z0-9-]+/\d+#i')
+                        ->captures('slug')
+                        ->from(IdentifierSource::Path)
+                        ->strength(EvidenceStrength::DeepLinkWithSlug)
+                        ->note('e.g. https://www.bookwell.com.au/venue/salon-vip-hair-beauty/southport/4215'),
                 )
                 ->build(),
         ];

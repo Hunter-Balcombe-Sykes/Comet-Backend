@@ -530,9 +530,14 @@ it('seed() produces the same findings/unmatched split through LinkRouter as it d
         'https://www.fresha.com/a/doc-cuts',
     ]);
 
-    // instagram is classified but its own platform key is the connecting account
-    // itself, so routing it would be self-referential — it stays a suggestion.
-    expect(collect($result['findings'])->pluck('platform')->all())->toBe(['instagram', 'facebook', 'fresha']);
+    // The Instagram link is DROPPED, not suggested (owner, 2026-09-03). This
+    // assertion used to expect it as a finding, on the reasoning that it was
+    // "self-referential so it stays a suggestion" — but self-referential is
+    // exactly why it must not be one. We are reading this bio because that
+    // account is already connected, so another instagram.com URL in it is
+    // someone else's, and offered against the existing primary it renders as a
+    // "Change to" swap of the user's own account for their workplace's.
+    expect(collect($result['findings'])->pluck('platform')->all())->toBe(['facebook', 'fresha']);
     expect($result['unmatched'])->toBe([]);
 });
 

@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\Lifecycle;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -33,6 +34,11 @@ class Schedulicity
                 ->shelf(Shelf::Booking)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
+                // RETIRED 2026-09-03: absorbed by Vagaro — schedulicity.com 301s to
+                // vagaro.com/pro/schedulicity, headed "Schedulicity is now
+                // Vagaro". Vagaro is its own live surface, so the link belongs
+                // there, not here.
+                ->lifecycle(Lifecycle::Retired)
                 ->detect(
                     Detector::url('schedulicity.com')->strength(EvidenceStrength::ProfileLink),
                 )

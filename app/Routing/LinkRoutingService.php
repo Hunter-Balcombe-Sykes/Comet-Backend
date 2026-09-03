@@ -95,7 +95,6 @@ class LinkRoutingService
                 'routingClass' => $surface['routing_class'],
                 'identifier' => $placement->identifier,
             ],
-            'confidence' => $projection->matched() ? $projection->confidence : null,
             // ONLY a Reject blocks the add. The dashboard disables submit
             // whenever blockReason is set, so anything non-null here must mean
             // "cannot add" — a Note is kept as a link (Verdict::Note: never

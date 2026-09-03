@@ -6,19 +6,20 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
 use App\Catalog\SurfaceBuilder;
 
 /**
- * Setmore — WLH-label booking brand, new link-only surface. Host from
+ * Setmore — WLH-label booking brand. Host from
  * WebsiteLinkHarvester::BOOKING_HOSTS (verbatim). setmore.com is also a
- * Hosts.php multi-tenant suffix override (tenant booking pages commonly live
- * at <tenant>.setmore.com) — no per-tenant capture was instructed for this
- * brand, so a plain host detector is used, consistent with the other
- * suffix-override brands in this half (timely/gettimely.com). See sidecar
- * AMBIGUOUS notes.
+ * Hosts.php multi-tenant suffix override — tenant booking pages live at
+ * <tenant>.setmore.com, confirmed live (giovauzcuts.setmore.com,
+ * gillyssalon.setmore.com — real barbershop/salon pages with "Book now"
+ * titles). Excludes Setmore's own infra labels so www/support/etc. never
+ * read as a business named "support".
  */
 class Setmore
 {
@@ -39,6 +40,12 @@ class Setmore
                 ->refreshEvery(0)
                 ->detect(
                     Detector::url('setmore.com')->strength(EvidenceStrength::ProfileLink),
+                    Detector::url('setmore.com')
+                        ->subdomain('#^(?!(?:www|app|api|admin|help|support|status|blog|my|developer|login|manage)$)(?<tenant>[a-z0-9][a-z0-9-]*)$#i')
+                        ->captures('tenant')
+                        ->from(IdentifierSource::Subdomain)
+                        ->strength(EvidenceStrength::DeepLinkWithSlug)
+                        ->note('e.g. https://giovauzcuts.setmore.com/'),
                 )
                 ->build(),
         ];

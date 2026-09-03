@@ -180,6 +180,19 @@ class SuggestionApplier
                     // Issue-13 fix: same predicate as the dispatch below.
                     'last_refresh_status' => ConnectionPayload::contentIsOwed((string) $intent->surface_key, (string) $intent->routing_class) ? 'pending' : 'ok',
                 ]);
+                // Whose this connection is. Not fillable (system-written), so
+                // it is assigned after construction, exactly as
+                // SourceReconciler::applyIntent does it.
+                //
+                // Load-bearing since 2026-09-03: a harvested link no longer
+                // auto-connects, so the workplace-vs-self answer that used to
+                // be written at RECORD time on the connection now has to
+                // survive the round trip through the intent and be written at
+                // ACCEPT time. The intent's own origin is the input — the
+                // origin the link was FOUND on decides the answer, and 'paste'
+                // (which this accept technically is) would read every
+                // workplace booking link as the person's own.
+                $connection->owner_scope = RoutingCapabilityGate::ownerScopeFor($user, (string) $intent->origin);
                 $connection->user()->associate($user);
                 $connection->save();
 

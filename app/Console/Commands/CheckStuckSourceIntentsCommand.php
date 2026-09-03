@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\DB;
 // precedent.
 //
 // Deliberately an AGGREGATE alarm, not per-row: Verdict::intentState() only
-// ever produces 'proposed' (block_reason='below_threshold') or 'blocked'
+// ever produces 'proposed' (block_reason='needs_confirmation') or 'blocked'
 // (block_reason='conflict'|'cap_reached') — see PlacementPolicy/
 // SourceReconciler. One stuck intent is a user who hasn't answered a question
 // yet, not an incident. A mass of them, aged past the gate, is a detector
@@ -48,9 +48,17 @@ class CheckStuckSourceIntentsCommand extends Command
         $ageDays = (int) config('partna.routing.intents.stuck_age_days');
         $threshold = (int) config('partna.routing.intents.stuck_alert_threshold');
 
-        // Drives idx_source_intents_stuck.
+        // Drives idx_source_intents_stuck (which enumerates the same three
+        // states — keep the two lists together).
+        //
+        // 'verifying' is the state most worth alarming on (2026-09-03): it is
+        // the only one the PERSON cannot clear. A proposed card is waiting on
+        // them and a blocked one is explained, but a verifying card is waiting
+        // on US, and a queue that stopped draining leaves accepted links in it
+        // indefinitely. VerifyLinkJob::failed() is the first line of defence;
+        // this is the one that notices when the job never ran at all.
         $stuck = DB::table('routing.source_intents')
-            ->whereIn('state', ['proposed', 'blocked'])
+            ->whereIn('state', ['proposed', 'verifying', 'blocked'])
             // A settled sibling branch is never rendered, so it can never be
             // answered — counting it would drift this alarm upward forever.
             // `!=` alone would drop every NULL-reason row (NULL != x is NULL).

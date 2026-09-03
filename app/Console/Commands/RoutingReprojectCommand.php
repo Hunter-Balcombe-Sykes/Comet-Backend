@@ -56,7 +56,7 @@ class RoutingReprojectCommand extends Command
             ->where('observed_at', '>=', $since)
             ->orderByDesc('observed_at')
             ->limit((int) $this->option('limit'))
-            ->get(['raw_url', 'surface_key', 'confidence', 'catalog_digest']);
+            ->get(['raw_url', 'surface_key', 'catalog_digest']);
 
         if ($observations->isEmpty()) {
             $this->warn('No observations in that window — nothing to replay.');
@@ -81,7 +81,10 @@ class RoutingReprojectCommand extends Command
                 'url' => $observation->raw_url,
                 'before' => $before ?? '—',
                 'after' => $after ?? '—',
-                'confidence' => $projection->matched() ? $projection->confidence : null,
+                // A reprojection that CHANGED SURFACE is the whole finding now
+                // — there is no score to have drifted, and a surface change was
+                // always the only part of this report worth acting on.
+                'contested' => $projection->contested,
             ];
 
             if ($before === null) {
@@ -124,7 +127,7 @@ class RoutingReprojectCommand extends Command
             $this->line(strtoupper(str_replace('_', ' ', $bucket)).':');
             foreach (array_slice($buckets[$bucket], 0, $show) as $entry) {
                 $this->line(sprintf('  %s', $entry['url']));
-                $this->line(sprintf('      %s → %s%s', $entry['before'], $entry['after'], $entry['confidence'] !== null ? " (confidence {$entry['confidence']})" : ''));
+                $this->line(sprintf('      %s → %s%s', $entry['before'], $entry['after'], $entry['contested'] ? ' (another brand also matches)' : ''));
             }
             $remaining = count($buckets[$bucket]) - $show;
             if ($remaining > 0) {

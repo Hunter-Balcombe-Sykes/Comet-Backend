@@ -107,8 +107,21 @@ it('keeps two genuinely different channels apart when one wears the legacy marke
         RoutingContext::forUser($pro, 'bio_harvest'),
     );
 
-    expect($out['verdict'])->toBe('place');
-    expect(liveConnections($pro, 'youtube.channel'))->toHaveCount(2);
+    // Since 2026-09-03 a harvest-origin Choose no longer auto-places (only a
+    // confirmed request does) — but ConnectionIdentity NOT folding these two
+    // distinct channels together is still the property under test: the
+    // second channel arrives as its own suggestion, naming the SECOND
+    // handle, never merged into the marker row above.
+    expect($out['verdict'])->toBe('choose');
+    expect(liveConnections($pro, 'youtube.channel'))->toHaveCount(1);
+
+    $proposed = DB::table('routing.source_intents')
+        ->where('user_id', $pro->id)
+        ->where('surface_key', 'youtube.channel')
+        ->where('state', 'proposed')
+        ->first();
+    expect($proposed)->not->toBeNull()
+        ->and($proposed->identifier)->toBe('casey');
 });
 
 it('holds a distinct handle behind an unresolvable marker as a swap, never a merge', function () {

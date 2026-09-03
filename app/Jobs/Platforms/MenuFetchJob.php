@@ -230,7 +230,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         // No persist() risk on this branch (content is untouched), so the
         // per-platform sync status is safe to write right here.
         if (array_filter($menus) === []) {
-            $this->writePlatformSyncStatus($storeLinks, $menus, $menu, $now);
+            $this->writePlatformSyncStatus($storeLinks, $menus, $menu, $now, $scraper->lastFailureReasons());
             // Setup progress (2026-09-02): an owed stage gets its answer.
             $this->menuAnswered = true;
             BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_MENU, PreAccountBuildEvent::STATUS_SKIPPED, "Couldn't read your menu yet — it will retry");
@@ -277,7 +277,7 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
         // platform from menu:retry-unavailable's self-heal query (which selects
         // on status = 'unavailable'), so a genuine failure could get stuck
         // forever without a manual "Refresh menu" click.
-        $this->writePlatformSyncStatus($storeLinks, $menus, $menu, $now);
+        $this->writePlatformSyncStatus($storeLinks, $menus, $menu, $now, $scraper->lastFailureReasons());
 
         // Re-apply the persisted Google-photos scan enrichment (menus.scan_items,
         // written by GoogleMenuPhotoScanJob) over the freshly written rows —
@@ -413,22 +413,30 @@ class MenuFetchJob implements ShouldBeUnique, ShouldQueue, ThrottledByProvider
     }
 
     /**
-     * Per-platform sync status (ok/unavailable) + timestamp, independent of
-     * the merge outcome — only for connected platforms (those with a store
-     * link). Callers must only invoke this once the associated content write
-     * has actually landed (persist() returned, or the nothing-usable branch
-     * that never touches content) — see the TXN-101 note at both call sites
-     * in handle().
+     * Per-platform sync status + timestamp, independent of the merge
+     * outcome — only for connected platforms (those with a store link). A
+     * platform whose scrape returned nothing writes the scraper's recorded
+     * failure reason ('blocked'|'not_found'|'empty_menu' — the menu-status
+     * split, see MenuApifyScraper::lastFailureReasons()) when one was
+     * recorded, falling back to the old flattened 'unavailable' when it
+     * wasn't (a mocked scraper in tests, or the transport=http driver lane,
+     * which never goes through the Apify mapResponse()/attemptScrape() code
+     * that records a reason). Callers must only invoke this once the
+     * associated content write has actually landed (persist() returned, or
+     * the nothing-usable branch that never touches content) — see the
+     * TXN-101 note at both call sites in handle().
      *
      * @param  array<string, mixed>  $storeLinks
      * @param  array<string, mixed|null>  $menus
+     * @param  array<string, string>  $failureReasons  platform => 'blocked'|'not_found'|'empty_menu', from MenuApifyScraper::lastFailureReasons()
      */
-    private function writePlatformSyncStatus(array $storeLinks, array $menus, Menu $menu, Carbon $now): void
+    private function writePlatformSyncStatus(array $storeLinks, array $menus, Menu $menu, Carbon $now, array $failureReasons): void
     {
         foreach ($storeLinks as $platform => $link) {
+            $status = ($menus[$platform] ?? null) !== null ? 'ok' : ($failureReasons[$platform] ?? 'unavailable');
             MenuPlatformLink::updateOrCreate(
                 ['menu_id' => $menu->id, 'platform' => $platform],
-                ['synced_at' => $now, 'status' => ($menus[$platform] ?? null) !== null ? 'ok' : 'unavailable'],
+                ['synced_at' => $now, 'status' => $status],
             );
         }
     }

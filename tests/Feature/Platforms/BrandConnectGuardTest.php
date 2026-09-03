@@ -36,7 +36,7 @@ it('rejects a url belonging to a different brand', function () {
     $user = brandGuardUser('bg-cross');
 
     actingAsUser($user)
-        ->postJson('/api/platforms/menulog/connect', ['url' => 'https://www.doordash.com/store/abc-123'])
+        ->postJson('/api/platforms/skipthedishes/connect', ['url' => 'https://www.doordash.com/store/abc-123'])
         ->assertStatus(422)
         ->assertJsonPath('errors.url.0', fn ($m) => str_contains(strtolower((string) $m), 'doordash'));
 });
@@ -45,16 +45,16 @@ it('names the brand the url actually belongs to', function () {
     $user = brandGuardUser('bg-name');
 
     actingAsUser($user)
-        ->postJson('/api/platforms/doordash/connect', ['url' => 'https://www.menulog.com.au/restaurants/x'])
+        ->postJson('/api/platforms/doordash/connect', ['url' => 'https://www.skipthedishes.com/example-restaurant/menu'])
         ->assertStatus(422)
-        ->assertJsonPath('errors.url.0', fn ($m) => str_contains(strtolower((string) $m), 'menulog'));
+        ->assertJsonPath('errors.url.0', fn ($m) => str_contains(strtolower((string) $m), 'skipthedishes'));
 });
 
 it('rejects a url the classifier does not recognise at all', function () {
     $user = brandGuardUser('bg-unknown');
 
     actingAsUser($user)
-        ->postJson('/api/platforms/menulog/connect', ['url' => 'https://example.invalid/nothing'])
+        ->postJson('/api/platforms/skipthedishes/connect', ['url' => 'https://example.invalid/nothing'])
         ->assertStatus(422);
 });
 
@@ -62,7 +62,45 @@ it('accepts a url belonging to the addressed brand', function () {
     $user = brandGuardUser('bg-match');
 
     actingAsUser($user)
-        ->postJson('/api/platforms/menulog/connect', ['url' => 'https://www.menulog.com.au/restaurants/x'])
+        ->postJson('/api/platforms/skipthedishes/connect', ['url' => 'https://www.skipthedishes.com/example-restaurant/menu'])
+        ->assertSuccessful();
+});
+
+// The MANUAL lane now asks the same question the accept lane asks (2026-09-03).
+// Until then this file's own fixtures were bare brand-domain URLs
+// ('skipthedishes.com/example-restaurant', 'booksy.com/en-gb/x') that no real
+// store page looks like — they connected anyway, because classify() only ever
+// checked the host. Each would have produced a connection whose identifier was
+// the whole URL: nameless on the card, unverifiable, un-refreshable.
+it('refuses a brand-domain url that is not an account page, and says what one looks like', function () {
+    $user = brandGuardUser('bg-shape');
+
+    actingAsUser($user)
+        // Right host, right brand, right capability — but /promotions is a
+        // marketing page, not anyone's store.
+        ->postJson('/api/platforms/skipthedishes/connect', ['url' => 'https://www.skipthedishes.com/promotions'])
+        ->assertStatus(422)
+        // The hint is built by masking the segment the detector's OWN capture
+        // matched, so it names the routing word and never the real restaurant
+        // whose page the catalog note records.
+        ->assertJsonPath('message', fn ($m) => str_contains((string) $m, 'https://www.skipthedishes.com/…/menu')
+            && ! str_contains((string) $m, 'songs-kitchen'));
+
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->count())->toBe(0);
+});
+
+it('still connects a brand we have no shape on file for', function () {
+    // The refusal is scoped to surfaces with at least one specific detector —
+    // the nine surfaces with no grammar at all are ones we have no standing to
+    // judge, and must stay connectable. Easi is one of those nine: its store
+    // URLs carry no account segment the pattern fleet could verify, so a plain
+    // brand-domain link there is still accepted. (Menulog would look like the
+    // obvious choice here and is the wrong one — it is RETIRED, so it 422s for
+    // an entirely different reason and would prove nothing.)
+    $user = brandGuardUser('bg-noshape');
+
+    actingAsUser($user)
+        ->postJson('/api/platforms/easi/connect', ['url' => 'https://www.easi.com.au/whatever'])
         ->assertSuccessful();
 });
 
@@ -78,13 +116,13 @@ it('leaves hand-written platforms unguarded', function () {
 });
 
 it('403s a brand whose routing class the account cannot use', function () {
-    // A non-food business has booking but NOT online-ordering. menulog is an
+    // A non-food business has booking but NOT online-ordering. SkipTheDishes is an
     // ordering brand, so its connect must be closed to them — the capability
     // gate is the point of DerivedDescriptorFactory::CAPABILITY_BY_ROUTING_CLASS.
     $user = brandGuardUser('bg-nofood', 'barber');
 
     actingAsUser($user)
-        ->postJson('/api/platforms/menulog/connect', ['url' => 'https://www.menulog.com.au/restaurants/x'])
+        ->postJson('/api/platforms/skipthedishes/connect', ['url' => 'https://www.skipthedishes.com/example-restaurant/menu'])
         ->assertStatus(403);
 });
 
@@ -103,7 +141,7 @@ it('lets an eligible account connect an upgraded booking brand', function () {
     $user = brandGuardUser('bg-barber-booking', 'barber');
 
     actingAsUser($user)
-        ->postJson('/api/platforms/booksy/connect', ['url' => 'https://booksy.com/en-gb/x'])
+        ->postJson('/api/platforms/booksy/connect', ['url' => 'https://booksy.com/en-gb/904207_the-salon'])
         ->assertSuccessful();
 });
 
@@ -155,45 +193,45 @@ it('refuses a SECOND store on a brand whose one slot is filled, rather than over
     $user = brandGuardUser('bg-slot');
 
     actingAsUser($user)
-        ->postJson('/api/platforms/menulog/connect', ['url' => 'https://www.menulog.com.au/restaurants/first'])
+        ->postJson('/api/platforms/skipthedishes/connect', ['url' => 'https://www.skipthedishes.com/first-restaurant/menu'])
         ->assertSuccessful();
 
     actingAsUser($user)
-        ->postJson('/api/platforms/menulog/connect', ['url' => 'https://www.menulog.com.au/restaurants/second'])
+        ->postJson('/api/platforms/skipthedishes/connect', ['url' => 'https://www.skipthedishes.com/second-restaurant/menu'])
         ->assertStatus(422)
         ->assertJsonPath('code', 'slot_taken')
-        ->assertJsonPath('displayName', 'Menulog')
-        ->assertJsonPath('incumbentUrl', 'https://www.menulog.com.au/restaurants/first');
+        ->assertJsonPath('displayName', 'SkipTheDishes')
+        ->assertJsonPath('incumbentUrl', 'https://www.skipthedishes.com/first-restaurant/menu');
 
     // Nothing was written: the incumbent still holds the slot, alone.
-    expect($user->integrationConnections()->where('surface_key', 'menulog.order')->count())->toBe(1)
-        ->and($user->integrationConnections()->where('surface_key', 'menulog.order')->first()->payload['url'])
-        ->toBe('https://www.menulog.com.au/restaurants/first');
+    expect($user->integrationConnections()->where('surface_key', 'skipthedishes.order')->count())->toBe(1)
+        ->and($user->integrationConnections()->where('surface_key', 'skipthedishes.order')->first()->payload['url'])
+        ->toBe('https://www.skipthedishes.com/first-restaurant/menu');
 });
 
 it('lets replace=true swap the incumbent, and never blocks re-connecting the SAME link', function () {
     $user = brandGuardUser('bg-slot-replace');
 
     actingAsUser($user)
-        ->postJson('/api/platforms/menulog/connect', ['url' => 'https://www.menulog.com.au/restaurants/first'])
+        ->postJson('/api/platforms/skipthedishes/connect', ['url' => 'https://www.skipthedishes.com/first-restaurant/menu'])
         ->assertSuccessful();
 
     // Same link again — a re-connect that fixes a payload, not a second store.
     // A trailing slash is not a different store either.
     actingAsUser($user)
-        ->postJson('/api/platforms/menulog/connect', ['url' => 'https://www.menulog.com.au/restaurants/first/'])
+        ->postJson('/api/platforms/skipthedishes/connect', ['url' => 'https://www.skipthedishes.com/first-restaurant/menu/'])
         ->assertSuccessful();
 
     actingAsUser($user)
-        ->postJson('/api/platforms/menulog/connect', [
-            'url' => 'https://www.menulog.com.au/restaurants/second',
+        ->postJson('/api/platforms/skipthedishes/connect', [
+            'url' => 'https://www.skipthedishes.com/second-restaurant/menu',
             'replace' => true,
         ])
         ->assertSuccessful();
 
-    expect($user->integrationConnections()->where('surface_key', 'menulog.order')->count())->toBe(1)
-        ->and($user->integrationConnections()->where('surface_key', 'menulog.order')->first()->payload['url'])
-        ->toBe('https://www.menulog.com.au/restaurants/second');
+    expect($user->integrationConnections()->where('surface_key', 'skipthedishes.order')->count())->toBe(1)
+        ->and($user->integrationConnections()->where('surface_key', 'skipthedishes.order')->first()->payload['url'])
+        ->toBe('https://www.skipthedishes.com/second-restaurant/menu');
 });
 
 it('accepts a bare handle for brands whose surface has a canonical template (F12)', function () {
@@ -211,7 +249,7 @@ it('accepts a bare handle for brands whose surface has a canonical template (F12
     actingAsUser($user)->postJson('/api/platforms/substack/connect', ['url' => 'astralcodexten.substack.com'])
         ->assertSuccessful()->assertJsonPath('url', 'https://astralcodexten.substack.com');
     // A brand without a template still needs a URL.
-    actingAsUser($user)->postJson('/api/platforms/menulog/connect', ['url' => 'somerestaurant'])
+    actingAsUser($user)->postJson('/api/platforms/skipthedishes/connect', ['url' => 'somerestaurant'])
         ->assertStatus(422);
     // A foreign host is never a subdomain handle (review: torvalds.github.io was rewritten to *.substack.com).
     actingAsUser($user)->postJson('/api/platforms/substack/connect', ['url' => 'torvalds.github.io'])
@@ -251,4 +289,19 @@ it('422s slot_taken against a ROUTER-seeded incumbent, and Swap retires it', fun
         ->where('user_id', $user->id)->where('surface_key', 'uber_eats.order')->get();
     expect($rows)->toHaveCount(1);
     expect($rows->first()->payload['url'])->toBe('https://www.ubereats.com/au/store/second/bbb');
+});
+
+it('refuses a retired brand with a reason rather than a 404', function () {
+    // Menulog was this file's generic example until it was retired
+    // (2026-09-03). Retirement must not vaporize the platform: the descriptor
+    // still derives, so the route still exists and the person gets told WHY.
+    // A 404 here would mean an existing Menulog connection had no descriptor
+    // to render, export or delete itself with.
+    $user = brandGuardUser('bg-retired');
+
+    $response = actingAsUser($user)
+        ->postJson('/api/platforms/menulog/connect', ['url' => 'https://www.menulog.com.au/restaurants/x'])
+        ->assertStatus(422);
+
+    expect(strtolower(json_encode($response->json())))->toContain('no longer operating');
 });

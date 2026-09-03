@@ -214,7 +214,10 @@ class SetupPayload
     {
         $intents = DB::table('routing.source_intents')
             ->where('user_id', $user->id)
-            ->whereIn('state', ['proposed', 'blocked', 'applied'])
+            // 'verifying' is a LIVE row the dialog must keep rendering — the
+            // person ticked it and is owed a "checking this link" state, not a
+            // row that vanishes mid-setup (2026-09-03).
+            ->whereIn('state', ['proposed', 'verifying', 'blocked', 'applied'])
             ->orderByDesc('first_seen_at')
             ->limit(200)
             ->get();
@@ -252,6 +255,12 @@ class SetupPayload
             }
 
             $band = $intent->band ?? null;
+            // 'verifying' is the one state the PERSON cannot clear: they ticked
+            // it, Continue accepted it, and we are the ones still working. A
+            // row that came back looking exactly as it did before the tick
+            // reads as "nothing happened" — so the state goes on the wire and
+            // the card says it is being checked.
+            $verifying = (string) $intent->state === 'verifying';
             $rows[] = [
                 '_category' => $category,
                 'id' => (string) $intent->id,
@@ -272,10 +281,16 @@ class SetupPayload
                 'origin' => (string) $intent->origin,
                 'originLabel' => self::ORIGIN_LABELS[(string) $intent->origin] ?? null,
                 'band' => $band,
-                'preselected' => $band === 'auto' || $hidden,
+                // A verifying row stays TICKED. The tick is the person's own
+                // answer and it was accepted; un-ticking it while we check
+                // would ask them the same question twice.
+                'preselected' => $band === 'auto' || $hidden || $verifying,
                 'syncing' => $hidden && (string) ($connection->last_refresh_status ?? '') === 'pending',
+                'verifying' => $verifying,
                 'connectionId' => $visible ? (string) $connection->id : null,
-                'actions' => ['accept', 'dismiss'],
+                // Nothing to accept or dismiss while the queue holds it — the
+                // accept lane would re-park it and a dismiss would race the job.
+                'actions' => $verifying ? [] : ['accept', 'dismiss'],
             ];
         }
 
@@ -320,6 +335,10 @@ class SetupPayload
                 'band' => null,
                 'preselected' => true,
                 'syncing' => (string) ($connection->last_refresh_status ?? '') === 'pending',
+                // An intent-less connection already exists, so there is no
+                // check outstanding — the key is present on every row so the
+                // client never has to distinguish absent from false.
+                'verifying' => false,
                 'connectionId' => (string) $connection->id,
                 'actions' => [],
             ];
@@ -453,6 +472,52 @@ class SetupPayload
             ->all();
     }
 
+    /**
+     * One menu dish or service, in the shape the setup wire declares
+     * (SetupServiceItem: id, name, selected, price, durationMinutes, photo).
+     *
+     * Both passes used to hand their source rows straight through, which is
+     * why neither ever carried `selected` — the dashboard seeds its ticks from
+     * that key, found `undefined`, and rendered every item OFF under a heading
+     * that reads "Everything's on. Untick anything that's off the menu."
+     * (owner, 2026-09-03). Nothing was wrong with the copy; the wire simply
+     * never answered the question it was asking.
+     *
+     * The two sources name things differently — the menu composer emits
+     * `name`/`image`/`basePrice`, the pool resolver `headline`/`thumbnail`/
+     * `price` — so this reads both rather than making the callers agree.
+     *
+     * @param  array<string, mixed>  $item
+     * @return array<string, mixed>
+     */
+    private function setupItem(array $item, bool $selected): array
+    {
+        $first = static function (array $row, string ...$keys): ?string {
+            foreach ($keys as $key) {
+                $value = $row[$key] ?? null;
+                if (is_string($value) && $value !== '') {
+                    return $value;
+                }
+                if (is_int($value) || is_float($value)) {
+                    return (string) $value;
+                }
+            }
+
+            return null;
+        };
+
+        $duration = $item['durationMinutes'] ?? $item['duration_minutes'] ?? null;
+
+        return [
+            'id' => (string) ($item['id'] ?? ''),
+            'name' => $first($item, 'name', 'headline', 'title') ?? '',
+            'selected' => $selected,
+            'price' => $first($item, 'price', 'basePrice', 'base_price'),
+            'durationMinutes' => is_numeric($duration) ? (int) $duration : null,
+            'photo' => $first($item, 'image', 'thumbnail', 'imageUrl', 'image_url'),
+        ];
+    }
+
     /** @return array<string, mixed> */
     private function servicesPass(User $user, Site $site): array
     {
@@ -470,7 +535,7 @@ class SetupPayload
         foreach ($items as $item) {
             $name = (string) ($item['category'] ?? 'Services');
             $categories[$name] ??= ['id' => md5($name), 'name' => $name, 'items' => []];
-            $categories[$name]['items'][] = $item;
+            $categories[$name]['items'][] = $this->setupItem($item, true);
         }
 
         $payload = $booking === null ? [] : (array) $booking->payload;
@@ -484,10 +549,18 @@ class SetupPayload
 
     /**
      * The menu pass, from the composer's dashboard shape (A.10, decision 12):
-     * platform + owner-manual dishes arrive pre-selected in their real
-     * categories; scan/website-scan discoveries arrive unselected in `found`
-     * for the person to confirm. `found` is deduped by dish id — a
+     * platform + owner-manual dishes in their real categories, scan and
+     * website-scan discoveries in `found`. `found` is deduped by dish id — a
      * multi-category dish is one decision, not one per membership.
+     *
+     * EVERYTHING now arrives selected, `found` included (owner, 2026-09-03:
+     * "ensure all menu items and services start as auto selected not
+     * unselected as they do now"). This reverses decision 12's "discoveries
+     * arrive unselected for the person to confirm" for the `found` arm
+     * specifically — noted rather than quietly dropped, because it is the one
+     * place where a scan result now ships unless someone unticks it. The
+     * categories arm was ALREADY meant to be pre-selected and merely never
+     * said so on the wire, so for that half this is the fix, not a reversal.
      *
      * @return array<string, mixed>
      */
@@ -503,9 +576,9 @@ class SetupPayload
             foreach ($category['items'] as $item) {
                 $provenance = (string) ($item['provenance'] ?? 'platform');
                 if ($provenance === 'platform' || $provenance === 'manual') {
-                    $keep[] = $item;
+                    $keep[] = $this->setupItem($item, true);
                 } elseif (! isset($foundSeen[(string) $item['id']])) {
-                    $found[] = $item;
+                    $found[] = $this->setupItem($item, true);
                     $foundSeen[(string) $item['id']] = true;
                 }
             }
@@ -514,7 +587,19 @@ class SetupPayload
             }
         }
 
-        return ['categories' => $categories, 'found' => $found];
+        // `found` is a list of CATEGORIES on the wire, not of items — the
+        // dashboard maps it the same way it maps `categories` and reads
+        // `.items` off each entry. It had been sending bare items, so any
+        // account with a scan discovery would have hit `.items.map` on an
+        // undefined; it never showed because no account in dev has one yet.
+        // One synthetic category, and only when there is something in it.
+        $foundGroups = $found === [] ? [] : [[
+            'id' => 'found',
+            'name' => 'Found on your website and photos',
+            'items' => $found,
+        ]];
+
+        return ['categories' => $categories, 'found' => $foundGroups];
     }
 
     /** @return array<string, mixed> */

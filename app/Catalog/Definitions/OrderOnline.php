@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\Lifecycle;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -33,6 +34,11 @@ class OrderOnline
                 ->shelf(Shelf::Food)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
+                // RETIRED 2026-09-03: order.online no longer resolves in DNS at all.
+                // Not a redirect and not a 404 — the host is simply gone, which
+                // is the one failure a fetch-based check reports as "blocked"
+                // rather than "invalid", so it would never have self-corrected.
+                ->lifecycle(Lifecycle::Retired)
                 ->detect(
                     Detector::url('order.online')->strength(EvidenceStrength::ProfileLink),
                 )

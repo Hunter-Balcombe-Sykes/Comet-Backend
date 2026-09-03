@@ -102,6 +102,23 @@ class IntegrationConnection extends BaseModel
 
     public const VISIBILITY_HIDDEN = 'hidden';
 
+    /**
+     * Was this connection's link ever actually checked (L2)?
+     *
+     * 'verified' — we fetched the page and it exists.
+     * 'unverified' — we could not check: the brand blocks us, or there is no
+     *   mechanism to ask at all. NEVER a claim that the link is wrong; a block
+     *   is not an invalidity (App\Routing\Verification\VerificationVerdict).
+     * null — never asked. Every row predating 2026-09-03, plus every identity
+     *   the person GAVE us (a Google Business place_id, the sign-up Instagram
+     *   handle) rather than one read off a URL.
+     *
+     * Not fillable — system-written by the verification lane, like owner_scope.
+     */
+    public const VERIFICATION_VERIFIED = 'verified';
+
+    public const VERIFICATION_UNVERIFIED = 'unverified';
+
     public const RETIRED_SURFACES = [
         'partna.custom_link',
         'partna.order_link',

@@ -923,6 +923,7 @@ it('preserves manual content and honours suppression across a forced scrape rebu
     ]];
     $this->mock(MenuApifyScraper::class, function ($m) use ($run1, $run2) {
         $m->shouldReceive('fetchStores')->twice()->andReturn($run1, $run2);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     mmcRunFetch($user);
@@ -993,6 +994,7 @@ it('keeps an owner-edited dish the vendor dropped, and still retires an untouche
     ]];
     $this->mock(MenuApifyScraper::class, function ($m) use ($run1, $run2) {
         $m->shouldReceive('fetchStores')->twice()->andReturn($run1, $run2);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     mmcRunFetch($user);
@@ -1060,6 +1062,7 @@ it('does not re-project the vendor over an owner-edited dish the vendor still li
     ]];
     $this->mock(MenuApifyScraper::class, function ($m) use ($run1, $run2) {
         $m->shouldReceive('fetchStores')->twice()->andReturn($run1, $run2);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     mmcRunFetch($user);
@@ -1120,6 +1123,7 @@ it('keeps an owner price-only edit across a scrape that re-prices the dish', fun
     ]];
     $this->mock(MenuApifyScraper::class, function ($m) use ($run1, $run2) {
         $m->shouldReceive('fetchStores')->twice()->andReturn($run1, $run2);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     mmcRunFetch($user);
@@ -1186,6 +1190,7 @@ it('does not resurrect a suppressed dish through the automatic scan reapply', fu
     ]];
     $this->mock(MenuApifyScraper::class, function ($m) use ($run) {
         $m->shouldReceive('fetchStores')->twice()->andReturn($run, $run);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     mmcRunFetch($user);

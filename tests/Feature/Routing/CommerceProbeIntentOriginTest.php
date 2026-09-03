@@ -43,23 +43,27 @@ it('writes a source intent whose origin is the one CommerceProbeJob actually sen
         RoutingContext::forUser($pro, $origin),
     );
 
-    // 'place' for THIS input, and the verdict is incidental to what is being
+    // 'choose' for THIS input, and the verdict is incidental to what is being
     // tested — do not read a general rule into it. The origin does not decide
-    // place-vs-choose; PlacementPolicy does, from the surface and confidence.
-    // (Was 'choose' until the 2026-08-18 owner ruling: harvest origins now
-    // auto-apply the suggest band, so this indirect probe places.) What the
-    // origin DOES decide is directness (RoutingContext::isDirectRequest() is
-    // true only for 'paste'), which is why CommerceProbeJob deliberately chose
-    // a non-'paste' literal: it keeps the probe tombstone-safe.
+    // place-vs-choose; PlacementPolicy does, from the surface, confidence, and
+    // (since 2026-09-03) whether the request is confirmed by the user.
+    // 'commerce_probe' without a confirmed accept is a harvest origin like any
+    // other, so it lands in the suggest band. (Briefly 'place' under the
+    // 2026-08-18 "harvest maximisation" ruling, which auto-applied the suggest
+    // band on every indirect origin; that ruling is gone — nothing a harvester
+    // found auto-connects any more.) What the origin DOES decide is directness
+    // (RoutingContext::isDirectRequest() is true only for 'paste'), which is
+    // why CommerceProbeJob deliberately chose a non-'paste' literal: it keeps
+    // the probe tombstone-safe.
     //
     // Both verdicts write an intent, which is the only property this test
     // needs; it is pinned so the assertion below cannot silently start
     // examining a row written down a different path.
-    expect($result['verdict'])->toBe('place');
+    expect($result['verdict'])->toBe('choose');
 
     $intent = DB::table('routing.source_intents')->where('user_id', $pro->id)->first();
 
     expect($intent)->not->toBeNull()
         ->and($intent->origin)->toBe('commerce_probe')
-        ->and($intent->state)->toBe('applied');
+        ->and($intent->state)->toBe('proposed');
 });

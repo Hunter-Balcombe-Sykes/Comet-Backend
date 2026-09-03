@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -34,6 +35,16 @@ class Skipthedishes
                 ->refreshEvery(0)
                 ->detect(
                     Detector::url('skipthedishes.com')->strength(EvidenceStrength::ProfileLink),
+                    // Restaurant menu pages are two-segment: <slug>/menu/. Direct
+                    // fetch bot-403s (site-wide, even /sitemap.xml — not page-
+                    // specific), but the exact URL below is search-engine indexed
+                    // under Skip's standard restaurant-page title template.
+                    Detector::url('skipthedishes.com')
+                        ->path('#^/(?<slug>[\w-]+)/menu/?$#i')
+                        ->captures('slug')
+                        ->from(IdentifierSource::Path)
+                        ->strength(EvidenceStrength::DeepLinkWithSlug)
+                        ->note('e.g. https://www.skipthedishes.com/restaurants-songs-kitchen/menu/'),
                 )
                 ->build(),
         ];

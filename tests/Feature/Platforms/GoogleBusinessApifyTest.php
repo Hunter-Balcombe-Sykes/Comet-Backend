@@ -11,6 +11,7 @@ use App\Services\Platforms\GoogleBusinessApifyScraper;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -340,12 +341,19 @@ it('skips every contacts-crawl social when the listing website is itself a platf
             ->toBeFalse("expected no {$platform} connection from platform-chrome socials");
     }
 
-    // The Instagram connection is the one legitimate outcome — it comes from
-    // the WEBSITE divert (the business naming its own profile as their site,
-    // routed through the engine with the ledger-accepted origin), never from
-    // the chrome socials that were skipped above.
-    $ig = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'instagram')->first();
-    expect($ig)->not->toBeNull();
+    // The Instagram FIND is the one legitimate outcome — it comes from the
+    // WEBSITE divert (the business naming its own profile as their site,
+    // routed through the engine with the ledger-accepted 'google_business'
+    // origin), never from the chrome socials that were skipped above. Since
+    // 2026-09-03 that origin is a harvest like any other — nothing a
+    // harvester finds auto-connects — so the divert lands as a proposed
+    // suggestion rather than a live connection.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'instagram')->exists())->toBeFalse();
+    $intent = DB::table('routing.source_intents')
+        ->where(['user_id' => $user->id, 'surface_key' => 'instagram.profile'])->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->identifier)->toBe('doh.melbourne')
+        ->and((string) $intent->state)->toBe('proposed');
 });
 
 it('consolidates same-store pickup and delivery ordering providers into one row', function () {

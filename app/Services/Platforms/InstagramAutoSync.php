@@ -9,6 +9,7 @@ use App\Routing\ShortLinkExpander;
 use App\Services\Platforms\Concerns\BuildsAutoSyncFindings;
 use App\Services\Platforms\Normalizers\FacebookNormalizer;
 use App\Services\PreAccount\BuildProgress;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 // Seeds connections from the links found in an Instagram bio.
@@ -171,6 +172,31 @@ class InstagramAutoSync
                 $classified = $this->harvester->classify($url);
                 if ($classified === null) {
                     $unmatched[] = ['url' => $url, 'label' => $this->hostLabel($url)];
+
+                    continue;
+                }
+
+                // An Instagram link found in an Instagram bio is never an
+                // Instagram SUGGESTION (owner, 2026-09-03). We are here because
+                // this user's own Instagram is already connected — that is how
+                // we read the bio at all — so any other instagram.com URL in it
+                // belongs to someone else: the salon they work at, a friend, a
+                // brand. Routed like any other link it became an
+                // instagram.profile candidate, and against an existing primary
+                // that renders as a "Change to" swap offering to replace the
+                // person's real account with the venue's.
+                //
+                // Dropped rather than kept as an unmatched custom link: the
+                // owner's rule is that these handles are a MEANS (follow them
+                // for online stores and a resolvable Google Business), not
+                // something to put on the page. Chaining them is the bio-mention
+                // lane's job and is not wired from here yet — logged so that
+                // work can see what it would have received.
+                if ($classified['platform'] === 'instagram') {
+                    Log::info('instagram.bio_link.instagram_not_suggested', [
+                        'user_id' => $userId,
+                        'host' => parse_url($url, PHP_URL_HOST),
+                    ]);
 
                     continue;
                 }

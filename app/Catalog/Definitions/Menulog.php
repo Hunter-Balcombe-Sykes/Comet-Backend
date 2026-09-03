@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\Lifecycle;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -34,6 +35,13 @@ class Menulog
                 ->shelf(Shelf::Food)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
+                // RETIRED 2026-09-03: Menulog ceased Australian operations on
+                // 2025-11-26 and menulog.com.au was its only market. A retired
+                // surface routes to Verdict::Note (PlacementPolicy.php:83), so
+                // an existing link survives as a plain link and is never again
+                // offered as an ordering CONNECTION — which would have
+                // attached a live order CTA to a dead brand.
+                ->lifecycle(Lifecycle::Retired)
                 // Connectable since convergence Phase 6 — see UberEats for the
                 // rationale. Menulog has no menu scraper of its own in
                 // config('partna.menu.platforms'), so this is a link-only

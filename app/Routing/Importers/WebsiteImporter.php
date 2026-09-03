@@ -88,16 +88,33 @@ class WebsiteImporter
             // and carding them was the flooding this importer's notes-only
             // tally always avoided. (Third copy of the note-arm shape —
             // consolidating the three onto one service is flagged P8 work.)
-            if ($result['verdict'] === 'note') {
-                $classified = $this->harvester->classify($link);
-                $category = $classified['category'] ?? null;
-                try {
-                    if ($category === 'content-item'
-                        && $this->media->seedItem($user, $link, origin: 'website_import') !== null) {
-                        $tally['items']++;
+            $classified = $this->harvester->classify($link);
+            $category = $classified['category'] ?? null;
 
-                        continue;
-                    }
+            // The item arm is asked of EVERY link, not only of the ones that
+            // reached Note (2026-09-03). classify() states the precedence — an
+            // item claim beats every account answer — but until the confidence
+            // system was deleted this arm sat behind a Note gate that a
+            // /track/ or /episode/ URL only cleared because it scored low. It
+            // now projects to the artist's own surface, so the gate would send
+            // a release to the suggestions inbox instead of the listen pool.
+            //
+            // The EVENT arms below stay behind the Note gate deliberately:
+            // their URL shapes are `reserved_paths` in the catalog, so an
+            // event page never projects to a surface in the first place.
+            try {
+                if ($category === 'content-item'
+                    && $this->media->seedItem($user, $link, origin: 'website_import') !== null) {
+                    $tally['items']++;
+
+                    continue;
+                }
+            } catch (\Throwable $e) {
+                report($e);
+            }
+
+            if ($result['verdict'] === 'note') {
+                try {
                     if (in_array($category, ['event', 'event-organiser'], true)) {
                         $seeded = $category === 'event'
                             ? $this->events->seedStandalone($user, (string) $classified['platform'], $link, origin: 'website_import')

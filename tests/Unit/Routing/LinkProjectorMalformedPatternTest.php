@@ -245,8 +245,6 @@ it('still returns preg_match named captures through the matches() wrapper', func
     expect($projection->matched())->toBeTrue();
     expect($projection->captures)->toBe(['tenant' => 'studio', 'slug' => 'abc123']);
     expect($projection->identifier)->toBe('abc123');
-    // 40 base + 20 subdomain + 35 path + 0 strength shift.
-    expect($projection->confidence)->toBe(95);
 });
 
 it('a matching reject pattern still short-circuits through the wrapper', function () {

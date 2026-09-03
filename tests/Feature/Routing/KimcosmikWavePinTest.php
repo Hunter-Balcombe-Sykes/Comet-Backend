@@ -23,7 +23,7 @@ beforeEach(function () {
     setupSectionsTables();
 });
 
-it('replays the kimcosmik ledger: connections, cards, and probes land where the ruling says', function () {
+it('replays the kimcosmik ledger: suggestions, cards, and probes land where the ruling says', function () {
     Queue::fake();
     $pro = createTenant('kimcosmik-pin');
 
@@ -57,53 +57,62 @@ it('replays the kimcosmik ledger: connections, cards, and probes land where the 
     $result = app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/kimcosmik', 'bio_harvest');
 
     // Buckets as OBSERVED on first run (2026-08-18), re-pinned 2026-08-20
-    // for T6 (scan-lane media items):
-    //   connected 8 — bandcamp:kimcosmik, bandcamp:cybersoul, discord,
-    //                 facebook:kimcosmik, instagram (no pre-existing IG row
-    //                 in this fixture; in a real build the source connection
-    //                 exists and this refreshes), mixcloud:KimCosmik
-    //                 (connectable since 134f55853, Task #17 — landed the
-    //                 same day, mid-plan), youtube:UCCY6…,
+    // for T6 (scan-lane media items), and AGAIN 2026-09-03: nothing a
+    // harvester finds auto-connects any more (PlacementPolicy::decide()),
+    // so every link that used to land a connection now lands a SUGGESTION
+    // instead — a `routing.source_intents` row in state 'proposed', zero
+    // live `site.platform_connections` rows for any of them.
+    //
+    //   suggested 10 — bandcamp:kimcosmik, bandcamp:cybersoul, discord,
+    //                 facebook:kimcosmik, facebook:hybridrave (both
+    //                 facebooks are plain suggestions now — the FI-1
+    //                 single-account CAP that used to hold the second one
+    //                 as a Swap never fires, because the first facebook
+    //                 never became a real connection for it to collide
+    //                 with), instagram, mixcloud:KimCosmik, youtube:UCCY6…,
     //                 youtube:@cybersoul9038
-    //   suggested 1 — facebook:hybridrave. Both facebooks placed while
-    //                 socials were multiAccount(5); FI-1 (2026-08-20) made
-    //                 every social single-account, so the second distinct
-    //                 facebook now cap-holds as a Swap suggestion.
     //   items 2     — the bandcamp deep track + album are REAL listen items
-    //                 now (T6), library-only, not link cards
-    //   noted 1     — the facebook groups URL. ra.co LEFT this line on
-    //                 2026-08-28: the artist page ra.co/dj/<slug> gained a
-    //                 captured ProfileLink detector, so kimcosmik's RA page
-    //                 now CONNECTS and the T27b connector fetches their tour
-    //                 dates onto the site — the whole point of building that
-    //                 connector. Listings (/events, /clubs) still note.
-    //   probed 2    — discogs, juno (unknown domains)
-    // Legacy wave landed 3 connections from this page; the ruling lands 8+1.
-    expect($result['connected'])->toBe(9)
+    //                 (T6), library-only, not link cards — unaffected by
+    //                 the auto-connect change, since they never went
+    //                 through PlacementPolicy's Place/Choose bands at all.
+    //   noted 1     — the facebook groups URL. Its 2026-09-02 fold ("a page
+    //                 of a platform the account already has connected")
+    //                 needs a REAL `site.platform_connections` row to fold
+    //                 onto; since facebook:kimcosmik is now only a proposed
+    //                 suggestion, not a live connection, the groups URL
+    //                 reverts to a plain card — the pre-fold behaviour.
+    //   probed 2    — discogs, juno (unknown domains) — unaffected, probing
+    //                 never depended on the Place/Choose auto-connect rule.
+    // Legacy wave landed 3 connections; the current rule lands 0 and asks
+    // about all 10 instead.
+    expect($result['connected'])->toBe(0)
         ->and($result['items'])->toBe(2)
-        // 0 since 2026-09-02: the one noted link is a page of a platform the
-        // account already has connected, and that folds now instead of carding.
-        ->and($result['noted'])->toBe(0)
+        ->and($result['noted'])->toBe(1)
         ->and($result['probed'])->toBe(2)
-        ->and($result['suggested'])->toBe(1);
+        ->and($result['suggested'])->toBe(10);
 
-    $connections = IntegrationConnection::where('user_id', $pro->id)
-        ->get()
-        ->map(fn ($c) => $c->platform.':'.$c->resource_id)
-        ->sort()
-        ->values()
-        ->all();
-    expect($connections)->toBe([
-        'bandcamp:cybersoul',
-        'bandcamp:kimcosmik',
-        'discord:q3FvffbQ',
-        // facebook:hybridrave is the cap-held Swap suggestion (FI-1), not a row.
-        'facebook:kimcosmik',
-        'instagram:kimcosmik',
-        'mixcloud:KimCosmik',
-        'resident-advisor:kimcosmik',
-        'youtube:UCCY6-AIHHvrmZW5J8IAjk-A',
-        'youtube:cybersoul9038',
+    // Nothing auto-connects, so the wave leaves zero live rows behind.
+    expect(IntegrationConnection::where('user_id', $pro->id)->count())->toBe(0);
+
+    // The suggestion ledger carries the same identities the old connection
+    // list pinned — plus one MediaParentSuggester row for the deep track's
+    // parent artist (obskurmusic), which has no anchor of its own on the
+    // page and so never went through the unroll loop's own tally.
+    $proposed = DB::table('routing.source_intents')
+        ->where('user_id', $pro->id)->where('state', 'proposed')
+        ->get()->map(fn ($i) => $i->surface_key.':'.$i->identifier)->sort()->values()->all();
+    expect($proposed)->toBe([
+        'bandcamp.artist:cybersoul',
+        'bandcamp.artist:kimcosmik',
+        'bandcamp.artist:obskurmusic',
+        'discord.server:q3FvffbQ',
+        'facebook.profile:hybridrave',
+        'facebook.profile:kimcosmik',
+        'instagram.profile:kimcosmik',
+        'mixcloud.player:KimCosmik',
+        'resident_advisor.tickets:kimcosmik',
+        'youtube.channel:UCCY6-AIHHvrmZW5J8IAjk-A',
+        'youtube.channel:cybersoul9038',
     ]);
 
     // Unknown hosts (discogs, juno) were probed, not carded here.
@@ -112,7 +121,7 @@ it('replays the kimcosmik ledger: connections, cards, and probes land where the 
 
     // Known-but-unconnectable landed as cards, not nothing.
     $urls = array_column(app(LinkPoolReader::class)->cards($pro->refresh()), 'url');
-    expect($urls)->not->toContain('https://ra.co/dj/kimcosmik') // connects now, never a card
+    expect($urls)->not->toContain('https://ra.co/dj/kimcosmik') // suggested now, never a card
         // T6: the bandcamp album is a LISTEN ITEM now, never a link card.
         ->and($urls)->not->toContain('https://kimcosmik.bandcamp.com/album/star-glider');
 
