@@ -15,6 +15,7 @@ use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
+    setupPreAccountBuildsTable();
     setupSitesTable();
     setupNotificationsTable();
     setupRoutingTables();

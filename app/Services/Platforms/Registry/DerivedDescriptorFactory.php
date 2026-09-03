@@ -119,7 +119,19 @@ class DerivedDescriptorFactory
         $out = [];
 
         foreach ($surfaces as $key => $surface) {
-            if (! in_array($surface['lifecycle'] ?? '', ['active', 'sunset'], true)) {
+            // RETIRED surfaces still derive (2026-09-03). Retirement stops NEW
+            // connections; it must not vaporize the ones that exist. A person
+            // who already has a Menulog link needs its descriptor to render the
+            // card, run a DSAR export and let them delete it — and
+            // RegistryCoverageTest calls a slug resolving to nothing "the
+            // vaporized-platform failure this test exists to catch".
+            //
+            // The four gates that DO stop a retired brand live elsewhere, so
+            // widening this one does not reopen it: the picker excludes it
+            // (CatalogSurfacesController:44 still filters to active|sunset), a
+            // paste is refused (BrandLinkConnect), and a harvest keeps it as a
+            // plain link (PlacementPolicy:83 → Verdict::Note).
+            if (! in_array($surface['lifecycle'] ?? '', ['active', 'sunset', 'retired'], true)) {
                 continue;
             }
             // A slug with a behavioural binding derives UNCONDITIONALLY (P5:
