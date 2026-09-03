@@ -33,6 +33,22 @@ class MediaPageReader extends PlatformScraper
         // author_url — so the generic parser below needs nothing special for
         // it. Verified live 2026-09-03.
         'tiktok' => 'https://www.tiktok.com/oembed?url=',
+        // Spec-standard title/thumbnail_url/author_url, zero special-casing
+        // needed — author_url is the free parent-account suggestion.
+        // Verified live 2026-09-04.
+        'audiomack' => 'https://audiomack.com/oembed?format=json&url=',
+        // Keyless, spec-standard. Returns author_name but NOT author_url —
+        // no free authorUrl derivation here, unlike audiomack/dailymotion/
+        // rumble. Verified live 2026-09-04.
+        'deezer' => 'https://api.deezer.com/oembed?format=json&url=',
+        // Spec-standard fields including author_url — no special-casing, no
+        // derivedAuthorUrl arm needed. NO OpenGraph exists on this platform
+        // at all (confirmed by full HTML grep), so this is the only
+        // enrichment path. Verified live 2026-09-04.
+        'dailymotion' => 'https://www.dailymotion.com/services/oembed?url=',
+        // Discovery tag confirmed present, hands back author_url for free.
+        // Verified live 2026-09-04.
+        'rumble' => 'https://rumble.com/api/Media/oembed.json?url=',
     ];
 
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
@@ -289,6 +305,153 @@ class MediaPageReader extends PlatformScraper
             return null;
         }
 
+        // ── Audiomack: /{username}/song/{slug} is a track, /{username}/album/
+        //    {slug} a release. /{username}/playlist/{slug} is deliberately
+        //    NOT matched here (excluded, like Spotify's playlist) — it just
+        //    falls through to null since neither arm below matches it.
+        //    Canonical keeps the ORIGINAL request path segments verbatim
+        //    (not oEmbed's echoed url/author_url, which can differ for a
+        //    renamed/aliased uploader account — live-observed 2026-09-04). ──
+        if ($host === 'audiomack.com') {
+            if (preg_match('~^/([\w.-]+)/song/([\w-]+)$~', $path, $m)) {
+                return ['platform' => 'audiomack', 'kind' => 'track', 'canonical' => 'https://audiomack.com/'.$m[1].'/song/'.$m[2]];
+            }
+            if (preg_match('~^/([\w.-]+)/album/([\w-]+)$~', $path, $m)) {
+                return ['platform' => 'audiomack', 'kind' => 'release', 'canonical' => 'https://audiomack.com/'.$m[1].'/album/'.$m[2]];
+            }
+
+            return null;
+        }
+
+        // ── Beatport: /track/{slug}/{id} is a track, /release/{slug}/{id} a
+        //    release. No oEmbed exists (missing discovery tag + a live 404
+        //    on a same-origin oembed probe, 2026-09-04) — deliberately absent
+        //    from OEMBED, so read() falls through to the OpenGraph fallback
+        //    automatically. ───────────────────────────────────────────────
+        if ($host === 'beatport.com') {
+            if (preg_match('~^/track/[a-z0-9-]+/\d+$~', $path)) {
+                return ['platform' => 'beatport', 'kind' => 'track', 'canonical' => 'https://beatport.com'.$path];
+            }
+            if (preg_match('~^/release/[a-z0-9-]+/\d+$~', $path)) {
+                return ['platform' => 'beatport', 'kind' => 'release', 'canonical' => 'https://beatport.com'.$path];
+            }
+
+            return null;
+        }
+
+        // ── Deezer: /track/{id} is a track, /album/{id} a release; /playlist/
+        //    {id} is a collection (not one item), mapped to accountPlatform
+        //    Label() below the same way Spotify sends playlist to its own
+        //    label. Optional 2-letter locale prefix (/en/, /us/), stripped
+        //    for the canonical. Host is always www.deezer.com, which parts()
+        //    already reduces to deezer.com like every other www.-prefixed
+        //    host here. ────────────────────────────────────────────────────
+        if ($host === 'deezer.com') {
+            if (preg_match('~^(?:/[a-z]{2})?/track/(\d+)$~', $path, $m)) {
+                return ['platform' => 'deezer', 'kind' => 'track', 'canonical' => 'https://www.deezer.com/track/'.$m[1]];
+            }
+            if (preg_match('~^(?:/[a-z]{2})?/album/(\d+)$~', $path, $m)) {
+                return ['platform' => 'deezer', 'kind' => 'release', 'canonical' => 'https://www.deezer.com/album/'.$m[1]];
+            }
+
+            return null;
+        }
+
+        // ── Dailymotion: /video/{id} on dailymotion.com, or a bare {id} on
+        //    the dai.ly short host (youtu.be-style) — both fold onto the
+        //    same canonical. NO OpenGraph exists on this platform at all
+        //    (confirmed by a full HTML grep, 2026-09-04) — oEmbed is the
+        //    only enrichment path, not a fallback of last resort. ─────────
+        if ($host === 'dailymotion.com' && preg_match('~^/video/([A-Za-z0-9]{6,8})$~', $path, $m)) {
+            return ['platform' => 'dailymotion', 'kind' => 'video', 'canonical' => 'https://www.dailymotion.com/video/'.$m[1]];
+        }
+        if ($host === 'dai.ly' && preg_match('~^/([A-Za-z0-9]{6,8})$~', $path, $m)) {
+            return ['platform' => 'dailymotion', 'kind' => 'video', 'canonical' => 'https://www.dailymotion.com/video/'.$m[1]];
+        }
+
+        // ── Rumble: /v{id}-{slug}.html is a video. The slug is kept AS
+        //    GIVEN — a bare id-only URL 404s (live-verified 2026-09-04), so
+        //    this is not a shape to normalise down. No www variant seen. ──
+        if ($host === 'rumble.com' && preg_match('~^/v[A-Za-z0-9]+-[A-Za-z0-9%.-]+\.html$~', $path)) {
+            return ['platform' => 'rumble', 'kind' => 'video', 'canonical' => 'https://rumble.com'.$path];
+        }
+
+        // ── Feature.fm: a HOST-based grammar, not a path one — the real item
+        //    host is ffm.to (or a branded *.ffm.to subdomain), ffm.bio is the
+        //    account host; feature.fm itself is marketing-only and hosts no
+        //    item pages. No reliable kind signal in the URL, so 'track' is
+        //    the default (same reasoning as Linkfire below). A real oEmbed
+        //    discovery tag exists but its endpoint 503'd on every live call
+        //    (2026-09-04) — deliberately NOT in OEMBED; the OpenGraph
+        //    fallback fires automatically since the platform is absent from
+        //    it. ────────────────────────────────────────────────────────────
+        if (($host === 'ffm.to' || str_ends_with($host, '.ffm.to')) && preg_match('~^/([A-Za-z0-9_-]+)$~', $path, $m)) {
+            return ['platform' => 'feature_fm', 'kind' => 'track', 'canonical' => 'https://ffm.to/'.strtolower($m[1])];
+        }
+
+        // ── Hypeddit: no oEmbed. OpenGraph fallback (confirmed present: a
+        //    "Free Download …: Artist - Track" og:title, og:image,
+        //    og:site_name). There is NO public account/profile page shape at
+        //    all — stripping the second segment off a real 2-segment item
+        //    URL 404s (live-verified 2026-09-04) — so this platform
+        //    deliberately has NO accountPlatformLabel() arm. ────────────────
+        if ($host === 'hypeddit.com') {
+            if (preg_match('~^/track/([A-Za-z0-9]{6})$~', $path, $m)) {
+                return ['platform' => 'hypeddit', 'kind' => 'track', 'canonical' => 'https://hypeddit.com/track/'.$m[1]];
+            }
+            if (preg_match('~^/([A-Za-z0-9_-]+)/([A-Za-z0-9_-]+)$~', $path, $m)) {
+                return ['platform' => 'hypeddit', 'kind' => 'track', 'canonical' => 'https://hypeddit.com/'.$m[1].'/'.$m[2]];
+            }
+            if (preg_match('~^/([A-Za-z0-9_-]+)$~', $path, $m)) {
+                $reserved = ['music', 'newreleases', 'pricing', 'login', 'auth', 'news', 'privacy'];
+                if (! in_array(strtolower($m[1]), $reserved, true)) {
+                    return ['platform' => 'hypeddit', 'kind' => 'track', 'canonical' => 'https://hypeddit.com/'.$m[1]];
+                }
+            }
+
+            return null;
+        }
+
+        // ── Laylo: grammar-only — no oEmbed, and OpenGraph is served only to
+        //    allowlisted crawler user agents (a plain browser UA gets a bare
+        //    client-side SPA shell with zero OG tags, confirmed by a
+        //    UA-switching test 2026-09-04), so this platform's read() call
+        //    falls through to the card default same as any platform whose
+        //    enrichment genuinely has nothing — expected, not a bug. 1
+        //    segment is an account (below); 2 segments is a drop/item; 3
+        //    segments with the literal segment "m" is a multidrop/tour
+        //    CONTAINER (excluded, not one item); 3 segments otherwise is a
+        //    single item nested under a multidrop. ──────────────────────────
+        if ($host === 'laylo.com') {
+            if (preg_match('~^/([\w-]+)/([\w-]+)/([\w-]+)$~', $path, $m)) {
+                if ($m[2] !== 'm') {
+                    return ['platform' => 'laylo', 'kind' => 'track', 'canonical' => 'https://laylo.com/'.$m[1].'/'.$m[2].'/'.$m[3]];
+                }
+
+                return null;
+            }
+            if (preg_match('~^/([\w-]+)/([\w-]+)$~', $path, $m)) {
+                return ['platform' => 'laylo', 'kind' => 'track', 'canonical' => 'https://laylo.com/'.$m[1].'/'.$m[2]];
+            }
+
+            return null;
+        }
+
+        // ── Linkfire: the path shape is IDENTICAL for item and account (a
+        //    single opaque segment on both) — the HOST is the only
+        //    distinguishing signal. lnk.to / a branded *.lnk.to subdomain /
+        //    lnkfi.re is an item; bio.to is an account (below). No oEmbed
+        //    (confirmed absent via a full HTML grep on 5 real pages, no
+        //    discovery tag). No reliable kind signal, so 'track' is the
+        //    default (same reasoning as Feature.fm above). lnk.to/pricing is
+        //    Linkfire's own marketing page, excluded from the item shape. ──
+        if (($host === 'lnk.to' || str_ends_with($host, '.lnk.to') || $host === 'lnkfi.re')
+            && preg_match('~^/([A-Za-z0-9_-]+)$~', $path, $m)) {
+            if (strtolower($m[1]) !== 'pricing') {
+                return ['platform' => 'linkfire', 'kind' => 'track', 'canonical' => 'https://'.$host.'/'.strtolower($m[1])];
+            }
+        }
+
         return null;
     }
 
@@ -357,6 +520,55 @@ class MediaPageReader extends PlatformScraper
         }
         if (in_array($host, ['tidal.com', 'listen.tidal.com'], true) && preg_match('~^(?:/browse)?/artist/~', $path)) {
             return 'Tidal';
+        }
+        if ($host === 'music.youtube.com'
+            && preg_match('~^/(@[\w.-]+|channel/[\w-]+|c/[\w.-]+|user/[\w.-]+)/?$~', $path)) {
+            return 'YouTube Music';
+        }
+        if ($host === 'audiomack.com' && preg_match('~^/([\w.-]+)/?$~', $path, $m)) {
+            $reserved = ['trending-now', 'top', 'albums', 'songs', 'songalbum', 'album', 'download', 'search', 'upload'];
+            if (! in_array(strtolower($m[1]), $reserved, true)) {
+                return 'Audiomack';
+            }
+        }
+        if ($host === 'beatport.com'
+            && (preg_match('~^/artist/[a-z0-9-]+/\d+~', $path) || preg_match('~^/label/[a-z0-9-]+/\d+~', $path))) {
+            return 'Beatport';
+        }
+        // /playlist/{id} joins /artist/{id} here (not classifyItem) the same
+        // way Spotify's playlist does — a collection, not one track.
+        if ($host === 'deezer.com'
+            && (preg_match('~^(?:/[a-z]{2})?/artist/\d+~', $path) || preg_match('~^(?:/[a-z]{2})?/playlist/\d+~', $path))) {
+            return 'Deezer';
+        }
+        if ($host === 'dailymotion.com' && preg_match('~^/([A-Za-z0-9_-]+)/?$~', $path, $m)) {
+            $reserved = [
+                'video', 'playlist', 'live', 'news', 'search', 'channel', 'pricing',
+                'partner', 'gaming', 'login', 'signup', 'about', 'press', 'legal', 'help',
+            ];
+            if (! in_array(strtolower($m[1]), $reserved, true)) {
+                return 'Dailymotion';
+            }
+        }
+        if ($host === 'rumble.com' && preg_match('~^/(?:user|c)/[A-Za-z0-9_-]+/?$~', $path)) {
+            return 'Rumble';
+        }
+        if (($host === 'ffm.bio' || str_ends_with($host, '.ffm.bio')) && preg_match('~^/[A-Za-z0-9_-]+/?$~', $path)) {
+            return 'Feature.fm';
+        }
+        // Hypeddit has NO accountPlatformLabel arm, deliberately: there is no
+        // public account/profile page shape at all — stripping the second
+        // segment off a real 2-segment item URL 404s (live-verified
+        // 2026-09-04). Every hypeddit path either classifies as an item
+        // above or is a marketing/reserved route neither arm should label.
+        if ($host === 'laylo.com' && preg_match('~^/([\w-]+)/?$~', $path, $m)) {
+            $reserved = ['music', 'join', 'pricing', 'blog', 'dashboard', 'auth'];
+            if (! in_array(strtolower($m[1]), $reserved, true)) {
+                return 'Laylo';
+            }
+        }
+        if (($host === 'bio.to' || str_ends_with($host, '.bio.to')) && preg_match('~^/[A-Za-z0-9_-]+/?$~', $path)) {
+            return 'Linkfire';
         }
 
         return null;

@@ -206,10 +206,14 @@ it('does not duplicate an event carried by two sources', function () {
 
 it('rosters the ticketing platforms for events and refuses the rest', function () {
     // Events-parity (2026-08-19): every events brand, not just the two
-    // bespoke ones.
+    // bespoke ones. Extended 2026-09-04 overnight run (§1A/W2) with the 14
+    // brands that were missing despite EventPageReader's host-agnostic read.
     expect(ItemLinkRules::rosterFor('events'))->toBe([
         'eventbrite', 'humanitix', 'luma', 'partiful', 'ticketmaster',
         'ticketek', 'oztix', 'trybooking', 'resident-advisor',
+        'admitone', 'bandsintown', 'dice', 'etix', 'eventfinda',
+        'eventim', 'megatix', 'moshtix', 'see_tickets', 'skiddle',
+        'songkick', 'tickethype', 'ticketweb', 'tixr',
     ]);
     expect(ItemLinkRules::allowsPlatform('events', 'spotify'))->toBeFalse();
     // Real dev URL shapes: www-prefixed eventbrite, subdomained humanitix.
@@ -223,6 +227,10 @@ it('rosters the ticketing platforms for events and refuses the rest', function (
     expect(ItemLinkRules::platformForUrl('https://lu.ma/abc123'))->toBe('luma');
     expect(ItemLinkRules::platformForUrl('https://ra.co/events/123'))->toBe('resident-advisor');
     expect(ItemLinkRules::platformForUrl('https://residentadvisor.net/events/123'))->toBe('resident-advisor');
+    // 2026-09-04 additions: a multi-host brand (eventfinda's regional TLD)
+    // and a single-host brand (tixr), both by plain HOSTS entries.
+    expect(ItemLinkRules::urlBelongsTo('eventfinda', 'https://www.eventfinda.co.nz/2026/event/example'))->toBeTrue();
+    expect(ItemLinkRules::platformForUrl('https://www.tixr.com/e/example-12345'))->toBe('tixr');
 });
 
 it('serves the soonest occurrence and the cheapest offer on an event payload', function () {

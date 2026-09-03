@@ -99,14 +99,27 @@ it('buckets a catalog-only ordering brand under its catalog display name', funct
 });
 
 it('leaves a detect-only social host out of every bucket', function () {
-    // ko-fi is one of the 24 catalog social surfaces we have decided NOT to
-    // connect; classify() answers 'link'. The fall-through buckets only the
-    // three promotable categories, so it stays absent. Bucketing it would
-    // silently reverse that policy — the single most likely way to get this
-    // change wrong.
+    // yelp.listing is a catalog social surface not hand-added to
+    // SOCIAL_HOSTS above; classify() answers 'link' via classifyFromCatalog.
+    // The fall-through buckets only the three promotable categories, so it
+    // stays absent. Bucketing it would silently reverse that policy — the
+    // single most likely way to get this change wrong.
+    //
+    // ko-fi used to be this test's example, but 2026-09-04 added it to
+    // SOCIAL_HOSTS/SOCIAL_PLATFORM by name (see the harvestHtml() sibling
+    // test below) — it now lands in $socials directly and would no longer
+    // demonstrate the fall-through policy this test guards.
     $harvester = new WebsiteLinkHarvester(Mockery::mock(SafeUrlFetcher::class));
 
-    expect($harvester->harvestHtml('<a href="https://ko-fi.com/acme">Ko-fi</a>', 'https://venue.example'))->toBe([]);
+    expect($harvester->harvestHtml('<a href="https://www.yelp.com/biz/acme-cafe">Yelp</a>', 'https://venue.example'))->toBe([]);
+});
+
+it('classifies a hand-added SOCIAL_HOSTS brand into socials directly (2026-09-04 wave)', function () {
+    $harvester = new WebsiteLinkHarvester(Mockery::mock(SafeUrlFetcher::class));
+
+    $out = $harvester->harvestHtml('<a href="https://ko-fi.com/acme">Support me on Ko-fi</a>', 'https://venue.example');
+
+    expect($out['socials']['ko-fi'])->toBe('https://ko-fi.com/acme');
 });
 
 it('allOutboundLinks returns every absolute outbound link, not just categorized ones', function () {
@@ -226,6 +239,42 @@ it('classifies event-organiser and event urls for both event platforms', functio
     ['https://www.eventbrite.com/e/winter-tasting-tickets-99887', 'eventbrite', 'event'],
     ['https://events.humanitix.com/host/supper-club', 'humanitix', 'event-organiser'],
     ['https://events.humanitix.com/winter-supper-2026', 'humanitix', 'event'],
+]);
+
+// 2026-09-04 — the fourteen new events brands added to classify() this same
+// run. Every URL below is either a real row from tests/fixtures/Routing/
+// corpus-real.php or hand-traced against the arm's own regex; no URL here is
+// invented. eventim is DELIBERATELY absent: its only corpus rows are artist
+// pages (no '/event/' in the path), which the eventim arm's own comment says
+// falls through without classifying — not a valid pair for this dataset.
+// Coverage is one verified pair per brand, not both categories for every
+// brand: some organiser shapes (admitone /organizer/, etix /ticket/p/,
+// eventfinda venue, megatix, moshtix venues, see_tickets /tour/, skiddle /g/,
+// ticketweb /venue/, tickethype, bandsintown /e/, dice /event/, songkick
+// /concerts/) have no real URL in the corpus or a concrete example in the
+// code's own comments, so they are skipped rather than guessed.
+it('classifies event and event-organiser urls for the fourteen new events brands', function (string $url, string $platform, string $category) {
+    $out = classifierHarvester()->classify($url);
+
+    expect($out['platform'])->toBe($platform);
+    expect($out['category'])->toBe($category);
+})->with([
+    ['https://tickets.admitonelive.com/event/dropout-improv-vancouver-9812776', 'admitone', 'event'],
+    ['https://www.etix.com/ticket/v/18346/epic-event-center', 'etix', 'event-organiser'],
+    ['https://www.eventfinda.co.nz/2026/faulty-towers-the-dining-experience/napier', 'eventfinda', 'event'],
+    ['https://megatix.com.au/events/kelmscott-agricultural-show-2026', 'megatix', 'event'],
+    ['https://www.moshtix.com.au/v2/event/freeform-festival-2026/195722', 'moshtix', 'event'],
+    ['https://tickethype.com.mt/HOUDINI', 'tickethype', 'event'],
+    ['https://www.tixr.com/groups/riotfest/events/riot-fest-2026-158068', 'tixr', 'event'],
+    ['https://53degrees.seetickets.com/event/limehouse-lizzy/53-degrees/3633054', 'see_tickets', 'event'],
+    ['https://www.skiddle.com/whats-on/Liverpool/Blackstone-Street-Warehouse/Circus-Birthday-Liverpool-Saturday-26th-September/42368835/', 'skiddle', 'event'],
+    ['https://www.ticketweb.com/event/evanston-folk-festival-2026-dawes-park-tickets/14705073', 'ticketweb', 'event'],
+    // These three pair with the catalog's own EXISTING artist/venue capture
+    // (corpus-real.php) that the new arm reclasses as event-organiser — no
+    // real 'event' URL exists in the corpus or code comments for any of them.
+    ['https://www.bandsintown.com/a/1-akon', 'bandsintown', 'event-organiser'],
+    ['https://dice.fm/artist/valentina-magaletti-l3knp', 'dice', 'event-organiser'],
+    ['https://www.songkick.com/artists/175070-ink', 'songkick', 'event-organiser'],
 ]);
 
 it('pins humanitix org-before-event ordering (shared host, /host/ discriminates)', function () {

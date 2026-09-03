@@ -1,0 +1,225 @@
+# Overnight run 2026-09-04 — findings log
+
+Format per `docs/2026-09-04-overnight-platform-item-suggestion-run.md` §0.2.
+`F<n>` = in-scope finding from this run's own workstreams. `X<n>` = unrelated
+issue hit along the way, fixed under the same gate.
+
+## W2–W5 (events roster, social hosts, item-URL grammar, trivial fixes)
+
+Implemented by a 3-agent parallel Workflow (wf_18345203-928) on disjoint
+files: `app/Services/Platforms/WebsiteLinkHarvester.php` (events block + 12
+social hosts), `app/Services/Platforms/MediaPageReader.php` +
+`tests/fixtures/Content/item-url-corpus.php` (10 item-URL platforms),
+`app/Site/Pools/ItemLinkRules.php` + `app/Services/Platforms/EventPageReader.php`
+(roster + docblock). All cascading test failures the agents caused
+themselves were found and fixed in the same pass (pint/phpstan clean,
+targeted suites green — see each agent's own summary for detail).
+
+### F1 — `ItemLinkRules::ROSTER` missing 7 of the 9 new item-URL platforms
+
+**What**: the MediaPageReader agent and the ItemLinkRules agent worked on
+disjoint files in parallel (by design, to avoid a write collision), but
+ItemLinkRules's task was scoped only to the 14 events platforms — it had
+no visibility into which music/video platforms MediaPageReader's sibling
+task was adding. Result: `ItemUrlCorpusTest`'s own cross-file consistency
+check ("keeps the item grammar and the pool rosters in step") caught
+`beatport`/`hypeddit` missing from `ROSTER['listen']` immediately; but
+`audiomack`/`deezer`/`feature_fm`/`laylo`/`linkfire` (listen) and
+`dailymotion`/`rumble` (watch) were ALSO missing and went uncaught only
+because the MediaPageReader agent's corpus additions for those 7 were
+grammar-only (no concrete example URL in the condensed research spec it
+was given), so no corpus row existed to trip the same consistency check.
+
+**Evidence**: `git diff` before fix showed `ROSTER['listen']` /
+`ROSTER['watch']` unchanged by either agent for these 7 keys, while
+`MediaPageReader::classifyItem()` had real arms for all 9.
+
+**Fix**: added all 9 platforms (`beatport`, `hypeddit`, `audiomack`,
+`deezer`, `feature_fm`, `laylo`, `linkfire` → `listen`; `dailymotion`,
+`rumble` → `watch`) plus their `HOSTS` entries to
+`app/Site/Pools/ItemLinkRules.php`, and added real, live-verified corpus
+item+profile rows for the 7 that had none (using the exact real URLs from
+the original W1 research pass, not invented) to
+`tests/fixtures/Content/item-url-corpus.php`.
+
+**Verified**: `vendor/bin/pint`/`phpstan` clean on both files;
+`ItemUrlCorpusTest` + `EventsPoolTest` (21 tests, 78 assertions) green.
+
+### X1 — `composer test`'s migration-safety guard fails before Pest ever runs (pre-existing, unrelated to tonight's work)
+
+**What**: `guard:no-unsafe-migrations` (first step of `composer test`) flags
+three already-committed migrations (dated 2026-09-03, from earlier work
+this session, unrelated to tonight's platform/item mandate) for unsafe
+patterns: `20260903170001_pre_account_builds_settle_sweep_idx.sql`
+(`CREATE INDEX` without `CONCURRENTLY`), `20260903210000_rename_below_threshold_block_reason.sql`
+(`ADD CONSTRAINT ... CHECK` without `NOT VALID`), and
+`20260903220001_source_intents_verifying_state.sql` (both issues, plus
+`CONCURRENTLY`-eligible indexes bundled with other DDL in one file). None
+of the three are grandfathered (all cutoffs in the guard script predate
+2026-09-03). This has been silently blocking the full `composer test` gate
+since these files landed — found only because tonight's run actually tried
+to run the full suite as its own gate.
+
+**Fix**: a Sonnet agent split/patched all three per
+`supabase/migrations/CONVENTIONS.md` §1/§2 (added `CONCURRENTLY`, split the
+bundled-DDL file into one-statement files, added `NOT VALID` to both CHECK
+constraints — plus a fourth constraint the agent found beyond the original
+brief, `platform_connections_verification_state_check`, which had the same
+gap). Confirmed all three original migrations were already applied on dev
+before touching anything, so the file edits are for a future from-zero
+apply only. Pushed two new no-op `VALIDATE CONSTRAINT` follow-up migrations
+to dev (`20260904235900`/`...235901` — confirmed no-ops, both constraints
+were already `convalidated=true`). Two more files
+(`20260904235902`/`...235903`, the extracted `CREATE INDEX CONCURRENTLY`
+statements) were created but deliberately NOT pushed — dev already has
+both indexes with matching definitions; flagged for a later push if wanted.
+
+**Verified**: `composer guard:no-unsafe-migrations` → "Migration safety lint
+passed." (exit 0). A full `composer test` run afterward got past the guard
+and ran all 11182 Pest tests (see Gate section below for the one real
+failure it surfaced, F4, and its fix).
+
+## Critic dispatch (Probe→Critic→Gate, §0.4)
+
+Two independent critics per fix area, adversarial (told to try to break
+the diff, not confirm it): Critic A + Critic C on the 14-platform events
+harvester arms; Critic B + Critic D on the 12-platform social-hosts +
+10-platform item-URL-grammar changes.
+
+**Critic A** (events arms, pass 1): clean — no findings.
+
+**Critic B** (social-hosts + item-URL grammar, pass 1): clean — no
+findings. Independently confirmed `urlBelongsTo()`'s suffix-match logic
+correctly covers branded subdomains (`*.ffm.to`, `*.lnk.to`) even with only
+the bare host listed in `ItemLinkRules::HOSTS`.
+
+**Critic C** (events arms, adversarial): found 4 issues, all confirmed real
+and fixed (see F2, F3 below) — 2 production regex bugs (admitone, megatix)
+and 2 documentation-accuracy bugs (`known-link-only.php`'s "eventfinda and
+laylo are untouched" claim; `CatalogBackedClassificationTest.php`'s false
+claim of an existing test-coverage pin for the new brands).
+
+**Critic D** (social-hosts + item-URL grammar, adversarial): found 1
+serious production bug — the `ko_fi`/`ko-fi` key divergence (F1... actually
+filed as a standalone fix below, not numbered F1 since F1 was already taken
+by the ROSTER gap). Independently re-traced Agent M's MediaPageReader arms
+and my own corpus additions for the other 9 item-URL platforms and found
+them all correct.
+
+### F2 — `admitone`/`megatix` events regexes didn't match their own real corpus URLs (Critic C)
+
+**What**: `admitone`'s regex only matched `admitone.com`'s shape
+(`/events/.../[0-9a-f]{24}`, plural, 24-hex ObjectId); the real
+`tickets.admitonelive.com` URLs in `tests/fixtures/Routing/corpus-real.php`
+use a completely different shape — singular `/event/<slug>-<numericId>`.
+`megatix`'s regex required an `/events/` or `/white-label/` path prefix;
+the real corpus also has a bare-root-slug shape
+(`megatix.com.au/SnowMachineQueenstownAud`) with neither prefix.
+
+**Fix**: `app/Services/Platforms/WebsiteLinkHarvester.php` — added a new
+branch to the admitone arm for `^/event/[a-z0-9-]+-\d+/?$` on
+`tickets.admitonelive.com`; added a new branch to the megatix arm for a
+bare single-segment slug, denylisting the brand's own known
+marketing/account paths (`sell-tickets`, `orders`, `about`, etc.) so it
+doesn't swallow them as events.
+
+**Verified**: both fixed against the exact real corpus URLs that exposed
+the bug (`vendor/bin/pest tests/Feature/Platforms`, `pint`, `phpstan`
+clean).
+
+### F3 — `known-link-only.php`/`CatalogBackedClassificationTest.php` comment inaccuracies (Critic C)
+
+**What**: (a) `known-link-only.php`'s "eventfinda and laylo are untouched"
+comment was false for eventfinda — it DID gain a `classify()` event arm
+this round, it just happens to keep its row because this sweep's specific
+probe URL (a `/venue/` page) doesn't hit the new event shape, same as
+admitone/skiddle/tixr. (b) `CatalogBackedClassificationTest.php` claimed
+songkick's organiser reclassification was "pinned by
+`WebsiteLinkHarvesterTest.php`'s 'both event platforms' dataset" — that
+dataset only covers eventbrite/humanitix and was untouched by this round;
+none of the 14 new events brands had any direct unit-test pin anywhere.
+
+**Fix**: corrected both comments. For (b), also dispatched a follow-up
+Sonnet agent to add a real dataset (`tests/Unit/Platforms/WebsiteLinkHarvesterTest.php`)
+pinning `classify()`'s category output for the 14 new brands, using only
+real URLs already present in `corpus-real.php` or cited in the harvester's
+own code comments (no invented URLs) — result pending, appended below when
+it lands.
+
+### Standalone — `ko_fi` vs `ko-fi` key divergence (Critic D)
+
+**What**: `WebsiteLinkHarvester`'s `SOCIAL_HOSTS`/`SOCIAL_PLATFORM` used the
+catalog brand_key `ko_fi` (underscore) instead of the catalog's
+`legacy_platform` value `ko-fi` (hyphen), which `LegacyPlatformMap::inverse()`
+is actually keyed by. Verified via a fresh grep across all 12 new social
+brands' catalog Definition files that ko-fi is the ONLY one where brand_key
+and legacy_platform diverge. Left unfixed, every real Ko-fi link
+auto-discovered via bio scan/GBP sync/website import would fail
+`LegacyPlatformMap::surfaceFor('ko_fi')` (returns null), fail
+`IntegrationConnection::booted()`'s `isKnownSurface()` check, and throw —
+caught and swallowed into a plain-link fallback by `LinkRouter::routeClassified()`,
+but silently defeating the entire point of adding it to `SOCIAL_HOSTS`, and
+spamming Nightwatch on every occurrence.
+
+**Fix**: changed both map keys and the platform value from `ko_fi` to
+`ko-fi` in `WebsiteLinkHarvester.php`; updated the corresponding assertion
+in `WebsiteLinkHarvesterTest.php`.
+
+**Verified**: `pint`/`phpstan` clean; `WebsiteLinkHarvesterTest.php` green.
+
+### F4 — `known-link-only.php` needed 4 more rows removed after the item-URL grammar landed (self-caught via full-suite Gate run)
+
+**What**: a full `composer test` run (kicked off once X1 was fixed, to get
+a genuine full-suite Gate result) surfaced one real failure:
+`CatalogClassificationSweepTest`'s ratchet flagged `feature_fm.release`,
+`hypeddit.release`, `laylo.drop` and `linkfire.release` as no longer
+belonging in `known-link-only.php` — not a regression, but the CORRECT,
+expected effect of Agent M's `MediaPageReader::classifyItem()` item-URL
+grammar landing: `classify()` now routes these hosts' probe URLs through
+that grammar before falling through to the catalog's routing_class, so
+they answer `'content-item'` instead of a generic `'link'`. Confirmed via
+direct `classify()` calls (tinker) for these 4 plus the 4 sibling brands
+(audiomack, beatport, dailymotion, rumble) that also gained
+`MediaPageReader` arms this round but correctly KEEP their row — their
+probe URLs are artist/channel pages, not item pages, and the new grammar
+only recognises single items.
+
+**Fix**: removed the 4 stale rows from `known-link-only.php` (3 from the
+'content' group, 1 — `laylo.drop` — from the 'events' group, since its
+catalog `routing_class` is `events` even though the real gap was in
+content-item grammar) with an explanatory comment distinguishing them from
+the 4 siblings that correctly keep their row.
+
+**Verified**: `CatalogClassificationSweepTest` green (was the only failure
+in an 11182-test, 40380-assertion full run — everything else passed).
+
+### X2 — `composer test`/`composer test:ci` silently truncate on any suite run ≥300s (pre-existing, unrelated to tonight's work)
+
+**What**: re-running `composer test` after F4 to get a genuine clean Gate
+result failed again — not with a test failure, but with Composer's own
+process-timeout: `The process '...artisan test' exceeded the timeout of
+300 seconds`, exit 1. Composer scripts default to a 300s process timeout;
+this repo's full suite genuinely takes ~1257s (confirmed by an earlier
+direct `php artisan test` run outside Composer, which completed normally
+and found only the one F4 failure). `composer test:ci` — the script CI's
+"Run tests" step actually invokes (`.github/workflows/ci.yml:215`) — runs
+the identical `@php artisan test` with no timeout override either, so this
+is not a local-only inconvenience: any CI run whose full suite crosses 300s
+wall-clock is at risk of a false-red "exceeded the timeout" failure that
+looks like a test failure but isn't one. The fix for exactly this class of
+problem already exists once in this same file — the `dev` script opens
+with `Composer\Config::disableProcessTimeout` for its own long-running
+process — but was never applied to `test`/`test:ci`.
+
+**Fix**: added `Composer\Config::disableProcessTimeout` as the first step
+of both `test` and `test:ci` in `composer.json`, matching the `dev`
+script's established pattern. Left `test:pg`/`test:schema`/`test:authz`
+untouched — narrow dedicated lanes, no evidence they approach 300s.
+
+**Verified**: re-ran `composer test` with the fix — completed normally,
+no timeout. Full clean Gate result for tonight's entire batch: **11196
+passed, 0 failed** (11 deprecated + 1 warning + 2 skipped, all pre-existing
+and unrelated — PHP 8.5 `ReflectionMethod::setAccessible()` deprecation
+notices in test helpers untouched by tonight's work; not fixed, out of
+scope). Duration 1272.6s (~21min) — well past Composer's 300s default,
+confirming the fix was load-bearing, not incidental.

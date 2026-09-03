@@ -34,10 +34,13 @@ it('classifies a catalog-known host the hand tables have never heard of', functi
     // 'event' (a real inline arm, seeds the events pool) — the catalog
     // fallback keeps answering for RA's PROFILE pages.
     'resident advisor dj profile' => ['https://ra.co/dj/some-artist', 'resident-advisor', 'Resident Advisor'],
-    'ko-fi page' => ['https://ko-fi.com/acme', 'ko-fi', 'Ko-fi'],
-    'gitlab profile' => ['https://gitlab.com/acme', 'gitlab', 'GitLab'],
     'medium profile' => ['https://medium.com/@acme', 'medium', 'Medium'],
-    'buymeacoffee page' => ['https://buymeacoffee.com/acme', 'buymeacoffee', 'Buy Me a Coffee'],
+    'yelp business profile' => ['https://www.yelp.com/biz/acme-cafe', 'yelp', 'Yelp'],
+    // ko-fi/gitlab/buymeacoffee moved out of this dataset 2026-09-04: the
+    // hand tables DO now hear of them (SOCIAL_HOSTS/SOCIAL_PLATFORM), so
+    // they no longer illustrate this test's premise — see the SOCIAL_HOSTS
+    // regression pin in tests/Unit/Platforms/WebsiteLinkHarvesterTest.php
+    // instead.
 ]);
 
 // Step 4: brands the catalog names but carried no detector for, so neither
@@ -141,7 +144,20 @@ it('leaves the social, content and events classes at link', function (string $ur
     expect(catalogClassifier()->classify($url))
         ->toBe(['platform' => $platform, 'category' => 'link', 'label' => $label]);
 })->with([
-    'social class' => ['https://ko-fi.com/acme', 'ko-fi', 'Ko-fi'],
+    // ko-fi was this dataset's social example until 2026-09-04, when it
+    // joined SOCIAL_HOSTS by name and started answering 'social' instead —
+    // see the sibling test above for why yelp replaced it here.
+    'social class' => ['https://www.yelp.com/biz/acme-cafe', 'yelp', 'Yelp'],
     'content class' => ['https://www.mixcloud.com/someone/', 'mixcloud', 'Mixcloud'],
-    'events class' => ['https://www.songkick.com/artists/1234567', 'songkick', 'Songkick'],
+    // songkick /artists/ was this dataset's events example until 2026-09-04,
+    // when classify() gained a real arm reclassing it event-organiser (its
+    // sibling /concerts/{id} shape is now 'event'). Comment corrected
+    // 2026-09-04 (critic-caught): this reclassification is NOT covered by
+    // tests/Unit/Platforms/WebsiteLinkHarvesterTest.php's "both event
+    // platforms" dataset — that dataset only pins eventbrite/humanitix and
+    // was untouched by this round; see the same file's "fourteen new events
+    // brands" dataset for the real pin instead. eventfinda's venue page has
+    // no organiser/promoter shape at all (verified — see Eventfinda's own
+    // classify() arm) and stays a clean 'link' example.
+    'events class' => ['https://www.eventfinda.com.au/venue/princess-theatre-melbourne', 'eventfinda', 'Eventfinda'],
 ]);

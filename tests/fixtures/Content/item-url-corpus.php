@@ -68,6 +68,25 @@ return [
         ['url' => 'https://youtu.be/dQw4w9WgXcQ', 'shape' => 'youtube.youtu_be', 'platform' => 'youtube', 'kind' => 'video', 'pool' => 'watch', 'canonical' => 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'],
         ['url' => 'https://music.youtube.com/watch?v=dQw4w9WgXcQ', 'shape' => 'youtube_music.track', 'platform' => 'youtube-music', 'kind' => 'track', 'pool' => 'listen', 'canonical' => 'https://music.youtube.com/watch?v=dQw4w9WgXcQ'],
         ['url' => 'https://music.youtube.com/watch?v=uViueiV8fME', 'shape' => 'youtube_music.track', 'platform' => 'youtube-music', 'kind' => 'track', 'pool' => 'listen', 'canonical' => 'https://music.youtube.com/watch?v=uViueiV8fME'],
+        // Beatport, Hypeddit, and (2026-09-04 second pass, closing the same
+        // corpus's own "no concrete example URL" gap for the remaining
+        // platforms from the same research) Audiomack, Deezer, Dailymotion,
+        // Rumble, Feature.fm, Laylo, Linkfire — all real, live-verified URLs.
+        ['url' => 'https://beatport.com/track/lockup/28901951', 'shape' => 'beatport.track', 'platform' => 'beatport', 'kind' => 'track', 'pool' => 'listen', 'canonical' => 'https://beatport.com/track/lockup/28901951'],
+        ['url' => 'https://hypeddit.com/drezcrankit', 'shape' => 'hypeddit.slug', 'platform' => 'hypeddit', 'kind' => 'track', 'pool' => 'listen', 'canonical' => 'https://hypeddit.com/drezcrankit'],
+        ['url' => 'https://hypeddit.com/ls41blnk/booyafreedownload', 'shape' => 'hypeddit.artist_track', 'platform' => 'hypeddit', 'kind' => 'track', 'pool' => 'listen', 'canonical' => 'https://hypeddit.com/ls41blnk/booyafreedownload'],
+        ['url' => 'https://hypeddit.com/track/5frhke', 'shape' => 'hypeddit.track_id', 'platform' => 'hypeddit', 'kind' => 'track', 'pool' => 'listen', 'canonical' => 'https://hypeddit.com/track/5frhke'],
+        ['url' => 'https://audiomack.com/rob49/song/in-the-club-3094751', 'shape' => 'audiomack.song', 'platform' => 'audiomack', 'kind' => 'track', 'pool' => 'listen', 'canonical' => 'https://audiomack.com/rob49/song/in-the-club-3094751'],
+        ['url' => 'https://audiomack.com/wassamrbz/album/kodak-black-the-mixtape', 'shape' => 'audiomack.album', 'platform' => 'audiomack', 'kind' => 'release', 'pool' => 'listen', 'canonical' => 'https://audiomack.com/wassamrbz/album/kodak-black-the-mixtape'],
+        ['url' => 'https://www.deezer.com/en/track/3273194641', 'shape' => 'deezer.track', 'platform' => 'deezer', 'kind' => 'track', 'pool' => 'listen', 'canonical' => 'https://www.deezer.com/track/3273194641'],
+        ['url' => 'https://www.deezer.com/en/album/725636751', 'shape' => 'deezer.album', 'platform' => 'deezer', 'kind' => 'release', 'pool' => 'listen', 'canonical' => 'https://www.deezer.com/album/725636751'],
+        ['url' => 'https://www.dailymotion.com/video/x7tgad0', 'shape' => 'dailymotion.video', 'platform' => 'dailymotion', 'kind' => 'video', 'pool' => 'watch', 'canonical' => 'https://www.dailymotion.com/video/x7tgad0'],
+        ['url' => 'https://dai.ly/x7tgad0', 'shape' => 'dailymotion.short', 'platform' => 'dailymotion', 'kind' => 'video', 'pool' => 'watch', 'canonical' => 'https://www.dailymotion.com/video/x7tgad0'],
+        ['url' => 'https://rumble.com/v2667bs-are-the-demons-of-darkness-just-the-monsters-of-our-imagination....html', 'shape' => 'rumble.video', 'platform' => 'rumble', 'kind' => 'video', 'pool' => 'watch', 'canonical' => 'https://rumble.com/v2667bs-are-the-demons-of-darkness-just-the-monsters-of-our-imagination....html'],
+        ['url' => 'https://ffm.to/picture-perfect-jb', 'shape' => 'feature_fm.smartlink', 'platform' => 'feature_fm', 'kind' => 'track', 'pool' => 'listen', 'canonical' => 'https://ffm.to/picture-perfect-jb'],
+        ['url' => 'https://laylo.com/thoughtprocess/vvepde', 'shape' => 'laylo.drop', 'platform' => 'laylo', 'kind' => 'track', 'pool' => 'listen', 'canonical' => 'https://laylo.com/thoughtprocess/vvepde'],
+        ['url' => 'https://lnk.to/EverywhereWeGo', 'shape' => 'linkfire.smartlink', 'platform' => 'linkfire', 'kind' => 'track', 'pool' => 'listen', 'canonical' => 'https://lnk.to/everywherewego'],
+        ['url' => 'https://tokio-hotel.lnk.to/2001', 'shape' => 'linkfire.branded_subdomain', 'platform' => 'linkfire', 'kind' => 'track', 'pool' => 'listen', 'canonical' => 'https://tokio-hotel.lnk.to/2001'],
     ],
     'profiles' => [
         ['url' => 'https://music.apple.com/us/artist/drake/271256', 'shape' => 'apple_music.artist', 'account' => 'Apple Music'],
@@ -100,5 +119,18 @@ return [
         ['url' => 'https://www.youtube.com/@NASA', 'shape' => 'youtube.channel_handle', 'account' => 'YouTube'],
         ['url' => 'https://www.youtube.com/channel/UCLA_DiR1FfKNvjuUpBHmylQ', 'shape' => 'youtube.channel_id', 'account' => 'YouTube'],
         ['url' => 'https://www.youtube.com/channel/UCX6OQ3DkcsbYNE6H8uQQuVA', 'shape' => 'youtube.channel_id', 'account' => 'YouTube'],
+        // 2026-09-04 overnight run (§1C/W4) — real, live-verified profile
+        // pages for the same new platforms above. Hypeddit is deliberately
+        // absent: it has no public account/profile page shape at all
+        // (confirmed live — see MediaPageReader.php's hypeddit arm).
+        ['url' => 'https://audiomack.com/rob49', 'shape' => 'audiomack.profile', 'account' => 'Audiomack'],
+        ['url' => 'https://www.beatport.com/artist/art-department/150625', 'shape' => 'beatport.artist', 'account' => 'Beatport'],
+        ['url' => 'https://www.deezer.com/en/artist/12945219', 'shape' => 'deezer.artist', 'account' => 'Deezer'],
+        ['url' => 'https://www.dailymotion.com/dailymotionplayerdemo2', 'shape' => 'dailymotion.channel', 'account' => 'Dailymotion'],
+        ['url' => 'https://rumble.com/user/MagiMou', 'shape' => 'rumble.user', 'account' => 'Rumble'],
+        ['url' => 'https://rumble.com/c/OANN', 'shape' => 'rumble.channel', 'account' => 'Rumble'],
+        ['url' => 'https://ffm.bio/fatherjohnmisty', 'shape' => 'feature_fm.bio', 'account' => 'Feature.fm'],
+        ['url' => 'https://laylo.com/thoughtprocess', 'shape' => 'laylo.profile', 'account' => 'Laylo'],
+        ['url' => 'https://bio.to/tolstoys', 'shape' => 'linkfire.bio', 'account' => 'Linkfire'],
     ],
 ];
