@@ -60,6 +60,33 @@
 //                          its restaurant pages are '/slug' or '/slug/menu' is
 //                          unresolved in BOTH directions and no honest row can
 //                          be written
+//
+// ── The second finding class: matched, but captured nothing (2026-09-03) ────
+//
+// Recording real URLs turned up a defect the four above do not describe. A
+// surface can route perfectly and still be useless, because the rule that
+// matched constrains only the brand's domain — LinkValidity's L1 WEAK. Under
+// one of those, SourceReconciler files the WHOLE URL as the account's
+// resource_id: the nameless card that can never be refreshed or verified.
+//
+// The census that way was 9 of the 116 connectable+active surfaces. Five of
+// the nine had a real shape sitting in these rows all along, unread because
+// the rows recorded `identifier => null` and the test only asserts a
+// non-null one — so the gap was invisible from both ends at once:
+//
+//   · eat_app.reserve     eatapp.co/<restaurant>, under an optional locale
+//                         prefix — the Deliveroo defect's shape, caught this
+//                         time before shipping rather than after
+//   · ovatu.book          <tenant>.book.app — the subdomain IS the tenant
+//   · oztix.tickets       ?Event=<id>, and the /outlet/event/<uuid> it 302s to
+//   · squarespace.store   <site>.squarespace.com, the built-in address every
+//                         store keeps alongside any custom domain
+//   · ticketek.tickets    ?sh=<show code>
+//
+// All five now capture, and their rows below carry the identifier, which is
+// what makes losing it a failure instead of a silence. The remaining four:
+// bandcamp.store and shortcuts.book as noted above; easi.order (app-only);
+// and woocommerce.store, which is WEAK by nature — see its rows.
 
 return [
     ['url' => 'https://ou.abacus.co/en/Store/2016674/', 'surface' => 'abacus.order', 'identifier' => null],
@@ -136,8 +163,9 @@ return [
     ['url' => 'https://www.doordash.com/store/1-luv-island-restaurant-killeen-414729/', 'surface' => 'doordash.order', 'identifier' => '1-luv-island-restaurant-killeen-414729'],
     ['url' => 'https://dribbble.com/google', 'surface' => 'dribbble.profile', 'identifier' => 'google'],
     ['url' => 'https://dribbble.com/simonpan', 'surface' => 'dribbble.profile', 'identifier' => 'simonpan'],
-    ['url' => 'https://eatapp.co/aoki-teppanyaki-waikiki-2005-kalia-rd-honolulu-hi-96815-united-states', 'surface' => 'eat_app.reserve', 'identifier' => null],
-    ['url' => 'https://eatapp.co/rm-38-waikiki-99383d', 'surface' => 'eat_app.reserve', 'identifier' => null],
+    ['url' => 'https://eatapp.co/aoki-teppanyaki-waikiki-2005-kalia-rd-honolulu-hi-96815-united-states', 'surface' => 'eat_app.reserve', 'identifier' => 'aoki-teppanyaki-waikiki-2005-kalia-rd-honolulu-hi-96815-united-states'],
+    ['url' => 'https://eatapp.co/rm-38-waikiki-99383d', 'surface' => 'eat_app.reserve', 'identifier' => 'rm-38-waikiki-99383d'],
+    ['url' => 'https://eatapp.co/en/rm-38-waikiki-99383d', 'surface' => 'eat_app.reserve', 'identifier' => 'rm-38-waikiki-99383d'],
     ['url' => 'https://www.etix.com/ticket/v/18346/epic-event-center', 'surface' => 'etix.tickets', 'identifier' => null],
     ['url' => 'https://www.etix.com/ticket/v/33471/benton-county-fairgrounds-event-center', 'surface' => 'etix.tickets', 'identifier' => null],
     ['url' => 'https://www.etsy.com/shop/CaitlynMinimalist', 'surface' => 'etsy.shop', 'identifier' => 'CaitlynMinimalist'],
@@ -232,10 +260,11 @@ return [
     ['url' => 'https://sbarro.order.online', 'surface' => 'order_online.order', 'identifier' => null],
     ['url' => 'https://ordermate.online/moroccansoupbar/menu', 'surface' => 'ordermate.order', 'identifier' => 'moroccansoupbar'],
     ['url' => 'https://ordermate.online/rocksalt/menu', 'surface' => 'ordermate.order', 'identifier' => 'rocksalt'],
-    ['url' => 'https://1bodytherapies.book.app/', 'surface' => 'ovatu.book', 'identifier' => null],
-    ['url' => 'https://curlygirls.book.app/', 'surface' => 'ovatu.book', 'identifier' => null],
-    ['url' => 'https://tickets.oztix.com.au/default.aspx?Event=246798', 'surface' => 'oztix.tickets', 'identifier' => null],
-    ['url' => 'https://tickets.oztix.com.au/default.aspx?Event=247204', 'surface' => 'oztix.tickets', 'identifier' => null],
+    ['url' => 'https://1bodytherapies.book.app/', 'surface' => 'ovatu.book', 'identifier' => '1bodytherapies'],
+    ['url' => 'https://curlygirls.book.app/', 'surface' => 'ovatu.book', 'identifier' => 'curlygirls'],
+    ['url' => 'https://tickets.oztix.com.au/default.aspx?Event=246798', 'surface' => 'oztix.tickets', 'identifier' => '246798'],
+    ['url' => 'https://tickets.oztix.com.au/default.aspx?Event=247204', 'surface' => 'oztix.tickets', 'identifier' => '247204'],
+    ['url' => 'https://tickets.oztix.com.au/outlet/event/bdbe320b-5e30-4a19-9651-b45c8ad7bc1b', 'surface' => 'oztix.tickets', 'identifier' => 'bdbe320b-5e30-4a19-9651-b45c8ad7bc1b'],
     ['url' => 'https://partiful.com/u/ApPZNvxoatJ6zaKJZ73w', 'surface' => 'partiful.events', 'identifier' => 'ApPZNvxoatJ6zaKJZ73w'],
     ['url' => 'https://partiful.com/u/YbRqtYMY7k4j8M540Otu', 'surface' => 'partiful.events', 'identifier' => 'YbRqtYMY7k4j8M540Otu'],
     ['url' => 'https://www.patreon.com/PatreonforCreators', 'surface' => 'patreon.page', 'identifier' => 'PatreonforCreators'],
@@ -295,8 +324,8 @@ return [
     ['url' => 'https://1832brew.square.site/s/order', 'surface' => 'square.order', 'identifier' => null],
     ['url' => 'https://square.link/u/EeJTW6Zn', 'surface' => 'square.payment_link', 'identifier' => null],
     ['url' => 'https://square.link/u/kgDLTp9d', 'surface' => 'square.payment_link', 'identifier' => null],
-    ['url' => 'https://altiba9.squarespace.com/shop', 'surface' => 'squarespace.store', 'identifier' => null],
-    ['url' => 'https://angelinavillalobos.squarespace.com/shop', 'surface' => 'squarespace.store', 'identifier' => null],
+    ['url' => 'https://altiba9.squarespace.com/shop', 'surface' => 'squarespace.store', 'identifier' => 'altiba9'],
+    ['url' => 'https://angelinavillalobos.squarespace.com/shop', 'surface' => 'squarespace.store', 'identifier' => 'angelinavillalobos'],
     ['url' => 'https://stan.store/AG3Dlabs', 'surface' => 'stan.store', 'identifier' => 'AG3Dlabs'],
     ['url' => 'https://stan.store/AI_Artists', 'surface' => 'stan.store', 'identifier' => 'AI_Artists'],
     ['url' => 'https://www.strava.com/clubs/1-Percent-Running-Club', 'surface' => 'strava.club', 'identifier' => '1-Percent-Running-Club'],
@@ -317,8 +346,8 @@ return [
     ['url' => 'https://www.thefork.co.uk/restaurant/the-meat-wine-co-r737146', 'surface' => 'thefork.reserve', 'identifier' => 'the-meat-wine-co-r737146'],
     ['url' => 'https://www.threads.net/@dary.tejeda', 'surface' => 'threads.profile', 'identifier' => 'dary.tejeda'],
     ['url' => 'https://www.threads.net/@tmack.official', 'surface' => 'threads.profile', 'identifier' => 'tmack.official'],
-    ['url' => 'https://premier.ticketek.com.au/Shows/Show.aspx?sh=ABEAUTN26', 'surface' => 'ticketek.tickets', 'identifier' => null],
-    ['url' => 'https://premier.ticketek.com.au/shows/show.aspx?sh=PRETTYW26', 'surface' => 'ticketek.tickets', 'identifier' => null],
+    ['url' => 'https://premier.ticketek.com.au/Shows/Show.aspx?sh=ABEAUTN26', 'surface' => 'ticketek.tickets', 'identifier' => 'ABEAUTN26'],
+    ['url' => 'https://premier.ticketek.com.au/shows/show.aspx?sh=PRETTYW26', 'surface' => 'ticketek.tickets', 'identifier' => 'PRETTYW26'],
     ['url' => 'https://tickethype.com.mt/HOUDINI', 'surface' => 'tickethype.tickets', 'identifier' => null],
     ['url' => 'https://tickethype.com.mt/highphase5', 'surface' => 'tickethype.tickets', 'identifier' => null],
     ['url' => 'https://www.ticketmaster.co.nz/coldplay-tickets/artist/806431', 'surface' => 'ticketmaster.tickets', 'identifier' => '806431'],
@@ -371,6 +400,10 @@ return [
     ['url' => 'https://api.whatsapp.com/send?phone=6287774257479&text=Hallo+admin+Mitra+Sinergi+saya+ingin+berkonsultasi+tentang+pemasangan+CCTV', 'surface' => 'whatsapp.chat', 'identifier' => null],
     ['url' => 'https://wolt.com/en/fin/helsinki/restaurant/ravintola-mountain', 'surface' => 'wolt.order', 'identifier' => 'ravintola-mountain'],
     ['url' => 'https://wolt.com/en/fin/helsinki/restaurant/sushinroll', 'surface' => 'wolt.order', 'identifier' => 'sushinroll'],
+    // NOT merchant stores: woocommerce.com/products/* is WooCommerce's own
+    // plugin marketplace. A real WooCommerce store is self-hosted on the
+    // merchant's domain and has no hosted address, so this surface has no
+    // grammar to find — it is L1-WEAK by nature, not by omission.
     ['url' => 'https://woocommerce.com/products/stripe/', 'surface' => 'woocommerce.store', 'identifier' => null],
     ['url' => 'https://woocommerce.com/products/woocommerce-memberships/', 'surface' => 'woocommerce.store', 'identifier' => null],
     ['url' => 'https://x.com/BBCBreaking', 'surface' => 'x.profile', 'identifier' => 'BBCBreaking'],

@@ -78,7 +78,8 @@ class UberEats
                         ->path('#^/(?:[a-z]{2}(?:-[a-z]{2})?/)?store/(?<slug>[^/?]+)/(?<id>[^/?]+)#i')
                         ->captures('id')
                         ->from(IdentifierSource::Path)
-                        ->strength(EvidenceStrength::DeepLinkWithSlug),
+                        ->strength(EvidenceStrength::DeepLinkWithSlug)
+                        ->note('e.g. https://www.ubereats.com/au/store/kfc-sydney-central-plaza/zHkibS_nUEeLMYUnfu2URg — verified live 2026-09-03'),
                 )
                 ->build(),
         ];

@@ -49,7 +49,8 @@ class Bluesky
                         ->path('#^/profile/(?<handle>[A-Za-z0-9:._-]{1,253})/?$#')
                         ->captures('handle')
                         ->from(IdentifierSource::Path)
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://bsky.app/profile/bsky.app — verified live 2026-09-03'),
                 )
                 ->build(),
         ];

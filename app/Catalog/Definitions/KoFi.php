@@ -43,7 +43,8 @@ class KoFi
                         ->captures('handle')
                         ->from(IdentifierSource::Path)
                         ->reject('#^/(?:about|explore|gold|shop|commissions|manage|account|login|signup|faq|pricing|help|discover|blog|stream|memberships|posts|settings)(?:/|$)#i')
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://ko-fi.com/matchaexe — verified live 2026-09-03'),
                     Detector::url('ko-fi.com')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),

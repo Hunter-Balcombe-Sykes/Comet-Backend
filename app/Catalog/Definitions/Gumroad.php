@@ -52,7 +52,8 @@ class Gumroad
                         ->subdomain('#^(?<handle>[a-z0-9-]{2,63})$#i')
                         ->captures('handle')
                         ->from(IdentifierSource::Subdomain)
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://dvassallo.gumroad.com — verified live 2026-09-03'),
                     Detector::url('gumroad.com')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),

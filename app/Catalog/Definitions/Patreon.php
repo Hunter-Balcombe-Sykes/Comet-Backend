@@ -44,7 +44,8 @@ class Patreon
                         ->captures('handle')
                         ->from(IdentifierSource::Path)
                         ->reject('#^/(?:login|signup|home|explore|about|pricing|policy|careers|press|blog|create|creators|product|features|apps|settings|join|checkout|oauth2|api|search|messages|notifications|discover|podcasts|video|community|store|help)(?:/|$)#i')
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://www.patreon.com/PatreonforCreators — verified live 2026-09-03'),
                     Detector::url('patreon.com')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),

@@ -53,7 +53,8 @@ class ResidentAdvisor
                         ->path('#^/dj/(?<handle>[a-zA-Z0-9_-]{2,60})/?$#')
                         ->captures('handle')
                         ->from(IdentifierSource::Path)
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://ra.co/dj/raha — verified live 2026-09-03'),
                     // Everything else on the host stays a listing: /events/<id>,
                     // /clubs/<id>, /promoters/<id> are someone's night, not the
                     // account holder's identity.

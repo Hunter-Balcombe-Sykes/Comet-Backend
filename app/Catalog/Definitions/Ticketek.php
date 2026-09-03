@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -48,6 +49,42 @@ class Ticketek
                 ->detect(
                     ...array_map(
                         fn (string $tld) => Detector::url("ticketek.{$tld}")->strength(EvidenceStrength::MarketplaceListing),
+                        self::TLDS,
+                    ),
+                    // The show code lives in ?sh= on every Ticketek show page
+                    // (premier.ticketek.<tld>/Shows/Show.aspx?sh=<code>).
+                    //
+                    // Honest limit: Ticketek 403s every automated request — its
+                    // own homepage included — so unlike the other patterns added
+                    // in this sweep, this shape could NOT be confirmed by
+                    // fetching it. It rests on two independent sightings whose
+                    // codes decode sensibly (ABEAUTN26 = A Beautiful Noise 2026,
+                    // PRETTYW26 = Pretty Woman 2026).
+                    //
+                    // That distinction MATTERS here, and it is not the harmless
+                    // one it first looks like. A detector that captures nothing
+                    // is inert when wrong; this one is not, because
+                    // LinkValidity::shapeFor() treats ONE specific detector as
+                    // enough to start refusing every other shape on the host
+                    // (BrandLinkConnect::shapeRefusal). So declaring a shape
+                    // here is a claim about what a Ticketek link looks like, and
+                    // a wrong claim would refuse real links rather than merely
+                    // failing to enrich them.
+                    //
+                    // Kept because the evidence is strong and the alternative —
+                    // leaving the surface shapeless — files every Ticketek link
+                    // as a whole-URL resource_id. Residual risk, stated rather
+                    // than papered over: Ticketek's venue and tour pages are
+                    // other real shapes, unverifiable from here, and a paste of
+                    // one now gets the refusal hint pointing at the show form.
+                    // Add them as evidence appears; do not guess them.
+                    ...array_map(
+                        fn (string $tld) => Detector::url("ticketek.{$tld}")
+                            ->query('sh')
+                            ->captures('sh')
+                            ->from(IdentifierSource::Query)
+                            ->strength(EvidenceStrength::DeepLinkWithSlug)
+                            ->note("e.g. https://premier.ticketek.{$tld}/Shows/Show.aspx?sh=ABEAUTN26 — shape seen in the wild; unverifiable by fetch (site 403s automation)"),
                         self::TLDS,
                     ),
                 )
