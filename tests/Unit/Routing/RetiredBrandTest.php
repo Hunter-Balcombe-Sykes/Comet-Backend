@@ -49,6 +49,10 @@ it('never offers a retired brand as a connection, and says why', function (strin
 })->with([
     'menulog — ceased AU operations 2025-11-26' => 'https://www.menulog.com.au/restaurants-example-venue/menu',
     'genbook — sunset by Booksy, 301s to booksy.com' => 'https://www.genbook.com/bookings/slot/reservation/example',
+    'mr yum — merged into me&u, 301s to meandu.com' => 'https://www.mryum.com/example-venue',
+    'tock — venues moved to Resy, site going dark' => 'https://www.exploretock.com/example-venue',
+    'order online — host no longer resolves in DNS' => 'https://order.online/store/example-venue',
+    'schedulicity — absorbed by Vagaro, 301s away' => 'https://www.schedulicity.com/scheduling/EXAMPLE',
 ]);
 
 it('keeps the retired brand as a plain link rather than dropping it', function () {
@@ -70,6 +74,10 @@ it('refuses a manual paste of a retired brand', function (string $slug, string $
 })->with([
     'menulog' => ['menulog', 'Menulog', 'menulog.order', 'https://www.menulog.com.au/restaurants-example-venue/menu'],
     'genbook' => ['genbook', 'Genbook', 'genbook.book', 'https://www.genbook.com/bookings/slot/reservation/example'],
+    'mr yum' => ['mr-yum', 'Mr Yum', 'mr_yum.order', 'https://www.mryum.com/example-venue'],
+    'tock' => ['tock', 'Tock', 'tock.reserve', 'https://www.exploretock.com/example-venue'],
+    'order online' => ['order-online', 'Order Online', 'order_online.order', 'https://order.online/store/example-venue'],
+    'schedulicity' => ['schedulicity', 'Schedulicity', 'schedulicity.book', 'https://www.schedulicity.com/scheduling/EXAMPLE'],
 ]);
 
 it('still connects a brand that is trading', function () {
