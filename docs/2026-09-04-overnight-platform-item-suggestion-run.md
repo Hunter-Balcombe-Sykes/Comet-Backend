@@ -171,6 +171,31 @@ the compiled catalog doesn't literally match the `PROMOTABLE_ROUTING_CLASS`
 key spelling, or a non-connectable one that should be. W1 verifies this
 with a real diff instead of trusting the comment.
 
+## 1b. W1 results (2026-09-04, Workflow wf_090217f3-953)
+
+- **§1G resolved: ZERO real gaps.** W1a empirically round-tripped every one
+  of 65 connectable booking/reservations/ordering catalog surfaces through
+  the real `classify()` (via corpus fixtures + live tinker) — all 65
+  correctly categorize, whether via a hand-map hit or the
+  `PROMOTABLE_ROUTING_CLASS` fallback. All `*_HOSTS`/`*_PLATFORM` pairs
+  key-match exactly except the documented Square Online exception. No
+  action needed for booking/reservations/ordering.
+- **§1A (events) and §1B (social) both independently reconfirmed**, zero
+  false positives — the 14 events and 12 social platforms named in §1A/§1B
+  are the real, actionable list.
+- **§1C (item-URL grammar) resolved with live-verified implementation
+  specs for 9 of 10 platforms** (audiomack, beatport, deezer, dailymotion,
+  rumble, feature_fm, hypeddit, laylo, linkfire — full findings in the W1
+  transcript, condensed into W4's Workflow args below). **`orchard` is
+  CONFIRMED NOT A GAP** — `theorchard.com` is a B2B-only distributor
+  (Sony-owned label-services/delivery, login-gated "Workstation" dashboard)
+  with no public item or account pages at all; any real track a user
+  pastes already arrives as its DSP URL (Spotify/Apple Music/etc.) and
+  routes through that platform's existing arm. Do not build an orchard arm.
+  `spotify_podcasts.show` status still unconfirmed — resolve inline during
+  W4 implementation (check if the existing `spotify` key already handles
+  the `/show/` path, add a branch only if it doesn't).
+
 ## 2. Workstreams (dependency order)
 
 ### W1 — Recon closure + gap-list verification (Sonnet agents, parallel, read-only)
