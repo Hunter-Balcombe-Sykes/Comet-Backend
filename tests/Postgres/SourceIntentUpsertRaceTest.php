@@ -136,6 +136,7 @@ beforeEach(function () {
         resource_kind text,
         display_settings jsonb,
         created_by_catalog_digest text,
+        owner_scope text,
         created_at timestamptz,
         updated_at timestamptz,
         deleted_at timestamptz

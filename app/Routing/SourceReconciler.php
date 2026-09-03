@@ -670,6 +670,11 @@ class SourceReconciler
             'last_refresh_status' => ConnectionPayload::contentIsOwed($surfaceKey, $routingClass) ? 'pending' : 'ok',
         ]);
         $connection->created_by_catalog_digest = CompiledCatalog::digest();
+        // Whose this is, decided from the origin while we still have it. A week
+        // later the context is gone and the answer costs a re-scrape or a guess.
+        // Non-fillable, like the digest above: system-written provenance, never
+        // mass-assigned from a request.
+        $connection->owner_scope = RoutingCapabilityGate::ownerScopeFor($user, $context->origin);
 
         // #W1-LIFE-3 / #W2-LIFE-2. The read above and this INSERT are a
         // classic pre-read/write gap: a concurrent reconcile for the same

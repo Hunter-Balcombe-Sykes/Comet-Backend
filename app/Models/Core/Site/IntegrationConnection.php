@@ -22,6 +22,7 @@ use Illuminate\Validation\ValidationException;
  * @property bool $is_primary The sitepage CTA choice for this user+routing_class (unique per class where true).
  * @property string|null $created_by_detector Detector id that auto-created this row (P2 router provenance).
  * @property string|null $created_by_catalog_digest Catalog artefact digest at auto-create time.
+ * @property string|null $owner_scope 'self' (the account holder's own) or 'workplace' (the venue they work at). NULL = never asked, the state of every row written before 2026-09-03. System-written by RoutingCapabilityGate::ownerScopeFor — NOT fillable, assigned explicitly like created_by_catalog_digest.
  * @property string $resource_id
  * @property string $visibility 'visible' | 'hidden' (A.3): hidden pre-scrape rows ingest but touch no consumer-facing surface until revealed.
  * @property string|null $canonical_key Normalized identity key for account-row dedupe (FOUND-14); NULL for event- and link- prefixed resource rows.

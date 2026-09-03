@@ -14,6 +14,7 @@ use App\Routing\IriCanonicalizer;
 use App\Routing\LinkProjector;
 use App\Routing\LinkRoutingService;
 use App\Routing\Projection;
+use App\Routing\RoutingCapabilityGate;
 use App\Routing\RoutingContext;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Accounts\AccountCapabilitySet;
@@ -79,6 +80,21 @@ class GoogleBusinessAutoSync
         private readonly LinkProjector $projector,
         private readonly LinkRoutingService $routing,
     ) {}
+
+    /**
+     * A Google listing on an account whose workplace is not its identity is the
+     * VENUE's listing (FreshaWorkplaceLinker attaches it), so what this lane
+     * writes from it belongs to the workplace. For a partna that is now only
+     * the booking link — socials are gated off above, reservations and ordering
+     * are capability-gated — which is exactly the row the "Book at Anseo Studio"
+     * copy needs to distinguish from "Book with me".
+     */
+    protected function autoSyncOwnerScope(string $userId): string
+    {
+        $user = User::find($userId);
+
+        return $user === null ? 'self' : RoutingCapabilityGate::ownerScopeFor($user, 'google_business');
+    }
 
     /**
      * Contract: $userId MUST be server-derived — the job payload the current

@@ -137,7 +137,7 @@ trait BuildsAutoSyncFindings
         //
         // surface_key is what the mutator resolves either input to, so keying on
         // it is exactly equivalent for the 78 legacy slugs and correct for the rest.
-        IntegrationConnection::updateOrCreate(
+        $connection = IntegrationConnection::updateOrCreate(
             [
                 'user_id' => $userId,
                 'surface_key' => LegacyPlatformMap::surfaceFor($platform) ?? $platform,
@@ -152,6 +152,31 @@ trait BuildsAutoSyncFindings
                 'consecutive_failures' => 0,
             ],
         );
+
+        // Whose this is (owner_scope). Not fillable, so it is assigned after
+        // the upsert rather than in the attribute array — same handling as
+        // SourceReconciler gives created_by_catalog_digest.
+        //
+        // Fill-once: a re-sync must not silently relabel a connection the user
+        // has since taken ownership of, and this lane re-runs nightly.
+        if ($connection->owner_scope === null) {
+            $connection->owner_scope = $this->autoSyncOwnerScope($userId);
+            $connection->saveQuietly();
+        }
+    }
+
+    /**
+     * Whose the connections this lane writes belong to.
+     *
+     * Defaults to 'self' — the safe direction. A wrong 'self' is the status quo
+     * (the page says a bare "Book now"); a wrong 'workplace' would put someone
+     * else's name on a person's own booking button. Only a lane that KNOWS it
+     * is reading the workplace overrides this, and GoogleBusinessAutoSync is
+     * the one that does.
+     */
+    protected function autoSyncOwnerScope(string $userId): string
+    {
+        return 'self';
     }
 
     /**

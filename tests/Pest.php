@@ -1177,6 +1177,9 @@ function setupSitesTable(): void
         display_settings TEXT NULL,
         canonical_key TEXT NULL,
         resource_kind TEXT NULL CHECK (resource_kind IS NULL OR resource_kind IN (\'event\',\'link\')),
+        -- 20260903160000: whose this is. NULL = never asked, which is every row
+        -- written before that migration; the CHECK mirrors Postgres\'s.
+        owner_scope TEXT NULL CHECK (owner_scope IS NULL OR owner_scope IN (\'self\',\'workplace\')),
         -- #PARITY-1: 20260729150016..150018 sets created_at/updated_at NOT
         -- NULL in Postgres. Mirrored here instead of left nullable — the
         -- earlier DECLINED note (this comment used to live here) rested on
@@ -1197,7 +1200,7 @@ function setupSitesTable(): void
     // Plan 5 conditional-request validators — defensive ALTER for any pre-existing
     // test table (SQLite's CREATE TABLE IF NOT EXISTS won't add columns to an
     // already-created table within a run).
-    foreach (['refresh_etag', 'refresh_last_modified', 'canonical_key', 'resource_kind', 'display_settings'] as $vCol) {
+    foreach (['refresh_etag', 'refresh_last_modified', 'canonical_key', 'resource_kind', 'display_settings', 'owner_scope'] as $vCol) {
         try {
             DB::connection('pgsql')->statement("ALTER TABLE site.platform_connections ADD COLUMN IF NOT EXISTS {$vCol} TEXT NULL");
         } catch (Throwable $e) {
