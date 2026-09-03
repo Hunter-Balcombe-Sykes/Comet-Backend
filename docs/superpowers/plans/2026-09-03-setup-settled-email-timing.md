@@ -58,7 +58,7 @@ Adds the finer-grained signal. `isDone()` keeps its exact current meaning, re-ex
   public function isDone(PreAccountBuild $build, array $events, array $media): bool;
   ```
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/Feature/PreAccount/BuildProgressOutcomeTest.php`:
 
@@ -152,12 +152,12 @@ function setupPreAccountBuildEventsTable(): void
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `./vendor/bin/pest tests/Feature/PreAccount/BuildProgressOutcomeTest.php`
 Expected: FAIL — `Call to undefined method App\Services\PreAccount\BuildProgressReader::outcome()`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `app/Services/PreAccount/BuildProgressReader.php`, add the constants next to the existing ones and insert `outcome()` immediately above `isDone()`. Then replace `isDone()`'s **body** — keep its signature and docblock — with a delegation.
 
@@ -222,7 +222,7 @@ Everything from `if ($build->build_state !== PreAccountBuild::STATE_READY || $bu
 
 ⚠️ **Do not reorder the ceiling check ahead of the settle check.** `outcome()` deliberately asks "did it finish?" before "did it run out of time?", which is the opposite of the old short-circuit order. Getting this wrong makes any build read at minute 11+ report `ceiling` and silently kills the email for every slow-but-successful build.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `./vendor/bin/pest tests/Feature/PreAccount/BuildProgressOutcomeTest.php`
 Expected: PASS, 5 tests.
@@ -232,7 +232,7 @@ Then confirm nothing regressed for the existing readers:
 Run: `./vendor/bin/pest tests/Feature/PreAccount`
 Expected: PASS, 364+ tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 php artisan pint app/Services/PreAccount/BuildProgressReader.php tests/Feature/PreAccount/BuildProgressOutcomeTest.php
