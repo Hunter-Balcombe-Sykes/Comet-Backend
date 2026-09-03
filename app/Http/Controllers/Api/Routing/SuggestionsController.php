@@ -754,8 +754,17 @@ class SuggestionsController extends ApiController
             // the default branch below would do — the same question, with no
             // hint that anything was attempted.
             'unservable' => "We couldn't reach this {$name}. Try again?",
-            'below_threshold' => "Is this your {$name}?",
-            default => "Add this {$name} link?",
+            // Every remaining suggestion asks the SAME question, because it is
+            // the same question: PlacementPolicy's ordinary Choose says
+            // "confirm this is yours" and carries no block reason at all, and
+            // the seeder's suggest-only downgrade stamps 'needs_confirmation'
+            // to say the same thing about a probed store. Until 2026-09-03
+            // these were two arms — an ownership question for a link that fell
+            // under a threshold, and "Add this X link?" for one that did not —
+            // and with the thresholds deleted the second copy would have gone
+            // to nearly every row, asking people to add a link they had already
+            // published rather than to confirm it was theirs.
+            default => "Is this your {$name}?",
         };
     }
 

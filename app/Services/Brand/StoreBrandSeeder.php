@@ -110,7 +110,7 @@ class StoreBrandSeeder
         // suggestion — "Is this your Shopify?" in the inbox — and the accept
         // path builds the store through this same seeder.
         if ($suggestOnly && $placement->verdict === Verdict::Place) {
-            $placement = (new Placement(Verdict::Choose, $placement->surfaceKey, $placement->identifier, 'below_threshold', 'offered from a pasted link'))
+            $placement = (new Placement(Verdict::Choose, $placement->surfaceKey, $placement->identifier, 'needs_confirmation', 'offered from a pasted link'))
                 // Carry the name AND icon across the downgrade. This rebuild
                 // is positional, so a new Placement field is silently dropped
                 // here unless it is named — which is exactly how the store's

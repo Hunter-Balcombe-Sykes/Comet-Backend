@@ -66,11 +66,11 @@ it('never places a surface for anything in the negative corpus', function () {
 
         if ($projection->matched()) {
             $failures[] = sprintf(
-                '%s → %s (id %s, confidence %d) — expected NO match [%s]',
+                '%s → %s (id %s, detector %s) — expected NO match [%s]',
                 $case['url'],
                 $projection->surfaceKey,
                 $projection->identifier ?? '-',
-                $projection->confidence,
+                $projection->detectorId ?? '-',
                 $case['reason'],
             );
         }

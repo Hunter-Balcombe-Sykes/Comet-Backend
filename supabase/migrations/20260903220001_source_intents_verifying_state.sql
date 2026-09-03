@@ -54,9 +54,9 @@ BEGIN
     ALTER TABLE routing.source_intents
         ADD CONSTRAINT source_intents_block_reason_check
         CHECK (block_reason IS NULL OR block_reason IN (
-            'gate', 'capability', 'conflict', 'cap_reached', 'below_threshold',
+            'gate', 'capability', 'conflict', 'cap_reached', 'needs_confirmation',
             'tombstoned', 'unservable', 'invalid_identifier', 'duplicate',
-            'not_found'
+            'not_found', 'sibling_branch'
         ));
 END $$;
 

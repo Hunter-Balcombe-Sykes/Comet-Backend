@@ -30,12 +30,16 @@ final readonly class Placement
          */
         public ?string $identifierLabel = null,
         /**
-         * The effective (context-adjusted) confidence the policy compared to
-         * its thresholds, and which band it landed in ('auto'|'suggest').
-         * Set only on Place/Choose — the verdicts an inbox card can render —
-         * so the wire can say "preselected" without re-deriving thresholds.
+         * Which band this landed in, 'auto' or 'suggest' — set only on
+         * Place/Choose, the verdicts an inbox card can render.
+         *
+         * 'auto' now means the matched rule CAPTURED an identifier: we can name
+         * the account, so the row arrives pre-ticked (owner, 2026-09-03). It
+         * used to mean "scored above the class's auto threshold", and the
+         * accompanying `confidence` int was deleted with the rest of that
+         * system — a band derived from a number nobody could tune was a
+         * pre-tick nobody could explain.
          */
-        public ?int $confidence = null,
         public ?string $band = null,
         /**
          * The identified thing's own icon URL (a store's favicon/logo off the
@@ -68,7 +72,6 @@ final readonly class Placement
             $this->explanation,
             $this->conflictingConnectionId,
             $label,
-            $this->confidence,
             $this->band,
             $this->identifierIcon,
         );
@@ -94,7 +97,6 @@ final readonly class Placement
             $this->explanation,
             $this->conflictingConnectionId,
             $this->identifierLabel,
-            $this->confidence,
             $this->band,
             $icon,
         );

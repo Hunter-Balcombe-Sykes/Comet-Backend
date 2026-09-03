@@ -3535,8 +3535,6 @@ function setupRoutingTables(): void
         evidence TEXT NOT NULL DEFAULT \'{}\',
         detector_id TEXT NULL,
         surface_key TEXT NULL,
-        confidence INTEGER NULL CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 100)),
-        margin INTEGER NULL,
         verdict TEXT NULL CHECK (verdict IS NULL OR verdict IN (\'place\', \'choose\', \'note\', \'hold\', \'reject\')),
         block_reason TEXT NULL,
         catalog_digest TEXT NULL,
@@ -3556,12 +3554,11 @@ function setupRoutingTables(): void
         canonical_url TEXT NULL,
         state TEXT NOT NULL DEFAULT \'proposed\' CHECK (state IN (\'proposed\', \'verifying\', \'applied\', \'blocked\', \'dismissed\', \'superseded\')),
         block_reason TEXT NULL CHECK (block_reason IS NULL OR block_reason IN (
-            \'gate\', \'capability\', \'conflict\', \'cap_reached\', \'below_threshold\',
+            \'gate\', \'capability\', \'conflict\', \'cap_reached\', \'needs_confirmation\',
             \'tombstoned\', \'unservable\', \'invalid_identifier\', \'duplicate\', \'not_found\'
         )),
         conflicting_connection_id TEXT NULL,
         connection_id TEXT NULL,
-        confidence INTEGER NULL CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 100)),
         band TEXT NULL CHECK (band IS NULL OR band IN (\'auto\', \'suggest\')),
         origin TEXT NOT NULL CHECK (origin IN (\'paste\', \'website_import\', \'link_in_bio\', \'bio_harvest\', \'google_business\', \'staff\', \'reproject\', \'commerce_probe\')),
         import_run_id TEXT NULL,

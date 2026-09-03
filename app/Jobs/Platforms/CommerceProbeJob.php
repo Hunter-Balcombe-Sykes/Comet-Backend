@@ -358,11 +358,11 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
             ->where('id', $this->acceptedIntentId)
             ->where('user_id', $this->userId)
             ->whereIn('state', ['proposed', 'blocked'])
-            // 'below_threshold' and NULL both mean "recognised, nothing
+            // 'needs_confirmation' and NULL both mean "recognised, nothing
             // decided"; re-settling an existing 'unservable' keeps a retry
             // idempotent.
             ->where(fn ($q) => $q->whereNull('block_reason')
-                ->orWhereIn('block_reason', ['below_threshold', 'unservable']))
+                ->orWhereIn('block_reason', ['needs_confirmation', 'unservable']))
             ->update([
                 'state' => 'blocked',
                 'block_reason' => 'unservable',

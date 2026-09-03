@@ -27,8 +27,6 @@ function tmtBandcampProjection(): Projection
         surfaceKey: 'bandcamp.artist',
         detectorId: 'test',
         captures: [],
-        confidence: 90,
-        margin: 100,
         identifier: 'kimcosmik',
         reason: null,
     );

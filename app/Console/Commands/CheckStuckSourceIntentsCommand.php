@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\DB;
 // precedent.
 //
 // Deliberately an AGGREGATE alarm, not per-row: Verdict::intentState() only
-// ever produces 'proposed' (block_reason='below_threshold') or 'blocked'
+// ever produces 'proposed' (block_reason='needs_confirmation') or 'blocked'
 // (block_reason='conflict'|'cap_reached') — see PlacementPolicy/
 // SourceReconciler. One stuck intent is a user who hasn't answered a question
 // yet, not an incident. A mass of them, aged past the gate, is a detector

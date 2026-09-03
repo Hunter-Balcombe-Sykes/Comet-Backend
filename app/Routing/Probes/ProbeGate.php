@@ -31,15 +31,6 @@ use Illuminate\Support\Facades\Cache;
  */
 class ProbeGate
 {
-    /**
-     * Confidence a successful probe reports. Above `shop`'s auto threshold
-     * (75) with the harvest penalty (10) still applied, because a
-     * platform-only endpoint answering with a well-formed body is direct
-     * evidence rather than a pattern guess — but deliberately not 100: a
-     * probed storefront is still a machine's reading of someone's site.
-     */
-    public const PROBE_CONFIDENCE = 90;
-
     /** Answers kept this long, hit or miss. */
     private const COOLDOWN_MINUTES = 720;
 

@@ -243,12 +243,14 @@ it('leaves a surface we have no shape on file for exactly as it was', function (
     $projection = projectFor('https://www.easi.com.au/whatever');
     expect(LinkValidity::l1($projection))->toBe(LinkValidity::WEAK);
 
-    // It still lands on Note — but via the CONFIDENCE floor, which is where a
-    // host-only match has always landed (HostOnlyDetectorFloorTest pins that
-    // every recovered host-only match scores below every suggest threshold).
-    // The distinction the reason carries is the whole point: Gate 3 did not
-    // fire, so nothing here refused the link on shape grounds.
+    // Gate 3 did not fire, and that absence is the whole assertion: a surface
+    // we hold no shape for is one we have no standing to refuse, so the link
+    // goes on to be asked about like any other. It arrives as a Choose with NO
+    // block reason — under the confidence system this same link was stopped by
+    // the floor and reasoned 'needs_confirmation', a refusal we could not actually
+    // justify.
     $placement = (new PlacementPolicy)->decide($projection, RoutingContext::forUser(l1GateUser(), 'paste'));
-    expect($placement->blockReason)->not->toBe('invalid_identifier')
-        ->and($placement->blockReason)->toBe('below_threshold');
+    expect($placement->blockReason)->toBeNull()
+        ->and($placement->verdict)->toBe(Verdict::Choose)
+        ->and($placement->band)->toBe('suggest');
 });

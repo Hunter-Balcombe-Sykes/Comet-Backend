@@ -134,7 +134,7 @@ it('bounds the shape so a pathological URL cannot become the row', function () {
 it('does not file a link the router successfully placed', function () {
     app(UnmatchedDomains::class)->record(
         unmatchedIri('acuity.com', '/schedule/abc'),
-        new Projection('acuity.book', 'acuity-primary', [], 95, 40, 'abc', null),
+        new Projection('acuity.book', 'acuity-primary', [], 'abc', null),
     );
 
     expect(DB::connection('pgsql')->table('catalog.unmatched_domains')->count())->toBe(0);

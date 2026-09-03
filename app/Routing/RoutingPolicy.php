@@ -3,78 +3,28 @@
 namespace App\Routing;
 
 /**
- * Confidence thresholds, per routing class, on the projector's 0–100 scale
- * (plan §2: the specificity formula is a build-time gate; THIS is the
- * runtime write gate). Retuned from real traffic via `detector_observations`
- * — the numbers below are the launch defaults, deliberately conservative for
- * the classes where a wrong write is user-visible on the sitepage.
+ * What remains of the routing policy after the confidence system was deleted
+ * (2026-09-03): one rule, about one class.
  *
- * Two knobs per class:
- *   auto   — at or above this, a direct paste auto-applies
- *   suggest— at or above this, it becomes a confirmable suggestion
- *            (below it, the link is kept as a plain link item and nothing
- *            is proposed at all)
+ * This class used to hold a per-routing-class threshold table — auto 70–80,
+ * suggest 45–55, a 10-point penalty for harvested links, a 10-point minimum
+ * margin, a 15-point discount for the signup dialog — and PlacementPolicy
+ * compared the projector's score against it to decide whether a link could be
+ * written. All of it is gone, and none of it is coming back under another name.
+ *
+ * The numbers were never measurable. Their own docblock said they would be
+ * "retuned from real traffic via detector_observations", and they never were,
+ * because there is no observation that tells you whether 55 should have been
+ * 52 — a wrong write and a missed write both look like one row. What they
+ * actually encoded was a proxy for a structural question, badly: "is this URL
+ * specific enough to name an account?" That question is now asked directly, of
+ * the catalog, by LinkValidity, and answered yes or no rather than 59.
+ *
+ * The one rule left is not a threshold and never was.
  */
 class RoutingPolicy
 {
-    /** @var array<string, array{auto: int, suggest: int}> */
-    private const THRESHOLDS = [
-        // A wrong CTA is the most visible error a sitepage can make: a booking
-        // or ordering button pointing at the wrong venue. Highest bar.
-        'booking' => ['auto' => 80, 'suggest' => 55],
-        'reservations' => ['auto' => 80, 'suggest' => 55],
-        'ordering' => ['auto' => 80, 'suggest' => 55],
-        'shop' => ['auto' => 75, 'suggest' => 50],
-        // Content/social are cheap to correct and high-volume; a lower bar
-        // keeps the common case one-step.
-        'social' => ['auto' => 70, 'suggest' => 45],
-        'content' => ['auto' => 70, 'suggest' => 45],
-        'events' => ['auto' => 72, 'suggest' => 50],
-        // A link item is the fallback, so "link" never needs a high bar.
-        'link' => ['auto' => 0, 'suggest' => 0],
-    ];
-
-    /** Margin below which two rules are considered too close to auto-apply. */
-    private const MIN_MARGIN = 10;
-
-    /** Harvested (not pasted) links need more confidence to write unattended. */
-    private const INDIRECT_PENALTY = 10;
-
-    /**
-     * Sign-up builds surface more and connect nothing (U17): a person
-     * answering the setup dialog can reject a marginal find in one click,
-     * so the floor for SHOWING a suggestion sits below the normal suggest
-     * threshold. The auto threshold itself is untouched — it still decides
-     * the band (pre-ticked or not), just never a self-serve connect.
-     */
-    private const SIGNUP_FLOOR_DISCOUNT = 15;
-
-    public static function autoThreshold(string $routingClass): int
-    {
-        return self::THRESHOLDS[$routingClass]['auto'] ?? 75;
-    }
-
-    public static function suggestThreshold(string $routingClass): int
-    {
-        return self::THRESHOLDS[$routingClass]['suggest'] ?? 50;
-    }
-
-    public static function signupSuggestFloor(string $routingClass): int
-    {
-        return max(0, self::suggestThreshold($routingClass) - self::SIGNUP_FLOOR_DISCOUNT);
-    }
-
-    public static function minMargin(): int
-    {
-        return self::MIN_MARGIN;
-    }
-
-    public static function indirectPenalty(): int
-    {
-        return self::INDIRECT_PENALTY;
-    }
-
-    /** The Ignore class never writes, whatever the confidence (plan §2). */
+    /** The Ignore class never writes — no rule, no score, no exceptions. */
     public static function isIgnored(string $routingClass): bool
     {
         return $routingClass === 'ignore';

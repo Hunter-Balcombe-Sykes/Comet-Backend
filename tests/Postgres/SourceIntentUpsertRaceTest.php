@@ -75,12 +75,11 @@ beforeEach(function () {
             CHECK (state IN (\'proposed\', \'applied\', \'blocked\', \'dismissed\', \'superseded\')),
         block_reason text
             CHECK (block_reason IS NULL OR block_reason IN (
-                \'gate\', \'capability\', \'conflict\', \'cap_reached\', \'below_threshold\',
+                \'gate\', \'capability\', \'conflict\', \'cap_reached\', \'needs_confirmation\',
                 \'tombstoned\', \'unservable\', \'invalid_identifier\', \'duplicate\'
             )),
         conflicting_connection_id uuid,
         connection_id uuid,
-        confidence smallint CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 100)),
         origin text NOT NULL
             CHECK (origin IN (\'paste\', \'website_import\', \'link_in_bio\', \'bio_harvest\', \'google_business\', \'staff\', \'reproject\', \'commerce_probe\')),
         import_run_id uuid,

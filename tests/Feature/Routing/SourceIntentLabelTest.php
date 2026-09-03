@@ -41,7 +41,7 @@ it('keeps a label and icon an earlier lane earned when a later bare lane re-adva
             Verdict::Choose,
             'shopify.store',
             '23504463',
-            'below_threshold',
+            'needs_confirmation',
             'offered from a pasted link',
             identifierLabel: 'ST. ALi Coffee Roasters',
             identifierIcon: 'https://stali.com.au/favicon.ico',
@@ -52,7 +52,7 @@ it('keeps a label and icon an earlier lane earned when a later bare lane re-adva
 
     // The myshopify.com detector's lane: same surface, same identifier, no name.
     $reconciler->reconcile(
-        new Placement(Verdict::Choose, 'shopify.store', '23504463', 'below_threshold', 'offered from a pasted link'),
+        new Placement(Verdict::Choose, 'shopify.store', '23504463', 'needs_confirmation', 'offered from a pasted link'),
         $ctx,
         $iri,
     );

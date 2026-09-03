@@ -56,7 +56,6 @@ it('records an unreachable probe as a note, not silence', function () {
     expect($observation->source)->toBe('commerce_probe');
     expect($observation->verdict)->toBe('note');
     expect($observation->block_reason)->toBe('probe_unreachable');
-    expect($observation->confidence)->toBeNull();
 });
 
 it('suggests a scanned product\'s STORE beside the product item — never auto-connects it (T7)', function () {

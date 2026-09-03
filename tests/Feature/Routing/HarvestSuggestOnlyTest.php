@@ -81,14 +81,38 @@ it('suggests a suggest-band social link from a harvest origin instead of auto-pl
     expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'youtube.channel')->count())->toBe(0);
 });
 
-// Direct paste keeps the interactive flow — the dashboard's confirm UI is a
-// wire contract (RoutingController), and paste already auto-applies at 70+
-// via isConfirmedByUser().
-it('keeps the suggest band as a suggestion on a direct paste', function () {
+// Direct paste keeps the interactive flow, and it is the ONLY lane that still
+// reaches Place — isConfirmedByUser() is what separates "the person typed this
+// link and pressed add" from anything a harvester turned up.
+//
+// Rewritten 2026-09-03 with the confidence system. This used to assert that a
+// paste in the SUGGEST band (70+ auto-applied, below that asked) stayed a
+// question. There is no band to sit below now, and the reason is the point: 70
+// was never measurable. What decides it instead is whether the rule named an
+// account — kimcosmik.bandcamp.com names `kimcosmik` in the subdomain, so a
+// person pasting their own Bandcamp gets it connected rather than being asked
+// to confirm a fact we already read off the URL.
+it('connects a pasted link that names an account', function () {
     $pro = createTenant('paste-band');
 
     $out = app(LinkRoutingService::class)->route(
         'https://kimcosmik.bandcamp.com/',
+        RoutingContext::forUser($pro, 'paste'),
+    );
+
+    expect($out['verdict'])->toBe('place')
+        ->and($out['connectionId'])->not->toBeNull();
+});
+
+it('still asks about a pasted link that matched a shape but named nobody', function () {
+    // The review path a paste can still take, pinned against a REAL URL rather
+    // than a hand-picked score. Square's appointments detectors constrain a
+    // path — so Gate 3 passes and this is a genuine booking page — but declare
+    // no capture group, so nothing here can say WHOSE. Choose, not Place.
+    $pro = createTenant('paste-nameless');
+
+    $out = app(LinkRoutingService::class)->route(
+        'https://book.squareup.com/appointments/7rn54rnv21ng7n',
         RoutingContext::forUser($pro, 'paste'),
     );
 

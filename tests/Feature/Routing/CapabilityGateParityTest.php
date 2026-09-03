@@ -149,8 +149,6 @@ it('gives PlacementPolicy::decide() and SuggestionApplier::apply() the same verd
         surfaceKey: $surfaceKey,
         detectorId: cgpDetectorIdFor($surfaceKey),
         captures: [],
-        confidence: 100,
-        margin: 100,
         identifier: 'cgp-test-id',
         reason: null,
     );

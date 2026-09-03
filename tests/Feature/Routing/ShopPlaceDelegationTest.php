@@ -126,7 +126,7 @@ it('a dismissed tenant-store suggestion tombstones BOTH identifier schemes', fun
         'identifier' => '79173517335',
         'canonical_url' => 'https://tashsultanamerch.myshopify.com/',
         'state' => 'proposed',
-        'block_reason' => 'below_threshold',
+        'block_reason' => 'needs_confirmation',
         'origin' => 'commerce_probe',
         'first_seen_at' => now(),
         'created_at' => now(),

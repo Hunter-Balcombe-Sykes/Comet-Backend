@@ -52,8 +52,8 @@ function preScrapeReconcile(User $user, string $band): void
 {
     $iri = app(IriCanonicalizer::class)->canonicalize('https://www.instagram.com/someone');
     app(SourceReconciler::class)->reconcile(
-        new Placement(Verdict::Choose, 'instagram.profile', 'someone', 'below_threshold', 'held for setup review',
-            confidence: $band === 'auto' ? 75 : 50, band: $band),
+        new Placement(Verdict::Choose, 'instagram.profile', 'someone', 'needs_confirmation', 'held for setup review',
+            band: $band),
         RoutingContext::forUser($user, 'link_in_bio'),
         $iri,
     );
@@ -125,7 +125,7 @@ it('does not pre-scrape for a claimed user', function () {
 
     $iri = app(IriCanonicalizer::class)->canonicalize('https://www.instagram.com/someone');
     app(SourceReconciler::class)->reconcile(
-        new Placement(Verdict::Choose, 'instagram.profile', 'someone', 'below_threshold', 'too close', confidence: 75, band: 'auto'),
+        new Placement(Verdict::Choose, 'instagram.profile', 'someone', 'needs_confirmation', 'too close', band: 'auto'),
         RoutingContext::forUser($pro, 'link_in_bio'),
         $iri,
     );
@@ -149,8 +149,8 @@ it('dispatches the Fresha listing-candidates job at any band', function () {
 
     $iri = app(IriCanonicalizer::class)->canonicalize('https://www.fresha.com/a/anseo-studio-v0v92jna');
     app(SourceReconciler::class)->reconcile(
-        new Placement(Verdict::Choose, 'fresha.book', 'anseo-studio-v0v92jna', 'below_threshold', 'held for setup review',
-            confidence: 50, band: 'suggest'),
+        new Placement(Verdict::Choose, 'fresha.book', 'anseo-studio-v0v92jna', 'needs_confirmation', 'held for setup review',
+            band: 'suggest'),
         RoutingContext::forUser($user, 'link_in_bio'),
         $iri,
     );
@@ -169,8 +169,8 @@ it('skips the Fresha venue read once a candidate already exists', function () {
 
     $iri = app(IriCanonicalizer::class)->canonicalize('https://www.fresha.com/a/anseo-studio-v0v92jna');
     app(SourceReconciler::class)->reconcile(
-        new Placement(Verdict::Choose, 'fresha.book', 'anseo-studio-v0v92jna', 'below_threshold', 'held for setup review',
-            confidence: 50, band: 'suggest'),
+        new Placement(Verdict::Choose, 'fresha.book', 'anseo-studio-v0v92jna', 'needs_confirmation', 'held for setup review',
+            band: 'suggest'),
         RoutingContext::forUser($user, 'link_in_bio'),
         $iri,
     );

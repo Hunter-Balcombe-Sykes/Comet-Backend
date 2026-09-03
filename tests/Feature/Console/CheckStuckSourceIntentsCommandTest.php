@@ -32,10 +32,9 @@ function seedSourceIntent(array $overrides = []): string
         'identifier' => 'store-'.$id,
         'canonical_url' => null,
         'state' => 'proposed',
-        'block_reason' => 'below_threshold',
+        'block_reason' => 'needs_confirmation',
         'conflicting_connection_id' => null,
         'connection_id' => null,
-        'confidence' => 60,
         // 'import' is NOT in routing.source_intents' origin domain
         // (20260727120000_routing_schema.sql). This seeded an invalid row that
         // only passed because the SQLite stand-in had no CHECK — the exact

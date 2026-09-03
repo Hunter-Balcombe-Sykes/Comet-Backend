@@ -38,7 +38,7 @@ beforeEach(function () {
     setupPreAccountBuildEventsTable();
 });
 
-function seedIntent(string $userId, array $overrides = []): string
+function seedLaneIntent(string $userId, array $overrides = []): string
 {
     $id = (string) Str::uuid();
 
@@ -66,7 +66,7 @@ function seedIntent(string $userId, array $overrides = []): string
 it('parks the intent and answers 202 rather than connecting a link it has not checked', function () {
     Queue::fake();
     $pro = createTenant('verify-park', ['account_type' => 'business', 'sector' => 'restaurant']);
-    $intentId = seedIntent($pro->id, verifiableIntent());
+    $intentId = seedLaneIntent($pro->id, verifiableLaneIntent());
 
     actingAsUser($pro)
         ->postJson("/api/routing/suggestions/{$intentId}/accept")
@@ -86,7 +86,7 @@ it('connects with the unverified flag when the brand cannot be checked at all', 
     // existing link: a brand we have not taught it about behaves exactly as it
     // did before, plus a flag.
     $pro = createTenant('verify-classc', ['account_type' => 'business', 'sector' => 'restaurant']);
-    $intentId = seedIntent($pro->id, ['state' => 'verifying']);
+    $intentId = seedLaneIntent($pro->id, ['state' => 'verifying']);
 
     (new VerifyLinkJob((string) $pro->id, $intentId))->handle(app(LinkVerifier::class), app(SuggestionApplier::class));
 
@@ -99,7 +99,7 @@ it('connects with the unverified flag when the brand cannot be checked at all', 
 
 it('connects with the verified flag when the page is found', function () {
     $pro = createTenant('verify-found', ['account_type' => 'business', 'sector' => 'restaurant']);
-    $intentId = seedIntent($pro->id, ['state' => 'verifying']);
+    $intentId = seedLaneIntent($pro->id, ['state' => 'verifying']);
 
     $verifier = Mockery::mock(LinkVerifier::class);
     $verifier->shouldReceive('verify')->once()->andReturn(VerificationVerdict::Found);
@@ -112,7 +112,7 @@ it('connects with the verified flag when the page is found', function () {
 
 it('refuses the save — and only this verdict does — when the page is definitively not there', function () {
     $pro = createTenant('verify-notfound', ['account_type' => 'business', 'sector' => 'restaurant']);
-    $intentId = seedIntent($pro->id, ['state' => 'verifying']);
+    $intentId = seedLaneIntent($pro->id, ['state' => 'verifying']);
 
     $verifier = Mockery::mock(LinkVerifier::class);
     $verifier->shouldReceive('verify')->once()->andReturn(VerificationVerdict::NotFound);
@@ -129,7 +129,7 @@ it('refuses the save — and only this verdict does — when the page is definit
 
 it('still saves the link when the job itself dies — a dead job is not evidence against a link', function () {
     $pro = createTenant('verify-failed', ['account_type' => 'business', 'sector' => 'restaurant']);
-    $intentId = seedIntent($pro->id, ['state' => 'verifying']);
+    $intentId = seedLaneIntent($pro->id, ['state' => 'verifying']);
 
     (new VerifyLinkJob((string) $pro->id, $intentId))->failed(new RuntimeException('queue died'));
 
@@ -141,7 +141,7 @@ it('still saves the link when the job itself dies — a dead job is not evidence
 
 it('claims the intent exactly once, so a redelivered job cannot connect twice', function () {
     $pro = createTenant('verify-once', ['account_type' => 'business', 'sector' => 'restaurant']);
-    $intentId = seedIntent($pro->id, ['state' => 'verifying']);
+    $intentId = seedLaneIntent($pro->id, ['state' => 'verifying']);
 
     $job = new VerifyLinkJob((string) $pro->id, $intentId);
     $job->handle(app(LinkVerifier::class), app(SuggestionApplier::class));
@@ -155,7 +155,7 @@ it('accepts straight through when there is nothing that could check the brand', 
     $pro = createTenant('verify-strong');
     // instagram.profile is Class C — it answers 200 for fabricated handles, so
     // there is no adapter and no question worth parking the accept for.
-    $intentId = seedIntent($pro->id, [
+    $intentId = seedLaneIntent($pro->id, [
         'surface_key' => 'instagram.profile',
         'routing_class' => 'social',
         'identifier' => 'someone',
@@ -170,7 +170,7 @@ it('accepts straight through when there is nothing that could check the brand', 
 });
 
 /** An intent on a brand the verifier actually has an adapter for. */
-function verifiableIntent(): array
+function verifiableLaneIntent(): array
 {
     expect(app(LinkVerifier::class)->canVerify('quandoo.reserve'))->toBeTrue();
 
@@ -185,7 +185,7 @@ function verifiableIntent(): array
 it('takes the same detour from the setup dialog — one rule, both accept lanes', function () {
     Queue::fake();
     $pro = createTenant('verify-setup', ['account_type' => 'business', 'sector' => 'restaurant']);
-    $intentId = seedIntent($pro->id, verifiableIntent());
+    $intentId = seedLaneIntent($pro->id, verifiableLaneIntent());
 
     // The dialog's Continue, not the inbox's Accept. It reports success — the
     // person's tick WAS accepted — and the pending half is our own check.
@@ -201,7 +201,7 @@ it('takes the same detour from the setup dialog — one rule, both accept lanes'
 it('tells the setup dialog a row is being checked, ticked and locked', function () {
     Queue::fake();
     $pro = createTenant('verify-wire', ['account_type' => 'business', 'sector' => 'restaurant']);
-    $intentId = seedIntent($pro->id, array_merge(verifiableIntent(), ['state' => 'verifying']));
+    $intentId = seedLaneIntent($pro->id, array_merge(verifiableLaneIntent(), ['state' => 'verifying']));
 
     $row = collect(app(SetupPayload::class)->for($pro)['passes'] ?? [])
         ->flatMap(fn (array $pass) => $pass['suggestions'] ?? [])

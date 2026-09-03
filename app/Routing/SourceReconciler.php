@@ -530,11 +530,10 @@ class SourceReconciler
         ];
 
         // Same coalesce-don't-clobber rule as identifier_label below: a later
-        // pass through a lane that carried no decision-band (a cap-reached
-        // Hold, a Note) must not blank the confidence an earlier Place/Choose
-        // recorded — the setup dialog preselects off `band`.
+        // pass through a lane that carried no band (a cap-reached Hold, a Note)
+        // must not blank the band an earlier Place/Choose recorded — the setup
+        // dialog preselects off it.
         if ($placement->band !== null) {
-            $fields['confidence'] = $placement->confidence;
             $fields['band'] = $placement->band;
         }
 
@@ -574,7 +573,6 @@ class SourceReconciler
             'state' => $verdict->intentState(),
             'block_reason' => $blockReason,
             'conflicting_connection_id' => $conflictId,
-            'confidence' => $placement->confidence,
             'band' => $placement->band,
             'origin' => $context->origin,
             'import_run_id' => $context->importRunId,

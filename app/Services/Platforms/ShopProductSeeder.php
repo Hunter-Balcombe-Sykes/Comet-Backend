@@ -7,7 +7,6 @@ use App\Models\Core\User\User;
 use App\Routing\IriCanonicalizer;
 use App\Routing\LinkObserver;
 use App\Routing\Placement;
-use App\Routing\Probes\ProbeGate;
 use App\Routing\Projection;
 use App\Routing\RoutingContext;
 use App\Routing\Verdict;
@@ -173,8 +172,7 @@ class ShopProductSeeder
      * the same reason ProbeOutcome::toProjection() is: no detector can match a
      * merchant's own domain, so there is no projection to be had. The decision
      * was GenericShopScraper reading the page's own Product markup — direct
-     * evidence rather than a pattern guess, which is what PROBE_CONFIDENCE
-     * means, with a full margin because nothing competed.
+     * evidence rather than a pattern guess, and nothing competed for it.
      *
      * Best-effort, like every observation write: LinkObserver swallows its own
      * failures by design, so this cannot fail a seed.
@@ -189,8 +187,6 @@ class ShopProductSeeder
             surfaceKey: ShopConnections::INDIVIDUAL_SURFACE,
             detectorId: null,
             captures: [],
-            confidence: ProbeGate::PROBE_CONFIDENCE,
-            margin: 100,
             identifier: isset($product['productId']) ? (string) $product['productId'] : null,
             reason: null,
         );
