@@ -107,8 +107,73 @@ it('pins how many connectable surfaces still have no rule beyond their domain', 
         }
     }
 
-    // 2026-09-03 baseline: 56. Every one of these connects a link it cannot
-    // name, refresh or verify — the Uber Eats "no restaurant name" card is one
-    // of them, not a bug of its own.
-    expect(count($weakSurfaces))->toBeLessThanOrEqual(56);
+    // 2026-09-03: 55 before the pattern fleet, 9 after. Every surface still in
+    // this list connects a link it cannot name, refresh or verify — which is
+    // the Uber Eats "no restaurant name" card, not a bug of its own.
+    //
+    // The nine that remain are remains BY DECISION, not by omission:
+    //   easi.order        the brand folded into HungryPanda; its store host is
+    //                     NXDOMAIN, so there is no format left to write.
+    //   ovatu.book        no example URL that resolves could be found.
+    //   eat_app.reserve   venue pages and country/city discovery pages share
+    //                     one flat root namespace with no separating shape.
+    //   oztix.tickets     its per-venue URLs are transactional booking
+    //   ticketek.tickets  sessions and one-off events, not persistent pages.
+    //   shortcuts.book    not yet researched.
+    //   skool.community   detected by signal, not by a registrable host.
+    //   squarespace/woocommerce.store  own-domain whitelabel: the customer's
+    //                     store lives on their OWN domain, so it is the
+    //                     storefront arm's job, not a detector's (decision 3).
+    //
+    // RAISE this only with a reason. The direction of travel is down.
+    expect(count($weakSurfaces))->toBeLessThanOrEqual(9);
+})->group('catalog');
+
+/**
+ * The fleet's own work, spot-checked against URLs its agents verified live.
+ * A regex that compiles and a regex that matches the brand's real pages are
+ * different claims, and only the second one is worth anything.
+ */
+it('passes the real page shapes the pattern fleet added', function () {
+    $cases = [
+        'https://www.quandoo.com.au/place/ricks-place-92706' => 'quandoo.reserve',
+        'https://resy.com/cities/new-york-ny/venues/carbone' => 'resy.reserve',
+        'https://www.doordash.com/store/mission-ranch-restaurant-mission-viejo-954502' => 'doordash.order',
+        'https://deliveroo.co.uk/menu/london/enfield/the-meeting-bar-and-restaurant' => 'deliveroo.order',
+        'https://www.thefork.com/restaurant/confraria-sushi-cascais-r718637' => 'thefork.reserve',
+        'https://wolt.com/en/fin/helsinki/restaurant/noodle-story-freda' => 'wolt.order',
+        'https://www.styleseat.com/m/some-stylist' => 'styleseat.book',
+        'https://www.vagaro.com/pinktoesnailbar' => 'vagaro.book',
+        'https://order.toasttab.com/online/toast-trattoria-omaha' => 'toast.order',
+    ];
+
+    foreach ($cases as $url => $surfaceKey) {
+        $projection = projectFor($url);
+
+        expect($projection->surfaceKey)->toBe($surfaceKey, $url)
+            ->and(LinkValidity::l1($projection))->toBe(LinkValidity::PASS, $url)
+            ->and($projection->identifier)->not->toBeEmpty($url);
+    }
+})->group('catalog');
+
+/**
+ * The other half, and the one that actually protects users: a brand's own
+ * marketing and discovery pages must NOT read as somebody's account. These are
+ * real URLs from the same brands.
+ */
+it('does not read a brand marketing or discovery page as an account', function () {
+    $urls = [
+        'https://www.doordash.com/food-delivery/new-york-city-ny-restaurants/',
+        'https://deliveroo.co.uk/restaurants/london/the-city',
+        'https://resy.com/cities/new-york-ny',
+        'https://www.thefork.com/restaurants/new-york-c665788',
+        'https://wolt.com/en/fin/helsinki',
+        'https://www.vagaro.com/pricing',
+        'https://www.zomato.com/bangalore/collections',
+        'https://www.quandoo.com.au/en/hamburg',
+    ];
+
+    foreach ($urls as $url) {
+        expect(LinkValidity::l1(projectFor($url)))->not->toBe(LinkValidity::PASS, $url);
+    }
 })->group('catalog');
