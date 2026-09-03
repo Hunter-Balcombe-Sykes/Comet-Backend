@@ -15,11 +15,16 @@
 -- is written. Both predicate columns come from 20260903170000, so that file
 -- MUST stay ordered ahead of this one.
 --
--- Single statement, no CONCURRENTLY (matching what is actually on dev), so this
--- file is safe to apply from zero — supabase/migrations/CONVENTIONS.md §1.
+-- Single statement, alone in its file, so it is safe to apply from zero even
+-- with CONCURRENTLY — supabase/migrations/CONVENTIONS.md §1.
 --
--- ROLLBACK: DROP INDEX IF EXISTS "core"."pre_account_builds_settle_sweep_idx";
+-- CONCURRENTLY added 2026-09-04 (guard:no-unsafe-migrations Check 1) — dev's
+-- live index was built without it when this was applied ad hoc (see the
+-- recovery story above), but CONCURRENTLY only changes how the index is
+-- built, not its resulting definition, so this stays a no-op against dev.
+--
+-- ROLLBACK: DROP INDEX CONCURRENTLY IF EXISTS "core"."pre_account_builds_settle_sweep_idx";
 
-CREATE INDEX IF NOT EXISTS "pre_account_builds_settle_sweep_idx"
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "pre_account_builds_settle_sweep_idx"
     ON "core"."pre_account_builds" ("created_at")
     WHERE ("settled_at" IS NULL AND "setup_stalled_at" IS NULL);

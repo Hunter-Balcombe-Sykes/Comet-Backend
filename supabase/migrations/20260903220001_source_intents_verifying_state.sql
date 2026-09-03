@@ -4,10 +4,28 @@
 --   ALTER TABLE routing.source_intents DROP CONSTRAINT IF EXISTS source_intents_state_check;
 --   ALTER TABLE routing.source_intents ADD CONSTRAINT source_intents_state_check
 --       CHECK (state IN ('proposed','applied','blocked','dismissed','superseded'));
---   -- then re-create the three indexes below without 'verifying'.
+--   -- then re-create idx_source_intents_live and idx_source_intents_stuck (the
+--   -- DROP INDEX statements below) without 'verifying' — the CONCURRENTLY
+--   -- recreations now live in 20260904235902 and 20260904235903, so a full
+--   -- reverse also drops those two indexes (or lets them sit unused, harmless
+--   -- but stale) as part of undoing this file.
 -- The two UPDATEs must run BEFORE the CHECK is narrowed or it will not validate.
 -- Rolling back loses only which rows were mid-verification; the next harvest
 -- re-proposes them.
+--
+-- NOT VALID added 2026-09-04 to every ADD CONSTRAINT below, and the two
+-- non-CONCURRENTLY CREATE INDEX statements pulled out into their own files
+-- (guard:no-unsafe-migrations Checks 1, 3 and 6 / CONVENTIONS.md §§1-2). The
+-- VALIDATE calls for the two source_intents constraints live in
+-- 20260904235900_source_intents_state_block_reason_validate.sql; the one for
+-- platform_connections_verification_state_check lives in
+-- 20260904235901_platform_connections_verification_state_validate.sql. Both
+-- are timestamped after this file, and the two split-out CREATE INDEX
+-- CONCURRENTLY files (20260904235902, 20260904235903) come after those —
+-- they read `state` values including 'verifying', so they must not run until
+-- the CHECK constraint below actually admits it, which happens the moment
+-- this file's ADD CONSTRAINT lands (NOT VALID only defers validating EXISTING
+-- rows — it does not defer enforcement of new writes).
 
 -- ── Why a fourth live state ─────────────────────────────────────────────────
 --
@@ -40,7 +58,7 @@ BEGIN
 
     ALTER TABLE routing.source_intents
         ADD CONSTRAINT source_intents_state_check
-        CHECK (state IN ('proposed', 'verifying', 'applied', 'blocked', 'dismissed', 'superseded'));
+        CHECK (state IN ('proposed', 'verifying', 'applied', 'blocked', 'dismissed', 'superseded')) NOT VALID;
 END $$;
 
 -- 'not_found' joins the block_reason vocabulary: the page the link names does
@@ -57,20 +75,25 @@ BEGIN
             'gate', 'capability', 'conflict', 'cap_reached', 'needs_confirmation',
             'tombstoned', 'unservable', 'invalid_identifier', 'duplicate',
             'not_found', 'sibling_branch'
-        ));
+        )) NOT VALID;
 END $$;
 
 -- The three partial indexes all enumerate the live states by hand, so each has
 -- to learn the new one or it stops covering rows that are very much live.
+-- (idx_source_intents_inbox is the third and is untouched by this change.)
+--
+-- The old definitions are dropped here (a bare DROP INDEX — routing.source_intents
+-- is not in guard-no-unsafe-migrations' HOT_TABLES, so this is not a locking
+-- hazard on this table); the CONCURRENTLY recreations under the new, wider
+-- predicates cannot live in this file alongside everything else above
+-- (CONVENTIONS.md §1 — a CONCURRENTLY statement must be alone in its file) and
+-- so are split into 20260904235902_source_intents_idx_live.sql and
+-- 20260904235903_source_intents_idx_stuck.sql, both timestamped after this
+-- file so the CHECK constraint above already admits 'verifying' by the time
+-- they run.
 DROP INDEX IF EXISTS routing.idx_source_intents_live;
-CREATE UNIQUE INDEX idx_source_intents_live
-    ON routing.source_intents (user_id, surface_key, identifier)
-    WHERE (state IN ('proposed', 'verifying', 'applied', 'blocked'));
 
 DROP INDEX IF EXISTS routing.idx_source_intents_stuck;
-CREATE INDEX idx_source_intents_stuck
-    ON routing.source_intents (state, first_seen_at)
-    WHERE (state IN ('proposed', 'verifying', 'blocked'));
 
 COMMENT ON COLUMN routing.source_intents.state IS
     'proposed = waiting on the person; verifying = accepted, waiting on our own L2 check of the link; applied = connected; blocked = held with a block_reason; dismissed/superseded = settled, slot free.';
@@ -97,7 +120,7 @@ BEGIN
     ) THEN
         ALTER TABLE site.platform_connections
             ADD CONSTRAINT platform_connections_verification_state_check
-            CHECK (verification_state IS NULL OR verification_state IN ('verified', 'unverified'));
+            CHECK (verification_state IS NULL OR verification_state IN ('verified', 'unverified')) NOT VALID;
     END IF;
 END $$;
 

@@ -19,6 +19,14 @@
 -- under the old constraint would fail on the new value, and dropping straight
 -- to the new list would fail on the old rows.
 --
+-- NOT VALID added 2026-09-04 (guard:no-unsafe-migrations Check 3 / CONVENTIONS.md
+-- §2) — the ADD below is not paired with its own VALIDATE here because
+-- 20260903220001 DROPs and re-ADDs this same constraint downstream (widening it
+-- further with 'not_found'), so the object this NOT VALID attaches to is
+-- superseded before anything would validate it. The live constraint's VALIDATE
+-- lives in 20260904235900_source_intents_state_block_reason_validate.sql,
+-- timestamped after 20260903220001 so it validates the FINAL definition.
+--
 -- `sibling_branch` belongs to ANOTHER lane (its migration is already applied on
 -- dev) and is carried through untouched. It is not ours to retire, and a list
 -- that omitted it would drop a value that lane's writer still mints. Verified
@@ -51,4 +59,4 @@ ALTER TABLE "routing"."source_intents"
       'gate', 'capability', 'conflict', 'cap_reached', 'needs_confirmation',
       'tombstoned', 'unservable', 'invalid_identifier', 'duplicate', 'not_found',
       'sibling_branch'
-  ));
+  )) NOT VALID;
