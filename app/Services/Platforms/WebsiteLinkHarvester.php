@@ -131,6 +131,12 @@ class WebsiteLinkHarvester
         'twitch' => '~(^|\.)twitch\.tv$~',
         // Wave 2 (2026-08-28): Deezer joined with a real content connector.
         'deezer' => '~(^|\.)deezer\.com$~',
+        // 2026-09-03: Skool gained a URL detector (see its definition), so a
+        // skool.com link found on someone's site is now a platform we can name
+        // rather than a generic link card. Sits here beside Discord — the
+        // other Community-shelf brand — because this map is keyed by the
+        // legacy platform key, not by shelf.
+        'skool' => '~(^|\.)skool\.com$~',
     ];
 
     /**
@@ -464,6 +470,7 @@ class WebsiteLinkHarvester
         'behance' => ['behance', 'Behance'],
         'dribbble' => ['dribbble', 'Dribbble'],
         'vimeo' => ['vimeo', 'Vimeo'],
+        'skool' => ['skool', 'Skool'],
         'twitch' => ['twitch', 'Twitch'],
     ];
 
@@ -706,9 +713,14 @@ class WebsiteLinkHarvester
         }
 
         foreach (self::SOCIAL_HOSTS as $key => $pattern) {
-            // No isset() guard needed: SOCIAL_PLATFORM is hand-maintained with the
-            // exact same 7 keys as SOCIAL_HOSTS, so the lookup below can never
-            // miss for a $key drawn from this loop.
+            // No isset() guard needed: SOCIAL_PLATFORM is hand-maintained with
+            // the exact same keys as SOCIAL_HOSTS, so the lookup below can
+            // never miss for a $key drawn from this loop. ADD TO BOTH MAPS —
+            // a row in only one is an undefined-key ErrorException here, not a
+            // missed classification (it happened adding Skool, 2026-09-03).
+            // The count was written as "7 keys" when there were 7; it drifted
+            // to 24 without the sentence being corrected, which is exactly the
+            // reading that makes someone add to one map and stop.
             if (preg_match($pattern, $host) && $this->looksLikeProfile($url)) {
                 [$platform, $label] = self::SOCIAL_PLATFORM[$key];
 

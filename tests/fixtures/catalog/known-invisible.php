@@ -27,7 +27,11 @@ return [
     'generic.store',
     'google_business.listing',
     'partna.manual_product',
-    'skool.community',
+    // 'skool.community' was here and is CLOSED (2026-09-03, real-URL sweep).
+    // It had no detector at all, so classify() had nothing to answer with.
+    // It now carries one, and skool.com is in SOCIAL_HOSTS beside Discord —
+    // a Skool link on someone's site names the platform instead of falling
+    // through as a generic link card.
     'squarespace.store',
     'stan.store',
     'woocommerce.store',
