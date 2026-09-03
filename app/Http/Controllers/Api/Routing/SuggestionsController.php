@@ -123,6 +123,23 @@ class SuggestionsController extends ApiController
         // vocabulary, one row lower. Same dedup bug, other door.
         $claimedSurfaces = $intents->pluck('surface_key')->all();
 
+        // A settled sibling branch is recorded, never asked
+        // (SourceReconciler::isSettledWorkplaceSlot). A chain's locations page
+        // yields one booking link per branch, and the booking XOR held every
+        // one after the first — five "use this one instead?" cards for a
+        // six-branch chain. The slot is not in dispute: the incumbent is
+        // either the account holder's own link or the branch whose roster
+        // named them, so there is nothing to ask.
+        //
+        // Rejected here rather than filtered in the query above so the row
+        // still CLAIMS its surface — dropping it from the fetch would free
+        // fresha.book for payloadSuggestions() to ask the same question in
+        // the legacy vocabulary, one row lower. Same door the
+        // already-connected filter below is careful about.
+        $intents = $intents->reject(
+            fn (object $intent): bool => $intent->block_reason === 'sibling_branch'
+        )->values();
+
         $intents = $intents->reject(fn (object $intent): bool => $this->identity->matchWithin(
             $connectionsBySurface->get($intent->surface_key, collect()),
             (string) $intent->surface_key,

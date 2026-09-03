@@ -29,6 +29,14 @@ use Illuminate\Support\Facades\DB;
 //    this runs, which is what keeps the two from diverging. If that command
 //    is ever disabled, this alarm starts over-counting and drifts upward with
 //    no path back down — nobody can answer a card they cannot see.
+//
+// A third correction, 2026-09-03: 'sibling_branch' is a fifth reachable
+// block_reason, and the FIRST one that is deliberately never rendered at all
+// (a chain's other branches — SourceReconciler::isSettledWorkplaceSlot). It is
+// excluded from the count below rather than settled out of band, because
+// unlike the already-connected case there is no command that closes it: the
+// row is a permanent record of a question that was answered by evidence
+// instead of by a person.
 class CheckStuckSourceIntentsCommand extends Command
 {
     protected $signature = 'routing:stuck-intents';
@@ -43,6 +51,10 @@ class CheckStuckSourceIntentsCommand extends Command
         // Drives idx_source_intents_stuck.
         $stuck = DB::table('routing.source_intents')
             ->whereIn('state', ['proposed', 'blocked'])
+            // A settled sibling branch is never rendered, so it can never be
+            // answered — counting it would drift this alarm upward forever.
+            // `!=` alone would drop every NULL-reason row (NULL != x is NULL).
+            ->where(fn ($q) => $q->whereNull('block_reason')->orWhere('block_reason', '!=', 'sibling_branch'))
             ->where('first_seen_at', '<', now()->subDays($ageDays))
             ->count();
 

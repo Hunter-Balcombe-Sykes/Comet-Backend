@@ -3556,7 +3556,8 @@ function setupRoutingTables(): void
         state TEXT NOT NULL DEFAULT \'proposed\' CHECK (state IN (\'proposed\', \'applied\', \'blocked\', \'dismissed\', \'superseded\')),
         block_reason TEXT NULL CHECK (block_reason IS NULL OR block_reason IN (
             \'gate\', \'capability\', \'conflict\', \'cap_reached\', \'below_threshold\',
-            \'tombstoned\', \'unservable\', \'invalid_identifier\', \'duplicate\'
+            \'tombstoned\', \'unservable\', \'invalid_identifier\', \'duplicate\',
+            \'sibling_branch\'
         )),
         conflicting_connection_id TEXT NULL,
         connection_id TEXT NULL,
