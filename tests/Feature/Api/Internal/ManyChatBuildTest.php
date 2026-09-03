@@ -10,6 +10,9 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupPreAccountBuildsTable();
+    // The create path notes its identity stage synchronously when it adopts an
+    // existing unclaimed user, which the coexistence test below now reaches.
+    setupPreAccountBuildEventsTable();
     shimPgAdvisoryLockForSqlite();
     Queue::fake();   // else GeneratePreAccountSiteJob runs inline and really scrapes
     config(['services.manychat.webhook_secret' => 'a-test-secret-value']);
@@ -117,31 +120,44 @@ it('returns 422 with a code — not a 500 — when requestBuild rejects the inpu
         ->assertJsonPath('code', 'SOURCE_PAIRING_INVALID');
 });
 
-it('does not mint or reuse a token when deduping onto a build with no stored idempotency key', function () {
-    // Spec §5.4's named hazard: dedupe can land on a build made by a DIFFERENT
-    // path entirely (a self-serve signup build), whose claim_idempotency_key
-    // is NULL because the webhook never touched it. The controller's
-    // `claim_idempotency_key !== null` guard must treat this the same as "a
-    // different caller" — no mint, no claim_url — even though there is no
-    // PRIOR webhook idempotency_key to compare against.
+it('builds its OWN row beside a self-serve build rather than touching it', function () {
+    // Spec §5.4's named hazard was that dedupe could land the webhook on a
+    // build made by a DIFFERENT path entirely — a self-serve signup build,
+    // whose claim_idempotency_key is NULL because the webhook never touched
+    // it — and mint a claim token onto it.
+    //
+    // Since 2026-09-03 that collision cannot happen: signup rows left the
+    // unique index and findLive excludes built_via='signup', so an outreach
+    // caller never re-serves a self-serve build. The guard is STRUCTURAL now,
+    // and this test pins the property it always existed to protect — the
+    // self-serve build's token is untouched — rather than the old mechanism.
     $user = User::factory()->create(['status' => 'unclaimed']);
     Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'nullkeyprobe']);
 
-    $build = PreAccountBuild::factory()->make([
+    $selfServe = PreAccountBuild::factory()->make([
         'source_ref' => 'nullkeyprobehandle',
         'source_ref_lc' => 'nullkeyprobehandle',
         'built_via' => PreAccountBuild::VIA_SIGNUP,
         'claim_idempotency_key' => null,
     ]);
-    $build->user()->associate($user);
-    $build->save();
+    $selfServe->user()->associate($user);
+    $selfServe->save();
 
     $response = manychatPost([
         'source_ref' => 'nullkeyprobehandle',
         'idempotency_key' => 'some-manychat-caller-key',
-    ])->assertStatus(200);
+    ])->assertStatus(202);
 
-    expect($response->json('reused'))->toBeTrue()
-        ->and($response->json('claim_url'))->toBeNull()
-        ->and($build->fresh()->claim_token_hash)->toBeNull();
+    // A NEW outreach build, not a re-serve of the self-serve one.
+    expect($response->json('reused'))->toBeFalse()
+        ->and($response->json('build_id'))->not->toBe((string) $selfServe->id);
+
+    $outreach = PreAccountBuild::findOrFail($response->json('build_id'));
+    expect($outreach->built_via)->toBe(PreAccountBuild::VIA_STAFF)
+        ->and($outreach->isOutreach())->toBeTrue();
+
+    // The property that matters: the self-serve build is untouched — no token
+    // minted onto it, no webhook idempotency key attached.
+    expect($selfServe->fresh()->claim_token_hash)->toBeNull()
+        ->and($selfServe->fresh()->claim_idempotency_key)->toBeNull();
 });
