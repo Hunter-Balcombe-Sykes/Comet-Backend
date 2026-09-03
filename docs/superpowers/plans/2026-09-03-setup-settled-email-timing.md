@@ -1257,14 +1257,14 @@ Claude-Session: https://claude.ai/code/session_01DnVGqDa1pvojPxUdbcKCKH
 Claim stops sending on `is_new_claim` and starts sending on the settle stamps. Release must clear `welcomed_at` or a reclaimed site never welcomes its rightful owner.
 
 **Files:**
-- Modify: `app/Services/PreAccount/ClaimSiteService.php:275-288` (the welcome block), `:362-375` (release)
+- Modify: `app/Services/PreAccount/ClaimSiteService.php` — the welcome block, and `release()` (the plan called it `releaseClaim()`; that name is the STAFF CONTROLLER action, `StaffUserController::releaseClaim`, which delegates to `ClaimSiteService::release(User $professional)`)
 - Test: `tests/Feature/PreAccount/ClaimSiteServiceTest.php:44,89-100` (update), plus new cases
 
 **Interfaces:**
 - Consumes: `BuildSettleService::welcomeIfDue()` (Task 4).
 - Produces: no new public API.
 
-- [ ] **Step 1: Update the existing tests and add the ordering cases**
+- [x] **Step 1: Update the existing tests and add the ordering cases**
 
 In `tests/Feature/PreAccount/ClaimSiteServiceTest.php`, the first test's assertion at line 44 currently expects a welcome on an unsettled build. Change that test to assert the opposite, and add the settled case. Replace line 44 with:
 
@@ -1323,12 +1323,12 @@ Check `releaseClaim()`'s actual signature before writing that last test — read
 
 The double-tap test at line 89 keeps its `Mail::assertQueuedCount(1)`, but its build must now be settled for any mail to fire at all. Add `$build->forceFill(['settled_at' => now()])->save();` after its `makeReadyBuild()`, using the returned `$build`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `./vendor/bin/pest tests/Feature/PreAccount/ClaimSiteServiceTest.php`
 Expected: FAIL — the new settled-at-claim tests get no mail (claim still gates on `is_new_claim`), and the release test finds `welcomed_at` still set.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `ClaimSiteService`, replace the welcome block at lines 275-288 entirely:
 
@@ -1363,7 +1363,7 @@ In `releaseClaim()`, extend the existing notification-delete block. Immediately 
 
 Fold it into the existing `$build->forceFill(['published_by_claim' => false])->save();` at line 397 if `$build` is in scope at both points — one write, not two. Read the method and pick whichever is cleaner; do not leave two separate `forceFill()->save()` calls on the same row in the same block.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `./vendor/bin/pest tests/Feature/PreAccount/ClaimSiteServiceTest.php`
 Expected: PASS.
@@ -1371,7 +1371,7 @@ Expected: PASS.
 Run: `./vendor/bin/pest tests/Feature/PreAccount`
 Expected: PASS — no regressions across the lane.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 php artisan pint app/Services/PreAccount/ClaimSiteService.php tests/Feature/PreAccount/ClaimSiteServiceTest.php

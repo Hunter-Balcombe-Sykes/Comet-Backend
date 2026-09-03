@@ -6,7 +6,6 @@ use App\Jobs\Cache\WarmPublicSiteCacheJob;
 use App\Jobs\Cloudflare\CloudflareCachePurgeJob;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Jobs\Platforms\RefreshConnectionJob;
-use App\Mail\Account\WelcomeMail;
 use App\Models\Core\Notifications\Notification;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
@@ -21,7 +20,6 @@ use App\Services\User\StaffProvisioningGuard;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use RuntimeException;
 
 // First-come claim: binds a Supabase auth user (email OTP JWT) to a provisional
@@ -272,19 +270,19 @@ class ClaimSiteService
         $this->afterClaim('kv.sync', $userId, fn () => SyncSubdomainToKvJob::dispatch($userId));
         $this->afterClaim('google_business.reenrich', $userId, fn () => $this->reEnrichClaimedGoogleBusinessConnection($result['professional']));
 
-        // Welcome email — genuinely post-commit (the transaction above has
-        // already committed by this point) and gated on is_new_claim so a
-        // double-tap / network retry through the idempotency-first branch
-        // (which never sets this flag) can never re-send it.
-        if (($result['is_new_claim'] ?? false) === true) {
-            $email = (string) ($result['professional']->primary_email ?? '');
-            if ($email !== '') {
-                try {
-                    Mail::to($email)->queue(new WelcomeMail($email, (string) $result['site']->subdomain));
-                } catch (\Throwable $e) {
-                    Log::warning('claim.welcome_mail_failed', ['user_id' => $result['professional']->id, 'error' => $e->getMessage()]);
-                }
-            }
+        // Welcome email — sent when the build has SETTLED, not merely when the
+        // account bound. Claiming does not wait on the build reaching ready
+        // (deliberate: the dashboard shows progress rather than gating), so
+        // "your site is live" was routinely arriving at an empty page.
+        //
+        // This arm covers the settle-then-claim ordering only; builds:settle-sweep
+        // covers claim-then-settle. It is load-bearing rather than
+        // belt-and-braces: the sweep is bounded to a 30-minute creation window,
+        // so a claim days after settle would never be observed by it.
+        // welcomed_at makes it exactly one send across both orderings.
+        $settledBuild = PreAccountBuild::query()->where('user_id', $userId)->first();
+        if ($settledBuild !== null) {
+            $this->afterClaim('welcome.mail', $userId, fn () => app(BuildSettleService::class)->welcomeIfDue($settledBuild));
         }
 
         // EDGE-1: also purge the Cloudflare edge cache — invalidateSite() above
@@ -394,7 +392,13 @@ class ClaimSiteService
                 // so a plain save() would double-dispatch via SiteObserver.
                 $site->saveQuietly();
             }
-            $build->forceFill(['published_by_claim' => false])->save();
+            // welcomed_at is the welcome email's idempotency key since
+            // 2026-09-03; it replaced "did the welcome notification row
+            // insert" (deleted just above for the same reason). The build row
+            // survives a release, so a surviving stamp would make the next
+            // claim's welcomeIfDue() a silent no-op and the rightful owner
+            // would never be welcomed. One write, alongside the publish flag.
+            $build->forceFill(['published_by_claim' => false, 'welcomed_at' => null])->save();
 
             return ['professional' => $locked->fresh(), 'build' => $build->fresh(), 'site' => $site?->fresh()];
         });
