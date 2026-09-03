@@ -86,6 +86,20 @@ it('includes the pre_account_build block for an unclaimed user with a build', fu
         ->assertJsonPath('professional.pre_account_build.claimed_at', null);
 });
 
+// A stalled build gets no email by ruling, so the row IS the surface -- staff
+// have no other way to learn it happened.
+it('exposes settled_at and setup_stalled_at on the staff pre_account_build block', function () {
+    actingAsStaff(unclaimedVisibilityStaffActor());
+
+    [$user, , $build] = makeReadyBuild('pipeline-stalled');
+    $build->forceFill(['setup_stalled_at' => now()])->save();
+
+    $this->getJson("/api/staff/professionals/{$user->id}")
+        ->assertOk()
+        ->assertJsonPath('professional.pre_account_build.settled_at', null)
+        ->assertJsonPath('professional.pre_account_build.setup_stalled_at', fn ($v) => $v !== null);
+});
+
 it('omits the pre_account_build block for a normal user with no build', function () {
     actingAsStaff(unclaimedVisibilityStaffActor());
 

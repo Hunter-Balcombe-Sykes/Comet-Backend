@@ -77,6 +77,11 @@ class UserStaffResource extends ApiResource
                     'failure_code' => $this->preAccountBuild->failure_code,
                     'expires_at' => $this->preAccountBuild->expires_at?->toIso8601String(),
                     'claimed_at' => $this->preAccountBuild->claimed_at?->toIso8601String(),
+                    // Setup outcome (2026-09-03): settled means the cascade
+                    // finished and the lifecycle email went out; stalled means
+                    // it hit the ceiling or failed and NOTHING was sent.
+                    'settled_at' => $this->preAccountBuild->settled_at?->toIso8601String(),
+                    'setup_stalled_at' => $this->preAccountBuild->setup_stalled_at?->toIso8601String(),
                 ]
             ),
         ];

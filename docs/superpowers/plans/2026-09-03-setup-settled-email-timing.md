@@ -1536,7 +1536,7 @@ Both halves: the column on the staff API resource, and a triage command that wor
 
 ⚠️ **Both staff resources use `snake_case` keys**, unlike much of the public wire. `UserStaffResource`'s block emits `source_type`, `built_via`, `claimed_at`; `StaffPreAccountBuildResource` emits `auto_invite`, `invited_at`. Match that — a lone `setupStalledAt` beside `claimed_at` is a wire inconsistency a staff client will trip over.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/Feature/PreAccount/BuildsStalledCommandTest.php`:
 
@@ -1597,12 +1597,12 @@ it('exposes settled_at and setup_stalled_at on the staff pre_account_build block
 
 Adjust `data.0` to whatever JSON path the sibling test uses — do not assume the index shape.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `./vendor/bin/pest tests/Feature/PreAccount/BuildsStalledCommandTest.php tests/Feature/PreAccount/StaffUnclaimedVisibilityTest.php`
 Expected: FAIL — command does not exist; `setupStalledAt` missing from the payload.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `app/Console/Commands/BuildsStalledCommand.php`:
 
@@ -1679,16 +1679,16 @@ In `app/Http/Resources/UserStaffResource.php`, add the same two keys to the `pre
 
 Do **not** change that block's `$this->when(...)` presence gate — its docblock explains at length why the key must be fully absent rather than present-as-null when there is no build, and staff clients key off presence.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `./vendor/bin/pest tests/Feature/PreAccount/BuildsStalledCommandTest.php tests/Feature/PreAccount/StaffUnclaimedVisibilityTest.php`
 Expected: PASS.
 
-- [ ] **Step 5: Update the API docs**
+- [x] **Step 5: Update the API docs**
 
 `docs/api.md` documents the staff payloads. Add `setupStalledAt` and `settledAt` to the `pre_account_build` block's field list there, with one line each on meaning. Find the block with `grep -n "pre_account_build" docs/api.md`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 php artisan pint app/Console/Commands/BuildsStalledCommand.php app/Http/Resources/StaffPreAccountBuildResource.php tests/Feature/PreAccount/BuildsStalledCommandTest.php tests/Feature/PreAccount/StaffUnclaimedVisibilityTest.php
