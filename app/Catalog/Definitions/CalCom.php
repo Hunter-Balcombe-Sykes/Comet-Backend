@@ -41,7 +41,8 @@ class CalCom
                         ->captures('handle')
                         ->from(IdentifierSource::Path)
                         ->reject('#^/(?:login|signup|event-types|bookings|workflows|blog|docs|embed|enterprise|pricing|apps|auth|api|availability|teams|settings|video|routing-forms|insights|help|privacy|terms|security|download|solutions|platform|ai|enterprise-sso)(?:/|$)#i')
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://cal.com/bailey — verified live 2026-09-03'),
                 )
                 ->build(),
         ];

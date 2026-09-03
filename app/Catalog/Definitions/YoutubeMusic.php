@@ -46,7 +46,8 @@ class YoutubeMusic
                         ->path('#^/(?:channel|browse)/(?<id>UC[A-Za-z0-9_-]{22})#')
                         ->captures('id')
                         ->from(IdentifierSource::Path)
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://music.youtube.com/channel/UCANLZYMidaCbLQFWXBC95Jg — verified live 2026-09-03'),
                 )
                 ->build(),
         ];

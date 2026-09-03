@@ -61,7 +61,8 @@ class Mixcloud
                         ->path('#^/(?!discover|upload|pro|about|premium|live|search)(?<handle>[A-Za-z0-9_-]{2,60})/?$#')
                         ->captures('handle')
                         ->from(IdentifierSource::Path)
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://www.mixcloud.com/Losmejoresmixesdelaweb/ — verified live 2026-09-03'),
                     Detector::url('mixcloud.com')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),

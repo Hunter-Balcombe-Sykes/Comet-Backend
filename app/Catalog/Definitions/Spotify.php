@@ -66,7 +66,8 @@ class Spotify
                         ->path('#^/(?:intl-[a-z]{2}(?:-[a-z]{2})?/)?(?<kind>artist|playlist|user)/(?<id>[A-Za-z0-9]+)#')
                         ->captures('id')
                         ->from(IdentifierSource::Path)
-                        ->strength(EvidenceStrength::DeepLinkWithSlug),
+                        ->strength(EvidenceStrength::DeepLinkWithSlug)
+                        ->note('e.g. https://open.spotify.com/artist/06HL4z0CvFAxyc27GXpf02 — verified live 2026-09-03'),
                 )
                 ->build(),
         ];

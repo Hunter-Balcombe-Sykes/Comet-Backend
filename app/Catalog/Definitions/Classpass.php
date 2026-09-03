@@ -40,7 +40,8 @@ class Classpass
                         ->path('#^/studios/(?<handle>[a-z0-9-]+)/?$#i')
                         ->captures('handle')
                         ->from(IdentifierSource::Path)
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://classpass.com/studios/real-pilates-tribeca--new-york — verified live 2026-09-03'),
                 )
                 ->build(),
         ];

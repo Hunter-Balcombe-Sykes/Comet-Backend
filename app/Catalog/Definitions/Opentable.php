@@ -55,12 +55,26 @@ class Opentable
                     // regional booking URL — including the AU ones that are
                     // our primary market.
                     ...array_merge(
+                        // The note carries the live-verified example that
+                        // LinkValidity::exampleFromNote() reduces to a shape, so
+                        // a refused paste can be told what a good OpenTable link
+                        // looks like instead of just that this one is not.
+                        //
+                        // It is attached to the ONE regional domain the example
+                        // was actually verified on rather than interpolated
+                        // across all sixteen. A note is read as ground truth —
+                        // it is what the real-URL sweep re-checks against — and
+                        // minting fifteen URLs nobody has fetched would be
+                        // planting evidence for a future pass to trip over. One
+                        // note is enough: shapeFor() returns the first hint it
+                        // finds on the surface.
                         array_map(
                             fn (string $tld) => Detector::url("opentable.{$tld}")
                                 ->path('#^/restaurant/profile/(?<rid>\d+)#')
                                 ->captures('rid')
                                 ->from(IdentifierSource::Path)
-                                ->strength(EvidenceStrength::DeepLinkWithSlug),
+                                ->strength(EvidenceStrength::DeepLinkWithSlug)
+                                ->note($tld === 'com.au' ? 'e.g. https://www.opentable.com.au/restaurant/profile/1000972 — verified live 2026-09-03; the path shape is identical on every regional domain' : ''),
                             self::TLDS,
                         ),
                         array_map(

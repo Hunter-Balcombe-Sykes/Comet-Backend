@@ -36,18 +36,27 @@ use App\Catalog\CompiledCatalog;
  * nameless card and can never be refreshed, named, or verified. That is one
  * bug, not several: it is also why an Uber Eats card shows no restaurant name.
  *
- * ── The census this was written against (2026-09-03) ────────────────────────
+ * ── The census, and why WEAK is still not a refusal ─────────────────────────
  *
- * 219 of 400 detectors are host-only. 56 of the 116 connectable+active surfaces
- * have NO detector with any grammar at all, and 15 more have a mix. So L1 WEAK
- * is not an edge case today — it is the majority of the reservations/ordering/
- * booking shelf, and gating a WRITE on L1 PASS before the pattern fleet lands
- * would make 56 brands unconnectable.
+ * Written against a catalog where 56 of the 116 connectable+active surfaces had
+ * NO detector with any grammar at all. The real-URL sweep has since driven that
+ * to FOUR (2026-09-03, 538 detectors; 219 still host-only, but every one of
+ * those now sits beside a specific sibling on all but four surfaces):
  *
- * That is why WEAK is not a refusal. WEAK means "escalate to L2", and a brand
- * with no L2 mechanism at all resolves save-and-flag. Nothing here can make a
- * link undeliverable; it can only decide whether we are allowed to claim the
- * link is an ACCOUNT without checking.
+ *   · bandcamp.store     no detectors by design — bandcamp.artist owns routing
+ *   · easi.order         app-only; no web ordering pages exist to pattern
+ *   · shortcuts.book     both detected hosts 301 elsewhere (owner call pending)
+ *   · woocommerce.store  self-hosted on the merchant's own domain, with no
+ *                        hosted address at all — structurally ungrammatical,
+ *                        which is the case this class exists to handle
+ *
+ * The temptation now is to gate the WRITE on L1 PASS, since four brands is a
+ * price one could pay. Don't. WooCommerce shows why the exemption is permanent
+ * rather than transitional: a link can be perfectly valid and still carry no
+ * host signal, so PASS is a statement about the URL's shape and never about the
+ * link's truth. WEAK means "escalate to L2", and a brand with no L2 mechanism
+ * resolves save-and-flag. Nothing here can make a link undeliverable; it only
+ * decides whether we may claim the link is an ACCOUNT without checking.
  */
 final class LinkValidity
 {
@@ -211,7 +220,7 @@ final class LinkValidity
         $pattern = (string) ($detector['path_pattern'] ?? '');
         $capture = (string) ($detector['identifier_capture'] ?? '');
         if (preg_match('~\bhttps?://\S+~', (string) ($detector['note'] ?? ''), $m) !== 1
-            || $pattern === '' || $capture === '') {
+            || $capture === '') {
             return null;
         }
 
@@ -219,7 +228,29 @@ final class LinkValidity
         $parts = parse_url($url);
         $host = $parts['host'] ?? null;
         $path = (string) ($parts['path'] ?? '');
-        if (! is_string($host) || $host === '' || $path === '') {
+        // An empty path is only disqualifying for the path branch, which has
+        // nothing to mask without one. For the tenant-host shape it is the NORM
+        // — `https://garbageday.substack.com` is the whole link — so the guard
+        // that used to sit here rejected exactly the examples the subdomain
+        // branch exists to reduce.
+        if (! is_string($host) || $host === '') {
+            return null;
+        }
+
+        // Dispatch on where the IDENTITY lives, not on which pattern happens to
+        // be present. Those are different questions and conflating them lost
+        // HungryPanda: it constrains a path (`/shop`) AND identifies through
+        // the query (`?shopId=`), so a "has a path_pattern → mask a segment"
+        // test sent it down the path branch, which then found no such capture
+        // in the path and returned nothing.
+        $source = $detector['identifier_source'] ?? null;
+        if ($source === 'subdomain') {
+            return self::subdomainShape($detector, $parts, $host, $path);
+        }
+        if ($source === 'query') {
+            return self::queryShape($detector, $parts, $host, $path, $capture);
+        }
+        if ($pattern === '' || $path === '') {
             return null;
         }
 
@@ -235,13 +266,118 @@ final class LinkValidity
         }
         $identifier = (string) $captured[$capture];
 
+        // Masking the captured segment ALONE is not enough, and Uber Eats is
+        // the proof: /au/store/<restaurant-slug>/<opaque id> captures only the
+        // id, so eliding it still published "kfc-sydney-central-plaza" to
+        // whoever pasted a bad link — a real business's page, which is the one
+        // thing this whole reduction exists to prevent.
+        //
+        // So a segment survives only if the pattern names it LITERALLY. That is
+        // deliberately a blunt test biased toward masking: a fixed routing word
+        // ('store', 'restaurant', 'profile') is written into the pattern and
+        // survives, while anything the pattern expresses as a character class —
+        // the slug, and a locale like '/au' — is masked whether or not we
+        // happen to capture it. Over-masking costs a little specificity in a
+        // hint; under-masking hands out someone's storefront.
         $segments = array_values(array_filter(explode('/', $path), fn ($s) => $s !== ''));
-        $masked = array_map(fn ($s) => str_contains($s, $identifier) ? '…' : $s, $segments);
+        $masked = array_map(
+            fn (string $s) => str_contains($s, $identifier) || ! str_contains($pattern, $s) ? '…' : $s,
+            $segments,
+        );
         if ($masked === $segments) {
             return null;
         }
 
+        // Consecutive elisions read as noise ('/…/…/…'); one stands for the
+        // whole variable run.
+        $collapsed = [];
+        foreach ($masked as $segment) {
+            if ($segment === '…' && end($collapsed) === '…') {
+                continue;
+            }
+            $collapsed[] = $segment;
+        }
+        $masked = $collapsed;
+
         return ($parts['scheme'] ?? 'https').'://'.$host.'/'.implode('/', $masked);
+    }
+
+    /**
+     * The same reduction for the tenant-host shape — `<you>.substack.com`,
+     * `<salon>.book.app`, `<studio>.zenoti.com`. Twelve surfaces identify this
+     * way and every one of them was losing its hint, because the path masking
+     * needs a path_pattern and a subdomain detector has no path to constrain.
+     *
+     * The registrable key is what the mask is cut against rather than the PSL:
+     * the detector already carries the domain it was declared for, so the
+     * subdomain is simply whatever precedes it, and no suffix parsing (or its
+     * disagreements) enters into a display string. A note URL whose host is
+     * the bare registrable domain has no subdomain to mask and returns null.
+     *
+     * @param  array<string, mixed>  $detector
+     * @param  array<string, mixed>  $parts
+     */
+    private static function subdomainShape(array $detector, array $parts, string $host, string $path): ?string
+    {
+        $registrable = (string) ($detector['registrable_key'] ?? '');
+        if ($registrable === '' || ! str_ends_with(strtolower($host), '.'.strtolower($registrable))) {
+            return null;
+        }
+
+        $subdomain = substr($host, 0, -(strlen($registrable) + 1));
+        // Same refusal as the query case: if the tenant's name also appears in
+        // the path, masking the host alone would still print it.
+        if ($subdomain === '' || str_contains(strtolower($path), strtolower($subdomain))) {
+            return null;
+        }
+
+        return ($parts['scheme'] ?? 'https').'://….'.$registrable.($path === '/' ? '/' : $path);
+    }
+
+    /**
+     * The same reduction for a detector that identifies through the QUERY
+     * rather than the path — `?restRef=`, `?owner=`, `?studioid=`, `?sh=`.
+     *
+     * Without this the whole hint is lost for those surfaces, because the path
+     * masking above needs a path_pattern and a query detector has none. The
+     * user then gets "paste the link to your own page" and no way to tell what
+     * distinguishes one: the endpoint is generic (`/schedule.php`,
+     * `/Shows/Show.aspx`) and the identity is entirely in the parameter.
+     *
+     * Two refusals to guess, both on the same privacy ground as the path case:
+     * every other parameter of the example is dropped rather than reprinted,
+     * and if the identifier ALSO appears somewhere in the path we return null
+     * instead — nothing here knows which path segment is the variable one, so
+     * masking it would be a guess and printing it would hand out a real
+     * business's page.
+     *
+     * @param  array<string, mixed>  $detector
+     * @param  array<string, mixed>  $parts
+     */
+    private static function queryShape(array $detector, array $parts, string $host, string $path, string $capture): ?string
+    {
+        if (($detector['identifier_source'] ?? null) !== 'query') {
+            return null;
+        }
+
+        $required = $detector['query_requires'] ?? [];
+        if (! is_array($required) || ! in_array($capture, $required, true)) {
+            return null;
+        }
+
+        parse_str((string) ($parts['query'] ?? ''), $query);
+        $value = null;
+        foreach ($query as $key => $v) {
+            if (is_string($v) && strcasecmp((string) $key, $capture) === 0) {
+                $value = $v;
+                break;
+            }
+        }
+        if ($value === null || $value === '' || ($path !== '' && str_contains($path, $value))) {
+            return null;
+        }
+
+        return ($parts['scheme'] ?? 'https').'://'.$host.($path === '' ? '/' : $path).'?'.$capture.'=…';
     }
 
     /**

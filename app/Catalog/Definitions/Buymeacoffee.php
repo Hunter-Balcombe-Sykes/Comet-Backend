@@ -44,7 +44,8 @@ class Buymeacoffee
                         ->captures('handle')
                         ->from(IdentifierSource::Path)
                         ->reject('#^/(?:about|pricing|signup|login|explore|faq|help|blog|brand|features|discover|extras|memberships|commissions|shop|wishlists|dashboard|settings|terms|privacy)(?:/|$)#i')
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://buymeacoffee.com/thepointscoach — verified live 2026-09-03'),
                     Detector::url('buymeacoffee.com')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),

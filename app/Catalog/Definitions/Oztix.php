@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -41,6 +42,25 @@ class Oztix
                 ->refreshEvery(0)
                 ->detect(
                     Detector::url('oztix.com.au')->strength(EvidenceStrength::MarketplaceListing),
+                    // Oztix serves one event under two shapes, and a paste can
+                    // be either: the legacy `?Event=<numeric id>` query form
+                    // still in circulation, which 302s to the modern
+                    // `/outlet/event/<uuid>` path. Both are declared because
+                    // the query form is what people have in their bios, and
+                    // following the redirect would need a network call the
+                    // projector deliberately cannot make.
+                    Detector::url('oztix.com.au')
+                        ->query('Event')
+                        ->captures('Event')
+                        ->from(IdentifierSource::Query)
+                        ->strength(EvidenceStrength::DeepLinkWithSlug)
+                        ->note('e.g. https://tickets.oztix.com.au/default.aspx?Event=246798 — verified live 2026-09-03 (302s to the /outlet/event/ form below)'),
+                    Detector::url('oztix.com.au')
+                        ->path('#^/outlet/event/(?<id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})#i')
+                        ->captures('id')
+                        ->from(IdentifierSource::Path)
+                        ->strength(EvidenceStrength::DeepLinkWithSlug)
+                        ->note('e.g. https://tickets.oztix.com.au/outlet/event/bdbe320b-5e30-4a19-9651-b45c8ad7bc1b — verified live (HTTP 200) 2026-09-03'),
                 )
                 ->build(),
         ];

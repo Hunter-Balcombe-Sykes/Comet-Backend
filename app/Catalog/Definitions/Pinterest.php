@@ -50,7 +50,8 @@ class Pinterest
                         ->captures('handle')
                         ->from(IdentifierSource::Path)
                         ->reject('#^/(?:pin|ideas|search|settings|login|business|today|shopping|about|careers|newsroom|policy|help|resource|watch)(?:/|$)#i')
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://www.pinterest.com/marthastewart/ — verified live 2026-09-03'),
                 )
                 ->build(),
         ];

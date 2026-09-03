@@ -55,7 +55,8 @@ class TiktokShop
                         ->path('#^/shop/store/(?:[^/?\#]+/)?(?<id>\d{6,})(?:/|$)#')
                         ->captures('id')
                         ->from(IdentifierSource::Path)
-                        ->strength(EvidenceStrength::DeepLinkWithSlug),
+                        ->strength(EvidenceStrength::DeepLinkWithSlug)
+                        ->note('e.g. https://www.tiktok.com/shop/store/breo-us/7495369109679933933 — verified live 2026-09-03'),
                 )
                 ->note('connects via the shop lane (TiktokShopConnectJob), never a brand card — see ShopConnections::PROVIDER_SURFACE')
                 ->build(),

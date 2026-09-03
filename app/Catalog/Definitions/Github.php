@@ -44,7 +44,8 @@ class Github
                         ->captures('handle')
                         ->from(IdentifierSource::Path)
                         ->reject('#^/(?:features|pricing|login|join|about|explore|marketplace|sponsors|topics|trending|settings|orgs|enterprise|security|customer\-stories|readme|collections|events|apps|site|contact|new|notifications|issues|pulls|codespaces)(?:/|$)#i')
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://github.com/gaearon — verified live 2026-09-03'),
                     Detector::url('github.com')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),

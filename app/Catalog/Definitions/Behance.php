@@ -45,7 +45,8 @@ class Behance
                         ->captures('handle')
                         ->from(IdentifierSource::Path)
                         ->reject('#^/(?:galleries|gallery|search|joblist|jobs|assets|livestreams|live|hire|login|signup|onboarding|collection|collections|misc|about|careers|contact|pro|projects|for_you|discover|settings)(?:/|$)#i')
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://www.behance.net/joshuadavis — verified live 2026-09-03'),
                     Detector::url('behance.net')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),

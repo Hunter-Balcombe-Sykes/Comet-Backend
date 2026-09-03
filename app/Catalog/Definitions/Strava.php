@@ -52,7 +52,8 @@ class Strava
                         ->path('#^/clubs/(?<slug>[A-Za-z0-9_-]+)/?$#')
                         ->captures('slug')
                         ->from(IdentifierSource::Path)
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://www.strava.com/clubs/1-Percent-Running-Club — verified live 2026-09-03'),
                 )
                 ->build(),
         ];

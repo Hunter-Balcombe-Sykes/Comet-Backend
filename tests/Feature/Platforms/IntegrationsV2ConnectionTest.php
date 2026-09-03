@@ -297,9 +297,35 @@ it('routes ticketek and timely as link-only brands, rejecting a foreign url', fu
 it('accepts each brand its own url', function () {
     $user = iv2User('lk2');
 
+    // Was 'https://premier.ticketek.com.au/shows/x' — a stand-in for "some
+    // Ticketek URL", written while the surface had no shape on file and so
+    // accepted anything on the host. The 2026-09-03 sweep gave it one
+    // (?sh=<show code>), which switches the surface into shape-refusal mode:
+    // exactly the Skool behaviour asserted forty lines above, and the reason
+    // the owner asked for a validity rule in the first place. The URL here is
+    // now the real shape rather than a placeholder.
     actingAsUser($user)
-        ->postJson('/api/platforms/ticketek/connect', ['url' => 'https://premier.ticketek.com.au/shows/x'])
+        ->postJson('/api/platforms/ticketek/connect', ['url' => 'https://premier.ticketek.com.au/Shows/Show.aspx?sh=ABEAUTN26'])
         ->assertSuccessful();
+});
+
+it('refuses a ticketek url that names no show, and says what one looks like', function () {
+    $user = iv2User('lk3');
+
+    // The other half of the same rule. Without it, the change above reads as
+    // "the test was loosened to fit" rather than "the surface learned a shape".
+    $response = actingAsUser($user)
+        ->postJson('/api/platforms/ticketek/connect', ['url' => 'https://premier.ticketek.com.au/shows/x'])
+        ->assertStatus(422);
+
+    // The SHAPE is asserted, not the whole sentence: which regional detector
+    // supplies the example depends on the TLD loop's order, and pinning that
+    // would make a reordering look like a behaviour change. What must hold is
+    // that the refusal names the show parameter and masks the real show code —
+    // a refusal that cannot say what a good link looks like is a dead end.
+    expect($response->json('message'))
+        ->toContain('Show.aspx?sh=…')
+        ->not->toContain('ABEAUTN26');
 });
 
 // ── Auth gates on the new routes ─────────────────────────────────────────────

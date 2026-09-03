@@ -42,7 +42,8 @@ class Gitlab
                         ->captures('handle')
                         ->from(IdentifierSource::Path)
                         ->reject('#^/(?:explore|users|help|dashboard|projects|groups|pricing|about|features|solutions|sign_in|login|admin|api|search)(?:/|$)#i')
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://gitlab.com/DylanGriffith — verified live 2026-09-03'),
                     Detector::url('gitlab.com')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),

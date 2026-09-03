@@ -48,7 +48,8 @@ class Tidal
                         ->path('#^/(?:browse/)?artist/(?<handle>\d+)/?$#')
                         ->captures('handle')
                         ->from(IdentifierSource::Path)
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://tidal.com/artist/3606450 — verified live 2026-09-03'),
                     Detector::url('tidal.com')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),
