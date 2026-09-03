@@ -1,7 +1,7 @@
 # Stripe Subscriptions — Backend Design
 
 **Date:** 2026-09-02
-**Status:** Design approved; **revised 2026-09-02** after a codebase verification pass — see §18. Ready for implementation plan
+**Status:** Design approved; **revised 2026-09-02** after a codebase verification pass (see §18) and **amended 2026-09-03** with the comp/credit split (D18) and the referral handoff (§10.2). Ready for implementation plan
 **Scope:** Partna backend (Laravel 12 + Supabase + PostgreSQL). Dashboard UI lives in the frontend repo and is called out where this design imposes obligations on it.
 **Author:** Brainstorm session with Josh
 
@@ -71,6 +71,7 @@ two never collide in a grep.
 | D14 | Currency **AUD**, monthly interval only for v1 | Matches the pre-strip billing design; annual is a second price later |
 | D15 | Prices are **config**, per environment | Stripe test-mode and live-mode price IDs differ; they must not be hardcoded |
 | D16 | A claimer **inherits the build's `account_type`**; it is not chosen at claim | `account_type` is stamped when the pre-account build is created (`config('partna.pre_account.sources')` is keyed by it) and §8.5 makes the webhook its only later writer. Keeps D4's promise that claim needs no payment step and no frontend change. Switching product is a billing action (`POST /api/billing/plan`), not a settings edit |
+| D18 | **Comps and credits are two different operations** | A comp extends free *time*; a referral reward is *money*. Trial extension only works while `trialing`; a Stripe balance credit works in every state. Splitting them keeps "actual payment, not just free months" true by construction — see §10.1 |
 | D17 | `account_type` is **dropped, not rejected**, on `PATCH /api/me` | Closes the free-upgrade hole (§8.5) without 422-ing a stale dashboard that still posts the whole user object. Mirrors how `skeleton_id` is already handled |
 
 ---
@@ -322,10 +323,11 @@ silently resurrects a cancelled plan into a live entitlement.
 | Event | Effect |
 |---|---|
 | `customer.subscription.created` / `.updated` | Project `plan_status`, `plan_current_period_end`, and `account_type` from the price. If the new status is `unpaid` or `canceled`, also set `status = 'disabled'`; if it returns to `trialing`/`active`/`past_due` from `disabled`, restore `status = 'active'`. Flush capability cache. Bust cache lanes if visibility changed |
-| `customer.subscription.deleted` | `status = 'disabled'` |
+| `customer.subscription.deleted` | `status = 'disabled'`. **Also the second referral clawback trigger (R2)** when it lands inside the referred user's first billing period |
 | `customer.subscription.trial_will_end` | ~3 days out → "your free month is ending" notification |
 | `invoice.payment_succeeded` | Restore good standing. On the **first**, emit `SubscriptionFirstPaymentSucceeded` (§10.2) |
 | `invoice.payment_failed` | Dunning notification to the owner |
+| `charge.refunded` | **Referral clawback trigger (R2).** A refund inside the referred user's first billing period reverses the referrer's credit via `ReferralAttributionService::recordChurn()` (`credited → voided`). No billing-state effect of its own — Stripe emits its own subscription event for that |
 | `payment_method.attached` / `customer.updated` | Refresh `pm_type` / `pm_last_four` for the dashboard |
 
 ### 8.5 `account_type` is written here and nowhere else — but it is not today
@@ -495,10 +497,14 @@ out a TTL" is true of the origin and approximately true of the edge, not exactly
 
 ## 10. Comping and the referral hook
 
-### 10.1 `grantFreeMonths(User $user, int $months, string $reason): void`
+### 10.1 Two operations, not one (D18)
 
-A public service method — not a private helper — because §10.2 reuses it. Three
-branches by account state:
+Free *time* and free *money* are different things and only one of them works in every
+account state. Both are public service methods — not private helpers — because §10.2
+reuses the second.
+
+**`grantFreeMonths(User $user, int $months, string $reason): void` — staff comps.**
+Extends the free period. Three branches by account state:
 
 | State | Implementation |
 |---|---|
@@ -506,27 +512,63 @@ branches by account state:
 | `trialing` | Update the Stripe subscription's `trial_end` += N months |
 | `active` / paying | Stripe customer balance credit of N × price, auto-applied to the next invoice |
 
-`$reason` is persisted so there is an audit trail of who received free time and why.
-Exposed as a staff endpoint inside the `require.aal2` group, which already carries
-`RecordStaffAuditEntry`. `billing_exempt` is a separate toggle for permanent comps.
+**`grantAccountCredit(User $user, int $amountCents, string $currency, string $reason): void`
+— referral rewards, and anything else denominated in money.** One branch, no state
+machine: mint a Stripe **customer balance credit**. Stripe applies it to the next
+invoice automatically, and a credit on a `trialing` customer simply waits for the first
+real invoice rather than being unusable.
+
+**Why the split matters, and why the referral reward must NOT route through
+`grantFreeMonths()`.** Trial extension is only meaningful while the account is
+`trialing` — the middle branch above has no equivalent for someone who has been paying
+for a year, which is exactly the profile of a referrer who has earned rewards. A
+balance credit is state-independent and is real monetary value, which is what
+"actual payment, not just free months" (R1) requires. `grantFreeMonths()` stays as the
+staff comp tool; it is not the referral seam.
+
+`$reason` is persisted on both so there is an audit trail of who received what and why.
+Both are exposed as staff endpoints inside the `require.aal2` group, which already
+carries `RecordStaffAuditEntry`. `billing_exempt` remains a separate toggle for
+permanent comps.
 
 ### 10.2 Referral program — deferred, with two obligations
 
-The referral program is out of scope (its own spec exists and is approved but
-unimplemented: `docs/superpowers/specs/2026-05-25-referral-program-design.md`). That
-spec was written in a *"track now, settle later"* posture expecting billing to return,
-and states its settlement step should become *"a one-line `EventServiceProvider`
-change"*. Its earn-trigger is **"verify email + pay first month."**
+The referral program stays out of scope and ships as its own plan
+(`docs/superpowers/specs/2026-05-25-referral-program-design.md` — approved,
+unimplemented, amended 2026-09-03 to match the decisions below). It was written
+*"track now, settle later"* expecting billing to return; its earn-trigger is
+**"verify email + pay first month."**
 
-This design therefore owes it exactly two things:
+**It is less blocked by this design than it looks.** The program is two halves with
+different dependencies, and only the second one waits:
 
-1. `grantFreeMonths()` is public (§10.1) — the referral reward is the same call from a
-   different trigger.
-2. `SubscriptionFirstPaymentSucceeded` is emitted from the webhook lane on the first
-   successful invoice (§8.4).
+| Half | Needs billing? |
+|---|---|
+| **Track** — the block, inline signup, provisioning, attribution, the state machine as far as `eligible_pending_billing` | **No.** Shippable independently of everything here |
+| **Settle** — `eligible_pending_billing → credited` | Yes — a first payment must be able to exist, i.e. stage 3 |
 
-Explicitly **not** done now: no `referred_by_user_id` column. Attribution only matters
-once referral links exist, and none will until that plan ships. YAGNI.
+This design therefore owes it exactly **three** things:
+
+1. **`grantAccountCredit()` is public (§10.1)** — the referral reward is that call from
+   a different trigger. Note this is *not* `grantFreeMonths()`: R1 makes the reward
+   money, not time, and a trial extension is meaningless for a long-paying referrer.
+2. **`SubscriptionFirstPaymentSucceeded`** is emitted from the webhook lane on the
+   **first** successful invoice (§8.4) — the earn trigger.
+3. **A clawback trigger** (R2). A reward is reversed if the referred user refunds or
+   churns inside the first billing period, so the webhook lane must surface that too —
+   see §8.4. Without it the clawback is designed and never fires, which is the
+   failure mode this obligation exists to prevent.
+
+Explicitly **not** done now: no `referred_by_user_id` column on `core.users`.
+Attribution lives in `core.referrals`, which that spec already defines. YAGNI.
+
+**Consequence of R1 to state once, plainly:** because the reward is a credit against
+the referrer's own subscription, an influencer who is *not* a paying Partna user gets
+nothing from it. Since every account now arrives via build-and-claim and begins paying
+after 30 days, most promoters will be users themselves — but the pure-affiliate channel
+stays closed until a Connect payout lane exists. That is a deferred capability, not an
+oversight; the referral ledger stores an amount owed, so a payout lane can be added
+without touching attribution.
 
 ---
 

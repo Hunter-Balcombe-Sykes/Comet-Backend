@@ -1,7 +1,7 @@
 # Referral Program — Backend Design
 
 **Date:** 2026-05-25
-**Status:** Design approved; ready for implementation plan
+**Status:** Design approved; **amended 2026-09-03** — the deferred settlement questions are now answered (§15). Ready for implementation plan
 **Scope:** Partna backend only (Laravel 12 + Supabase + PostgreSQL). Frontend UX and dashboard implementation live in the separate frontend repo.
 **Author:** Brainstorm session with Josh
 
@@ -9,7 +9,7 @@
 
 ## 1. Overview
 
-A "referral signup" section that Partna professionals can toggle on their public site, alongside existing sections (gallery, links, etc.). A visitor enters their email and a desired handle; a Partna account is provisioned with their own site; the visitor is sent a magic link to verify. When the new user pays their first month's subscription (post-billing-launch), the referrer earns a $20 credit (configurable).
+A "referral signup" section that Partna professionals can toggle on their public site, alongside existing sections (gallery, links, etc.). A visitor enters their email and a desired handle; a Partna account is provisioned with their own site; the visitor is sent a magic link to verify. When the new user pays their first month's subscription (post-billing-launch), the referrer earns a credit worth **N months of their own subscription** (N configurable, default 1) — see §15 (R1, R4).
 
 Because billing was stripped in the 2026-05-22 standalone strip, this feature ships in a **"track now, settle later"** posture: all referrals are recorded in the database with full lifecycle state; the credit-settlement step is wired to a stubbed billing event that becomes live when subscriptions return.
 
@@ -18,14 +18,14 @@ Because billing was stripped in the 2026-05-22 standalone strip, this feature sh
 - Let a professional turn on a referral signup section as a toggleable block on their public site
 - Let a visitor enter email + chosen handle inline and become a Partna user with their own site
 - Attribute every signup to its referrer at the database level
-- Earn the referrer the first month's subscription fee of any referred user who pays
+- Earn the referrer a credit worth N months of subscription for any referred user who pays (R4)
 - Build the data model durably enough that when billing returns, the settlement step is a one-line `EventServiceProvider` change
 
 ## 3. Non-goals
 
 - Frontend / public-section UI / dashboard UI (separate frontend plan)
 - Reintegrating Stripe / subscription billing (future)
-- Cash-out via Stripe Connect (future decision when billing returns)
+- Cash-out via Stripe Connect — **decided 2026-09-03 (R1): designed for, not built.** The ledger stores an amount owed so a payout lane bolts on without touching attribution; v1 settles as an invoice credit only
 - Custom referral codes / shareable URLs — the referrer's existing handle IS the referral identifier
 - Referral leaderboards or gamification
 - Multi-tier referrals (no "refer the referrer" chains)
@@ -313,7 +313,7 @@ Standard Laravel `Notification` classes; channels: `mail` + `database`.
 | Class | Recipient | When | Subject |
 |-------|-----------|------|---------|
 | `ReferralVerifiedNotification` | referrer | `pending_verification → verified` | `🎉 @{handle} joined Partna via your site` |
-| `ReferralCreditedNotification` | referrer | `eligible_pending_billing → credited` (post-billing only) | `💰 $20 credit added — @{handle} paid their first month` |
+| `ReferralCreditedNotification` | referrer | `eligible_pending_billing → credited` (post-billing only) | `💰 {N} month{s} of subscription credited — @{handle} paid their first month` (amount resolved at settlement, R4) |
 | `WelcomeReferredUserNotification` | new user | On verification | `Welcome to Partna` |
 
 Mail templates: `resources/views/mail/referrals/*.blade.php`.
@@ -359,9 +359,19 @@ Gate::policy(Referral::class, ReferralPolicy::class);
     'enabled'                       => env('PARTNA_REFERRAL_ENABLED', true),
     'shell_ttl_days'                => env('PARTNA_REFERRAL_SHELL_TTL_DAYS', 7),
     'prune_grace_minutes'           => env('PARTNA_REFERRAL_PRUNE_GRACE_MIN', 15),
-    'credit_kind'                   => 'first_month_subscription',
-    'default_credit_amount_cents'   => 2000,
+    // R4: the reward is denominated in MONTHS of the referrer's own tier price,
+    // resolved at settlement time from config('partna.billing.prices'), not a
+    // frozen cents value. Closes open item #4 — a hardcoded 2000 silently
+    // decouples from the real price the first time it moves.
+    'credit_kind'                   => 'referral_subscription_months',
+    'reward_months_per_referral'    => env('PARTNA_REFERRAL_REWARD_MONTHS', 1),
     'default_credit_currency'       => 'AUD',
+    // R3: bounded liability, tunable without a deploy. Sized so no honest
+    // referrer reaches it; it is a backstop, not a product limit.
+    'referrer_lifetime_cap_months'  => env('PARTNA_REFERRAL_CAP_MONTHS', 120),
+    // R2: clawback window. A refund or cancel inside the referred user's first
+    // billing period reverses the credit (credited -> voided).
+    'clawback_within_first_period'  => env('PARTNA_REFERRAL_CLAWBACK', true),
     'magic_link_target_throttle'    => env('PARTNA_REFERRAL_TARGET_THROTTLE_DAILY', 3),
     'orphan_cleanup_after_minutes'  => env('PARTNA_REFERRAL_ORPHAN_CLEANUP_MIN', 60),
     'handle_check_throttle'         => ['requests' => 30, 'minutes' => 1],
@@ -436,7 +446,7 @@ Route::get('/v1/user/referrals/summary', [UserReferralController::class, 'summar
 | Referrer hard-deletes (post-retention) | `referrer_user_id` set NULL via `ON DELETE SET NULL`. Observer on `User::deleting` voids referrals with reason `referrer_deleted`. |
 | Referred user soft-deletes pre-credit | Referral untouched. If reactivated and pays, credit fires. |
 | Referred user hard-deletes pre-credit | `ON DELETE CASCADE` deletes the referral entirely. |
-| Referred user churns / refunds first month (future) | `ReferralAttributionService::recordChurn()` transitions `credited → voided` (reason `churned_before_first_month`). Stub only until billing returns. |
+| Referred user churns / refunds first month | **R2, decided 2026-09-03.** `ReferralAttributionService::recordChurn()` transitions `credited → voided` (reason `churned_before_first_month`). No longer a stub: the billing spec's §8.4 emits the trigger from `charge.refunded` and from `customer.subscription.deleted` landing inside the referred user's first billing period. The Stripe balance credit is reversed with a matching debit — a credit already consumed by an invoice cannot be un-applied, so the debit sits against future invoices rather than clawing money back |
 
 ### 9.4 State-machine guards
 
@@ -664,17 +674,65 @@ The order below is the suggested execution sequence — each phase produces some
     - Manual checklist (§11.5)
     - Update operator docs at `docs/referrals/` (runbook for the cleanup + repair commands)
 
-## 13. Open questions (deferred — not blocking design)
+## 13. Open questions
 
-These can be decided when billing returns. Stubs are in place; no design change needed today.
+Billing has returned (`docs/superpowers/specs/2026-09-02-stripe-subscriptions-design.md`),
+so items 2, 4 and 5 are **now answered** — see §15. Two remain.
 
-1. **Cutoff policy for `eligible_pending_billing` referrals.** When billing launches, is there a max age beyond which a verified-pending referral can no longer be credited? Options: no cutoff / N months from referral creation / N months from billing-launch.
-2. **Refund-window reversal.** If a credited user refunds their first month, do we reverse the credit? `ReferralAttributionService::recordChurn` stub is in place; policy + caller deferred.
-3. **Notification batching on billing-launch day.** First batch of historical credits could fire many notifications at once. Need a "settlement mode" toggle.
-4. **Default subscription price.** Currently `default_credit_amount_cents = 2000` in config. Will need to match the real subscription price.
-5. **Cash-out vs invoice credit.** When billing returns, do referrers get a Stripe transfer or an invoice credit on their next month? Affects nothing in this design (we store amount-owed; settlement is downstream).
+1. **Cutoff policy for `eligible_pending_billing` referrals.** Is there a max age beyond
+   which a verified-pending referral can no longer be credited? Options: no cutoff /
+   N months from referral creation / N months from billing-launch. **Still open** — but
+   note it is now bounded in practice by R3's per-referrer cap, so it is a fairness
+   question rather than a liability one.
+2. ~~Refund-window reversal.~~ **Answered — R2 (§15).**
+3. **Notification batching on billing-launch day.** The first settlement pass could fire
+   many `ReferralCreditedNotification`s at once. Still needs a "settlement mode" toggle.
+   **Still open**, and now concrete: it fires the first time the settle half is switched
+   on after billing stage 3.
+4. ~~Default subscription price.~~ **Answered — R4 (§15).**
+5. ~~Cash-out vs invoice credit.~~ **Answered — R1 (§15).**
 
-## 14. References
+## 14. Relationship to the billing plan
+
+This program ships as its **own plan**, not as a stage of the subscriptions plan. The
+two halves have different dependencies and only one of them waits:
+
+| Half | Needs billing? | Notes |
+|---|---|---|
+| **Track** — §5–§9: the block, inline signup, provisioning, attribution, the state machine as far as `eligible_pending_billing` | **No** | Shippable independently, today |
+| **Settle** — `eligible_pending_billing → credited`, and R2's reversal | **Yes** | Needs a first payment to be possible, i.e. billing **stage 3**. Stage 4 (enforcement) is NOT a prerequisite |
+
+The billing design owes this one three named things (its §10.2): `grantAccountCredit()`
+public, `SubscriptionFirstPaymentSucceeded` emitted on the first invoice, and the R2
+clawback triggers in its webhook lane. Nothing else in that design is load-bearing here.
+
+⚠️ **Settlement calls `grantAccountCredit()`, NOT `grantFreeMonths()`.** They are
+different operations (billing spec D18). A trial extension is meaningless for a referrer
+who has been paying for a year, which is precisely the profile that accumulates rewards;
+a Stripe customer balance credit works in every account state and is real monetary
+value. Routing settlement through the comp method would silently no-op for the accounts
+that earn the most.
+
+## 15. Settlement decisions (2026-09-03, owner)
+
+Taken once billing returned. These close §13 items 2, 4 and 5.
+
+| # | Decision | Rationale |
+|---|---|---|
+| **R1** | Reward is a **Stripe customer balance credit**, not a trial extension and not cash. A payout lane is **designed for, not built** | Real monetary value, state-independent, and needs no Connect — which is the explicit non-goal of both this spec and the billing one. The ledger already stores an amount owed, so Connect can be added later without touching attribution. **Accepted cost:** an influencer who is not a paying Partna user gets nothing until that lane exists |
+| **R2** | **Claw back** if the referred user refunds or churns inside their first billing period (`credited → voided`) | Removes the profit from the cheapest exploit — pay one month, take the reward, refund. Uses the `recordChurn()` stub and the `credited → voided` transition this design already has; the trigger comes from the billing webhook lane |
+| **R3** | **Per-referrer cap** in config, generous default | Turns an unbounded liability into a bounded one and gives a dial to turn down without a deploy. R2 is what lets the cap stay high enough that no honest referrer notices it — the two defend different failures |
+| **R4** | Reward denominated in **N months × the referrer's tier price**, resolved at settlement | Replaces the frozen `default_credit_amount_cents = 2000`, which decouples from reality the first time a price moves. N is configurable, default 1 |
+| **R5** | Ships as a **separate plan**; the track half is unblocked, the settle half waits on billing stage 3 | Settlement is downstream of a payment that cannot exist until stage 3, and bundling would enlarge the riskiest stage of the billing plan for no gain |
+
+**Economics to keep in view.** At the default N=1, a referred user who pays one month
+and churns nets **zero, minus Stripe's fee** (~1.75% + $0.30 domestic AU). That is a
+deliberate customer-acquisition cost and it only pays back on retention past month one —
+which is what R2 protects and R3 bounds. Raising `reward_months_per_referral` above 1
+makes every referral negative until the referred user's (N+1)th month; it is a growth
+lever with a real cost, not a free dial.
+
+## 16. References
 
 - `CLAUDE.md` — project rules (Supabase-only migrations, policies, capability gates, no Laravel migrations)
 - `AI_CONTEXT.md` — domain model
