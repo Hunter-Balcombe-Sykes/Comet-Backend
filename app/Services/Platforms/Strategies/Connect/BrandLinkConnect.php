@@ -49,6 +49,17 @@ final class BrandLinkConnect implements ConnectStrategy
     {
         $url = self::normaliseInput($this->surfaceKey, $input);
 
+        // A retired brand is refused on the MANUAL lane too (2026-09-03).
+        // PlacementPolicy.php:83 already routes a retired surface to
+        // Verdict::Note, so a harvest can never suggest one — but nothing
+        // checked lifecycle here, so a paste still connected it and attached a
+        // live CTA to a brand that stopped trading. One guard on this strategy
+        // covers every derived brand surface at once.
+        if ($this->surfaceKey !== null
+            && (CompiledCatalog::surface($this->surfaceKey)['lifecycle'] ?? null) === 'retired') {
+            return ConnectResult::fail($this->label.' is no longer operating, so it can\'t be connected.');
+        }
+
         $classified = app(WebsiteLinkHarvester::class)->classify($url);
         if ($classified === null) {
             return ConnectResult::fail('That does not look like a '.$this->label.' link.');
