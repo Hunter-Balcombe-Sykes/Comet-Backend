@@ -12,9 +12,9 @@ use App\Jobs\Routing\VerifyLinkJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Routing\ConnectionIdentity;
-use App\Routing\LinkValidity;
 use App\Routing\SuggestionApplier;
 use App\Routing\SyncFindingsBridge;
+use App\Routing\Verification\LinkVerifier;
 use App\Routing\WorkplaceCandidates;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\GoogleBusinessAutoSync;
@@ -378,11 +378,21 @@ class SuggestionsController extends ApiController
         }
 
         // L2 (2026-09-03). The person has said yes; the question left is
-        // whether we are entitled to claim the page is theirs. It is asked ONLY
-        // when L1 is weak — the detector that matched constrained nothing
-        // beyond the brand's domain, so the URL identifies a BRAND and not an
-        // account, and accepting it would file the whole URL as the account's
-        // id: the nameless, unrefreshable card.
+        // whether the page they said yes to actually exists.
+        //
+        // The trigger is "can we check this brand at all", NOT "is L1 weak".
+        // Gating on weakness was wrong twice over. It made the lane unreachable
+        // — PlacementPolicy's Gate 3 now turns a weak match into a Note before
+        // any intent is written, so an intent on a shaped surface is always L1
+        // PASS — and it asked the wrong question anyway: L1 says the URL is
+        // SHAPED like an account page, which a fabricated id also is.
+        // quandoo.com/place/not-a-place-99999999 passes L1 and 404s.
+        //
+        // It is also no longer scoped to LinkValidity::applies(). That scoping
+        // belongs to L1, which must never judge an identity a person GAVE us
+        // (a handle, a place id). L2 asks a different question, and a typed
+        // handle can be checked exactly as definitively as a pasted URL —
+        // github.com/{handle} and x.com/{handle} both 404 honestly.
         //
         // A network call cannot happen here (LinkProbeWorker's rule), so the
         // intent parks in 'verifying' — which holds its slot — and the queue
@@ -391,9 +401,8 @@ class SuggestionsController extends ApiController
         //
         // Deliberately AFTER the store arm above: a probed storefront has its
         // own richer lane which already ends in a real fetch of the store.
-        if (LinkValidity::applies($surface)
-            && LinkValidity::l1ForDetector($intent->detector_id) === LinkValidity::WEAK
-            && is_string($intent->canonical_url ?? null) && $intent->canonical_url !== '') {
+        if (is_string($intent->canonical_url ?? null) && $intent->canonical_url !== ''
+            && app(LinkVerifier::class)->canVerify((string) $intent->surface_key)) {
             DB::table('routing.source_intents')
                 ->where('id', $intent->id)
                 ->where('user_id', $user->id)

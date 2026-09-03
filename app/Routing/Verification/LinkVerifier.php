@@ -33,19 +33,35 @@ use Throwable;
 class LinkVerifier
 {
     /**
-     * surface key => adapter class. Empty is a valid and currently accurate
-     * state — every surface is Class C until an adapter proves otherwise, and a
-     * wrong adapter is worse than none.
+     * surface key => adapter class. Every surface is Class C until an adapter
+     * proves otherwise, and a wrong adapter is worse than none: a false
+     * NotFound refuses a link that was fine.
+     *
+     * Each entry below was measured on 2026-09-03 with the real page and a
+     * fabricated id fetched side by side. A 404 on the fake alone proves
+     * nothing — a brand that 404s everything, or that blocked us, looks
+     * exactly the same. The evidence per brand is in PlainNotFoundAdapter's
+     * docblock, including the two that were tested and REJECTED (Spotify
+     * answers 200 for a fabricated artist id; Resy answers 404 only to a
+     * crawler user agent).
      *
      * A method rather than a const so the declared type governs: as a literal
-     * empty const, static analysis narrows it to `array{}` and reads every
-     * lookup below as dead code.
+     * const, static analysis narrows it to a shape and reads the misses below
+     * as dead code.
      *
      * @return array<string, class-string<VerificationAdapter>>
      */
     private static function adapters(): array
     {
-        return [];
+        return [
+            'quandoo.reserve' => PlainNotFoundAdapter::class,
+            'github.profile' => PlainNotFoundAdapter::class,
+            'calendly.book' => PlainNotFoundAdapter::class,
+            'youtube.channel' => PlainNotFoundAdapter::class,
+            'x.profile' => PlainNotFoundAdapter::class,
+            // 200 + a redirect carrying its own "deleted" marker, never a 404.
+            'booksy.book' => BooksyAdapter::class,
+        ];
     }
 
     public function verify(string $surfaceKey, string $url): VerificationVerdict

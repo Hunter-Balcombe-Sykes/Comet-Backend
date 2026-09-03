@@ -10,8 +10,8 @@ use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Routing\HiddenConnections;
-use App\Routing\LinkValidity;
 use App\Routing\SuggestionApplier;
+use App\Routing\Verification\LinkVerifier;
 use App\Routing\WorkplaceCandidates;
 use App\Services\Design\LogoCandidates;
 use App\Site\Documents\SiteCacheLanes;
@@ -171,16 +171,14 @@ class SetupBatchApplier
 
         // L2, same rule as the suggestions inbox (2026-09-03). The setup dialog
         // is the OTHER accept lane, and the owner's rule is one system for both:
-        // a link whose detector matched nothing but the brand's domain does not
-        // become a live CTA until something says the page is real, or honestly
-        // says it could not check.
+        // a link does not become a live CTA until something says the page is
+        // real, or honestly says it could not check.
         //
         // Returns true, not false: the person's tick was accepted. What is
         // pending is our own check, and the dialog renders that from the
         // intent's 'verifying' state rather than from a failed row.
-        if (LinkValidity::applies($surface)
-            && LinkValidity::l1ForDetector($intent->detector_id) === LinkValidity::WEAK
-            && is_string($intent->canonical_url ?? null) && $intent->canonical_url !== '') {
+        if (is_string($intent->canonical_url ?? null) && $intent->canonical_url !== ''
+            && app(LinkVerifier::class)->canVerify((string) $intent->surface_key)) {
             DB::table('routing.source_intents')
                 ->where('id', $intent->id)
                 ->where('user_id', $user->id)

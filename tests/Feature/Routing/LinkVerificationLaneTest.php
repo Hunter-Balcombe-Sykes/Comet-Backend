@@ -1,24 +1,28 @@
 <?php
 
-use App\Catalog\CompiledCatalog;
 use App\Jobs\Routing\VerifyLinkJob;
 use App\Models\Core\Site\IntegrationConnection;
-use App\Routing\LinkValidity;
 use App\Routing\SuggestionApplier;
 use App\Routing\Verification\LinkVerifier;
 use App\Routing\Verification\VerificationVerdict;
+use App\Services\Setup\SetupBatchApplier;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 /**
- * B.2 — the lane an accept takes when L1 is weak: the detector that matched
- * constrained nothing beyond the brand's domain, so the URL identifies a BRAND
- * and accepting it as-is would file the whole URL as the account's id.
+ * B.2 — the lane an accept takes when the brand is one we can actually CHECK.
+ *
+ * The trigger is "is there an adapter for this surface", not "is L1 weak". L1
+ * says the URL is SHAPED like an account page, which a fabricated id also is:
+ * quandoo.com/place/not-a-place-99999999 passes L1 and 404s. And since
+ * PlacementPolicy's Gate 3 turns a weak match into a Note before any intent is
+ * written, an L1-gated detour would never fire at all.
  *
  * The invariant under test throughout: only a DEFINITIVE not_found refuses the
  * save. Being blocked, having no adapter, or the job dying all still connect —
- * with the flag.
+ * with the flag. That asymmetry is what makes this lane unable to cost anyone
+ * a link.
  */
 beforeEach(function () {
     setupUsersTable();
@@ -26,17 +30,17 @@ beforeEach(function () {
     setupRoutingTables();
 });
 
-function seedWeakIntent(string $userId, array $overrides = []): string
+function seedIntent(string $userId, array $overrides = []): string
 {
     $id = (string) Str::uuid();
 
     DB::table('routing.source_intents')->insert(array_merge([
+        // doordash.order by DEFAULT, and deliberately: it has no adapter, so
+        // the job-level tests below exercise the verifier without any test
+        // reaching the network. The two trigger tests override this to a brand
+        // that DOES have one (and fake the queue, so they do not fetch either).
         'id' => $id,
         'user_id' => $userId,
-        // doordash.order: connectable, active, url-kind, and every one of its
-        // detectors matches the bare domain — the exact shape this lane exists
-        // for. detector_id left null, which l1ForDetector reads as NONE, so the
-        // tests that need WEAK set it explicitly.
         'surface_key' => 'doordash.order',
         'routing_class' => 'ordering',
         'identifier' => 'https://www.doordash.com/store/some-cafe',
@@ -54,7 +58,7 @@ function seedWeakIntent(string $userId, array $overrides = []): string
 it('parks the intent and answers 202 rather than connecting a link it has not checked', function () {
     Queue::fake();
     $pro = createTenant('verify-park', ['account_type' => 'business', 'sector' => 'restaurant']);
-    $intentId = seedWeakIntent($pro->id, ['detector_id' => weakDetectorIdFor('doordash.order')]);
+    $intentId = seedIntent($pro->id, verifiableIntent());
 
     actingAsUser($pro)
         ->postJson("/api/routing/suggestions/{$intentId}/accept")
@@ -69,12 +73,12 @@ it('parks the intent and answers 202 rather than connecting a link it has not ch
 });
 
 it('connects with the unverified flag when the brand cannot be checked at all', function () {
-    // No adapter is registered for any surface today: every brand is Class C
-    // until one is written, and Class C is save-and-flag. This is the DEFAULT
-    // path, which is what makes adding this lane unable to break an existing
-    // link.
+    // doordash.order has no adapter — Class C, save-and-flag. Most brands are,
+    // and this is the path that makes adding this lane unable to break an
+    // existing link: a brand we have not taught it about behaves exactly as it
+    // did before, plus a flag.
     $pro = createTenant('verify-classc', ['account_type' => 'business', 'sector' => 'restaurant']);
-    $intentId = seedWeakIntent($pro->id, ['state' => 'verifying']);
+    $intentId = seedIntent($pro->id, ['state' => 'verifying']);
 
     (new VerifyLinkJob((string) $pro->id, $intentId))->handle(app(LinkVerifier::class), app(SuggestionApplier::class));
 
@@ -87,7 +91,7 @@ it('connects with the unverified flag when the brand cannot be checked at all', 
 
 it('connects with the verified flag when the page is found', function () {
     $pro = createTenant('verify-found', ['account_type' => 'business', 'sector' => 'restaurant']);
-    $intentId = seedWeakIntent($pro->id, ['state' => 'verifying']);
+    $intentId = seedIntent($pro->id, ['state' => 'verifying']);
 
     $verifier = Mockery::mock(LinkVerifier::class);
     $verifier->shouldReceive('verify')->once()->andReturn(VerificationVerdict::Found);
@@ -100,7 +104,7 @@ it('connects with the verified flag when the page is found', function () {
 
 it('refuses the save — and only this verdict does — when the page is definitively not there', function () {
     $pro = createTenant('verify-notfound', ['account_type' => 'business', 'sector' => 'restaurant']);
-    $intentId = seedWeakIntent($pro->id, ['state' => 'verifying']);
+    $intentId = seedIntent($pro->id, ['state' => 'verifying']);
 
     $verifier = Mockery::mock(LinkVerifier::class);
     $verifier->shouldReceive('verify')->once()->andReturn(VerificationVerdict::NotFound);
@@ -117,7 +121,7 @@ it('refuses the save — and only this verdict does — when the page is definit
 
 it('still saves the link when the job itself dies — a dead job is not evidence against a link', function () {
     $pro = createTenant('verify-failed', ['account_type' => 'business', 'sector' => 'restaurant']);
-    $intentId = seedWeakIntent($pro->id, ['state' => 'verifying']);
+    $intentId = seedIntent($pro->id, ['state' => 'verifying']);
 
     (new VerifyLinkJob((string) $pro->id, $intentId))->failed(new RuntimeException('queue died'));
 
@@ -129,7 +133,7 @@ it('still saves the link when the job itself dies — a dead job is not evidence
 
 it('claims the intent exactly once, so a redelivered job cannot connect twice', function () {
     $pro = createTenant('verify-once', ['account_type' => 'business', 'sector' => 'restaurant']);
-    $intentId = seedWeakIntent($pro->id, ['state' => 'verifying']);
+    $intentId = seedIntent($pro->id, ['state' => 'verifying']);
 
     $job = new VerifyLinkJob((string) $pro->id, $intentId);
     $job->handle(app(LinkVerifier::class), app(SuggestionApplier::class));
@@ -138,12 +142,12 @@ it('claims the intent exactly once, so a redelivered job cannot connect twice', 
     expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1);
 });
 
-it('accepts a strong link straight through — no detour for a link that names an account', function () {
+it('accepts straight through when there is nothing that could check the brand', function () {
     Queue::fake();
     $pro = createTenant('verify-strong');
-    // instagram.profile captures the handle by name, so L1 passes and the
-    // accept must NOT park.
-    $intentId = seedWeakIntent($pro->id, [
+    // instagram.profile is Class C — it answers 200 for fabricated handles, so
+    // there is no adapter and no question worth parking the accept for.
+    $intentId = seedIntent($pro->id, [
         'surface_key' => 'instagram.profile',
         'routing_class' => 'social',
         'identifier' => 'someone',
@@ -157,29 +161,27 @@ it('accepts a strong link straight through — no detour for a link that names a
     Queue::assertNotPushed(VerifyLinkJob::class);
 });
 
-/** The id of one detector on this surface that constrains nothing but the host. */
-function weakDetectorIdFor(string $surfaceKey): string
+/** An intent on a brand the verifier actually has an adapter for. */
+function verifiableIntent(): array
 {
-    $surface = CompiledCatalog::surface($surfaceKey);
-    $detectors = CompiledCatalog::detectors();
+    expect(app(LinkVerifier::class)->canVerify('quandoo.reserve'))->toBeTrue();
 
-    foreach ($surface['detectors'] as $id) {
-        if (isset($detectors[$id]) && ! LinkValidity::detectorIsSpecific($detectors[$id])) {
-            return $id;
-        }
-    }
-
-    throw new RuntimeException("No host-only detector on {$surfaceKey} — pick another surface for this test.");
+    return [
+        'surface_key' => 'quandoo.reserve',
+        'routing_class' => 'reservations',
+        'identifier' => '92706',
+        'canonical_url' => 'https://www.quandoo.com.au/place/ricks-place-92706',
+    ];
 }
 
 it('takes the same detour from the setup dialog — one rule, both accept lanes', function () {
     Queue::fake();
     $pro = createTenant('verify-setup', ['account_type' => 'business', 'sector' => 'restaurant']);
-    $intentId = seedWeakIntent($pro->id, ['detector_id' => weakDetectorIdFor('doordash.order')]);
+    $intentId = seedIntent($pro->id, verifiableIntent());
 
     // The dialog's Continue, not the inbox's Accept. It reports success — the
     // person's tick WAS accepted — and the pending half is our own check.
-    $result = app(App\Services\Setup\SetupBatchApplier::class)->apply($pro, ['accept' => [$intentId]]);
+    $result = app(SetupBatchApplier::class)->apply($pro, ['accept' => [$intentId]]);
 
     expect($result['errors'])->toBe([])
         ->and(DB::table('routing.source_intents')->where('id', $intentId)->value('state'))->toBe('verifying')
