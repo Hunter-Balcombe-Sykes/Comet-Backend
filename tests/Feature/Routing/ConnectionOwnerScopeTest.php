@@ -15,12 +15,15 @@
 // one KEEPS the workplace's action links (the booking really is the shop's) and
 // records whose they are.
 
+use App\Catalog\CompiledCatalog;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Routing\Importers\WebsiteImporter;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingCapabilityGate;
 use App\Routing\RoutingContext;
+use App\Routing\SuggestionApplier;
 use App\Services\Accounts\AccountCapabilities;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
 beforeEach(function () {
@@ -31,6 +34,11 @@ beforeEach(function () {
 });
 
 it('marks the workplace\'s booking link as the workplace\'s, not the person\'s', function () {
+    // Since 2026-09-03 nothing a harvester found auto-connects: a
+    // website_import find lands as a proposed intent, not a connection, so
+    // owner_scope has nothing to land on until the suggestion is accepted.
+    // SuggestionApplier::apply() writes it then, from the intent's own
+    // origin — this test now drives that full record-then-accept round trip.
     $pro = createTenant('cos-partna');
     Http::fake(['*' => Http::response('<html><body>
         <a href="https://www.fresha.com/a/anseo-studio-v0v92jna">Book now</a>
@@ -38,19 +46,20 @@ it('marks the workplace\'s booking link as the workplace\'s, not the person\'s',
 
     app(WebsiteImporter::class)->import($pro, 'https://example.com/');
 
-    $booking = IntegrationConnection::query()
-        ->where('user_id', $pro->id)->where('routing_class', 'booking')->first();
+    $intent = DB::table('routing.source_intents')
+        ->where('user_id', $pro->id)->where('routing_class', 'booking')->where('state', 'proposed')->first();
+    expect($intent)->not->toBeNull();
 
-    expect($booking)->not->toBeNull()
-        ->and($booking->owner_scope)->toBe('workplace');
+    $booking = app(SuggestionApplier::class)->apply($pro, $intent, CompiledCatalog::surface($intent->surface_key));
+
+    expect($booking->owner_scope)->toBe('workplace');
 });
 
 it('marks a booking found in the person\'s OWN bio as their own', function () {
-    // link_in_bio, not paste: a paste is a direct request and deliberately ends
-    // at Choose (the dashboard's confirm flow), so it writes an intent and no
-    // connection — there would be no owner_scope to assert. The bio harvest is
-    // the self-origin that actually places, and it is where most of a partna's
-    // real links come from.
+    // link_in_bio is still a harvest origin, so this also ends at Choose —
+    // a proposed intent, no connection — until it is accepted. The bio
+    // harvest is the self-origin most of a partna's real links come from,
+    // so it is the one worth pinning against SuggestionApplier's derivation.
     $pro = createTenant('cos-ownbio');
 
     app(LinkRoutingService::class)->route(
@@ -58,11 +67,13 @@ it('marks a booking found in the person\'s OWN bio as their own', function () {
         RoutingContext::forUser($pro, 'link_in_bio'),
     );
 
-    $booking = IntegrationConnection::query()
-        ->where('user_id', $pro->id)->where('routing_class', 'booking')->first();
+    $intent = DB::table('routing.source_intents')
+        ->where('user_id', $pro->id)->where('routing_class', 'booking')->where('state', 'proposed')->first();
+    expect($intent)->not->toBeNull();
 
-    expect($booking)->not->toBeNull()
-        ->and($booking->owner_scope)->toBe('self');
+    $booking = app(SuggestionApplier::class)->apply($pro, $intent, CompiledCatalog::surface($intent->surface_key));
+
+    expect($booking->owner_scope)->toBe('self');
 });
 
 it('marks a business account\'s own website find as its own — its workplace IS its identity', function () {
@@ -73,11 +84,13 @@ it('marks a business account\'s own website find as its own — its workplace IS
 
     app(WebsiteImporter::class)->import($pro, 'https://example.com/');
 
-    $booking = IntegrationConnection::query()
-        ->where('user_id', $pro->id)->where('routing_class', 'booking')->first();
+    $intent = DB::table('routing.source_intents')
+        ->where('user_id', $pro->id)->where('routing_class', 'booking')->where('state', 'proposed')->first();
+    expect($intent)->not->toBeNull();
 
-    expect($booking)->not->toBeNull()
-        ->and($booking->owner_scope)->toBe('self');
+    $booking = app(SuggestionApplier::class)->apply($pro, $intent, CompiledCatalog::surface($intent->surface_key));
+
+    expect($booking->owner_scope)->toBe('self');
 });
 
 it('is never mass-assignable — provenance is system-written, not caller-supplied', function () {

@@ -55,6 +55,33 @@ class MenuApifyScraper
     private ?array $drivers = null;
 
     /**
+     * platform => 'blocked'|'not_found'|'empty_menu' for platforms that
+     * returned no menu on the most recent fetchStores() call. Reset at the
+     * top of fetchStores(); mapResponse() and attemptScrape() record into it
+     * from whichever null-return case applies (menu-status split —
+     * MenuFetchJob::writePlatformSyncStatus() writes this into
+     * site.menu_platform_links.status instead of one flattened
+     * 'unavailable'). A platform absent from this array failed for a reason
+     * outside the Apify lane (budget exhaustion, a thrown exception, the
+     * transport=http driver) — the caller falls back to 'unavailable' for it.
+     *
+     * @var array<string, string>
+     */
+    private array $lastFailureReasons = [];
+
+    /** @return array<string, string> platform => 'blocked'|'not_found'|'empty_menu' for platforms that returned no menu on the last fetchStores() call. */
+    public function lastFailureReasons(): array
+    {
+        return $this->lastFailureReasons;
+    }
+
+    /** Record why $platform returned no menu on this fetchStores() call. */
+    private function recordFailureReason(string $platform, string $reason): void
+    {
+        $this->lastFailureReasons[$platform] = $reason;
+    }
+
+    /**
      * Scrape one store URL on the given platform and map it to the normalized
      * menu shape. Null on missing token / failure / empty result — the caller
      * records the per-platform status 'unavailable' and keeps any prior menu.
@@ -128,6 +155,8 @@ class MenuApifyScraper
      */
     public function fetchStores(array $links, ?string $userId = null, ?string $address = null): array
     {
+        $this->lastFailureReasons = [];
+
         // transport=http platforms first (Square Online): one first-party
         // fetch per store — no token, no budget claim, no mode split (the
         // single result prices both modes). Failures negative-cache exactly
@@ -338,17 +367,26 @@ class MenuApifyScraper
     private function mapResponse(mixed $resp, string $platform, ?string $userId): ?array
     {
         if (! $resp instanceof Response || ! $resp->successful()) {
+            $this->recordFailureReason($platform, 'blocked');
+
             return null;
         }
         $items = $resp->json();
         if (! is_array($items) || $items === []) {
             Log::info('menu.apify.pool_empty', ['platform' => $platform, 'user_id' => $userId]);
+            $this->recordFailureReason($platform, 'not_found');
 
             return null;
         }
         $menu = $this->driverFor($platform)->mapItems($items);
 
-        return $menu['categories'] === [] ? null : $menu;
+        if ($menu['categories'] === []) {
+            $this->recordFailureReason($platform, 'empty_menu');
+
+            return null;
+        }
+
+        return $menu;
     }
 
     /** Whether a missed pooled response is worth a sequential retry (empty / transient yes; hard 4xx no). */
@@ -594,6 +632,7 @@ class MenuApifyScraper
                 'attempt' => $attempt,
                 'status' => $response->status(),
             ]);
+            $this->recordFailureReason($platform, 'blocked');
 
             return ['menu' => null, 'retryable' => $response->status() >= 500, 'budgetExhausted' => false];
         }
@@ -601,6 +640,7 @@ class MenuApifyScraper
         $items = $response->json();
         if (! is_array($items) || $items === []) {
             Log::info('menu.apify.empty', ['platform' => $platform, 'user_id' => $userId, 'attempt' => $attempt]);
+            $this->recordFailureReason($platform, 'not_found');
 
             return ['menu' => null, 'retryable' => true, 'budgetExhausted' => false];
         }
@@ -619,9 +659,13 @@ class MenuApifyScraper
 
         // Mapped to nothing (unexpected shape / all-empty rows) — treat as a
         // retryable miss rather than a real menu.
-        return $menu['categories'] === []
-            ? ['menu' => null, 'retryable' => true, 'budgetExhausted' => false]
-            : ['menu' => $menu, 'retryable' => false, 'budgetExhausted' => false];
+        if ($menu['categories'] === []) {
+            $this->recordFailureReason($platform, 'empty_menu');
+
+            return ['menu' => null, 'retryable' => true, 'budgetExhausted' => false];
+        }
+
+        return ['menu' => $menu, 'retryable' => false, 'budgetExhausted' => false];
     }
 
     /**

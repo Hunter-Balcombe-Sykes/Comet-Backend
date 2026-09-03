@@ -39,8 +39,12 @@ it('honours a tombstone inserted after the memo was primed, once the ttl lapses'
     $policy = new PlacementPolicy;
     $ctx = new RoutingContext($pro, 'bio_harvest', false, (string) Str::uuid());
 
-    // Prime the memo: no tombstones yet, link places.
-    expect($policy->decide(tmtBandcampProjection(), $ctx)->verdict)->toBe(Verdict::Place);
+    // Prime the memo: no tombstones yet, so the link clears the tombstone
+    // gate. Since 2026-09-03 an indirect, unconfirmed origin like
+    // 'bio_harvest' never reaches Place any more (only isConfirmedByUser()
+    // does) — Choose is this test's "not tombstoned" signal now; the memo
+    // behaviour under test is unaffected, it sits entirely above this check.
+    expect($policy->decide(tmtBandcampProjection(), $ctx)->verdict)->toBe(Verdict::Choose);
 
     // A concurrent dismiss lands (a different request in production).
     DB::table('routing.item_tombstones')->insert([

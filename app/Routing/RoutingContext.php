@@ -35,6 +35,15 @@ final readonly class RoutingContext
         /** Pre-account/staff builds have no user yet (plan §2, Decision 7). */
         public bool $preAccount = false,
         public ?string $importRunId = null,
+        /**
+         * The user themselves asked for THIS link, in this request — an accept
+         * pressed in the suggestions inbox. A paste carries the same meaning
+         * through its origin, so isConfirmedByUser() covers both; this flag is
+         * for the lanes whose origin cannot say it, because the same origin
+         * also serves autonomous discovery (commerce_probe is both the accept
+         * lane and the harvest probe).
+         */
+        public bool $confirmed = false,
     ) {
         if (! in_array($origin, self::ORIGINS, true)) {
             throw new \InvalidArgumentException(
@@ -43,9 +52,9 @@ final readonly class RoutingContext
         }
     }
 
-    public static function forUser(User $user, string $origin = 'paste', ?string $importRunId = null): self
+    public static function forUser(User $user, string $origin = 'paste', ?string $importRunId = null, bool $confirmed = false): self
     {
-        return new self($user, $origin, false, $importRunId);
+        return new self($user, $origin, false, $importRunId, $confirmed);
     }
 
     public static function preAccountBuild(string $origin = 'staff', ?string $importRunId = null): self
@@ -61,6 +70,25 @@ final readonly class RoutingContext
     public function isDirectRequest(): bool
     {
         return $this->origin === 'paste';
+    }
+
+    /**
+     * The user asked for this link themselves — they pasted it and submitted
+     * the preview, or they pressed Accept on a suggestion. This is the ONLY
+     * context in which PlacementPolicy mints Verdict::Place; every harvested
+     * link is a suggestion no matter how confident the projection is (owner,
+     * 2026-09-03: nothing auto-connects).
+     *
+     * Deliberately not the same question as isDirectRequest(). That one is
+     * about TOMBSTONES and thresholds — "did a person type this URL" — and a
+     * paste is allowed to resurrect a link the user previously removed. An
+     * inbox accept is a confirmation of something WE proposed, so it must not
+     * inherit the tombstone bypass: the suggestion should never have been
+     * offered if it were tombstoned.
+     */
+    public function isConfirmedByUser(): bool
+    {
+        return $this->confirmed || $this->isDirectRequest();
     }
 
     /**

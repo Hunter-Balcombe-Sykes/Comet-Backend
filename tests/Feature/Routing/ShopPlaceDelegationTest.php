@@ -68,6 +68,17 @@ it('a tenant shop host probes end-to-end: connection + storefront + fill, not a 
     // probe lane, but the probe worker used to REFUSE tenant-scoped hosts
     // ('already_matched') — the projector knew what it was, and the seeder
     // therefore had no path at all. Shop tenant suffixes now probe.
+    //
+    // Since 2026-09-03 nothing a harvester finds auto-connects (decide()
+    // mints Place only for `$context->isConfirmedByUser()`), and the
+    // delegation arm above always probes with suggestOnly: true — so this
+    // job, run the way the delegation arm actually dispatches it, resolves
+    // to a SUGGESTION, not a connection. The end-to-end connection +
+    // storefront + fill this test pins now happens only after the user
+    // ACCEPTS that suggestion: SuggestionsController::accept() re-dispatches
+    // CommerceProbeJob with acceptedIntentId set, which is what sets
+    // `confirmed` on the routing context and is the only thing that lets
+    // decide() mint Place.
     Http::fake([
         '*/meta.json' => Http::response(['id' => 99110022, 'name' => 'Tash Sultana Merch', 'currency' => 'AUD'], 200),
         'https://tashsultanamerch.myshopify.com/' => Http::response('<html><head><title>Tash Sultana Merch</title></head><body>shop</body></html>', 200, ['Content-Type' => 'text/html']),
@@ -76,7 +87,22 @@ it('a tenant shop host probes end-to-end: connection + storefront + fill, not a 
     Queue::fake();
     $pro = createTenant('m9-tenant-probe');
 
-    app()->call([new CommerceProbeJob((string) $pro->id, 'https://tashsultanamerch.myshopify.com/'), 'handle']);
+    // 1. The discovery probe, suggest-only exactly as the delegation arm
+    //    dispatches it: a proposed intent, no connection yet.
+    app()->call([new CommerceProbeJob((string) $pro->id, 'https://tashsultanamerch.myshopify.com/', suggestOnly: true), 'handle']);
+
+    $intent = DB::table('routing.source_intents')->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->state)->toBe('proposed')
+        ->and(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
+
+    // 2. Accept → the controller re-dispatches CommerceProbeJob with
+    //    acceptedIntentId, the confirmation signal.
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intent->id}/accept")->assertStatus(202);
+    Queue::assertPushed(CommerceProbeJob::class, fn ($j) => $j->userId === (string) $pro->id && $j->category === 'shop' && $j->acceptedIntentId === $intent->id);
+
+    // 3. Running that accepted job is what actually places the store.
+    app()->call([new CommerceProbeJob((string) $pro->id, 'https://tashsultanamerch.myshopify.com/', 'shop', acceptedIntentId: $intent->id), 'handle']);
 
     $connection = IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->first();
     expect($connection)->not->toBeNull()

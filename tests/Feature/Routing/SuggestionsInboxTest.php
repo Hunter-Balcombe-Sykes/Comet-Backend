@@ -428,12 +428,16 @@ it('offers a probed Shopify storefront as a suggestion from a paste (never a pla
         ->assertStatus(202)
         ->assertJsonPath('status', 'pending')
         ->assertJsonPath('connectionId', null);
-    Queue::assertPushed(CommerceProbeJob::class, fn ($j) => $j->userId === (string) $pro->id && $j->category === 'shop' && $j->suggestOnly === false);
+    Queue::assertPushed(CommerceProbeJob::class, fn ($j) => $j->userId === (string) $pro->id && $j->category === 'shop' && $j->suggestOnly === false && $j->acceptedIntentId === $intent->id);
     expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
 
     // 3. That job (probe answer cached from step 1) places the store: connection
     //    named after the shop, storefront collection, intent applied.
-    app()->call([new CommerceProbeJob((string) $pro->id, 'https://example.org/', 'shop'), 'handle']);
+    //    acceptedIntentId is what SuggestionsController::accept() actually
+    //    dispatches (asserted above) and, since 2026-09-03, the ONLY thing
+    //    that sets `confirmed` on the routing context — without it decide()
+    //    can never mint Place, no matter how confident the projection is.
+    app()->call([new CommerceProbeJob((string) $pro->id, 'https://example.org/', 'shop', acceptedIntentId: $intent->id), 'handle']);
     $connection = IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->first();
     expect($connection)->not->toBeNull()
         ->and($connection->payload['name'] ?? null)->toBe('Beardbrand')

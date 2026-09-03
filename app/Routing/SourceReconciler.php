@@ -79,21 +79,26 @@ class SourceReconciler
         // commerce lane's OWN writes (origin commerce_probe) must pass
         // through, or this arm intercepts the very writer it delegates to
         // (SuggestionsInboxTest's accept flow caught exactly that).
-        // On a sign-up build decide() never emits Place (A.2), so the arm
-        // also catches the Choose band there — otherwise a harvested store
-        // root would write a bare proposed intent with none of the commerce
-        // lane's enrichment (shop name, deep-page rules) behind it.
+        // Since 2026-09-03 decide() never emits Place for an unconfirmed
+        // request, so the arm catches the CHOOSE band on every indirect origin
+        // — not just sign-up builds, as it did while a post-claim harvest could
+        // still reach Place. Without that widening a harvested store root would
+        // write a bare proposed intent with none of the commerce lane's
+        // enrichment (shop name, logo, deep-page rules) behind it, and the
+        // inbox would render a nameless "Shopify?" the accept path could not
+        // fill in. Place stays in the set for a confirmed non-paste origin.
         if ($routingClass === 'shop'
-            && ($placement->verdict === Verdict::Place
-                || ($context->isSignupBuild() && $placement->verdict === Verdict::Choose))
+            && in_array($placement->verdict, [Verdict::Place, Verdict::Choose], true)
             && ! $context->isDirectRequest() && $context->origin !== 'commerce_probe') {
             CommerceProbeJob::dispatch(
                 (string) $user->id,
                 $iri->canonical ?? SecretParams::redactUrl($iri->raw) ?? '',
-                // A sign-up build's store root must SUGGEST, never bare-connect
-                // (A.2): the full commerce lane would otherwise stand up a
-                // storefront nobody asked for before the account is claimed.
-                suggestOnly: $context->isSignupBuild(),
+                // Always suggest-only now. A store is a storefront row, a
+                // catalogue, a fill and an auto-select — the biggest thing this
+                // pipeline can install — and nobody asked for it: this arm is
+                // only ever reached from a harvest. The user answers in the
+                // inbox and the accept lane builds it for real.
+                suggestOnly: true,
             );
 
             return $result;
@@ -163,7 +168,17 @@ class SourceReconciler
         $settle = function () use (
             $user, $placement, $context, $iri, $routingClass, $surface, $identifier, $aliasConnectionId, &$verdict, &$blockReason, &$conflictId
         ): array {
-            if ($verdict === Verdict::Place && $this->isExclusiveAuto($routingClass) && ! $context->isDirectRequest()) {
+            // Choose is in the set since 2026-09-03. CONFLICT DETECTION is not
+            // the same question as auto-connecting: a harvested booking link
+            // that collides with the incumbent must still be filed as a Swap
+            // ("Keep / Replace") rather than as a plain suggestion, because
+            // SuggestionApplier has no XOR check of its own — it trusts
+            // conflicting_connection_id, which only this arm writes. Without
+            // the widening, accepting the suggestion would insert a second
+            // is_primary row and raise 23505 on
+            // idx_platform_connections_primary_per_class at accept time.
+            if (in_array($verdict, [Verdict::Place, Verdict::Choose], true)
+                && $this->isExclusiveAuto($routingClass) && ! $context->isDirectRequest()) {
                 $incumbent = $this->incumbentFor($user, $routingClass, $placement->surfaceKey, $identifier, $aliasConnectionId);
                 if ($incumbent !== null) {
                     $verdict = Verdict::Hold;
@@ -294,7 +309,17 @@ class SourceReconciler
         // cap is guarding against — and with socials at max_accounts=1 (FI-1,
         // 2026-08-20) a mere exclude-the-alias-from-the-count would still let
         // OTHER over-cap legacy rows block the fold (#R4 test 4's shape).
-        if ($verdict === Verdict::Place && $aliasConnectionId === null && $this->capReached($user, $placement->surfaceKey, (int) $surface['max_accounts'], $identifier, $aliasConnectionId)) {
+        //
+        // An INDIRECT Choose is capped here too since 2026-09-03, for the same
+        // reason the XOR arm above widened: a harvest no longer reaches Place,
+        // and SuggestionApplier's Swap path is driven entirely by the
+        // block_reason/conflicting_connection_id this block writes. A plain
+        // proposed intent over the cap would accept into an (N+1)th connection
+        // the surface says cannot exist. A direct paste is left exactly as it
+        // was — it has its own 422 slot_taken contract with the dashboard.
+        if (($verdict === Verdict::Place || ($verdict === Verdict::Choose && ! $context->isDirectRequest()))
+            && $aliasConnectionId === null
+            && $this->capReached($user, $placement->surfaceKey, (int) $surface['max_accounts'], $identifier, $aliasConnectionId)) {
             $verdict = Verdict::Hold;
             $blockReason = 'cap_reached';
             // On a SINGLE-account surface the cap names exactly one incumbent,
@@ -594,7 +619,13 @@ class SourceReconciler
             ->where('user_id', $user->id)
             ->where('surface_key', $surfaceKey)
             ->where('identifier', $identifier)
-            ->whereIn('state', ['proposed', 'applied', 'blocked']);
+            // 'verifying' is LIVE and MUST be here (2026-09-03). It is one of
+            // the four states idx_source_intents_live covers, so a second
+            // harvest of the same link while its L2 check is still in flight
+            // would find no row to advance, fall through to the INSERT, and
+            // raise 23505 on that unique index — inside the LIFE-16
+            // transaction, taking the whole reconcile down.
+            ->whereIn('state', ['proposed', 'verifying', 'applied', 'blocked']);
 
         if ($live()->update($fields) === 0) {
             return null;

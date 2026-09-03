@@ -147,22 +147,41 @@ class PlacementPolicy
             return new Placement(Verdict::Note, $surfaceKey, $projection->identifier, 'below_threshold', 'kept as a link');
         }
 
-        if ($confidence >= $auto && $projection->margin >= RoutingPolicy::minMargin()) {
+        // NOTHING A HARVESTER FOUND EVER AUTO-CONNECTS (owner, 2026-09-03).
+        // Place is now minted ONLY for a link the user asked for in this very
+        // request — a submitted paste, or an accept pressed in the suggestions
+        // inbox. Two things changed here:
+        //
+        //   1. the auto-band arm gained `isConfirmedByUser()`. It used to
+        //      apply on ANY origin, so a harvested URL that scored above the
+        //      class threshold connected itself.
+        //   2. the 2026-08-18 "harvest maximisation" arm is DELETED — on any
+        //      indirect origin the SUGGEST band auto-applied too.
+        //
+        // Arm 2 is why "we only suggest" was not true: `suggest` was not a
+        // show-a-suggestion threshold at all, it was the auto-connect threshold
+        // for every post-claim harvest lane (website_import, link_in_bio,
+        // bio_harvest, google_business, commerce_probe), with margin as the
+        // only remaining guard. Loosening suggestions would have loosened
+        // auto-connect — the opposite of the intent.
+        //
+        // Arm 2's stated reason was that auto-applying avoids "friction on a
+        // link the user demonstrably published". That reason is now served by
+        // PRE-TICKING rather than by connecting: the link still arrives one
+        // Continue away, but it passes the validity gate on the way, which is
+        // the point. A connection made here would skip that gate entirely.
+        //
+        // Place also still arrives at SourceReconciler:134-135, where a Choose
+        // that matches an existing ConnectionIdentity is upgraded — folding a
+        // variant URL into a row the person already holds adds no account and
+        // asks no question, so it is not an auto-connect. Sign-up-given
+        // identities (Google Business place_id, Instagram handle) never reach
+        // this method at all: their identity kind is not url.
+        if ($context->isConfirmedByUser() && $confidence >= $auto && $projection->margin >= RoutingPolicy::minMargin()) {
             return new Placement(Verdict::Place, $surfaceKey, $projection->identifier, confidence: $confidence, band: 'auto');
         }
 
         if ($confidence >= $suggest) {
-            // Harvest maximisation (owner ruling 2026-08-18): on any indirect
-            // origin the suggest band auto-applies. Pre-claim there is no
-            // inbox to see a suggestion; post-claim it is friction on a link
-            // the user demonstrably published. Margin still gates — a
-            // too-close projection stays Choose because the doubt there is
-            // WHICH surface, not whether. Direct paste keeps the confirm
-            // flow: it is a wire contract with the dashboard preview.
-            if (! $context->isDirectRequest() && $projection->margin >= RoutingPolicy::minMargin()) {
-                return new Placement(Verdict::Place, $surfaceKey, $projection->identifier, confidence: $confidence, band: 'suggest');
-            }
-
             $why = $confidence < $auto
                 ? 'below auto-apply threshold'
                 : 'two rules matched too closely to decide automatically';

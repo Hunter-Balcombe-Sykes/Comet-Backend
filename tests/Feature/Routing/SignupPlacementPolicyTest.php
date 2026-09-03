@@ -16,7 +16,11 @@ use Illuminate\Support\Facades\DB;
 // A.2 (setup-dialog run): a sign-up build connects NOTHING by itself. Every
 // above-floor harvest becomes a banded Choose the setup dialog renders; the
 // floor sits 15 below the class's suggest threshold; the shop arm delegates
-// to the commerce probe suggest-only. Paste and claimed-user paths unchanged.
+// to the commerce probe suggest-only. Paste is unchanged. Since 2026-09-03
+// (owner: "nothing a harvester found ever auto-connects") the claimed-user
+// harvest path is NOT unchanged either — it now also lands on Choose, same
+// as the sign-up floor arm; only isConfirmedByUser() (paste, or the
+// suggestions-inbox accept lane's confirmed flag) still reaches Place.
 
 beforeEach(function () {
     setupUsersTable();
@@ -86,7 +90,7 @@ it('keeps the paste path unchanged even for an unclaimed user', function () {
         ->and($placement->band)->toBe('auto');
 });
 
-it('keeps the claimed-user harvest path unchanged', function () {
+it('no longer auto-connects a claimed-user harvest either (owner, 2026-09-03: nothing a harvester found auto-connects)', function () {
     $pro = createTenant('signup-policy-claimed');
 
     $placement = app(PlacementPolicy::class)->decide(
@@ -94,7 +98,7 @@ it('keeps the claimed-user harvest path unchanged', function () {
         RoutingContext::forUser($pro, 'link_in_bio'),
     );
 
-    expect($placement->verdict)->toBe(Verdict::Place)
+    expect($placement->verdict)->toBe(Verdict::Choose)
         ->and($placement->band)->toBe('auto');
 });
 
@@ -115,7 +119,12 @@ it('delegates a sign-up build store root to the commerce probe suggest-only', fu
         ->and(DB::table('routing.source_intents')->where('user_id', $user->id)->count())->toBe(0);
 });
 
-it('keeps the claimed-user shop delegation full-lane (not suggest-only)', function () {
+it('keeps the claimed-user shop delegation suggest-only too — same as the sign-up lane now', function () {
+    // SourceReconciler's shop arm ("Always suggest-only now") no longer
+    // distinguishes claimed from unclaimed: any indirect, non-commerce_probe
+    // origin gets suggestOnly:true regardless of the Placement it was handed
+    // (this test hands it a bare Verdict::Place directly, as the accept lane
+    // does; the arm still catches it — origin, not verdict, decides).
     Bus::fake([CommerceProbeJob::class]);
     $pro = createTenant('signup-shop-claimed');
 
@@ -126,5 +135,5 @@ it('keeps the claimed-user shop delegation full-lane (not suggest-only)', functi
         $iri,
     );
 
-    Bus::assertDispatched(CommerceProbeJob::class, fn ($job) => $job->suggestOnly === false);
+    Bus::assertDispatched(CommerceProbeJob::class, fn ($job) => $job->suggestOnly === true);
 });

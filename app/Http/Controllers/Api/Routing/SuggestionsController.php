@@ -8,9 +8,11 @@ use App\Catalog\LegacyPlatformMap;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Jobs\Platforms\CommerceProbeJob;
+use App\Jobs\Routing\VerifyLinkJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Routing\ConnectionIdentity;
+use App\Routing\LinkValidity;
 use App\Routing\SuggestionApplier;
 use App\Routing\SyncFindingsBridge;
 use App\Routing\WorkplaceCandidates;
@@ -72,7 +74,10 @@ class SuggestionsController extends ApiController
 
         $intents = DB::table('routing.source_intents')
             ->where('user_id', $user->id)
-            ->whereIn('state', ['proposed', 'blocked'])
+            // 'verifying' renders too (2026-09-03): the person accepted it and
+            // is owed a "checking this link…" card, not a suggestion that
+            // silently vanishes from the inbox for as long as the queue takes.
+            ->whereIn('state', ['proposed', 'verifying', 'blocked'])
             ->orderByDesc('first_seen_at')
             ->limit(100)
             ->get();
@@ -369,6 +374,38 @@ class SuggestionsController extends ApiController
                 'surfaceKey' => $intent->surface_key,
                 'displayName' => $surface['display_name'],
                 'status' => 'pending',
+            ], 202);
+        }
+
+        // L2 (2026-09-03). The person has said yes; the question left is
+        // whether we are entitled to claim the page is theirs. It is asked ONLY
+        // when L1 is weak — the detector that matched constrained nothing
+        // beyond the brand's domain, so the URL identifies a BRAND and not an
+        // account, and accepting it would file the whole URL as the account's
+        // id: the nameless, unrefreshable card.
+        //
+        // A network call cannot happen here (LinkProbeWorker's rule), so the
+        // intent parks in 'verifying' — which holds its slot — and the queue
+        // answers. Every outcome writes the connection except a definitive
+        // not_found; see VerifyLinkJob.
+        //
+        // Deliberately AFTER the store arm above: a probed storefront has its
+        // own richer lane which already ends in a real fetch of the store.
+        if (LinkValidity::applies($surface)
+            && LinkValidity::l1ForDetector($intent->detector_id) === LinkValidity::WEAK
+            && is_string($intent->canonical_url ?? null) && $intent->canonical_url !== '') {
+            DB::table('routing.source_intents')
+                ->where('id', $intent->id)
+                ->where('user_id', $user->id)
+                ->update(['state' => 'verifying', 'updated_at' => now()]);
+
+            VerifyLinkJob::dispatch((string) $user->id, (string) $intent->id);
+
+            return $this->success([
+                'connectionId' => null,
+                'surfaceKey' => $intent->surface_key,
+                'displayName' => $surface['display_name'],
+                'status' => 'verifying',
             ], 202);
         }
 
@@ -678,7 +715,12 @@ class SuggestionsController extends ApiController
         return DB::table('routing.source_intents')
             ->where('id', $intentId)
             ->where('user_id', $userId)
-            ->whereIn('state', ['proposed', 'blocked'])
+            // 'verifying' included so a person can DISMISS a card whose check
+            // is taking too long, rather than being stuck looking at it. An
+            // accept on one is idempotent-ish and harmless: it re-parks the
+            // same row and dispatches a second job, whose claimIntent() takes
+            // the row exactly once.
+            ->whereIn('state', ['proposed', 'verifying', 'blocked'])
             ->first();
     }
 

@@ -40,9 +40,17 @@ class CheckStuckSourceIntentsCommand extends Command
         $ageDays = (int) config('partna.routing.intents.stuck_age_days');
         $threshold = (int) config('partna.routing.intents.stuck_alert_threshold');
 
-        // Drives idx_source_intents_stuck.
+        // Drives idx_source_intents_stuck (which enumerates the same three
+        // states — keep the two lists together).
+        //
+        // 'verifying' is the state most worth alarming on (2026-09-03): it is
+        // the only one the PERSON cannot clear. A proposed card is waiting on
+        // them and a blocked one is explained, but a verifying card is waiting
+        // on US, and a queue that stopped draining leaves accepted links in it
+        // indefinitely. VerifyLinkJob::failed() is the first line of defence;
+        // this is the one that notices when the job never ran at all.
         $stuck = DB::table('routing.source_intents')
-            ->whereIn('state', ['proposed', 'blocked'])
+            ->whereIn('state', ['proposed', 'verifying', 'blocked'])
             ->where('first_seen_at', '<', now()->subDays($ageDays))
             ->count();
 

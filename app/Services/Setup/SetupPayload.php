@@ -214,7 +214,10 @@ class SetupPayload
     {
         $intents = DB::table('routing.source_intents')
             ->where('user_id', $user->id)
-            ->whereIn('state', ['proposed', 'blocked', 'applied'])
+            // 'verifying' is a LIVE row the dialog must keep rendering — the
+            // person ticked it and is owed a "checking this link" state, not a
+            // row that vanishes mid-setup (2026-09-03).
+            ->whereIn('state', ['proposed', 'verifying', 'blocked', 'applied'])
             ->orderByDesc('first_seen_at')
             ->limit(200)
             ->get();

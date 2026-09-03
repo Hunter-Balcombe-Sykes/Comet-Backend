@@ -1,14 +1,21 @@
 <?php
 
-// Owner ruling 2026-08-18: "connect as many as possible auto, for pre-account
-// and always." On a HARVEST origin (anything but 'paste'), a suggestion is
-// useless-to-harmful: pre-claim there is no inbox to see it, post-claim it is
-// one more tap for a link the user demonstrably published themselves. So the
-// suggest band auto-applies — but ONLY when the margin is clean: a projection
-// where two rules matched too closely (margin < minMargin) stays Choose, or
-// we would be guessing WHICH surface to connect, not whether.
+// Owner ruling 2026-09-03: "nothing a harvester found ever auto-connects."
+// This supersedes the 2026-08-18 "harvest maximisation" rule pinned here
+// until today — that rule auto-applied the SUGGEST band on any indirect
+// origin, on the theory that a suggestion was useless-to-harmful for a link
+// the user had "demonstrably published themselves". The owner's later read:
+// that reasoning quietly turned `suggest` into the auto-connect threshold for
+// every post-claim harvest lane, with margin as the only guard — the exact
+// opposite of what "suggest" should mean. Now PlacementPolicy::decide() mints
+// Verdict::Place ONLY when RoutingContext::isConfirmedByUser() is true (a
+// paste, or an inbox accept) AND confidence/margin clear the auto band.
+// Every harvest-origin find, however confident, lands as a Choose — a
+// proposed intent, zero live connections — and the person confirms it
+// through the suggestions inbox.
 
 use App\Jobs\Platforms\ConnectFetchJob;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Routing\LinkRoutingService;
 use App\Routing\RoutingContext;
 use Illuminate\Support\Facades\Bus;
@@ -30,9 +37,10 @@ beforeEach(function () {
 });
 
 // Bare Bandcamp measured 60 pre-penalty on 2026-08-18: suggest band for
-// 'content' (post-penalty 50, against auto 70 / suggest 45). Was 'choose';
-// now places.
-it('auto-places a suggest-band content link from a harvest origin', function () {
+// 'content' (post-penalty 50, against auto 70 / suggest 45). Used to
+// auto-place under the 2026-08-18 rule; now it is filed as a suggestion —
+// same as every other harvest-origin find, connection count stays 0.
+it('suggests a suggest-band content link from a harvest origin instead of auto-placing it', function () {
     $pro = createTenant('harvest-band');
 
     $out = app(LinkRoutingService::class)->route(
@@ -40,14 +48,21 @@ it('auto-places a suggest-band content link from a harvest origin', function () 
         RoutingContext::forUser($pro, 'bio_harvest'),
     );
 
-    expect($out['verdict'])->toBe('place')
-        ->and($out['connectionId'])->not->toBeNull();
+    expect($out['verdict'])->toBe('choose')
+        ->and($out['connectionId'])->toBeNull()
+        ->and($out['intentId'])->not->toBeNull();
+
+    $intent = DB::table('routing.source_intents')->where('id', $out['intentId'])->first();
+    expect($intent->state)->toBe('proposed')
+        ->and($intent->surface_key)->toBe('bandcamp.artist');
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'bandcamp.artist')->count())->toBe(0);
 });
 
 // YouTube measured 75 pre-penalty: 65 post-penalty, below auto (70), inside
-// suggest (45). The signup build connected YouTube on the legacy path; the
-// new path must not regress that.
-it('auto-places a suggest-band social link from a harvest origin', function () {
+// suggest (45). Same treatment — a suggestion, not a connection, no matter
+// how the sign-up path used to auto-connect it.
+it('suggests a suggest-band social link from a harvest origin instead of auto-placing it', function () {
     $pro = createTenant('harvest-social');
 
     $out = app(LinkRoutingService::class)->route(
@@ -55,12 +70,20 @@ it('auto-places a suggest-band social link from a harvest origin', function () {
         RoutingContext::forUser($pro, 'bio_harvest'),
     );
 
-    expect($out['verdict'])->toBe('place')
-        ->and($out['connectionId'])->not->toBeNull();
+    expect($out['verdict'])->toBe('choose')
+        ->and($out['connectionId'])->toBeNull()
+        ->and($out['intentId'])->not->toBeNull();
+
+    $intent = DB::table('routing.source_intents')->where('id', $out['intentId'])->first();
+    expect($intent->state)->toBe('proposed')
+        ->and($intent->surface_key)->toBe('youtube.channel');
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'youtube.channel')->count())->toBe(0);
 });
 
 // Direct paste keeps the interactive flow — the dashboard's confirm UI is a
-// wire contract (RoutingController), and paste already auto-applies at 70+.
+// wire contract (RoutingController), and paste already auto-applies at 70+
+// via isConfirmedByUser().
 it('keeps the suggest band as a suggestion on a direct paste', function () {
     $pro = createTenant('paste-band');
 
@@ -81,8 +104,8 @@ it('keeps a below-suggest harvest link as a note', function () {
         // An RA LISTING (28 pre-penalty, MarketplaceListing). The artist page
         // ra.co/dj/<slug> stopped being a valid example here on 2026-08-28: it
         // gained a captured ProfileLink detector so the RA connector can fetch
-        // that DJ's tour, so it now scores 75 and places. A club/event page is
-        // still someone else's night, and still a note.
+        // that DJ's tour, so it now scores 75 and reaches the choose band. A
+        // club/event page is still someone else's night, and still a note.
         'https://ra.co/events/1234567',
         RoutingContext::forUser($pro, 'bio_harvest'),
     );
@@ -91,10 +114,10 @@ it('keeps a below-suggest harvest link as a note', function () {
         ->and($out['connectionId'])->toBeNull();
 });
 
-// Tombstones still beat maximisation: a harvest must never resurrect a
-// refusal (C8). Same shape as TombstoneResurrectionTest, pinned here so the
-// new Place path is the one proven, not the old Choose path.
-it('does not auto-place a tombstoned surface from a harvest origin', function () {
+// Tombstones still beat every band: a harvest must never resurrect a
+// refusal (C8), regardless of whether the projection would otherwise choose
+// or place.
+it('does not suggest a tombstoned surface from a harvest origin', function () {
     $pro = createTenant('harvest-tombstoned');
 
     DB::table('routing.item_tombstones')->insert([
