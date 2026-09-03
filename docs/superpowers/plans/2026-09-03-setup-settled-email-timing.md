@@ -261,7 +261,7 @@ Claude-Session: https://claude.ai/code/session_01DnVGqDa1pvojPxUdbcKCKH
 Adds `settled_at`, `setup_stalled_at`, `welcomed_at` to `core.pre_account_builds` and wires them into both test lanes' stand-ins.
 
 **Files:**
-- Create: `supabase/migrations/20260903160000_pre_account_builds_settle_stamps.sql`
+- Create: `supabase/migrations/20260903170000_pre_account_builds_settle_stamps.sql` (plan said `20260903160000`; that version was already taken on dev by `platform_connections_owner_scope` from `c8ddc01a7`, so `db push` reported "up to date" and would have silently skipped the file)
 - Modify: `app/Models/Core/User/PreAccountBuild.php` (casts + property docblocks)
 - Modify: `tests/Pest.php:584-592` (the defensive ALTER list in `setupPreAccountBuildsTable`)
 - Modify: `tests/Postgres/ClaimConcurrencyTest.php:212-227` (the PG stand-in CREATE TABLE)
@@ -271,7 +271,7 @@ Adds `settled_at`, `setup_stalled_at`, `welcomed_at` to `core.pre_account_builds
 - Consumes: nothing.
 - Produces: three nullable `timestamptz` columns, cast to `datetime` on `PreAccountBuild`. All three are **state columns** — not fillable, written with `forceFill()`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/Feature/PreAccount/BuildSettleStampsTest.php`:
 
@@ -315,12 +315,12 @@ it('refuses to mass-assign the settle stamps', function () {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `./vendor/bin/pest tests/Feature/PreAccount/BuildSettleStampsTest.php`
 Expected: FAIL — the first test errors on the missing `settled_at` column; the second may pass vacuously (a non-fillable *and* non-existent attribute is also null), which is fine, it becomes meaningful after Step 3.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `supabase/migrations/20260903160000_pre_account_builds_settle_stamps.sql`:
 
@@ -385,7 +385,7 @@ In `tests/Postgres/ClaimConcurrencyTest.php`, add three lines to the `CREATE TAB
 
 and extend the comment above the CREATE TABLE to say why (claim now reads `settled_at`/`welcomed_at`, so without them the claim UPDATE `42703`s in this lane — the same failure mode `published_by_claim` documents).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `./vendor/bin/pest tests/Feature/PreAccount/BuildSettleStampsTest.php`
 Expected: PASS, 2 tests.
@@ -393,7 +393,7 @@ Expected: PASS, 2 tests.
 Run: `./vendor/bin/pest tests/Feature/Architecture/PostgresLaneReadCoverageTest.php`
 Expected: PASS — this is the guard that catches PG stand-in drift, and it runs in the cheap lane. If it reports a missing column, **add** the column to the stand-in; never thin the table or relax the assertion.
 
-- [ ] **Step 5: Apply the migration to dev and verify**
+- [x] **Step 5: Apply the migration to dev and verify**
 
 ```bash
 supabase link --project-ref glncumufgaqcmqhzwrxm
@@ -409,7 +409,7 @@ psql "$DEV_DB_URL" -c "select column_name from information_schema.columns where 
 
 Do **not** apply to production. Prod's schema has diverged and prod reconciliation is separate, deferred work.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 php artisan pint app/Models/Core/User/PreAccountBuild.php tests/Pest.php tests/Postgres/ClaimConcurrencyTest.php tests/Feature/PreAccount/BuildSettleStampsTest.php

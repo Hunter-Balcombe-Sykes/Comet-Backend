@@ -600,6 +600,10 @@ function setupPreAccountBuildsTable(): void
         // Mirrors migration 20260828010000 (T28: release restores the exact
         // pre-claim publish state).
         'published_by_claim INTEGER NOT NULL DEFAULT 0',
+        // Mirrors migration 20260903170000 (setup-settled email timing).
+        'settled_at TEXT NULL',
+        'setup_stalled_at TEXT NULL',
+        'welcomed_at TEXT NULL',
     ] as $col) {
         try {
             DB::connection('pgsql')->statement('ALTER TABLE core.pre_account_builds ADD COLUMN '.$col);

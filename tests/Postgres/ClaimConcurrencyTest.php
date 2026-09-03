@@ -209,6 +209,11 @@ beforeEach(function () {
     // published_by_claim: T28 (issue 22, 2026-08-27) — claim() forceFills this
     // alongside claimed_at (supabase/migrations/20260828010000_pre_account_builds_published_by_claim.sql);
     // without it that UPDATE 42703s.
+    // settled_at / welcomed_at / setup_stalled_at: same failure mode, same fix
+    // (supabase/migrations/20260903170000_pre_account_builds_settle_stamps.sql).
+    // Claim reads settled_at and conditionally UPDATEs welcomed_at to decide
+    // whether the welcome email is owed, so without these columns that write
+    // 42703s in this lane on an otherwise-green SQLite run.
     $pg->statement('CREATE TABLE core.pre_account_builds (
         id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id            uuid NOT NULL REFERENCES core.users(id) ON DELETE CASCADE,
@@ -222,6 +227,9 @@ beforeEach(function () {
         expires_at         timestamptz,
         built_by_staff_id  uuid,
         published_by_claim boolean NOT NULL DEFAULT false,
+        settled_at         timestamptz,
+        setup_stalled_at   timestamptz,
+        welcomed_at        timestamptz,
         created_at         timestamptz NOT NULL DEFAULT now(),
         updated_at         timestamptz NOT NULL DEFAULT now()
     )');
