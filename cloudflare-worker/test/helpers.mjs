@@ -14,7 +14,7 @@
  * the suite errors immediately with a module-not-found — a loud failure, not a
  * silent skip.
  */
-import {Miniflare} from "miniflare";
+import {Miniflare, convertV4MiniflareOptions} from "miniflare";
 import {fileURLToPath} from "node:url";
 
 const scriptPath = fileURLToPath(new URL("../src/index.js", import.meta.url));
@@ -51,41 +51,50 @@ export async function createHarness() {
     // origin behaviour (see setPagesHandler).
     const state = {pagesHandler: defaultPagesResponse};
 
-    const mf = new Miniflare({
-        modules: true,
-        scriptPath,
-        compatibilityDate: "2025-01-01",
-        kvNamespaces: ["SUBDOMAIN_KV"],
-        // Mirrors wrangler.toml [vars], which declares these as TOML integers —
-        // so workerd delivers NUMBERS here, not strings. (`wrangler types`
-        // independently reports `number`.) The Worker's Number() coercion
-        // accepts either, but the harness should send what production sends.
-        bindings: {
-            PRIMARY_CACHE_TTL_S: 86_400,
-            STALE_SHADOW_TTL_S: 604_800,
-        },
-        // A FUNCTION service binding (not a second Worker): the closure records
-        // what the router forwarded, which is the only reason the cache-key and
-        // header-hygiene assertions are possible at all.
-        serviceBindings: {
-            PARTNA_PAGES: async (request) => {
-                pagesCalls.push({
-                    url: request.url,
-                    method: request.method,
-                    headers: [...request.headers],
-                });
-                return state.pagesHandler(request, pagesCalls.length);
+    // Miniflare 5's native options schema nests each worker's config behind a
+    // `{name, type, config: {...}}` nanoservice wrapper — bumped 2026-09-04
+    // fixing undici/sharp advisories only backported to the 5.x line. Rather
+    // than hand-translate every field into that shape (and drift from it
+    // again next bump), build the same flat v4-style options this harness
+    // always used and run them through the package's own `convertV4Miniflare
+    // Options` — the migration path miniflare itself ships for exactly this.
+    const mf = new Miniflare(
+        convertV4MiniflareOptions({
+            modules: true,
+            scriptPath,
+            compatibilityDate: "2025-01-01",
+            kvNamespaces: ["SUBDOMAIN_KV"],
+            // Mirrors wrangler.toml [vars], which declares these as TOML integers —
+            // so workerd delivers NUMBERS here, not strings. (`wrangler types`
+            // independently reports `number`.) The Worker's Number() coercion
+            // accepts either, but the harness should send what production sends.
+            bindings: {
+                PRIMARY_CACHE_TTL_S: 86_400,
+                STALE_SHADOW_TTL_S: 604_800,
             },
-        },
-        // NON-NEGOTIABLE — see APEX_ORIGIN_BODY above.
-        outboundService: async (request) => {
-            outboundCalls.push({url: request.url});
-            return new Response(APEX_ORIGIN_BODY, {
-                status: 200,
-                headers: {"Content-Type": "text/plain"},
-            });
-        },
-    });
+            // A FUNCTION service binding (not a second Worker): the closure records
+            // what the router forwarded, which is the only reason the cache-key and
+            // header-hygiene assertions are possible at all.
+            serviceBindings: {
+                PARTNA_PAGES: async (request) => {
+                    pagesCalls.push({
+                        url: request.url,
+                        method: request.method,
+                        headers: [...request.headers],
+                    });
+                    return state.pagesHandler(request, pagesCalls.length);
+                },
+            },
+            // NON-NEGOTIABLE — see APEX_ORIGIN_BODY above.
+            outboundService: async (request) => {
+                outboundCalls.push({url: request.url});
+                return new Response(APEX_ORIGIN_BODY, {
+                    status: 200,
+                    headers: {"Content-Type": "text/plain"},
+                });
+            },
+        }),
+    );
 
     const kv = await mf.getKVNamespace("SUBDOMAIN_KV");
 
