@@ -757,3 +757,28 @@ guards) and updated the two `spotify.show` rows in
 the change immediately and correctly — it had pinned the old label.
 `MediaItemPoolAddTest` + `ItemUrlCorpusTest` + `MediaScanSeedTest` +
 `EventsPoolTest`: **81 passed, 0 failed**. `pint --test` and `phpstan` clean.
+
+### URL-noise robustness sweep of the hand-written arms — CLEAN (135 variants, 0 real divergences)
+
+F2 found two regex bugs in the events block by checking real URL *shapes*.
+This checks the complementary axis the plan's W6 required ("URL noise must
+never defeat a path match") against the arms **this run added by hand** —
+14 events arms and 9 item-URL grammar arms. For each brand's real URL,
+generated and re-classified: `?utm_source=…&utm_medium=…`, `?fbclid=…`,
+trailing slash, uppercased host, www toggled, and `http://` — asserting the
+classification never changes.
+
+**135 variants checked, 1 divergence, and it was the harness's fault, not
+the code's**: my variant generator naively prepends `www.` to any host that
+lacks it, which for `events.humanitix.com` produces
+`www.events.humanitix.com` — a hostname that does not exist. Humanitix's
+event arm delegates to `HumanitixScraper::normalizeEventUrl()`, which
+deliberately requires the canonical `events.humanitix.com` host and carries
+its own `NON_EVENT_SLUGS` denylist; refusing a bogus host is correct. The
+brands whose regexes use a `(^|\.)` host prefix (admitone, spotify,
+youtube-music…) absorbed the same bogus variant without complaint, which is
+why only humanitix surfaced.
+
+Noted as a limitation of the sweep, not of the code: `add_www` is only a
+meaningful variant for registrable-domain hosts, not for hosts that are
+already a subdomain. Every other dimension applied cleanly to all 23 arms.
