@@ -897,3 +897,119 @@ PreAccount: **798 passed**.
 The npm CI fix (`c0b469768`) passed. Every CI failure in this run traced to
 npm's retiring audit endpoint and never to our code — `git log --name-only`
 over the whole run shows zero npm files touched.
+
+---
+
+## Opus review, wave 3 — the stale-pin family
+
+Wave 2 was one bug class (a query against a generated column). Wave 3 is a
+second, and it is the more dangerous of the two because every instance was
+**green**: a test or a list PINNED to a value set that has since moved. Nothing
+fails; the gate simply stops asking.
+
+### F14 — four CHECK-domain drifts in the Postgres stand-ins (`3dbbe665b`)
+
+`tests/Postgres/*.php` each hand-write their own scratch DDL, and no gate has
+ever compared the VALUE domains: `PostgresLaneDdlDriftTest` checks table and
+column NAMES, and its scanner (`PostgresLaneDdlScanner.php:396`) explicitly
+skips any line starting `CHECK`.
+
+```
+routing.source_intents.state         3 files missing 'verifying'
+routing.source_intents.block_reason  the same 3 missing 'not_found', 'sibling_branch'
+routing.source_intents band CHECK    absent from all 3
+content.item_media.role              9 files missing 'video'
+```
+
+Two are more than housekeeping. `sibling_branch` is written by
+`SourceReconciler.php:185`, so it was a live `23514` waiting for the next
+fixture to reach that branch. And the hand-built `idx_source_intents_live`
+predicate was one state short, letting a `verifying` row and a `proposed` row
+coexist on one `(user, surface, identifier)` triple — while
+`SourceReconciler.php:686-688` states in a comment that the index "guarantees at
+most one matching row" immediately before reading `->value('id')` off it. **The
+stand-in was contradicting the invariant the file it tests depends on.**
+
+`tests/Pest.php` carried the same index drift — and that is the CHEAP lane, the
+one the `verifying` writers actually run against under `LinkVerificationLaneTest`.
+
+The `// Verbatim shape from 20260727120000_routing_schema.sql` comments were true
+of the first migration only, and are precisely how three drifts survived. They
+now cite each widening migration by file and line.
+
+### F15 — the money ledger's kind sentinel had been disarmed for 11 days (`bbdfab807`)
+
+`ingest.effects` is the charge-once MONEY ledger. `IngestEffectKindDomainTest`
+pinned `20260729150002` (`http|actor|api|ai`) while the live domain has been
+`20260902010000` (`+vendor`) since 2026-09-02 — the kind all seven
+ScrapeCreators connectors write on every eager run.
+
+It passed the entire time, because the hand-written dataset never offered
+`'vendor'`, so nothing was ever rejected. That migration documents its own
+rollback to the four-value CHECK at `:14-16`; executing it would have left the
+suite fully green while every vendor lane raised `23514` in production.
+
+Fixed by repointing the pin AND by adding the source-derived test — scan `app/`
+for `->effect('<kind>'` and insert each literal against the applied CHECK. That
+second half is the actual repair: nothing previously connected the CHECK to the
+code writing into it, which is how a pin sat stale for eleven days.
+**Proven red before green** (reverted pin → names the rejected literal).
+
+### F13 — a roster entry that no URL could ever reach (`7fc9b4665`)
+
+`ItemLinkRules::platformForUrl()` matched a host SUFFIX, first-declared-wins.
+`music.youtube.com` ends with `.youtube.com`, so every YouTube Music URL
+answered `'youtube'` and `youtube-music` — present in `ROSTER['listen']` — was
+unreachable. Live on dev today: a `custom_links` item whose URL is a
+`music.youtube.com` playlist carries `platform: "youtube"` on the public wire.
+
+Two consequences, the second being the silent-loss shape again: the link is
+badged wrong, and `PoolResolver`'s per-platform dedupe (`:2456`) keys on that
+value, so on an item already carrying a youtube.com link the YouTube Music one
+is **dropped outright**.
+
+Longest-matched-suffix now — order-independent, fixes the class not the pair. A
+sweep of every platform pair found this to be the only shadowing case, so
+nothing else changes answer. The durable half is `hostShadowing()`, asserted by
+a test that checks the invariant that actually matters (the shadowed brand still
+wins its own hosts) rather than asserting the list is empty — a brand living on
+a subdomain of another brand's domain is a fact about the world, not a defect.
+
+### F16 — a denylist written from imagination (`2a946b02c`)
+
+The megatix bare-root arm separated event slugs from site chrome with a
+hand-enumerated denylist that named paths megatix does not serve (`cart`,
+`checkout`, `register`) and missed three it does. `/privacy-policy`,
+`/terms-conditions` and `/support` each classified as an **event** — and since
+this grammar answer is the only server-side gate on the events pool, a legal
+page could be added to it.
+
+Enumeration cannot win that: the next `-policy`/`-conditions`/`-centre` variant
+is always the unlisted one. Shape carries the weight now — megatix's genuine
+root slugs are CamelCase or a single lowercase word (all three confirmed ones:
+`SnowMachineQueenstownAud`, `miniraves`, `Restricted`), its chrome is kebab-case
+— with the word list kept only for single lowercase words, where shape says
+nothing.
+
+Deliberately NOT merged with `HumanitixScraper::NON_EVENT_SLUGS` or
+`PastedLinkClassifier::PROFILE_CHROME` despite the family resemblance: those
+answer different questions, and the latter holds `events` and `video`, which are
+not chrome on a ticketing root. The review recommended sharing them; that
+recommendation was checked and rejected, with the reason written into the code.
+
+### Refuted, and worth recording
+
+- **The suggested-task chip** ("add beatport/hypeddit to `ROSTER['listen']`") is
+  STALE — both were added earlier in this run (`ItemLinkRules.php:42`).
+- **"`probe-urls.php` has no test against `LinkProjector`"** — false. It is
+  driven transitively by `CatalogClassificationSweepTest` on every
+  `composer test`, with five green assertions.
+- **"use `Route::has('platforms.<slug>.connect')`"** (a review recommendation,
+  not a finding) — false: only two named routes in the app contain "connect".
+  The real predicate is the URI shape `api/platforms/<slug>/connect`, which
+  yields 115 slugs.
+
+### Gate
+
+Full `composer test`: **11230 passed, 0 failed** (11 deprecations, 2 skipped).
+Postgres lane: **284 passed, 3 skipped**. CI supply-chain green on X6.
