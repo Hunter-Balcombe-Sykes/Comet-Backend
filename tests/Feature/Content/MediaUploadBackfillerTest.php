@@ -94,7 +94,7 @@ it('skips and counts non-ready and variantless rows, and scopes design/documents
     $result = app(MediaUploadBackfiller::class)->run();
 
     // design/documents/soft-deleted rows never enter the query at all — the
-    // scope is `pool IN ('content')` (GALLERY_POOLS post-Wave-6) with SiteMedia's SoftDeletes
+    // scope is `usage IN ('content')` (LISTABLE_USAGES post-Wave-6) with SiteMedia's SoftDeletes
     // global scope, so they land in NEITHER counter, not even 'failed'.
     // Total accounted-for rows: 3 (1 eligible + 1 not-ready + 1 no-variant),
     // not 6.
