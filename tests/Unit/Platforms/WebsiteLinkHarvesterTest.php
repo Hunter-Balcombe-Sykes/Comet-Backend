@@ -201,6 +201,29 @@ it('resolves every social platform value to a real catalog surface', function (s
     ['https://ko-fi.com/acme', 'ko-fi', 'Ko-fi'],
 ]);
 
+// Found by the 2026-09-04 overnight W9 completeness critic: SOCIAL_HOSTS's
+// spotify entry is host-only ('~(^|\.)spotify\.com$~') and cannot express
+// the /show/ path, so a scraped Spotify PODCAST show link fell into the
+// generic 'spotify' answer — LinkRouter::seedSocial -> resolveSocialLink
+// then wrote an IntegrationConnection on spotify.player, the music-player
+// surface a show was deliberately moved OFF (F9, item-paste lane only — this
+// is the auto-sync lane F9 didn't touch). A path-qualified carve-out ahead
+// of the SOCIAL_HOSTS loop now answers spotify_podcasts.show — the full
+// surface key, same convention as bluesky.profile/deezer.artist above —
+// while a bare artist/user/playlist URL is untouched.
+it('resolves a Spotify PODCAST show link to spotify_podcasts, not the generic spotify surface', function () {
+    expect(classifierHarvester()->classify('https://open.spotify.com/show/2mTUnDkuKUkhiueKcVWoP0'))
+        ->toBe(['platform' => 'spotify_podcasts.show', 'category' => 'social', 'label' => 'Spotify Podcasts']);
+
+    expect(classifierHarvester()->classify('https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb'))
+        ->toBe(['platform' => 'spotify', 'category' => 'social', 'label' => 'Spotify']);
+
+    $connection = new IntegrationConnection;
+    $connection->platform = 'spotify_podcasts.show';
+    expect(LegacyPlatformMap::isKnownSurface($connection->getAttributes()['surface_key'] ?? ''))->toBeTrue()
+        ->and($connection->getAttributes()['surface_key'])->toBe('spotify_podcasts.show');
+});
+
 // The other half of F8: a `->notConnectable()` catalog surface must NOT sit in
 // SOCIAL_HOSTS. Six did for one night. This is the same policy the
 // yelp.listing test above guards ("bucketing it would silently reverse that

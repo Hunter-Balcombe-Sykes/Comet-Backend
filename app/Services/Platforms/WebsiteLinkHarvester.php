@@ -769,6 +769,36 @@ class WebsiteLinkHarvester
             ];
         }
 
+        // Spotify Podcasts BEFORE the generic social loop: SOCIAL_HOSTS['spotify']
+        // is host-only ('~(^|\.)spotify\.com$~') and cannot express the /show/
+        // path, so without this carve-out a podcast show page falls into the
+        // generic 'spotify' answer and LinkRouter::routeClassified ->
+        // seedSocial -> resolveSocialLink writes an IntegrationConnection on
+        // spotify.player — the music-player surface a show was deliberately
+        // moved OFF (Spotify.php's detector comment: "show left for
+        // spotify_podcasts.show ... only new routing/connects move"). The
+        // 'platform' value here is the FULL dotted surface key, not a bare
+        // brand slug — the same convention SOCIAL_PLATFORM already uses for
+        // deezer.artist and bluesky.profile (see those entries' own
+        // comments): those two brands' write() call has no legacy alias to
+        // resolve through either, so surfaceFor($platform) ?? $platform must
+        // already receive the real surface key to fall back to. A bare
+        // 'spotify_podcasts' would self-resolve to a malformed surface_key
+        // instead. Same host+path predicate as MediaPageReader::
+        // accountPlatform()'s own /show/ arm, kept in sync by hand rather
+        // than shared because this class already duplicates none of that
+        // method's other arms and a shared call would also change category
+        // ('social' here vs an account answer there) for the other 20
+        // platforms it names. Found by the 2026-09-04 overnight W9
+        // completeness critic re-checking F9 (which fixed only the
+        // item-paste lane, MediaPageReader, not this one) against the
+        // auto-sync lane.
+        if ($host === 'open.spotify.com'
+            && preg_match('~^(?:/intl-[a-z]{2,5})?/show/~', (string) parse_url($url, PHP_URL_PATH))
+            && $this->looksLikeProfile($url)) {
+            return ['platform' => 'spotify_podcasts.show', 'category' => 'social', 'label' => 'Spotify Podcasts'];
+        }
+
         foreach (self::SOCIAL_HOSTS as $key => $pattern) {
             // No isset() guard needed: SOCIAL_PLATFORM is hand-maintained with
             // the exact same keys as SOCIAL_HOSTS, so the lookup below can

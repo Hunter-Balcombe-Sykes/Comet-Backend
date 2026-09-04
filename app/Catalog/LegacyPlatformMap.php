@@ -113,6 +113,18 @@ class LegacyPlatformMap
      */
     public static function connectableForSlug(string $slug): ?bool
     {
+        // Some callers (WebsiteLinkHarvester::SOCIAL_PLATFORM's deezer.artist,
+        // bluesky.profile, spotify_podcasts.show entries) already pass the
+        // full dotted surface key rather than a legacy or brand-prefix slug —
+        // load-bearing for their own write() call, which has no legacy alias
+        // to fall back through. Try that shape directly before either
+        // resolution below, both of which would miss it (surfaceFor() keys on
+        // LEGACY SLUGS, and a dotted key is never equal to a bare brand key).
+        $direct = CompiledCatalog::surface($slug);
+        if ($direct !== null) {
+            return (bool) ($direct['is_connectable'] ?? false);
+        }
+
         $surfaceKey = self::surfaceFor($slug);
         if ($surfaceKey !== null) {
             return (bool) (CompiledCatalog::surface($surfaceKey)['is_connectable'] ?? false);
