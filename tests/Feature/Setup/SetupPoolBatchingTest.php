@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Setup\SetupPayload;
 use App\Site\Pools\PoolResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -92,4 +93,39 @@ it('the batched items.watch and items.shop passes match an independent resolve()
     expect($shopPass['items'])->toEqual($resolver->resolve($site, 'shop')['library']);
 
     expect(collect($watchPass['items'])->pluck('id')->all())->toEqual([$watchB, $watchA]);
+});
+
+it('returns the same pass from forPass as from the full compose', function () {
+    $pro = createTenant('setup-onepass');
+    seedContentItem($pro->id, ['kind' => 'video']);
+
+    $payload = app(SetupPayload::class);
+
+    $fromAll = collect($payload->for($pro)['passes'])->firstWhere('key', 'items.watch');
+    $fromOne = $payload->forPass($pro, 'items.watch');
+
+    expect($fromOne)->toEqual($fromAll);
+});
+
+it('provisions every pool\'s section even when composing a single pass', function () {
+    $pro = createTenant('setup-provision');
+    $expected = DB::connection('pgsql')->table('site.sections')->count();
+
+    app(SetupPayload::class)->for($pro);
+    $afterAll = DB::connection('pgsql')->table('site.sections')->count();
+
+    // A second tenant taking the single-pass path must end up with the
+    // same number of sections — provisioning is a side effect of
+    // preloadSections and must not narrow with the pass being built.
+    $other = createTenant('setup-provision-2');
+    app(SetupPayload::class)->forPass($other, 'items.watch');
+    $afterOne = DB::connection('pgsql')->table('site.sections')->count();
+
+    expect($afterOne - $afterAll)->toBe($afterAll - $expected);
+});
+
+it('returns null for a pass the user does not have', function () {
+    $pro = createTenant('setup-nopass');
+
+    expect(app(SetupPayload::class)->forPass($pro, 'platforms.ordering'))->toBeNull();
 });

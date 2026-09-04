@@ -354,7 +354,7 @@ EOF
 - Consumes: `SetupPayload::poolsFor()`, `resolveAllPools()`, `composePass()` from Task 1.
 - Produces: `SetupPayload::forPass(User $user, string $key): ?array` — the same array a single element of `for()['passes']` holds, or `null` when the pass is omitted (empty item pass, wire §2) or the key is not in the user's list.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/Feature/Setup/SetupPoolBatchingTest.php`:
 
@@ -395,12 +395,12 @@ it('returns null for a pass the user does not have', function () {
 });
 ```
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [x] **Step 2: Run them and confirm they fail**
 
 Run: `./vendor/bin/pest tests/Feature/Setup/SetupPoolBatchingTest.php`
 Expected: FAIL with `Call to undefined method App\Services\Setup\SetupPayload::forPass()`.
 
-- [ ] **Step 3: Implement `forPass()`**
+- [x] **Step 3: Implement `forPass()`**
 
 Add to `app/Services/Setup/SetupPayload.php`, directly below `for()`:
 
@@ -457,12 +457,12 @@ public function forPass(User $user, string $key): ?array
 }
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run: `./vendor/bin/pest tests/Feature/Setup/SetupPoolBatchingTest.php`
 Expected: PASS.
 
-- [ ] **Step 5: Point the controller at it**
+- [x] **Step 5: Point the controller at it**
 
 In `app/Http/Controllers/Api/User/Setup/SetupController.php`, replace lines 134-135:
 
@@ -474,12 +474,12 @@ $refreshed = $payload->forPass($user, $data['pass']);
 
 The comment above it stays — it still explains why the response carries a refreshed pass at all.
 
-- [ ] **Step 6: Run the setup suite**
+- [x] **Step 6: Run the setup suite**
 
 Run: `./vendor/bin/pest tests/Feature/Setup/`
 Expected: PASS, assertions untouched. `firstWhere` returned `null` for an omitted pass and so does `forPass`, so the response shape is unchanged.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 php artisan pint

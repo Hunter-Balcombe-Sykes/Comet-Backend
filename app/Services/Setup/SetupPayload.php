@@ -72,6 +72,50 @@ class SetupPayload
     }
 
     /**
+     * One pass, for the accept response (A.9, wire §4). Continue needs only
+     * the pass it just wrote back, and composing all fifteen to return one
+     * hydrated six pools nobody read.
+     *
+     * Sections are still preloaded for EVERY pool, not just this one:
+     * preloadSections provisions a missing section row as a side effect, and
+     * narrowing that to the pass being built would silently stop provisioning
+     * the rest. It is one batched query.
+     *
+     * @return array<string, mixed>|null null when the key is not this user's,
+     *                                   or the pass is one the wire omits
+     */
+    public function forPass(User $user, string $key): ?array
+    {
+        if (! in_array($key, SetupPassRegistry::keysFor($user), true)) {
+            return null;
+        }
+
+        $site = $user->site;
+        $build = PreAccountBuild::query()->where('user_id', $user->id)->latest('created_at')->first();
+        $openStages = $build === null ? [] : $this->openStages($build);
+
+        // Only the platforms.* passes read these two, and they are the
+        // expensive half of the prelude.
+        $needsSuggestions = str_starts_with($key, 'platforms.');
+        $suggestions = $needsSuggestions ? $this->suggestionRows($user) : [];
+        $onboarding = $needsSuggestions ? $this->onboarding->for($user) : [];
+
+        $pools = $this->poolsFor($user);
+        $pool = $this->poolForPassKey($key);
+        $needed = $pool === null ? [] : [$pool];
+
+        $resolvedPools = [];
+        if ($site !== null) {
+            // Provision every pool's section (side effect), hydrate only the
+            // one this pass renders.
+            $this->pools->preloadSections($site, $pools);
+            $resolvedPools = $this->resolveAllPools($site, $needed);
+        }
+
+        return $this->composePass($user, $site, $key, $suggestions, $onboarding, $openStages, $resolvedPools);
+    }
+
+    /**
      * The content pool an item-bearing pass renders, or null for a pass that
      * renders no pool. Keeps the mapping in one place — forPass() needs the
      * same answer for a single key.

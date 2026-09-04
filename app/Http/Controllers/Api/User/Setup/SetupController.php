@@ -132,7 +132,7 @@ class SetupController extends ApiController
         $result = $applier->apply($user, $data);
 
         // The refreshed pass, so one Continue round-trips the new truth.
-        $refreshed = collect($payload->for($user)['passes'])->firstWhere('key', $data['pass']);
+        $refreshed = $payload->forPass($user, $data['pass']);
 
         return $this->success([
             'pass' => $refreshed,
