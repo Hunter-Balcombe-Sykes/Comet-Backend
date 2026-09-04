@@ -61,7 +61,7 @@ it('a destination platform yields platform:<key> with its profile url and label'
     $out = collect(candidatesFor($tenant))->keyBy('id');
 
     expect($out->keys()->all())->toEqualCanonicalizing(['platform:instagram', 'platform:spotify'])
-        ->and($out['platform:instagram'])->toMatchArray(['kind' => 'platform', 'label' => 'Instagram', 'url' => 'https://www.instagram.com/maha', 'ref' => null])
+        ->and($out['platform:instagram'])->toMatchArray(['kind' => 'platform', 'label' => 'Follow on Instagram', 'url' => 'https://www.instagram.com/maha', 'ref' => null])
         ->and($out['platform:instagram']['connectedAt'])->not->toBeNull()
         ->and($out['platform:spotify']['url'])->toBe('https://open.spotify.com/artist/maha');
 });
@@ -86,7 +86,7 @@ it('source fallback: a booking source whose services page is absent yields platf
     $out = collect(candidatesFor($tenant))->keyBy('id');
 
     expect($out->has('page:services'))->toBeFalse()
-        ->and($out['platform:fresha'])->toMatchArray(['kind' => 'platform', 'label' => 'Fresha', 'url' => 'https://fresha.com/a/maha'])
+        ->and($out['platform:fresha'])->toMatchArray(['kind' => 'platform', 'label' => 'Book on Fresha', 'url' => 'https://fresha.com/a/maha'])
         ->and($out['platform:fresha']['meta']['fallback'])->toBeTrue();
 });
 
@@ -122,4 +122,31 @@ it('every candidate id passes the grammar and every url passes UrlSafety', funct
         expect(ActionId::isValid($c['id']))->toBeTrue();
         expect(str_starts_with($c['url'], '/') || UrlSafety::safeHref($c['url']) === $c['url'])->toBeTrue();
     }
+});
+
+it('keeps the routing-class verb when the shelf cannot be resolved', function () {
+    // The shelf needs the compiled artefact; the routing class is a column on
+    // the connection. That split is what keeps Book / Order / Reserve alive
+    // when the shelf lookup fails open — pinned here with a surface key the
+    // catalog does not carry, which is the same dead end a missing artefact
+    // reaches.
+    $tenant = createTenant('ac-noshelf');
+    candidateConnection($tenant, 'ghost', ['url' => 'https://example.com/book'], [
+        'surface_key' => 'ghost.book', 'routing_class' => 'booking',
+    ]);
+
+    $out = collect(candidatesFor($tenant))->keyBy('id');
+
+    expect($out['platform:ghost'])->toMatchArray(['kind' => 'platform', 'label' => 'Book on Ghost']);
+});
+
+it('falls back to the bare brand when neither shelf nor routing class names an intent', function () {
+    $tenant = createTenant('ac-noverb');
+    candidateConnection($tenant, 'ghost', ['url' => 'https://example.com/x'], [
+        'surface_key' => 'ghost.thing', 'routing_class' => 'social',
+    ]);
+
+    $out = collect(candidatesFor($tenant))->keyBy('id');
+
+    expect($out['platform:ghost'])->toMatchArray(['kind' => 'platform', 'label' => 'Ghost']);
 });

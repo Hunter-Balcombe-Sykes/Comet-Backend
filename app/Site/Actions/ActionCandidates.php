@@ -2,6 +2,8 @@
 
 namespace App\Site\Actions;
 
+use App\Catalog\CatalogNotCompiled;
+use App\Catalog\CompiledCatalog;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
@@ -24,7 +26,8 @@ use Illuminate\Support\Facades\Log;
  *   platform:<key>   a connection whose platform is a public destination
  *                    (PlatformDescriptor::isDestination), or a SOURCE whose
  *                    granted page is absent (the fallback keeps Book reachable
- *                    while the services page is off)
+ *                    while the services page is off). Its label carries the
+ *                    shelf's action verb — "Watch on YouTube" (ActionVerbs).
  *   item:<uuid>      every item currently served on the sitepage (PoolWire),
  *                    except media — the gallery never produces an action (D1)
  *   category:<id>    a menu/services category block of served items
@@ -131,10 +134,11 @@ class ActionCandidates
             if ($url === null) {
                 continue;
             }
+            $brand = $descriptor?->getLabel() ?: ucfirst($key);
             $platforms[$key] = [
                 'id' => 'platform:'.$key,
                 'kind' => 'platform',
-                'label' => $descriptor?->getLabel() ?: ucfirst($key),
+                'label' => ActionVerbs::label($brand, self::verbFor($conn)),
                 'url' => $url,
                 'thumb' => null,
                 'connectedAt' => $conn->created_at->toIso8601String(),
@@ -261,6 +265,32 @@ class ActionCandidates
         }
 
         return $out;
+    }
+
+    /**
+     * The connection's action verb — its catalog shelf and routing class run
+     * through ActionVerbs.
+     *
+     * FAILS OPEN on a missing artefact: a deploy that has not run
+     * `catalog:compile` would otherwise 500 the whole rail for the sake of one
+     * label, so the connection simply keeps its bare brand name. Only the
+     * SHELF needs the artefact — routing_class is a column here — which is
+     * what keeps Book / Order / Reserve alive in that state.
+     */
+    private static function verbFor(IntegrationConnection $conn): ?string
+    {
+        $shelf = null;
+        try {
+            $shelf = CompiledCatalog::surface($conn->surface_key)['shelf'] ?? null;
+        } catch (CatalogNotCompiled) {
+            $shelf = null;
+        }
+
+        return ActionVerbs::for(
+            is_string($shelf) && $shelf !== '' ? $shelf : null,
+            $conn->routing_class,
+            $conn->surface_key,
+        );
     }
 
     /** @param  array<string, mixed>  $item */
