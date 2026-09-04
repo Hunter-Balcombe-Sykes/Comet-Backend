@@ -223,10 +223,56 @@ why the flip wants an explicit pool-and-payload check, not just a smoke test.
 `config/database.php` now carries a comment block naming this, and
 `tests/Feature/Architecture/PoolerModeConfigTest.php` fails if the attribute is set again.
 
-**The open question for a next attempt** is whether Supavisor's own prepared-statement support
-in transaction mode is sufficient with prepares left **native** (Laravel's default). That is a
-different experiment from the one that failed — do not read the rollback as "6543 doesn't
-work", and do not reintroduce emulation to get there.
+### Second attempt, same day: native prepares FAIL TOO. The path is closed.
+
+09:03–09:06 UTC, dev on 6543 with `ATTR_EMULATE_PREPARES` left at Laravel's default (false),
+verified in-app (`config port 6543`, `pdo_emulate false`, errors reporting `Port: 6543`):
+
+```
+SQLSTATE[26000]: Invalid sql statement name: prepared statement "pdo_stmt_00000002" does not exist
+... select * from "core"."users" where "handle_lc" = probe-nonexistent-8 ...
+```
+
+PDO issues PREPARE and EXECUTE as two messages; transaction mode can route the second to a
+backend that never saw the first. Supavisor's prepared-statement support does not cover this.
+
+**So both settings fail, for opposite reasons:**
+
+| prepares | failure | shape |
+|---|---|---|
+| emulated (`true`) | `42883 boolean = integer` | total — every `where(bool, true)` |
+| native (`false`) | `26000 prepared statement … does not exist` | intermittent, load-dependent |
+
+**The native failure is invisible to a serial test.** Measured with the same 60-request burst
+at 30 concurrency, minutes apart:
+
+```
+6543:  56 × 404,  4 × 500     ← ~7% of requests
+5432:  60 × 404,  0 × 500     ← control
+```
+
+Every single sequential probe on 6543 passed — payload populated, health 200, timeouts and
+`search_path` correct, boolean binds correct. Only concurrency exposed it. **Any future
+attempt must include a concurrent burst; a smoke test will tell you it works.**
+
+Reproduce the burst with:
+
+```bash
+seq 1 60 | xargs -P 30 -I{} curl -s -o /dev/null -w "%{http_code}\n" \
+  "https://dev-api.partna.au/api/public/profiles/probe-nonexistent-{}" | sort | uniq -c
+```
+
+(Unknown handles are deliberate — they miss the payload cache and hit the DB every time.)
+
+**What would actually be needed** to reach transaction mode from here: emulation ON *plus* a
+custom connection that stringifies boolean bindings as `'true'`/`'false'` (an override of
+`Illuminate\Database\Connection::prepareBindings`). That changes the binding path for every
+query in the app and is a real project with its own risk, not a config flip. Nobody should
+start it without deciding the pool ceiling is actually the binding constraint.
+
+**Cheaper levers for the pool problem, in order:** trim Horizon's `maxProcesses` per lane
+(`config/horizon.php`) to shrink its ~15-slot floor; or raise Supabase compute, which raises
+`max_connections` above 60 and lets `default_pool_size` go past today's ~42 budget.
 
 ### What IS in place and safe
 
