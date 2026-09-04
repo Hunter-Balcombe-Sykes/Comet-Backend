@@ -1387,6 +1387,19 @@ function setupSitesTable(): void
         updated_at TEXT NULL
     )');
 
+    // KEEP THIS STAND-IN. site.menu_items was DROPPED on dev 2026-08-17 with the
+    // rest of the legacy menu lane, so it reads like orphaned scaffolding — it is
+    // not, and an audit finding that said so was corrected 2026-09-04. Two suites
+    // need the table to exist in SQLite:
+    //   1. MenuScanApplierContentTest ('writes content.* and leaves
+    //      site.menu_items empty') is the regression guard proving the content
+    //      lane writes NOTHING here. Counting zero rows requires a table to count.
+    //   2. FoodContentProbeTest ('ignores a soft-deleted menu') INSERTs a dish row
+    //      outright. That insert no longer feeds the assertion — the probe's
+    //      site.menu_items clause went with the table in slice 7 Phase 6 — but it
+    //      still executes, so a missing table is a hard error, not a dead branch.
+    // Deleting either the stand-in or the guard would silently retire the only
+    // check that the new lane stays off the old table.
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.menu_items (
         id TEXT PRIMARY KEY NOT NULL,
         menu_id TEXT NOT NULL,
