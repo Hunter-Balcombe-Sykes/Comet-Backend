@@ -389,6 +389,26 @@ final class Fixtures
 
         self::remember(Notification::class, $notification->id);
 
+        // site.logo_candidates has no Eloquent model — UserLogoCandidatesController
+        // takes `string $candidate` and LogoCandidates::promote() scopes the raw
+        // table by site_id. So the fixture key is the TABLE, not a class; see the
+        // raw-table form documented in expectations.yaml.
+        $candidate = DB::connection('pgsql')->table('site.logo_candidates')
+            ->where('site_id', $site->id)->value('id');
+
+        if ($candidate === null) {
+            $candidate = (string) Str::uuid();
+            DB::connection('pgsql')->table('site.logo_candidates')->insert([
+                'id' => $candidate,
+                'site_id' => $site->id,
+                'slot' => 'square',
+                'storage_path' => 'authz/logo-candidate.webp',
+                'state' => 'proposed',
+            ]);
+        }
+
+        self::remember('site.logo_candidates', (string) $candidate);
+
         // Identity B is itself the substitutable row for {user} params.
         self::remember(User::class, $user->id);
     }
