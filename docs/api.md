@@ -455,14 +455,12 @@ below read "No", and a claimed owner's unpublished site was fully readable):
 | `PublicDocumentDownloadController` | Yes |
 | `AnalyticsController` (pageview/click/dwell tracking) | Yes |
 | `QrCodeController` | Yes |
-| `GET /api/public/site` (`PublicSiteController`, subdomain-resolved) | Yes — **in the view, not in PHP** |
 
-The last one gates in SQL: `site.public_site_payload`'s `WHERE` clause is
-`s.is_published = true AND p.status IN ('active','unclaimed') AND p.deleted_at IS NULL`, so an
-unpublished site yields no row and the controller 404s. Grepping `app/` for `is_published` will not
-lead you to it — the one PHP hit in that class (`PublicSiteController::showByHeader`'s alias-redirect
-canonical lookup) is a different sub-path. Check the view definitions in `supabase/migrations/` before
-concluding a read path is ungated.
+`GET /api/public/site` used to sit at the bottom of this table, gating in SQL rather than PHP. It
+and its `site.public_site_payload` view were **removed 2026-09-04** (see "Retired public endpoints").
+The lesson it taught outlives it: a read path can be gated in a view instead of in `app/`, so
+grepping `app/` for `is_published` does not prove a path is ungated — check the view definitions in
+`supabase/migrations/` too.
 
 Note the three ungated profile sub-resources above carry third-party-sourced content — scraped menu
 items, and platform connection payloads including Google Business data. They are public pre-claim by
@@ -579,15 +577,11 @@ Each `SiteImage` gets a set of universal WebP variants generated server-side via
 | is_active       | boolean | no       | `true`                        | If false: hidden from public site and click tracking is forbidden                         |
 | settings        | object  | yes      | `{ "open_in_new_tab": true }` | Allowed keys only: open_in_new_tab, rel_nofollow, rel_sponsored, rel_ugc, highlight, note |
 
-### PublicSiteData (view of returned GET /api/public/site)
-| Name         | Type    | Nullable | Example                                                   | Constraints / Notes                                       |
-|--------------|---------|----------|-----------------------------------------------------------|-----------------------------------------------------------|
-| published    | boolean | no       | `true`                                                    | Derived from site is_published                            |
-| site         | object  | no       | `{ id, subdomain, settings, gallery, content_images }` | Includes gallery + content image pools with variant URLs  |
-| professional | object  | no       | `{ id, handle, display_name, bio, ... }` | Includes public-facing location fields                    |
-| blocks       | array   | no       | `[ LinkBlock \| SectionBlock ]`                           | Only active blocks are returned                           |
-| gallery      | array   | no       | `[ { id, pool, alt_text, sort_order, variants: {...} } ]` | Only active gallery-pool images; variants are URL maps    |
-| services     | array   | no       | `[ { id, title, price_cents, ... } ]`                     | Only active services returned                             |
+### PublicSiteData — RETIRED 2026-09-04
+
+This model described the `site.public_site_payload` view behind `GET /api/public/site`. The endpoint,
+the view and its `gallery` / `gallery_videos` keys are gone; see "Retired public endpoints" below.
+The public payload is `GET /api/public/profiles/{handle}`.
 
 ### Analytics Event Payloads
 | Name                  | Type   | Nullable | Example                 | Constraints / Notes                                                                                                     |
@@ -731,12 +725,15 @@ Frontend quick-start (header-based API host):
 ```ts
 const API_BASE = "https://api.<PARTNA_PUBLIC_DOMAIN>/api/public";
 const subdomain = "fadez";
+// A handle and a subdomain are separate values that usually agree but can diverge
+// after a rename — carry both rather than deriving one from the other.
+const handle = "fadez";
 const visitorId = localStorage.getItem("comet_visitor_id") ?? crypto.randomUUID();
 localStorage.setItem("comet_visitor_id", visitorId);
 
-const siteRes = await fetch(`${API_BASE}/site-by-slug`, {
-  headers: { "X-Site-Subdomain": subdomain }
-});
+// The public payload is fetched by handle. `/site` and `/site-by-slug` were
+// removed 2026-09-04 — see "Retired public endpoints".
+const siteRes = await fetch(`${API_BASE}/profiles/${handle}`);
 
 await fetch(`${API_BASE}/analytics/pageviews`, {
   method: "POST",
@@ -751,37 +748,9 @@ await fetch(`${API_BASE}/analytics/pageviews`, {
 });
 ```
 
-### `GET /api/public/site`
+### `GET /api/public/site` — REMOVED 2026-09-04
 
-- Purpose: fetch the published mini-site payload for rendering
-- Auth: None
-- Rate limit: public-site
-
-**Response (200):**
-
-```json
-{
-  "published": true,
-  "site": { "id": "uuid", "subdomain": "fadez", "settings": {}, "gallery": [], "content_images": [], "gallery_videos": [], "content_videos": [] },
-  "professional": { "id": "uuid", "handle": "fadez", "display_name": "Fadez Studio", "bio": null },
-  "links": [],
-  "sections": [],
-  "blocks": [],
-  "services": []
-}
-```
-
-**Common status codes:** 200, 404 (site not found, unpublished, or owner not active/unclaimed), 429
-
-An unpublished site returns **404, not 403** — `site.public_site_payload` simply yields no row
-(see "Public visibility vs. `is_published`"), and public endpoints answer 404 rather than 403 so a
-caller cannot enumerate which subdomains exist. Note this endpoint has **no unclaimed carve-out**:
-the view requires `is_published = true` unconditionally, so an unpublished pre-account build 404s
-here even though it still renders on `GET /api/public/profiles/{handle}`.
-
-**Notes:**
-- `blocks` is a combined, sort-ordered array of both `links` and `sections` and includes `block_group` on each item.
-- `site.gallery` and `site.content_images` are image-only arrays. `site.gallery_videos` and `site.content_videos` are video-only arrays. Each video item includes `{ id, sort_order, processing_state, duration_ms, poster, variants: { optimized, maximized }, streams: { adaptive, optimized, maximized } }`. Videos with `processing_state != ready` are excluded automatically.
+See "Retired public endpoints". Use `GET /api/public/profiles/{handle}`.
 
 ### `POST /api/public/analytics/pageviews`
 
@@ -934,16 +903,10 @@ here even though it still renders on `GET /api/public/profiles/{handle}`.
 For frontends that cannot use subdomain DNS routing, the following endpoints accept the subdomain via the `X-Site-Subdomain` header and are accessed on the API host:
 `https://api.{PARTNA_PUBLIC_DOMAIN}/api/public/...`
 
-#### `GET /api/public/site-by-slug`
+#### `GET /api/public/site-by-slug` — REMOVED 2026-09-04
 
-- Purpose: fetch the published mini-site payload using header-based subdomain resolution
-- Auth: None
-- Rate limit: public-site
-- Headers: `X-Site-Subdomain` (required): the site subdomain slug
-
-**Response (200):** Same as `GET /api/public/site`
-
-**Common status codes:** 200, 400 (missing header), 404 (site not found), 403 (site not published)
+See "Retired public endpoints". The header-based lane survives for the analytics and lead
+endpoints below; only the payload read was removed.
 
 #### `POST /api/public/analytics/pageviews`
 #### `POST /api/public/analytics/clicks`
@@ -963,9 +926,10 @@ For frontends that cannot use subdomain DNS routing, the following endpoints acc
 
 ### Content pools on `GET /api/public/profiles/{handle}`
 
-`profile.pools` carries one entry per content pool (`watch`, `listen`, `media`, `events`,
-`services`, `shop`, `reviews`), each `{items, latestItemId}`. A pool with an empty
-selection is **absent**, not empty. Per-slice detail lives in `docs/wire-changes/`; only
+`profile.pools` carries one entry per content pool — the nine of `PoolRegistry::POOLS`:
+`watch`, `listen`, `media`, `events`, `services`, `shop`, `reviews`, `custom_links` and
+`menus` — each `{items, latestItemId}`. A pool with an empty selection is **absent**,
+not empty. Per-slice detail lives in `docs/wire-changes/`; only
 the cross-cutting item keys are listed here.
 
 **Every pool item carries every key regardless of kind** — the wire shape does not change
@@ -1021,6 +985,58 @@ dashboard resource still reads all four.
 `PUT /api/content/pools/reviews/order`, `PUT /api/site/sections/{id}/items/{item}` with
 `state: pinned`, `POST /api/content/pools/reviews/items`). Excluding and deselecting
 return 200. Every other pool is unaffected.
+
+### Vocabulary: pool vs page vs usage
+
+Three layers use overlapping words. This table is the mapping; nothing here
+is a bug.
+
+| Content pool (`pools.<key>`) | Page it renders on (`site.pages.key`) | Notes |
+|---|---|---|
+| `media` | `gallery` | The one that catches people out. Hidden by `settings.display_gallery_page`. |
+| `custom_links` | `links` | Joins the page its own connections built. |
+| `menus` | `menu` | Joins the legacy menu lane's page. |
+| `services` · `shop` · `events` · `reviews` · `watch` · `listen` | same name | 1:1. |
+
+**A pool is a section of the public page.** There are nine, listed by
+`PoolRegistry::POOLS`, and they are the whole public wire at
+`data.profile.pools.*` (a pool whose selection is empty is omitted from a given
+response, but no tenth pool can appear). The pool→page mapping is
+`PoolRegistry::PAGE_KEYS`.
+
+**A usage is what an uploaded file is for** — `site.site_media.usage`, one of
+`content` (owner photos), `design` (logo/brand, never published as a card) or
+`documents` (downloadable PDFs). This column was called `pool` until
+2026-09-04; the rename exists because the two words named unrelated things and
+collided worst on the value `content`.
+
+`site.site_media` is not a rival to the media pool — it is the upload
+substrate beneath it. `content.media_assets` is the curation layer over both
+uploads and ingested items, bridged by `content.media_assets.site_media_id`.
+
+### Two things called "sections"
+
+| Store | What it is | Read by |
+|---|---|---|
+| `site.blocks` where `block_group = 'sections'` | Per-site visibility toggles, keyed by block type | `SitepageDataResolverService::loadSections()` |
+| `site.sections` + `site.pages` | Rule-driven page/section rendering | `PoolResolver` (via `PoolSectionProvisioner`), `SectionController`/`PageController` |
+
+Both are live and written daily. A toggle is not a section row.
+
+### Retired public endpoints
+
+`GET /api/public/site` and `GET /api/public/site-by-slug` were **removed
+2026-09-04**. `GET /api/public/profiles/{handle}` is the only public-site
+payload endpoint. The removed lane emitted `skeleton_id` (an alias of
+`architecture_id`, on the wire as `architectureId`) and `gallery` /
+`gallery_videos` keys that had been permanently empty since the `gallery`
+media usage was retired 2026-09-02.
+
+The `{subdomain}.partna.au` domain-scoped route group went with them the same
+day. It duplicated the flat `POST /api/public/customers`, `/enquiry` and
+`/subscribe` registrations with identical middleware and was unreachable in
+production, since the Worker claims `*/*` on the partna.au zone. Those three
+routes are unchanged on the API host.
 
 ---
 
