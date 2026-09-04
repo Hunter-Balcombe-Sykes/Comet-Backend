@@ -52,14 +52,14 @@
 
 - P0 Blockers: 0 of 0 complete
 - P1 High: 0 of 0 complete
-- P2 Medium: 0 of 2 complete
+- P2 Medium: 2 of 2 complete
 - P3 Low: 0 of 0 complete
 
 ---
 
 ## P2 — Should fix
 
-- [ ] **#LEGACY-1** · P2 — Superseded public-site payload lane still wired alongside the canonical profile endpoint
+- [x] **#LEGACY-1** · P2 — Superseded public-site payload lane still wired alongside the canonical profile endpoint
     - **Where:** app/Http/Controllers/Api/PublicSite/PublicSiteController.php:1-118; app/Services/Cache/SiteCacheService.php:47-63 (`buildPayloadFromDb`); app/Models/Views/PublicSitePayload.php; routes/api.php:113; routes/api/publicSite.php:25
     - **Affects:** Backend API-surface clarity and maintenance load; any real external consumer still on this lane gets an older, pre-pools payload shape (no `profile.pools.*`, no unified actions) that has visibly drifted from the canonical lane.
     - **Category:** (1) Duplicate public surface / (2) Superseded reader/writer still wired
@@ -88,7 +88,7 @@
          */
         ```
 
-- [ ] **#LEGACY-2** · P2 — Dead domain-scoped public route group duplicates flat customer-lead, enquiry, and subscribe endpoints
+- [x] **#LEGACY-2** · P2 — Dead domain-scoped public route group duplicates flat customer-lead, enquiry, and subscribe endpoints
     - **Where:** routes/api/publicSite.php:20-32 (domain group); routes/api.php:165, 232, 235 (flat siblings)
     - **Affects:** Route-list clarity and maintainer time only — the domain group is documented as unreachable in production, so no live traffic differentiates behavior.
     - **Category:** (1) Duplicate public surface
