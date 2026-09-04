@@ -1,51 +1,57 @@
 <?php
 
-// COV-LANE-3: DatabaseServiceProvider::boot() sets statement_timeout/lock_timeout
-// on the pgsql connection, but bailed unconditionally whenever runningUnitTests()
-// was true — true in every PHPUnit config, phpunit.pg.xml included, since it sets
-// APP_ENV=testing and runs under the console SAPI. So the SET statements never
-// ran in any test lane, and a regression that dropped or renamed them would pass
-// silently everywhere.
+// statement_timeout / lock_timeout now live on the app_backend ROLE (migration
+// 20260905120000), not on a per-connection SET.
 //
-// DB_APPLY_TIMEOUTS_IN_TESTS=1 (set only in the postgres-tests CI job env, see
-// ci.yml) narrows that bail so this ONE lane, against a disposable postgres:16
-// container, actually applies the SET statements. Every other lane — including a
-// developer's own `composer test:pg` without the var set — keeps the original
-// unconditional bail, so `config:clear` still can't force a real Supabase TCP
-// connect in a DNS-less sandbox.
+// The old DatabaseServiceProvider called DB::connection()->getPdo() in boot() to
+// issue those SETs, which opened a socket in EVERY process that booted the
+// framework — FPM children, queue workers, artisan commands, each scheduler tick —
+// whether or not it ever ran a query. In Supavisor SESSION mode each of those
+// pinned a pool slot for the life of the process. Measured on dev 2026-09-04:
+// 17 of 23 pooled connections (74%) had executed nothing but those two SETs.
+// The provider is gone and connections are lazy again.
 //
-// The positive control below is not optional. Without it this test would pass
-// identically whether DatabaseServiceProvider actually read config() or just
-// hardcoded '30s'/'10s' into the SET statements — the exact vacuous-guard shape
-// COV-GUARD spent a unit removing. Overriding config to a distinct value and
-// re-running boot() proves the SET statement really reads the configured value.
+// What this test proves: the migration's mechanism — that ALTER ROLE ... SET
+// lands both settings in pg_roles.rolconfig, which Postgres then applies at
+// backend startup.
+//
+// What it CANNOT prove here: that a login as app_backend inherits them. Role
+// defaults apply at login, and this lane connects as the container superuser;
+// `SET ROLE` does not re-run them. That half was verified against dev on
+// 2026-09-04 — an in-app probe on dev-api reported statement_timeout=30s and
+// lock_timeout=10s from a real app connection.
 
-use App\Providers\DatabaseServiceProvider;
 use Illuminate\Support\Facades\DB;
 use Tests\PostgresTestCase;
 
 uses(PostgresTestCase::class)->in(__FILE__);
 
 beforeEach(function () {
-    if (getenv('DB_APPLY_TIMEOUTS_IN_TESTS') !== '1') {
-        $this->markTestSkipped('Requires DB_APPLY_TIMEOUTS_IN_TESTS=1 (set by the postgres-tests CI job).');
+    $exists = DB::selectOne("select 1 as ok from pg_roles where rolname = 'app_backend'");
+
+    if (! $exists) {
+        $this->markTestSkipped('No app_backend role in this container; the role defaults have nothing to attach to.');
     }
 });
 
-it('applies the configured statement_timeout and lock_timeout to the pgsql connection', function () {
-    $statementTimeout = DB::selectOne('SHOW statement_timeout')->statement_timeout;
-    $lockTimeout = DB::selectOne('SHOW lock_timeout')->lock_timeout;
+it('lands both timeout defaults on the app_backend role', function () {
+    // The migration's own statements, verbatim, so this fails if they drift.
+    DB::statement("ALTER ROLE app_backend SET statement_timeout = '30s'");
+    DB::statement("ALTER ROLE app_backend SET lock_timeout = '10s'");
 
-    expect($statementTimeout)->toBe('30s')
-        ->and($lockTimeout)->toBe('10s');
+    $config = DB::selectOne("select rolconfig::text as cfg from pg_roles where rolname = 'app_backend'")->cfg;
+
+    expect($config)->toContain('statement_timeout=30s')
+        ->and($config)->toContain('lock_timeout=10s');
 });
 
-it('positive control: a differently-configured timeout is actually applied, not a hardcoded default', function () {
-    config(['database.connections.pgsql.statement_timeout' => 5000]);
+it('positive control: rolconfig reflects the value actually written, not a fixed string', function () {
+    DB::statement("ALTER ROLE app_backend SET statement_timeout = '5s'");
 
-    (new DatabaseServiceProvider($this->app))->boot();
+    $config = DB::selectOne("select rolconfig::text as cfg from pg_roles where rolname = 'app_backend'")->cfg;
 
-    $statementTimeout = DB::selectOne('SHOW statement_timeout')->statement_timeout;
+    expect($config)->toContain('statement_timeout=5s');
 
-    expect($statementTimeout)->toBe('5s');
+    // Leave the role as the migration would have it.
+    DB::statement("ALTER ROLE app_backend SET statement_timeout = '30s'");
 });

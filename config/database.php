@@ -97,10 +97,18 @@ return [
             'prefix_indexes' => true,
             'search_path' => env('DB_SEARCH_PATH', 'public,core,site,notifications,analytics'),
             'sslmode' => env('DB_SSLMODE', 'require'),
-            // Set statement timeout (30 seconds)
-            'statement_timeout' => env('DB_STATEMENT_TIMEOUT', 30000),
-            // Set lock timeout (10 seconds)
-            'lock_timeout' => env('DB_LOCK_TIMEOUT', 10000),
+            // statement_timeout / lock_timeout are NOT set here, and there is no
+            // DatabaseServiceProvider any more. They live on the app_backend ROLE
+            // (migration 20260905120000), applied by Postgres at backend startup.
+            //
+            // The old provider called DB::connection()->getPdo() in boot(), which
+            // opened a socket in EVERY process — every FPM child, queue worker,
+            // artisan command and scheduler tick — whether or not it ever queried.
+            // Measured on dev 2026-09-04: 17 of 23 pooled connections (74%) had run
+            // nothing but those two SETs. In session mode each one pinned a pool
+            // slot for the process's life, which is most of what exhausts the pool
+            // (EMAXCONNSESSION). Connections are lazy again: a process takes a slot
+            // when it first queries. See docs/runbooks/db-pool-exhausted.md.
             // DO NOT set PDO::ATTR_EMULATE_PREPARES => true here. It was added on
             // 2026-09-04 as the transaction-pooler (6543) groundwork and MEASURED ON
             // DEV THE SAME DAY: it breaks the app outright. Emulation makes PDO
