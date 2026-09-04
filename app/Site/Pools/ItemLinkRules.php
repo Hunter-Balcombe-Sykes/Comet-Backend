@@ -226,17 +226,98 @@ class ItemLinkRules
     }
 
     /** Host check: the URL must sit on the platform's own domain(s). */
-    /** The roster platform a URL belongs to (by host suffix), or null. */
+
+    /**
+     * The roster platform a URL belongs to (by host suffix), or null.
+     *
+     * MOST SPECIFIC host wins, not the first declared. `urlBelongsTo()` matches
+     * a suffix, so one brand's domain can swallow another brand that lives on a
+     * subdomain of it: `music.youtube.com` ends with `.youtube.com`, and with
+     * first-wins iteration every YouTube Music link answered 'youtube' —
+     * youtube-music was in ROSTER['listen'] but unreachable from a URL, so a
+     * manually-added YouTube Music link was badged YouTube on the public wire,
+     * and PoolResolver's per-platform dedupe (:2456) then dropped it outright
+     * when the item already had a youtube.com link. Found 2026-09-04; it was
+     * the only shadowing pair, and platformForUrlShadowing() below is what
+     * keeps it that way as hosts are added.
+     */
     public static function platformForUrl(string $url): ?string
     {
-        $platforms = [...array_keys(self::HOSTS), 'eventbrite', 'ticketmaster', 'ticketek'];
-        foreach ($platforms as $platform) {
-            if (self::urlBelongsTo($platform, $url)) {
-                return $platform;
+        $best = null;
+        $bestLen = -1;
+        foreach (self::allPlatforms() as $platform) {
+            $len = self::matchedHostLength($platform, $url);
+            if ($len > $bestLen) {
+                $best = $platform;
+                $bestLen = $len;
             }
         }
 
-        return null;
+        return $best;
+    }
+
+    /**
+     * Every platform platformForUrl() considers, in declaration order.
+     *
+     * @return list<string>
+     */
+    public static function allPlatforms(): array
+    {
+        return [...array_keys(self::HOSTS), 'eventbrite', 'ticketmaster', 'ticketek'];
+    }
+
+    /**
+     * Pairs where one platform's host suffix swallows another's host — the
+     * shape that made YouTube Music unreachable.
+     *
+     * A non-empty result is NOT a defect: a brand living on a subdomain of
+     * another brand's domain is a fact about the world, not a mistake in this
+     * file. What must hold is that longest-suffix resolution still answers the
+     * SHADOWED brand for its own hosts, and that is what the test asserts —
+     * pair by pair, for whatever pairs exist at the time it runs. Exposed
+     * rather than kept private so a future host addition is checked by CI
+     * instead of by whoever remembers this comment.
+     *
+     * @return list<array{shadowed: string, shadowing: string, host: string, by: string}>
+     */
+    public static function hostShadowing(): array
+    {
+        $out = [];
+        foreach (self::allPlatforms() as $a) {
+            foreach (self::hostsFor($a) as $hostA) {
+                foreach (self::allPlatforms() as $b) {
+                    if ($a === $b) {
+                        continue;
+                    }
+                    foreach (self::hostsFor($b) as $hostB) {
+                        if ($hostA !== $hostB && str_ends_with($hostA, '.'.$hostB)) {
+                            $out[] = ['shadowed' => $a, 'shadowing' => $b, 'host' => $hostA, 'by' => $hostB];
+                        }
+                    }
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /** Length of the longest host suffix of $platform that $url matches, or -1. */
+    private static function matchedHostLength(string $platform, string $url): int
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        if ($host === '') {
+            return -1;
+        }
+        $host = preg_replace('/^www\./', '', $host) ?? $host;
+
+        $best = -1;
+        foreach (self::hostsFor($platform) as $allowed) {
+            if ($host === $allowed || str_ends_with($host, '.'.$allowed)) {
+                $best = max($best, strlen($allowed));
+            }
+        }
+
+        return $best;
     }
 
     public static function urlBelongsTo(string $platform, string $url): bool
