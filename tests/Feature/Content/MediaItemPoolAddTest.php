@@ -282,6 +282,57 @@ it('keeps the card path for a claimed item whose read fails', function () {
     expect(collect($res->json('selection'))->firstWhere('headline', 'vimeo.com'))->not->toBeNull();
 });
 
+/**
+ * The dead-page guard. Every og:title below is the REAL string the live site
+ * returned on 2026-09-04, captured by the probe that found the leak — a
+ * nonexistent Audiomack song answered HTTP 200 and minted a pool item headlined
+ * "Audiomack - Music platform empowering artists & fans | Audiomack" onto the
+ * public sitepage. The guard had named 11 brands by exact string and never
+ * learned the nine this run added, and exact-matching slid past the decorated
+ * form entirely.
+ */
+it('refuses a title that is the site talking about itself', function (string $url, string $ogTitle) {
+    mipMockFetch([$url => '<meta property="og:title" content="'.$ogTitle.'">']);
+
+    expect(app(MediaPageReader::class)->read($url))->toBeNull();
+})->with([
+    'audiomack decorates its site name' => [
+        'https://audiomack.com/rob49/song/no-such-song-99zz',
+        'Audiomack - Music platform empowering artists &amp; fans | Audiomack',
+    ],
+    'youtube music is its own site name' => [
+        'https://music.youtube.com/watch?v=zzzZZ9zz9Zz',
+        'YouTube Music',
+    ],
+    'the original exact-match rule still holds' => [
+        'https://www.twitch.tv/videos/999999999123',
+        'Twitch',
+    ],
+    'a brand added this run, exact' => [
+        'https://rumble.com/vzzz9z9-no-such-video.html',
+        'Rumble',
+    ],
+]);
+
+it('keeps a real title that merely mentions a platform', function (string $url, string $ogTitle) {
+    mipMockFetch([$url => '<meta property="og:title" content="'.$ogTitle.'">']);
+
+    expect(app(MediaPageReader::class)->read($url)['title'] ?? null)->toBe(html_entity_decode($ogTitle));
+})->with([
+    // Beatport's GENUINE titles carry the site name as a SUFFIX — a trailing-
+    // segment rule would delete every real Beatport track.
+    'beatport suffixes its own name' => [
+        'https://beatport.com/track/lockup/28901951',
+        'Overmono - Lockup (Original Mix) [XL Recordings] | Music &amp; Downloads on Beatport',
+    ],
+    // The leading-segment rule asks only about the page's OWN site, so an
+    // ordinary video named after another platform survives.
+    'a youtube video named after another platform' => [
+        'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        'Spotify - Wrapped 2025 Recap',
+    ],
+]);
+
 it('classifies the grammar matrix — item vs account vs neither', function (string $url, ?string $expectKind, ?string $expectAccount) {
     $reader = app(MediaPageReader::class);
 

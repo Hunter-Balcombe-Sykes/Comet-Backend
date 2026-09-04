@@ -80,14 +80,7 @@ class MediaPageReader extends PlatformScraper
             return null;
         }
 
-        // A dead or JS-walled page unfurls with the SITE's own name as its
-        // og:title (a nonexistent Twitch VOD answers "Twitch") — that is a
-        // failed read, not a title. The card fallback is honest; an item
-        // called "Twitch" is not.
-        if (in_array(strtolower(trim($meta['title'])), [
-            'twitch', 'tidal', 'youtube', 'vimeo', 'spotify', 'soundcloud',
-            'mixcloud', 'bandcamp', 'apple music', 'apple podcasts', 'tiktok',
-        ], true)) {
+        if ($this->isSiteChrome($item['platform'], $meta['title'])) {
             return null;
         }
 
@@ -99,6 +92,77 @@ class MediaPageReader extends PlatformScraper
             'thumbnail' => $meta['thumbnail'],
             'authorUrl' => $meta['authorUrl'] ?? $this->derivedAuthorUrl($item),
         ];
+    }
+
+    /**
+     * The name each platform calls itself in a page title. Keyed by the
+     * classifyItem() platform so the leading-segment rule below can ask about
+     * THIS page's own site and no other.
+     *
+     * @var array<string, list<string>>
+     */
+    private const SITE_NAMES = [
+        'apple-music' => ['apple music'],
+        'apple-podcast' => ['apple podcasts'],
+        'audiomack' => ['audiomack'],
+        'bandcamp' => ['bandcamp'],
+        'beatport' => ['beatport'],
+        'dailymotion' => ['dailymotion'],
+        'deezer' => ['deezer'],
+        'feature_fm' => ['feature.fm', 'ffm.to'],
+        'hypeddit' => ['hypeddit'],
+        'laylo' => ['laylo'],
+        'linkfire' => ['linkfire', 'lnk.to'],
+        'mixcloud' => ['mixcloud'],
+        'rumble' => ['rumble'],
+        'soundcloud' => ['soundcloud'],
+        'spotify' => ['spotify'],
+        'tidal' => ['tidal'],
+        'tiktok' => ['tiktok'],
+        'twitch' => ['twitch'],
+        'vimeo' => ['vimeo'],
+        'youtube' => ['youtube'],
+        'youtube-music' => ['youtube music', 'youtube'],
+    ];
+
+    /**
+     * Is this title the SITE talking about itself rather than an item?
+     *
+     * A dead or JS-walled page unfurls with the site's own name (a nonexistent
+     * Twitch VOD answers "Twitch"). That is a failed read, not a title — the
+     * card fallback is honest, an item called "Twitch" is not.
+     *
+     * Two rules, because the sites do it two ways:
+     *
+     *  1. EXACT match against any platform's name, kept global — the original
+     *      rule, widened only by the nine brands added 2026-08-28..09-04, which
+     *      it had never learned. A title that is precisely a platform's name is
+     *      chrome whichever page it came from.
+     *  2. LEADING SEGMENT equal to THIS platform's own name. Audiomack's dead
+     *      pages answer "Audiomack - Music platform empowering artists & fans |
+     *      Audiomack" — decorated, so rule 1 slid straight past it (live-verified
+     *      2026-09-04: a nonexistent song minted a pool item with that as its
+     *      headline, onto the public sitepage).
+     *
+     * Rule 2 is scoped to the page's OWN platform on purpose. Globally it would
+     * reject a real YouTube video titled "Spotify - Wrapped 2025", which is an
+     * ordinary title. And it reads the LEADING segment only, never a trailing
+     * one: Beatport's genuine titles end "… | Music & Downloads on Beatport"
+     * (live-verified), so a suffix rule would delete every real Beatport track.
+     */
+    private function isSiteChrome(string $platform, string $title): bool
+    {
+        $t = strtolower(trim($title));
+
+        $all = array_unique(array_merge(...array_values(self::SITE_NAMES)));
+        if (in_array($t, $all, true)) {
+            return true;
+        }
+
+        $lead = trim(explode('|', $t)[0]);
+        $lead = trim(explode(' - ', $lead)[0]);
+
+        return in_array($lead, self::SITE_NAMES[$platform] ?? [], true);
     }
 
     /**
