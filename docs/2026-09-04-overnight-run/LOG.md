@@ -533,3 +533,79 @@ fall-through. `tests/Unit/Platforms/WebsiteLinkHarvesterTest.php` 82 passed;
 brands added that day (kick, ko-fi) appeared anywhere in the harvester's
 unit tests. The equivalent gap for the 14 events brands HAD been closed by
 F3's follow-up; social was simply left behind.
+
+### F8 follow-up sweep — the same bug class applied to the events arms: CLEAN (no fix needed)
+
+After F8, ran the identical "does every emitted platform value resolve to a
+real surface" sweep against all 23 events arms in `classify()`. It reports
+**14 unresolvable platform values** (luma, partiful, admitone, bandsintown,
+dice, eventfinda, eventim, megatix, moshtix, see_tickets, skiddle, songkick,
+ticketweb, tixr) — and every one of them is a **FALSE POSITIVE**, recorded
+here so the next sweep doesn't "fix" them:
+
+- `LinkRouter::routeClassified()` routes `'event'` to `EventsSeeder::seedStandalone()`,
+  which writes an **events-pool item and nothing else** — its own comment
+  says "no connection row" (R7, owner, 2026-08-19). The platform value never
+  reaches `IntegrationConnection`, so the guard that F8 tripped is never
+  consulted. Two of the 14 (luma, partiful) predate this run by months,
+  which is the corroborating signal: a real connection-guard bug there would
+  have been throwing continuously since they landed.
+- The one events path that DOES create rows, `'event-organiser'` →
+  `EventsSeeder::seedAccount()`, opens with its own allowlist
+  (`in_array($platform, self::PLATFORMS)`) and only branches for eventbrite
+  and humanitix. None of the 14 can reach it.
+
+The bug F8 found is therefore specific to the **social** category, which is
+the only one of the four that hands a hand-mapped platform value straight to
+a connection write. Booking/reservations/ordering were already clean because
+all 45 of their entries name surface keys directly.
+
+Also checked in the same pass: `tickethype` initially appeared to match no
+arm at all. That was a bad probe URL on my side (I used `.com.au`; the brand
+is Maltese — `tickethype.com.mt`, per its catalog Detector and both
+`corpus-real.php` rows). The arm at `WebsiteLinkHarvester.php:1007` is
+correct. No finding.
+
+### W8 re-test with the corrected origin — both unexercised mechanics VALIDATED (no bugs)
+
+W8 left two real mechanics unproven because its scenarios used
+`origin='website_import'` (which `RoutingCapabilityGate` correctly reads as
+"the user's EMPLOYER's site" and rejects for identity-asserting surfaces on
+a partna account). Re-ran both with `origin='bio_harvest'` — the right origin
+for "a link found on the user's own bio-link page" — against two fresh partna
+test users (`bioharvest-a-3aa34afb`, `bioharvest-b-3aa34afb`).
+
+**A — the ASYNC L2-verify accept path (`github.profile`, which IS in
+`LinkVerifier::adapters()`). Works end to end:**
+
+| step | result |
+|---|---|
+| `route()` bio_harvest | `verdict=choose`, intent `state=proposed`, `origin=bio_harvest` |
+| `GET /routing/suggestions` | 1 suggestion, `"Is this your GitHub?"`, actions `[accept, dismiss]` |
+| `accept` | **202** `{"connectionId":null,"status":"verifying"}` — intent → `verifying`, **no connection yet** (correct: L2 has not confirmed) |
+| `VerifyLinkJob` (dispatchSync) | intent → `applied` with `connection_id`, real `github.profile` row created |
+
+**B — the per-surface cap + swap path (`instagram.profile`, max_accounts=1).
+Works end to end:**
+
+| step | result |
+|---|---|
+| paste `instagram.com/cristiano` | `verdict=place`, live connection created |
+| harvest `instagram.com/nike` | `verdict=hold`, `block_reason=cap_reached`, `conflicting_connection_id` = the cristiano connection |
+| inbox | `"You already have Instagram connected — swap it for this one?"`, actions `[replace, dismiss]`, `conflictingConnectionId` populated |
+| `accept` (the swap) | 200 + NEW connection id; old cristiano row `deleted_at` set, new nike row live; intent → `applied` |
+
+Both confirm the pipeline behaves exactly as designed, including the two
+things W8 could not reach. **No bugs found** — the W8 "failures" for these
+steps were entirely scenario-design artifacts, as triaged at the time.
+Recorded so this is not re-run a third time.
+
+### Probe-URL sweep (F5 generalization) — CLEAN
+
+Ran every one of the 108 entries in `tests/fixtures/catalog/probe-urls.php`
+through the real `LinkProjector` and compared the resolved surface key to the
+fixture's own key. **104 match; the 4 that resolve to NULL
+(`direct.book`, `generic.store`, `google_business.listing`,
+`partna.manual_product`) each carry ZERO detectors and `is_connectable=false`**
+— they are created manually or by API, never by URL detection, so NULL is the
+only possible answer and not a defect. F5 was the only real bug in this file.
