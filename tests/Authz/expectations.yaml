@@ -84,14 +84,22 @@
 
 # ── Content ──────────────────────────────────────────────────────────────────
 - route: "api/content/items/{item}/overrides/{facet}/{column}"
-  fixture: { item: unknown, facet: unknown, column: unknown }
+  fixture: { item: "App\\Models\\Content\\Item", facet: unknown, column: unknown }
 # Pools (2026-08-05): {pool} is a registry key (watch|listen|media) validated
-# against PoolRegistry and {platform} a roster key — neither is an identity;
-# items resolve owner-scoped so an identity-B id is a 404, not a hit.
+# against PoolRegistry and {platform} a roster key — neither is an identity.
+#
+# {item} WAS `unknown` on the reasoning that "items resolve owner-scoped so an
+# identity-B id is a 404, not a hit". True, but that is the thing to prove, not
+# to assume: `unknown` substitutes an id matching nothing, so it never reaches
+# the owner scope. Verified 2026-09-04 by deleting ->where('user_id') from
+# ResolvesOwnedItem::ownedItemOr404() — the shared seam behind these routes:
+# under `unknown` the lane stayed 31/31 GREEN; under the strong form below it
+# fails DELETE api/content/items/{item}. Identity B's real Item is already
+# seeded, so the strong form costs nothing. Do not weaken these back.
 - route: "api/content/pools/{pool}"
   fixture: { pool: unknown }
 - route: "api/content/pools/{pool}/selection/{item}"
-  fixture: { pool: unknown, item: unknown }
+  fixture: { pool: unknown, item: "App\\Models\\Content\\Item" }
 - route: "PUT api/content/pools/{pool}/order"
   body: { itemIds: [] }
   fixture: { pool: unknown }
@@ -99,9 +107,9 @@
   body: { url: "https://example.com/x" }
   fixture: { pool: unknown }
 - route: "api/content/items/{item}"
-  fixture: { item: unknown }
+  fixture: { item: "App\\Models\\Content\\Item" }
 - route: "api/content/items/{item}/links/{platform}"
-  fixture: { item: unknown, platform: unknown }
+  fixture: { item: "App\\Models\\Content\\Item", platform: unknown }
 # Owner identity decisions (task #18, 228833cf9). `string $itemId`, not an
 # `Item $item` binding, so reflection has nothing to read. STRONG form: identity
 # B owns a real content.items row, so this substitutes a genuine foreign id
@@ -256,7 +264,7 @@
 - route: "api/platforms/menu/items/{item}"
   expect: 403
   reason: "Food-business capability gate returns 403 before the row is consulted (MenuContentController); a role restriction, not an existence leak."
-  fixture: { item: unknown }
+  fixture: { item: "App\\Models\\Content\\Item" }
 
 # ── WRITE ROUTES — minimal bodies, so validation cannot pre-empt authorization ─
 # A PATCH/PUT/POST whose FormRequest rejects an empty body answers 422 before
@@ -270,13 +278,13 @@
 # who the path segment belongs to.
 - route: "PUT api/site/sections/{section}/items/{item}"
   body: { state: excluded }                      # UpsertSectionItemRequest: state required|in:pinned,excluded
-  fixture: { section: "App\\Models\\Core\\Site\\Section", item: unknown }
+  fixture: { section: "App\\Models\\Core\\Site\\Section", item: "App\\Models\\Content\\Item" }
 # `value` is `present`, not `required` — an explicit null is the user clearing
 # the field — so the key must appear even though it is null. (facet, column)
 # must be a real FacetRegistry pair or the closure rule fails it.
 - route: "PUT api/content/items/{item}/overrides"
   body: { facet: f_text, column: headline, value: null }
-  fixture: { item: unknown }
+  fixture: { item: "App\\Models\\Content\\Item" }
 # category_ids REPLACES the membership set, and the request's after() hook only
 # demands that one of the two keys be PRESENT. An empty list satisfies it
 # without naming any category — least of all one of identity B's.
@@ -302,7 +310,7 @@
 - route: "api/platforms/menu/categories/{category}"
   fixture: { category: unknown }
 - route: "api/site/sections/{section}/items/{item}"
-  fixture: { section: "App\\Models\\Core\\Site\\Section", item: unknown }
+  fixture: { section: "App\\Models\\Core\\Site\\Section", item: "App\\Models\\Content\\Item" }
 
 # ── Services — the 3a content.* cutover changed these signatures ─────────────
 # show/update/destroy/restore take `string $service`, not `Service $service`:
