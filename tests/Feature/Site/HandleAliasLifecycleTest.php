@@ -3,7 +3,6 @@
 use App\Console\Commands\PruneExpiredHandleAliases;
 use App\Jobs\Cloudflare\SyncSubdomainToKvJob;
 use App\Models\Core\Site\SiteSubdomainAlias;
-use App\Services\Cache\SiteCacheService;
 use App\Services\Cloudflare\CloudflareKvService;
 use App\Services\PublicSite\PublicSiteResolver;
 use Illuminate\Support\Carbon;
@@ -111,82 +110,18 @@ it('does not resolve an active alias whose canonical site is unpublished', funct
     expect($result['alias_hit'])->toBeFalse();
 });
 
-it('returns 301 to canonical subdomain when showByHeader endpoint is hit via an active alias', function () {
-    setupSitesTable();
-    setupSubdomainAliasesTable();
-
-    $siteId = (string) Str::uuid();
-    $now = now()->toDateTimeString();
-
-    DB::connection('pgsql')->table('site.sites')->insert([
-        'id' => $siteId,
-        // site.sites.user_id is NOT NULL in prod — the alias path never reads the user.
-        'user_id' => (string) Str::uuid(),
-        'subdomain' => 'newhandle',
-        'is_published' => 1,
-        'settings' => json_encode([]),
-        'created_at' => $now,
-        'updated_at' => $now,
-    ]);
-
-    SiteSubdomainAlias::create([
-        'site_id' => $siteId,
-        'subdomain' => 'oldhandle',
-        'reclaim_until' => now()->addDays(5),
-        'expires_at' => now()->addDays(60),
-        'created_at' => now(),
-    ]);
-
-    // Stub the site cache so it always returns a miss — the controller falls through to alias lookup.
-    $mockCache = Mockery::mock(SiteCacheService::class);
-    $mockCache->shouldReceive('getPublicSitePayload')->andReturn(null);
-    app()->instance(SiteCacheService::class, $mockCache);
-
-    $response = $this->withHeaders(['X-Site-Subdomain' => 'oldhandle'])
-        ->get('/api/public/site-by-slug');
-
-    $response->assertStatus(301)
-        // EDGE-1/PGR-17: CFG-3's 5-minute re-check window is now a hardcoded
-        // no-cache directive — see the matching comment in show()'s test file.
-        ->assertHeader('Cache-Control', 'max-age=0, must-revalidate, private');
-});
-
-it('PGR-17: the showByHeader() alias 301 is never cached', function () {
-    setupSitesTable();
-    setupSubdomainAliasesTable();
-
-    $siteId = (string) Str::uuid();
-    $now = now()->toDateTimeString();
-
-    DB::connection('pgsql')->table('site.sites')->insert([
-        'id' => $siteId,
-        // site.sites.user_id is NOT NULL in prod — the alias path never reads the user.
-        'user_id' => (string) Str::uuid(),
-        'subdomain' => 'newhandle2',
-        'is_published' => 1,
-        'settings' => json_encode([]),
-        'created_at' => $now,
-        'updated_at' => $now,
-    ]);
-
-    SiteSubdomainAlias::create([
-        'site_id' => $siteId,
-        'subdomain' => 'oldhandle2',
-        'reclaim_until' => now()->addDays(5),
-        'expires_at' => now()->addDays(60),
-        'created_at' => now(),
-    ]);
-
-    $mockCache = Mockery::mock(SiteCacheService::class);
-    $mockCache->shouldReceive('getPublicSitePayload')->andReturn(null);
-    app()->instance(SiteCacheService::class, $mockCache);
-
-    $response = $this->withHeaders(['X-Site-Subdomain' => 'oldhandle2'])
-        ->get('/api/public/site-by-slug');
-
-    $response->assertStatus(301)
-        ->assertHeader('Cache-Control', 'max-age=0, must-revalidate, private');
-});
+// The two showByHeader() 301 tests that stood here (`returns 301 to canonical
+// subdomain when showByHeader endpoint is hit via an active alias` and
+// `PGR-17: the showByHeader() alias 301 is never cached`) were removed
+// 2026-09-04 alongside the retirement of GET /api/public/site-by-slug
+// (App\Http\Controllers\Api\PublicSite\PublicSiteController::showByHeader()).
+// The alias 301 itself is NOT lost — it is EDGE behaviour: the Cloudflare
+// Worker reads SUBDOMAIN_KV, and a {type:"alias"} entry produces the redirect,
+// driven by SyncSubdomainToKvJob. The backend showByHeader() 301 was a second
+// implementation of the same redirect, reachable only through the now-gone,
+// callerless legacy route. The test below ("writes alias KV entries with
+// expirationTtl and a type=alias marker") covers the real, surviving
+// mechanism.
 
 it('writes alias KV entries with expirationTtl and a type=alias marker', function () {
     setupUsersTable();

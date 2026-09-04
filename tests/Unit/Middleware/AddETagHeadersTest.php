@@ -6,7 +6,7 @@ use Illuminate\Http\Response;
 
 // Helpers ----------------------------------------------------------------
 
-function etagRequest(string $path = 'api/public/site-by-slug/foo', string $method = 'GET', ?string $ifNoneMatch = null): Request
+function etagRequest(string $path = 'api/public/profiles/foo', string $method = 'GET', ?string $ifNoneMatch = null): Request
 {
     $request = Request::create('/'.$path, $method);
     if ($ifNoneMatch !== null) {
@@ -35,7 +35,7 @@ it('sets an ETag header on a cacheable public GET response', function () {
 
 it('produces a stable ETag regardless of JSON key insertion order', function () {
     $middleware = new AddETagHeaders;
-    $path = 'api/public/site-by-slug/foo';
+    $path = 'api/public/profiles/foo';
 
     $responseA = jsonResponse(['a' => 1, 'b' => 2, 'c' => 3]);
     $responseB = jsonResponse(['c' => 3, 'a' => 1, 'b' => 2]);
@@ -57,7 +57,7 @@ it('returns 304 when If-None-Match matches the computed ETag', function () {
     $etag = $first->headers->get('ETag');
 
     // Second request: send ETag back.
-    $second = $middleware->handle(etagRequest('api/public/site-by-slug/foo', 'GET', $etag), fn ($req) => jsonResponse($payload));
+    $second = $middleware->handle(etagRequest('api/public/profiles/foo', 'GET', $etag), fn ($req) => jsonResponse($payload));
 
     expect($second->getStatusCode())->toBe(304);
     expect($second->getContent())->toBe('');
@@ -72,13 +72,13 @@ it('returns 304 when If-None-Match uses weak validator format (W/"hash")', funct
     $rawHash = trim((string) $first->headers->get('ETag'), '"');
 
     $weakHeader = 'W/"'.$rawHash.'"';
-    $second = $middleware->handle(etagRequest('api/public/site-by-slug/foo', 'GET', $weakHeader), fn ($req) => jsonResponse($payload));
+    $second = $middleware->handle(etagRequest('api/public/profiles/foo', 'GET', $weakHeader), fn ($req) => jsonResponse($payload));
 
     expect($second->getStatusCode())->toBe(304);
 });
 
 it('returns 200 when If-None-Match does not match', function () {
-    $request = etagRequest('api/public/site-by-slug/foo', 'GET', '"stalehashabcdef1234567890abcdef"');
+    $request = etagRequest('api/public/profiles/foo', 'GET', '"stalehashabcdef1234567890abcdef"');
     $response = jsonResponse(['changed' => true]);
 
     $result = (new AddETagHeaders)->handle($request, fn ($req) => $response);
@@ -89,7 +89,7 @@ it('returns 200 when If-None-Match does not match', function () {
 // Scope guards -----------------------------------------------------------
 
 it('does not set ETag on POST requests', function () {
-    $request = Request::create('/api/public/site-by-slug/foo', 'POST');
+    $request = Request::create('/api/public/profiles/foo', 'POST');
     $response = jsonResponse(['ok' => true]);
 
     $result = (new AddETagHeaders)->handle($request, fn ($req) => $response);
@@ -129,7 +129,7 @@ it('does not set ETag on non-2xx responses', function () {
 it('sets ETag on all cacheable path prefixes', function () {
     $middleware = new AddETagHeaders;
     $paths = [
-        'api/public/site-by-slug/test',
+        'api/public/profiles/test',
 
     ];
 

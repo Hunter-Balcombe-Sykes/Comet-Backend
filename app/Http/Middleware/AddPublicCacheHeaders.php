@@ -6,7 +6,7 @@ use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
-// V2: Cache-Control headers — public GET endpoints get 15min cache; authenticated requests get no-store. Vary tokens are prefix-specific (see VARY_BY_PREFIX).
+// V2: Cache-Control headers — public GET endpoints get 15min cache; authenticated requests get no-store. Vary tokens are per-prefix where a route needs one beyond DEFAULT_VARY (see VARY_BY_PREFIX).
 class AddPublicCacheHeaders
 {
     /**
@@ -15,7 +15,6 @@ class AddPublicCacheHeaders
      * This is an allowlist — add new public-cacheable paths explicitly.
      */
     public const CACHEABLE_PATH_PREFIXES = [
-        'api/public/site-by-slug',
         // API-4: highest-traffic CDN-critical route — the Astro Worker's SSR
         // subrequest target (see CloudflarePurgeService::purgeHandle docblock).
         // Covers /profiles/{handle}, /integrations, /platforms, /menu.
@@ -32,22 +31,31 @@ class AddPublicCacheHeaders
     ];
 
     /**
-     * Per-prefix Vary tokens. Only site-by-slug resolves the tenant from a
-     * client-supplied header, so only it must vary on X-Site-Subdomain;
-     * profile routes key on the {handle} path segment (which a cache already
-     * keys on natively via the URL), so they only need Accept-Encoding.
-     * Any cacheable prefix not listed here falls back to DEFAULT_VARY.
+     * Per-prefix Vary tokens, keyed by CACHEABLE_PATH_PREFIXES entry. Any
+     * cacheable prefix not listed here falls back to DEFAULT_VARY.
+     *
+     * Empty since 2026-09-04: the one prefix that needed a token beyond
+     * DEFAULT_VARY was /public/site-by-slug, which resolved its tenant from a
+     * client-supplied X-Site-Subdomain header rather than the URL — retired
+     * that day for having no caller (see LegacyPayloadRouteRetiredTest).
+     * api/public/profiles, the sole survivor, keys on the {handle} path
+     * segment, which a cache already keys on natively via the URL, so
+     * DEFAULT_VARY (Accept-Encoding) is already correct for it — no entry
+     * needed here, no behaviour change from emptying this map.
+     *
+     * SEC-1 — KEEP THIS MECHANISM, do not delete the map or its lookup even
+     * though it is empty. There IS a shared cache in front of these routes
+     * and it does key on Vary — Laravel Cloud's own Cloudflare honours the
+     * s-maxage set below. Measured 2026-08-09: only ~8% of /api/public/profiles
+     * requests reach the origin, against ~100% for /api/health
+     * (scripts/launch-check/k6/results/2026-08-09-full-rerun.md). The next
+     * public route that resolves its tenant from a header instead of the URL
+     * (site-by-slug's exact shape) MUST add an entry here for its header
+     * token, or it silently inherits DEFAULT_VARY and one tenant's cached
+     * response can be served to another — that was the live bug this rail
+     * closes, not a hypothetical one.
      */
-    private const VARY_BY_PREFIX = [
-        // SEC-1: there IS a shared cache in front of these routes and it does key
-        // on Vary — Laravel Cloud's own Cloudflare honours the s-maxage set below.
-        // Measured 2026-08-09: only ~8% of /api/public/profiles requests reach the
-        // origin, against ~100% for /api/health (scripts/launch-check/k6/results/
-        // 2026-08-09-full-rerun.md). So this token is load-bearing, not defensive:
-        // site-by-slug resolves its tenant from a client-supplied header, and
-        // without it one tenant's response could be served to another.
-        'api/public/site-by-slug' => ['X-Site-Subdomain', 'Accept-Encoding'],
-    ];
+    private const VARY_BY_PREFIX = [];
 
     private const DEFAULT_VARY = ['Accept-Encoding'];
 

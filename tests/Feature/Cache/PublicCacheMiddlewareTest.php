@@ -2,11 +2,9 @@
 
 /** @phpstan-ignore-all */
 
-use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Str;
 
 beforeEach(function () {
     Cache::flush();
@@ -18,39 +16,10 @@ beforeEach(function () {
  * wire-up in bootstrap/app.php is exercised.
  *
  * To avoid touching the real pgsql database (BaseModel::$connection = 'pgsql'),
- * we pre-warm the SiteCacheService cache before making the HTTP request. The
- * service checks the cache first and returns early without ever querying the DB.
+ * profile-route tests mock CacheLockService/IndividualProfilePayloadBuilder via
+ * bindPublicProfileCache() below so the controller returns a 200 without ever
+ * querying the DB.
  */
-it('public site-by-slug route returns Cache-Control: public with CDN TTL when response is 200', function () {
-    $subdomain = 'test-cache-'.Str::random(6);
-    prewarmSiteCache($subdomain);
-
-    $response = $this
-        ->withHeader('X-Site-Subdomain', $subdomain)
-        ->getJson('/api/public/site-by-slug');
-
-    $response->assertOk();
-
-    $cacheControl = (string) $response->headers->get('Cache-Control', '');
-    expect($cacheControl)->toContain('public');
-    expect($cacheControl)->toContain('max-age=900');
-    expect($cacheControl)->toContain('s-maxage=900');
-});
-
-it('public site-by-slug route includes Vary: X-Site-Subdomain in response headers', function () {
-    $subdomain = 'test-vary-'.Str::random(6);
-    prewarmSiteCache($subdomain);
-
-    $response = $this
-        ->withHeader('X-Site-Subdomain', $subdomain)
-        ->getJson('/api/public/site-by-slug');
-
-    $response->assertOk();
-
-    $vary = (string) $response->headers->get('Vary', '');
-    expect($vary)->toContain('X-Site-Subdomain');
-});
-
 it('unsubscribe route returns Cache-Control: no-store regardless of response code', function () {
     // The middleware must set no-store before the route handler resolves,
     // so even a 404 (no token found) must carry the no-store header.
@@ -62,9 +31,14 @@ it('unsubscribe route returns Cache-Control: no-store regardless of response cod
 });
 
 it('authenticated API routes do not receive public cache headers', function () {
+    bindPublicProfileCache([
+        ['pro_id' => 'p1', 'site_id' => 's1', 'updated_at_ts' => 123],
+        ['profile' => ['handle' => 'jane']],
+    ]);
+
     $response = $this
         ->withHeader('Authorization', 'Bearer fake-token')
-        ->getJson('/api/public/site-by-slug');
+        ->getJson('/api/public/profiles/jane');
 
     $cacheControl = (string) $response->headers->get('Cache-Control', '');
     expect($cacheControl)->toContain('no-store');
@@ -73,8 +47,9 @@ it('authenticated API routes do not receive public cache headers', function () {
 
 /**
  * API-4: the individual public profile route (the Astro Worker's SSR
- * subrequest target) is now allow-listed for public caching alongside
- * site-by-slug. Confirm it gets both Cache-Control and ETag.
+ * subrequest target) is the sole allow-listed public-cacheable route since
+ * the header-tenanted /public/site-by-slug lane was retired 2026-09-04.
+ * Confirm it gets both Cache-Control and ETag.
  */
 it('public profiles route returns Cache-Control: public with CDN TTL and an ETag when response is 200', function () {
     bindPublicProfileCache([
@@ -94,10 +69,15 @@ it('public profiles route returns Cache-Control: public with CDN TTL and an ETag
 });
 
 /**
- * API-4 sub-fix / SEC-1: Vary is now prefix-specific. Profile routes resolve
- * the tenant from the {handle} path segment, not a header, so they must NOT
- * carry Vary: X-Site-Subdomain — only site-by-slug does (see the regression
- * guard test below).
+ * SEC-1 (retained rail, not currently exercised by a second tenant): Vary is
+ * prefix-specific so a future public route that resolves its tenant from a
+ * client-supplied header does not silently inherit DEFAULT_VARY and leak one
+ * tenant's cached response to another — see VARY_BY_PREFIX's docblock in
+ * AddPublicCacheHeaders. Profile routes resolve the tenant from the {handle}
+ * path segment, not a header, so they must NOT carry Vary: X-Site-Subdomain.
+ * (Before 2026-09-04 this was also a live regression guard for
+ * /public/site-by-slug, which DID resolve its tenant from that header; that
+ * route is retired and the guard went with it.)
  */
 it('public profiles route Vary includes Accept-Encoding but not X-Site-Subdomain', function () {
     bindPublicProfileCache([
@@ -115,30 +95,15 @@ it('public profiles route Vary includes Accept-Encoding but not X-Site-Subdomain
 });
 
 /**
- * Regression guard for the per-prefix Vary refactor: site-by-slug must keep
- * varying on X-Site-Subdomain even though profiles routes no longer do.
- */
-it('public site-by-slug route still varies on X-Site-Subdomain after the per-prefix Vary refactor', function () {
-    $subdomain = 'test-vary-regress-'.Str::random(6);
-    prewarmSiteCache($subdomain);
-
-    $response = $this
-        ->withHeader('X-Site-Subdomain', $subdomain)
-        ->getJson('/api/public/site-by-slug');
-
-    $response->assertOk();
-
-    $vary = (string) $response->headers->get('Vary', '');
-    expect($vary)->toContain('X-Site-Subdomain');
-});
-
-/**
  * The ordering guard. AddETagHeaders is appended to the `api` group AFTER
  * AddPublicCacheHeaders, so it unwinds first and converts the response to 304
  * before AddPublicCacheHeaders runs — which is the entire cause of the defect.
  * A unit test on the middleware alone cannot catch a regression of it, because
  * in isolation the middleware was always correct. This fails if the pipeline is
- * reordered back.
+ * reordered back. This is also the surviving coverage that a 304 does not drop
+ * Vary (see the retired site-by-slug SEC-1 guard note above): line below
+ * confirms Vary: Accept-Encoding survives the 304 for the one live cacheable
+ * route.
  */
 it('a conditional GET on the profile route returns 304 still carrying the public cache contract', function () {
     $resolve = ['pro_id' => 'p1', 'site_id' => 's1', 'updated_at_ts' => 123];
@@ -167,109 +132,24 @@ it('a conditional GET on the profile route returns 304 still carrying the public
     expect((string) $second->headers->get('Vary', ''))->toContain('Accept-Encoding');
 });
 
-/**
- * SEC-1, and the reason this fix is not merely a performance change. site-by-slug
- * resolves its tenant from the client-supplied X-Site-Subdomain header, so that
- * Vary token is the cache key that keeps tenants apart. Before the 304 fix the
- * revalidation response dropped it (observed on dev as `vary: Origin` alone), and
- * a shared cache is permitted to update a stored entry's headers from a 304 — so
- * the key could be lost on an entry that stays served. Pin it.
- */
-it('a conditional GET on site-by-slug returns 304 still carrying Vary: X-Site-Subdomain', function () {
-    $subdomain = 'test-304-vary-'.Str::random(6);
-    prewarmSiteCache($subdomain);
-
-    $first = $this
-        ->withHeader('X-Site-Subdomain', $subdomain)
-        ->getJson('/api/public/site-by-slug');
-    $first->assertOk();
-
-    $etag = (string) $first->headers->get('ETag', '');
-    expect($etag)->not->toBe('');
-
-    $second = $this
-        ->withHeader('X-Site-Subdomain', $subdomain)
-        ->withHeader('If-None-Match', $etag)
-        ->getJson('/api/public/site-by-slug');
-
-    $second->assertStatus(304);
-    expect((string) $second->headers->get('Vary', ''))->toContain('X-Site-Subdomain');
-});
-
-/**
- * The same ordering hazard as the 304 guard above, now for stale-while-revalidate.
- * AddETagHeaders unwinds first and converts the response to 304 before
- * AddPublicCacheHeaders runs, so a directive emitted only on 200s is silently
- * dropped on every revalidation — and RFC 9111 lets a shared cache update the
- * stored entry's headers from a 304, so that dropped directive un-does itself for
- * the whole stored entry. A unit test cannot catch this: in isolation the
- * middleware is correct, and the ordering only exists in the real pipeline.
- */
-it('carries stale-while-revalidate on a 304 revalidation, not just the 200', function () {
-    config(['partna.cache.public_max_age' => 30, 'partna.cache.public_swr' => 60]);
-
-    $subdomain = 'test-swr-304-'.Str::random(6);
-    prewarmSiteCache($subdomain);
-
-    // First request establishes the validator.
-    $first = $this
-        ->withHeader('X-Site-Subdomain', $subdomain)
-        ->getJson('/api/public/site-by-slug');
-    $first->assertOk();
-    expect((string) $first->headers->get('Cache-Control', ''))
-        ->toContain('stale-while-revalidate=60');
-
-    $etag = (string) $first->headers->get('ETag', '');
-    expect($etag)->not->toBe('');
-
-    $second = $this
-        ->withHeader('X-Site-Subdomain', $subdomain)
-        ->withHeader('If-None-Match', $etag)
-        ->getJson('/api/public/site-by-slug');
-
-    $second->assertStatus(304);
-
-    $cacheControl = (string) $second->headers->get('Cache-Control', '');
-    expect($cacheControl)->toContain('stale-while-revalidate=60')
-        ->toContain('s-maxage=30')
-        ->toContain('public');
-});
+// The stale-while-revalidate-on-a-304 test that stood here ("carries
+// stale-while-revalidate on a 304 revalidation, not just the 200") exercised
+// /public/site-by-slug, retired 2026-09-04. It cannot be repointed at
+// api/public/profiles instead: AddPublicCacheHeaders::handle() hardcodes
+// $swr = 0 for the 'api/public/profiles' prefix unconditionally (it never
+// reads config('partna.cache.public_swr') for that prefix — see the
+// `if ($prefix === 'api/public/profiles')` branch), and CACHEABLE_PATH_PREFIXES
+// now has no other entry. So no live route can currently ever emit
+// stale-while-revalidate, and there is nothing left for this test to assert
+// against without inventing a route the app doesn't have. The ordering-hazard
+// mechanism this guarded (a directive emitted only on 200s being silently
+// dropped on a 304) is unchanged and would still apply the day a future
+// cacheable prefix is added with swr > 0 — this comment is the flag that its
+// test coverage needs to be re-added at that time.
 
 // ---------------------------------------------------------------------------
 // Helper
 // ---------------------------------------------------------------------------
-
-/**
- * Pre-populate the SiteCacheService cache so the controller returns a 200
- * without touching the pgsql database.
- */
-function prewarmSiteCache(string $subdomain): void
-{
-    $key = CacheKeyGenerator::publicSitePayload($subdomain);
-
-    Cache::put($key, [
-        'published' => true,
-        'site' => [
-            'id' => (string) Str::uuid(),
-            'subdomain' => $subdomain,
-            'is_published' => true,
-            'settings' => [],
-            'gallery' => [],
-            'content_images' => [],
-        ],
-        'professional' => [
-            'id' => (string) Str::uuid(),
-            'handle' => $subdomain,
-            'display_name' => 'Test Pro',
-        ],
-        'services' => [],
-        'links' => [],
-        'sections' => [],
-        'blocks' => [],
-        'legal' => null,
-        'store' => null,
-    ], now()->addMinutes(15));
-}
 
 /**
  * Bind a mocked CacheLockService whose rememberLocked() returns the given
