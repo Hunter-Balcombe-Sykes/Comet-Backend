@@ -5070,10 +5070,21 @@ git commit -m "feat(billing): warn then purge accounts disabled by non-payment f
 
 ---
 
-# Owner input required before stage 3 ships
+# Owner input — a GO-LIVE step, not a blocker on any stage
 
-These are `§17` open items. They are config values, not structure — nothing in
-this plan waits on them except the ability to charge a real amount.
+These are `§17` open items. They are config values, not structure, and **no
+stage of this plan waits on them.** Superseded in ordering by
+`2026-09-03-stripe-subscriptions-EXECUTE.md`: the executor holds test-mode keys
+in a local `.env` only, sets nothing on dev or prod, and writes these up as
+`docs/deploy/stripe-go-live.md` — the runbook that turns each switch on, in
+order. The list below is that document's table of contents, not a checklist to
+work through during implementation.
+
+**Two flags gate everything here**, both shipping `false`:
+`PARTNA_BILLING_PROVISIONING_ENABLED` (does anyone's clock start?) and
+`PARTNA_BILLING_ENFORCEMENT_ENABLED` (do lapses have consequences?). Under them,
+test-mode keys and `missing_payment_method: 'cancel'` mean no card equals no
+charge even with both flags on.
 
 - [ ] **Price amounts** for `partna` and `business`, AUD monthly
 - [ ] **Stripe account setup** — create the two products and their AUD monthly prices in **test mode**, then **live mode**, and record all four price ids
