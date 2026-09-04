@@ -25,7 +25,7 @@ function restyleSite(string $handle): object
     DB::table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => (string) $pro->site->id,
-        'pool' => SiteMedia::POOL_DESIGN,
+        'usage' => SiteMedia::USAGE_DESIGN,
         'purpose' => SiteMedia::PURPOSE_LOGO_FULL,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,
         'palette' => json_encode(['dominant' => '#e0491f', 'colors' => ['#e0491f'], 'warm' => false]),
@@ -58,7 +58,7 @@ it('gives honest empty-state copy for a neutral wordmark', function () {
     DB::table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => (string) $pro->site->id,
-        'pool' => SiteMedia::POOL_DESIGN,
+        'usage' => SiteMedia::USAGE_DESIGN,
         'purpose' => SiteMedia::PURPOSE_LOGO_FULL,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,
         'palette' => json_encode(['dominant' => '#0a0a0a', 'colors' => ['#0a0a0a'], 'warm' => false]),

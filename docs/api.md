@@ -474,13 +474,13 @@ finding `SIGNUP-3` for the decision record.
 
 ### SiteImage (core.site_images)
 
-All images (gallery showcase and content/branding) live in the `site_images` table, organised into **pools**. The frontend assigns purpose by choosing from the variants map (`optimized` or `maximized`) for each image.
+All owner uploads live in the `site.site_media` table, classified by **usage** (`content` / `design` / `documents` — not a content.* pool; see “Upload usages”). The frontend assigns purpose by choosing from the variants map (`optimized` or `maximized`) for each image.
 
 | Name       | Type     | Nullable | Example                                        | Constraints / Notes                                              |
 |------------|----------|----------|-------------------------------------------------|------------------------------------------------------------------|
 | id         | uuid     | no       | `f7a2...`                                       | Primary key                                                      |
 | site_id    | uuid     | no       | `b8e7...`                                       | FK → sites.id                                                    |
-| pool       | string   | no       | `gallery`                                       | `gallery` or `content`                                           |
+| usage      | string   | yes      | —                                               | `content` (legacy alias: `pool`)                                 |
 | path       | string   | no       | `images/<proId>/<imageId>/original_abc123.jpg`  | Path to original file on the media disk                          |
 | alt_text   | string   | yes      | `Fade haircut example`                          | Max 255                                                          |
 | sort_order | integer  | no       | `0`                                             | Non-negative; used for gallery ordering                          |
@@ -1084,7 +1084,7 @@ HTTP 423 Locked
 - Request body (all fields optional; if provided they are validated): `{ "display_name": "Josh Barber", "bio": "Mobile barber", "public_contact_email": "bookings@example.com" }`
 - Response (200): `{ "professional": { ... } }`
 - Common status codes: 200, 401, 403, 422
-- Images are managed via `POST /api/uploads` (pool=gallery or pool=content). No image fields are accepted on this endpoint.
+- Images are managed via `POST /api/uploads` (`usage=content`). No image fields are accepted on this endpoint.
 
 ### `GET /api/site`
 
@@ -1097,7 +1097,7 @@ HTTP 423 Locked
 - Request body: `{ "subdomain": "joshbarber", "design_kit": { "theme_mode": "dust", "color_accent": "#000000" }, "settings": { "primary_color": "#000000" } }`
 - Response (200): `{ "site": { ... } }`
 - Common status codes: 200, 401, 403, 422
-- Banners are managed via `POST /api/uploads` (pool=content) and the frontend picks from `optimized` / `maximized`. No banner fields are accepted on this endpoint.
+- Banners are managed via `POST /api/uploads` (`usage=content`) and the frontend picks from `optimized` / `maximized`. No banner fields are accepted on this endpoint.
 - Ordering settings (unified actions, 2026-08-23): `settings.smart_page_order` (bool, default true), `settings.manual_page_order` (list of taxonomy page-ids, distinct, ≤16), `settings.actions` = `{ "mode": "newest|smart|manual", "slots": [ { "position": 0..9, "id": "<kind>:<ref>" } ] }` (≤10 slots, positions and ids distinct; in `smart`/`newest` the slots are LOCKS and may be sparse, in `manual` they ARE the list and must be contiguous from 0; id grammar `^(page|platform|item|category):[A-Za-z0-9_.:/-]{1,160}$`, existence not checked at write time), `settings.pool_order` = `{ "<pool>": "newest|smart|manual" }` over `watch, listen, media, services, shop, custom_links, menus` (`events`/`reviews` 422; absent = newest), `settings.pool_locks` = `{ "<pool>": [ { "position": int, "id": "<item uuid>" } ] }` (same pool keys, ≤50 per pool, ids distinct, positions distinct except on `menus`/`services` where a position is the index within the item's category; applied in `newest`/`smart` only — a locked item holds its position while the mode fills the rest, unknown ids skipped). `actions`, `pool_order` and `pool_locks` REPLACE atomically on write. The retired keys `smart_actions` / `manual_actions` / `manual_order_pools` are stripped silently. The public payload's `pageOrder` / `actions` / pool item order apply these server-side.
 
 ### `GET /api/site/actions`
@@ -1585,8 +1585,8 @@ Images and videos are uploaded through the Partna API and processed entirely ser
 
 ### Architecture
 
-1. Frontend sends `POST /api/uploads` with `pool` and either `image` or `video` as `multipart/form-data`.
-2. The server validates the file, stores the original on the **media disk** (Laravel Cloud Object Storage / Cloudflare R2), creates a `site_images` row with `processing_state = pending`.
+1. Frontend sends `POST /api/uploads` with `usage` and either `image` or `video` as `multipart/form-data`.
+2. The server validates the file, stores the original on the **media disk** (Laravel Cloud Object Storage / Cloudflare R2), creates a `site.site_media` row with `processing_state = pending`.
 3. Processing runs on the appropriate worker queue (images → `images` queue, videos → `videos` queue on dedicated `redis_video` connection).
 4. Frontend polls `GET /api/images?media_type=video&ids[]=<id>` until `processing_state` is `ready` or `failed`.
 
@@ -1599,14 +1599,36 @@ Images and videos are uploaded through the Partna API and processed entirely ser
 
 Both queues fall back to sync inline processing in `local` and `testing` environments (no worker needed for dev).
 
-### Media pools
+### Upload usages
 
-Each professional has two pools:
+**`usage` is NOT a content pool.** A `site.site_media` row's `usage` says what the
+uploaded file is FOR. The `content.*` pools (`media`, `shop`, `events`, …) are the
+public page sections, served at `data.profile.pools.*`, and have no relationship to
+this field. The column was called `pool` until 2026-09-04 — that collision is exactly
+why it was renamed (migration `20260904235904`).
 
-- **gallery** — portfolio / showcase media (max configurable, default 5 items total)
-- **content** — general-purpose branding media (max configurable, default 5 items total)
+| usage | Who writes it | Cap | Notes |
+|-------|---------------|-----|-------|
+| `content` | `POST /api/uploads` (the only value it accepts) | `partna.upload_limits.content.max`, default 20 | Owner photos. Bridged into the **media pool** via `content.media_assets.site_media_id`, so these are the uploads that can be published as cards. |
+| `design` | dedicated design-media endpoints | one row per `purpose` | Logo / favicon / headshot / placeholder. Never published as a card. |
+| `documents` | dedicated document endpoints | 1 | The single downloadable file per site. |
 
-Images and videos share the same per-pool cap.
+`gallery` was retired 2026-09-01 and is rejected on write. Images and videos share
+the same per-usage cap.
+
+#### Wire compatibility (`pool` → `usage`)
+
+For one deploy window the API speaks **both** spellings, so the dashboard can migrate
+independently:
+
+- **Requests** — `POST /api/uploads`, `POST /api/images/reorder` and `GET /api/images`
+  accept either `usage` or `pool`. When both are sent, `usage` wins.
+- **Responses** — `SiteMediaResource` emits `usage` **and** a `pool` alias with the
+  same value.
+
+New clients should send and read `usage`. The `pool` alias is removed once the
+dashboard ships its side (`App\Http\Requests\Concerns\AcceptsLegacyPoolField` and
+one line in `SiteMediaResource` are the whole shim).
 
 ### Image processing
 
@@ -1626,20 +1648,20 @@ Images and videos share the same per-pool cap.
 
 ### Frontend upload flow (image)
 
-1. `POST /api/uploads` with `pool=gallery`, `image=<file>`, optional `alt_text`.
-2. If `processing_state = pending/processing` → poll `GET /api/images?pool=gallery` until `ready`. If already `ready` → variants in upload response.
+1. `POST /api/uploads` with `usage=content`, `image=<file>`, optional `alt_text`.
+2. If `processing_state = pending/processing` → poll `GET /api/images?usage=content` until `ready`. If already `ready` → variants in upload response.
 3. Use `variants.optimized` for normal display, `variants.maximized` for high-detail/zoom.
 4. Delete: `DELETE /api/images/{image}`.
-5. Reorder: `POST /api/images/reorder` with `{ "pool": "gallery", "media_type": "image", "ids": [...] }`.
+5. Reorder: `POST /api/images/reorder` with `{ "usage": "content", "media_type": "image", "ids": [...] }`.
 
 ### Frontend upload flow (video)
 
-1. `POST /api/uploads` with `pool=gallery`, `video=<file>`, optional `alt_text`.
+1. `POST /api/uploads` with `usage=content`, `video=<file>`, optional `alt_text`.
 2. Response always has `processing_state = pending` (video is always async).
 3. Poll `GET /api/images?media_type=video&ids[]=<id>` until `processing_state = ready` or `failed`.
 4. On `ready`: render using `streams.adaptive` (best for ABR), fall back to `variants.optimized`. Use `poster` for preview/placeholder.
 5. Delete: `DELETE /api/images/{image}` (storage cleanup is async for video).
-6. Reorder: `POST /api/images/reorder` with `{ "pool": "gallery", "media_type": "video", "ids": [...] }`.
+6. Reorder: `POST /api/images/reorder` with `{ "usage": "content", "media_type": "video", "ids": [...] }`.
 
 ### Supported file types
 

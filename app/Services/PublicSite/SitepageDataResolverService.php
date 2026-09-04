@@ -691,7 +691,7 @@ class SitepageDataResolverService
         return $this->safeQuery(
             fn () => SiteMedia::query()
                 ->where('site_id', $site->id)
-                ->where('pool', SiteMedia::POOL_CONTENT)
+                ->where('usage', SiteMedia::USAGE_CONTENT)
                 ->where('is_active', true)
                 ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
                 ->with('mediaVariants')
@@ -736,7 +736,7 @@ class SitepageDataResolverService
         return $this->safeQuery(
             fn () => SiteMedia::query()
                 ->where('site_id', $site->id)
-                ->where('pool', SiteMedia::POOL_DESIGN)
+                ->where('usage', SiteMedia::USAGE_DESIGN)
                 ->whereIn('purpose', SiteMedia::designSingletonPurposes())
                 ->where('is_active', true)
                 ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
@@ -971,7 +971,7 @@ class SitepageDataResolverService
             ? $this->safeQuery(
                 fn () => SiteMedia::query()
                     ->where('site_id', $site->id)
-                    ->where('pool', SiteMedia::POOL_DOCUMENTS)
+                    ->where('usage', SiteMedia::USAGE_DOCUMENTS)
                     ->where('is_active', true)
                     ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
                     ->orderByDesc('created_at')

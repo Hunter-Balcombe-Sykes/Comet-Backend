@@ -91,7 +91,7 @@ class LogoAutoGrabber
 
         $occupied = SiteMedia::query()
             ->where('site_id', $site->id)
-            ->where('pool', SiteMedia::POOL_DESIGN)
+            ->where('usage', SiteMedia::USAGE_DESIGN)
             ->whereIn('purpose', [SiteMedia::PURPOSE_LOGO_FULL, SiteMedia::PURPOSE_LOGO_SQUARE])
             ->where('is_active', true)
             // A FAILED row never finished processing — treat its slot as empty so a

@@ -27,7 +27,7 @@ use Throwable;
  *
  * The controller stays thin: HTTP validation, authorization, response shaping.
  * This service owns:
- *   - pool-limit check (pre-tx fast-fail + in-tx authoritative check under advisory lock)
+ *   - usage-limit check (pre-tx fast-fail + in-tx authoritative check under advisory lock)
  *   - video container probe (pre-DB so a bad file never spends a row or a queue slot)
  *   - transactional SiteMedia row creation with pg_advisory_xact_lock for race safety
  *   - storing the original to the media disk
@@ -53,7 +53,7 @@ class MediaUploadService
     ) {}
 
     /**
-     * Upload one image or video into a site's pool.
+     * Upload one image or video into a site's usage bucket.
      *
      * @return SiteMedia fresh, with mediaVariants relation loaded
      */
@@ -61,7 +61,7 @@ class MediaUploadService
         User $pro,
         Site $site,
         UploadedFile $file,
-        string $pool,
+        string $usage,
         bool $isVideo,
         ?string $altText,
         ?string $caption,
@@ -71,25 +71,25 @@ class MediaUploadService
         Log::info('Media upload started', [
             'pro_id' => $pro->id,
             'site_id' => $site->id,
-            'pool' => $pool,
+            'usage' => $usage,
             'media_type' => $mediaType,
             'file_size_kb' => $file->getSize() / 1024,
         ]);
 
         // Pool limit is shared across media types (images + videos count toward the same cap).
         // Failed rows are terminal — they never stored a file and occupy no usable slot.
-        $maxItems = (int) config("partna.image_pools.{$pool}.max", 5);
+        $maxItems = (int) config("partna.upload_limits.{$usage}.max", 5);
 
         $activeCount = SiteMedia::query()
             ->where('site_id', $site->id)
-            ->where('pool', $pool)
+            ->where('usage', $usage)
             ->where('is_active', true)
             ->where('processing_state', '!=', SiteMedia::PROCESSING_STATE_FAILED)
             ->count();
 
         if ($activeCount >= $maxItems) {
             throw new PoolLimitExceededException(
-                ucfirst($pool)." media limit reached (max {$maxItems})."
+                ucfirst($usage)." media limit reached (max {$maxItems})."
             );
         }
 
@@ -104,7 +104,7 @@ class MediaUploadService
             }
         }
 
-        $media = $this->createMediaRow($site, $pool, $maxItems, $mediaType, $file, $altText, $caption);
+        $media = $this->createMediaRow($site, $usage, $maxItems, $mediaType, $file, $altText, $caption);
 
         $basePath = $isVideo
             ? "videos/{$pro->id}/{$media->id}"
@@ -128,7 +128,7 @@ class MediaUploadService
             try {
                 $this->dispatchVideoJob($media->id, $originalPath, $basePath);
             } catch (Throwable $e) {
-                $this->rollbackFailedVideoDispatch($media, $originalPath, $site, $pool, $e);
+                $this->rollbackFailedVideoDispatch($media, $originalPath, $site, $usage, $e);
 
                 throw new VideoDispatchFailedException(
                     'Video processing is temporarily unavailable. Please try again.',
@@ -149,7 +149,7 @@ class MediaUploadService
 
     /**
      * Upload a purpose-scoped singleton design image (a brand logo or the
-     * placeholder). Images only — no pool count limit: each purpose holds
+     * placeholder). Images only — no usage count limit: each purpose holds
      * exactly one row per site (DB partial unique indexes + the app-side replace
      * here). Re-uploading replaces: the existing row of that purpose is
      * soft-deleted and its variant + original files purged, then the new row
@@ -284,7 +284,7 @@ class MediaUploadService
     {
         $rows ??= SiteMedia::query()
             ->where('site_id', $site->id)
-            ->where('pool', SiteMedia::POOL_DESIGN)
+            ->where('usage', SiteMedia::USAGE_DESIGN)
             ->where('purpose', $purpose)
             ->whereNull('deleted_at')
             ->get();
@@ -301,7 +301,7 @@ class MediaUploadService
     {
         $existing = SiteMedia::query()
             ->where('site_id', $site->id)
-            ->where('pool', SiteMedia::POOL_DESIGN)
+            ->where('usage', SiteMedia::USAGE_DESIGN)
             ->where('purpose', $purpose)
             ->whereNull('deleted_at')
             ->get();
@@ -406,7 +406,7 @@ class MediaUploadService
                 DB::select('select pg_advisory_xact_lock(hashtext(?))', ["site-images:{$site->id}"]);
             }
 
-            // A global (site_id, sort_order) unique index spans all pools, so
+            // A global (site_id, sort_order) unique index spans all usages, so
             // take the next free slot just like createMediaRow does — design
             // singletons have no ordering of their own, but must not collide.
             // The advisory lock above already serialises writes for this site,
@@ -417,7 +417,7 @@ class MediaUploadService
                 ->max('sort_order');
 
             $media = new SiteMedia([
-                'pool' => SiteMedia::POOL_DESIGN,
+                'usage' => SiteMedia::USAGE_DESIGN,
                 'purpose' => $purpose,
                 'path' => '',
                 'sort_order' => is_null($maxSort) ? 0 : ((int) $maxSort + 1),
@@ -436,14 +436,14 @@ class MediaUploadService
 
     private function createMediaRow(
         Site $site,
-        string $pool,
+        string $usage,
         int $maxItems,
         string $mediaType,
         UploadedFile $file,
         ?string $altText,
         ?string $caption,
     ): SiteMedia {
-        return DB::transaction(function () use ($site, $pool, $maxItems, $mediaType, $file, $altText, $caption) {
+        return DB::transaction(function () use ($site, $usage, $maxItems, $mediaType, $file, $altText, $caption) {
             if (DB::getDriverName() === 'pgsql') {
                 DB::select('select pg_advisory_xact_lock(hashtext(?))', ["site-images:{$site->id}"]);
             }
@@ -451,10 +451,10 @@ class MediaUploadService
             $siteImages = SiteMedia::query()
                 ->where('site_id', $site->id)
                 ->lockForUpdate()
-                ->get(['id', 'pool', 'sort_order', 'is_active', 'processing_state']);
+                ->get(['id', 'usage', 'sort_order', 'is_active', 'processing_state']);
 
             $activeCount = $siteImages
-                ->where('pool', $pool)
+                ->where('usage', $usage)
                 ->where('is_active', true)
                 ->where('processing_state', '!=', SiteMedia::PROCESSING_STATE_FAILED)
                 ->count();
@@ -463,14 +463,14 @@ class MediaUploadService
                 // Authoritative cap check under the advisory lock. Throwing out
                 // of the closure rolls the transaction back automatically.
                 throw new PoolLimitExceededException(
-                    ucfirst($pool)." media limit reached (max {$maxItems})."
+                    ucfirst($usage)." media limit reached (max {$maxItems})."
                 );
             }
 
             $maxSort = $siteImages->max('sort_order');
 
             $media = new SiteMedia([
-                'pool' => $pool,
+                'usage' => $usage,
                 'path' => '',
                 'alt_text' => $altText,
                 'caption' => $this->normaliseOptionalString($caption),
@@ -533,13 +533,13 @@ class MediaUploadService
         SiteMedia $media,
         string $originalPath,
         Site $site,
-        string $pool,
+        string $usage,
         Throwable $e,
     ): void {
         Log::error('Video upload dispatch failed; rolling back media item.', [
             'site_id' => $site->id,
             'media_id' => $media->id,
-            'pool' => $pool,
+            'usage' => $usage,
             'error' => $e->getMessage(),
             'exception' => get_class($e),
         ]);
@@ -551,7 +551,7 @@ class MediaUploadService
             Log::warning('Failed to cleanup original video after dispatch failure.', [
                 'site_id' => $site->id,
                 'media_id' => $media->id,
-                'pool' => $pool,
+                'usage' => $usage,
                 'path' => $originalPath,
                 'media_disk' => $mediaDisk,
                 'error' => $cleanupError->getMessage(),
@@ -623,7 +623,7 @@ class MediaUploadService
     }
 
     /**
-     * Route singleton processing: design-pool LOGOS (logo_full / logo_square) run
+     * Route singleton processing: design-usage LOGOS (logo_full / logo_square) run
      * through the background-removal + vectorization pipeline when it's enabled;
      * everything else (the placeholder) keeps the standard WebP path.
      */

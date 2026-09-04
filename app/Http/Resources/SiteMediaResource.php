@@ -5,7 +5,7 @@ namespace App\Http\Resources;
 use App\Models\Core\Site\SiteMedia;
 use Illuminate\Http\Request;
 
-// API resource for content pool media items.
+// API resource for content-usage media items (owner uploads).
 //
 // Pass `include_variants: true` via withAdditional() (or the static make helper)
 // to include resolved variant/stream maps:
@@ -39,7 +39,15 @@ class SiteMediaResource extends ApiResource
 
         $payload = [
             'id' => (string) $media->id,
-            'pool' => $media->pool,
+            'usage' => $media->usage,
+            // Legacy alias of `usage` (rename 2026-09-04). Ships beside the new
+            // key for one deploy so the dashboard can migrate on its own clock.
+            // Load-bearing until then: the DEPLOYED dashboard's mapPoolImages
+            // drops any image row whose field is missing (returns null), so
+            // removing this early empties the grid silently rather than
+            // erroring. Drop it once
+            // PartnaAu/partna-frontend#refactor/site-media-usage-rename deploys.
+            'pool' => $media->usage,
             'alt_text' => $media->alt_text,
             'caption' => $media->caption,
             'sort_order' => $media->sort_order,

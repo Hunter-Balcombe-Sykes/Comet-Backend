@@ -75,7 +75,7 @@ function hasSeedMirroredPic(string $folder): void
 function headshotRows(string $siteId)
 {
     return SiteMedia::query()->where('site_id', $siteId)
-        ->where('pool', SiteMedia::POOL_DESIGN)
+        ->where('usage', SiteMedia::USAGE_DESIGN)
         ->where('purpose', SiteMedia::PURPOSE_HEADSHOT);
 }
 
@@ -112,7 +112,7 @@ it('fill-empty only: an occupied slot is never replaced', function () {
 
     $existingId = (string) Str::uuid();
     DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => $existingId, 'site_id' => (string) $site->id, 'pool' => 'design',
+        'id' => $existingId, 'site_id' => (string) $site->id, 'usage' => 'design',
         'purpose' => 'headshot', 'path' => 'images/owner-own.jpg', 'sort_order' => 0,
         'is_active' => 1, 'media_type' => 'image', 'processing_state' => 'ready',
         'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),

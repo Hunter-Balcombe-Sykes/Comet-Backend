@@ -73,7 +73,7 @@ function mmcMedia(User $user): SiteMedia
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId,
         'site_id' => $site->id,
-        'pool' => 'content',
+        'usage' => 'content',
         'media_type' => 'image',
         'processing_state' => 'ready',
         'is_active' => 1,

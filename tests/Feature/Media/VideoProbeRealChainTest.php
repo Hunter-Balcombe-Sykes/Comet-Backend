@@ -96,7 +96,7 @@ it('rejects a real upload request with 422 and persists no SiteMedia row when ff
         // give a fake file. That's what proves the stub fired.
         $video = UploadedFile::fake()->create('clip.mp4', 512, 'video/mp4');
         $baseRequest = Request::create('/api/uploads', 'POST', [
-            'pool' => 'content',
+            'usage' => 'content',
             'alt_text' => 'Clip',
         ], [], ['video' => $video]);
 
@@ -106,7 +106,7 @@ it('rejects a real upload request with 422 and persists no SiteMedia row when ff
 
         $validator = Mockery::mock(Validator::class);
         $validator->shouldReceive('validated')->andReturn([
-            'pool' => 'content',
+            'usage' => 'content',
             'alt_text' => 'Clip',
         ]);
         $request->setValidator($validator);

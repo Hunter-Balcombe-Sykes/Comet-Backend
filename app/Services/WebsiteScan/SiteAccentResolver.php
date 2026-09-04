@@ -51,7 +51,7 @@ class SiteAccentResolver
     {
         return SiteMedia::query()
             ->where('site_id', $siteId)
-            ->where('pool', SiteMedia::POOL_DESIGN)
+            ->where('usage', SiteMedia::USAGE_DESIGN)
             ->where('purpose', $purpose)
             ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
             ->whereNotNull('dominant_color')
@@ -69,7 +69,7 @@ class SiteAccentResolver
     {
         return SiteMedia::query()
             ->where('site_id', $siteId)
-            ->where('pool', SiteMedia::POOL_CONTENT)
+            ->where('usage', SiteMedia::USAGE_CONTENT)
             ->where('is_active', true)
             ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
             ->whereNotNull('dominant_color')

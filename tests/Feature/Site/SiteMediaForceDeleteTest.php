@@ -37,7 +37,7 @@ it('deletes all variant storage files when a SiteMedia row is force-deleted', fu
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId,
         'site_id' => $siteId,
-        'pool' => SiteMedia::POOL_CONTENT,
+        'usage' => SiteMedia::USAGE_CONTENT,
         'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,
         'is_active' => 1,
@@ -99,7 +99,7 @@ it('removes the SiteMedia DB row itself after force-delete', function () {
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId,
         'site_id' => $siteId,
-        'pool' => SiteMedia::POOL_CONTENT,
+        'usage' => SiteMedia::USAGE_CONTENT,
         'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,
         'is_active' => 1,
@@ -132,7 +132,7 @@ it('deletes the original upload file when a SiteMedia row is force-deleted', fun
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId,
         'site_id' => $siteId,
-        'pool' => SiteMedia::POOL_CONTENT,
+        'usage' => SiteMedia::USAGE_CONTENT,
         'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,
         'is_active' => 1,
@@ -166,7 +166,7 @@ it('does not throw when a variant file is already missing from storage', functio
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId,
         'site_id' => $siteId,
-        'pool' => SiteMedia::POOL_CONTENT,
+        'usage' => SiteMedia::USAGE_CONTENT,
         'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,
         'is_active' => 1,
@@ -209,7 +209,7 @@ it('attempts delete() for an absent variant file without an exists() pre-check g
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId,
         'site_id' => $siteId,
-        'pool' => SiteMedia::POOL_CONTENT,
+        'usage' => SiteMedia::USAGE_CONTENT,
         'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,
         'is_active' => 1,
@@ -262,7 +262,7 @@ it('reports (but does not throw) when a variant file fails to delete during forc
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId,
         'site_id' => $siteId,
-        'pool' => SiteMedia::POOL_CONTENT,
+        'usage' => SiteMedia::USAGE_CONTENT,
         'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,
         'is_active' => 1,

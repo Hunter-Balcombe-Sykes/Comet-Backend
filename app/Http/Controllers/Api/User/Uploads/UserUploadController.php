@@ -39,13 +39,14 @@ class UserUploadController extends ApiController
     ) {}
 
     /**
-     * Upload an image or video to a pool (gallery or content).
+     * Upload an image or video under a usage (content).
      *
      * Accepts exactly one of: `image` (JPEG/PNG/WebP) or `video` (MP4/MOV/WebM).
      * Returns immediately; processing runs async on the appropriate queue.
      *
      * POST /api/uploads
-     *   { pool: gallery|content, image?: <file>, video?: <file>, alt_text?: string }
+     *   { usage: content, image?: <file>, video?: <file>, alt_text?: string }
+     *   (`pool` is accepted as a legacy alias of `usage`.)
      */
     public function upload(UploadImageRequest $request): JsonResponse
     {
@@ -59,7 +60,7 @@ class UserUploadController extends ApiController
         $skeleton = (new SiteMedia)->site()->associate($site);
         $this->authorizeForUser($pro, 'create', $skeleton);
 
-        $pool = $request->validated('pool');
+        $usage = $request->validated('usage');
         $isVideo = $request->hasFile('video');
 
         // Gate video uploads behind the per-tenant feature flag (HTTP-layer concern —
@@ -75,7 +76,7 @@ class UserUploadController extends ApiController
                 pro: $pro,
                 site: $site,
                 file: $file,
-                pool: $pool,
+                usage: $usage,
                 isVideo: $isVideo,
                 altText: $request->validated('alt_text'),
                 caption: $request->validated('caption'),
@@ -97,7 +98,7 @@ class UserUploadController extends ApiController
      * List media for the authenticated professional.
      *
      * GET /api/images
-     *   ?pool=gallery|content          optional pool filter
+     *   ?usage=content                 optional usage filter (`?pool=` still accepted)
      *   ?media_type=image|video|all    default: image (backward-compatible)
      *   ?ids[]=uuid,...                optional: return only specific media items (for polling)
      */
@@ -110,11 +111,15 @@ class UserUploadController extends ApiController
         $rawMediaType = strtolower(trim((string) request()->input('media_type', 'image')));
         $mediaTypeFilter = in_array($rawMediaType, SiteMedia::MEDIA_TYPE_FILTERS, true) ? $rawMediaType : 'image';
 
-        $pool = null;
-        if (request()->has('pool')) {
-            $candidate = strtolower(trim((string) request()->input('pool')));
-            if (in_array($candidate, SiteMedia::GALLERY_POOLS, true)) {
-                $pool = $candidate;
+        // `pool` is the legacy spelling of `usage` (rename 2026-09-04); both are
+        // accepted until the dashboard ships its side. An unknown value still
+        // falls through to the unfiltered list, as it always has.
+        $usage = null;
+        $rawUsage = request()->input('usage') ?? request()->input('pool');
+        if (is_string($rawUsage)) {
+            $candidate = strtolower(trim($rawUsage));
+            if (in_array($candidate, SiteMedia::LISTABLE_USAGES, true)) {
+                $usage = $candidate;
             }
         }
 
@@ -134,17 +139,17 @@ class UserUploadController extends ApiController
         // within one poll cycle without holding a stampede on the DB.
         if (! empty($ids)) {
             $idsHash = substr(sha1(implode(',', $ids)), 0, 12);
-            $cacheKey = CacheKeyGenerator::siteImagesPolling($site->id, $pool, $mediaTypeFilter, $idsHash);
+            $cacheKey = CacheKeyGenerator::siteImagesPolling($site->id, $usage, $mediaTypeFilter, $idsHash);
             $ttl = 5;
         } else {
-            $cacheKey = CacheKeyGenerator::siteImagesView($site->id, $pool, $mediaTypeFilter);
+            $cacheKey = CacheKeyGenerator::siteImagesView($site->id, $usage, $mediaTypeFilter);
             $ttl = 30;
         }
 
         $payload = app(CacheLockService::class)->rememberLocked(
             $cacheKey,
             $ttl,
-            fn () => $this->buildIndexPayload($site->id, $pool, $mediaTypeFilter, $ids),
+            fn () => $this->buildIndexPayload($site->id, $usage, $mediaTypeFilter, $ids),
         );
 
         return $this->success($payload);
@@ -154,12 +159,12 @@ class UserUploadController extends ApiController
      * @param  array<int, string>  $ids
      * @return array{images: array<int, mixed>, limits: array<string, int>}
      */
-    private function buildIndexPayload(string $siteId, ?string $pool, string $mediaTypeFilter, array $ids): array
+    private function buildIndexPayload(string $siteId, ?string $usage, string $mediaTypeFilter, array $ids): array
     {
         $query = SiteMedia::query()
             ->where('site_id', $siteId)
             ->where('is_active', true)
-            ->orderBy('pool')
+            ->orderBy('usage')
             ->orderBy('sort_order')
             ->orderBy('created_at');
 
@@ -167,8 +172,8 @@ class UserUploadController extends ApiController
             $query->where('media_type', $mediaTypeFilter);
         }
 
-        if ($pool !== null) {
-            $query->where('pool', $pool);
+        if ($usage !== null) {
+            $query->where('usage', $usage);
         }
 
         if (! empty($ids)) {
@@ -182,22 +187,23 @@ class UserUploadController extends ApiController
         return [
             'images' => $items->values()->all(),
             'limits' => [
-                'content' => config('partna.image_pools.content.max', 5),
+                'content' => config('partna.upload_limits.content.max', 5),
             ],
         ];
     }
 
     /**
-     * Reorder active media for a specific pool.
+     * Reorder active media for a specific usage.
      *
      * POST /api/images/reorder
-     *   { pool: gallery|content, media_type?: image|video, ids: [uuid, ...] }
+     *   { usage: content, media_type?: image|video, ids: [uuid, ...] }
+     *   (`pool` is accepted as a legacy alias of `usage`.)
      *
-     * Scope is pool + optional media_type:
+     * Scope is usage + optional media_type:
      *   - `media_type` provided → reorder only items of that type (legacy
      *     behaviour; kept so Content panel's image-only + video-only reorders
      *     still work).
-     *   - `media_type` omitted → reorder the *entire pool* across media types.
+     *   - `media_type` omitted → reorder the *entire usage* across media types.
      *     Required for the unified affiliate gallery grid where photos and
      *     videos share one ordered list of 6 slots.
      */
@@ -211,13 +217,13 @@ class UserUploadController extends ApiController
         $skeleton = (new SiteMedia)->site()->associate($site);
         $this->authorizeForUser($pro, 'update', $skeleton);
 
-        $pool = $request->validated('pool');
+        $usage = $request->validated('usage');
         // null here = mixed-type reorder (unified grid). Don't default to
         // 'image' — that silently drops video ids and corrupts the order.
         $mediaType = $request->validated('media_type');
         $ids = array_values(array_unique($request->validated('ids') ?? []));
 
-        DB::transaction(function () use ($site, $pool, $mediaType, $ids) {
+        DB::transaction(function () use ($site, $usage, $mediaType, $ids) {
             if (DB::getDriverName() === 'pgsql') {
                 DB::select('select pg_advisory_xact_lock(hashtext(?))', ["site-images:{$site->id}"]);
             }
@@ -227,11 +233,11 @@ class UserUploadController extends ApiController
                 ->lockForUpdate()
                 ->orderBy('sort_order')
                 ->orderBy('created_at')
-                ->get(['id', 'pool', 'media_type', 'sort_order', 'is_active']);
+                ->get(['id', 'usage', 'media_type', 'sort_order', 'is_active']);
 
             $targetImages = $siteImages
                 ->where('is_active', true)
-                ->where('pool', $pool)
+                ->where('usage', $usage)
                 ->when($mediaType !== null, fn ($c) => $c->where('media_type', $mediaType))
                 ->values();
 
@@ -255,9 +261,9 @@ class UserUploadController extends ApiController
             $targetPositions = [];
 
             foreach ($siteImages as $index => $image) {
-                $matchesPool = $image->is_active && $image->pool === $pool;
+                $matchesUsage = $image->is_active && $image->usage === $usage;
                 $matchesType = $mediaType === null || $image->media_type === $mediaType;
-                if ($matchesPool && $matchesType) {
+                if ($matchesUsage && $matchesType) {
                     $targetPositions[] = $index;
                 }
             }
@@ -316,7 +322,7 @@ class UserUploadController extends ApiController
                 ? dirname($image->path)
                 : "videos/{$pro->id}/{$image->id}";
 
-            DeleteMediaArtifactsJob::dispatch($image->id, $basePath, $image->pool);
+            DeleteMediaArtifactsJob::dispatch($image->id, $basePath, $image->usage);
         } else {
             // Synchronous cleanup for images (only 2–3 variant files).
             $this->mediaService->deleteVariants($image->id, $image->path);

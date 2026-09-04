@@ -157,7 +157,7 @@ beforeEach(function () {
         id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         site_id    uuid NOT NULL,
         path       text,
-        pool       varchar(20) NOT NULL DEFAULT \'gallery\',
+        "usage"    varchar(20) NOT NULL DEFAULT \'content\',
         media_type varchar(20) NOT NULL DEFAULT \'image\',
         deleted_at timestamptz
     )');

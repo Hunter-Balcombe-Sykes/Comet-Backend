@@ -19,7 +19,7 @@ class PublicDocumentDownloadController extends ApiController
         // Only serve rows that are active, not soft-deleted, and actually
         // part of the documents pool — otherwise 404 without leaking details.
         abort_unless(
-            $document->pool === SiteMedia::POOL_DOCUMENTS
+            $document->usage === SiteMedia::USAGE_DOCUMENTS
             && $document->is_active
             && $document->deleted_at === null,
             404

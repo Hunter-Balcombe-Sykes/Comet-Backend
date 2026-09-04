@@ -93,7 +93,7 @@ it('POST /api/documents creates a SiteMedia row and stores the file on R2', func
 
     $row = SiteMedia::query()
         ->where('site_id', $pro->site->id)
-        ->where('pool', 'documents')
+        ->where('usage', 'documents')
         ->first();
 
     expect($row)->not->toBeNull();
@@ -152,7 +152,7 @@ it('POST /api/documents flat-replaces: old row soft-deleted, old R2 bytes remove
     // Second row should be the only active one.
     $activeRows = SiteMedia::query()
         ->where('site_id', $pro->site->id)
-        ->where('pool', 'documents')
+        ->where('usage', 'documents')
         ->where('is_active', true)
         ->whereNull('deleted_at')
         ->get();
@@ -183,7 +183,7 @@ it('PATCH /api/documents/{id} returns 404 for a document belonging to another si
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $docId,
         'site_id' => $proA->site->id,
-        'pool' => 'documents',
+        'usage' => 'documents',
         'media_type' => 'document',
         'path' => "documents/{$proA->id}/{$docId}/original.pdf",
         'alt_text' => 'A Doc',
@@ -221,7 +221,7 @@ it('PATCH /api/documents/{id} allows editing an inactive (is_active=false) docum
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $docId,
         'site_id' => $pro->site->id,
-        'pool' => 'documents',
+        'usage' => 'documents',
         'media_type' => 'document',
         'path' => "documents/{$pro->id}/{$docId}/original.pdf",
         'alt_text' => 'Inactive Doc',
@@ -251,7 +251,7 @@ it('DELETE /api/documents/{id} allows deleting an inactive document', function (
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $docId,
         'site_id' => $pro->site->id,
-        'pool' => 'documents',
+        'usage' => 'documents',
         'media_type' => 'document',
         'path' => "documents/{$pro->id}/{$docId}/original.pdf",
         'alt_text' => 'Inactive Doc',

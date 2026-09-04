@@ -1583,7 +1583,7 @@ class AccountDeletionService
             return null;
         }
 
-        DeleteMediaArtifactsJob::dispatch($media->id, $media->path, (string) $media->pool);
+        DeleteMediaArtifactsJob::dispatch($media->id, $media->path, (string) $media->usage);
 
         return $media->path;
     }

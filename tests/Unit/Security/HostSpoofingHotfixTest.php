@@ -169,7 +169,7 @@ it('still accepts a public literal IP after the denylist', function () {
 
 it('never serves the original SVG upload when no sanitised vector variant exists', function () {
     $media = new SiteMedia([
-        'pool' => SiteMedia::POOL_DESIGN,
+        'usage' => SiteMedia::USAGE_DESIGN,
         'path' => 'sites/x/design/original_deadbeef.svg',
         'original_mime' => 'image/svg+xml',
     ]);
@@ -187,7 +187,7 @@ it('serves the sanitised vector variant when one exists', function () {
     ]);
 
     $media = new SiteMedia([
-        'pool' => SiteMedia::POOL_DESIGN,
+        'usage' => SiteMedia::USAGE_DESIGN,
         'path' => 'sites/x/design/original_deadbeef.svg',
         'original_mime' => 'image/svg+xml',
     ]);

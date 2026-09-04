@@ -81,7 +81,7 @@ function contentUpload(Site $site, array $overrides = []): SiteMedia
     DB::connection('pgsql')->table('site.site_media')->insert(array_merge([
         'id' => $id,
         'site_id' => $site->id,
-        'pool' => SiteMedia::POOL_CONTENT,
+        'usage' => SiteMedia::USAGE_CONTENT,
         'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,
         'is_active' => 1,
@@ -212,7 +212,7 @@ it('upload creates a pool=content site_media row', function () {
 
     $row = SiteMedia::query()->where('id', $res->json('id'))->first();
     expect($row)->not->toBeNull();
-    expect($row->pool)->toBe(SiteMedia::POOL_CONTENT);
+    expect($row->usage)->toBe(SiteMedia::USAGE_CONTENT);
     expect($row->alt_text)->toBe('My BG');
 });
 
@@ -273,7 +273,7 @@ it('delete soft-deletes the upload', function () {
 it('delete returns 404 for a non-content or wrong-site upload', function () {
     [$user, $site] = contentUserWithSite('up3');
     // A design-pool row: the endpoint only deletes content-pool uploads.
-    $galleryMedia = contentUpload($site, ['pool' => SiteMedia::POOL_DESIGN]);
+    $galleryMedia = contentUpload($site, ['usage' => SiteMedia::USAGE_DESIGN]);
 
     actingAsUser($user)->deleteJson("/api/content/uploads/{$galleryMedia->id}")
         ->assertStatus(404);

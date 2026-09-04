@@ -27,7 +27,7 @@ function mmwUpload(string $siteId, string $type = 'image', ?string $caption = nu
     $id = (string) Str::uuid();
     DB::table('site.site_media')->insert([
         'id' => $id, 'site_id' => $siteId, 'bucket' => 'media',
-        'path' => "uploads/{$id}.bin", 'pool' => SiteMedia::POOL_CONTENT,
+        'path' => "uploads/{$id}.bin", 'usage' => SiteMedia::USAGE_CONTENT,
         'media_type' => $type, 'processing_state' => 'ready',
         'is_active' => 1, 'sort_order' => 0,
         'alt_text' => null, 'caption' => $caption,

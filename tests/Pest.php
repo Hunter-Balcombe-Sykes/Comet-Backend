@@ -1495,7 +1495,7 @@ function setupMediaTables(): void
     $conn->statement('CREATE TABLE IF NOT EXISTS site.site_media (
         id TEXT PRIMARY KEY,
         site_id TEXT NULL,
-        pool TEXT NULL,
+        "usage" TEXT NULL,
         bucket TEXT NULL,
         path TEXT NULL,
         original_path TEXT NULL,
@@ -2308,7 +2308,7 @@ function setupNotificationsTable(): void
 }
 
 /**
- * Insert a SiteMedia document-pool row for $pro's site and return the model.
+ * Insert a SiteMedia documents-usage row for $pro's site and return the model.
  */
 function createDocumentFor(User $pro, array $overrides = []): SiteMedia
 {
@@ -2321,7 +2321,7 @@ function createDocumentFor(User $pro, array $overrides = []): SiteMedia
     $row = array_merge([
         'id' => $id,
         'site_id' => $site->id,
-        'pool' => SiteMedia::POOL_DOCUMENTS,
+        'usage' => SiteMedia::USAGE_DOCUMENTS,
         'media_type' => 'application/pdf',
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,
         'is_active' => 1,

@@ -30,13 +30,13 @@ beforeEach(function () {
     }
 });
 
-function seedJobTestMediaRow(string $pool = 'gallery', ?string $siteId = null): string
+function seedJobTestMediaRow(string $usage = 'gallery', ?string $siteId = null): string
 {
     $id = (string) Str::uuid();
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $id,
         'site_id' => $siteId ?? (string) Str::uuid(),
-        'pool' => $pool,
+        'usage' => $usage,
         'path' => '',
         'sort_order' => 0,
         'is_active' => true,

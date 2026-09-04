@@ -22,7 +22,7 @@ use Illuminate\Support\Facades\Storage;
  * @property string|null $caption
  * @property int $sort_order
  * @property bool $is_active
- * @property string $pool One of POOL_* (content|documents|design). 'gallery' was retired 2026-09-02.
+ * @property string $usage What the file is FOR — one of USAGE_* (content|documents|design). NOT a content.* pool: those are public page sections, this is an upload classification. Renamed from `pool` 2026-09-04.
  * @property string $media_type One of MEDIA_TYPE_* (image|video|document).
  * @property string $processing_state One of PROCESSING_STATE_* (pending|processing|ready|failed) — the DB CHECK also allows 'scanning'|'quarantined' for the dormant moderation pipeline (supabase/migrations/20260528020000_alter_site_media_for_scan_states.sql); no class constants exist for those two.
  * @property string|null $processing_error
@@ -31,7 +31,7 @@ use Illuminate\Support\Facades\Storage;
  * @property int|null $original_size_bytes
  * @property int|null $duration_ms
  * @property string|null $poster_path
- * @property string|null $purpose Design-pool slot discriminator — see designSingletonPurposes(). NULL for non-design rows.
+ * @property string|null $purpose Design-usage slot discriminator — see designSingletonPurposes(). NULL for non-design rows.
  * @property string|null $scanned_at CSAM-scan completion marker (NULL = pre-scanning-era media or not yet scanned). NOT in $casts, so unlike every other timestamp column here this returns a raw driver string, not a Carbon instance.
  * @property string|null $dominant_color #RRGGBB mirror of palette['dominant'].
  * @property array{dominant?: string, colors?: list<string>, saturation?: float, warm?: bool}|null $palette Extracted colour metadata, read by SiteAccentResolver as an accent-colour candidate; NULL until extraction runs or on failure.
@@ -42,7 +42,7 @@ use Illuminate\Support\Facades\Storage;
  * @property-read Collection<int, MediaVariant> $mediaVariants
  */
 // V2: An uploaded image or video belonging to a site. Tracks processing state (pending/processing/ready/failed) and owns MediaVariant children.
-// POOL_* constants are enforced at the DB level by site_media_pool_check, last redefined in
+// USAGE_* constants are enforced at the DB level by site_media_usage_check, last redefined in
 // @see supabase/migrations/20260624010000_schema_hardening_constraints.sql
 class SiteMedia extends BaseModel
 {
@@ -54,21 +54,21 @@ class SiteMedia extends BaseModel
 
     protected $keyType = 'string';
 
-    // 'gallery' (POOL_GALLERY) fully retired: writes 2026-09-01 (Item 5,
-    // migration 20260901200000 backfilled every row into POOL_CONTENT),
+    // 'gallery' fully retired: writes 2026-09-01 (Item 5,
+    // migration 20260901200000 backfilled every row into USAGE_CONTENT),
     // reads 2026-09-02 (Wave 6 — the legacy read/filter surfaces are gone;
     // PoolGalleryWriteGuardTest pins that the string stays dead).
-    public const POOL_CONTENT = 'content';
+    public const USAGE_CONTENT = 'content';
 
     // One downloadable document per site (PDF/JPG/PNG). See
     // docs/superpowers/specs/2026-04-22-document-upload-design.md.
-    public const POOL_DOCUMENTS = 'documents';
+    public const USAGE_DOCUMENTS = 'documents';
 
     // Singleton brand design assets (logo, placeholder). No ordering semantics —
-    // the per-pool sort_order unique index excludes this pool deliberately.
-    public const POOL_DESIGN = 'design';
+    // the per-usage sort_order unique index excludes this usage deliberately.
+    public const USAGE_DESIGN = 'design';
 
-    // Brand-design slot discriminator inside POOL_DESIGN. Replaces the old
+    // Brand-design slot discriminator inside USAGE_DESIGN. Replaces the old
     // alt_text='logo'|'placeholder' string match — alt_text is now reserved
     // for accessibility text. Set to NULL for non-design rows.
     public const PURPOSE_LOGO_FULL = 'logo_full';
@@ -114,20 +114,20 @@ class SiteMedia extends BaseModel
     }
 
     /**
-     * Pool values accepted as a gallery-list filter on GET /api/images, and the
-     * pools CacheKeyGenerator::siteImagesViewVariants() enumerates for cache busting.
+     * Usage values accepted as a list filter on GET /api/images, and the values
+     * CacheKeyGenerator::siteImagesViewVariants() enumerates for cache busting.
      * Single source of truth — UserUploadController::index and the cache enumerator
      * both reference this so the bust-key space can never drift from accepted input.
-     * Deliberately excludes POOL_DOCUMENTS / POOL_DESIGN (not gallery-listable).
+     * Deliberately excludes USAGE_DOCUMENTS / USAGE_DESIGN (not listable here).
      *
-     * Down to the one live pool since Wave 6 (2026-09-02): the legacy
+     * Down to the one live usage since Wave 6 (2026-09-02): the legacy
      * 'gallery' filter value left with its read surfaces — an old client
      * sending ?pool=gallery now gets the unfiltered list, the same answer
-     * as any other unknown pool value.
+     * as any other unknown value.
      *
      * @var list<string>
      */
-    public const GALLERY_POOLS = [self::POOL_CONTENT];
+    public const LISTABLE_USAGES = [self::USAGE_CONTENT];
 
     public const MEDIA_TYPE_IMAGE = 'image';
 
@@ -155,7 +155,7 @@ class SiteMedia extends BaseModel
         'is_active' => true,
         // POOL_CONTENT since Item 5 (2026-09-01): a bare save must never
         // recreate a row in the retired gallery lane.
-        'pool' => self::POOL_CONTENT,
+        'usage' => self::USAGE_CONTENT,
         'media_type' => self::MEDIA_TYPE_IMAGE,
         'processing_state' => self::PROCESSING_STATE_PENDING,
     ];
@@ -163,7 +163,7 @@ class SiteMedia extends BaseModel
     // site_id is the tenancy FK — deliberately excluded from mass-assignment (SEC-1).
     // Write paths set it via ->site()->associate($site), which bypasses $fillable.
     protected $fillable = [
-        'pool',
+        'usage',
         'bucket',
         'path',
         'alt_text',

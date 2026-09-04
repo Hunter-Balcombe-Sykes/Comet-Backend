@@ -11,13 +11,13 @@ beforeEach(function () {
     Storage::fake('media');
 });
 
-function seedDocumentRow(string $siteId, bool $isActive = true, ?string $deletedAt = null, string $pool = 'documents'): string
+function seedDocumentRow(string $siteId, bool $isActive = true, ?string $deletedAt = null, string $usage = 'documents'): string
 {
     $id = (string) Str::uuid();
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $id,
         'site_id' => $siteId,
-        'pool' => $pool,
+        'usage' => $usage,
         'media_type' => 'document',
         'path' => "documents/foo/{$id}/original.pdf",
         'alt_text' => 'Doc',
@@ -73,7 +73,7 @@ it('returns 404 when document is soft-deleted', function () {
 
 it('returns 404 when document is not in the documents pool', function () {
     $siteId = seedPublishedSite();
-    $docId = seedDocumentRow($siteId, pool: 'gallery');
+    $docId = seedDocumentRow($siteId, usage: 'gallery');
 
     $response = $this->get("/api/public/documents/{$docId}/download");
     expect($response->status())->toBe(404);

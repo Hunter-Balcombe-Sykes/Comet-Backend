@@ -158,7 +158,7 @@ class PreAccountBuild extends BaseModel
             if ($this->content_filled_at === null && $siteId !== null) {
                 $hasContent = SiteMedia::query()
                     ->where('site_id', $siteId)
-                    ->whereIn('pool', SiteMedia::GALLERY_POOLS)
+                    ->whereIn('usage', SiteMedia::LISTABLE_USAGES)
                     ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
                     ->exists()
                     || Menu::query()

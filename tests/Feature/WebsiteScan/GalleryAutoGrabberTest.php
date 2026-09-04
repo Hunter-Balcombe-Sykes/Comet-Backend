@@ -19,7 +19,7 @@ beforeEach(function () {
 function gagSeedSiteMedia(Site $site, string $processingState = SiteMedia::PROCESSING_STATE_READY, bool $isActive = true): SiteMedia
 {
     $media = (new SiteMedia([
-        'pool' => SiteMedia::POOL_CONTENT,
+        'usage' => SiteMedia::USAGE_CONTENT,
         'bucket' => 'test-bucket',
         'path' => 'images/existing.jpg',
         'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
@@ -146,7 +146,7 @@ it('lands a grab as POOL_CONTENT bytes plus an unpinned website-provenance pool 
         ->and($decisions[0]['outcome'])->toStartWith('uploaded');
 
     $media = SiteMedia::query()->where('site_id', (string) $site->id)->firstOrFail();
-    expect($media->pool)->toBe(SiteMedia::POOL_CONTENT);
+    expect($media->usage)->toBe(SiteMedia::USAGE_CONTENT);
 
     // The bridge minted the library item under the website: provenance coord.
     $itemId = DB::table('content.item_anchors')
@@ -160,5 +160,5 @@ it('lands a grab as POOL_CONTENT bytes plus an unpinned website-provenance pool 
 
     // The retired lane stayed empty.
     expect(SiteMedia::query()->where('site_id', (string) $site->id)
-        ->where('pool', 'gallery')->exists())->toBeFalse();
+        ->where('usage', 'gallery')->exists())->toBeFalse();
 });

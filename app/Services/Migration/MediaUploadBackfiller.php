@@ -37,7 +37,7 @@ class MediaUploadBackfiller
         $touchedSites = [];
 
         $rows = SiteMedia::query()
-            ->whereIn('pool', SiteMedia::GALLERY_POOLS)
+            ->whereIn('usage', SiteMedia::LISTABLE_USAGES)
             ->when($siteId !== null, fn ($q) => $q->where('site_id', $siteId))
             ->with(['site', 'mediaVariants'])
             ->orderBy('created_at')

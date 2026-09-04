@@ -43,12 +43,12 @@ class DeleteMediaArtifactsJob implements ShouldQueue
     /**
      * @param  string  $mediaId  UUID of the (now soft-deleted) SiteMedia row.
      * @param  string  $basePath  Storage prefix for all video artifacts (videos/{proId}/{mediaId}).
-     * @param  string  $pool  Pool name (for logging context only).
+     * @param  string  $usage  Upload usage (for logging context only).
      */
     public function __construct(
         public readonly string $mediaId,
         public readonly string $basePath,
-        public readonly string $pool,
+        public readonly string $usage,
     ) {
         $this->onConnection((string) config('partna.video_queue.connection', 'redis_video'));
         $this->onQueue((string) config('partna.video_queue.name', 'videos'));
@@ -87,7 +87,7 @@ class DeleteMediaArtifactsJob implements ShouldQueue
         Log::error('DeleteMediaArtifactsJob: cleanup exhausted retries.', [
             'media_id' => $this->mediaId,
             'base_path' => $this->basePath,
-            'pool' => $this->pool,
+            'usage' => $this->usage,
             'error' => $e->getMessage(),
             'exception' => get_class($e),
         ]);
