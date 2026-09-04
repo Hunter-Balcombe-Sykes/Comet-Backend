@@ -13,6 +13,7 @@ Audience: whoever is doing the move, plus the Claude session assisting. Steps ar
 | Fact | Consequence |
 |---|---|
 | `partna-backend` is **public**; every repo in `PartnaAu` is private. `PartnaAu` is on the **free** plan. | **Keep it public.** Public repos get unlimited Actions minutes and branch protection for free. Going private on a free org meters Actions at 2,000 min/month — against a ~20-minute `test` job across nine jobs — and, because protected branches are a public-repo-only feature on Free, would **silently drop the nine required status checks**. Private costs a Team upgrade, not a toggle. |
+| Laravel Cloud binds the repo on the **application**, not the environment. | There is exactly one field to change (`repositoryFullName`), and the org must appear in Cloud's picker first — which requires `laravel-cloud-app` to be installed on the target org. Verify with `gh api orgs/<org>/installations`. |
 | GitHub keeps **permanent redirects** for the git protocol after a transfer. | `clone`/`fetch`/`push` against the old URL keep working indefinitely. Local remotes and all three `.worktrees/` (which share one `.git/config`) are not a blocker, just tidiness. |
 | The repo has **no webhooks and no deploy keys** (verified 2026-09-04). Every integration is a **GitHub App**. | Apps do **not** follow a transfer. Laravel Cloud loses its connection the moment the repo moves, and only a human can reauthorise it. |
 | Prod has `usesPushToDeploy: true` — the push IS the deploy. | Between the transfer and the Laravel Cloud reconnect, **deploys are dead**. Serving is unaffected: `api.partna.au` keeps answering. This is a deploy outage, not a site outage. |
@@ -50,7 +51,7 @@ Do this when you are at a keyboard and free to run Phase C immediately after. No
 | B1 | **[you]** | Confirm no deploy in flight (`cloud deployment:list development`) |
 | B2 | **[claude]** | Transfer `partna-backend` → `PartnaAu`, **public** |
 | B3 | **[claude]** | Transfer `partna-db-backup` → `PartnaAu` (stays private) |
-| B4 | **[claude]** | Verify landing on both: visibility, the 9 required checks on `development` and `production`, secret scanning + push protection + Dependabot still enabled, `copilot` environment present |
+| B4 | **[claude]** | Verify landing on both: visibility, the 9 required checks on `development` and `production`, secret scanning + push protection + Dependabot still enabled, `copilot` environment present. ⚠️ **The transfer RESET `secret_scanning` and `secret_scanning_push_protection` to `disabled`** (observed 2026-09-04); branch protection and Actions secrets survived intact. Re-enable them explicitly — do not assume. |
 
 **Deploys are down from B2 until C2.**
 
@@ -59,10 +60,10 @@ Do this when you are at a keyboard and free to run Phase C immediately after. No
 | # | Who | Step |
 |---|---|---|
 | C1 | **[you]** | Laravel Cloud → install / authorise its GitHub App on `PartnaAu`, granting `partna-backend` |
-| C2 | **[you]** | Re-point **both** envs at `PartnaAu/partna-backend`; confirm prod still has `usesPushToDeploy: true` and `branch: production` |
+| C2 | **[you]** | Re-point the **application** at `PartnaAu/partna-backend`. This is ONE app-level field (`repositoryFullName`), **not** a per-environment setting — `environment:get` has no repository field at all, and each env's `branch` (`development` / `production`) is unrelated and must NOT change. Seeing `branch=development` after the move is correct, not a sign the re-point failed. Verify with `cloud application:get partna --json` |
 | C3 | **[you]** | Reinstall any other App you want on the new org (Copilot, Claude Code) |
 | C4 | **[you]** | Verify the **11** Actions secrets on `partna-db-backup` survived (list below). They are write-only — if any dropped, they must be re-entered from the password manager, not recovered from GitHub |
-| C5 | **[claude]** | Smoke test: trigger a `development` deploy, then `cloud deployment:list development` — look for a `*.succeeded` status, not a bare `running` |
+| C5 | **[claude]** | Smoke test **without polluting git history**: `cloud deploy partna development --no-wait --no-interaction`, then poll `cloud deployment:get <id>` for `deployment.succeeded`. This makes Cloud clone from the new org, which is exactly the connection under test; a push is not required. Note a deploy missed during the outage does **not** replay — but a manual deploy builds current branch HEAD, which catches it up. |
 
 ### `partna-db-backup` secrets to verify after transfer
 
