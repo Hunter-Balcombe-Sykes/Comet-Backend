@@ -242,6 +242,13 @@ class WorkplaceObserver
                 'site_id' => $workplace->site_id,
                 'message' => $e->getMessage(),
             ]);
+            // 2026-09-04 leak sweep: the STARTED note may have landed before
+            // the dispatch threw — close the stage or the walk waits on it.
+            // Its own guard, because site itself may be the null that threw.
+            try {
+                BuildProgress::noteForUser((string) $workplace->site?->user_id, PreAccountBuildEvent::STAGE_WEBSITE, PreAccountBuildEvent::STATUS_SKIPPED, 'Could not check your website');
+            } catch (\Throwable) {
+            }
         }
     }
 }

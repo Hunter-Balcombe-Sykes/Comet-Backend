@@ -147,8 +147,14 @@ class ShopInitialFillJob implements ShouldBeUnique, ShouldQueue
                 ['store' => $storeName, 'url' => $store->url, 'logo' => $store->logoUrl, 'discountCode' => $store->discountCode ?: null, 'products' => $products],
             );
         } catch (Throwable $e) {
-            // Feed decoration only — never an exception report for it.
+            // Feed decoration only — never an exception report for it. But the
+            // stage was STARTED above and this was its only LANDED, so answer
+            // it plainly instead of leaking an open stage (2026-09-04 sweep).
             Log::debug('shop.initial_fill_job.progress_note_skipped', ['collection_id' => $this->collectionId, 'error' => $e->getMessage()]);
+            try {
+                BuildProgress::noteForUser((string) $store->userId, PreAccountBuildEvent::STAGE_SHOP, PreAccountBuildEvent::STATUS_LANDED, 'Synced your store');
+            } catch (Throwable) {
+            }
         }
     }
 

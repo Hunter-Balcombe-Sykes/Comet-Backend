@@ -3,12 +3,14 @@
 namespace App\Jobs\Platforms;
 
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Notifications\Dispatchers\IntegrationNotifier;
 use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\Registry\Platform;
+use App\Services\PreAccount\BuildProgress;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -137,6 +139,12 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
         // both "never existed" and "user disconnected (soft-deleted) while queued".
         $connection = IntegrationConnection::find($this->connectionId);
         if (! $connection) {
+            // 2026-09-04 leak sweep: the media stage may have been STARTED by
+            // the dispatching lane (GoogleBusinessAutoSync) — close it, since
+            // seed()'s own STARTED/LANDED pair will never run. A terminal row
+            // for a never-started stage is harmless (last-row-per-stage read).
+            BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_MEDIA, PreAccountBuildEvent::STATUS_SKIPPED, 'That Instagram is no longer connected');
+
             return;
         }
 
@@ -191,6 +199,13 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
         $connection = IntegrationConnection::find($this->connectionId);
         if ($connection) {
             $this->markFailed($connection, 'job_failed');
+        }
+
+        // 2026-09-04 leak sweep: a dispatching lane may have STARTED the media
+        // stage before this job ran; seed() never got to answer it.
+        try {
+            BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_MEDIA, PreAccountBuildEvent::STATUS_FAILED, "Couldn't read that Instagram just now");
+        } catch (Throwable) {
         }
     }
 

@@ -119,14 +119,18 @@ class ProcessShopBrandLogoJob implements ShouldQueue
 
         $pngHash = substr(hash('sha256', $result->pngTransparent), 0, 16);
         $pngPath = "{$base}/mark_{$pngHash}.png";
-        $disk->put($pngPath, $result->pngTransparent, 'public');
+        if ($disk->put($pngPath, $result->pngTransparent, 'public') === false) {
+            throw new \RuntimeException("Media disk rejected the brand mark write ({$pngPath}).");
+        }
 
         $svgUrl = null;
         if ($result->vectorized()) {
             $svg = (string) $result->svg;
             $svgHash = substr(hash('sha256', $svg), 0, 16);
             $svgPath = "{$base}/mark_{$svgHash}.svg";
-            $disk->put($svgPath, $svg, 'public');
+            if ($disk->put($svgPath, $svg, 'public') === false) {
+                throw new \RuntimeException("Media disk rejected the brand mark SVG write ({$svgPath}).");
+            }
             $svgUrl = $disk->url($svgPath);
         }
 

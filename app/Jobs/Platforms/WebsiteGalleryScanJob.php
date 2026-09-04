@@ -56,12 +56,15 @@ class WebsiteGalleryScanJob implements ShouldBeUnique, ShouldQueue
     {
         // Setup progress (2026-09-02): say the stage has STARTED, so the
         // signup card's status line names the job actually running.
-        BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_WEBSITE, PreAccountBuildEvent::STATUS_STARTED, 'Looking at your website');
+        // STARTED only once the row lookups can't bail (2026-09-04 leak sweep):
+        // a bare return after STARTED leaves the stage open forever — the walk
+        // renders "Still looking…" off the LAST row per stage.
         $user = User::find($this->userId);
         $site = Site::find($this->siteId);
         if ($user === null || $site === null) {
             return;
         }
+        BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_WEBSITE, PreAccountBuildEvent::STATUS_STARTED, 'Looking at your website');
 
         $decisions = $grabber->grabIfEmpty($user, $site, $this->candidateUrls);
         if ($decisions === []) {

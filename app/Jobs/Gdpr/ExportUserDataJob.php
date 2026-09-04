@@ -91,9 +91,12 @@ class ExportUserDataJob implements ShouldQueue
             $remotePath = "exports/{$audit->user_id}/{$audit->id}.zip";
 
             $stream = fopen($written['path'], 'rb');
-            $disk->put($remotePath, $stream);
+            $stored = $disk->put($remotePath, $stream);
             if (is_resource($stream)) {
                 fclose($stream);
+            }
+            if ($stored === false) {
+                throw new \RuntimeException("Media disk rejected the export write ({$remotePath}) — the signed link would 404.");
             }
 
             // Flag set IMMEDIATELY after put() returns so the catch block can

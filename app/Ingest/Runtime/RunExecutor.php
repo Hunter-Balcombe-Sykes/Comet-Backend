@@ -98,8 +98,21 @@ class RunExecutor
             $streamId = $this->ensureStream((string) $source['id'], $streamName);
 
             $suppressedUntil = DB::table('ingest.streams')->where('id', $streamId)->value('suppressed_until');
-            if ($suppressedUntil !== null && strtotime((string) $suppressedUntil) > time()) {
+            if ($suppressedUntil !== null && strtotime((string) $suppressedUntil) > time()
+                && ! (bool) ($source['needs_eager_run'] ?? false)
+            ) {
                 // Backpressure: a chronically broken stream stops asking.
+                //
+                // The eager exception (2026-09-04, simondoylehair): a source
+                // still OWING its first landing is a signup connection someone
+                // is watching. Three transient vendor blips at connect time
+                // tripped this 3-strike suppression, and every later run then
+                // skipped the stream while reporting 'ok' — which the
+                // scheduler's writeback read as a qualifying outcome and used
+                // to discharge needs_eager_run with zero content ever landed.
+                // An eager run gets through; if the stream genuinely still
+                // fails, recordStreamFailure() re-suppresses it as usual, so
+                // this cannot loop.
                 $streamOutcomes[$streamName] = 'suppressed';
 
                 continue;

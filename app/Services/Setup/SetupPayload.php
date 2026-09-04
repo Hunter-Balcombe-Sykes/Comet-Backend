@@ -10,6 +10,7 @@ use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Services\Onboarding\OnboardingSuggestions;
+use App\Services\Platforms\ConnectionDisplayName;
 use App\Services\Platforms\MenuPayloadComposer;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\PreAccount\BuildProgressReader;
@@ -384,15 +385,17 @@ class SetupPayload
         if ($connection === null) {
             return null;
         }
-        $payload = (array) ($connection->payload ?? []);
-        foreach (['name', 'fullName', 'shop_name', 'store', 'title'] as $key) {
-            $value = $payload[$key] ?? null;
-            if (is_string($value) && trim($value) !== '') {
-                return trim($value);
-            }
-        }
 
-        return null;
+        // Through the canonical resolver, not a private key list (2026-09-04):
+        // this method's own ['name', 'fullName', ...] precedence rendered the
+        // latest VIDEO title as a youtube account's name — payload['name'] is
+        // the newest item's title on every feed-style platform, and
+        // ConnectionDisplayName::for() already knows which surfaces those are.
+        // RoutingConnectionResource has always read accountName this way; the
+        // walk now matches the Platforms page instead of drifting beside it.
+        $name = ConnectionDisplayName::for((string) $connection->surface_key, (array) ($connection->payload ?? []));
+
+        return is_string($name) && trim($name) !== '' ? trim($name) : null;
     }
 
     /** The account's own icon off the synced connection's payload. */
@@ -405,7 +408,12 @@ class SetupPayload
         // 'thumbnail' is the youtube sync's key (a channel avatar off
         // i.ytimg.com) — without it a youtube suggestion rendered the brand
         // tile even after its scrape had the real face (2026-09-04).
-        foreach (['profilePicUrl', 'logo', 'favicon', 'avatar', 'thumbnail'] as $key) {
+        // Second sweep, same day: 'avatarUrl' (YoutubeConnect + FeedPayload),
+        // 'profilePic' (InstagramConnectionSeeder's third spelling) and
+        // 'image' (FeedPayload) were still missing — every key any connection
+        // writer actually stamps is on this list now, profile-ish before
+        // brand-ish.
+        foreach (['profilePicUrl', 'avatarUrl', 'avatar', 'profilePic', 'logo', 'favicon', 'thumbnail', 'image'] as $key) {
             $value = $payload[$key] ?? null;
             if (is_string($value) && str_starts_with($value, 'http')) {
                 return $value;
@@ -589,7 +597,11 @@ class SetupPayload
 
         return [
             'platform' => $booking?->platform,
-            'teamPicked' => is_array($payload['selection'] ?? null),
+            // Fresha's pick is payload.selection; Square's is payload.teamMember
+            // (SquareAutoSelectJob / the shared picker's square arm stamp it on
+            // the URL rewrite). Reading only selection told the walk a picked
+            // Square row was still waiting on its picker (2026-09-04 sweep).
+            'teamPicked' => is_array($payload['selection'] ?? null) || is_array($payload['teamMember'] ?? null),
             'categories' => array_values($categories),
         ];
     }
