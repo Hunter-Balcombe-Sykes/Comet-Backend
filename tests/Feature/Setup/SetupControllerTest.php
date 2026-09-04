@@ -2,6 +2,7 @@
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Setup\SetupPassRegistry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -66,11 +67,17 @@ it('composes the business pass list: ordering group, menu for food, logo present
     $keys = collect(actingAsUser($pro)->getJson('/api/site/setup')->json('passes'))->pluck('key');
 
     expect($keys)->toContain('platforms.ordering')
-        ->and($keys)->toContain('menu')
         ->and($keys)->toContain('logo')
         ->and($keys)->not->toContain('listing')
         ->and($keys)->not->toContain('platforms.booking')
         ->and($keys)->not->toContain('services');
+
+    // Which of the two item-picking passes a food account gets is the
+    // REGISTRY's answer, and it is asked here rather than of the payload: the
+    // payload now omits an empty menu, so a composed pass list is evidence
+    // about this account's data, not about the vocabulary.
+    expect(SetupPassRegistry::keysFor($pro))->toContain('menu')
+        ->and(SetupPassRegistry::keysFor($pro))->not->toContain('services');
 });
 
 it('renders a pre-scraped hidden row as a preselected syncing suggestion', function () {
@@ -312,4 +319,50 @@ it('renders a registry-less brand (shopify) in the stores pass via its routing c
     expect($stores['suggestions'])->toHaveCount(1)
         ->and($stores['suggestions'][0]['surfaceKey'])->toBe('shopify.store')
         ->and($stores['suggestions'][0]['preselected'])->toBeTrue();
+});
+
+// 2026-09-04 (tobiasindarwin test signup): the walk reached "Your services"
+// and drew a heading, a subtitle and Continue over empty space. The account's
+// booking platform was Timely — a booking LINK with no connector, so no
+// service item could ever arrive — and the services pass, unlike an item
+// pass, was emitted no matter how empty it was.
+
+it('omits the services pass for a booking platform that can never fill it', function () {
+    $pro = createTenant('setup-timely');
+    (new IntegrationConnection([
+        'user_id' => $pro->id, 'surface_key' => 'timely.book', 'routing_class' => 'booking',
+        'resource_id' => 'some-salon', 'payload' => [], 'is_active' => true,
+    ]))->save();
+
+    $keys = collect(actingAsUser($pro)->getJson('/api/site/setup')->json('passes'))->pluck('key');
+
+    expect($keys)->not->toContain('services');
+});
+
+it('keeps an empty services pass while fresha still owes its team pick', function () {
+    $pro = createTenant('setup-fresha-pick');
+    (new IntegrationConnection([
+        'user_id' => $pro->id, 'surface_key' => 'fresha.book', 'routing_class' => 'booking',
+        'resource_id' => 'some-venue', 'payload' => [], 'is_active' => true,
+    ]))->save();
+
+    $passes = collect(actingAsUser($pro)->getJson('/api/site/setup')->json('passes'));
+    $services = $passes->firstWhere('key', 'services');
+
+    expect($services)->not->toBeNull()
+        ->and($services['platform'])->toBe('fresha')
+        ->and($services['teamPicked'])->toBeFalse();
+});
+
+it('omits the services pass once fresha has its pick and still no services', function () {
+    $pro = createTenant('setup-fresha-picked');
+    (new IntegrationConnection([
+        'user_id' => $pro->id, 'surface_key' => 'fresha.book', 'routing_class' => 'booking',
+        'resource_id' => 'some-venue', 'payload' => ['selection' => ['id' => 'emp-1']],
+        'is_active' => true,
+    ]))->save();
+
+    $keys = collect(actingAsUser($pro)->getJson('/api/site/setup')->json('passes'))->pluck('key');
+
+    expect($keys)->not->toContain('services');
 });

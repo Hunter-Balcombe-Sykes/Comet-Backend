@@ -532,6 +532,26 @@ class GoogleBusinessAutoSync
             ]];
         }
 
+        // A booking vendor's own homepage is not a booking page. Google returns
+        // one when the listing's "Book online" is the "Powered by <vendor>"
+        // badge off the merchant's minisite rather than the merchant's booking
+        // URL — live on 2026-09-04 (lukemunn), where Google offered
+        // www.gettimely.com?utm_campaign=Customer%20Referral and Partna
+        // published it as that account's Book button.
+        //
+        // This is checked BEFORE the direct.book fallback rather than left to
+        // the classifier, because the fallback is what would catch it: once
+        // WebsiteLinkHarvester stops calling a bare vendor root 'booking', the
+        // brand lookup below returns null and the link would fall through to
+        // direct.book — the same dead button under a different surface.
+        if (app(WebsiteLinkHarvester::class)->isVendorRoot($url)) {
+            Log::info('platforms.google_business.booking_vendor_root', [
+                'user_id' => $userId, 'host' => parse_url($url, PHP_URL_HOST),
+            ]);
+
+            return null;
+        }
+
         // Convergence Phase 6 + owner ruling 2026-08-16: a booking link no brand
         // claims falls to `direct.book` rather than being dropped. Google's
         // "Book online" is usually the merchant's OWN domain, which matches no
