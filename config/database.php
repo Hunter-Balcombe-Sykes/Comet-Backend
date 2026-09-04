@@ -101,24 +101,25 @@ return [
             'statement_timeout' => env('DB_STATEMENT_TIMEOUT', 30000),
             // Set lock timeout (10 seconds)
             'lock_timeout' => env('DB_LOCK_TIMEOUT', 10000),
-            'options' => [
-                // Server-side prepared statements need the SAME backend for both
-                // halves of the exchange (PREPARE, then EXECUTE). Port 6543 is
-                // Supavisor's TRANSACTION pooler, which borrows a backend per
-                // transaction, so the second half can land on one that never saw
-                // the first. Emulating prepares makes PDO interpolate the (still
-                // escaped) values itself and send one complete statement, which
-                // has nothing to remember and so survives multiplexing.
-                //
-                // Derived from the port rather than its own env var so that
-                // flipping DB_PORT is the ONLY change the mode switch needs — a
-                // separate flag could be set inconsistently, which fails as a
-                // silent wrong-backend error rather than a loud one. False on
-                // 5432 (session mode) is PDO's own default: today this is inert.
-                //
-                // Why this exists at all: docs/runbooks/db-pool-exhausted.md.
-                PDO::ATTR_EMULATE_PREPARES => (int) env('DB_PORT', 5432) === 6543,
-            ],
+            // DO NOT set PDO::ATTR_EMULATE_PREPARES => true here. It was added on
+            // 2026-09-04 as the transaction-pooler (6543) groundwork and MEASURED ON
+            // DEV THE SAME DAY: it breaks the app outright. Emulation makes PDO
+            // interpolate bound values itself, and a PHP `true` interpolates as `1`,
+            // which Postgres refuses against a boolean column:
+            //
+            //   SQLSTATE[42883] operator does not exist: boolean = integer
+            //   ... "platform_connections"."user_id" and "is_active" = 1 ...
+            //
+            // Every `->where('some_bool', true)` in the codebase is affected, so this
+            // is not a call-site fix. Observed effect was silent, not loud: the
+            // content lane fails open, so `pools` came back `{}` on every public
+            // profile — an empty sitepage with a 200 status. Rolled back in ~10 min.
+            //
+            // The transaction pooler is still the right end state (it is what stops
+            // idle Horizon daemons pinning a slot each — docs/runbooks/db-pool-exhausted.md).
+            // The open question is whether Supavisor's own prepared-statement support in
+            // transaction mode is sufficient with prepares left NATIVE, which is the next
+            // thing to test — not this.
         ],
 
         'sqlsrv' => [
