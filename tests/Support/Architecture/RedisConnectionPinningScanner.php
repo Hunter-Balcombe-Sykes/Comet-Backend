@@ -87,12 +87,12 @@ final class RedisConnectionPinningScanner
         'app/Services/Streaming/StreamingTokenManager.php',
 
         // LiveStatusPoller: reachable only via CheckStreamingLiveStatusJob.
-        // It WRITES the same `streaming:live:<platform>:<handle>` keys that
-        // LiveStatusInjector (app/Services/Streaming/LiveStatusInjector.php)
-        // READS on the request path — that reader was repointed to `app` in
-        // this same follow-up. The writer/reader split across connections is
-        // deliberate: the writer is job-only and wants the worker-path bound,
-        // the reader is request-path and wants the tight one.
+        // It WRITES the `streaming:live:<platform>:<handle>` keys. The
+        // request-path READER that once paired with it was deleted with the
+        // superseded payload lane (2026-09-04), so the writer/reader split
+        // this entry used to justify no longer exists: the poller is now
+        // job-only end to end, and `default` — the worker-path bound — is the
+        // connection it wants.
         'app/Services/Streaming/LiveStatusPoller.php',
     ];
 

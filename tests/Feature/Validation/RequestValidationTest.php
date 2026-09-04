@@ -2,7 +2,6 @@
 
 use App\Http\Requests\Api\BootstrapRequest;
 use App\Http\Requests\Api\PublicSite\CustomerLeads\PublicCustomerLeadRequest;
-use App\Http\Requests\Api\PublicSite\PublicSiteShowRequest;
 use App\Http\Requests\Api\User\Site\ReorderBlocksRequest;
 use App\Http\Requests\Api\User\Site\StoreLinkBlockRequest;
 use App\Http\Requests\Api\User\Site\UpdateLinkBlockRequest;
@@ -37,17 +36,6 @@ it('rejects invalid public customer lead payload', function () {
     expect($validator->errors()->has('full_name'))->toBeTrue();
     expect($validator->errors()->has('email'))->toBeTrue();
     expect($validator->errors()->has('phone'))->toBeTrue();
-});
-
-it('rejects invalid public site subdomain', function () {
-    $payload = [
-        'subdomain' => 'bad!subdomain',
-    ];
-
-    $validator = Validator::make($payload, (new PublicSiteShowRequest)->rules());
-
-    expect($validator->fails())->toBeTrue();
-    expect($validator->errors()->has('subdomain'))->toBeTrue();
 });
 
 it('rejects invalid link block store payload', function () {

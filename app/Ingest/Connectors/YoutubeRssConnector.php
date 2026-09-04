@@ -131,8 +131,12 @@ class YoutubeRssConnector implements Connector
             // discipline included) before conceding; shorts blending is
             // deliberately skipped on this path — the rescue's job is a
             // non-empty shelf now, and the next healthy RSS run blends.
+            // Every non-null return of fetchUploadsFeed() — the RSS parse and the
+            // vendorUploadsFeed() rescue alike — builds each row key-complete, so
+            // only the whole feed can be absent, never one field of one row. The
+            // per-key ?? guards below would be dead weight that reads as doubt.
             $rescued = $this->scraper->fetchUploadsFeed($channelId, $pull->scopeLimit() ?? 15);
-            $videos = is_array($rescued) ? ($rescued['videos'] ?? null) : null;
+            $videos = is_array($rescued) ? $rescued['videos'] : null;
             if (! is_array($videos) || $videos === []) {
                 yield new Unavailable("videos.xml returned {$response['status']}", $response['status']);
 
@@ -143,7 +147,7 @@ class YoutubeRssConnector implements Connector
             $dates = [];
             foreach ($videos as $video) {
                 $id = (string) $video['videoId'];
-                $published = isset($video['date']) && is_string($video['date']) && $video['date'] !== '' ? $video['date'] : null;
+                $published = isset($video['date']) && $video['date'] !== '' ? $video['date'] : null;
                 if ($published !== null) {
                     $dates[] = $published;
                 }
@@ -152,8 +156,8 @@ class YoutubeRssConnector implements Connector
                     'title' => (string) $video['name'],
                     'url' => (string) $video['link'],
                     'published' => $published,
-                    'thumbnail' => $better[$id] ?? ($video['thumbnail'] ?? null),
-                    'description' => (string) ($video['description'] ?? ''),
+                    'thumbnail' => $better[$id] ?? $video['thumbnail'],
+                    'description' => (string) $video['description'],
                 ]);
             }
             yield new Covered('watch', Coverage::prefix($dates === [] ? null : min($dates), count($videos)));

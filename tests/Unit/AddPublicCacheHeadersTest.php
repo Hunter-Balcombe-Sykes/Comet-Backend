@@ -30,34 +30,28 @@ it('marks authenticated api responses as private and non-cacheable', function ()
 });
 
 it('adds cache headers to successful public get api responses', function () {
-    $request = Request::create('/api/public/site-by-slug', 'GET');
+    // api/public/profiles is the sole surviving CACHEABLE_PATH_PREFIXES entry
+    // since /public/site-by-slug was retired 2026-09-04 — it always takes the
+    // profile-wire override branch, so max-age/s-maxage read 5 here, not the
+    // generic 900 default (pinned separately below via the profile-specific test).
+    $request = Request::create('/api/public/profiles/someone', 'GET');
 
     $middleware = new AddPublicCacheHeaders;
     $response = $middleware->handle($request, fn () => new Response('ok', 200));
 
     $cacheControl = (string) $response->headers->get('Cache-Control', '');
     expect($cacheControl)->toContain('public')
-        ->toContain('max-age=900')
-        ->toContain('s-maxage=900');
+        ->toContain('max-age=5')
+        ->toContain('s-maxage=5');
     expect((string) $response->headers->get('Vary', ''))->toContain('Accept-Encoding');
     expect($response->headers->get('X-Cache-Status'))->toBe('MISS');
 });
 
-it('adds Vary: X-Site-Subdomain to allow-listed public cacheable routes', function () {
-    $cacheablePaths = [
-        '/api/public/site-by-slug',
-    ];
-
-    $middleware = new AddPublicCacheHeaders;
-
-    foreach ($cacheablePaths as $path) {
-        $request = Request::create($path, 'GET');
-        $response = $middleware->handle($request, fn () => new Response('ok', 200));
-
-        $vary = (string) $response->headers->get('Vary', '');
-        expect($vary)->toContain('X-Site-Subdomain');
-    }
-});
+// The "adds Vary: X-Site-Subdomain to allow-listed public cacheable routes"
+// test that stood here exercised /public/site-by-slug, the one prefix that
+// resolved its tenant from a header instead of the URL. Retired 2026-09-04
+// alongside the route itself (see VARY_BY_PREFIX's docblock in
+// AddPublicCacheHeaders, and LegacyPayloadRouteRetiredTest).
 
 it('returns no-store for tokenized unsubscribe endpoint', function () {
     $request = Request::create('/api/public/unsubscribe/abc123token', 'GET');
@@ -90,7 +84,9 @@ it('does not add public cache headers to non-allow-listed public paths', functio
 });
 
 it('does not cache failed responses', function () {
-    $request = Request::create('/api/public/site-by-slug', 'GET');
+    // Must be a path that IS in CACHEABLE_PATH_PREFIXES, or this proves nothing
+    // beyond the already-covered "non-allow-listed path" case above.
+    $request = Request::create('/api/public/profiles/someone', 'GET');
 
     $middleware = new AddPublicCacheHeaders;
     $response = $middleware->handle($request, fn () => new Response('not found', 404));
@@ -100,7 +96,8 @@ it('does not cache failed responses', function () {
 });
 
 it('does not cache POST requests to public paths', function () {
-    $request = Request::create('/api/public/site-by-slug', 'POST');
+    // Same reasoning as above: needs an allow-listed path to be a real guard.
+    $request = Request::create('/api/public/profiles/someone', 'POST');
 
     $middleware = new AddPublicCacheHeaders;
     $response = $middleware->handle($request, fn () => new Response('ok', 200));
@@ -150,36 +147,27 @@ it('never adds public cache headers to a 304 on a no-store path', function () {
     expect($cacheControl)->not->toContain('public');
 });
 
-// CFG-3 / stale-while-revalidate. The default MUST be byte-identical to the
-// pre-SWR header, so the code ships inert and enabling it is an env-var flip.
-it('omits stale-while-revalidate when the config value is 0', function () {
-    config(['partna.cache.public_max_age' => 30, 'partna.cache.public_swr' => 0]);
-
-    // site-by-slug: the generic knob. (Profiles take their own TTL and never
-    // carry SWR — pinned separately below.)
-    $request = Request::create('/api/public/site-by-slug', 'GET');
-
-    $middleware = new AddPublicCacheHeaders;
-    $response = $middleware->handle($request, fn () => new Response('{}', 200));
-
-    // Exact equality, not toContain: 'max-age=30' is a substring of 's-maxage=30',
-    // so a toContain assertion cannot tell the two directives apart and would pass
-    // on a header that is subtly wrong.
-    expect($response->headers->get('Cache-Control'))
-        ->toBe('max-age=30, public, s-maxage=30');
-});
-
-it('appends stale-while-revalidate when the config value is positive', function () {
-    config(['partna.cache.public_max_age' => 30, 'partna.cache.public_swr' => 60]);
-
-    $request = Request::create('/api/public/site-by-slug', 'GET');
-
-    $middleware = new AddPublicCacheHeaders;
-    $response = $middleware->handle($request, fn () => new Response('{}', 200));
-
-    expect($response->headers->get('Cache-Control'))
-        ->toBe('max-age=30, public, s-maxage=30, stale-while-revalidate=60');
-});
+// CFG-3 / stale-while-revalidate — three tests stood here ("omits
+// stale-while-revalidate when the config value is 0", "appends
+// stale-while-revalidate when the config value is positive", and "applies
+// stale-while-revalidate to site-by-slug as well as profiles") that all used
+// /public/site-by-slug as "the generic knob" (their own prior comment's
+// words) to prove config('partna.cache.public_max_age')/
+// config('partna.cache.public_swr') flow through into the header. Removed
+// 2026-09-04 alongside that route, and NOT repointable at api/public/profiles:
+// read AddPublicCacheHeaders::handle() — the `if ($prefix ===
+// 'api/public/profiles')` branch unconditionally overrides $maxAge to
+// config('partna.cache.public_profile_max_age', 5) and forces $swr = 0, and
+// since site-by-slug's retirement that branch fires for every request that
+// reaches this loop (profiles is the only entry left in
+// CACHEABLE_PATH_PREFIXES). So public_max_age/public_swr, and the
+// `stale-while-revalidate` directive entirely, are now dead code with no live
+// route able to reach them — there is nothing left for a test to assert
+// against without inventing a route the app doesn't have. This is a bigger
+// consequence than just losing these three tests: flagged in the task-1-report
+// fix-round-1 section for the plan owner, since config/partna.php's
+// `public_swr` key and this branch's generic (non-profile) path are candidates
+// for their own follow-up cleanup, not something this task's scope covers.
 
 it('gives the profile wire its own short TTL and never SWR (owner plan, 2026-08-19)', function () {
     config(['partna.cache.public_max_age' => 900, 'partna.cache.public_swr' => 60, 'partna.cache.public_profile_max_age' => 5]);
@@ -194,16 +182,4 @@ it('gives the profile wire its own short TTL and never SWR (owner plan, 2026-08-
     // this TTL bounds how stale that render can be. Exact equality: no SWR.
     expect($response->headers->get('Cache-Control'))
         ->toBe('max-age=5, public, s-maxage=5');
-});
-
-it('applies stale-while-revalidate to site-by-slug as well as profiles', function () {
-    config(['partna.cache.public_max_age' => 30, 'partna.cache.public_swr' => 60]);
-
-    $request = Request::create('/api/public/site-by-slug', 'GET');
-
-    $middleware = new AddPublicCacheHeaders;
-    $response = $middleware->handle($request, fn () => new Response('{}', 200));
-
-    expect((string) $response->headers->get('Cache-Control', ''))
-        ->toContain('stale-while-revalidate=60');
 });

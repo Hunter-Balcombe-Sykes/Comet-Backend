@@ -51,7 +51,7 @@ it('increments hits counter for a CacheHit event', function () {
         ->andReturn(5);
 
     $listener = new RecordCacheMetrics;
-    $listener->handle(new CacheHit('redis', 'site:payload:abc', []));
+    $listener->handle(new CacheHit('redis', 'site:abc:blocks:links', []));
 });
 
 it('records a buffered miss on flush() for a CacheMissed event', function () {
@@ -66,7 +66,7 @@ it('records a buffered miss on flush() for a CacheMissed event', function () {
     // writes through; calling it explicitly keeps this deterministic instead
     // of relying on __destruct() firing when $listener goes out of scope.
     $listener = new RecordCacheMetrics;
-    $listener->handle(new CacheMissed('redis', 'site:payload:abc'));
+    $listener->handle(new CacheMissed('redis', 'site:abc:blocks:links'));
     $listener->flush();
 });
 
@@ -91,7 +91,7 @@ it('sets TTL on the bucket hash when a field is first created', function () {
         ->with(Mockery::pattern('/^cache_metrics:/'), RecordCacheMetrics::BUCKET_TTL_SECONDS);
 
     $listener = new RecordCacheMetrics;
-    $listener->handle(new CacheHit('redis', 'site:payload:abc', []));
+    $listener->handle(new CacheHit('redis', 'site:abc:blocks:links', []));
 });
 
 it('does not set TTL when a field already existed', function () {
@@ -100,7 +100,7 @@ it('does not set TTL when a field already existed', function () {
     $redis->shouldReceive('expire')->never();
 
     $listener = new RecordCacheMetrics;
-    $listener->handle(new CacheHit('redis', 'site:payload:abc', []));
+    $listener->handle(new CacheHit('redis', 'site:abc:blocks:links', []));
 });
 
 it('skips lock: prefix keys', function () {
@@ -108,7 +108,7 @@ it('skips lock: prefix keys', function () {
     $redis->shouldReceive('hIncrBy')->never();
 
     $listener = new RecordCacheMetrics;
-    $listener->handle(new CacheHit('redis', 'lock:site:payload:abc', []));
+    $listener->handle(new CacheHit('redis', 'lock:site:abc:blocks:links', []));
 });
 
 it('skips scheduler: prefix keys', function () {
@@ -139,7 +139,7 @@ it('swallows redis errors so cache operations are not disrupted', function () {
 
     $listener = new RecordCacheMetrics;
 
-    expect(fn () => $listener->handle(new CacheHit('redis', 'site:payload:x', [])))->not->toThrow(Throwable::class);
+    expect(fn () => $listener->handle(new CacheHit('redis', 'site:x:blocks:links', [])))->not->toThrow(Throwable::class);
 
     Log::shouldHaveReceived('warning')->with('cache.metrics.record_failed', Mockery::type('array'))->once();
 });
@@ -151,8 +151,8 @@ it('does not touch Redis during handle() on the deferred path', function () {
     $redis->shouldReceive('expire')->never();
 
     $listener = deferringRecordCacheMetrics();
-    $listener->handle(new CacheHit('redis', 'site:payload:a', []));
-    $listener->handle(new CacheHit('redis', 'site:payload:b', []));
+    $listener->handle(new CacheHit('redis', 'site:a:blocks:links', []));
+    $listener->handle(new CacheHit('redis', 'site:b:blocks:links', []));
     // No flush() → nothing is written yet; the batch lives in-process until termination.
 
     Carbon::setTestNow();
@@ -162,9 +162,9 @@ it('flushes repeated events for a field as one batched HINCRBY', function () {
     Carbon::setTestNow('2026-07-23 10:30:00');
 
     $listener = deferringRecordCacheMetrics();
-    $listener->handle(new CacheHit('redis', 'site:payload:a', []));
-    $listener->handle(new CacheHit('redis', 'site:payload:b', []));
-    $listener->handle(new CacheHit('redis', 'site:payload:c', []));
+    $listener->handle(new CacheHit('redis', 'site:a:blocks:links', []));
+    $listener->handle(new CacheHit('redis', 'site:b:blocks:links', []));
+    $listener->handle(new CacheHit('redis', 'site:c:blocks:links', []));
 
     // Three hits collapse into a single HINCRBY of +3; a brand-new field returns
     // its own increment, so TTL is set exactly once.
@@ -224,7 +224,7 @@ it('still swallows redis errors on the batched flush path', function () {
     Log::spy();
 
     $listener = deferringRecordCacheMetrics();
-    $listener->handle(new CacheHit('redis', 'site:payload:a', []));
+    $listener->handle(new CacheHit('redis', 'site:a:blocks:links', []));
 
     expect(fn () => $listener->flush())->not->toThrow(Throwable::class);
     Log::shouldHaveReceived('warning')->with('cache.metrics.record_failed', Mockery::type('array'))->once();
@@ -232,9 +232,9 @@ it('still swallows redis errors on the batched flush path', function () {
     Carbon::setTestNow();
 });
 
-// #CACHE-2: stale-while-revalidate fold. CacheLockService::rememberLocked() and
-// SiteCacheService::getPublicSitePayload() always probe the primary key then,
-// on miss, the adjacent ":stale" companion — one logical read, two Redis ops.
+// #CACHE-2: stale-while-revalidate fold. CacheLockService::rememberLocked()
+// always probes the primary key then, on miss, the adjacent ":stale"
+// companion — one logical read, two Redis ops.
 // A one-event lookahead buffer folds the pair into a single hit/miss so the
 // per-prefix hit rate measures "served without recompute", not "primary warm"
 // (see class docblock — the fold takes a stale-serving recompute from 33% to
@@ -250,8 +250,8 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         $redis->shouldReceive('expire')->once()->andReturn(true);
 
         $listener = new RecordCacheMetrics;
-        $listener->handle(new CacheMissed('redis', 'site:payload:x'));
-        $listener->handle(new CacheHit('redis', 'site:payload:x:stale', []));
+        $listener->handle(new CacheMissed('redis', 'site:x:blocks:links'));
+        $listener->handle(new CacheHit('redis', 'site:x:blocks:links:stale', []));
     });
 
     it('folds a genuine cold miss (primary miss + stale miss) into ONE miss on the write-through path', function () {
@@ -263,8 +263,8 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         $redis->shouldReceive('expire')->once()->andReturn(true);
 
         $listener = new RecordCacheMetrics;
-        $listener->handle(new CacheMissed('redis', 'site:payload:y'));
-        $listener->handle(new CacheMissed('redis', 'site:payload:y:stale'));
+        $listener->handle(new CacheMissed('redis', 'site:y:blocks:links'));
+        $listener->handle(new CacheMissed('redis', 'site:y:blocks:links:stale'));
     });
 
     it('ignores the :stale half of a write-through pair (one logical write, not two)', function () {
@@ -276,16 +276,16 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         $redis->shouldReceive('expire')->once()->andReturn(true);
 
         $listener = new RecordCacheMetrics;
-        $listener->handle(new KeyWritten('redis', 'site:payload:z', 'v', 60));
-        $listener->handle(new KeyWritten('redis', 'site:payload:z:stale', 'v', 600));
+        $listener->handle(new KeyWritten('redis', 'site:z:blocks:links', 'v', 60));
+        $listener->handle(new KeyWritten('redis', 'site:z:blocks:links:stale', 'v', 600));
     });
 
     it('folds a primary miss + stale hit into ONE hit on the deferred (HTTP) path', function () {
         Carbon::setTestNow('2026-07-23 10:30:00');
 
         $listener = deferringRecordCacheMetrics();
-        $listener->handle(new CacheMissed('redis', 'site:payload:def'));
-        $listener->handle(new CacheHit('redis', 'site:payload:def:stale', []));
+        $listener->handle(new CacheMissed('redis', 'site:def:blocks:links'));
+        $listener->handle(new CacheHit('redis', 'site:def:blocks:links:stale', []));
         // Nothing written yet — still batched until flush(), same as any other deferred record.
 
         $redis = mockAppRedisConnection();
@@ -304,8 +304,8 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         Carbon::setTestNow('2026-07-23 10:30:00');
 
         $listener = deferringRecordCacheMetrics();
-        $listener->handle(new KeyWritten('redis', 'site:payload:ghi', 'v', 60));
-        $listener->handle(new KeyWritten('redis', 'site:payload:ghi:stale', 'v', 600));
+        $listener->handle(new KeyWritten('redis', 'site:ghi:blocks:links', 'v', 60));
+        $listener->handle(new KeyWritten('redis', 'site:ghi:blocks:links:stale', 'v', 600));
 
         $redis = mockAppRedisConnection();
         $redis->shouldReceive('hIncrBy')
@@ -325,7 +325,7 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         $redis->shouldReceive('expire')->never();
 
         $listener = deferringRecordCacheMetrics();
-        $listener->handle(new CacheMissed('redis', 'site:payload:lonely'));
+        $listener->handle(new CacheMissed('redis', 'site:lonely:blocks:links'));
         // No pairing event, no flush() — the miss sits in the buffer, not Redis.
     });
 
@@ -333,7 +333,7 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         Carbon::setTestNow('2026-07-23 10:30:00');
 
         $listener = deferringRecordCacheMetrics();
-        $listener->handle(new CacheMissed('redis', 'site:payload:lonely'));
+        $listener->handle(new CacheMissed('redis', 'site:lonely:blocks:links'));
 
         $redis = mockAppRedisConnection();
         $redis->shouldReceive('hIncrBy')
@@ -361,7 +361,7 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         $redis->shouldReceive('expire')->once()->andReturn(true);
 
         $listener = new RecordCacheMetrics;
-        $listener->handle(new CacheMissed('redis', 'site:payload:queued'));
+        $listener->handle(new CacheMissed('redis', 'site:queued:blocks:links'));
 
         unset($listener);
     });
@@ -373,7 +373,7 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         // SKIP_PREFIXES key — dropped before any buffering/write decision, so
         // there is nothing for __destruct() to flush.
         $listener = new RecordCacheMetrics;
-        $listener->handle(new CacheHit('redis', 'lock:site:payload:warm', []));
+        $listener->handle(new CacheHit('redis', 'lock:site:warm:blocks:links', []));
 
         unset($listener);
     });
@@ -382,7 +382,7 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         Carbon::setTestNow('2026-07-23 10:59:59');
 
         $listener = new RecordCacheMetrics;
-        $listener->handle(new CacheMissed('redis', 'site:payload:boundary')); // buffered in the 10:00 hour
+        $listener->handle(new CacheMissed('redis', 'site:boundary:blocks:links')); // buffered in the 10:00 hour
 
         Carbon::setTestNow('2026-07-23 11:00:01'); // crossed the hour boundary before the pair arrives
 
@@ -396,7 +396,7 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
             ->with('cache_metrics:2026-07-23-10', RecordCacheMetrics::BUCKET_TTL_SECONDS)
             ->andReturn(true);
 
-        $listener->handle(new CacheHit('redis', 'site:payload:boundary:stale', []));
+        $listener->handle(new CacheHit('redis', 'site:boundary:blocks:links:stale', []));
 
         Carbon::setTestNow();
     });
@@ -405,7 +405,7 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         Carbon::setTestNow('2026-07-23 10:59:59');
 
         $listener = new RecordCacheMetrics;
-        $listener->handle(new CacheMissed('redis', 'site:payload:orphan')); // buffered in the 10:00 hour
+        $listener->handle(new CacheMissed('redis', 'site:orphan:blocks:links')); // buffered in the 10:00 hour
 
         Carbon::setTestNow('2026-07-23 11:00:01');
 
@@ -440,8 +440,8 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         $redis->shouldReceive('expire')->once()->andReturn(true);
 
         $listener = new RecordCacheMetrics;
-        $listener->handle(new CacheMissed('redis', 'site:payload:a'));
-        $listener->handle(new CacheHit('redis', 'site:payload:b:stale', []));
+        $listener->handle(new CacheMissed('redis', 'site:a:blocks:links'));
+        $listener->handle(new CacheHit('redis', 'site:b:blocks:links:stale', []));
     });
 
     it('drops an unpaired :stale event with no buffered miss at all (SWR healing housekeeping)', function () {
@@ -449,7 +449,7 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         $redis->shouldReceive('hIncrBy')->never();
 
         $listener = new RecordCacheMetrics;
-        $listener->handle(new CacheMissed('redis', 'site:payload:c:stale'));
+        $listener->handle(new CacheMissed('redis', 'site:c:blocks:links:stale'));
     });
 
     it('flushes a buffered miss (and still skips the event) when a lock: probe intervenes', function () {
@@ -461,8 +461,8 @@ describe('SWR stale-probe fold (#CACHE-2)', function () {
         $redis->shouldReceive('expire')->once()->andReturn(true);
 
         $listener = new RecordCacheMetrics;
-        $listener->handle(new CacheMissed('redis', 'site:payload:abc'));
-        $listener->handle(new CacheHit('redis', 'lock:site:payload:abc', []));
+        $listener->handle(new CacheMissed('redis', 'site:abc:blocks:links'));
+        $listener->handle(new CacheHit('redis', 'lock:site:abc:blocks:links', []));
     });
 });
 
@@ -496,9 +496,9 @@ describe('post-lock re-check fold (CACHE-3)', function () {
 
     it('folds the post-lock re-check that follows an SWR stale probe', function () {
         $listener = new RecordCacheMetrics;
-        $listener->handle(new CacheMissed('redis', 'site:payload:x'));          // primary probe
-        $listener->handle(new CacheMissed('redis', 'site:payload:x:stale'));    // SWR companion
-        $listener->handle(new CacheMissed('redis', 'site:payload:x'));          // post-lock re-check
+        $listener->handle(new CacheMissed('redis', 'site:x:blocks:links'));          // primary probe
+        $listener->handle(new CacheMissed('redis', 'site:x:blocks:links:stale'));    // SWR companion
+        $listener->handle(new CacheMissed('redis', 'site:x:blocks:links'));          // post-lock re-check
 
         $listener->flush();
 
@@ -518,9 +518,9 @@ describe('post-lock re-check fold (CACHE-3)', function () {
 
     it('folds a post-lock re-check that finds the key warm into an already-scored read', function () {
         $listener = new RecordCacheMetrics;
-        $listener->handle(new CacheMissed('redis', 'site:payload:y'));
-        $listener->handle(new CacheMissed('redis', 'site:payload:y:stale'));
-        $listener->handle(new CacheHit('redis', 'site:payload:y', []));  // another worker filled it
+        $listener->handle(new CacheMissed('redis', 'site:y:blocks:links'));
+        $listener->handle(new CacheMissed('redis', 'site:y:blocks:links:stale'));
+        $listener->handle(new CacheHit('redis', 'site:y:blocks:links', []));  // another worker filled it
 
         $listener->flush();
 

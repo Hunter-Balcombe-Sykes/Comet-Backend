@@ -47,12 +47,18 @@ All endpoints below are served under the Laravel API base URL, with the default 
 ### API base URL
 
 - API base URL is your APP_URL (Laravel). Example: https://api.partna.au
-- All API routes live under /api. Example: https://api.partna.au/api/me Public mini-site domain rules Public mini-site routes are domain-scoped. They MUST be called on the mini-site host, not the API host.
-- Host pattern: https://{subdomain}.{PARTNA_PUBLIC_DOMAIN}
-- Public API base URL: https://{subdomain}.{PARTNA_PUBLIC_DOMAIN}/api
-- Example: https://joshbarber.localtest.me/api/public/site Local development tip
-- Use a wildcard-friendly domain such as localtest.me or lvh.me so subdomains resolve to 127.0.0.1.
-- Set PARTNA_PUBLIC_DOMAIN=localtest.me and APP_URL=http://api.localtest.me (or similar).
+- All API routes live under /api. Example: https://api.partna.au/api/me
+- **Public mini-site routes are NOT domain-scoped** (changed 2026-09-04). Call them on the API
+  host like every other route: https://api.partna.au/api/public/... The site is identified by
+  the `X-Site-Subdomain` header, or by the handle in the path for
+  `GET /api/public/profiles/{handle}`.
+- Example: `curl -H 'X-Site-Subdomain: joshbarber' https://api.partna.au/api/public/customers`
+- The `{subdomain}.{PARTNA_PUBLIC_DOMAIN}` route group was removed; there are now zero
+  domain-scoped routes in the application, pinned by
+  `tests/Feature/PublicSite/DomainScopedRouteGroupRetiredTest.php`. `{subdomain}.partna.au` is
+  served by the Cloudflare Worker and the pages app, which never reach Laravel.
+- Local development tip: you no longer need wildcard DNS to exercise the public API. Point at
+  your local APP_URL directly and send `X-Site-Subdomain`.
 
 ## 2) Authentication (Supabase JWT)
 
@@ -455,14 +461,12 @@ below read "No", and a claimed owner's unpublished site was fully readable):
 | `PublicDocumentDownloadController` | Yes |
 | `AnalyticsController` (pageview/click/dwell tracking) | Yes |
 | `QrCodeController` | Yes |
-| `GET /api/public/site` (`PublicSiteController`, subdomain-resolved) | Yes — **in the view, not in PHP** |
 
-The last one gates in SQL: `site.public_site_payload`'s `WHERE` clause is
-`s.is_published = true AND p.status IN ('active','unclaimed') AND p.deleted_at IS NULL`, so an
-unpublished site yields no row and the controller 404s. Grepping `app/` for `is_published` will not
-lead you to it — the one PHP hit in that class (`PublicSiteController::showByHeader`'s alias-redirect
-canonical lookup) is a different sub-path. Check the view definitions in `supabase/migrations/` before
-concluding a read path is ungated.
+`GET /api/public/site` used to sit at the bottom of this table, gating in SQL rather than PHP. It
+and its `site.public_site_payload` view were **removed 2026-09-04** (see "Retired public endpoints").
+The lesson it taught outlives it: a read path can be gated in a view instead of in `app/`, so
+grepping `app/` for `is_published` does not prove a path is ungated — check the view definitions in
+`supabase/migrations/` too.
 
 Note the three ungated profile sub-resources above carry third-party-sourced content — scraped menu
 items, and platform connection payloads including Google Business data. They are public pre-claim by
@@ -483,15 +487,18 @@ All owner uploads live in the `site.site_media` table, classified by **usage** (
 | usage      | string   | yes      | —                                               | `content` (legacy alias: `pool`)                                 |
 | path       | string   | no       | `images/<proId>/<imageId>/original_abc123.jpg`  | Path to original file on the media disk                          |
 | alt_text   | string   | yes      | `Fade haircut example`                          | Max 255                                                          |
-| sort_order | integer  | no       | `0`                                             | Non-negative; used for gallery ordering                          |
+| sort_order | integer  | no       | `0`                                             | Non-negative; owner-chosen display order                         |
 | is_active  | boolean  | no       | `true`                                          | Soft visibility flag                                             |
 | created_at | datetime | yes      | `2026-03-02T10:00:00Z`                          |                                                                  |
 | updated_at | datetime | yes      | `2026-03-02T10:00:00Z`                          |                                                                  |
 | deleted_at | datetime | yes      | `null`                                          | Soft delete                                                      |
 
-**Pool limits** (configurable via env):
-- `gallery`: max 5 images (env `PARTNA_GALLERY_IMAGE_MAX`)
-- `content`: max 5 images (env `PARTNA_CONTENT_IMAGE_MAX`)
+**Usage limits** (configurable via env):
+- `content`: max 20 images (env `PARTNA_CONTENT_IMAGE_MAX`)
+
+There is no `gallery` usage and no `PARTNA_GALLERY_IMAGE_MAX` — the `gallery` pool and its
+`core.enforce_site_gallery_max6` trigger were retired 2026-09-02 (migration `20260902170000`).
+`config('partna.image_pools')` now declares `content` only.
 
 ### ImageVariant (core.image_variants)
 
@@ -579,15 +586,11 @@ Each `SiteImage` gets a set of universal WebP variants generated server-side via
 | is_active       | boolean | no       | `true`                        | If false: hidden from public site and click tracking is forbidden                         |
 | settings        | object  | yes      | `{ "open_in_new_tab": true }` | Allowed keys only: open_in_new_tab, rel_nofollow, rel_sponsored, rel_ugc, highlight, note |
 
-### PublicSiteData (view of returned GET /api/public/site)
-| Name         | Type    | Nullable | Example                                                   | Constraints / Notes                                       |
-|--------------|---------|----------|-----------------------------------------------------------|-----------------------------------------------------------|
-| published    | boolean | no       | `true`                                                    | Derived from site is_published                            |
-| site         | object  | no       | `{ id, subdomain, settings, gallery, content_images }` | Includes gallery + content image pools with variant URLs  |
-| professional | object  | no       | `{ id, handle, display_name, bio, ... }` | Includes public-facing location fields                    |
-| blocks       | array   | no       | `[ LinkBlock \| SectionBlock ]`                           | Only active blocks are returned                           |
-| gallery      | array   | no       | `[ { id, pool, alt_text, sort_order, variants: {...} } ]` | Only active gallery-pool images; variants are URL maps    |
-| services     | array   | no       | `[ { id, title, price_cents, ... } ]`                     | Only active services returned                             |
+### PublicSiteData — RETIRED 2026-09-04
+
+This model described the `site.public_site_payload` view behind `GET /api/public/site`. The endpoint,
+the view and its `gallery` / `gallery_videos` keys are gone; see "Retired public endpoints" below.
+The public payload is `GET /api/public/profiles/{handle}`.
 
 ### Analytics Event Payloads
 | Name                  | Type   | Nullable | Example                 | Constraints / Notes                                                                                                     |
@@ -717,12 +720,12 @@ Common status codes
 
 All routes below are unauthenticated.
 
-Frontend can connect in 2 modes:
+There is ONE mode as of 2026-09-04. The domain-scoped mini-site host that used to sit beside
+it is gone (see "Retired public endpoints"); what was the "header-based fallback" is now the
+only lane:
 
-1. Domain-scoped mini-site host  
-`https://{subdomain}.{PARTNA_PUBLIC_DOMAIN}/api/public/...`
-2. Header-based API host fallback (no subdomain DNS needed)  
-`https://api.{PARTNA_PUBLIC_DOMAIN}/api/public/...` with header `X-Site-Subdomain: {subdomain}`
+`https://api.{PARTNA_PUBLIC_DOMAIN}/api/public/...` with header `X-Site-Subdomain: {subdomain}`,
+except `GET /api/public/profiles/{handle}`, which carries the site in the path.
 
 For analytics endpoints, provide either `site_id` in the JSON body OR `X-Site-Subdomain` header. Ingest additionally requires an `Origin` header whose host is `{subdomain}.{public_domain}` or the site's active custom domain — a request with no such header is rejected with 404 (Referer is no longer accepted, #SEC-3).
 
@@ -731,12 +734,15 @@ Frontend quick-start (header-based API host):
 ```ts
 const API_BASE = "https://api.<PARTNA_PUBLIC_DOMAIN>/api/public";
 const subdomain = "fadez";
+// A handle and a subdomain are separate values that usually agree but can diverge
+// after a rename — carry both rather than deriving one from the other.
+const handle = "fadez";
 const visitorId = localStorage.getItem("comet_visitor_id") ?? crypto.randomUUID();
 localStorage.setItem("comet_visitor_id", visitorId);
 
-const siteRes = await fetch(`${API_BASE}/site-by-slug`, {
-  headers: { "X-Site-Subdomain": subdomain }
-});
+// The public payload is fetched by handle. `/site` and `/site-by-slug` were
+// removed 2026-09-04 — see "Retired public endpoints".
+const siteRes = await fetch(`${API_BASE}/profiles/${handle}`);
 
 await fetch(`${API_BASE}/analytics/pageviews`, {
   method: "POST",
@@ -751,37 +757,9 @@ await fetch(`${API_BASE}/analytics/pageviews`, {
 });
 ```
 
-### `GET /api/public/site`
+### `GET /api/public/site` — REMOVED 2026-09-04
 
-- Purpose: fetch the published mini-site payload for rendering
-- Auth: None
-- Rate limit: public-site
-
-**Response (200):**
-
-```json
-{
-  "published": true,
-  "site": { "id": "uuid", "subdomain": "fadez", "settings": {}, "gallery": [], "content_images": [], "gallery_videos": [], "content_videos": [] },
-  "professional": { "id": "uuid", "handle": "fadez", "display_name": "Fadez Studio", "bio": null },
-  "links": [],
-  "sections": [],
-  "blocks": [],
-  "services": []
-}
-```
-
-**Common status codes:** 200, 404 (site not found, unpublished, or owner not active/unclaimed), 429
-
-An unpublished site returns **404, not 403** — `site.public_site_payload` simply yields no row
-(see "Public visibility vs. `is_published`"), and public endpoints answer 404 rather than 403 so a
-caller cannot enumerate which subdomains exist. Note this endpoint has **no unclaimed carve-out**:
-the view requires `is_published = true` unconditionally, so an unpublished pre-account build 404s
-here even though it still renders on `GET /api/public/profiles/{handle}`.
-
-**Notes:**
-- `blocks` is a combined, sort-ordered array of both `links` and `sections` and includes `block_group` on each item.
-- `site.gallery` and `site.content_images` are image-only arrays. `site.gallery_videos` and `site.content_videos` are video-only arrays. Each video item includes `{ id, sort_order, processing_state, duration_ms, poster, variants: { optimized, maximized }, streams: { adaptive, optimized, maximized } }`. Videos with `processing_state != ready` are excluded automatically.
+See "Retired public endpoints". Use `GET /api/public/profiles/{handle}`.
 
 ### `POST /api/public/analytics/pageviews`
 
@@ -931,41 +909,38 @@ here even though it still renders on `GET /api/public/profiles/{handle}`.
 
 #### Header-Based Slug Routing
 
-For frontends that cannot use subdomain DNS routing, the following endpoints accept the subdomain via the `X-Site-Subdomain` header and are accessed on the API host:
-`https://api.{PARTNA_PUBLIC_DOMAIN}/api/public/...`
+These endpoints accept the subdomain via the `X-Site-Subdomain` header and are accessed on the API host:
+`https://api.{PARTNA_PUBLIC_DOMAIN}/api/public/...`. Since 2026-09-04 this is not a fallback for
+frontends without wildcard DNS — it is the only lane, and the duplicate entries below are the same
+registrations as the ones documented above, not header-based twins of a domain-scoped original.
 
-#### `GET /api/public/site-by-slug`
+#### `GET /api/public/site-by-slug` — REMOVED 2026-09-04
 
-- Purpose: fetch the published mini-site payload using header-based subdomain resolution
-- Auth: None
-- Rate limit: public-site
-- Headers: `X-Site-Subdomain` (required): the site subdomain slug
-
-**Response (200):** Same as `GET /api/public/site`
-
-**Common status codes:** 200, 400 (missing header), 404 (site not found), 403 (site not published)
+See "Retired public endpoints". The header-based lane survives for the analytics and lead
+endpoints below; only the payload read was removed.
 
 #### `POST /api/public/analytics/pageviews`
 #### `POST /api/public/analytics/clicks`
 
-- Purpose: header-based variants of the analytics endpoints (record page views and link clicks)
+- Purpose: record page views and link clicks (the same two endpoints listed above, repeated here)
 - Auth: None
 - Rate limit: analytics
 - Headers: `X-Site-Subdomain` (required if `site_id` is not in the request body): the site subdomain slug
 
-**Behavior:** Identical to the domain-scoped analytics endpoints above. You must provide either `site_id` in the body OR the `X-Site-Subdomain` header — otherwise validation returns 422.
+**Behavior:** These ARE the analytics endpoints documented above — one registration, listed twice
+in this document for historical reasons. You must provide either `site_id` in the body OR the
+`X-Site-Subdomain` header; otherwise validation returns 422.
 
-**Request body:** Same as domain-scoped versions above.
-
-**Response:** Same as corresponding domain-scoped endpoints.
+**Request body / Response:** as documented above.
 
 **Common status codes:** 201, 404, 403, 422, 429
 
 ### Content pools on `GET /api/public/profiles/{handle}`
 
-`profile.pools` carries one entry per content pool (`watch`, `listen`, `media`, `events`,
-`services`, `shop`, `reviews`), each `{items, latestItemId}`. A pool with an empty
-selection is **absent**, not empty. Per-slice detail lives in `docs/wire-changes/`; only
+`profile.pools` carries one entry per content pool — the nine of `PoolRegistry::POOLS`:
+`watch`, `listen`, `media`, `events`, `services`, `shop`, `reviews`, `custom_links` and
+`menus` — each `{items, latestItemId}`. A pool with an empty selection is **absent**,
+not empty. Per-slice detail lives in `docs/wire-changes/`; only
 the cross-cutting item keys are listed here.
 
 **Every pool item carries every key regardless of kind** — the wire shape does not change
@@ -1021,6 +996,58 @@ dashboard resource still reads all four.
 `PUT /api/content/pools/reviews/order`, `PUT /api/site/sections/{id}/items/{item}` with
 `state: pinned`, `POST /api/content/pools/reviews/items`). Excluding and deselecting
 return 200. Every other pool is unaffected.
+
+### Vocabulary: pool vs page vs usage
+
+Three layers use overlapping words. This table is the mapping; nothing here
+is a bug.
+
+| Content pool (`pools.<key>`) | Page it renders on (`site.pages.key`) | Notes |
+|---|---|---|
+| `media` | `gallery` | The one that catches people out. Hidden by `settings.display_gallery_page`. |
+| `custom_links` | `links` | Joins the page its own connections built. |
+| `menus` | `menu` | Joins the legacy menu lane's page. |
+| `services` · `shop` · `events` · `reviews` · `watch` · `listen` | same name | 1:1. |
+
+**A pool is a section of the public page.** There are nine, listed by
+`PoolRegistry::POOLS`, and they are the whole public wire at
+`data.profile.pools.*` (a pool whose selection is empty is omitted from a given
+response, but no tenth pool can appear). The pool→page mapping is
+`PoolRegistry::PAGE_KEYS`.
+
+**A usage is what an uploaded file is for** — `site.site_media.usage`, one of
+`content` (owner photos), `design` (logo/brand, never published as a card) or
+`documents` (downloadable PDFs). This column was called `pool` until
+2026-09-04; the rename exists because the two words named unrelated things and
+collided worst on the value `content`.
+
+`site.site_media` is not a rival to the media pool — it is the upload
+substrate beneath it. `content.media_assets` is the curation layer over both
+uploads and ingested items, bridged by `content.media_assets.site_media_id`.
+
+### Two things called "sections"
+
+| Store | What it is | Read by |
+|---|---|---|
+| `site.blocks` where `block_group = 'sections'` | Per-site visibility toggles, keyed by block type | `SitepageDataResolverService::loadSections()` |
+| `site.sections` + `site.pages` | Rule-driven page/section rendering | `PoolResolver` (via `PoolSectionProvisioner`), `SectionController`/`PageController` |
+
+Both are live and written daily. A toggle is not a section row.
+
+### Retired public endpoints
+
+`GET /api/public/site` and `GET /api/public/site-by-slug` were **removed
+2026-09-04**. `GET /api/public/profiles/{handle}` is the only public-site
+payload endpoint. The removed lane emitted `skeleton_id` (an alias of
+`architecture_id`, on the wire as `architectureId`) and `gallery` /
+`gallery_videos` keys that had been permanently empty since the `gallery`
+media usage was retired 2026-09-02.
+
+The `{subdomain}.partna.au` domain-scoped route group went with them the same
+day. It duplicated the flat `POST /api/public/customers`, `/enquiry` and
+`/subscribe` registrations with identical middleware and was unreachable in
+production, since the Worker claims `*/*` on the partna.au zone. Those three
+routes are unchanged on the API host.
 
 ---
 
@@ -1774,10 +1801,9 @@ Note: The frontend does not need any storage credentials — all image URLs come
 
 ### Partna app settings
 
-- PARTNA_PUBLIC_DOMAIN (used for domain-scoped public routes)
+- PARTNA_PUBLIC_DOMAIN (no longer routes anything — no route is domain-scoped since 2026-09-04. Still required: it builds site URLs, the analytics `Origin` check, email branding, KV and Cloudflare purge, and an empty value hard-fails the production boot)
 - PARTNA_MEDIA_DISK (default: media — the Laravel filesystem disk name)
-- PARTNA_GALLERY_IMAGE_MAX (default: 6)
-- PARTNA_CONTENT_IMAGE_MAX (default: 6)
+- PARTNA_CONTENT_IMAGE_MAX (default: 20 — the only upload cap; `PARTNA_GALLERY_IMAGE_MAX` was retired with the `gallery` pool on 2026-09-02)
 - PARTNA_IMAGE_MAX_UPLOAD_KB (default: 10240 = 10 MB)
 - PARTNA_VIDEO_MAX_UPLOAD_KB (default: 204800 = 200 MB)
 - PARTNA_VIDEO_MAX_DURATION_SECONDS (default: 30)
@@ -1813,21 +1839,26 @@ Laravel Cloud auto-injects credentials via `LARAVEL_CLOUD_DISK_CONFIG`. The imag
 
 ## 15) Known implementation gotchas
 
-### Domain-scoped public routes
+### Domain-scoped public routes — GONE 2026-09-04
 
-- If you call /api/public/site on the API host instead of {subdomain}.{PARTNA_PUBLIC_DOMAIN}, the route may not match or may return 404.
-- Always use public_api_base_url = https://{subdomain}.{PARTNA_PUBLIC_DOMAIN}/api for public routes.
+- This gotcha used to say the opposite: call public routes on
+  `{subdomain}.{PARTNA_PUBLIC_DOMAIN}` or risk a 404. **Reversed.** The API host is now the only
+  host these routes exist on — the domain-scoped group was deleted and `/api/public/site` with
+  it. Use `public_api_base_url = https://api.{PARTNA_PUBLIC_DOMAIN}/api` and identify the site by
+  `X-Site-Subdomain` (or by handle, for `/api/public/profiles/{handle}`).
+- Configure no wildcard DNS for this. A request to `{subdomain}.partna.au` is answered by the
+  Cloudflare Worker and the pages app; it never reaches Laravel.
 
 ### Analytics timestamps
 
 - Public analytics endpoints set `occurred_at` server-side (`now()`).
 - Frontend does not need to send `occurred_at`.
 
-### Gallery limits and ordering
+### Upload limits and ordering
 
-- Gallery pool: max 5 active images (configurable via `PARTNA_GALLERY_IMAGE_MAX`). Content pool: max 5 (via `PARTNA_CONTENT_IMAGE_MAX`).
-- Pool limits are enforced server-side with PostgreSQL advisory locks for race safety.
-- `POST /api/uploads` validates the pool limit before creating a new image.
-- Reorder endpoint (`POST /api/gallery/reorder`) accepts an `ids` array; any omitted ids will be appended in existing order.
+- `content` usage: max 20 active images (configurable via `PARTNA_CONTENT_IMAGE_MAX`). It is the only capped usage — the `gallery` pool was retired 2026-09-02.
+- Limits are enforced server-side with PostgreSQL advisory locks for race safety.
+- `POST /api/uploads` validates the limit before creating a new image.
+- Reorder endpoint (`POST /api/images/reorder`) accepts an `ids` array; any omitted ids will be appended in existing order.
 - Variants are generated inline (sync mode) or asynchronously (queue mode). If async, poll `GET /api/images` until `processing: false`.
 - Content-hashed variant URLs are immutable for CDN caching; re-processing generates new URLs automatically.

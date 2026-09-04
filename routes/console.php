@@ -202,6 +202,11 @@ Schedule::command('horizon:snapshot')
 // prior value (2) equalled the cadence, creating a same-tick race: lock TTL expiry
 // and the next dispatch happen at the same instant, so a slow run could collide
 // with itself. N must exceed the cadence for high-frequency tasks.
+//
+// ⚠️ Since 2026-09-04 nothing reads what this job writes (LiveStatusInjector,
+// the sole reader of the `streaming:live:*` keys, went with the legacy public-site
+// payload lane) — it stays scheduled and billed pending an owner decision. See the
+// ORPHANED READER note in app/Services/Streaming/LiveStatusPoller.php.
 Schedule::job(new CheckStreamingLiveStatusJob)
     ->everyTwoMinutes()
     ->onOneServer()

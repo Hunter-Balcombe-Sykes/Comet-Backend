@@ -3,9 +3,20 @@
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
+    // QUEUE_CONNECTION=sync runs SiteObserver's WarmPublicSiteCacheJob inline on
+    // site create, which caches the profile payload under the site's CURRENT
+    // updated_at. A connection write for a platform with no completeness
+    // predicate deliberately does not roll updated_at, so that key never rotates
+    // and the GETs below would read a payload warmed before the connection
+    // existed. Faking the queue keeps the async warm out of a synchronous
+    // read-path assertion. (Latent until 2026-09-04: the job used to throw on
+    // its legacy SiteCacheService::warmSiteCache call before reaching the warm.)
+    Queue::fake();
+
     setupUsersTable();
     setupSitesTable();
     // ActionCandidates reads the pools (PoolWire) for item actions,

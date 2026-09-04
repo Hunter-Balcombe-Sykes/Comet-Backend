@@ -67,12 +67,22 @@ final readonly class FreshaFetch implements FetchStrategy
             // the selector declined to guess for a claimed partna, so persist
             // the team snapshot the picker reads instead of a selection.
             if ($chosen['selection'] === null) {
-                unset($menu['venue']);
+                // fetchMenu() also returns `venue` (FreshaScraper.php:155) — street,
+                // phone and coordinates for LinkFreshaVenueToGoogleJob, never for the
+                // stored snapshot, which connectStatus() spreads to the client. Named
+                // keys rather than unset($menu['venue']): fetchMenu's @return omits
+                // `venue` so an unset is unprovable, and an allowlist stops a future
+                // scraper key reaching the wire by default rather than by edit.
+                $teamMenu = [
+                    'storeName' => $menu['storeName'],
+                    'team' => $menu['team'],
+                    'services' => $menu['services'],
+                ];
                 if (($chosen['suggestedEmployeeId'] ?? null) !== null) {
-                    $menu['suggestedEmployeeId'] = $chosen['suggestedEmployeeId'];
+                    $teamMenu['suggestedEmployeeId'] = $chosen['suggestedEmployeeId'];
                 }
 
-                return [...$next, 'url' => $url, 'teamMenu' => $menu];
+                return [...$next, 'url' => $url, 'teamMenu' => $teamMenu];
             }
 
             return [...$next, 'url' => $url, 'selection' => $chosen['selection'],

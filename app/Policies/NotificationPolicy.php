@@ -15,8 +15,10 @@ use Illuminate\Database\Eloquent\Model;
  * all professionals). Targeted notifications (non-null) are only visible to the
  * matching professional.
  *
- * NotificationEmailPreference, NotificationEmailPolicy, NotificationReceipt,
- * EmailSubscription all use standard direct user_id ownership.
+ * NotificationEmailPreference, NotificationReceipt and EmailSubscription all
+ * use standard direct user_id ownership. (The NotificationEmailPolicy model was
+ * retired 2026-09-04 — its table is still live but reached only via the query
+ * builder, so it has no Gate registration to cover.)
  */
 class NotificationPolicy extends BasePolicy
 {

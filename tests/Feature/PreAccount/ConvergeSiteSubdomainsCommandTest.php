@@ -57,8 +57,8 @@ it('defaults to a dry run and writes nothing', function () {
 it('converges the row and busts both old and new cache keys under --apply', function () {
     $user = divergedUser('errols', 'errol-s');
 
-    Cache::put(CacheKeyGenerator::publicSitePayload('errol-s'), ['stale' => true], 600);
-    Cache::put(CacheKeyGenerator::publicSitePayload('errols'), ['stale' => true], 600);
+    Cache::put(CacheKeyGenerator::handleResolve('errol-s'), ['stale' => true], 600);
+    Cache::put(CacheKeyGenerator::handleResolve('errols'), ['stale' => true], 600);
     Cache::put(CacheKeyGenerator::professionalModel($user->id), ['stale' => true], 600);
 
     $this->artisan('partna:converge-site-subdomains', ['--apply' => true])
@@ -67,8 +67,8 @@ it('converges the row and busts both old and new cache keys under --apply', func
 
     expect(DB::connection('pgsql')->table('site.sites')->where('user_id', $user->id)->value('subdomain'))
         ->toBe('errols')
-        ->and(Cache::get(CacheKeyGenerator::publicSitePayload('errol-s')))->toBeNull()
-        ->and(Cache::get(CacheKeyGenerator::publicSitePayload('errols')))->toBeNull()
+        ->and(Cache::get(CacheKeyGenerator::handleResolve('errol-s')))->toBeNull()
+        ->and(Cache::get(CacheKeyGenerator::handleResolve('errols')))->toBeNull()
         ->and(Cache::get(CacheKeyGenerator::professionalModel($user->id)))->toBeNull();
 });
 

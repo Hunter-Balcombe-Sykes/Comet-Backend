@@ -125,10 +125,13 @@ it('completes without reporting when the owner is already soft-deleted', functio
 
     $user->delete();
 
-    // Fake AFTER the delete: UserObserver's cache invalidation reports a
-    // QueryException against site.public_site_payload, which this lane's SQLite
-    // stand-in does not create. Unrelated to the job under test — faking here
-    // keeps assertNothingReported() an assertion about handle() alone.
+    // Scopes assertNothingReported() to handle() alone. It used to be load-
+    // bearing: the delete fired UserObserver -> the legacy payload-cache warm,
+    // which raised a QueryException against a table this lane's SQLite stand-in
+    // never created. That path died with the payload lane (2026-09-04) and the
+    // delete is now verifiably report-free — faking it before the delete passes
+    // too. Kept as a forward-looking guard on the job: the assertion is what
+    // catches a reporting path being reintroduced into handle().
     Exceptions::fake();
 
     (new SuspendUserJob($entry->id, $case->id))->handle();

@@ -223,8 +223,7 @@ class ConvergeSiteSubdomainsCommand extends Command
      * this rename actually invalidates, for BOTH the old and new subdomain.
      *
      * Not included, deliberately: siteBlocks/emailBrand (keyed on site id, whose
-     * contents this rename does not change) and the alias payload keys (this
-     * command mints no aliases).
+     * contents this rename does not change).
      *
      * @return list<string>
      */
@@ -232,11 +231,9 @@ class ConvergeSiteSubdomainsCommand extends Command
     {
         $keys = [];
 
+        // handle.resolve is what gates the timestamp-keyed public.profile:* key,
+        // so busting it for both handles is what actually rotates the payload.
         foreach ([$old, $new] as $subdomain) {
-            $payload = CacheKeyGenerator::publicSitePayload($subdomain);
-            $keys[] = $payload;
-            $keys[] = CacheKeyGenerator::staleKey($payload);
-
             $resolve = CacheKeyGenerator::handleResolve($subdomain);
             $keys[] = $resolve;
             $keys[] = CacheKeyGenerator::staleKey($resolve);

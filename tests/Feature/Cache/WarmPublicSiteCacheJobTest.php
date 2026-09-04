@@ -1,27 +1,43 @@
 <?php
 
 use App\Jobs\Cache\WarmPublicSiteCacheJob;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\Cache\SiteCacheService;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Queue;
 
-it('calls warmSiteCache with a lowercased subdomain', function () {
-    $siteCache = $this->mock(SiteCacheService::class);
-    $siteCache->shouldReceive('warmSiteCache')
-        ->once()
-        ->with('my-site');
+it('no longer calls the retired warmSiteCache', function () {
+    expect(method_exists(SiteCacheService::class, 'warmSiteCache'))->toBeFalse();
+    expect(method_exists(CacheKeyGenerator::class, 'publicSite'))->toBeFalse();
+    expect(method_exists(CacheKeyGenerator::class, 'publicSitePayload'))->toBeFalse();
+});
 
-    // §28.8 warm path (audit #12) is best-effort behind a try/catch. The
-    // User::where() lookup throws against the SQLite test fixture
-    // (no core.users table attached) and the job swallows it, so
-    // the builder/cacheLock mocks are never called — pass real container
-    // instances so the type signature is satisfied.
-    $cacheLock = app(CacheLockService::class);
-    $builder = app(IndividualProfilePayloadBuilder::class);
+it('survives a failed §28.8 warm without tripping retries', function () {
+    Exceptions::fake();
+
+    $cacheLock = Mockery::mock(CacheLockService::class);
+    $builder = Mockery::mock(IndividualProfilePayloadBuilder::class);
+
+    // The §28.8 warm is best-effort behind a try/catch. Its User::where('handle_lc')
+    // lookup THROWS against the SQLite fixture (no core.users attached) and the job
+    // swallows it via report(), so neither mock is reached. Asserting the report
+    // lands is what proves the warm actually RAN and was survived, rather than the
+    // whole handle() being a no-op that passes vacuously.
+    $builder->shouldNotReceive('build');
+    $cacheLock->shouldNotReceive('rememberLocked');
 
     $job = new WarmPublicSiteCacheJob('My-Site');
-    $job->handle($siteCache, $cacheLock, $builder);
+    $job->handle($cacheLock, $builder);
+
+    // FIXTURE-DEPENDENT COUNT. This is 1 only because this file has no
+    // setupUsersTable(): the lookup throws and is reported. Attach core.users here
+    // and $pro resolves to null instead, handle() returns early at
+    // WarmPublicSiteCacheJob.php:67 with zero reports, and this line goes red while
+    // the job is still correct. Fix it by re-deciding what the test proves, not by
+    // changing the count.
+    Exceptions::assertReportedCount(1);
 });
 
 it('runs on the cache-warm queue', function () {

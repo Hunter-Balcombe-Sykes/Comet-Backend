@@ -3,595 +3,33 @@
 namespace App\Services\Cache;
 
 use App\Http\Resources\LinkBlockResource;
-use App\Models\Core\MediaVariant;
 use App\Models\Core\Site\Block;
 use App\Models\Core\Site\Site;
-use App\Models\Core\Site\SiteSubdomainAlias;
-use App\Models\Views\PublicSitePayload;
-use App\Services\Cache\Concerns\DefersRecompute;
-use App\Services\Cache\Concerns\JitteredTtl;
-use Illuminate\Contracts\Cache\Lock;
-use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
-use Throwable;
 
-// V2: Public site payload caching with single-flight locking (prevents thundering herd). Handles 95% of traffic. Simplified in V2 — no more product payload caching.
+// V2: Cache invalidation for a site's public surface, plus the single-flight
+// link-block read.
+//
+// The hand-assembled payload builder that used to live here served
+// GET /api/public/site and /api/public/site-by-slug; it was removed 2026-09-04
+// with those routes and PublicSiteController. The canonical public lane is
+// IndividualProfileController -> IndividualProfilePayloadBuilder, cached under
+// CacheKeyGenerator::publicProfile($handleLc, $updatedAtTs) — a timestamp-keyed
+// key, which is why invalidateSitePayload() below busts handle.resolve rather
+// than any payload key of its own.
+//
+// Entry points:
+//   invalidateSite()        — everything; the ONLY one SiteObserver calls
+//                             (SiteObserver.php:28, :90). It runs payload, then
+//                             raiseResolveFloor, then images.
+//   invalidateSitePayload() — blocks, email branding, the auth-path model cache,
+//                             handle.resolve + its floor. No media.
+//   invalidateSiteImages()  — the /api/images variants only.
+//   raiseResolveFloor()     — public, because ConvergeSiteSubdomainsCommand
+//                             writes subdomains by raw UPDATE and needs it alone.
 class SiteCacheService
 {
-    use DefersRecompute;
-    use JitteredTtl;
-
-    private const MISS_SENTINEL = '__MISS__';
-
-    /**
-     * Returned by the SWR recompute closure when it threw, so the caller can tell
-     * that apart from buildPayloadFromDb legitimately returning null ("no such
-     * site"). Only the thrown case falls through to the stale-healing ladder.
-     */
-    private const RECOMPUTE_FAILED = '__swr_recompute_failed__';
-
-    /**
-     * Cache-internal flag on payloads written by writePayloadWithStale: the
-     * entry was fully built (image-variant URLs resolved, block collections +
-     * legal healed), so warm hits return it as-is — no per-request
-     * media_variants query, no cache rewrite. Entries written before this
-     * marker existed take the legacy heal path once and get re-written with
-     * the marker. Never leaves the service (see withoutResolvedMarker).
-     */
-    private const RESOLVED_MARKER = '__resolved_v1';
-
-    /**
-     * Stale-extension multiplier — matches CacheLockService::STALE_TTL_MULTIPLIER.
-     * Primary TTL 15m → :stale TTL 150m (2.5h last-good window) on the public payload.
-     */
-    private const PAYLOAD_STALE_TTL_MULTIPLIER = 10;
-
-    /**
-     * Short negative-cache window for "no published site for this subdomain". 30s on the
-     * primary key keeps bot scans off the DB; the longer :stale window survives a primary
-     * eviction so a parallel bot-burst still hits cache, not the view.
-     */
-    private const MISS_PRIMARY_TTL_SECONDS = 30;
-
     public function __construct(private readonly CacheLockService $cacheLock) {}
-
-    /**
-     * Query the DB view and build the public site payload, then cache and return it.
-     * Returns null (with a short-lived sentinel cached) when the subdomain has no
-     * published site in the view.
-     *
-     * LEGACY PATH NOTE (audit finding API-2, safe subset):
-     * This method hand-assembles a raw array for GET /api/public/site and
-     * GET /api/public/site-by-slug (served by PublicSiteController). Those routes
-     * bypass the Resource layer enforced by the newer IndividualProfileController →
-     * IndividualProfileResource path. They remain live because the external Astro
-     * front-end (partna-pages) and any mobile clients may still consume them.
-     * Decommissioning requires confirming with the Astro Worker / front-end that
-     * these routes are no longer called before removing them.
-     *
-     * @return array<string, mixed>|null
-     */
-    protected function buildPayloadFromDb(string $subdomain, string $key): ?array
-    {
-        $staleKey = $key.':stale';
-        $row = PublicSitePayload::query()
-            ->whereRaw('lower(subdomain) = ?', [$subdomain])
-            ->first();
-
-        // View only contains published sites; if not found, treat as 404.
-        if (! $row) {
-            // Negative-cache briefly to reduce DB load from bot scans.
-            // :stale gets a longer window so the next bot-burst still hits cache
-            // even if the primary just evicted.
-            Cache::put($key, self::MISS_SENTINEL, self::applyJitter(self::MISS_PRIMARY_TTL_SECONDS));
-            Cache::put($staleKey, self::MISS_SENTINEL, self::applyJitter(self::MISS_PRIMARY_TTL_SECONDS * self::PAYLOAD_STALE_TTL_MULTIPLIER));
-
-            return null;
-        }
-
-        $payload = $row->payload ?? [];
-
-        // The view's COALESCE guarantees services is always a jsonb array,
-        // so a missing key is the only thing we have to defend against.
-        $services = $payload['services'] ?? [];
-
-        $site = $payload['site'] ?? null;
-        if (is_array($site)) {
-            $site = $this->safeHydrateSitePayload(
-                $site,
-                (string) ($row->user_id ?? ''),
-                (string) ($row->site_id ?? ''),
-                $subdomain
-            );
-        }
-
-        // Must match the controller response shape exactly.
-        $links = is_array($payload['links'] ?? null) ? array_values($payload['links']) : [];
-        $sections = is_array($payload['sections'] ?? null) ? array_values($payload['sections']) : [];
-        $existingBlocks = is_array($payload['blocks'] ?? null) ? array_values($payload['blocks']) : [];
-
-        $data = [
-            'published' => true,
-            'site' => $site,
-            'professional' => $payload['professional'] ?? null,
-            'services' => $services,
-            'links' => $links,
-            'sections' => $sections,
-            'blocks' => $this->buildCombinedBlocksPayload($links, $sections, $existingBlocks),
-            'legal' => $payload['legal'] ?? null,
-        ];
-
-        $this->writePayloadWithStale($key, $data);
-
-        return $data;
-    }
-
-    /**
-     * Write the payload to both the primary (jittered TTL) and :stale (×10 window) keys.
-     *
-     * Mirrors CacheLockService::writeWithJitter's contract so a primary expiry inside
-     * the SWR fast path in getPublicSitePayload() can return last-good immediately while
-     * one worker recomputes. busts must clear both keys (see invalidateSite() — keys are
-     * routed through bustWithStale()).
-     */
-    private function writePayloadWithStale(string $key, mixed $value): void
-    {
-        $base = (int) config('partna.cache.ttls.public_payload');
-
-        // Stamp array payloads as fully built (URLs resolved, blocks/legal
-        // healed) so warm hits can skip re-hydration entirely — the marker is
-        // cache-internal and stripped before the payload leaves this service.
-        if (is_array($value)) {
-            $value[self::RESOLVED_MARKER] = true;
-        }
-
-        // Independent jitter draws so primary and stale copies expire at different seconds.
-        Cache::put($key, $value, self::applyJitter($base));
-        Cache::put($key.':stale', $value, self::applyJitter($base * self::PAYLOAD_STALE_TTL_MULTIPLIER));
-    }
-
-    /**
-     * True when a cached array carries the internal fully-built marker.
-     */
-    private function isResolvedPayload(array $payload): bool
-    {
-        return ($payload[self::RESOLVED_MARKER] ?? false) === true;
-    }
-
-    /**
-     * Strip the cache-internal marker before a payload leaves this service —
-     * the controller response shape must stay exactly as documented.
-     *
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private function withoutResolvedMarker(array $payload): array
-    {
-        unset($payload[self::RESOLVED_MARKER]);
-
-        return $payload;
-    }
-
-    /**
-     * Get public site payload (MOST CRITICAL - 95% of traffic)
-     *
-     * IMPORTANT: This must match the PublicSiteController response shape exactly.
-     */
-    public function getPublicSitePayload(string $subdomain): ?array
-    {
-        $subdomain = strtolower($subdomain);
-
-        $key = CacheKeyGenerator::publicSitePayload($subdomain);
-        $staleKey = $key.':stale';
-        $cached = Cache::get($key);
-
-        if ($cached === self::MISS_SENTINEL) {
-            return null;
-        }
-        if (is_array($cached)) {
-            // Fast path — entry was written fully built (URLs resolved,
-            // collections healed): return it untouched. This is 95% of public
-            // traffic; it must not touch Postgres or rewrite the cache.
-            if ($this->isResolvedPayload($cached)) {
-                return $this->withoutResolvedMarker($cached);
-            }
-
-            // Backward-compatible cache healing for payload shape changes.
-            // Older cache entries may not include `services`.
-            if (array_key_exists('services', $cached)) {
-                $cached = $this->ensureBlockCollections($cached);
-
-                if (! array_key_exists('legal', $cached)) {
-                    $cached['legal'] = null;
-                }
-
-                // Resolve image variant paths to URLs (pre-URL-resolution cache entries)
-                $site = $cached['site'] ?? null;
-                if (is_array($site)) {
-                    $userId = (string) data_get($cached, 'professional.id', '');
-                    $cached['site'] = $this->safeHydrateSitePayload(
-                        $site,
-                        $userId,
-                        '',
-                        $subdomain
-                    );
-                }
-
-                // Re-write once with the resolved marker so the next hit takes
-                // the fast path above.
-                $this->writePayloadWithStale($key, $cached);
-
-                return $cached;
-            }
-            Cache::forget($key);
-            Cache::forget($staleKey);
-        }
-
-        // SWR fast path: primary expired but :stale still live — return last-good
-        // immediately while one worker (lock winner) recomputes silently.
-        $stale = Cache::get($staleKey);
-        if ($stale !== null) {
-            $fillLock = Cache::store('cache_locks')->lock('site:fill:'.$subdomain, 10);
-            // Non-blocking attempt: if another worker is already recomputing, fall
-            // through and return the stale value — that's the whole point of SWR.
-            if ($fillLock->get()) {
-                // Re-check primary: another process may have filled it while we raced.
-                $rechecked = Cache::get($key);
-                if ($rechecked === self::MISS_SENTINEL) {
-                    $this->releaseLockQuiet($fillLock);
-
-                    return null;
-                }
-                if (is_array($rechecked) && array_key_exists('services', $rechecked)) {
-                    $this->releaseLockQuiet($fillLock);
-
-                    return $this->withoutResolvedMarker($rechecked);
-                }
-
-                $recompute = function () use ($subdomain, $key): array|string|null {
-                    try {
-                        return $this->buildPayloadFromDb($subdomain, $key);
-                    } catch (Throwable $e) {
-                        // CCH-3: recompute failed but a known-good stale value is
-                        // already in hand — report and fall through to the SAME
-                        // stale-serving/healing ladder below used for "another
-                        // worker is refreshing". This does not mask a genuinely
-                        // broken cache: if $stale itself turns out unusable (old
-                        // shape), the ladder re-invokes buildPayloadFromDb and
-                        // that failure still propagates normally.
-                        report($e);
-
-                        return self::RECOMPUTE_FAILED;
-                    }
-                };
-
-                if ($this->shouldDeferRecompute() && is_array($stale) && array_key_exists('services', $stale)) {
-                    // The lock release happens in this wrapper's finally, not inside
-                    // $recompute itself — $recompute is reused for both the deferred
-                    // and synchronous paths, and it must survive across the deferred
-                    // window: releasing at return would let the next caller win the
-                    // lock and queue a second rebuild of the same key.
-                    // Unnamed on purpose — see Concerns\DefersRecompute.
-                    defer(function () use ($recompute, $fillLock) {
-                        try {
-                            $recompute();
-                        } finally {
-                            $this->releaseLockQuiet($fillLock);
-                        }
-                    })->always();
-                    // Fall through to the stale-healing ladder below.
-                } else {
-                    try {
-                        $built = $recompute();
-                    } finally {
-                        $this->releaseLockQuiet($fillLock);
-                    }
-
-                    // A legitimate null ("no such site") passes straight through;
-                    // only the thrown case falls to the ladder.
-                    if ($built !== self::RECOMPUTE_FAILED) {
-                        return $built;
-                    }
-                }
-            }
-
-            // Reached when another worker holds the fill lock, when the lock-winner's
-            // own recompute failed (CCH-3), or when the lock-winner deferred its
-            // rebuild to after the response — either way, serve the last-good copy
-            // without blocking. Apply the same backward-compat healing as the primary
-            // path above: a stale copy can hold a pre-V2 shape (missing `services`,
-            // `legal`, or unsplit links/sections); if healing fails, fall through to
-            // buildPayloadFromDb.
-            if ($stale === self::MISS_SENTINEL) {
-                return null;
-            }
-            if (! is_array($stale)) {
-                return null;
-            }
-            // Fully-built stale copy — serve as-is (same fast path as primary).
-            if ($this->isResolvedPayload($stale)) {
-                return $this->withoutResolvedMarker($stale);
-            }
-            if (! array_key_exists('services', $stale)) {
-                // Old payload shape — can't safely return it; rebuild.
-                Cache::forget($key);
-                Cache::forget($staleKey);
-
-                return $this->buildPayloadFromDb($subdomain, $key);
-            }
-            $stale = $this->ensureBlockCollections($stale);
-            if (! array_key_exists('legal', $stale)) {
-                $stale['legal'] = null;
-            }
-            $staleSite = $stale['site'] ?? null;
-            if (is_array($staleSite)) {
-                $userId = (string) data_get($stale, 'professional.id', '');
-                $stale['site'] = $this->safeHydrateSitePayload($staleSite, $userId, '', $subdomain);
-            }
-
-            return $stale;
-        }
-
-        // Cold miss (no primary, no stale) — acquire a per-subdomain fill lock so
-        // only one process rebuilds the payload from the DB view while concurrent
-        // requests wait (single-flight).
-        $fillLock = Cache::store('cache_locks')->lock('site:fill:'.$subdomain, 10);
-
-        try {
-            // Block up to 5 s for the lock; raises LockTimeoutException if it can't.
-            $fillLock->block(5);
-        } catch (LockTimeoutException) {
-            // Another process is (or was) filling the cache.
-            $warm = Cache::get($key);
-            if ($warm === self::MISS_SENTINEL) {
-                return null;
-            }
-            if (is_array($warm)) {
-                return $this->withoutResolvedMarker($warm);
-            }
-
-            // Cache still empty — compute directly rather than flash-404.
-            // Bounded stampede risk: only requests in the lock-timeout window run this path.
-            return $this->buildPayloadFromDb($subdomain, $key);
-        }
-
-        try {
-            // Double-check: the lock winner may have filled the cache while we waited.
-            $rechecked = Cache::get($key);
-            if ($rechecked === self::MISS_SENTINEL) {
-                return null;
-            }
-            if (is_array($rechecked) && array_key_exists('services', $rechecked)) {
-                return $this->withoutResolvedMarker($rechecked);
-            }
-
-            return $this->buildPayloadFromDb($subdomain, $key);
-        } finally {
-            $this->releaseLockQuiet($fillLock);
-        }
-    }
-
-    /**
-     * Release a lock without letting a double-release (or driver quirk) bubble up.
-     * Mirrors CacheLockService — the finally block must never throw on top of an
-     * earlier exception from the closure.
-     */
-    private function releaseLockQuiet(Lock $lock): void
-    {
-        try {
-            $lock->release();
-        } catch (Throwable) {
-            // ignore — lock may have auto-expired or been released elsewhere
-        }
-    }
-
-    /**
-     * @param  array<string, mixed>  $site
-     * @return array<string, mixed>
-     */
-    private function safeHydrateSitePayload(array $site, string $userId, string $siteId, string $subdomain): array
-    {
-        try {
-            return $this->resolveImageVariantUrlsInSite($site, $siteId);
-        } catch (Throwable $e) {
-            Log::warning('Public site payload hydration failed; returning base site payload.', [
-                'subdomain' => $subdomain,
-                'user_id' => $userId,
-                'site_id' => $siteId,
-                'error' => $e->getMessage(),
-            ]);
-
-            return $site;
-        }
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private function ensureBlockCollections(array $payload): array
-    {
-        $links = is_array($payload['links'] ?? null) ? array_values($payload['links']) : [];
-        $sections = is_array($payload['sections'] ?? null) ? array_values($payload['sections']) : [];
-        $existingBlocks = is_array($payload['blocks'] ?? null) ? array_values($payload['blocks']) : [];
-
-        if ($links === [] && $existingBlocks !== []) {
-            $links = array_values(array_filter($existingBlocks, function ($block): bool {
-                return is_array($block)
-                    && strtolower((string) ($block['block_group'] ?? '')) === 'links';
-            }));
-        }
-
-        if ($sections === [] && $existingBlocks !== []) {
-            $sections = array_values(array_filter($existingBlocks, function ($block): bool {
-                return is_array($block)
-                    && strtolower((string) ($block['block_group'] ?? '')) === 'sections';
-            }));
-        }
-
-        $payload['links'] = $links;
-        $payload['sections'] = $sections;
-        $payload['blocks'] = $this->buildCombinedBlocksPayload($links, $sections, $existingBlocks);
-
-        return $payload;
-    }
-
-    /**
-     * @param  array<int, mixed>  $links
-     * @param  array<int, mixed>  $sections
-     * @param  array<int, mixed>  $existingBlocks
-     * @return array<int, array<string, mixed>>
-     */
-    private function buildCombinedBlocksPayload(array $links, array $sections, array $existingBlocks = []): array
-    {
-        if ($links === [] && $sections === []) {
-            return array_values(array_filter($existingBlocks, fn ($block): bool => is_array($block)));
-        }
-
-        $normalizedLinks = array_map(function ($block): array {
-            $data = is_array($block) ? $block : [];
-            $data['block_group'] = 'links';
-
-            return $data;
-        }, $links);
-
-        $normalizedSections = array_map(function ($block): array {
-            $data = is_array($block) ? $block : [];
-            $data['block_group'] = 'sections';
-
-            return $data;
-        }, $sections);
-
-        $combined = array_merge($normalizedLinks, $normalizedSections);
-
-        usort($combined, function (array $a, array $b): int {
-            $aSort = (int) ($a['sort_order'] ?? PHP_INT_MAX);
-            $bSort = (int) ($b['sort_order'] ?? PHP_INT_MAX);
-            if ($aSort !== $bSort) {
-                return $aSort <=> $bSort;
-            }
-
-            $aId = (string) ($a['id'] ?? '');
-            $bId = (string) ($b['id'] ?? '');
-
-            return $aId <=> $bId;
-        });
-
-        return array_values($combined);
-    }
-
-    /**
-     * Resolve image variant paths to public URLs in the site payload.
-     * The view returns storage paths; we need full URLs for the frontend.
-     * Also resolves video variant/stream/poster paths in gallery_videos and content_videos.
-     *
-     * @param  array<string, mixed>  $site
-     * @return array<string, mixed>
-     */
-    private function resolveImageVariantUrlsInSite(array $site, string $siteId): array
-    {
-        $allMediaIds = [];
-        foreach (['gallery', 'content_images', 'gallery_videos', 'content_videos'] as $key) {
-            foreach ($site[$key] ?? [] as $item) {
-                if (is_array($item) && ! empty($item['id'])) {
-                    $allMediaIds[] = $item['id'];
-                }
-            }
-        }
-
-        // Single query: one DB round-trip for all variant rows across all media types.
-        // Index as: media_id → artifact_type → variant_key → URL
-        $mvByMedia = [];
-        if ($allMediaIds !== []) {
-            $allVariants = MediaVariant::query()
-                ->whereIn('media_id', array_unique($allMediaIds))
-                ->get();
-
-            foreach ($allVariants as $mv) {
-                $mvByMedia[$mv->media_id][$mv->artifact_type][$mv->variant_key] = $mv->url;
-            }
-        }
-
-        foreach (['gallery', 'content_images'] as $key) {
-            $items = $site[$key] ?? [];
-            if (! is_array($items)) {
-                continue;
-            }
-            foreach ($items as $i => $item) {
-                if (! is_array($item) || empty($item['id'])) {
-                    continue;
-                }
-                $mediaId = $item['id'];
-                $pathVariants = $item['variants'] ?? [];
-                if (! is_array($pathVariants)) {
-                    continue;
-                }
-                $urlVariants = [];
-                foreach ($pathVariants as $variantKey => $path) {
-                    $url = $mvByMedia[$mediaId]['webp'][$variantKey] ?? null;
-                    if ($url !== null) {
-                        $urlVariants[$variantKey] = $url;
-                    }
-                }
-                $site[$key][$i]['variants'] = $urlVariants;
-            }
-
-            self::sortByOrderThenId($site[$key]);
-        }
-
-        foreach (['gallery_videos', 'content_videos'] as $key) {
-            $items = $site[$key] ?? [];
-            if (! is_array($items)) {
-                continue;
-            }
-            foreach ($items as $i => $item) {
-                if (! is_array($item) || empty($item['id'])) {
-                    continue;
-                }
-                $mediaId = $item['id'];
-                $byType = $mvByMedia[$mediaId] ?? [];
-
-                $site[$key][$i]['variants'] = $byType['mp4'] ?? [];
-                $site[$key][$i]['streams'] = $byType['hls_playlist'] ?? [];
-                $site[$key][$i]['poster'] = ($byType['poster']['poster'] ?? null);
-            }
-
-            self::sortByOrderThenId($site[$key]);
-        }
-
-        // Ensure video keys always exist even when there are no videos (backward-compat).
-        $site['gallery_videos'] = $site['gallery_videos'] ?? [];
-        $site['content_videos'] = $site['content_videos'] ?? [];
-
-        if (isset($site['document']) && is_array($site['document']) && ! empty($site['document']['preview_url'])) {
-            $rawPath = (string) $site['document']['preview_url'];
-            $site['document']['preview_url'] = Storage::disk(config('partna.media_disk'))->url($rawPath);
-        }
-
-        return $site;
-    }
-
-    /**
-     * Sort payload media items by sort_order asc, falling back to id for a
-     * stable tiebreak. Shared by both the image and video passes in
-     * resolveImageVariantUrlsInSite().
-     */
-    private static function sortByOrderThenId(array &$items): void
-    {
-        usort($items, function ($a, $b) {
-            $aSort = is_array($a) ? (int) ($a['sort_order'] ?? PHP_INT_MAX) : PHP_INT_MAX;
-            $bSort = is_array($b) ? (int) ($b['sort_order'] ?? PHP_INT_MAX) : PHP_INT_MAX;
-            if ($aSort !== $bSort) {
-                return $aSort <=> $bSort;
-            }
-            $aId = is_array($a) ? (string) ($a['id'] ?? '') : '';
-            $bId = is_array($b) ? (string) ($b['id'] ?? '') : '';
-
-            return $aId <=> $bId;
-        });
-    }
 
     /**
      * Returns both the primary key and its SWR stale copy so invalidation is
@@ -605,22 +43,22 @@ class SiteCacheService
     }
 
     /**
-     * Invalidate payload-related cache keys for a site (excludes image-gallery variants).
-     * Use when a mutation affects site content but not media rows — service edits,
-     * category renames, profile updates, block reorders.
+     * Invalidate a site's non-media cache keys — blocks, email branding, the
+     * auth-path model cache, and handle.resolve plus its floor. Excludes the
+     * image-gallery variants; use when a mutation affects site content but not
+     * media rows — service edits, category renames, profile updates, block reorders.
      */
     public function invalidateSitePayload(Site $site): void
     {
         $userId = (string) ($site->user_id ?? '');
 
         $keys = [
-            // busts: site:payload:{subdomain} + :stale (CACHE-2 — SWR fast path
-            // serves :stale on primary expiry, so invalidation must clear both)
-            ...self::bustWithStale(CacheKeyGenerator::publicSitePayload($site->subdomain)),
+            // CACHE-2: the SWR fast path serves :stale on primary expiry, so
+            // invalidation must clear both copies of every key.
             ...self::bustWithStale(CacheKeyGenerator::siteBlocks($site->id, 'links')),
             ...self::bustWithStale(CacheKeyGenerator::siteBlocks($site->id, 'sections')),
-            // White-label email branding bundle (logo, palette, reply-to). Same SWR
-            // contract as the payload keys — bust both primary and :stale.
+            // White-label email branding bundle (logo, palette, reply-to). Same
+            // CACHE-2 both-copies rule as the block keys above.
             ...self::bustWithStale(CacheKeyGenerator::emailBrand($site->id)),
         ];
 
@@ -633,34 +71,21 @@ class SiteCacheService
             $keys[] = $modelKey.':stale';
         }
 
-        // If subdomain changed, kill the OLD cache key too.
-        // This is critical so old URLs redirect (via alias) instead of returning cached payload.
-        if ($site->wasChanged('subdomain')) {
-            $old = strtolower((string) $site->getOriginal('subdomain'));
-            if ($old !== '') {
-                // busts: site:payload:{old} + :stale — same SWR contract as the new key.
-                foreach (self::bustWithStale(CacheKeyGenerator::publicSitePayload($old)) as $oldKey) {
-                    $keys[] = $oldKey;
-                }
-            }
-        }
-
-        // Invalidate all alias cache keys (your Site model has no aliases() relation)
-        $aliasSubdomains = SiteSubdomainAlias::query()
-            ->where('site_id', $site->id)
-            ->pluck('subdomain')
-            ->all();
-
-        foreach ($aliasSubdomains as $aliasSubdomain) {
-            // busts: site:payload:{alias} + :stale (CACHE-2 SWR symmetry)
-            foreach (self::bustWithStale(CacheKeyGenerator::publicSitePayload(strtolower($aliasSubdomain))) as $aliasKey) {
-                $keys[] = $aliasKey;
-            }
-        }
-
         // Bust handle.resolve so the timestamp-keyed public.profile:* key rotates
         // on the next request — without this, the 30s resolve cache continues
         // serving the old updated_at_ts and the new key is never constructed.
+        //
+        // ONE handle here, not two, and that asymmetry with
+        // ConvergeSiteSubdomainsCommand::cacheKeysFor() (which busts the OLD and
+        // the NEW handle) is correct, not a missing case. This method reads
+        // $site->subdomain — the value already written — so it has no access to
+        // the previous one; the rename command does, because it holds both sides
+        // of the raw UPDATE it is about to run. Do not "fix" either to match the
+        // other: an old-handle bust cannot be written here — a handle.resolve:<old>
+        // entry may genuinely exist after a rename, but this method has no way to
+        // learn the old value, so ConvergeSiteSubdomainsCommand::cacheKeysFor() is
+        // where both sides get busted. Dropping the old-handle bust THERE would
+        // strand the pre-rename resolve entry for its full TTL.
         $handle = strtolower((string) ($site->subdomain ?? ''));
         if ($handle !== '') {
             $resolveKey = CacheKeyGenerator::handleResolve($handle);
@@ -769,13 +194,5 @@ class SiteCacheService
                 ->map(fn (Block $b) => (new LinkBlockResource($b))->resolve())
                 ->all()
         );
-    }
-
-    /**
-     * Warm cache for a site (call after updates)
-     */
-    public function warmSiteCache(string $subdomain): void
-    {
-        $this->getPublicSitePayload($subdomain);
     }
 }

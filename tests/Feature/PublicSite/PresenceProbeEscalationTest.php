@@ -244,12 +244,11 @@ it('LIFE-1 end-to-end: a services-probe fault degrades /api/public/profiles/{han
     setupDesignKitsTable();
     setupSiteMediaTable();
     setupSubdomainAliasesTable();
-    // Two UNRELATED resilience paths (SiteCacheService's public_site_payload
-    // warm, RenameSubdomainAction's handle-alias check) also report() on a
-    // missing table — set them up so this test's Exceptions::fake() only
-    // captures the ONE fault under test (site.services), not incidental noise
-    // from other already-existing fail-open paths.
-    setupPublicSitePayloadTable();
+    // One UNRELATED resilience path (RenameSubdomainAction's handle-alias
+    // check) also report()s on a missing table — set it up so this test's
+    // Exceptions::fake() only captures the ONE fault under test
+    // (site.services), not incidental noise from other already-existing
+    // fail-open paths.
     setupHandleAliasesTable();
     // setupSectionsTables() (not setupContentTables()) — pool presence probes
     // (P4) must not add faults of their own, so the pool tables ARE

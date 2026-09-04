@@ -22,7 +22,6 @@ use App\Http\Controllers\Api\PublicSite\PublicLoginIdentifierController;
 use App\Http\Controllers\Api\PublicSite\PublicNotificationEmailUnsubscribeController;
 use App\Http\Controllers\Api\PublicSite\PublicSignupAvailabilityController;
 use App\Http\Controllers\Api\PublicSite\PublicSignupPrewarmController;
-use App\Http\Controllers\Api\PublicSite\PublicSiteController;
 use App\Http\Controllers\Api\PublicSite\PublicSiteProgressController;
 use App\Http\Controllers\Api\Webhooks\ResendWebhookController;
 use App\Http\Controllers\Api\Webhooks\SupabaseAuthHookController;
@@ -107,11 +106,10 @@ Route::match(['get', 'post'], '/public/notification-unsubscribe/{userId}/{catego
 // /health/scheduler below do real work and stay throttled.
 Route::get('/health', fn () => response()->json(['ok' => true]));
 
-// Header-based fallback for path-based frontend routing (e.g. /shloom).
-// When the frontend cannot use subdomain DNS, it sends the subdomain
-// via the X-Site-Subdomain header through the Next.js proxy.
-Route::get('/public/site-by-slug', [PublicSiteController::class, 'showByHeader'])
-    ->middleware('throttle:public-site');
+// The legacy public-site payload lane (`/public/site`, `/public/site-by-slug`)
+// was REMOVED 2026-09-04. `GET /api/public/profiles/{handle}` is the only
+// public-site payload endpoint. Guard:
+// tests/Feature/PublicSite/LegacyPayloadRouteRetiredTest.php
 
 // Public document download — 302-redirects to a short-TTL R2 presigned URL
 // with a response-content-disposition=attachment override so the browser

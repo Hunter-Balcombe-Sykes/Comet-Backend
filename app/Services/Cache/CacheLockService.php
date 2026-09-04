@@ -19,8 +19,8 @@ use Throwable;
  *
  * Wraps Laravel's Cache::remember with a Cache::lock so that under concurrent
  * load only one request rebuilds an expired value while others wait and read
- * the freshly-filled cache. Models the proven pattern in
- * SiteCacheService::getPublicSitePayload.
+ * the freshly-filled cache. Serves the public profile payload
+ * (IndividualProfileController) among others.
  *
  * Use this for any cached value that:
  *   - is hot (likely to be requested concurrently when it expires), AND

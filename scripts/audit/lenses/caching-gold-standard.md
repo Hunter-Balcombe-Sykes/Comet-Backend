@@ -1,6 +1,6 @@
 # Caching: gold-standard adherence audit
 
-Hunt every cache read/write in the codebase and measure it against the **Partna gold-standard caching pattern** established by `App\Services\Cache\CacheLockService` and deployed across `SiteCacheService` and `UserCacheService`. The canonical reference implementation is `SiteCacheService::getPublicSitePayload`. The `docs/caching-gold-standard.md` document in this repo is the authoritative human-readable description of the standard.
+Hunt every cache read/write in the codebase and measure it against the **Partna gold-standard caching pattern** established by `App\Services\Cache\CacheLockService` and deployed across `SiteCacheService` and `UserCacheService`. The canonical reference implementation is the public profile lane: `IndividualProfileController` (which wraps `IndividualProfilePayloadBuilder` in `CacheLockService::rememberLocked` under `CacheKeyGenerator::publicProfile($handleLc, $updatedAtTs)`). The `docs/caching-gold-standard.md` document in this repo is the authoritative human-readable description of the standard.
 
 A cache that is correct in isolation can still be wrong: a missing single-flight lock causes stampedes on cold start, a synchronised TTL causes thundering-herd expiry, a TTL-only invalidation strategy lets pages go stale across the whole fleet, and a `Cache::forget` that doesn't match the write path makes the cache the source of stale truth. This lens looks for **deviations from the gold standard**, not for the absence of caching.
 
@@ -26,7 +26,7 @@ Number them `CCH-1`, `CCH-2`, … sequentially across the whole audit, regardles
 ### (1) Missing single-flight (stampede risk)
 
 - `Cache::remember(...)` / `cache()->remember(...)` / `Cache::rememberForever(...)` called on a hot read path **without** going through `CacheLockService::rememberLocked` or holding an explicit `Cache::lock(...)`.
-- A "hot read path" here means any of: the public sitepage payload resolution path (`SiteCacheService` / `PublicSiteResolver` / `SitepageDataResolverService`), handle/profile resolution, `AccountCapabilities` lookups, analytics summary endpoints, notification unread-count, streaming live-status (`LiveStatusPoller` / `LiveStatusInjector`), dashboard controllers under `app/Http/Controllers/Api/{User,Staff,Internal,PublicSite}`, and middleware that runs per-request.
+- A "hot read path" here means any of: the public profile payload path (`IndividualProfileController` / `IndividualProfilePayloadBuilder` / `PublicSiteResolver` / `SitepageDataResolverService`), site-scoped cache invalidation (`SiteCacheService`), handle/profile resolution, `AccountCapabilities` lookups, analytics summary endpoints, notification unread-count, streaming live-status (`LiveStatusPoller`), dashboard controllers under `app/Http/Controllers/Api/{User,Staff,Internal,PublicSite}`, and middleware that runs per-request.
 - Evidence to quote: the entire `Cache::remember(...)` call including key, TTL, and closure.
 - Canonical fix: inject `CacheLockService` and replace with `$this->cache->rememberLocked($key, $ttl, fn() => ...)`.
 
@@ -106,7 +106,7 @@ For every finding:
 ## Out of scope — do NOT re-flag
 
 - The `CacheLockService` implementation itself, its `Concerns/JitteredTtl` trait, and the `docs/caching-gold-standard.md` doc (these define the gold standard).
-- The `SiteCacheService::getPublicSitePayload` path (the canonical reference implementation).
+- The `IndividualProfileController` public-profile cache path (the canonical reference implementation).
 - Test-only caches (`Cache::store('array')` in `tests/`).
 - The `Bus::fake()` / `Cache::spy()` test helpers.
 

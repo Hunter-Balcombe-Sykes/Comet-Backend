@@ -413,6 +413,9 @@ it('writes content.* and leaves site.menu_items empty', function () {
         ['name' => 'Margherita', 'description' => 'Classic', 'price' => 18.0, 'category' => 'Pizza'],
     ]);
 
+    // Counting zero is only possible because tests/Pest.php still provisions a
+    // SQLite stand-in for these two dropped tables. That stand-in exists FOR this
+    // assertion — see the comment above its CREATE TABLE before removing either.
     expect(DB::connection('pgsql')->table('site.menu_items')->count())->toBe(0)
         ->and(DB::connection('pgsql')->table('site.menu_categories')->count())->toBe(0)
         ->and(msacRows($user))->toHaveCount(1);

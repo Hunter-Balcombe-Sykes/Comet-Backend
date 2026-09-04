@@ -20,10 +20,6 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupSubdomainAliasesTable();
-    // A successful publish fires the async cache-warm path, which reads the
-    // public_site_payload view. Seed the (empty) table so that query resolves
-    // cleanly and the test isolates the policy gate, not the cache machinery.
-    setupPublicSitePayloadTable();
 });
 
 it('lets an active owner update their site through the policy gate', function () {

@@ -8,6 +8,7 @@ use App\Services\PublicSite\SitepageDataResolverService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
@@ -68,6 +69,19 @@ beforeEach(function () {
     Cache::flush();
     // Disable throttling so the test isn't tied to RateLimiter internals.
     Config::set('partna.throttle.enabled', false);
+
+    // Sites are created per-test, i.e. AFTER the flush above, and
+    // QUEUE_CONNECTION=sync would run SiteObserver's WarmPublicSiteCacheJob
+    // inline — caching the profile payload under the site's current
+    // updated_at. (The observer gates that dispatch on $site->is_published,
+    // SiteObserver.php:58, so this only bites for the published fixtures here —
+    // which is most of them, and an unpublished one becoming published later
+    // would reopen it silently.) Tests that then seed rows via raw DB::table() inserts
+    // (bypassing every observer) never roll updated_at, so the timestamp-keyed
+    // profile key would not rotate and the GET would read the pre-seed warm.
+    // (Latent until 2026-09-04: the job used to throw on its legacy
+    // SiteCacheService::warmSiteCache call before reaching the warm.)
+    Queue::fake();
 });
 
 function seedIndividualProfile(string $handle, ?string $architectureId = null, string $status = 'active'): User

@@ -25,8 +25,8 @@ use Illuminate\Support\Facades\Redis;
 // #CACHE-2 / CACHE-3: one logical cache read fires up to three Redis probes,
 // and counting each of them made the hit rate measure "this exact key was warm"
 // rather than "we served without recomputing". The single-flight read paths
-// (CacheLockService::rememberLocked()/rememberLockedNullable(),
-// SiteCacheService::getPublicSitePayload()) do, in order:
+// (CacheLockService::rememberLocked()/rememberLockedNullable(), which serve
+// the IndividualProfileController payload among others) do, in order:
 //
 //   1. probe the primary key
 //   2. on miss, probe its ":stale" companion (rememberLocked only)
@@ -132,13 +132,13 @@ class RecordCacheMetrics
         $this->closeCurrentRead();
 
         if ($isStaleKey) {
-            // writeWithJitter() / writePayloadWithStale() always write the
-            // primary key then the ":stale" copy for one logical write — the
-            // KeyWritten on ":stale" is the same write, not a second one.
+            // writeWithJitter() always writes the primary key then the
+            // ":stale" copy for one logical write — the KeyWritten on ":stale"
+            // is the same write, not a second one.
             //
             // Any other unpaired ":stale" event (didn't match the pairing check
-            // above) is SWR housekeeping — e.g. the forget()+reget healing path
-            // in SiteCacheService — never a metric subject in its own right.
+            // above) is SWR housekeeping — e.g. a forget()+reget healing path —
+            // never a metric subject in its own right.
             return;
         }
 

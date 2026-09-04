@@ -2,7 +2,6 @@
 
 use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\Notifications\Notification;
-use App\Models\Core\Notifications\NotificationEmailPolicy;
 use App\Models\Core\Notifications\NotificationEmailPreference;
 use App\Models\Core\Notifications\NotificationReceipt;
 use App\Models\Core\User\User;
@@ -166,23 +165,11 @@ it('denies delete with 423 when the actor is pending deletion', function () {
     expect($result->message())->toBe('Account is pending deletion.');
 });
 
-// ---------------------------------------------------------------------------
-// view — NotificationEmailPolicy (direct ownership, no broadcast concept)
-// ---------------------------------------------------------------------------
-
-it('allows view on NotificationEmailPolicy for the owner', function () {
-    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $pref = new NotificationEmailPolicy(['user_id' => 'pro-1']);
-    expect($this->policy->view($actor, $pref))->toBeTrue();
-});
-
-it('denies view on NotificationEmailPolicy with 404 for non-owner', function () {
-    $actor = (new User)->forceFill(['id' => 'pro-1', 'status' => 'active']);
-    $pref = new NotificationEmailPolicy(['user_id' => 'pro-other']);
-    $result = $this->policy->view($actor, $pref);
-    expect($result)->toBeInstanceOf(Response::class);
-    expect($result->status())->toBe(404);
-});
+// The two NotificationEmailPolicy cases that stood here were removed with the
+// model, 2026-09-04. The notifications.notification_email_policies TABLE is
+// live, but every call site reaches it through the query builder, so there is
+// no model for a policy to authorize. The direct-ownership branch they covered
+// is still exercised by the NotificationEmailPreference cases above.
 
 // ---------------------------------------------------------------------------
 // view — NotificationReceipt (direct ownership)
