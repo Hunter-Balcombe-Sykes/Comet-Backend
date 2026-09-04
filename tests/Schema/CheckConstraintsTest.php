@@ -97,8 +97,9 @@ it('blocks_group_type_check constraint exists and is validated', function () {
 
 // ─── site.site_media ────────────────────────────────────────────────────────
 
-it('site_media_pool_check constraint exists and is validated', function () {
-    assertCheckConstraintExists('site', 'site_media', 'site_media_pool_check');
+it('site_media_usage_check constraint exists and is validated', function () {
+    // Renamed from site_media_pool_check with the column (20260904235904).
+    assertCheckConstraintExists('site', 'site_media', 'site_media_usage_check');
 });
 
 // ─── notifications.email_subscriptions ──────────────────────────────────────

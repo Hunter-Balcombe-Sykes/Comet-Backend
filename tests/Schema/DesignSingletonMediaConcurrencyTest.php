@@ -8,7 +8,7 @@
 // audit claimed a race "could leave two active singleton rows". It can't —
 // site_media_design_singleton_purpose_uq (supabase/migrations/
 // 20260701210000_collapse_cover_singleton_indexes.sql) is a real partial
-// UNIQUE INDEX on (site_id, purpose) WHERE pool='design' AND deleted_at IS
+// UNIQUE INDEX on (site_id, purpose) WHERE usage='design' AND deleted_at IS
 // NULL, so Postgres itself refuses a second live row. Asserting "exactly one
 // active row survives" (the audit's prescribed test) would pass trivially and
 // prove nothing new.
@@ -42,7 +42,7 @@
 //   DB::connection('pgsql')->statement(
 //       "CREATE UNIQUE INDEX IF NOT EXISTS site.site_media_design_singleton_purpose_uq
 //           ON site_media (site_id, purpose)
-//           WHERE pool = 'design' AND deleted_at IS NULL"
+//           WHERE usage = 'design' AND deleted_at IS NULL"
 //   );
 //
 // `CREATE UNIQUE INDEX site.name ON site_media (...)` is SQLite-only syntax —
