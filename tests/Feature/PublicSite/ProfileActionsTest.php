@@ -85,7 +85,7 @@ it('serves platforms and pool items in newest order, every ref resolving against
     expect($payload['actions']['mode'])->toBe('smart')
         ->and(array_column($entries, 'id'))->toBe(['platform:instagram', 'item:'.$linkId])
         ->and($entries[1])->toMatchArray(['position' => 1, 'kind' => 'item', 'label' => 'New thing', 'url' => 'https://example.com/new-thing', 'locked' => false, 'ref' => ['pool' => 'custom_links', 'itemId' => $linkId]])
-        ->and($entries[0])->toMatchArray(['position' => 0, 'kind' => 'platform', 'label' => 'Instagram', 'url' => 'https://www.instagram.com/maha', 'thumb' => null, 'ref' => null]);
+        ->and($entries[0])->toMatchArray(['position' => 0, 'kind' => 'platform', 'label' => 'Follow on Instagram', 'url' => 'https://www.instagram.com/maha', 'thumb' => null, 'ref' => null]);
 
     $pools = json_decode(json_encode($payload['profile']['pools']), true);
     $servedIds = array_column($pools['custom_links']['items'], 'id');
@@ -146,4 +146,36 @@ it('a source connection whose page is present folds into the page action on the 
     $ids = array_column(actionsPayload($tenant)['actions']['entries'], 'id');
 
     expect($ids)->toContain('page:services')->not->toContain('platform:fresha');
+});
+
+it('gives a platform action the verb of its catalog shelf', function () {
+    $tenant = createTenant('pa-verbs');
+    actionsConnection($tenant, 'youtube', ['handle' => 'maha']);          // shelf video
+    actionsConnection($tenant, 'spotify', ['url' => 'https://open.spotify.com/artist/x']); // shelf music
+    actionsConnection($tenant, 'instagram', ['username' => 'maha']);      // shelf social
+
+    $labels = [];
+    foreach (actionsPayload($tenant)['actions']['entries'] as $entry) {
+        $labels[$entry['id']] = $entry['label'];
+    }
+
+    expect($labels)->toMatchArray([
+        'platform:youtube' => 'Watch on YouTube',
+        'platform:spotify' => 'Listen on Spotify',
+        'platform:instagram' => 'Follow on Instagram',
+    ]);
+});
+
+it('leaves a business-shelf platform on its bare brand name', function () {
+    // `business` is the deliberate omission from the verb map — a directory
+    // listing offers no single intent a verb could honestly name, so it keeps
+    // the brand alone. All nine verbless active surfaces are this shelf.
+    $tenant = createTenant('pa-verbless');
+    actionsConnection($tenant, 'yelp', ['url' => 'https://www.yelp.com/biz/maha'], [
+        'surface_key' => 'yelp.listing', 'routing_class' => 'social',
+    ]);
+
+    $labels = array_column(actionsPayload($tenant)['actions']['entries'], 'label', 'id');
+
+    expect($labels['platform:yelp'] ?? null)->toBe('Yelp');
 });
