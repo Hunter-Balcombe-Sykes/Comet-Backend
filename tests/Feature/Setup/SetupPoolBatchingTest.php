@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\Accounts\AccountCapabilities;
+use App\Site\Pools\PoolResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
@@ -49,4 +50,46 @@ it('reads every pool\'s curation in one query, not one per pool', function () {
     // One whereIn over every section, via PoolResolver::preloadCuration.
     // Before batching this was seven separate section-scoped selects.
     expect($selects)->toHaveCount(1);
+});
+
+// The query-count test above proves the shape of the reads, not the content
+// of the response — SetupControllerTest never seeds content.items, so every
+// item pass it exercises takes the empty-pool-omits-pass branch and never
+// touches $resolvedPools['library'] at all. PoolResolver::resolve() is the
+// UNCHANGED pre-batching path (Task 1 only added callers of its plan/
+// preloadSections/preloadCuration/hydrateItems/assemble halves, never
+// touched resolve() itself), so it is a genuine before/after oracle: if
+// resolveAllPools() ever returned a library that differs from what looping
+// resolve() per pool would have produced, this is the test that catches it.
+it('the batched items.watch and items.shop passes match an independent resolve() per pool, order included', function () {
+    $pro = createTenant('setup-batch-parity');
+
+    // Two items in one pool (ordering matters) and one in a second pool, so
+    // the comparison exercises more than a single-item list and more than a
+    // single non-empty pool, per the review's ask.
+    $watchA = seedContentItem($pro->id, ['kind' => 'video', 'last_seen_at' => now()->subMinutes(5)]);
+    $watchB = seedContentItem($pro->id, ['kind' => 'video', 'last_seen_at' => now()]);
+    seedContentItem($pro->id, ['kind' => 'product']);
+
+    $passes = collect(actingAsUser($pro)->getJson('/api/site/setup')->assertOk()->json('passes'));
+    $watchPass = $passes->firstWhere('key', 'items.watch');
+    $shopPass = $passes->firstWhere('key', 'items.shop');
+
+    expect($watchPass)->not->toBeNull()
+        ->and($shopPass)->not->toBeNull();
+    // Both items must have made it into the comparison, or this is a
+    // one-item test wearing a two-item costume.
+    expect($watchPass['items'])->toHaveCount(2);
+
+    $resolver = app(PoolResolver::class);
+    $site = $pro->site()->firstOrFail();
+
+    // items.watch and items.shop both take composePass()'s plain item-pool
+    // branch (items = resolved['library'] verbatim) — no setupItem()
+    // transform, unlike services. That is what makes a direct comparison to
+    // resolve()['library'] meaningful.
+    expect($watchPass['items'])->toEqual($resolver->resolve($site, 'watch')['library']);
+    expect($shopPass['items'])->toEqual($resolver->resolve($site, 'shop')['library']);
+
+    expect(collect($watchPass['items'])->pluck('id')->all())->toEqual([$watchB, $watchA]);
 });
