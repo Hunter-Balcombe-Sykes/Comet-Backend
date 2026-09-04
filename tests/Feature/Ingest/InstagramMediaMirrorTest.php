@@ -503,13 +503,39 @@ it('applies the budget across the posts of ONE projection pass, newest first', f
         'r2' => ['taken_at' => '2026-08-30T00:00:00Z', 'images' => ['https://cdn.example/r2.jpg'], 'video_url' => 'https://cdn.example/r2.mp4'],
     ]);
 
-    // Published → videos first: the newest reel (r1) and its poster, then the
-    // two newest image posts (new, mid). `old`, `new-2` and reel r2 are budgeted out.
+    // Published → videos first: the newest reel (r1), then the two newest
+    // image posts (new, mid). `old`, `new-2` and reel r2 are budgeted out.
+    //
+    // r1's POSTER is budgeted out too, and that is the point of the
+    // arithmetic: a poster spends an image slot like any other picture, so
+    // two image budget slots buy exactly two pictures. `new` and `mid` are
+    // both newer than r1, and newest-first is the tiebreak. Exempting the
+    // poster would make this pull copy three images against a cap of two.
     expect(mirrorDispatchOrder())->toBe([
         'https://cdn.example/r1.mp4',
         'https://cdn.example/new.jpg',
         'https://cdn.example/mid.jpg',
-        'https://cdn.example/r1.jpg',
+    ]);
+});
+
+it('a poster spends an image slot, so a video post cannot exceed the image cap', function () {
+    config(['partna.media.pull_budget.images' => 1, 'partna.media.pull_budget.videos' => 2]);
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+    setSitePublished($userId, true);
+
+    [$source, $streamId] = instagramSourceForMirror($userId);
+    writeInstagramRecords($source, $streamId, [
+        'r1' => ['taken_at' => '2026-09-04T00:00:00Z', 'images' => ['https://cdn.example/p1.jpg'], 'video_url' => 'https://cdn.example/v1.mp4'],
+        'r2' => ['taken_at' => '2026-09-03T00:00:00Z', 'images' => ['https://cdn.example/p2.jpg'], 'video_url' => 'https://cdn.example/v2.mp4'],
+    ]);
+
+    // Two video slots, one image slot: both videos mirror, and only the
+    // NEWER post's poster does. The second reel keeps its asset row and
+    // renders from source until a later pass has budget for it.
+    expect(mirrorDispatchOrder())->toBe([
+        'https://cdn.example/v1.mp4',
+        'https://cdn.example/v2.mp4',
+        'https://cdn.example/p1.jpg',
     ]);
 });
 

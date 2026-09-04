@@ -3477,10 +3477,19 @@ class ProjectionWriter
                 $videos[$videoId] = $postVideos[$videoId];
                 $videoIds[$videoId] = true;
                 $budgeted += count($postVideos) - 1;
-                if ($postImages !== []) {
+                // The poster spends an IMAGE slot. It is an image by every
+                // measure that matters here — a fetch, a decode, two puts —
+                // so exempting it would let a video-heavy pull mirror
+                // `videos + images` pictures while the cap says `images`.
+                // It competes on equal terms with a still post's cover:
+                // both are the one frame a card needs to not render blank.
+                if ($postImages !== [] && $imageBudget > 0) {
+                    $imageBudget--;
                     $posterId = array_key_first($postImages);
                     $images[$posterId] = $postImages[$posterId];
                     $budgeted += count($postImages) - 1;
+                } elseif ($postImages !== []) {
+                    $budgeted += count($postImages);
                 }
 
                 continue;
