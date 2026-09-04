@@ -18,6 +18,13 @@ use Illuminate\Support\Str;
 // defence-in-depth (matching the sibling write controllers in this file
 // tree) rather than a live gap. Uses Notification::class as the resource —
 // there's no single-row target for a global or list read/write here.
+//
+// notifications.notification_email_policies has NO Eloquent model (retired
+// 2026-09-04) — every access here is the query builder, so no observer fires
+// and the cache invalidation below is hand-written by necessity, not by
+// preference. A new write path in this file MUST bust the same key:
+// NotificationPublisher::bumpGlobalVersion() for a global row,
+// NotificationPublisher::forget($professional->id) for a per-pro row.
 class StaffNotificationEmailPolicyController extends ApiController
 {
     public function indexGlobal(Request $request): JsonResponse

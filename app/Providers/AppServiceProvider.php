@@ -32,7 +32,6 @@ use App\Models\Core\Feedback;
 use App\Models\Core\Gdpr\DataExportAudit;
 use App\Models\Core\Notifications\EmailSubscription;
 use App\Models\Core\Notifications\Notification;
-use App\Models\Core\Notifications\NotificationEmailPolicy;
 use App\Models\Core\Notifications\NotificationEmailPreference;
 use App\Models\Core\Notifications\NotificationReceipt;
 use App\Models\Core\Segments\UserSegment;
@@ -271,7 +270,6 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(UserDeletionAuditEntry::class, UserSelfPolicy::class);
         Gate::policy(Notification::class, NotificationPolicy::class);
         Gate::policy(NotificationEmailPreference::class, NotificationPolicy::class);
-        Gate::policy(NotificationEmailPolicy::class, NotificationPolicy::class);
         Gate::policy(NotificationReceipt::class, NotificationPolicy::class);
         Gate::policy(EmailSubscription::class, NotificationPolicy::class);
         Gate::policy(DataExportAudit::class, GdprPolicy::class);
