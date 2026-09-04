@@ -2505,7 +2505,7 @@ class PoolResolver
      * semantics as before slice 1a; only the URL source moved from raw
      * source_url to the resolver seam.
      *
-     * @param  array<string, array{url: string, width: int|null, height: int|null}>  $resolved
+     * @param  array<string, array{url: string, width: int|null, height: int|null, thumb: string|null}>  $resolved
      */
     private function cover(Collection $rows, array $resolved): ?string
     {
@@ -2592,8 +2592,8 @@ class PoolResolver
      * resolves to no URL is OMITTED, never emitted as null — the unrenderable
      * ref-only Google assets degrade to an empty gallery (spec §3.5).
      *
-     * @param  array<string, array{url: string, width: int|null, height: int|null}>  $resolved
-     * @return list<array{url: string, width: int|null, height: int|null, role: string, alt: string|null}>
+     * @param  array<string, array{url: string, width: int|null, height: int|null, thumb: string|null}>  $resolved
+     * @return list<array{url: string, thumb: string|null, width: int|null, height: int|null, role: string, alt: string|null}>
      */
     private function frames(Collection $rows, array $resolved): array
     {
