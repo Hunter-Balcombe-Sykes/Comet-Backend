@@ -8,8 +8,8 @@ use Illuminate\Http\Request;
 // TEST-1: the public-profile API is the Astro Worker's subrequest target — the
 // single most-read endpoint — and had zero coverage. These tests drive the
 // controller's branches through a mocked CacheLockService so they exercise the
-// resolve → payload → deleted-race → 200 flow without the full
-// site.public_site_payload DB view.
+// resolve → payload → deleted-race → 200 flow without standing up the DB-backed
+// IndividualProfilePayloadBuilder.
 
 /**
  * Bind a CacheLockService whose rememberLocked() returns the given values on

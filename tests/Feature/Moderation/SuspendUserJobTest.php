@@ -126,9 +126,9 @@ it('completes without reporting when the owner is already soft-deleted', functio
     $user->delete();
 
     // Fake AFTER the delete: UserObserver's cache invalidation reports a
-    // QueryException against site.public_site_payload, which this lane's SQLite
-    // stand-in does not create. Unrelated to the job under test — faking here
-    // keeps assertNothingReported() an assertion about handle() alone.
+    // QueryException against tables this lane's SQLite stand-in does not
+    // create. Unrelated to the job under test — faking here keeps
+    // assertNothingReported() an assertion about handle() alone.
     Exceptions::fake();
 
     (new SuspendUserJob($entry->id, $case->id))->handle();

@@ -1512,20 +1512,6 @@ function setupWorkplacesTable(): void
 }
 
 /**
- * site.public_site_payload — Postgres view in production, plain table here.
- */
-function setupPublicSitePayloadTable(): void
-{
-    attachTestSchemas();
-    DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.public_site_payload (
-        site_id TEXT PRIMARY KEY,
-        user_id TEXT NULL,
-        subdomain TEXT NULL,
-        payload TEXT NULL
-    )');
-}
-
-/**
  * site.site_media + site.media_variants for media upload / processing tests.
  * (Both tables live under the 'site' schema in production.)
  */

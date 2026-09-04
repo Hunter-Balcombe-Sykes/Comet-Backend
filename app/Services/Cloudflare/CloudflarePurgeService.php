@@ -148,9 +148,9 @@ class CloudflarePurgeService
         $encodedHandle = rawurlencode($h);
 
         // Canonical public-site base domain — the single source of truth shared
-        // with PublicSiteController/ResolvesSubdomainFromHost. Drives the zone
-        // these purge targets hit, so staging/non-prod TLDs resolve correctly
-        // instead of always pointing at partna.au.
+        // with ResolvesSubdomainFromHost. Drives the zone these purge targets
+        // hit, so staging/non-prod TLDs resolve correctly instead of always
+        // pointing at partna.au.
         $baseDomain = config('partna.public_domain');
 
         // One host prefix per domain this profile is reachable under: the

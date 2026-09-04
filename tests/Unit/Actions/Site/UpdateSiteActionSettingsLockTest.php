@@ -40,7 +40,7 @@ beforeEach(function () {
     setupHandleChangeLogTable();
 
     // Stub the cache service so the SiteObserver's invalidateSite() on save is a
-    // no-op (no Redis / no public_site_payload view needed), and fake the queue
+    // no-op (no Redis needed), and fake the queue
     // so the observer's KV-sync / cache-warm dispatches don't run.
     $cache = Mockery::mock(SiteCacheService::class)->shouldIgnoreMissing();
     app()->instance(SiteCacheService::class, $cache);

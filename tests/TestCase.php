@@ -41,8 +41,8 @@ abstract class TestCase extends BaseTestCase
         // DBs, so ≤15 workers). flushdb then only ever clears the calling
         // worker's own DB. Solo runs keep the 0-4 defaults.
         // `app` is in this list because TokenRevocationService, VerifyBotToken,
-        // PerTargetReportThrottle, LiveStatusInjector, CircuitBreaker,
-        // EnquirySpamBlocklist, CacheLockService and RecordCacheMetrics all read
+        // PerTargetReportThrottle, CircuitBreaker, EnquirySpamBlocklist,
+        // CacheLockService and RecordCacheMetrics all read
         // and write through Redis::connection('app'). Leave it out and the
         // service half of those suites sits on DB 0 while the assertions read
         // the worker-private DB.

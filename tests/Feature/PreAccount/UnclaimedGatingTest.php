@@ -38,9 +38,10 @@
  *     `EarlyAccessSignup.status`, unrelated to `User.status` / claim state.
  *
  *   - app/Services/Cache/{SiteCacheService,SiteCacheInvalidator,UserCacheService}.php
- *     — no `User.status` filter anywhere. SiteCacheService reads from the
- *     `site.public_site_payload` DB view (already widened in Task 1) and has
- *     no PHP-side status gate of its own.
+ *     — no `User.status` filter anywhere. SiteCacheService only invalidates
+ *     and reads link blocks; it has no PHP-side status gate of its own.
+ *     (It used to read a DB view whose own WHERE clause carried a status
+ *     filter; that whole payload lane was deleted 2026-09-04.)
  *
  *   - IndividualProfileController / IndividualProfilePayloadBuilder /
  *     SitepageDataResolverService / QrCodeController

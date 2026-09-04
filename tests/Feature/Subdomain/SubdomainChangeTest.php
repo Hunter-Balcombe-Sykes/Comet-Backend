@@ -15,7 +15,6 @@ beforeEach(function () {
 
     DB::table('core.user_handle_aliases')->delete();
     DB::table('site.site_subdomain_aliases')->delete();
-    DB::table('site.public_site_payload')->delete();
     DB::table('site.sites')->delete();
     DB::table('core.users')->delete();
 })->group('subdomain');
@@ -179,14 +178,6 @@ function setupCoreSchema(): void
             updated_at TEXT NULL
         )');
 
-        // The PublicSitePayload view lives under the 'site' schema in production;
-        // mirror it as a plain table here so the model's table reference resolves.
-        $conn->statement('CREATE TABLE IF NOT EXISTS site.public_site_payload (
-            site_id TEXT PRIMARY KEY,
-            subdomain TEXT NULL,
-            payload TEXT NULL
-        )');
-
         // Append-only audit log for handle/subdomain renames. Trigger-locked in
         // production; in SQLite we just create it so the action can INSERT rows.
         $conn->statement('CREATE TABLE IF NOT EXISTS audit.handle_change_log (
@@ -214,11 +205,5 @@ function setupCoreSchema(): void
         site_id uuid NOT NULL,
         subdomain varchar(63) NOT NULL,
         created_at timestamptz NOT NULL DEFAULT now()
-    )');
-
-    DB::statement('CREATE TABLE IF NOT EXISTS core.public_site_payload (
-        site_id uuid PRIMARY KEY,
-        subdomain varchar(63) NULL,
-        payload jsonb NULL
     )');
 }
