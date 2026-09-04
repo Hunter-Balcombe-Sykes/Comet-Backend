@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Content;
 
+use App\Catalog\LegacyPlatformMap;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentSite;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
@@ -118,9 +119,19 @@ class PoolItemCreateController extends ApiController
         // pages get the connect hint, pages with no event markup fall through
         // to the plain card path.
         if ($pool === 'events' && ($data['kind'] ?? 'event') === 'event') {
-            $organiser = $this->events->organiserPlatformLabel($data['url']);
+            $organiser = $this->events->organiserPlatform($data['url']);
             if ($organiser !== null) {
-                abort(422, "That looks like a {$organiser} organiser page, not a single event. Connect it as a platform to bring in its upcoming events, or paste one event's page.");
+                // 9 of the 26 platforms this arm can name (admitone, bandsintown,
+                // dice, etix, moshtix, skiddle, songkick, ticketweb, tixr) are
+                // catalog-declared notConnectable() — measured 2026-09-04 against
+                // CompiledCatalog, not assumed. "Connect it as a platform" was a
+                // dead end for all nine: no api/platforms/<slug>/connect route
+                // exists, bespoke or otherwise. Null (unrecognised slug) defaults
+                // to the historical copy rather than guessing.
+                $connectable = LegacyPlatformMap::connectableForSlug($organiser['platform']) ?? true;
+                abort(422, $connectable
+                    ? "That looks like a {$organiser['label']} organiser page, not a single event. Connect it as a platform to bring in its upcoming events, or paste one event's page."
+                    : "That looks like a {$organiser['label']} organiser page, not a single event. Paste one event's page instead.");
             }
 
             // T3 (owner, 2026-08-20): only KNOWN events platforms get the
@@ -167,9 +178,16 @@ class PoolItemCreateController extends ApiController
         $readThumb = null;
         $readAuthorUrl = null;
         if (in_array($pool, ['watch', 'listen'], true)) {
-            $account = $this->media->accountPlatformLabel($url);
+            $account = $this->media->accountPlatform($url);
             if ($account !== null) {
-                abort(422, "That looks like a {$account} profile, not a single {$kinds[0]}. Connect {$account} as a platform to bring its content in automatically, or paste one {$kinds[0]}'s link.");
+                // 7 of the 21 platforms this arm can name (audiomack, beatport,
+                // dailymotion, feature_fm, laylo, linkfire, rumble) are
+                // catalog-declared notConnectable() — see the events arm above
+                // for how this was measured. Same dead-end copy, same fix.
+                $connectable = LegacyPlatformMap::connectableForSlug($account['platform']) ?? true;
+                abort(422, $connectable
+                    ? "That looks like a {$account['label']} profile, not a single {$kinds[0]}. Connect {$account['label']} as a platform to bring its content in automatically, or paste one {$kinds[0]}'s link."
+                    : "That looks like a {$account['label']} profile, not a single {$kinds[0]}. Paste one {$kinds[0]}'s link instead.");
             }
 
             $item = $this->media->classifyItem($url);

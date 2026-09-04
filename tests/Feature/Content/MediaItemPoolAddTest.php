@@ -437,3 +437,45 @@ it('classifies pasted links for step-1 guidance — pure, no fetch', function ()
         'url' => 'https://example.com/blog/post',
     ])->assertOk()->assertJson(['belongsTo' => null, 'account' => null]);
 });
+
+it('flags accountConnectable false for a catalog-declared notConnectable() platform (2026-09-04)', function () {
+    [$user] = makeShopUser(withSite: true);
+
+    // Before this fix, `accountConnectable` did not exist on the wire at
+    // all — every account/organiser hit was silently treated as
+    // connectable by whatever read it, even for the 16 platforms
+    // (measured against CompiledCatalog) that are catalog-declared
+    // notConnectable() and have no connect route under any name. Three
+    // reachable arms, one from each of the three producers in
+    // PastedLinkClassifier::classify(): MediaPageReader::accountPlatform()
+    // (Rumble), WebsiteLinkHarvester's event-organiser category (Tixr),
+    // and a connectable control (YouTube) proving this isn't just always
+    // false.
+    actingAsUser($user)->postJson('/api/content/links/classify', [
+        'url' => 'https://rumble.com/c/SomeCreator',
+    ])->assertOk()->assertJson(['belongsTo' => null, 'account' => 'Rumble', 'accountConnectable' => false]);
+
+    actingAsUser($user)->postJson('/api/content/links/classify', [
+        'url' => 'https://www.tixr.com/groups/some-promoter',
+    ])->assertOk()->assertJson(['belongsTo' => null, 'account' => 'Tixr', 'accountConnectable' => false]);
+
+    actingAsUser($user)->postJson('/api/content/links/classify', [
+        'url' => 'https://www.youtube.com/@somecreator',
+    ])->assertOk()->assertJson(['belongsTo' => null, 'account' => 'YouTube', 'accountConnectable' => true]);
+});
+
+it('drops the dead-end "connect it as a platform" CTA for a non-connectable media profile (2026-09-04)', function () {
+    [$user] = makeShopUser(withSite: true);
+
+    // Before this fix, PoolItemCreateController's watch/listen 422 always
+    // said "Connect {label} as a platform to bring its content in
+    // automatically" regardless of whether a connect flow existed. Rumble
+    // is catalog-declared notConnectable() — the instruction was a dead
+    // end. This pins the corrected copy for a genuinely non-connectable
+    // platform; the connectable case is already covered by this file's
+    // other profile-refusal assertions (e.g. YouTube, above).
+    actingAsUser($user)->postJson('/api/content/pools/watch/items', [
+        'url' => 'https://rumble.com/c/SomeCreator',
+    ])->assertStatus(422)
+        ->assertJsonFragment(['message' => "That looks like a Rumble profile, not a single video. Paste one video's link instead."]);
+});

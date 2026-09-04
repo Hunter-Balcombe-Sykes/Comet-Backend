@@ -71,16 +71,31 @@ class EventPageReader extends PlatformScraper
      * The platform label when the URL is an ORGANISER page of a connectable
      * events platform — the caller should send the owner to the connect flow
      * rather than storing an "event" that is really an account. Pure regex,
-     * no fetch (HumanitixScraper::resolveHostUrl's event arm fetches, so it
-     * is deliberately NOT used here — same reasoning as WLH::classify).
+     * no fetch. The arms themselves now live in organiserPlatform(); this
+     * just unwraps its label.
      */
     public function organiserPlatformLabel(string $url): ?string
     {
+        return $this->organiserPlatform($url)['label'] ?? null;
+    }
+
+    /**
+     * The platform (slug + label) when the URL is an ORGANISER page of a
+     * connectable events platform — the caller should send the owner to the
+     * connect flow rather than storing an "event" that is really an account.
+     * Pure regex, no fetch (HumanitixScraper::resolveHostUrl's event arm
+     * fetches, so it is deliberately NOT used here — same reasoning as
+     * WLH::classify).
+     *
+     * @return array{platform: string, label: string}|null
+     */
+    public function organiserPlatform(string $url): ?array
+    {
         if ($this->eventbrite->normalizeOrgUrl($url) !== null) {
-            return 'Eventbrite';
+            return ['platform' => 'eventbrite', 'label' => 'Eventbrite'];
         }
         if (preg_match('~^https?://(?:events\.)?humanitix\.com/host/[a-z0-9-]+~i', PlatformInput::urlish($url))) {
-            return 'Humanitix';
+            return ['platform' => 'humanitix', 'label' => 'Humanitix'];
         }
         // /eventlist/<organiser> is TryBooking's whole-organiser listing page —
         // the same shape class as Eventbrite's /o/ and Humanitix's /host/ above.
@@ -91,7 +106,7 @@ class EventPageReader extends PlatformScraper
         // a bare, dateless 'event' — not refused with the connect hint its
         // siblings give.
         if (preg_match('~^https?://(?:www\.)?trybooking\.com/eventlist/[a-z0-9-]+~i', PlatformInput::urlish($url))) {
-            return 'TryBooking';
+            return ['platform' => 'trybooking', 'label' => 'TryBooking'];
         }
 
         return null;
