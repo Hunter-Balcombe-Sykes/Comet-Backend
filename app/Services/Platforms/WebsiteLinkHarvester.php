@@ -137,18 +137,28 @@ class WebsiteLinkHarvester
         // other Community-shelf brand — because this map is keyed by the
         // legacy platform key, not by shelf.
         'skool' => '~(^|\.)skool\.com$~',
-        // 2026-09-04: twelve brands the catalog already carried a real host
-        // detector for (Bluesky/Buymeacoffee/Cameo/CashApp/Codepen/Gitlab/
-        // Kick/KoFi/Paypal/Tumblr/Venmo/Vsco) but this hand-maintained table
-        // never learned — each host below is the brand's own Detector::url()
-        // call in app/Catalog/Definitions, not a guess. paypal.me only:
-        // paypal.com carries checkout/invoice links, not a profile, and the
-        // catalog's own paypal.com/paypalme/ detector is PATH-qualified,
-        // which this host-only map cannot express.
+        // 2026-09-04: brands the catalog already carried a real host detector
+        // for but this hand-maintained table never learned — each host below
+        // is the brand's own Detector::url() call in app/Catalog/Definitions,
+        // not a guess.
+        //
+        // SIX of the twelve originally added this day were REMOVED again the
+        // same night (F8): cameo, cash_app, paypal, tumblr, venmo and vsco are
+        // all `->notConnectable()` catalog surfaces, and this map is only for
+        // brands that can actually become a connection. Bucketing a detect-only
+        // surface here is the exact mistake the yelp.listing test above warns
+        // about in its own words ("bucketing it would silently reverse that
+        // policy — the single most likely way to get this change wrong"): it
+        // sends the link to LinkRouter::seedSocial(), which resolves the bare
+        // brand key to no surface, trips IntegrationConnection::booted()'s
+        // isKnownSurface() guard, reports an UnregisteredPlatformException, and
+        // degrades to the same plain card the fall-through would have produced
+        // anyway — but with two Nightwatch reports per occurrence. Those six
+        // reach the card cleanly via classifyFromCatalog() instead. Making them
+        // connectable is a product decision (they need connect cards, and half
+        // are payment links rather than profiles), not a bug fix.
         'bluesky' => '~(^|\.)bsky\.app$~',
         'buymeacoffee' => '~(^|\.)buymeacoffee\.com$~',
-        'cameo' => '~(^|\.)cameo\.com$~',
-        'cash_app' => '~(^|\.)cash\.app$~',
         'codepen' => '~(^|\.)codepen\.io$~',
         'gitlab' => '~(^|\.)gitlab\.com$~',
         'kick' => '~(^|\.)kick\.com$~',
@@ -160,10 +170,6 @@ class WebsiteLinkHarvester
         // resolved to no real surface downstream, throwing
         // UnregisteredPlatformException on every live Ko-fi link.
         'ko-fi' => '~(^|\.)ko-fi\.com$~',
-        'paypal' => '~(^|\.)paypal\.me$~',
-        'tumblr' => '~(^|\.)tumblr\.com$~',
-        'venmo' => '~(^|\.)venmo\.com$~',
-        'vsco' => '~(^|\.)vsco\.co$~',
     ];
 
     /**
@@ -484,7 +490,11 @@ class WebsiteLinkHarvester
         // Expanded 2026-07-25
         'spotify' => ['spotify', 'Spotify'],
         'soundcloud' => ['soundcloud', 'SoundCloud'],
-        'deezer' => ['deezer', 'Deezer'],
+        // Surface key, not brand key — Deezer.php declares no
+        // ->legacyPlatform(), so a bare 'deezer' resolved to no surface and
+        // threw on every Deezer link found on a scanned site. Broken since
+        // this row landed (wave 2, 2026-08-28); found by the F8 sweep.
+        'deezer' => ['deezer.artist', 'Deezer'],
         'snapchat' => ['snapchat', 'Snapchat'],
         'threads' => ['threads', 'Threads'],
         'discord' => ['discord', 'Discord'],
@@ -500,18 +510,24 @@ class WebsiteLinkHarvester
         'skool' => ['skool', 'Skool'],
         'twitch' => ['twitch', 'Twitch'],
         // 2026-09-04 — paired with the SOCIAL_HOSTS rows added the same day.
-        'bluesky' => ['bluesky', 'Bluesky'],
+        // The six detect-only brands were removed from both maps the same
+        // night (F8) — see the SOCIAL_HOSTS block for why.
+        //
+        // bluesky names its SURFACE KEY, not its brand key. Bluesky.php
+        // declares no ->legacyPlatform(), so LegacyPlatformMap::surfaceFor()
+        // cannot resolve a bare 'bluesky' and IntegrationConnection::booted()
+        // rejected it — the ko-fi failure below, reached by a different route
+        // (no legacy slug at all, rather than a diverging one). Naming the
+        // surface directly is the same thing ORDERING_PLATFORM and
+        // RESERVATION_PLATFORM already do for all 45 of their entries
+        // ('uber_eats.order', 'thefork.reserve'), and it keeps the fix inside
+        // this map instead of recompiling the catalog for one alias.
+        'bluesky' => ['bluesky.profile', 'Bluesky'],
         'buymeacoffee' => ['buymeacoffee', 'Buy Me a Coffee'],
-        'cameo' => ['cameo', 'Cameo'],
-        'cash_app' => ['cash_app', 'Cash App'],
         'codepen' => ['codepen', 'CodePen'],
         'gitlab' => ['gitlab', 'GitLab'],
         'kick' => ['kick', 'Kick'],
         'ko-fi' => ['ko-fi', 'Ko-fi'],
-        'paypal' => ['paypal', 'PayPal'],
-        'tumblr' => ['tumblr', 'Tumblr'],
-        'venmo' => ['venmo', 'Venmo'],
-        'vsco' => ['vsco', 'VSCO'],
     ];
 
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}

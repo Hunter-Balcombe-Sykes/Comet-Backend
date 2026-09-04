@@ -412,3 +412,124 @@ sweep-design notes for any future run using these scripts.
 **Fix**: `app/Routing/LinkRoutingService.php` — for a Note that isn't the storefront-candidate special case, prefer `$placement->explanation` (falling back to the old generic line only if it's somehow unset). The storefront-candidate branch is untouched.
 
 **Verified**: added `->assertJsonPath('explanation', 'reservations are not available for this account')` to the existing `RoutingEndpointTest.php` test `'gates a reservations link for an account that cannot use reservations'` (which already exercised this exact scenario but never checked `explanation`). Ran `tests/Feature/Routing/` + `tests/Unit/Routing/` in full: 622 passed, 0 failed — confirms no other test was pinning the old generic string for a gated case. `pint --test` and targeted `phpstan analyse` both clean.
+
+## W10 — Opus adversarial re-review of the whole run
+
+Owner asked for a full review of the night's work plus more tests. Two
+things came out of it before the review workflow even finished: a system
+issue (X4) and the largest finding of the run (F8).
+
+### X4 — 88 orphaned `cloud deploy:list` processes, oldest alive 1d 19h
+
+**What**: `ps` showed 88 live `php .../cloud deploy:list development`
+processes, the oldest running 1 day 19 hours 51 minutes, each burning
+~1% CPU; load average 13.64 on an otherwise-idle 10-core machine.
+
+**Root cause**: exactly the hazard CLAUDE.md documents for `cloud env:logs`
+("no guaranteed exit path — it can wedge on a dead connection and sleep
+forever, parentless and socketless"), but on the `deploy:list` subcommand,
+which the documented `scripts/env/cloud-logs.sh` wrapper does not cover.
+The giant-run skill already says to use `scripts/proof/deploy-wait.sh`
+rather than polling `cloud deploy:list` — that rule had no enforcement.
+
+**Fix**: `pkill -f "vendor/bin/cloud deploy:list"`. Verified 0 real
+`vendor/bin/cloud` processes remain (the 12 apparent survivors were
+Claude.app matching the `cloudflare` plugin path in their command line);
+load fell 13.64 → 11.09 and kept dropping. No code change — flagged here
+because the guard gap is real and a wrapper for `deploy:list` would close
+it if this recurs.
+
+### F8 — 8 harvester platform values resolved to no catalog surface; 6 detect-only brands were bucketed as connectable (HIGH)
+
+**What**: the ko-fi divergence Critic D caught was one instance of a
+class, and the class was never swept. A sweep of all 104 platform values
+across `SOCIAL_PLATFORM` / `BOOKING_PLATFORM` / `RESERVATION_PLATFORM` /
+`ORDERING_PLATFORM` found **8 that resolve to no surface at all** — every
+one in `SOCIAL_PLATFORM`: bluesky, cameo, cash_app, deezer, paypal,
+tumblr, venmo, vsco.
+
+**Evidence** (tinker, pre-fix — each value pushed through the real
+`IntegrationConnection::setPlatformAttribute()`):
+
+```
+kick       -> surface_key=kick.channel       isKnownSurface=YES
+ko-fi      -> surface_key=ko_fi.page         isKnownSurface=YES
+bluesky    -> surface_key=bluesky            isKnownSurface=NO  <-- booted() WILL THROW
+deezer     -> surface_key=deezer             isKnownSurface=NO  <-- booted() WILL THROW
+cash_app   -> surface_key=cash_app           isKnownSurface=NO  <-- booted() WILL THROW
+vsco/tumblr/venmo/paypal/cameo                isKnownSurface=NO  <-- booted() WILL THROW
+```
+
+**Failure path** (traced, not assumed): `classify()` → `LinkRouter::routeClassified()`
+→ `'social' => seedSocial()` → `resolveSocialLink()` → `IntegrationConnection`
+write → `setPlatformAttribute()` resolves the bare brand key to nothing →
+`booted()`'s `isKnownSurface()` guard fails → `report(UnregisteredPlatformException)`
+→ `throw ValidationException` → caught by `routeClassified()`'s catch-all,
+which `report($e)`s a second time and returns `RouteResult::custom()`. Net
+effect: the link degrades to the same plain card it would have been anyway,
+with **two Nightwatch reports per occurrence**, silently defeating the point
+of adding the brand. Identical to the ko-fi failure mode.
+
+**Root cause, two distinct halves** — `is_connectable` turned out to be the
+exact discriminator:
+
+| catalog state | brands | verdict |
+|---|---|---|
+| connectable + `legacyPlatform` declared | buymeacoffee, codepen, gitlab, kick, ko_fi | already correct |
+| connectable, NO `legacyPlatform` | **bluesky, deezer** | belong in the map, but the bare key resolves to nothing |
+| **`->notConnectable()`** | **cameo, cash_app, paypal, tumblr, venmo, vsco** | should never have been in the map |
+
+The second half is the more serious one, and the codebase predicted it in
+writing. The `yelp.listing` test in `WebsiteLinkHarvesterTest.php` says of
+exactly this: *"Bucketing it would silently reverse that policy — the single
+most likely way to get this change wrong."* `CashApp.php`'s own surface
+comment says it is `->notConnectable()` **because** "the legacy harvester
+carries no classify() entry, so a manual connect card would 422 its own
+URL". The 2026-09-04 wave added the classify() entry without flipping the
+connectable flag, landing all six in the inconsistent middle state.
+Plan §2's W1b was specified to catch precisely this ("catch any surface
+that's detect-only (not connectable) and so correctly excluded") — the
+task was written correctly and its result never reached the implementation.
+
+**Fix**: `app/Services/Platforms/WebsiteLinkHarvester.php`
+- removed the six `->notConnectable()` brands from **both** `SOCIAL_HOSTS`
+  and `SOCIAL_PLATFORM`; they classify as `link` via `classifyFromCatalog()`
+  again, which is where they sat before and where `yelp.listing` still sits.
+- `bluesky` and `deezer` now name their **surface key** (`bluesky.profile`,
+  `deezer.artist`) rather than their brand key. This is what all 45
+  `ORDERING_PLATFORM`/`RESERVATION_PLATFORM` entries already do
+  (`uber_eats.order`, `thefork.reserve`), and it keeps the fix inside this
+  map instead of recompiling the catalog to add one alias.
+- `tests/fixtures/catalog/known-link-only.php`: the six came back onto the
+  ratchet, honouring that file's own stated rule that it and the harvester
+  constants "are the two sides of one ledger".
+
+**Bonus correctness win**: `SOCIAL_HOSTS` is host-only and cannot express a
+path requirement. Venmo's catalog detector is path-qualified
+(`/u/<handle>`), so bucketing it there also claimed `venmo.com/about` and
+every other venmo.com page as a profile. The catalog fall-through is
+strictly more precise — the same argument the `paypal` comment in that
+block had already made for PayPal, applied to one brand and not its
+siblings.
+
+**Deliberately NOT done**: making the six connectable. That is a product
+decision (each needs a connect card, and half are payment handles rather
+than profiles), not a bug fix, and `CashApp.php` says as much — "Card comes
+later with harvester support, if ever needed." Flagged for the owner.
+
+**Verified**: re-ran the same sweep post-fix — **104 → 98 values checked,
+unresolvable 8 → 0**. The six removed brands now classify `link/<brand>`;
+bluesky → `social/bluesky.profile/Bluesky`, deezer → `social/deezer.artist/Deezer`.
+Added two datasets to `tests/Unit/Platforms/WebsiteLinkHarvesterTest.php`
+pinning both halves — one asserting every social platform value survives
+`IntegrationConnection`'s own guard (the assertion whose absence let this
+live), one asserting each detect-only brand still reaches the catalog
+fall-through. `tests/Unit/Platforms/WebsiteLinkHarvesterTest.php` 82 passed;
+`tests/Feature/Platforms/` **2210 passed, 1 skipped, 0 failed** — including
+`CatalogClassificationSweepTest`, whose ratchet independently confirms the
+`known-link-only.php` ledger additions. `pint --test` and `phpstan` clean.
+
+**Coverage gap this closed on the way**: before F8, only 2 of the 12 social
+brands added that day (kick, ko-fi) appeared anywhere in the harvester's
+unit tests. The equivalent gap for the 14 events brands HAD been closed by
+F3's follow-up; social was simply left behind.

@@ -106,16 +106,31 @@ return [
     // had never learned. Removing a row here means "add it to those two
     // constants", never delete it silently — this list and those constants
     // are the two sides of one ledger.
+    //
+    // …and six of those twelve came straight back the same night (F8). cameo,
+    // cash_app, paypal, tumblr, venmo and vsco are all `->notConnectable()`
+    // surfaces, so SOCIAL_HOSTS — which exists to name brands that can become
+    // a CONNECTION — was the wrong side of the ledger for them. They classify
+    // as 'link' via classifyFromCatalog() again, which is where they were
+    // before and where the yelp.listing rows below have always sat. Only the
+    // six connectable ones (bluesky, buymeacoffee, codepen, gitlab, kick,
+    // ko_fi) stayed out.
     'bark.company',
+    'cameo.profile',
+    'cash_app.profile',
     'fiverr.profile',
     'flickr.photos',
     'houzz.pro',
     'medium.profile',
+    'paypal.me',
     'pinterest.profile',
     'productreview.listing',
     'substack.publication',
     'tripadvisor.listing',
     'trustpilot.listing',
+    'tumblr.profile',
     'upwork.profile',
+    'venmo.profile',
+    'vsco.profile',
     'yelp.listing',
 ];

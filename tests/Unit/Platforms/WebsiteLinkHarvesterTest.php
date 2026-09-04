@@ -1,5 +1,7 @@
 <?php
 
+use App\Catalog\LegacyPlatformMap;
+use App\Models\Core\Site\IntegrationConnection;
 use App\Services\Http\SafeUrlFetcher;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Tests\TestCase;
@@ -169,6 +171,56 @@ it('classifies each known social host to its platform + label', function (string
     ['https://x.com/acme', 'x', 'X'],
     ['https://www.linkedin.com/in/acme', 'linkedin', 'LinkedIn'],
     ['https://www.youtube.com/@acme', 'youtube', 'YouTube'],
+]);
+
+// F8 (2026-09-04 overnight sweep). Two halves of one invariant, and the reason
+// this dataset exists at all: of the twelve social brands added earlier that
+// day, only ko-fi had any test pin, and a sweep of all 104 platform values
+// across the four *_PLATFORM maps found 8 that resolved to no surface at all —
+// every one of them in SOCIAL_PLATFORM. Every
+// value these maps emit must survive IntegrationConnection's own guard —
+// LinkRouter::seedSocial() hands it straight to setPlatformAttribute(), and an
+// unresolvable one trips booted()'s isKnownSurface() check, reports an
+// UnregisteredPlatformException, and degrades the link to the plain card the
+// brand was added here to avoid. bluesky and deezer name their SURFACE KEY for
+// exactly that reason: neither declares a ->legacyPlatform() in the catalog.
+it('resolves every social platform value to a real catalog surface', function (string $url, string $platform, string $label) {
+    expect(classifierHarvester()->classify($url))->toBe(['platform' => $platform, 'category' => 'social', 'label' => $label]);
+
+    // The guard that the pre-F8 values tripped, asserted directly.
+    $connection = new IntegrationConnection;
+    $connection->platform = $platform;
+    expect(LegacyPlatformMap::isKnownSurface($connection->getAttributes()['surface_key'] ?? ''))->toBeTrue();
+})->with([
+    ['https://bsky.app/profile/acme.bsky.social', 'bluesky.profile', 'Bluesky'],
+    ['https://www.deezer.com/artist/12345', 'deezer.artist', 'Deezer'],
+    ['https://buymeacoffee.com/acme', 'buymeacoffee', 'Buy Me a Coffee'],
+    ['https://codepen.io/acme', 'codepen', 'CodePen'],
+    ['https://gitlab.com/acme', 'gitlab', 'GitLab'],
+    ['https://kick.com/acme', 'kick', 'Kick'],
+    ['https://ko-fi.com/acme', 'ko-fi', 'Ko-fi'],
+]);
+
+// The other half of F8: a `->notConnectable()` catalog surface must NOT sit in
+// SOCIAL_HOSTS. Six did for one night. This is the same policy the
+// yelp.listing test above guards ("bucketing it would silently reverse that
+// policy"), asserted for the six that actually reversed it. venmo doubles as
+// the over-matching case: its catalog detector is path-qualified (/u/<handle>),
+// which the host-only SOCIAL_HOSTS map cannot express, so bucketing it there
+// also claimed venmo.com/about as a profile.
+it('leaves every detect-only social brand to the catalog link fall-through', function (string $url, string $expected) {
+    $out = classifierHarvester()->classify($url);
+
+    expect($out)->not->toBeNull()
+        ->and($out['category'])->toBe('link')
+        ->and($out['platform'])->toBe($expected);
+})->with([
+    ['https://www.cameo.com/acme', 'cameo'],
+    ['https://cash.app/$acme', 'cash_app'],
+    ['https://paypal.me/acme', 'paypal'],
+    ['https://www.tumblr.com/acme', 'tumblr'],
+    ['https://venmo.com/u/acme', 'venmo'],
+    ['https://vsco.co/acme', 'vsco'],
 ]);
 
 it('classifies booking hosts to their specific provider platform', function (string $url, string $platform, string $label) {
