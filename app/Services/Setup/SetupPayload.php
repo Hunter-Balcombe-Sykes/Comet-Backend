@@ -130,11 +130,21 @@ class SetupPayload
         }
 
         if ($key === 'services') {
-            return $site === null ? null : $base + $this->servicesPass($user, $site);
+            if ($site === null) {
+                return null;
+            }
+            $pass = $this->servicesPass($user, $site);
+
+            return $ready && ! $this->rendersSomething($pass) ? null : $base + $pass;
         }
 
         if ($key === 'menu') {
-            return $site === null ? null : $base + $this->menuPass($user);
+            if ($site === null) {
+                return null;
+            }
+            $pass = $this->menuPass($user);
+
+            return $ready && ! $this->rendersSomething($pass) ? null : $base + $pass;
         }
 
         if ($key === 'logo') {
@@ -571,6 +581,37 @@ class SetupPayload
             'durationMinutes' => is_numeric($duration) ? (int) $duration : null,
             'photo' => $first($item, 'image', 'thumbnail', 'imageUrl', 'image_url'),
         ];
+    }
+
+    /**
+     * Whether a composed services/menu pass has anything for the walk to draw.
+     *
+     * Both passes render exactly two things: the categories, and — for the two
+     * booking platforms that ship a team — the "which one is you?" picker. A
+     * pass with neither is a heading and a Continue button over empty space,
+     * which is what a Timely signup got on 2026-09-04: Timely is a booking
+     * LINK with no connector (ConnectorRegistry has no 'timely' key), so no
+     * service item can ever arrive for it and the step could never fill in.
+     * Omit it instead, the way an empty item pass is already omitted (wire
+     * §2). Nothing is lost while a fetch is still in flight — the walk polls
+     * every 3s and re-folds the pass list, so a pass whose items land later
+     * appears then, and the picker keeps the fresha/square step present
+     * through the window before their services arrive. A pass that is not
+     * READY yet is never judged by this at all (see the caller): the menu
+     * pass has a build stage behind it, and an empty-but-loading menu is
+     * owed its "Still looking…", not a disappearance.
+     *
+     * @param  array<string, mixed>  $pass
+     */
+    private function rendersSomething(array $pass): bool
+    {
+        if (($pass['categories'] ?? []) !== [] || ($pass['found'] ?? []) !== []) {
+            return true;
+        }
+
+        // Mirrors the dashboard's own condition for drawing the picker.
+        return ($pass['teamPicked'] ?? null) === false
+            && in_array($pass['platform'] ?? null, ['square', 'fresha'], true);
     }
 
     /** @return array<string, mixed> */
