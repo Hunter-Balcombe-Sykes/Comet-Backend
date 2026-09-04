@@ -782,3 +782,118 @@ why only humanitix surfaced.
 Noted as a limitation of the sweep, not of the code: `add_www` is only a
 meaningful variant for registrable-domain hosts, not for hosts that are
 already a subdomain. Every other dimension applied cleanly to all 23 arms.
+
+---
+
+## Opus review, wave 2 — the generated-column class
+
+Three fixes in one family, all from the W10 adversarial review of this run's
+own earlier changes. The family is worth naming because it is invisible on a
+green test suite and invisible in code review: `site.platform_connections.
+platform` is a **GENERATED** column (`split_part(surface_key,'.',1)` plus the
+SPECIAL_TO_LEGACY CASE), so it only ever holds a brand prefix, while
+`WebsiteLinkHarvester::classify()` answers a **dotted surface key** for every
+catalog-only brand. `where('platform', 'calendly.book')` is not an error — it
+is a query that returns nothing, forever, silently.
+
+### F10 — `resolveBookingLink` / `resolveSocialLink` / `applyRemovals` (`bdf6f7087`)
+
+`BuildsAutoSyncFindings::write()` has carried a docblock about exactly this
+hazard since Phase 6 and correctly keys on `surface_key`. Its two sibling
+lookups in the same trait never got the same fix.
+
+Scope: 23 classify() values are dotted with no legacy slug — the 21 Phase-6
+booking brands plus `bluesky.profile` and `deezer.artist`. Proven in a
+rolled-back transaction:
+
+```
+surface_key=calendly.book    generated platform=calendly   where(platform=surface_key) hits? NO
+surface_key=bluesky.profile  generated platform=bluesky    where(platform=surface_key) hits? NO
+surface_key=booksy.book      generated platform=booksy     where(platform=surface_key) hits? NO
+surface_key=kick.channel     generated platform=kick       where(platform=surface_key) hits? NO
+```
+
+booksy and kick are only safe in practice because their *classify() value* is
+the legacy slug, not the dotted key.
+
+Consequence, in order of severity: the incumbent connection was **invisible**,
+so no Swap conflict was raised and `write()`'s `updateOrCreate` then landed on
+that same row and **overwrote the user's live booking URL** with the harvested
+one. `wasDisconnected()` missed identically, **resurrecting a connection the
+user had removed**.
+
+> This run made it worse before it made it better. F8 (`9ddb303b1`) pointed
+> bluesky and deezer at their real surface keys, which moved both from "never
+> connects" to "connects, then breaks the single-slot invariant". The review of
+> F8 is what found F10.
+
+`applyRemovals` took an **either-match**, not a swap: `remove` is a STORED slug
+list (a finding is persisted when raised and applied later), so it now holds
+legacy slugs from old findings and dotted keys from new ones — and a slug must
+keep matching the generated column, because a multi-surface brand
+(`spotify.artist` + `spotify.show`) relies on that breadth.
+
+7 new tests in `AutoSyncSurfaceKeyLookupTest`. **With the fix reverted, 4 fail**
+(both conflict cases, both tombstone cases) while the booksy control and the
+no-incumbent happy path still pass — which is what says the change is
+*equivalent* for legacy slugs rather than merely stricter. Platforms + Routing
++ Unit/Platforms: **3349 passed**.
+
+### F11 — the dead-page title guard (`144050757`)
+
+`MediaPageReader::read()` refuses a title that is the site's own name — a
+nonexistent Twitch VOD unfurls as "Twitch". The list named 11 brands by exact
+string and had **never learned the nine platforms this run added**.
+
+Probed a well-formed but NONEXISTENT item URL on all 21 platforms
+`classifyItem()` can return. Two answered HTTP 200 and minted a pool item onto
+the public sitepage:
+
+```
+audiomack      "Audiomack - Music platform empowering artists & fans | Audiomack"
+youtube-music  "YouTube Music"
+```
+
+The Audiomack one is the instructive half: exact-matching slid straight past it
+because the site DECORATES its name. The replacement, `isSiteChrome()`, keeps
+the global exact-match rule (widened by the nine) and adds a **leading-segment**
+rule scoped to the page's **own** platform. Both bounds were measured against
+live pages, not guessed:
+
+- **Leading, never trailing.** Beatport's genuine titles end `… | Music &
+  Downloads on Beatport`. A suffix rule would have deleted every real Beatport
+  track.
+- **Own platform, not the global list.** Globally the rule would reject an
+  ordinary YouTube video titled "Spotify - Wrapped 2025 Recap".
+
+Re-probed after: all 21 dead URLs return null; real items on
+audiomack/beatport/deezer/tidal/soundcloud/youtube/vimeo/dailymotion still read
+their true titles. Every og:title in the new tests is the real 2026-09-04
+string. Content + Routing: **979 passed**.
+
+### F12 — the sweep for the rest of the family (`2f7f9b14d`)
+
+Rather than assume F10 was the only instance, swept **every** lookup in `app/`
+that queries the generated column with a VARIABLE — 10 call sites, three
+adversarial lenses each (reachability / consequence / already-correct).
+
+Eight are provably fed a legacy slug (a `Platform` enum case, a literal, a
+validated field) and were **deliberately left alone**. Two were not:
+
+- **`LinkInBioImporter:1045`** — the 2026-09-02 fold ("a page of a platform the
+  person already has connected is not a link card beside the connection"). It
+  never fired for any catalog-only surface, so every re-import published a
+  duplicate link card beside the live connection and counted it `noted`.
+- **`BuildProgress::platformEntries`** — the signup progress card rendered a
+  mark with no handle and no url under it, which is the one thing that method
+  exists to prevent.
+
+Both took the either-match. Each has a regression test proven to fail without
+the fix **plus a legacy-slug control that passes either way**. Routing +
+PreAccount: **798 passed**.
+
+### X5 confirmed green
+
+The npm CI fix (`c0b469768`) passed. Every CI failure in this run traced to
+npm's retiring audit endpoint and never to our code — `git log --name-only`
+over the whole run shows zero npm files touched.
