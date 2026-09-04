@@ -2,6 +2,7 @@
 
 namespace App\Routing\Importers;
 
+use App\Catalog\LegacyPlatformMap;
 use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
@@ -1040,9 +1041,23 @@ class LinkInBioImporter
             }
             // A page of a platform the person already has connected is not
             // a link card beside the connection — fold it (2026-09-02).
+            //
+            // classify() answers a dotted SURFACE KEY for every catalog-only
+            // brand (calendly.book, uber_eats.order, deezer.artist, …) and a
+            // legacy slug for the rest, while `platform` is a GENERATED column
+            // holding only the brand prefix. Asking the generated column with a
+            // dotted key can never hit, so the fold silently never fired for
+            // those brands and a duplicate card was published beside the live
+            // connection. Either-match rather than a straight swap: a legacy
+            // slug must keep matching every surface of its brand
+            // (spotify.artist AND spotify.show), which only the generated
+            // column expresses.
             $slug = is_array($classified ?? null) ? $classified['platform'] : '';
+            $surface = $slug === '' ? '' : (LegacyPlatformMap::surfaceFor($slug) ?? $slug);
             if ($slug !== ''
-                && IntegrationConnection::query()->where('user_id', $context->user->id)->where('platform', $slug)->whereNull('deleted_at')->exists()) {
+                && IntegrationConnection::query()->where('user_id', $context->user->id)
+                    ->where(fn ($q) => $q->where('platform', $slug)->orWhere('surface_key', $surface))
+                    ->whereNull('deleted_at')->exists()) {
                 $tally['folded']++;
 
                 return;

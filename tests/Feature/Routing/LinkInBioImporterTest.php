@@ -1128,3 +1128,35 @@ it('hands an unknown store tile\'s discount code to the commerce probe that will
 
     Queue::assertPushed(CommerceProbeJob::class, fn (CommerceProbeJob $job): bool => str_contains($job->url, 'gammaplus.example.au') && $job->discountCode === 'TEEGAN10');
 });
+
+it('folds a bare brand url into the connection the person already has, even for a catalog-only brand', function () {
+    // The fold reads classify()'s answer, which for every catalog-only brand is
+    // a dotted SURFACE KEY ('calendly.book'), while `platform` is a GENERATED
+    // column holding only the brand prefix. Asking the generated column with a
+    // dotted key could never hit, so the fold silently never fired for these
+    // brands and a duplicate link card was published beside the live booking
+    // connection. Found 2026-09-04.
+    Queue::fake();
+    $pro = createTenant('fold-catalog-only');
+    $incumbent = new IntegrationConnection([
+        'surface_key' => 'calendly.book',
+        'routing_class' => 'booking',
+        'resource_id' => 'calendly',
+        'payload' => ['url' => 'https://calendly.com/theartist/30min'],
+        'is_active' => true,
+    ]);
+    $incumbent->user_id = $pro->id;
+    $incumbent->save();
+
+    // Host-only: matches the brand but names no account, so PlacementPolicy
+    // returns a Note and the fold is the only thing standing between this and
+    // a duplicate card.
+    bioPage('<html><body><a href="https://calendly.com/">Book me</a></body></html>');
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/theartist');
+
+    expect($result['folded'])->toBe(1)
+        ->and($result['noted'])->toBe(0);
+    expect(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->where('kind', 'link')->count())->toBe(0)
+        ->and(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1);
+});
