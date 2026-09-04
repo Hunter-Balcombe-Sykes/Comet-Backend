@@ -1,0 +1,64 @@
+# Dependabot configuration.
+#
+# `target-branch: development` on every ecosystem is the load-bearing line.
+# Without it Dependabot opens PRs against the repository's DEFAULT branch, and
+# `production` is a deploy target, not an integration branch: the prod Laravel
+# Cloud env runs `usesPushToDeploy: true`, so a merge there IS a deploy, with no
+# CI gate in front of it. The 9 required checks only guard `development`.
+#
+# The default branch was moved to `development` at the same time as this file
+# landed (Dependabot reads this config from the default branch ONLY, so it could
+# never have been read while `production` held that role). The explicit
+# `target-branch` is kept regardless — it keeps the guarantee if the default is
+# ever pointed back at `production`.
+version: 2
+
+updates:
+  # Laravel/PHP. `versioning-strategy: increase` bumps composer.json alongside
+  # the lock file; the repo pins PHP ^8.4 and Laravel 12, so majors are reviewed
+  # by hand rather than opened automatically.
+  - package-ecosystem: composer
+    directory: "/"
+    target-branch: development
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      php-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "laravel/framework"
+        update-types: ["version-update:semver-major"]
+
+  # Vite/Tailwind build chain for the (minimal) served assets.
+  - package-ecosystem: npm
+    directory: "/"
+    target-branch: development
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      frontend-minor-patch:
+        update-types: [minor, patch]
+
+  # The Cloudflare Worker has its own lock file and its own CI jobs
+  # (worker-tests, worker-static), both of which are required checks. Kept as a
+  # separate entry so a worker bump never rides in on a backend PR.
+  - package-ecosystem: npm
+    directory: "/cloudflare-worker"
+    target-branch: development
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      worker-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: development
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
