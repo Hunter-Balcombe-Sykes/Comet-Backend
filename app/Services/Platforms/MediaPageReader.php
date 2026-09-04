@@ -486,13 +486,27 @@ class MediaPageReader extends PlatformScraper
             && ! preg_match('~^/(videos|directory|downloads|jobs|turbo|settings|subscriptions|wallet|drops|search|p)\b~i', $path)) {
             return 'Twitch';
         }
-        // `playlist` joined artist/show/user on 2026-09-03: a playlist is not
+        // A podcast SHOW is its own brand, and must be named before the
+        // generic Spotify arm below or it inherits the wrong one. The catalog
+        // has carried `spotify_podcasts` (Brand 'Spotify Podcasts', surface
+        // `spotify_podcasts.show`, RoutingClass::Content, Shelf::Podcast,
+        // connectable, path-qualified to /show/<id>) as a brand DISTINCT from
+        // `spotify.player` since 2026-09-01. The label picked here is the one
+        // PoolItemCreateController puts in front of the user — "Connect
+        // {$account} as a platform to bring its content in automatically" —
+        // so returning 'Spotify' for a show sent them to connect the music
+        // player, which does not bring a show's episodes in. Named by the W9
+        // completeness critic (2026-09-04) as plan §1b's one unresolved item.
+        if ($host === 'open.spotify.com' && preg_match('~^(?:/intl-[a-z]{2,5})?/show/~', $path)) {
+            return 'Spotify Podcasts';
+        }
+        // `playlist` joined artist/user on 2026-09-03: a playlist is not
         // one track, so the Listen pool must refuse it — and the advice that
         // hangs off this label ("connect Spotify to bring its content in, or
         // paste one track's link") is exactly right for a playlist. Without a
         // label it fell through to the generic "not a track" error, which
         // tells the person nothing about what to do instead.
-        if ($host === 'open.spotify.com' && preg_match('~^(?:/intl-[a-z]{2,5})?/(artist|show|user|playlist)/~', $path)) {
+        if ($host === 'open.spotify.com' && preg_match('~^(?:/intl-[a-z]{2,5})?/(artist|user|playlist)/~', $path)) {
             return 'Spotify';
         }
         if (in_array($host, ['tiktok.com', 'm.tiktok.com'], true) && preg_match('~^/@[\w.]{1,24}/?$~', $path)) {

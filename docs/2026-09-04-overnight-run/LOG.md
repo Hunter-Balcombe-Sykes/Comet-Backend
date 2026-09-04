@@ -610,7 +610,14 @@ fixture's own key. **104 match; the 4 that resolve to NULL
 — they are created manually or by API, never by URL detection, so NULL is the
 only possible answer and not a defect. F5 was the only real bug in this file.
 
-### `spotify_podcasts.show` — plan §1b's last open question, RESOLVED as NOT a gap
+### `spotify_podcasts.show` — plan §1b's last open question ⚠️ SUPERSEDED, see F9 below
+
+> **This entry's conclusion was WRONG and is kept only for the record.** I
+> checked "does a `/show/` URL get an account label at all" (it does) and
+> stopped there. The right question was "does it get the label of the *right
+> brand*" — and it did not. The W9 completeness critic flagged this three
+> rounds running, and it was correct. The corrected finding and its fix are
+> in **F9** immediately below.
 
 Plan §1b left this explicitly unresolved: *"`spotify_podcasts.show` status
 still unconfirmed — resolve inline during W4 implementation (check if the
@@ -693,3 +700,60 @@ Packagist / the npm registry so an upstream advisory appearing cannot flip it
 red on an unrelated commit". Disabling it in `test` too would have been the
 easier fix and is arguably redundant with the dedicated `supply-chain` steps —
 but it removes a real check, so the version pin was preferred.
+
+### F9 — a Spotify podcast show told the user to connect the wrong platform (W9 finding; corrects my own earlier entry)
+
+**What**: pasting a podcast show URL (`open.spotify.com/show/<id>`) into the
+listen pool answers:
+
+> "That looks like a **Spotify** profile, not a single track. Connect
+> **Spotify** as a platform to bring its content in automatically, or paste
+> one track's link."
+
+But a show is not the music player. The catalog has carried
+`spotify_podcasts` as a **distinct brand** since 2026-09-01 — `Brand::make('spotify_podcasts', 'Spotify Podcasts', …)`,
+surface `spotify_podcasts.show`, `RoutingClass::Content`, `Shelf::Podcast`,
+connectable, with its own detector path-qualified to `/show/<id>` — separate
+from `spotify.player`'s artist/user/playlist surface. Connecting "Spotify"
+does not bring a show's episodes in, so the one actionable sentence the
+refusal gives the person pointed at the wrong platform.
+
+**Root cause**: `MediaPageReader::accountPlatformLabel()` had a single Spotify
+arm matching `(artist|show|user|playlist)` and returning the bare string
+`'Spotify'` for all four. That arm predates this run; `show` was folded in
+with the others when `playlist` joined on 2026-09-03, before
+`spotify_podcasts` existed as its own brand.
+
+**How it was found, and my own error**: plan §1b named this as its one
+unresolved item — *"check if the existing `spotify` key already handles the
+`/show/` path, add a branch only if it doesn't."* W4 never came back to it.
+I then closed it myself as "not a gap" (entry above, now marked superseded)
+on the strength of `/show/` returning a non-null label. **That was the wrong
+test.** The W9 completeness critic flagged it in rounds 1, 2 and 3 and was
+right each time: the question was never "is there a label" but "is it the
+right brand". Recorded plainly because a critic overruling the person who
+dismissed the finding is exactly what the critic stage is for.
+
+**Fix**: `app/Services/Platforms/MediaPageReader.php` — a `/show/` arm
+returning `'Spotify Podcasts'`, placed BEFORE the generic arm (which now
+matches `(artist|user|playlist)` only, so a show can no longer fall into it).
+
+**Verified**:
+
+```
+/show/4rOoJ6Egrf8K2IrywzwOMk           label='Spotify Podcasts'
+/intl-de/show/4rOoJ6Egrf8K2IrywzwOMk   label='Spotify Podcasts'
+/artist/0OdUWJ0sBjDrqHygGUXeCF         label='Spotify'
+/playlist/37i9dQZF1DXcBWIGoYBM5M       label='Spotify'
+/user/spotify                          label='Spotify'
+/episode/512ojhOuo1ktJprKbVcKyQ        label=NULL   (an item, not an account)
+/track/11dFghVXANMlKmJXsNCbNl          label=NULL   (an item, not an account)
+```
+
+Added four rows to `MediaItemPoolAddTest`'s grammar matrix (show +
+locale-prefixed show, plus playlist and user as the "must still say Spotify"
+guards) and updated the two `spotify.show` rows in
+`tests/fixtures/Content/item-url-corpus.php`, whose cross-file check caught
+the change immediately and correctly — it had pinned the old label.
+`MediaItemPoolAddTest` + `ItemUrlCorpusTest` + `MediaScanSeedTest` +
+`EventsPoolTest`: **81 passed, 0 failed**. `pint --test` and `phpstan` clean.

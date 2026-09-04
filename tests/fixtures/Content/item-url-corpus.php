@@ -103,8 +103,14 @@ return [
         ['url' => 'https://open.spotify.com/artist/3TVXtAsR1Inumwj472S9r4', 'shape' => 'spotify.artist', 'account' => 'Spotify'],
         ['url' => 'https://open.spotify.com/playlist/37i9dQZF1DX0XUsuxWHRQd', 'shape' => 'spotify.playlist', 'account' => 'Spotify'],
         ['url' => 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M', 'shape' => 'spotify.playlist', 'account' => 'Spotify'],
-        ['url' => 'https://open.spotify.com/show/2mTUnDkuKUkhiueKcVWoP0', 'shape' => 'spotify.show', 'account' => 'Spotify'],
-        ['url' => 'https://open.spotify.com/show/4rOoJ6Egrf8K2IrywzwOMk', 'shape' => 'spotify.show', 'account' => 'Spotify'],
+        // 'Spotify Podcasts', not 'Spotify' (2026-09-04, W9): a show is the
+        // `spotify_podcasts.show` brand — its own connectable surface on
+        // Shelf::Podcast — and this label is what the paste refusal tells the
+        // person to connect. Naming the music player sent them to a platform
+        // that cannot bring a show's episodes in. Sibling artist/playlist/user
+        // rows above deliberately still read 'Spotify'.
+        ['url' => 'https://open.spotify.com/show/2mTUnDkuKUkhiueKcVWoP0', 'shape' => 'spotify.show', 'account' => 'Spotify Podcasts'],
+        ['url' => 'https://open.spotify.com/show/4rOoJ6Egrf8K2IrywzwOMk', 'shape' => 'spotify.show', 'account' => 'Spotify Podcasts'],
         ['url' => 'https://tidal.com/artist/10665', 'shape' => 'tidal.artist', 'account' => 'Tidal'],
         ['url' => 'https://tidal.com/artist/1566', 'shape' => 'tidal.artist', 'account' => 'Tidal'],
         ['url' => 'https://www.tiktok.com/@duolingo', 'shape' => 'tiktok.profile', 'account' => 'TikTok'],

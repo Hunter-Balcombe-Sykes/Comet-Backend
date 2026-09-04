@@ -308,6 +308,15 @@ it('classifies the grammar matrix — item vs account vs neither', function (str
     ['https://open.spotify.com/album/79dL7FLiJFOO0EoehUHQBv', 'release', null],
     ['https://open.spotify.com/episode/512ojhOuo1ktJprKbVcKyQ', 'episode', null],
     ['https://open.spotify.com/artist/4gzpq5DPGxSnKTe4SA8HAU', null, 'Spotify'],
+    // A podcast SHOW is its own connectable brand (`spotify_podcasts.show`,
+    // Shelf::Podcast), not `spotify.player` — and this label is what the 422
+    // tells the person to connect, so naming the music player here sent them
+    // to a platform that cannot bring a show's episodes in. The sibling
+    // artist/user/playlist rows must keep saying plain 'Spotify'.
+    ['https://open.spotify.com/show/4rOoJ6Egrf8K2IrywzwOMk', null, 'Spotify Podcasts'],
+    ['https://open.spotify.com/intl-de/show/4rOoJ6Egrf8K2IrywzwOMk', null, 'Spotify Podcasts'],
+    ['https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M', null, 'Spotify'],
+    ['https://open.spotify.com/user/spotify', null, 'Spotify'],
     // SoundCloud: two segments = track, one = profile, chrome reserved
     ['https://soundcloud.com/artist-name/new-single', 'track', null],
     ['https://soundcloud.com/artist-name', null, 'SoundCloud'],
