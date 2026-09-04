@@ -86,11 +86,17 @@ class PoolWire
         foreach (array_keys(PoolRegistry::POOLS) as $pool) {
             try {
                 $section = $sections[$pool];
+                // withLibrary false (Nightwatch #499, 2026-09-05): SCALE-2
+                // below already throws every library id away, but plan()
+                // was still running the 500-row library read for each of the
+                // nine pools to produce them — nine queries per public cache
+                // miss whose result nothing here ever read.
                 $plans[$pool] = $this->pools->plan(
                     $site,
                     $pool,
                     $section,
                     $curationBySection[(string) $section->id] ?? collect(),
+                    withLibrary: false,
                 );
             } catch (QueryException $e) {
                 if ($this->poolLaneAbsent($e)) {

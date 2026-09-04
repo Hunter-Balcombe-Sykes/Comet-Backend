@@ -41,8 +41,8 @@ it('ships ordered frames with dims for a multi-frame media item, omitting the un
     $item = collect($out['library'])->firstWhere('id', $itemId);
 
     expect($item['frames'])->toBe([
-        ['url' => 'https://cdn.example.com/a.jpg', 'thumb' => null, 'width' => 800, 'height' => 600, 'role' => 'cover', 'kind' => 'image', 'poster' => null, 'alt' => 'first'],
-        ['url' => 'https://cdn.example.com/b.jpg', 'thumb' => null, 'width' => 640, 'height' => 480, 'role' => 'gallery', 'kind' => 'image', 'poster' => null, 'alt' => 'second'],
+        ['url' => 'https://cdn.example.com/a.jpg', 'thumb' => null, 'width' => 800, 'height' => 600, 'role' => 'cover', 'kind' => 'image', 'poster' => null, 'posterThumb' => null, 'alt' => 'first'],
+        ['url' => 'https://cdn.example.com/b.jpg', 'thumb' => null, 'width' => 640, 'height' => 480, 'role' => 'gallery', 'kind' => 'image', 'poster' => null, 'posterThumb' => null, 'alt' => 'second'],
     ])->and($item['thumbnail'])->toBe('https://cdn.example.com/a.jpg');
 });
 
