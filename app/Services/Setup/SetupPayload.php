@@ -96,7 +96,7 @@ class SetupPayload
 
         // Only the platforms.* passes read these two, and they are the
         // expensive half of the prelude.
-        $needsSuggestions = str_starts_with($key, 'platforms.');
+        $needsSuggestions = $this->readsSuggestions($key);
         $suggestions = $needsSuggestions ? $this->suggestionRows($user) : [];
         $onboarding = $needsSuggestions ? $this->onboarding->for($user) : [];
 
@@ -213,6 +213,18 @@ class SetupPayload
     }
 
     /**
+     * Whether this pass reads the suggestion roster and onboarding tops. The
+     * platforms.* branch in composePass() is the only reader, and they are the
+     * expensive half of the prelude — forPass() skips them for every other pass,
+     * so the predicate lives here, next to the branch it describes, rather than
+     * inline at the skip.
+     */
+    private function readsSuggestions(string $key): bool
+    {
+        return str_starts_with($key, 'platforms.');
+    }
+
+    /**
      * @param  list<array<string, mixed>>  $suggestions
      * @param  array<string, mixed>  $onboarding
      * @param  array<string, true>  $openStages
@@ -232,7 +244,7 @@ class SetupPayload
             return $base + ['candidates' => $this->listingCandidates($user)];
         }
 
-        if (str_starts_with($key, 'platforms.')) {
+        if ($this->readsSuggestions($key)) {
             $categories = SetupPassRegistry::GROUP_CATEGORIES[$key] ?? [];
             $rows = array_values(array_filter($suggestions, fn (array $row) => in_array($row['_category'], $categories, true)));
             foreach ($rows as &$row) {

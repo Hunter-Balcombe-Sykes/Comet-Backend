@@ -29,7 +29,11 @@ beforeEach(function () {
 function setupCurationSelects(callable $run): array
 {
     $seen = [];
-    DB::listen(function ($query) use (&$seen) {
+    $active = true;
+    DB::listen(function ($query) use (&$seen, &$active) {
+        if (! $active) {
+            return; // this call's window has closed — never collect into a stale array
+        }
         $sql = $query->sql;
         if (str_contains($sql, 'section_items') && str_starts_with(trim(strtolower($sql)), 'select')) {
             $seen[] = $sql;
@@ -37,6 +41,28 @@ function setupCurationSelects(callable $run): array
     });
 
     $run();
+    $active = false;
+
+    return $seen;
+}
+
+/** Every SELECT this request issued against a given table fragment. */
+function setupSelectsAgainst(string $needle, callable $run): array
+{
+    $seen = [];
+    $active = true;
+    DB::listen(function ($query) use (&$seen, &$active, $needle) {
+        if (! $active) {
+            return;
+        }
+        $sql = $query->sql;
+        if (str_contains($sql, $needle) && str_starts_with(trim(strtolower($sql)), 'select')) {
+            $seen[] = $sql;
+        }
+    });
+
+    $run();
+    $active = false;
 
     return $seen;
 }
@@ -51,6 +77,27 @@ it('reads every pool\'s curation in one query, not one per pool', function () {
 
     // One whereIn over every section, via PoolResolver::preloadCuration.
     // Before batching this was seven separate section-scoped selects.
+    expect($selects)->toHaveCount(1);
+});
+
+// The test above counts section_items selects, which stay at 1 even if
+// resolveAllPools() is reverted to call hydrateItems() once PER pool (that
+// half of the batching survives untouched via preloadSections/preloadCuration).
+// The property this branch actually exists for — ONE shared hydrate instead of
+// one per pool — is only visible by counting the query hydrateItems() itself
+// issues. content.identity_candidates is read exactly once per hydrateItems()
+// call (PoolResolver::itemPayloads(), gated on withDuplicateCandidates, which
+// the setup lane always passes true), so seeding content in two different
+// pools turns a per-pool hydrate into 2+ reads and a shared hydrate into 1.
+it('hydrates every pool\'s items in one shared call, not one per pool', function () {
+    $pro = createTenant('setup-batch-hydrate');
+    seedContentItem($pro->id, ['kind' => 'video']); // items.watch
+    seedContentItem($pro->id, ['kind' => 'product']); // items.shop
+
+    $selects = setupSelectsAgainst('identity_candidates', function () use ($pro) {
+        actingAsUser($pro)->getJson('/api/site/setup')->assertOk();
+    });
+
     expect($selects)->toHaveCount(1);
 });
 
@@ -105,6 +152,7 @@ it('returns the same pass from forPass as from the full compose', function () {
     $fromAll = collect($payload->for($pro)['passes'])->firstWhere('key', 'items.watch');
     $fromOne = $payload->forPass($pro, 'items.watch');
 
+    expect($fromAll)->not->toBeNull();
     expect($fromOne)->toEqual($fromAll);
 });
 
@@ -164,7 +212,14 @@ function seedSetupSourceIntentForBatching(string $userId, array $overrides = [])
 // 'platforms.' — so it is the one equivalence case that can catch a
 // forPass() prelude bug that items.watch cannot.
 it('returns the same pass from forPass as from the full compose on the platforms branch too', function () {
-    $pro = createTenant('setup-oneplatform');
+    // sector: a personal-trainer's sector suggestions are ['booking', 'strava']
+    // (OnboardingSuggestions::SECTOR_SUGGESTIONS) — strava's registry category
+    // is Content, one of platforms.social's GROUP_CATEGORIES, so topFor()
+    // actually returns something for this sector. Without a sector,
+    // OnboardingSuggestions::for() returns suggestions=[] and topFor() always
+    // returns [] whether $onboarding is real or the [] a skipping forPass()
+    // would pass — leaving the 'top' half of this test vacuous.
+    $pro = createTenant('setup-oneplatform', ['sector' => 'personal-trainer']);
     seedSetupSourceIntentForBatching($pro->id);
 
     $payload = app(SetupPayload::class);
@@ -172,9 +227,11 @@ it('returns the same pass from forPass as from the full compose on the platforms
     $fromAll = collect($payload->for($pro)['passes'])->firstWhere('key', 'platforms.social');
     $fromOne = $payload->forPass($pro, 'platforms.social');
 
-    // Assert the pass is actually populated before comparing — otherwise
-    // this would pass even if forPass() silently skipped suggestions.
+    // Assert both halves are actually populated before comparing — otherwise
+    // this would pass even if forPass() silently skipped suggestions or
+    // onboarding.
     expect($fromAll['suggestions'])->not->toBeEmpty();
+    expect($fromAll['top'])->not->toBeEmpty();
     expect($fromOne)->toEqual($fromAll);
 });
 
@@ -208,4 +265,34 @@ it('the setup wire carries a populated duplicateCandidates today', function () {
     $wireItemA = collect($watchPass['items'])->firstWhere('id', $itemA);
     expect($wireItemA)->not->toBeNull()
         ->and($wireItemA['duplicateCandidates'])->not->toBeEmpty();
+});
+
+// watch/shop (above) both take composePass()'s verbatim-library branch —
+// resolvedPools['library'] rows go straight onto the wire, unchanged. services
+// is the ONE pool whose output is transformed on the way out (setupItem() plus
+// the category grouping in servicesPass()), and it had no equivalence test at
+// all: against a byte-identical bar, that transform is exactly where a
+// batching bug could hide undetected. The expectation is derived from
+// resolve() — the unchanged pre-batching path — run through the real
+// servicesPass() transform, not a hardcoded shape.
+it('the services pass groups an independently-resolved library the same way', function () {
+    $pro = createTenant('setup-batch-services');
+    seedContentItem($pro->id, ['kind' => 'service']);
+    seedContentItem($pro->id, ['kind' => 'service']);
+
+    $passes = collect(actingAsUser($pro)->getJson('/api/site/setup')->assertOk()->json('passes'));
+    $servicesPass = $passes->firstWhere('key', 'services');
+    expect($servicesPass)->not->toBeNull();
+
+    $site = $pro->site()->firstOrFail();
+    $resolved = app(PoolResolver::class)->resolve($site, 'services');
+    // Both seeded items must have made it into the library, or comparing
+    // categories below would trivially agree over an empty set.
+    expect($resolved['library'])->toHaveCount(2);
+
+    $servicesPassMethod = new ReflectionMethod(SetupPayload::class, 'servicesPass');
+    $servicesPassMethod->setAccessible(true);
+    $expected = $servicesPassMethod->invoke(app(SetupPayload::class), $pro, $site, ['services' => $resolved]);
+
+    expect($servicesPass['categories'])->toEqual($expected['categories']);
 });
