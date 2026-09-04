@@ -436,7 +436,6 @@ jobs:
       # against this real, disposable Postgres container so
       # tests/Postgres/DatabaseTimeoutsTest.php can prove they still fire. See
       # DatabaseServiceProvider::boot() — every other lane leaves this unset.
-      DB_APPLY_TIMEOUTS_IN_TESTS: '1'
     services:
       postgres:
         image: postgres:16

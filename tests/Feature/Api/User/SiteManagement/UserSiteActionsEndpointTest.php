@@ -68,7 +68,7 @@ it('returns mode, slots (with unavailable), entries and scored candidates', func
         ->and(array_column($data['entries'], 'id'))->toBe(['platform:instagram', 'platform:tiktok'])
         ->and($data['entries'][0]['locked'])->toBeTrue()
         ->and(array_column($data['candidates'], 'id'))->toBe(['platform:tiktok', 'platform:instagram'])
-        ->and($data['candidates'][0])->toMatchArray(['score' => 0.8, 'scoreShare' => 1.0, 'kind' => 'platform', 'label' => 'TikTok'])
+        ->and($data['candidates'][0])->toMatchArray(['score' => 0.8, 'scoreShare' => 1.0, 'kind' => 'platform', 'label' => 'Follow on TikTok'])
         ->and($data['candidates'][1]['score'])->toBeNull()
         ->and(array_keys($data['candidates'][0]))->toBe(['id', 'kind', 'label', 'url', 'thumb', 'connectedAt', 'score', 'scoreShare', 'ref', 'meta']);
 });

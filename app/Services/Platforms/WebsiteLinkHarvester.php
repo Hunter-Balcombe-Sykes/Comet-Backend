@@ -31,6 +31,9 @@ use App\Services\Shop\ShopConnections;
 // Keys are present only when something was found.
 class WebsiteLinkHarvester
 {
+    /** @var array<string, string>|null bare host => brand homepage path; see brandHomepages(). */
+    private static ?array $brandHomepages = null;
+
     /** Utility classes that mean display:none on their own — Bootstrap, Tailwind. */
     private const HIDDEN_CLASSES = ['d-none', 'hidden'];
 
@@ -897,21 +900,26 @@ class WebsiteLinkHarvester
             return ['platform' => 'square.order', 'category' => 'online-ordering', 'label' => 'Square Online'];
         }
 
+        // These three tables are HOST-ONLY by design — that is what makes them
+        // beat the projector on the hosts they cover — so on their own they
+        // cannot tell a merchant's booking page from the vendor's front door.
+        // brandHit() asks that one question and demotes the front door to a
+        // plain link; see isVendorRoot().
         foreach (self::BOOKING_HOSTS as $label => $pattern) {
             if (preg_match($pattern, $host)) {
-                return ['platform' => self::BOOKING_PLATFORM[$label], 'category' => 'booking', 'label' => $label];
+                return $this->brandHit(self::BOOKING_PLATFORM[$label], 'booking', $label, $url);
             }
         }
 
         foreach (self::RESERVATION_HOSTS as $label => $pattern) {
             if (preg_match($pattern, $host)) {
-                return ['platform' => self::RESERVATION_PLATFORM[$label], 'category' => 'reservations', 'label' => $label];
+                return $this->brandHit(self::RESERVATION_PLATFORM[$label], 'reservations', $label, $url);
             }
         }
 
         foreach (self::ORDERING_HOSTS as $label => $pattern) {
             if (preg_match($pattern, $host)) {
-                return ['platform' => self::ORDERING_PLATFORM[$label], 'category' => 'online-ordering', 'label' => $label];
+                return $this->brandHit(self::ORDERING_PLATFORM[$label], 'online-ordering', $label, $url);
             }
         }
 
@@ -1311,6 +1319,101 @@ class WebsiteLinkHarvester
      *
      * @return array{platform:string, category:string, label:string}|null
      */
+    /**
+     * A hand-table host match, demoted to 'link' when the URL turns out to be
+     * the vendor's own front door rather than a page on it.
+     *
+     * @return array{platform:string, category:string, label:string}
+     */
+    private function brandHit(string $platform, string $category, string $label, string $url): array
+    {
+        return [
+            'platform' => $platform,
+            'category' => $this->isVendorRoot($url) ? 'link' : $category,
+            'label' => $label,
+        ];
+    }
+
+    /**
+     * Whether $url is a BRAND's own front door rather than an account on it —
+     * a vendor homepage, or the "Powered by <vendor>" badge that carries its
+     * referral parameters.
+     *
+     * The catalog records each brand's `homepage`, so this is asked of that
+     * fact rather than inferred: the URL sits on the same registrable host
+     * (www or apex) and adds no path of its own. Deliberately no deeper. The
+     * first attempt at this used the routing lane's L1 signal — a URL that
+     * matched only a bare-domain detector, on a surface with a specific
+     * detector on file — and it refused book.gettimely.com/book/<slug>, a real
+     * merchant booking page, because the catalog's specific Timely detector
+     * does not describe that shape. Dropping a genuine booking connection is a
+     * worse failure than keeping a junk one, so the rule stays where it cannot
+     * be wrong: the vendor's own address, and nothing that carries a merchant's
+     * half of a URL.
+     *
+     * Public because the judgement outlives classification: a caller with its
+     * own fallback for an unrecognised URL (GoogleBusinessAutoSync answers
+     * `direct.book`, on the sound assumption that an unclaimed booking link is
+     * the merchant's own domain) has to tell "we don't know this host" from
+     * "we know it, and it is the vendor's front door".
+     */
+    public function isVendorRoot(string $url): bool
+    {
+        $host = self::bareHost((string) parse_url($url, PHP_URL_HOST));
+        if ($host === '') {
+            return false;
+        }
+
+        $path = trim((string) parse_url($url, PHP_URL_PATH), '/');
+
+        // Asked of every brand rather than of this URL's projection: a brand
+        // whose catalog entry has no bare-domain detector (Fresha, OpenTable,
+        // Uber Eats) projects to nothing at its own root, and it is precisely
+        // that root we are trying to recognise.
+        $homepagePath = self::brandHomepages()[$host] ?? null;
+
+        return $homepagePath !== null && ($path === '' || $path === $homepagePath);
+    }
+
+    /**
+     * bare host => the path of that brand's homepage, for every catalog brand
+     * that records one. Memoised: the catalog is immutable for the life of the
+     * process, and classify() runs once per harvested link.
+     *
+     * @return array<string, string>
+     */
+    private static function brandHomepages(): array
+    {
+        if (self::$brandHomepages !== null) {
+            return self::$brandHomepages;
+        }
+
+        $map = [];
+        try {
+            foreach (CompiledCatalog::brands() as $brand) {
+                $homepage = $brand['homepage'] ?? null;
+                if (! is_string($homepage) || $homepage === '') {
+                    continue;
+                }
+                $host = self::bareHost((string) parse_url($homepage, PHP_URL_HOST));
+                if ($host !== '') {
+                    $map[$host] = trim((string) parse_url($homepage, PHP_URL_PATH), '/');
+                }
+            }
+        } catch (CatalogNotCompiled) {
+            // An environment without the artefact judges nothing, exactly as
+            // the rest of this class's catalog lane does.
+            return self::$brandHomepages = [];
+        }
+
+        return self::$brandHomepages = $map;
+    }
+
+    private static function bareHost(string $host): string
+    {
+        return (string) preg_replace('~^www\.~', '', strtolower($host));
+    }
+
     private function classifyFromCatalog(string $url): ?array
     {
         try {
@@ -1347,7 +1450,30 @@ class WebsiteLinkHarvester
             // It is what holds microsoft_bookings.book and wix_bookings.book at
             // 'link' — both are the right class, both are path-identified
             // brands on shared registrable domains, neither is connectable.
-            $category = ($surface['is_connectable'] ?? false) === true
+            //
+            // The third condition is L1, and it is the one this method was
+            // missing: a URL that matched only a brand's bare registrable
+            // domain names the VENDOR, not an account on it. The routing lane
+            // has judged that since PlacementPolicy, and the social arm of this
+            // very class has always enforced its own version (looksLikeProfile
+            // rejects instagram.com/ with no handle) — the catalog arm simply
+            // never asked. Every "Powered by <vendor>" badge and vendor
+            // homepage in a footer or a Google listing therefore promoted to
+            // that vendor's connectable surface: 75 of the catalog's own brand
+            // homepages classified as booking/ordering/reservations/shop when
+            // this was measured, one per brand that has one.
+            //
+            // Live case (2026-09-04, lukemunn): the Google listing's booking
+            // link was Timely's referral badge —
+            // www.gettimely.com?utm_campaign=Customer%20Referral — which
+            // became a timely.book connection. Nothing can ever be fetched
+            // for it (there is no Timely connector, and no merchant slug in
+            // that URL to fetch with), so the Get Started walk drew an empty
+            // "Your services" step, and the public page would have carried a
+            // Book button pointing at Timely's marketing site.
+            $vendorRoot = $this->isVendorRoot($url);
+
+            $category = ($surface['is_connectable'] ?? false) === true && ! $vendorRoot
                 ? (self::PROMOTABLE_ROUTING_CLASS[$routingClass] ?? 'link')
                 : 'link';
 

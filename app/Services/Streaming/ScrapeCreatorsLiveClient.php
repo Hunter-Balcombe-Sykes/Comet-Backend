@@ -21,8 +21,11 @@ use Illuminate\Support\Facades\Log;
 // The live lane claims its OWN sources ('twitch_live'/'tiktok_live', and
 // 'youtube_lives' inside YoutubeScraper::fetchLives) — an every-2-min poll
 // cadence must never drain the content lanes' scrape budgets, the same
-// separation Item 11c pinned for YouTube. Lanes are dormant until their
-// partna.limits.scrapecreators.sources.* caps land (absent cap reads 0).
+// separation Item 11c pinned for YouTube. The caps have since landed
+// (partna.limits.scrapecreators.sources.*: twitch_live/tiktok_live 2000,
+// youtube_lives 2700), so the budget gate no longer holds these lanes dormant —
+// what does is that no block enables live-check. See the ORPHANED READER note
+// on LiveStatusPoller before assuming this lane cannot spend.
 class ScrapeCreatorsLiveClient
 {
     /** TwitchScraper::LOGIN_PATTERN's rule, same source of truth (Twitch login format). */

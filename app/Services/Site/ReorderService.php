@@ -60,7 +60,7 @@ class ReorderService
         // lock_timeout` is scoped to the REST of the caller's transaction
         // (Postgres, not just the one statement) — so when a bound was passed,
         // this row lock aborts at that SAME ceiling (5s for the services key)
-        // instead of DatabaseServiceProvider's 10s session-level default. It
+        // instead of the app_backend role's 10s lock_timeout default. It
         // fails with the identical SQLSTATE (55P03 lock_not_available) as the
         // advisory-lock timeout, so reuse AdvisoryLock's own detection rather
         // than duplicating it, and reuse AdvisoryLockTimeoutException too —

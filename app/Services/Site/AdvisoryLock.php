@@ -16,13 +16,12 @@ use Illuminate\Support\Facades\DB;
  *
  * $timeoutMs bounds the wait via SET LOCAL lock_timeout, which only holds for
  * the CURRENT transaction — that's why it's set immediately before the lock
- * call rather than relying solely on connection level (DatabaseServiceProvider
- * already issues a session-level `SET lock_timeout` at boot, so a contended
- * pg_advisory_xact_lock was never truly unbounded — but that session-level
- * value can be lost on a reconnect, and a timeout there surfaces as a raw,
- * uncaught SQLSTATE 55P03 rather than something a caller can catch and handle).
- * Omit $timeoutMs (null) to fall back to that pre-existing session-level
- * ceiling for keys this unit doesn't touch — every OTHER pg_advisory_xact_lock
+ * call rather than relying solely on connection level (the app_backend ROLE
+ * carries `lock_timeout = 10s` as a Postgres startup default — migration
+ * 20260905120000 — so a contended pg_advisory_xact_lock was never truly
+ * unbounded, but a timeout there surfaces as a raw, uncaught SQLSTATE 55P03
+ * rather than something a caller can catch and handle). Omit $timeoutMs (null)
+ * to fall back to that role-level ceiling for keys this unit doesn't touch — every OTHER pg_advisory_xact_lock
  * call site in the app (site-images, site-documents, blocks-sections,
  * feedback, claim-invite, pre_account_build_ip) still calls DB::select(...)
  * directly and is deliberately untouched here. service-layout:{user_id} was

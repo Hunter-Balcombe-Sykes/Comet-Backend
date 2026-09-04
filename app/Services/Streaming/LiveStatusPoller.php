@@ -34,10 +34,19 @@ use Illuminate\Support\Facades\Redis;
  * /api/public/site-by-slug and PublicSiteController. The canonical public lane
  * (IndividualProfileController) never consumed live status. The writer side is
  * untouched: CheckStreamingLiveStatusJob is still scheduled everyTwoMinutes
- * (routes/console.php), so this poller still runs and still spends the billed
- * vendor calls described above, and the values it writes now expire unread.
- * Removing or pausing it is an OWNER DECISION about a live third-party billed
- * surface, not a cleanup — do not unschedule it as a tidy-up.
+ * (routes/console.php), so anything this poller writes now expires unread.
+ *
+ * The waste is LATENT, not current. Handles come only from blocks with
+ * live_check_enabled=true, and there are none — 0 on dev (of 30 blocks), 0 on
+ * prod (of 0), verified 2026-09-04 — so the job short-circuits on its handle
+ * gather every tick and never reaches this poller at all. Present cost
+ * is one indexed query per two minutes; vendor spend is zero. But the flag is
+ * user-settable (StoreLinkBlockRequest / UpdateLinkBlockRequest), so the FIRST
+ * owner who enables live-check on a twitch/tiktok/youtube link block starts
+ * one billed vendor call per handle per tick, for a value nothing reads.
+ * That makes this armed, not idle: removing or pausing it is an OWNER DECISION
+ * about a live third-party billed surface, not a cleanup — do not unschedule
+ * it as a tidy-up, and do not dismiss it as free because today's bill is 0.
  */
 class LiveStatusPoller
 {

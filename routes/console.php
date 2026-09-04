@@ -205,8 +205,11 @@ Schedule::command('horizon:snapshot')
 //
 // ⚠️ Since 2026-09-04 nothing reads what this job writes (LiveStatusInjector,
 // the sole reader of the `streaming:live:*` keys, went with the legacy public-site
-// payload lane) — it stays scheduled and billed pending an owner decision. See the
-// ORPHANED READER note in app/Services/Streaming/LiveStatusPoller.php.
+// payload lane) — it stays scheduled pending an owner decision. It bills nothing
+// today only because no block has live_check_enabled=true (0 on dev and prod,
+// 2026-09-04); the first one that does starts paid per-handle vendor calls whose
+// results nothing reads. See the ORPHANED READER note in
+// app/Services/Streaming/LiveStatusPoller.php.
 Schedule::job(new CheckStreamingLiveStatusJob)
     ->everyTwoMinutes()
     ->onOneServer()
