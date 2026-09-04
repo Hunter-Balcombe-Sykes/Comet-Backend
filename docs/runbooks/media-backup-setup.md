@@ -8,7 +8,7 @@ it from this doc; edit the file in the backup repo and keep this copy in sync.
 
 | | state |
 |---|---|
-| `weekly-media-backup.yml` committed to `Hunter-Balcombe-Sykes/partna-db-backup` | ✅ `567d1082`, workflow id `328413731`, active |
+| `weekly-media-backup.yml` committed to `PartnaAu/partna-db-backup` | ✅ `567d1082`, workflow id `328413731`, active |
 | `partna-media-backup` bucket (our Cloudflare account) | ✅ created |
 | Lifecycle rule — expire `deleted/` after 30 days | ✅ done 2026-08-06 |
 | Destination R2 token → `R2_MEDIA_DST_*` secrets | ✅ set 2026-08-06 |
@@ -160,7 +160,7 @@ dashboard, and its scope is therefore unverified. Reusing an unidentified creden
 would make the mirror's blast radius unknown — the opposite of the point. **Unexplained; worth
 resolving before anyone relies on it.**
 
-**GitHub → `Hunter-Balcombe-Sykes/partna-db-backup` → Settings → Secrets:**
+**GitHub → `PartnaAu/partna-db-backup` → Settings → Secrets:**
 
 Six new secrets. The repo already holds `BACKUP_PASSPHRASE`, `R2_ACCESS_KEY_ID`, `R2_ENDPOINT`,
 `R2_SECRET_ACCESS_KEY`, `SUPABASE_DB_URL` (verified 2026-08-06).
@@ -185,7 +185,7 @@ check` fails the run instead of mirroring nothing and reporting green.
 
 ## Step 2 — the workflow
 
-Commit as `.github/workflows/weekly-media-backup.yml` in `Hunter-Balcombe-Sykes/partna-db-backup`
+Commit as `.github/workflows/weekly-media-backup.yml` in `PartnaAu/partna-db-backup`
 (**not** this repo — that repo holds the backup automation). Shape deliberately mirrors
 `weekly-db-backup.yml`: same cron day, same `workflow_dispatch`, same non-cancelling concurrency,
 same fail-closed verification.
@@ -347,7 +347,7 @@ design, so uploads cannot come from the pipeline).
 
 ## Step 3 — verify, once
 
-- [ ] Run it manually: `gh workflow run weekly-media-backup.yml --repo Hunter-Balcombe-Sykes/partna-db-backup`
+- [ ] Run it manually: `gh workflow run weekly-media-backup.yml --repo PartnaAu/partna-db-backup`
 - [ ] Confirm the run is green and that "Verify the mirror matches" actually executed (a skipped
       verification step is the classic false green).
 - [ ] Spot-restore one object: `rclone copy dst:partna-media-backup/current/<key> ./` and open it.

@@ -67,5 +67,5 @@ target path changes materially:
 - 02 → `RefreshConnectionJob`, `PlatformRefresher`, rate-limiter / circuit-breaker config
 - 03 → cache/queue wiring, analytics ingest, throttle middleware, `EscalatesRepeatedFaults`
 - 04 → never goes stale from code; re-run quarterly because *backups* rot, not code.
-  Off-platform weekly dumps run from the `Hunter-Balcombe-Sykes/partna-db-backup`
+  Off-platform weekly dumps run from the `PartnaAu/partna-db-backup`
   repo (GitHub Actions → Cloudflare R2); this drill also restores one of those.

@@ -52,7 +52,7 @@ This is the **business + operational** counterpart to the audit checklists. It c
       `docs/runbooks/drills/logs/2026-07-26-backup-restore.md`. Verdict **PARTIAL**: RPO/object-storage
       coverage gaps remain (see Pro-upgrade action below).
     - **Off-platform backups:** weekly encrypted `pg_dump` → Cloudflare R2 live from
-      `Hunter-Balcombe-Sykes/partna-db-backup` (closes account-level-disaster gap).
+      `PartnaAu/partna-db-backup` (closes account-level-disaster gap).
       Supabase Pro managed daily backups pending (see below).
     - **[2026-07-24] Upgrade Supabase org `Partna` to Pro** — enables automatic
       daily managed backups + dashboard "restore to new project". Complements the

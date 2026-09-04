@@ -19,7 +19,7 @@ the only drill runnable at any time regardless of in-flight work.
   before creating; note it in the log.
 
 > **Fastest way to run this drill (2026-07-26):**
-> `gh workflow run restore-drill.yml --repo Hunter-Balcombe-Sykes/partna-db-backup`
+> `gh workflow run restore-drill.yml --repo PartnaAu/partna-db-backup`
 >
 > That workflow performs the whole fallback path — pull the newest R2 object, decrypt,
 > restore into a throwaway `postgres:17` service container, assert per-schema table counts
@@ -69,12 +69,12 @@ aws s3 ls s3://partna-db-backups/weekly/ --endpoint-url <r2 endpoint>   # or the
       🔴 **Answered as of 2026-08-06: it is NOT covered, and there is nothing to check.**
       `docs/runbooks/media-backup-setup.md` opens with "Status: NOT YET IMPLEMENTED"; the
       workflow it specifies (`weekly-media-backup.yml`) has never been committed —
-      `Hunter-Balcombe-Sykes/partna-db-backup` holds only `weekly-db-backup` and
+      `PartnaAu/partna-db-backup` holds only `weekly-db-backup` and
       `restore-drill` — and the dashboard prerequisites (bucket, scoped token, secrets,
       lifecycle rule) are unchecked. Lose the prod R2 bucket and **every sitepage image and
       video is gone permanently**, while the DB restore brings back rows pointing at objects
       that no longer exist. Don't re-ask this each quarter: verify with
-      `gh workflow list --repo Hunter-Balcombe-Sykes/partna-db-backup` and, once the mirror
+      `gh workflow list --repo PartnaAu/partna-db-backup` and, once the mirror
       exists, check it actually ran and that `rclone check` passed — a mirror nobody has read
       back is not a proven backup, which is precisely what F6 recorded about the DB dump.
 

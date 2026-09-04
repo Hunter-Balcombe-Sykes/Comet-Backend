@@ -572,7 +572,7 @@ connects"?
 
 **Fastest path (preferred):**
 ```bash
-gh workflow run restore-drill.yml --repo Hunter-Balcombe-Sykes/partna-db-backup
+gh workflow run restore-drill.yml --repo PartnaAu/partna-db-backup
 ```
 That workflow does the whole fallback path — pull the newest R2 object, decrypt, restore into
 a throwaway `postgres:17` service container, assert per-schema table counts, print row
