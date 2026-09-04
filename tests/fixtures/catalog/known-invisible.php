@@ -35,4 +35,16 @@ return [
     'squarespace.store',
     'stan.store',
     'woocommerce.store',
+    // Same bucket as the .store rows above, added 2026-09-04 fixing a
+    // DIFFERENT bug: WebsiteLinkHarvester's generic 'tiktok' SOCIAL_HOSTS
+    // entry was wrongly claiming a /shop/store/… URL as the user's regular,
+    // single-account TikTok profile (TiktokShop.php's own docblock: "NOT
+    // connectable as a brand card... connects via the shop lane... never a
+    // brand card"). Excluding it from that wrong claim correctly leaves
+    // classify() with nothing to say — classifyFromCatalog()'s own
+    // isProvider check already refuses ShopConnections::surfaces() members
+    // on purpose (verified against the real LinkProjector, which resolves
+    // this URL to tiktok_shop.store correctly; it is the shop-provider
+    // rule, not a missing detector, that keeps it out of classify()).
+    'tiktok_shop.store',
 ];

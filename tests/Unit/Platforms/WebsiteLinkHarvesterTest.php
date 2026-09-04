@@ -224,6 +224,53 @@ it('resolves a Spotify PODCAST show link to spotify_podcasts, not the generic sp
         ->and($connection->getAttributes()['surface_key'])->toBe('spotify_podcasts.show');
 });
 
+it('resolves a YouTube Music channel to youtube_music, not the generic youtube surface', function () {
+    expect(classifierHarvester()->classify('https://music.youtube.com/channel/UCANLZYMidaCbLQFWXBC95Jg'))
+        ->toBe(['platform' => 'youtube_music.channel', 'category' => 'social', 'label' => 'YouTube Music']);
+
+    expect(classifierHarvester()->classify('https://www.youtube.com/@somecreator'))
+        ->toBe(['platform' => 'youtube', 'category' => 'social', 'label' => 'YouTube']);
+});
+
+// Found alongside the two carve-outs above (2026-09-04 W9 completeness
+// critic, findings #3/#6/#7): SOCIAL_HOSTS's host-only patterns are broader
+// than the catalog detector for bluesky, kick and deezer, so a NON-profile
+// path on the same host still passed looksLikeProfile() and was written as a
+// live connection carrying the wrong URL shape — a non-root path was enough,
+// with no per-brand shape check at all.
+it('refuses a non-profile path on a path-qualified social host instead of claiming it anyway', function (string $url) {
+    expect(classifierHarvester()->classify($url))->toBeNull();
+})->with([
+    'https://bsky.app/settings',
+    'https://kick.com/blog/some-post',
+    'https://www.deezer.com/some-random-page',
+]);
+
+it('still claims the real profile shape on each path-qualified social host', function (string $url, string $platform, string $label) {
+    expect(classifierHarvester()->classify($url))->toBe(['platform' => $platform, 'category' => 'social', 'label' => $label]);
+})->with([
+    ['https://bsky.app/profile/pres.cafe', 'bluesky.profile', 'Bluesky'],
+    ['https://kick.com/somecreator', 'kick', 'Kick'],
+    ['https://www.deezer.com/artist/145', 'deezer.artist', 'Deezer'],
+    ['https://www.deezer.com/us/artist/145', 'deezer.artist', 'Deezer'],
+]);
+
+// tiktok_shop.store (TiktokShop.php) is "NOT connectable as a brand card,
+// same as every provider store surface" per its own docblock — it connects
+// via TiktokShopConnectJob's vendor lane, never through this classify() path
+// at all. Before this fix, SOCIAL_HOSTS['tiktok'] being host-only meant a
+// /shop/store/… URL was written onto the user's regular, single-account
+// TikTok profile connection instead. Correct behaviour is null here, not a
+// new category — verified against the real LinkProjector that
+// classifyFromCatalog()'s own isProvider check already refuses this surface
+// on purpose, so nothing downstream needs to change.
+it('does not claim a TikTok Shop storefront URL as the regular TikTok profile', function () {
+    expect(classifierHarvester()->classify('https://www.tiktok.com/shop/store/breo-us/7495369109679933933'))->toBeNull();
+
+    expect(classifierHarvester()->classify('https://www.tiktok.com/@someuser'))
+        ->toBe(['platform' => 'tiktok', 'category' => 'social', 'label' => 'TikTok']);
+});
+
 // The other half of F8: a `->notConnectable()` catalog surface must NOT sit in
 // SOCIAL_HOSTS. Six did for one night. This is the same policy the
 // yelp.listing test above guards ("bucketing it would silently reverse that

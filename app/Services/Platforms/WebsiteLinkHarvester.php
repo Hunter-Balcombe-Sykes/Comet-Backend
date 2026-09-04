@@ -476,6 +476,43 @@ class WebsiteLinkHarvester
     ];
 
     /**
+     * SOCIAL_HOSTS key => a required path regex, for the brands whose catalog
+     * detector is narrower than looksLikeProfile()'s generic "any non-root,
+     * non-sharer path" check — verbatim from each brand's own
+     * Detector::path() (Bluesky.php, Kick.php, Deezer.php). Without this, a
+     * NON-profile path on the same host (bsky.app/settings, kick.com/blog,
+     * deezer.com/album/123) still passed looksLikeProfile() and was written
+     * as a live IntegrationConnection carrying a URL that isn't actually that
+     * brand's profile shape. Found by the 2026-09-04 overnight W9
+     * completeness critic (persisted 5 rounds unaddressed as findings #3/#6).
+     * A key with no entry here keeps the unqualified generic behaviour.
+     *
+     * @var array<string, string>
+     */
+    private const SOCIAL_PATH_REQUIRED = [
+        'bluesky' => '~^/profile/[A-Za-z0-9:._-]{1,253}/?$~',
+        'kick' => '~^/[A-Za-z0-9_-]{3,50}/?$~i',
+        'deezer' => '~^(?:/[a-z]{2})?/artist/\d{1,15}/?$~',
+    ];
+
+    /**
+     * SOCIAL_HOSTS key => a path regex that EXCLUDES a claim rather than
+     * requiring one — for a host shared with a DIFFERENT, more specific
+     * brand. tiktok_shop.store (TiktokShop.php) is not itself claimed here
+     * (it is a shop-provider surface, "never a brand card" per its own
+     * docblock — classifyFromCatalog()'s isProvider check already refuses it
+     * correctly); the only job of this entry is to stop the generic 'tiktok'
+     * claim from writing a /shop/store/… URL onto the user's regular,
+     * single-account TikTok profile connection. Found alongside
+     * SOCIAL_PATH_REQUIRED above (finding #7).
+     *
+     * @var array<string, string>
+     */
+    private const SOCIAL_PATH_EXCLUDED = [
+        'tiktok' => '~^/shop/store/~',
+    ];
+
+    /**
      * SOCIAL_HOSTS key => [platform slug, display label], used only by classify().
      *
      * @var array<string, array{0: string, 1: string}>
@@ -799,6 +836,30 @@ class WebsiteLinkHarvester
             return ['platform' => 'spotify_podcasts.show', 'category' => 'social', 'label' => 'Spotify Podcasts'];
         }
 
+        // YouTube Music BEFORE the generic social loop, same reasoning as
+        // Spotify Podcasts above: SOCIAL_HOSTS['youtube'] matches
+        // music.youtube.com (it is a Hosts.php ALIAS onto youtube.com, per
+        // YoutubeMusic.php's own docblock) with no subdomain distinction, so a
+        // harvested YouTube Music channel was written onto the user's regular
+        // youtube.channel connection instead of youtube_music.channel — a
+        // DIFFERENT, max-10-account surface. Verified against the real
+        // LinkProjector before writing this (2026-09-04): it already resolves
+        // this exact URL shape to youtube_music.channel correctly, so
+        // classifyFromCatalog() COULD backstop it — but that path answers
+        // category 'link' for this surface (PROMOTABLE_ROUTING_CLASS has no
+        // 'content' entry), which downgrades it to an inert card rather than
+        // a real connection. This carve-out answers 'social' instead, the
+        // same category Spotify Podcasts above needs for the same reason:
+        // LinkRouter::seedSocial() only writes a connection for that
+        // category. Same host+path predicate as YoutubeMusic.php's own
+        // Detector::path(). Found by the 2026-09-04 W9 completeness critic
+        // (finding #5, open for 3 consecutive rounds before this).
+        if ($host === 'music.youtube.com'
+            && preg_match('~^/(?:channel|browse)/UC[A-Za-z0-9_-]{22}~', (string) parse_url($url, PHP_URL_PATH))
+            && $this->looksLikeProfile($url)) {
+            return ['platform' => 'youtube_music.channel', 'category' => 'social', 'label' => 'YouTube Music'];
+        }
+
         foreach (self::SOCIAL_HOSTS as $key => $pattern) {
             // No isset() guard needed: SOCIAL_PLATFORM is hand-maintained with
             // the exact same keys as SOCIAL_HOSTS, so the lookup below can
@@ -809,6 +870,20 @@ class WebsiteLinkHarvester
             // to 24 without the sentence being corrected, which is exactly the
             // reading that makes someone add to one map and stop.
             if (preg_match($pattern, $host) && $this->looksLikeProfile($url)) {
+                $path = (string) parse_url($url, PHP_URL_PATH);
+                // SOCIAL_PATH_REQUIRED / SOCIAL_PATH_EXCLUDED: see their own
+                // docblocks. `continue` rather than `return null` — a host
+                // this specific enough to warrant a path gate is never shared
+                // with another SOCIAL_HOSTS key, so falling out of the loop
+                // reaches the same unclaimed tail every other unmatched host
+                // does (classifyFromCatalog(), or null).
+                if (isset(self::SOCIAL_PATH_REQUIRED[$key]) && ! preg_match(self::SOCIAL_PATH_REQUIRED[$key], $path)) {
+                    continue;
+                }
+                if (isset(self::SOCIAL_PATH_EXCLUDED[$key]) && preg_match(self::SOCIAL_PATH_EXCLUDED[$key], $path)) {
+                    continue;
+                }
+
                 [$platform, $label] = self::SOCIAL_PLATFORM[$key];
 
                 return ['platform' => $platform, 'category' => 'social', 'label' => $label];
