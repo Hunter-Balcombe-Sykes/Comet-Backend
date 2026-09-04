@@ -108,8 +108,36 @@ running: `pause-supervisor`/`continue-supervisor` are scoped and reversible per-
 
 ## Root cause
 
-**Worker share of the pool — corrected from a stale "six of fifteen" figure**, do not repeat
-that number. `config/horizon.php:374-390` defines the per-environment `maxProcesses` for five
+### ROOT CAUSE FOUND 2026-09-04 — it was never mainly Horizon.
+
+Measured on dev: **17 of 23 pooled connections (73.9%) had executed nothing but two `SET`
+statements.** Their last query was `SET lock_timeout = 10000` — line 45 of the old
+`app/Providers/DatabaseServiceProvider.php`, which called `DB::connection()->getPdo()` in
+`boot()`. That opened a socket in EVERY process that boots the framework — every PHP-FPM
+child, every queue worker, every artisan command, every scheduler tick — whether or not it
+ever queried. In session mode each one pinned a pool slot for the life of the process.
+
+The timing showed it plainly: 9 connections opened within 4 seconds of a deploy, plus singles
+landing on `:00` / `:15` / `:45` boundaries — scheduled commands taking a slot just to boot.
+
+**Fix (shipped 2026-09-04):** the provider is deleted and `statement_timeout` / `lock_timeout`
+moved to the `app_backend` ROLE (migration `20260905120000`, applied to dev AND prod), where
+Postgres applies them at backend startup. Connections are lazy again — a process takes a slot
+when it first queries. Guarded by `tests/Feature/Architecture/NoEagerDatabaseConnectTest.php`.
+
+**Re-measure with this**, which is the query that found it:
+
+```sql
+select case when query like 'SET lock_timeout%' then 'boot SETs only — never ran a real query'
+            when query = 'DISCARD ALL' then 'returned to pool (Supavisor reset)'
+            else 'ran real queries' end as kind,
+       count(*), round(100.0*count(*)/sum(count(*)) over (), 1) as pct
+from pg_stat_activity where usename = 'app_backend' group by 1 order by 2 desc;
+```
+
+### Horizon's share — the figures this runbook was written around
+
+**Corrected from a stale "six of fifteen" figure**, do not repeat that number. `config/horizon.php:374-390` defines the per-environment `maxProcesses` for five
 supervisors: `supervisor-1` (2) + `supervisor-mail` (2) + `supervisor-long` (1) +
 `supervisor-videos` (1) + `supervisor-ingest` (1). At the **idle floor** every lane still runs
 at least 1 worker (`config/horizon.php:341-355`), so Horizon alone holds **5 of 15** slots
@@ -118,11 +146,11 @@ before any HTTP request lands; at the **busy ceiling**, when `supervisor-1` and
 roughly 8–10 slots for the web tier before the pool is exhausted purely by request volume —
 narrower headroom than it looks from the total pool size alone.
 
-Whether the Horizon **master** process and its per-lane **middleman** processes also pin their
-own pooler slots (separately from the worker processes counted above) is
-**UNVERIFIED — check by comparing the `pg_stat_activity` count query above with Horizon
-stopped vs. running on the same environment.** If they do, the real Horizon-side floor is
-higher than 5.
+Whether the Horizon **master** and per-lane **middleman** processes also pinned their own
+slots is **ANSWERED (2026-09-04): they did, and so did everything else** — see the root-cause
+section above. Every process that booted the framework took a connection, so the question was
+never Horizon-specific. With the eager connect gone, only processes that actually query hold a
+slot, and Horizon's true share should be re-measured rather than assumed from this figure.
 
 **Pool size — RESOLVED 2026-09-04, this section previously said the opposite.** The
 Management API's `default_pool_size` **does** govern session mode, even though the entry it
