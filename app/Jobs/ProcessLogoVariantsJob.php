@@ -215,7 +215,9 @@ class ProcessLogoVariantsJob implements ShouldQueue
             'artifact_type' => 'svg',
         ])->value('path');
 
-        $disk->put($path, $svg, 'public');
+        if ($disk->put($path, $svg, 'public') === false) {
+            throw new \RuntimeException("Media disk rejected the SVG variant write ({$path}).");
+        }
 
         if ($existingPath && $existingPath !== $path) {
             try {
@@ -290,7 +292,9 @@ class ProcessLogoVariantsJob implements ShouldQueue
                 'artifact_type' => 'png',
             ])->value('path');
 
-            $disk->put($path, $bytes, 'public');
+            if ($disk->put($path, $bytes, 'public') === false) {
+                throw new \RuntimeException("Media disk rejected the icon variant write ({$path}).");
+            }
 
             if ($existingPath && $existingPath !== $path) {
                 try {

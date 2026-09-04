@@ -60,6 +60,7 @@ final readonly class EventbriteFetch implements FetchStrategy
             $result['organiser'],
             $result['events'],
             is_array($payload['hiddenEventIds'] ?? null) ? $payload['hiddenEventIds'] : [],
+            $result['avatar'] ?? null,
         );
     }
 }

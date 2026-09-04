@@ -51,7 +51,7 @@ class EventsPayload
      * @param  list<string>  $hiddenEventIds
      * @return array<string,mixed>
      */
-    public static function accountPayload(string $url, ?string $organiser, array $events, array $hiddenEventIds = []): array
+    public static function accountPayload(string $url, ?string $organiser, array $events, array $hiddenEventIds = [], ?string $avatarUrl = null): array
     {
         $hidden = array_values(array_unique(array_filter($hiddenEventIds, 'is_string')));
         $upcoming = array_values(array_filter(
@@ -62,6 +62,9 @@ class EventsPayload
         return [
             'url' => $url,
             'organiser' => $organiser,
+            // Only when the scrape actually found one — no canonical nulls on
+            // rows whose org page carries no image (2026-09-04 avatar sweep).
+            ...($avatarUrl !== null ? ['avatarUrl' => $avatarUrl] : []),
             'next' => $upcoming[0] ?? null,
             'upcoming' => $upcoming,
             'hiddenEventIds' => $hidden,

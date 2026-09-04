@@ -62,7 +62,7 @@ class EventbriteScraper extends PlatformScraper
     /**
      * The organiser's upcoming events, soonest first, up to $limit.
      *
-     * @return array{organiser:?string, events:list<array<string,mixed>>}|null
+     * @return array{organiser:?string, avatar:?string, events:list<array<string,mixed>>}|null
      */
     public function fetchEvents(string $orgUrl, int $limit = 5): ?array
     {
@@ -73,6 +73,7 @@ class EventbriteScraper extends PlatformScraper
             return null;
         }
         $organiser = $this->orgName($page['body']);
+        $avatar = $this->orgAvatar($page['body']);
 
         // Unique event-detail links the org page lists.
         preg_match_all('~https://www\.eventbrite\.'.self::TLDS.'/e/[a-z0-9-]+~i', $page['body'], $m);
@@ -143,6 +144,7 @@ class EventbriteScraper extends PlatformScraper
 
         return [
             'organiser' => $organiser,
+            'avatar' => $avatar,
             'events' => array_slice($upcoming ?: $events, 0, $limit),
         ];
     }
@@ -192,6 +194,21 @@ class EventbriteScraper extends PlatformScraper
     private function normalizeLink(string $url): string
     {
         return preg_replace('~^(https?://)www\.eventbrite\.'.self::TLDS.'(/.*)$~i', '$1www.eventbrite.com$2', $url) ?? $url;
+    }
+
+    // og:image on the org page is the organiser's own logo (img.evbuc.com);
+    // the platform's static default (cdn.evbstatic.com) is a brand mark, not
+    // a face, and the reader's brand-tile fallback already covers that case.
+    private function orgAvatar(string $html): ?string
+    {
+        if (preg_match('~<meta[^>]+property="og:image"[^>]+content="([^"]+)"~i', $html, $m)) {
+            $url = html_entity_decode(trim($m[1]), ENT_QUOTES | ENT_HTML5);
+            if (str_starts_with($url, 'http') && ! str_contains($url, 'evbstatic')) {
+                return $url;
+            }
+        }
+
+        return null;
     }
 
     // og:title on the org page reads "<Organiser> Events | Eventbrite".

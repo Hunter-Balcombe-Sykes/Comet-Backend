@@ -351,11 +351,14 @@ class MediaUploadService
         }
 
         try {
-            Storage::disk($this->imageService->resolvedDiskName())->put($path, $stream, 'private');
+            $stored = Storage::disk($this->imageService->resolvedDiskName())->put($path, $stream, 'private');
         } finally {
             if (is_resource($stream)) {
                 fclose($stream);
             }
+        }
+        if ($stored === false) {
+            throw new \RuntimeException("Media disk rejected the SVG original write ({$path}).");
         }
 
         return $path;
@@ -513,11 +516,14 @@ class MediaUploadService
                 // 'private' — original is a re-processing source only; the public
                 // deliverable is the HLS/MP4/poster variants. Matches the image
                 // path in ImageVariantService::storeOriginal().
-                Storage::disk($mediaDisk)->put($path, $stream, 'private');
+                $stored = Storage::disk($mediaDisk)->put($path, $stream, 'private');
             } finally {
                 if (is_resource($stream)) {
                     fclose($stream);
                 }
+            }
+            if ($stored === false) {
+                throw new \RuntimeException("Media disk rejected the video original write ({$path}).");
             }
             $originalPath = $path;
         } else {

@@ -107,12 +107,25 @@ class SquareController extends ApiController
 
         // A link that names a team member we have not stored yet (harvested
         // from a bio, pasted with the param) — remember who that is so
-        // /selection can say it without another fetch.
+        // /selection can say it without another fetch. Same write also stamps
+        // the venue's own mark (2026-09-04 avatar sweep): the widget doc in
+        // hand carries business.profile_image, but the payload never stored
+        // it, so the walk and Platforms rows wore the brand tile.
         $row = $this->connectionFor($user);
         $stored = $this->readConnection($user) ?? [];
-        if ($onRoster !== null && $row !== null && ! is_array($stored['teamMember'] ?? null) && ! $user->isPendingDeletion()) {
-            $row->payload = [...$stored, 'teamMember' => $this->memberSummary($onRoster)];
-            $row->saveQuietly();
+        if ($row !== null && ! $user->isPendingDeletion()) {
+            $updates = [];
+            if ($onRoster !== null && ! is_array($stored['teamMember'] ?? null)) {
+                $updates['teamMember'] = $this->memberSummary($onRoster);
+            }
+            $venueMark = SquareBookingPage::business($doc)['logoUrl'];
+            if ($venueMark !== null && ! is_string($stored['logo'] ?? null)) {
+                $updates['logo'] = $venueMark;
+            }
+            if ($updates !== []) {
+                $row->payload = [...$stored, ...$updates];
+                $row->saveQuietly();
+            }
         }
 
         return $this->success([

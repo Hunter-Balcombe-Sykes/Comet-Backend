@@ -179,7 +179,9 @@ class ImageVariantService
                     if ($payload === false) {
                         throw new \RuntimeException('Failed to read encoded WebP for upload.');
                     }
-                    $disk->put($storagePath, $payload, 'public');
+                    if ($disk->put($storagePath, $payload, 'public') === false) {
+                        throw new \RuntimeException("Media disk rejected the variant write ({$storagePath}).");
+                    }
 
                     // Delete old file when re-processing produces a different content-hashed path.
                     if ($existingPath && $existingPath !== $storagePath) {

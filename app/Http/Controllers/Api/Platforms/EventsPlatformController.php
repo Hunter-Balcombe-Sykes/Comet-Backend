@@ -104,7 +104,7 @@ abstract class EventsPlatformController extends ApiController
             $existingRow = $this->matchAccountByCanonical($user, $url);
             $hidden = EventsAccountPayload::fromArray($existingRow?->payload)->hiddenEventIds();
 
-            $payload = EventsPayload::accountPayload($url, $result['organiser'], $result['events'], $hidden);
+            $payload = EventsPayload::accountPayload($url, $result['organiser'], $result['events'], $hidden, $result['avatar'] ?? null);
             $row = $this->writeAccountConnection($user, $url, $payload);
             if ($row === null) {
                 return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
@@ -308,6 +308,8 @@ abstract class EventsPlatformController extends ApiController
                     $account->organiser(),
                     $upcoming,
                     [...$account->hiddenEventIds(), $id],
+                    // A hide rewrite has no fresh scrape — carry the stored mark.
+                    $account->avatarUrl(),
                 );
                 $this->writeConnection($user, $next, $row->resource_id);
 

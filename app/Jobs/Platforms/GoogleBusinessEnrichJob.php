@@ -126,6 +126,10 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_LISTING, PreAccountBuildEvent::STATUS_STARTED, 'Pulling your Google listing');
         $connection = $this->connection();
         if (! $connection) {
+            // 2026-09-04 leak sweep: STARTED just above — a bare return here
+            // left STAGE_LISTING open forever (the walk reads the LAST row).
+            BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_LISTING, PreAccountBuildEvent::STATUS_SKIPPED, 'That listing is no longer connected');
+
             return;
         }
 
@@ -171,7 +175,15 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         if ($isLinkInBio) {
             // Setup progress (2026-09-02): the platforms row is owed from here.
             BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_STARTED, 'Checking your website for platforms');
-            LinkInBioScanJob::dispatch($this->userId, $website, $this->autoConnectBooking);
+            try {
+                LinkInBioScanJob::dispatch($this->userId, $website, $this->autoConnectBooking);
+            } catch (Throwable $e) {
+                // 2026-09-04 leak sweep: a dispatch-time throw (queue down)
+                // otherwise leaves STAGE_PLATFORMS open with no owner.
+                BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_FAILED, "Couldn't check your website for platforms");
+
+                throw $e;
+            }
             Log::info('google_business.enrich_job.link_in_bio_unroll', ['user_id' => $this->userId, 'place_id' => $this->placeId]);
         }
         $harvest = $isLinkInBio ? [] : $harvester->harvest($website);
@@ -242,6 +254,10 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
             // layer 'unavailable' so the dashboard stops polling. No hard fail —
             // the core card is unaffected and a re-connect can retry.
             $this->mark($connection, 'unavailable');
+
+            // 2026-09-04 leak sweep: mark() only touches the connection row;
+            // STAGE_LISTING was STARTED above and still needs its answer.
+            BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_LISTING, PreAccountBuildEvent::STATUS_FAILED, "Couldn't read your Google listing just now");
 
             return;
         }
@@ -346,6 +362,10 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         });
 
         if (! $saved) {
+            // 2026-09-04 leak sweep: a lost save race still owes the stage its
+            // answer — the winning writer's own lane doesn't know we STARTED.
+            BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_LISTING, PreAccountBuildEvent::STATUS_SKIPPED, 'Your Google listing was already synced');
+
             return;
         }
 
@@ -430,6 +450,14 @@ class GoogleBusinessEnrichJob implements ShouldBeUnique, ShouldQueue, ThrottledB
         $connection = $this->connection();
         if ($connection) {
             $this->mark($connection, 'unavailable', terminal: true);
+        }
+
+        // 2026-09-04 leak sweep: handle() STARTED the listing stage on every
+        // attempt; a terminal failure must answer it or the walk shows
+        // "Still looking…" until the 10-minute staleness guard gives up.
+        try {
+            BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_LISTING, PreAccountBuildEvent::STATUS_FAILED, "Couldn't read your Google listing just now");
+        } catch (Throwable) {
         }
     }
 

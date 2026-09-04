@@ -159,9 +159,12 @@ class UserDocumentController extends ApiController
 
         try {
             $stream = fopen($file->getRealPath(), 'rb');
-            Storage::disk($mediaDisk)->put($path, $stream, 'public');
+            $stored = Storage::disk($mediaDisk)->put($path, $stream, 'public');
             if (is_resource($stream)) {
                 fclose($stream);
+            }
+            if ($stored === false) {
+                throw new \RuntimeException("Media disk rejected the document write ({$path}).");
             }
 
             $media->update(['path' => $path]);

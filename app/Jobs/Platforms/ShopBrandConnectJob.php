@@ -302,6 +302,13 @@ class ShopBrandConnectJob implements ShouldBeUnique, ShouldQueue
 
         $this->markTerminal($store, FetchUnavailableException::GENERIC_USER_MESSAGE, $connection);
 
+        // 2026-09-04 leak sweep: handle() may have STARTED the shop stage
+        // before the child dispatches threw; nothing else will answer it.
+        try {
+            BuildProgress::noteForUser((string) $store->userId, PreAccountBuildEvent::STAGE_SHOP, PreAccountBuildEvent::STATUS_FAILED, "Couldn't sync your store just now");
+        } catch (Throwable) {
+        }
+
         // Deliberately does NOT release the ShouldBeUnique dedupe lock here.
         // CallQueuedHandler::failed() already calls
         // ensureUniqueJobLockIsReleased() BEFORE it invokes this method

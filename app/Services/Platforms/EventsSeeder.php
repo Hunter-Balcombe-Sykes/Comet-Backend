@@ -99,7 +99,7 @@ class EventsSeeder
             return null;
         }
 
-        $payload = EventsPayload::accountPayload($canonical, $result['organiser'], $result['events']);
+        $payload = EventsPayload::accountPayload($canonical, $result['organiser'], $result['events'], [], $result['avatar'] ?? null);
 
         return $this->locked($platform, $user, function () use ($user, $platform, $rid, $canonical, $payload): ?string {
             $rows = $this->liveRows($user, $platform)

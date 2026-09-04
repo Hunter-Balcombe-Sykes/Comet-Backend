@@ -206,11 +206,14 @@ class VideoVariantService
                     throw new \RuntimeException("Failed to open MP4 temp file for streaming: {$mp4}");
                 }
                 try {
-                    $disk->put($remotePath, $stream, 'public');
+                    $stored = $disk->put($remotePath, $stream, 'public');
                 } finally {
                     if (is_resource($stream)) {
                         fclose($stream);
                     }
+                }
+                if ($stored === false) {
+                    throw new \RuntimeException("Media disk rejected the MP4 variant write ({$remotePath}).");
                 }
 
                 // Delete old file when re-processing produces a different content-hashed path.
@@ -260,11 +263,14 @@ class VideoVariantService
                 throw new \RuntimeException('Failed to open poster temp file for streaming.');
             }
             try {
-                $disk->put($posterRemotePath, $stream, ['visibility' => 'public', 'ContentType' => 'image/jpeg']);
+                $stored = $disk->put($posterRemotePath, $stream, ['visibility' => 'public', 'ContentType' => 'image/jpeg']);
             } finally {
                 if (is_resource($stream)) {
                     fclose($stream);
                 }
+            }
+            if ($stored === false) {
+                throw new \RuntimeException("Media disk rejected the poster write ({$posterRemotePath}).");
             }
 
             if ($existingPosterPath && $existingPosterPath !== $posterRemotePath) {

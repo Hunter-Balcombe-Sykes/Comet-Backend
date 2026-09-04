@@ -29,6 +29,11 @@ final readonly class EventsAccountPayload
         return is_string($this->raw['organiser'] ?? null) ? $this->raw['organiser'] : null;
     }
 
+    public function avatarUrl(): ?string
+    {
+        return is_string($this->raw['avatarUrl'] ?? null) ? $this->raw['avatarUrl'] : null;
+    }
+
     /** @return list<mixed> the upcoming-events list, verbatim, or [] */
     public function upcoming(): array
     {

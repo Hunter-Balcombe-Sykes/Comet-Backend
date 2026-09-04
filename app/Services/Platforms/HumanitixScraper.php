@@ -95,7 +95,7 @@ class HumanitixScraper extends PlatformScraper
     /**
      * The host's upcoming events, soonest first, up to $limit.
      *
-     * @return array{organiser:?string, events:list<array<string,mixed>>}|null
+     * @return array{organiser:?string, avatar:?string, events:list<array<string,mixed>>}|null
      */
     public function fetchEvents(string $hostUrl, int $limit = 5): ?array
     {
@@ -106,6 +106,10 @@ class HumanitixScraper extends PlatformScraper
             return null;
         }
         $organiser = $this->hostName($page['body']);
+        // The host page's og:image is the host's own mark; the page is already
+        // in hand, so this costs no extra fetch (2026-09-04 avatar sweep).
+        $avatar = $this->metaContent($page['body'], 'og:image');
+        $avatar = is_string($avatar) && str_starts_with($avatar, 'http') ? $avatar : null;
 
         // Fast path: the host page sometimes embeds the events' JSON-LD itself.
         $events = [];
@@ -150,6 +154,7 @@ class HumanitixScraper extends PlatformScraper
 
         return [
             'organiser' => $organiser,
+            'avatar' => $avatar,
             'events' => array_slice($upcoming ?: $events, 0, $limit),
         ];
     }
