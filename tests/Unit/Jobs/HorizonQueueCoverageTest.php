@@ -138,6 +138,42 @@ it('MirrorMediaAssetJob is dispatched onto the media-mirror queue, not images', 
     Queue::assertPushedOn('media-mirror', MirrorMediaAssetJob::class);
 });
 
+it('routes image mirrors onto the configured managed-queue connection and keeps videos on the app default', function () {
+    // 2026-09-04: on Laravel Cloud MEDIA_MIRROR_QUEUE_CONNECTION=cloud is the
+    // `media-mirror` managed queue; videos must stay under Horizon because a
+    // 15 MB reel can outrun the managed queue's 90s job ceiling.
+    config(['partna.queues.media_mirror_connection' => 'cloud']);
+    Queue::fake();
+
+    MirrorMediaAssetJob::dispatch((string) Str::uuid(), (string) Str::uuid(), 'https://scontent.cdninstagram.com/v/img.jpg');
+    MirrorMediaAssetJob::dispatch((string) Str::uuid(), (string) Str::uuid(), 'https://scontent.cdninstagram.com/o1/v/reel.mp4', video: true);
+
+    Queue::assertPushed(MirrorMediaAssetJob::class, fn (MirrorMediaAssetJob $job) => ! $job->video
+        && $job->connection === 'cloud'
+        && $job->queue === 'media-mirror'
+        && $job->timeout === MirrorMediaAssetJob::MANAGED_TIMEOUT);
+    Queue::assertPushed(MirrorMediaAssetJob::class, fn (MirrorMediaAssetJob $job) => $job->video
+        && $job->connection === null
+        && $job->queue === 'media-mirror'
+        && $job->timeout === 120);
+});
+
+it('leaves image mirrors on the app default connection when no lane is configured', function () {
+    config(['partna.queues.media_mirror_connection' => null]);
+    Queue::fake();
+
+    MirrorMediaAssetJob::dispatch((string) Str::uuid(), (string) Str::uuid(), 'https://scontent.cdninstagram.com/v/img.jpg');
+
+    Queue::assertPushed(MirrorMediaAssetJob::class, fn (MirrorMediaAssetJob $job) => $job->connection === null && $job->timeout === 120);
+});
+
+it('keeps the unique lock window above the managed-queue timeout', function () {
+    $job = new MirrorMediaAssetJob((string) Str::uuid(), (string) Str::uuid(), 'https://scontent.cdninstagram.com/v/img.jpg');
+
+    expect($job->uniqueFor)->toBeGreaterThan(MirrorMediaAssetJob::MANAGED_TIMEOUT)
+        ->and($job->uniqueFor)->toBeGreaterThan($job->timeout);
+});
+
 it('cloudflare_bulk queue is covered in every Horizon environment', function () {
     foreach (['production', 'development', 'local'] as $env) {
         expect(envCoversQueue($env, 'cloudflare_bulk'))->toBeTrue(

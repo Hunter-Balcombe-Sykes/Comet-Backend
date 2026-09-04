@@ -206,6 +206,7 @@ const RESERVED = new Set([
     "hiring",
     "press",
     "media",
+    "media-dev",
     "news",
     "blog",
     "newsroom",

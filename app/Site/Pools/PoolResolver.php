@@ -68,7 +68,7 @@ class PoolResolver
     public const ITEM_KEYS = [
         'id', 'kind', 'slug', 'aliases', 'headline', 'headlineEdited', 'url',
         'platform', 'creator', 'publishedAt', 'firstSeenAt', 'durationSeconds',
-        'thumbnail', 'favicon', 'frames', 'startsAt', 'startsAtLocal', 'endsAtLocal',
+        'thumbnail', 'thumb', 'pending', 'favicon', 'frames', 'startsAt', 'startsAtLocal', 'endsAtLocal',
         'timezone', 'venue', 'locality', 'price', 'availability', 'links',
         'popularityRank', 'description', 'vendor', 'variants', 'collectionIds',
         'review', 'selected', 'origin', 'overrides', 'sources',
@@ -76,7 +76,7 @@ class PoolResolver
     ];
 
     /** Dashboard-only item keys, stripped before the public wire. */
-    public const DASHBOARD_ONLY_ITEM_KEYS = ['selected', 'overrides', 'sources', 'duplicateCandidates'];
+    public const DASHBOARD_ONLY_ITEM_KEYS = ['selected', 'overrides', 'sources', 'duplicateCandidates', 'pending'];
 
     /** Public fields of one store card in a pool's `collections` map. */
     public const STORE_KEYS = [
@@ -1683,6 +1683,14 @@ class PoolResolver
                     return is_numeric($v) ? (int) $v : null;
                 })(),
                 'thumbnail' => $this->cover($covers->get($itemId, collect()), $resolvedUrls),
+                // The 640px tier of the same cover (2026-09-04) — what tiles
+                // and cards should load; null when the cover has no thumb
+                // (upload, vendor link) and consumers fall back to thumbnail.
+                'thumb' => $this->thumb($covers->get($itemId, collect()), $resolvedUrls),
+                // Dashboard-only: no cover renders YET because its Meta bytes
+                // are still being mirrored — the setup tile shows a skeleton
+                // instead of an empty card. False once anything resolves.
+                'pending' => $this->pending($covers->get($itemId, collect()), $resolvedUrls),
                 // The site's icon, for link cards (2026-08-17). Null on
                 // every kind that carries no logo-role media — same
                 // shape-does-not-change-with-kind contract as thumbnail.
@@ -2497,9 +2505,47 @@ class PoolResolver
      * semantics as before slice 1a; only the URL source moved from raw
      * source_url to the resolver seam.
      *
-     * @param  array<string, array{url: string, width: int|null, height: int|null}>  $resolved
+     * @param  array<string, array{url: string, width: int|null, height: int|null, thumb: string|null}>  $resolved
      */
     private function cover(Collection $rows, array $resolved): ?string
+    {
+        return $this->bestCover($rows, $resolved)['url'] ?? null;
+    }
+
+    private function thumb(Collection $rows, array $resolved): ?string
+    {
+        return $this->bestCover($rows, $resolved)['thumb'] ?? null;
+    }
+
+    /**
+     * No cover resolves, and at least one cover-role row is an owned Meta
+     * image whose mirror has not landed (MediaUrlResolver omits those until
+     * the bytes are ours). Distinguishes "loading" from "has no image".
+     */
+    private function pending(Collection $rows, array $resolved): bool
+    {
+        $coverRows = $rows->filter(fn (object $row): bool => in_array((string) $row->role, ['cover', 'poster', 'gallery'], true));
+        foreach ($coverRows as $row) {
+            if (isset($resolved[(string) $row->asset_id])) {
+                return false;
+            }
+        }
+        foreach ($coverRows as $row) {
+            if ($row->storage_path === null
+                && $row->site_media_id === null
+                && is_string($row->source_url)
+                && InstagramMediaUrl::isMetaCdn($row->source_url)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array{url: string, width: int|null, height: int|null, thumb: string|null}|null
+     */
+    private function bestCover(Collection $rows, array $resolved): ?array
     {
         foreach (['cover', 'poster', 'gallery'] as $role) {
             // Best quality wins within a role (owner ruling, W5): when several
@@ -2520,7 +2566,7 @@ class PoolResolver
                 }
                 $area = ($hit['width'] ?? 0) * ($hit['height'] ?? 0);
                 if ($area > $bestArea) {
-                    $best = $hit['url'];
+                    $best = $hit;
                     $bestArea = $area;
                 }
             }
@@ -2546,8 +2592,8 @@ class PoolResolver
      * resolves to no URL is OMITTED, never emitted as null — the unrenderable
      * ref-only Google assets degrade to an empty gallery (spec §3.5).
      *
-     * @param  array<string, array{url: string, width: int|null, height: int|null}>  $resolved
-     * @return list<array{url: string, width: int|null, height: int|null, role: string, alt: string|null}>
+     * @param  array<string, array{url: string, width: int|null, height: int|null, thumb: string|null}>  $resolved
+     * @return list<array{url: string, thumb: string|null, width: int|null, height: int|null, role: string, alt: string|null}>
      */
     private function frames(Collection $rows, array $resolved): array
     {
@@ -2587,6 +2633,8 @@ class PoolResolver
             }
             $frames[] = [
                 'url' => $hit['url'],
+                // 640px tier for grids and srcset; null where none exists.
+                'thumb' => $hit['thumb'] ?? null,
                 'width' => $hit['width'],
                 'height' => $hit['height'],
                 'role' => (string) $row->role,

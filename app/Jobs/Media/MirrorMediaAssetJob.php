@@ -18,10 +18,25 @@ use Illuminate\Support\Facades\Log;
  * ingest hot path and a mirror is a network fetch plus an image re-encode. A
  * failure here degrades to "no bytes yet" — MediaMirror returns false and logs,
  * and the asset still resolves through its source_url until the next sync.
+ *
+ * Two lanes since 2026-09-04. IMAGES ride the connection named by
+ * `partna.queues.media_mirror_connection` when one is set — on Laravel Cloud
+ * that is the `media-mirror` MANAGED queue, whose Flex workers scale from zero
+ * to twenty-plus in under a second, so a signup's whole wave lands in seconds
+ * rather than queueing two-at-a-time behind Horizon. VIDEOS always stay on the
+ * app's default connection (Horizon's `supervisor-mirror`): a 15 MB reel over
+ * a cold edge connection can outrun the managed queue's 90 s job ceiling.
  */
 class MirrorMediaAssetJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    /**
+     * Managed-queue Flex workers kill a job at 90 s. The fetch + encode + put
+     * measures ~3 s per image, so 85 leaves the platform its margin while
+     * still letting a slow Meta edge finish.
+     */
+    public const MANAGED_TIMEOUT = 85;
 
     /**
      * MediaMirror swallows its own failures and returns false, so a throw here
@@ -51,6 +66,8 @@ class MirrorMediaAssetJob implements ShouldBeUnique, ShouldQueue
         public readonly string $userId,
         public readonly string $assetId,
         public readonly string $sourceUrl,
+        /** True for a video-role asset: keeps it on the Horizon lane. */
+        public readonly bool $video = false,
     ) {
         // NOT 'images'. That queue carries ProcessImageVariantsJob, which a user is
         // watching a spinner for; a mirror is background work on bytes that already
@@ -58,6 +75,13 @@ class MirrorMediaAssetJob implements ShouldBeUnique, ShouldQueue
         // them equally urgent under supervisor-1's strict priority, so a build wave's
         // ~300 mirrors delayed every real upload behind them.
         $this->onQueue(config('partna.queues.media_mirror', 'media-mirror'));
+
+        $lane = self::imageLane();
+        if (! $video && $lane !== null) {
+            $this->onConnection($lane);
+            $this->timeout = self::MANAGED_TIMEOUT;
+        }
+
         // Fire only after the projection transaction commits — the asset row
         // must exist before the worker looks for it. Set on the INSTANCE, not
         // redeclared as a property: Queueable already declares $afterCommit
@@ -65,6 +89,17 @@ class MirrorMediaAssetJob implements ShouldBeUnique, ShouldQueue
         // incompatible-composition error at class-load time (which surfaces as
         // a runner crash with no output, not a red test).
         $this->afterCommit = true;
+    }
+
+    /**
+     * The connection image mirrors are dispatched on, or null for the app
+     * default. Read at dispatch time so an env change needs no code change.
+     */
+    public static function imageLane(): ?string
+    {
+        $lane = config('partna.queues.media_mirror_connection');
+
+        return is_string($lane) && $lane !== '' ? $lane : null;
     }
 
     /** One in-flight mirror per asset — a retried projection run must not pile them up. */

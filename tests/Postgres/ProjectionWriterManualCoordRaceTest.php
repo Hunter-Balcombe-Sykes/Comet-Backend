@@ -77,6 +77,7 @@ beforeEach(function () {
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id uuid NOT NULL REFERENCES core.users(id) ON DELETE CASCADE,
         subdomain text NOT NULL DEFAULT '',
+        is_published boolean NOT NULL DEFAULT false,
         updated_at timestamptz
     )");
 

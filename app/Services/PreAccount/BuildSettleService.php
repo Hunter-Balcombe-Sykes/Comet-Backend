@@ -125,6 +125,13 @@ class BuildSettleService
      */
     private function isPublished(PreAccountBuild $build): bool
     {
-        return (bool) ($build->user?->site->is_published ?? false);
+        // A direct read, not `$build->user->site`: the settle sweep loads
+        // builds bare and lazy loading is disabled app-wide, so the relation
+        // walk threw LazyLoadingViolationException on every auto_invite build
+        // (Nightwatch #512, 2026-09-04) — after settled_at was already
+        // stamped, so the invite was silently never sent.
+        return (bool) DB::table('site.sites')
+            ->where('user_id', (string) $build->user_id)
+            ->value('is_published');
     }
 }

@@ -135,7 +135,7 @@ return [
 
         // --- Marketing / company pages ---
         'home', 'about', 'team', 'company', 'contact', 'careers',
-        'hiring', 'press', 'media', 'news', 'blog', 'newsroom',
+        'hiring', 'press', 'media', 'media-dev', 'news', 'blog', 'newsroom',
         'investors', 'enterprise', 'pricing', 'plans', 'features',
         'partner', 'partners', 'affiliate', 'affiliates',
         'referral', 'referrals', 'brand', 'brands', 'community',
@@ -348,22 +348,24 @@ return [
         // can't exhaust the account and starve the others. Also carries the shared
         // run-sync HTTP timeout (CFG-9).
         'apify' => [
-            'global_daily_cap' => (int) env('PARTNA_APIFY_GLOBAL_DAILY_CAP', 9000),
+            // ×10 across the board 2026-09-04 (owner): ceilings against a
+            // runaway, never something a normal day should touch.
+            'global_daily_cap' => (int) env('PARTNA_APIFY_GLOBAL_DAILY_CAP', 90000),
             'actors' => [
                 // Instagram reuses its existing tuned env var (behaviour preserved).
-                'instagram' => (int) env('PARTNA_INSTAGRAM_APIFY_DAILY_CAP', 1800),
-                'menu' => (int) env('PARTNA_MENU_APIFY_DAILY_CAP', 2700),
-                'google-business' => (int) env('PARTNA_GB_APIFY_DAILY_CAP', 2700),
+                'instagram' => (int) env('PARTNA_INSTAGRAM_APIFY_DAILY_CAP', 18000),
+                'menu' => (int) env('PARTNA_MENU_APIFY_DAILY_CAP', 27000),
+                'google-business' => (int) env('PARTNA_GB_APIFY_DAILY_CAP', 27000),
                 // Convergence Phase 4. These MUST exist: tryClaim() defaults an
                 // unregistered actor's cap to 0, which denies every claim, so a
                 // missing entry here reads as "the connector lands nothing"
                 // rather than as a configuration error.
-                'music-spotify' => (int) env('PARTNA_SPOTIFY_APIFY_DAILY_CAP', 450),
-                'music-soundcloud' => (int) env('PARTNA_SOUNDCLOUD_APIFY_DAILY_CAP', 450),
-                'music-spotify_releases' => (int) env('PARTNA_SPOTIFY_RELEASES_APIFY_DAILY_CAP', 450),
+                'music-spotify' => (int) env('PARTNA_SPOTIFY_APIFY_DAILY_CAP', 4500),
+                'music-soundcloud' => (int) env('PARTNA_SOUNDCLOUD_APIFY_DAILY_CAP', 4500),
+                'music-spotify_releases' => (int) env('PARTNA_SPOTIFY_RELEASES_APIFY_DAILY_CAP', 4500),
                 // T27c social feed actors (SocialActorDriver claims these).
-                'tiktok' => (int) env('PARTNA_TIKTOK_APIFY_DAILY_CAP', 900),
-                'facebook' => (int) env('PARTNA_FACEBOOK_APIFY_DAILY_CAP', 900),
+                'tiktok' => (int) env('PARTNA_TIKTOK_APIFY_DAILY_CAP', 9000),
+                'facebook' => (int) env('PARTNA_FACEBOOK_APIFY_DAILY_CAP', 9000),
             ],
 
             // Item 8 note: with the ScrapeCreators lane in front (see the
@@ -393,16 +395,18 @@ return [
         // and never claims: adding a vendor-lane source means adding its cap,
         // the same contract the Apify block documents above.
         'scrapecreators' => [
-            'global_daily_cap' => (int) env('PARTNA_SC_GLOBAL_DAILY_CAP', 12000),
+            // ×10 across the board 2026-09-04 (owner): ceilings against a
+            // runaway, never something a normal day should touch.
+            'global_daily_cap' => (int) env('PARTNA_SC_GLOBAL_DAILY_CAP', 120000),
             'timeout_seconds' => (int) env('PARTNA_SC_TIMEOUT_SECONDS', 20),
             'sources' => [
-                'instagram' => (int) env('PARTNA_SC_INSTAGRAM_DAILY_CAP', 5400),
-                'tiktok' => (int) env('PARTNA_SC_TIKTOK_DAILY_CAP', 2700),
-                'facebook' => (int) env('PARTNA_SC_FACEBOOK_DAILY_CAP', 2700),
-                'spotify' => (int) env('PARTNA_SC_SPOTIFY_DAILY_CAP', 1350),
-                'soundcloud' => (int) env('PARTNA_SC_SOUNDCLOUD_DAILY_CAP', 1350),
-                'linkinbio' => (int) env('PARTNA_SC_LINKINBIO_DAILY_CAP', 1350),
-                'youtube' => (int) env('PARTNA_SC_YOUTUBE_DAILY_CAP', 1350),
+                'instagram' => (int) env('PARTNA_SC_INSTAGRAM_DAILY_CAP', 54000),
+                'tiktok' => (int) env('PARTNA_SC_TIKTOK_DAILY_CAP', 27000),
+                'facebook' => (int) env('PARTNA_SC_FACEBOOK_DAILY_CAP', 27000),
+                'spotify' => (int) env('PARTNA_SC_SPOTIFY_DAILY_CAP', 13500),
+                'soundcloud' => (int) env('PARTNA_SC_SOUNDCLOUD_DAILY_CAP', 13500),
+                'linkinbio' => (int) env('PARTNA_SC_LINKINBIO_DAILY_CAP', 13500),
+                'youtube' => (int) env('PARTNA_SC_YOUTUBE_DAILY_CAP', 13500),
                 // Wave 4 (2026-09-01, Items 10/11): every NEW source lands
                 // with its own cap from day one (G2). Ceilings, not budgets —
                 // sized to the small-connect lanes they serve, with the
@@ -411,19 +415,19 @@ return [
                 // their own arithmetic. transcripts and find_social_profiles
                 // run deliberately tight: the most speculative spend ships
                 // behind the smallest ceilings.
-                'twitch' => (int) env('PARTNA_SC_TWITCH_DAILY_CAP', 1350),
-                'twitch_live' => (int) env('PARTNA_SC_TWITCH_LIVE_DAILY_CAP', 2000),
-                'tiktok_live' => (int) env('PARTNA_SC_TIKTOK_LIVE_DAILY_CAP', 2000),
-                'tiktok_shop' => (int) env('PARTNA_SC_TIKTOK_SHOP_DAILY_CAP', 1350),
-                'pinterest' => (int) env('PARTNA_SC_PINTEREST_DAILY_CAP', 675),
-                'threads' => (int) env('PARTNA_SC_THREADS_DAILY_CAP', 1350),
-                'amazon' => (int) env('PARTNA_SC_AMAZON_DAILY_CAP', 675),
-                'bluesky' => (int) env('PARTNA_SC_BLUESKY_DAILY_CAP', 675),
-                'facebook_events' => (int) env('PARTNA_SC_FACEBOOK_EVENTS_DAILY_CAP', 1350),
-                'youtube_shorts' => (int) env('PARTNA_SC_YOUTUBE_SHORTS_DAILY_CAP', 1350),
-                'youtube_lives' => (int) env('PARTNA_SC_YOUTUBE_LIVES_DAILY_CAP', 2700),
-                'spotify_podcasts' => (int) env('PARTNA_SC_SPOTIFY_PODCASTS_DAILY_CAP', 1350),
-                'transcripts' => (int) env('PARTNA_SC_TRANSCRIPTS_DAILY_CAP', 300),
+                'twitch' => (int) env('PARTNA_SC_TWITCH_DAILY_CAP', 13500),
+                'twitch_live' => (int) env('PARTNA_SC_TWITCH_LIVE_DAILY_CAP', 20000),
+                'tiktok_live' => (int) env('PARTNA_SC_TIKTOK_LIVE_DAILY_CAP', 20000),
+                'tiktok_shop' => (int) env('PARTNA_SC_TIKTOK_SHOP_DAILY_CAP', 13500),
+                'pinterest' => (int) env('PARTNA_SC_PINTEREST_DAILY_CAP', 6750),
+                'threads' => (int) env('PARTNA_SC_THREADS_DAILY_CAP', 13500),
+                'amazon' => (int) env('PARTNA_SC_AMAZON_DAILY_CAP', 6750),
+                'bluesky' => (int) env('PARTNA_SC_BLUESKY_DAILY_CAP', 6750),
+                'facebook_events' => (int) env('PARTNA_SC_FACEBOOK_EVENTS_DAILY_CAP', 13500),
+                'youtube_shorts' => (int) env('PARTNA_SC_YOUTUBE_SHORTS_DAILY_CAP', 13500),
+                'youtube_lives' => (int) env('PARTNA_SC_YOUTUBE_LIVES_DAILY_CAP', 27000),
+                'spotify_podcasts' => (int) env('PARTNA_SC_SPOTIFY_PODCASTS_DAILY_CAP', 13500),
+                'transcripts' => (int) env('PARTNA_SC_TRANSCRIPTS_DAILY_CAP', 3000),
                 // OWNER DECISION (2026-09-01, plan Item 11g): find_social_profiles
                 // ships DISABLED — cap 0 means ScrapeCreatorsBudget::tryClaim()
                 // refuses every claim before the wire, the hard off-switch the
@@ -492,12 +496,19 @@ return [
         //   - global daily cap    (binds first on a mixed storm)
         //   - per-USER daily cap  (improves on apify/ai_spend: one account cannot drain the platform)
         'places' => [
-            'global_daily_cap' => (int) env('PARTNA_PLACES_GLOBAL_DAILY_CAP', 1500),
-            'per_user_daily_cap' => (int) env('PARTNA_PLACES_USER_DAILY_CAP', 180),
+            // ×10 across the board 2026-09-04 (owner): ceilings against a
+            // runaway, never something a normal day should touch.
+            'global_daily_cap' => (int) env('PARTNA_PLACES_GLOBAL_DAILY_CAP', 15000),
+            'per_user_daily_cap' => (int) env('PARTNA_PLACES_USER_DAILY_CAP', 1800),
             'skus' => [
-                'details' => (int) env('PARTNA_PLACES_DETAILS_DAILY_CAP', 600),
-                'photos' => (int) env('PARTNA_PLACES_PHOTOS_DAILY_CAP', 1200),
+                'details' => (int) env('PARTNA_PLACES_DETAILS_DAILY_CAP', 6000),
+                'photos' => (int) env('PARTNA_PLACES_PHOTOS_DAILY_CAP', 12000),
             ],
+
+            // Photos kept (and billed-resolved) when a listing is accepted at
+            // signup. 6 (owner, 2026-09-04): one pooled round trip under
+            // refresh.host_limits.google_places.pool_concurrency, ~$0.04.
+            'accept_photo_limit' => (int) env('PARTNA_PLACES_ACCEPT_PHOTO_LIMIT', 6),
 
             // CFG-8: Place Details retry policy. NOTE — attempts MULTIPLY billed spend: every
             // attempt claims its own PlacesBudget slot (see fetchPlaceDetails), so raising this
@@ -1516,6 +1527,26 @@ return [
 
         // BorrowedAssetPruner: take size for each doomed-set delete batch.
         'borrowed_prune_chunk' => (int) env('PARTNA_MEDIA_BORROWED_PRUNE_CHUNK', 500),
+
+        // Mirror budget per pull (owner, 2026-09-04): ONE asset per post —
+        // the cover, or the video plus its poster — newest posts first, at
+        // most this many image posts and video posts per projection pass.
+        // Bounds the bytes we copy and the wave a signup waits on (a 15-post
+        // Threads pull carried 105 carousel frames); the scrape itself is
+        // one request per platform regardless. Assets are still MINTED for
+        // every frame (so item_media keeps its rows); only the byte copy is
+        // budgeted. Already-mirrored posts inside the window count against
+        // it, so a weekly refresh cannot creep down the backlog. 0 = unlimited.
+        'pull_budget' => [
+            'images' => (int) env('PARTNA_MEDIA_PULL_IMAGES', 10),
+            'videos' => (int) env('PARTNA_MEDIA_PULL_VIDEOS', 6),
+        ],
+
+        // Thumbnail tier written beside every mirrored image master
+        // (`{sha}.webp` → `{sha}.640.webp`): setup tiles and cards load ~32 KB
+        // instead of the 2400px master's ~260 KB.
+        'thumb_edge' => (int) env('PARTNA_MEDIA_THUMB_EDGE', 640),
+        'thumb_quality' => (int) env('PARTNA_MEDIA_THUMB_QUALITY', 80),
     ],
 
     // Pre-Account Sites (site-first signup + staff marketing builds).
@@ -2248,6 +2279,14 @@ return [
         // express two urgencies. Ranked directly BELOW 'images' and above
         // 'analytics' in supervisor-1 (config/horizon.php) — see the note there.
         'media_mirror' => env('PARTNA_QUEUE_MEDIA_MIRROR', 'media-mirror'),
+        // Queue CONNECTION for image mirrors (2026-09-04). `cloud` on Laravel
+        // Cloud = the `media-mirror` managed queue (scale-to-zero Flex
+        // workers, up to 20+ in parallel — a signup's wave drains in seconds
+        // instead of the 2-process Horizon lane's minutes). Null/unset keeps
+        // the app default (redis under Horizon) for local/CI. Videos always
+        // stay on Horizon: a 15 MB reel over a cold edge connection can
+        // outrun the managed queue's 90s job ceiling.
+        'media_mirror_connection' => env('MEDIA_MIRROR_QUEUE_CONNECTION'),
         // Streaming live-status polling (CheckStreamingLiveStatusJob).
         'streaming' => env('PARTNA_QUEUE_STREAMING', 'streaming'),
         // Platform scraping jobs (InstagramConnectJob etc).

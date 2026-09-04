@@ -24,8 +24,12 @@ class MediaUrlResolver
     private const TIER_ORDER = ['optimized', 'maximized'];
 
     /**
+     * `thumb` is the 640px tier MediaMirror writes beside every image master
+     * (2026-09-04); null wherever no such tier exists (uploads, vendor links,
+     * videos), and consumers fall back to `url`.
+     *
      * @param  iterable<object>  $assets  rows carrying id, source_url, storage_path, site_media_id, width, height
-     * @return array<string, array{url: string, width: int|null, height: int|null}> keyed by media_assets.id
+     * @return array<string, array{url: string, width: int|null, height: int|null, thumb: string|null}> keyed by media_assets.id
      */
     public function resolve(iterable $assets): array
     {
@@ -47,14 +51,21 @@ class MediaUrlResolver
         return $out;
     }
 
-    /** @return array{url: string, width: int|null, height: int|null}|null */
+    /** @return array{url: string, width: int|null, height: int|null, thumb: string|null}|null */
     private function resolveOne(object $asset, array $variantByMedia): ?array
     {
         if (! empty($asset->storage_path)) {
+            $disk = Storage::disk((string) config('partna.media_disk'));
+            $path = (string) $asset->storage_path;
+            $thumbPath = MediaMirror::thumbPath($path);
+
             return [
-                'url' => Storage::disk((string) config('partna.media_disk'))->url((string) $asset->storage_path),
+                'url' => $disk->url($path),
                 'width' => $asset->width === null ? null : (int) $asset->width,
                 'height' => $asset->height === null ? null : (int) $asset->height,
+                // HEAD-free by contract: MediaMirror records storage_path only
+                // after the thumbnail object is written.
+                'thumb' => $thumbPath === null ? null : $disk->url($thumbPath),
             ];
         }
 
@@ -66,6 +77,7 @@ class MediaUrlResolver
                 'url' => $variant->url,
                 'width' => $variant->width === null ? null : (int) $variant->width,
                 'height' => $variant->height === null ? null : (int) $variant->height,
+                'thumb' => null,
             ];
         }
 
@@ -78,6 +90,7 @@ class MediaUrlResolver
                 'url' => (string) $asset->source_url,
                 'width' => $asset->width === null ? null : (int) $asset->width,
                 'height' => $asset->height === null ? null : (int) $asset->height,
+                'thumb' => null,
             ];
         }
 

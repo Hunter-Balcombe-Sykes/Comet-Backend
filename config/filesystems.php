@@ -82,7 +82,9 @@ return [
             'use_path_style_endpoint' => env('MEDIA_DISK_PATH_STYLE', env('AWS_USE_PATH_STYLE_ENDPOINT', false)),
             'throw' => true,
             'report' => true,
-            'visibility' => 'public',
+            // No `visibility`: R2 has no per-object ACLs (the bucket is public
+            // through its custom domain, media.partna.au), and the S3 adapter
+            // would otherwise send `x-amz-acl: public-read` on every put.
             'options' => [
                 'CacheControl' => 'public, max-age=31536000, immutable',
             ],

@@ -38,6 +38,11 @@ beforeEach(function () {
     config()->set('partna.limits.places.per_user_daily_cap', 1000);
     config()->set('partna.limits.places.skus.details', 1000);
     config()->set('partna.limits.places.skus.photos', 1000);
+    // These prove the per-photo claim arithmetic against a 15-photo details
+    // payload. The production accept limit dropped to 6 (2026-09-04, the
+    // media budget), which is a different fact — pin the old width here so
+    // the 16x proof stays the 16x proof.
+    config()->set('partna.limits.places.accept_photo_limit', 15);
 });
 
 it('claims exactly 16 times for one fetchPlaceDetails() with 15 fresh photos — the 16x finding, proven', function () {

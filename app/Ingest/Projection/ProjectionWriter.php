@@ -2660,6 +2660,20 @@ class ProjectionWriter
             $collectionsByItem[(string) $itemId] = $collections;
         }
 
+        // The post date per item, for the mirror budget's newest-first walk
+        // (dispatchMirrors). An item with no f_published sorts after the
+        // dated ones in projection order.
+        $publishedByItem = [];
+        foreach ($byItem as $itemId => $entries) {
+            foreach ($entries as $entry) {
+                $from = data_get($entry['projection'], 'facets.f_published.published_from');
+                $ts = is_string($from) && $from !== '' ? strtotime($from) : false;
+                if ($ts !== false) {
+                    $publishedByItem[(string) $itemId] = max($publishedByItem[(string) $itemId] ?? 0, $ts);
+                }
+            }
+        }
+
         // Unwrapped: resolveMediaAssets() fingerprints the media ENTRY, and the
         // origin tuple above is a wrapper this side of the call only. Handing
         // it the wrapper would fingerprint an array with no 'url' — no asset
@@ -2668,7 +2682,7 @@ class ProjectionWriter
         $assetIdByFingerprint = $this->resolveMediaAssets($userId, array_map(
             fn (array $entries): array => array_column($entries, 'row'),
             $mediaByItem,
-        ), $chunk);
+        ), $chunk, $publishedByItem);
 
         $mediaRows = [];
         foreach ($mediaByItem as $itemId => $entries) {
@@ -3142,20 +3156,22 @@ class ProjectionWriter
      * hand back ids that were never written.
      *
      * @param  array<string, list<mixed>>  $mediaByItem
+     * @param  array<string, int>  $publishedByItem  item id => post unix time, for the mirror budget
      * @return array<string, string> fingerprint => media_assets.id
      */
-    private function resolveMediaAssets(string $userId, array $mediaByItem, int $chunk): array
+    private function resolveMediaAssets(string $userId, array $mediaByItem, int $chunk, array $publishedByItem = []): array
     {
         // Dedupe by fingerprint in PHP first: two carousel frames — or two
         // items — carrying the same image must mint ONE asset, which the
-        // old SELECT-then-INSERT-per-row path got for free.
+        // old SELECT-then-INSERT-per-row path got for free. The item id
+        // rides along so dispatchMirrors() can budget per POST.
         $entryByFingerprint = [];
-        foreach ($mediaByItem as $entries) {
+        foreach ($mediaByItem as $itemId => $entries) {
             foreach ($entries as $entry) {
                 $entry = (array) $entry;
                 [$fingerprint, $url] = $this->mediaFingerprint($entry);
                 if ($fingerprint !== null && ! isset($entryByFingerprint[$fingerprint])) {
-                    $entryByFingerprint[$fingerprint] = [$entry, $url];
+                    $entryByFingerprint[$fingerprint] = [$entry, $url, (string) $itemId];
                 }
             }
         }
@@ -3172,7 +3188,7 @@ class ProjectionWriter
             // fingerprints first), and returning here left 86 of 88 Instagram
             // frames on hotlinked CDN urls forever (overnight 2026-08-18 F14).
             // dispatchMirrors() re-checks storage_path IS NULL itself.
-            $this->dispatchMirrors($userId, $entryByFingerprint, $byFingerprint, $chunk);
+            $this->dispatchMirrors($userId, $entryByFingerprint, $byFingerprint, $chunk, $publishedByItem);
 
             return $byFingerprint;
         }
@@ -3225,7 +3241,7 @@ class ProjectionWriter
 
         $resolved = $byFingerprint + $this->lookupMediaAssets($userId, array_keys($missing), $chunk);
 
-        $this->dispatchMirrors($userId, $entryByFingerprint, $resolved, $chunk);
+        $this->dispatchMirrors($userId, $entryByFingerprint, $resolved, $chunk, $publishedByItem);
 
         return $resolved;
     }
@@ -3244,27 +3260,26 @@ class ProjectionWriter
      * the job's ShouldBeUnique keyed on asset id is what stops a retried run
      * piling up duplicates in the queue.
      *
-     * @param  array<string, array{0: array<string, mixed>, 1: string|null}>  $entryByFingerprint
+     * @param  array<string, array{0: array<string, mixed>, 1: string|null, 2?: string}>  $entryByFingerprint
      * @param  array<string, string>  $assetIdByFingerprint
+     * @param  array<string, int>  $publishedByItem
      */
-    private function dispatchMirrors(string $userId, array $entryByFingerprint, array $assetIdByFingerprint, int $chunk): void
+    private function dispatchMirrors(string $userId, array $entryByFingerprint, array $assetIdByFingerprint, int $chunk, array $publishedByItem = []): void
     {
         // R8. Every exclusion below is COUNTED, not merely skipped. A silent
         // `continue` here was indistinguishable downstream from a job that had
         // been queued and not yet run — which is how a build wave finished with
         // 32 unmirrored assets and one warning line to explain them.
         $skipped = [];
-        // Item 9f (2026-09-01): videos dispatch FIRST. An unmirrored image
-        // still renders from source_url; an unmirrored video renders NOT AT
-        // ALL (PoolResolver's video gate) — so in a build wave the video
-        // bytes are the ones a visitor is actually waiting on, and they are
-        // also the ones racing signed-URL expiry hardest. Two buckets merged
-        // video-first below; within a bucket, projection order is preserved.
-        $videoCandidates = [];
-        $candidates = [];
+        // Candidates grouped per POST (item), each split into its video and
+        // image entries in projection order — budgetMirrors() picks one asset
+        // per post and decides the dispatch order (2026-09-04).
+        $posts = [];
         $ownedAssetIds = [];
         $borrowedAssetIds = [];
-        foreach ($entryByFingerprint as $fingerprint => [$entry, $_minimisedUrl]) {
+        foreach ($entryByFingerprint as $fingerprint => $tuple) {
+            [$entry, $_minimisedUrl] = $tuple;
+            $itemId = (string) ($tuple[2] ?? '');
             $assetId = $assetIdByFingerprint[$fingerprint] ?? null;
             $owned = MediaMirror::isOwnedEntry($entry);
             // Collected for BOTH classes, before any of the skips below, so a
@@ -3298,17 +3313,16 @@ class ProjectionWriter
 
                 continue;
             }
-            if ((string) ($entry['role'] ?? '') === 'video') {
-                $videoCandidates[(string) $assetId] = $rawUrl;
-            } else {
-                $candidates[(string) $assetId] = $rawUrl;
-            }
+            $bucket = (string) ($entry['role'] ?? '') === 'video' ? 'videos' : 'images';
+            $posts[$itemId][$bucket][(string) $assetId] = $rawUrl;
         }
-        // Union, not merge: keys are asset ids and must not renumber; a
-        // fingerprint can only land in one bucket, so no key collides.
-        $candidates = $videoCandidates + $candidates;
 
         $this->healMirrorEligible($ownedAssetIds, $borrowedAssetIds, $chunk);
+
+        [$candidates, $videoIds, $budgeted] = $this->budgetMirrors($userId, $posts, $publishedByItem);
+        if ($budgeted > 0) {
+            $skipped['budget'] = $budgeted;
+        }
 
         $dispatched = 0;
         $max = MediaMirror::maxAttempts();
@@ -3323,8 +3337,8 @@ class ProjectionWriter
                 ->keyBy('id');
 
             // Iterate the SLICE, not the DB result: whereIn() returns rows in
-            // storage order, which silently discards the video-first ordering
-            // (Item 9f) the candidate map was built to carry.
+            // storage order, which silently discards the dispatch ordering
+            // budgetMirrors() built the candidate map to carry.
             foreach (array_keys($slice) as $assetId) {
                 $row = $rows->get($assetId);
                 if ($row === null) {
@@ -3357,8 +3371,10 @@ class ProjectionWriter
                 }
 
                 // ::dispatch(), never Bus::dispatch(new ...) — the latter
-                // silently drops ShouldBeUnique.
-                MirrorMediaAssetJob::dispatch($userId, $assetId, $slice[$assetId]);
+                // silently drops ShouldBeUnique. The video flag keeps reels on
+                // the Horizon lane; images ride the managed queue when one is
+                // configured (MirrorMediaAssetJob).
+                MirrorMediaAssetJob::dispatch($userId, $assetId, $slice[$assetId], video: isset($videoIds[$assetId]));
                 $dispatched++;
             }
         }
@@ -3395,6 +3411,120 @@ class ProjectionWriter
             'dispatched' => $dispatched,
             'skipped' => $skipped,
         ]);
+    }
+
+    /**
+     * One asset per post, newest post first, within the pull budget
+     * (partna.media.pull_budget — owner, 2026-09-04).
+     *
+     * A post with a video keeps its FIRST video plus its first image (the
+     * poster PoolResolver::frames() needs to play it) and spends one video
+     * slot; any other post keeps its cover and spends one image slot. Every
+     * further carousel frame is budgeted out — its asset row exists, its
+     * bytes are never copied, and MediaUrlResolver omits it from the wire.
+     * Posts already mirrored still occupy their slot, which is what stops a
+     * weekly refresh from creeping down the backlog one window at a time.
+     *
+     * Ordering is the second job here. While the site is still in setup
+     * (site.sites.is_published = false) images go first, newest first: the
+     * Get Started walk's media step is tiles of covers, and that is the
+     * screen a new user is waiting on. Once published, videos go first
+     * (Item 9f, 2026-09-01): an unmirrored Meta IMAGE is omitted from the
+     * payload until its bytes land, but an unmirrored VIDEO is the one a
+     * visitor is actually waiting on, and it races signed-URL expiry hardest.
+     *
+     * @param  array<string, array{videos?: array<string, string>, images?: array<string, string>}>  $posts  item id => asset id => raw url, projection order
+     * @param  array<string, int>  $publishedByItem
+     * @return array{0: array<string, string>, 1: array<string, true>, 2: int} [asset id => url in dispatch order, video asset ids, budgeted-out count]
+     */
+    private function budgetMirrors(string $userId, array $posts, array $publishedByItem): array
+    {
+        $imageBudget = (int) config('partna.media.pull_budget.images', 10);
+        $videoBudget = (int) config('partna.media.pull_budget.videos', 6);
+        $imageBudget = $imageBudget > 0 ? $imageBudget : PHP_INT_MAX;
+        $videoBudget = $videoBudget > 0 ? $videoBudget : PHP_INT_MAX;
+
+        $order = array_keys($posts);
+        $arrival = array_flip($order);
+        usort($order, static function (string $a, string $b) use ($publishedByItem, $arrival): int {
+            $pa = $publishedByItem[$a] ?? null;
+            $pb = $publishedByItem[$b] ?? null;
+            if ($pa !== null && $pb !== null && $pa !== $pb) {
+                return $pb <=> $pa;
+            }
+            if (($pa === null) !== ($pb === null)) {
+                return $pa === null ? 1 : -1;
+            }
+
+            return $arrival[$a] <=> $arrival[$b];
+        });
+
+        $images = [];
+        $videos = [];
+        $videoIds = [];
+        $budgeted = 0;
+        foreach ($order as $itemId) {
+            $postVideos = $posts[$itemId]['videos'] ?? [];
+            $postImages = $posts[$itemId]['images'] ?? [];
+            if ($postVideos !== []) {
+                if ($videoBudget <= 0) {
+                    $budgeted += count($postVideos) + count($postImages);
+
+                    continue;
+                }
+                $videoBudget--;
+                $videoId = array_key_first($postVideos);
+                $videos[$videoId] = $postVideos[$videoId];
+                $videoIds[$videoId] = true;
+                $budgeted += count($postVideos) - 1;
+                // The poster spends an IMAGE slot. It is an image by every
+                // measure that matters here — a fetch, a decode, two puts —
+                // so exempting it would let a video-heavy pull mirror
+                // `videos + images` pictures while the cap says `images`.
+                // It competes on equal terms with a still post's cover:
+                // both are the one frame a card needs to not render blank.
+                if ($postImages !== [] && $imageBudget > 0) {
+                    $imageBudget--;
+                    $posterId = array_key_first($postImages);
+                    $images[$posterId] = $postImages[$posterId];
+                    $budgeted += count($postImages) - 1;
+                } elseif ($postImages !== []) {
+                    $budgeted += count($postImages);
+                }
+
+                continue;
+            }
+            if ($postImages === []) {
+                continue;
+            }
+            if ($imageBudget <= 0) {
+                $budgeted += count($postImages);
+
+                continue;
+            }
+            $imageBudget--;
+            $coverId = array_key_first($postImages);
+            $images[$coverId] = $postImages[$coverId];
+            $budgeted += count($postImages) - 1;
+        }
+
+        // Union, not merge: keys are asset ids and must not renumber; an
+        // asset lands in exactly one bucket, so no key collides.
+        $candidates = $this->siteInSetup($userId) ? $images + $videos : $videos + $images;
+
+        return [$candidates, $videoIds, $budgeted];
+    }
+
+    /**
+     * True while the owner's site is unpublished — the window in which the
+     * Get Started walk is the consumer, and covers matter more than reels.
+     * No site row reads as published: the 9f order is the safe default.
+     */
+    private function siteInSetup(string $userId): bool
+    {
+        $published = DB::table('site.sites')->where('user_id', $userId)->value('is_published');
+
+        return $published !== null && ! (bool) $published;
     }
 
     /**
