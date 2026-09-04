@@ -4,7 +4,6 @@ use App\Http\Controllers\Api\PublicSite\PublicCustomerLeadController;
 use App\Http\Controllers\Api\PublicSite\PublicEmailSubscriptionController;
 use App\Http\Controllers\Api\PublicSite\PublicEnquiryController;
 use App\Http\Controllers\Api\PublicSite\PublicReportController;
-use App\Http\Controllers\Api\PublicSite\PublicSiteController;
 use App\Http\Middleware\Moderation\PerTargetReportThrottle;
 use Illuminate\Support\Facades\Route;
 
@@ -20,10 +19,6 @@ Route::group([
     'where' => ['subdomain' => '[A-Za-z0-9-]+'],
     'prefix' => 'public',
 ], function () {
-
-    // Show Site
-    Route::get('/site', [PublicSiteController::class, 'show'])
-        ->middleware('throttle:public-site');
 
     // Customer Leads
     Route::post('/customers', [PublicCustomerLeadController::class, 'store'])
