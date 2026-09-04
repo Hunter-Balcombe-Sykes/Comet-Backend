@@ -329,6 +329,37 @@ it('classifies event and event-organiser urls for the fourteen new events brands
     ['https://www.songkick.com/artists/175070-ink', 'songkick', 'event-organiser'],
 ]);
 
+// Megatix mints some event slugs straight off the root, so the bare-root arm
+// has to tell an event title from site chrome with no prefix to go on. Its
+// first denylist was hand-enumerated from imagination: it named paths megatix
+// does not serve while missing three it does, so /privacy-policy,
+// /terms-conditions and /support each classified as an EVENT — and since this
+// grammar answer is the only server-side gate on the events pool, a legal page
+// could be added to it. Shape carries the weight now; the word list only covers
+// single lowercase words, where shape says nothing.
+it('reads a megatix root slug as an event only when it is shaped like an event title', function (string $path, ?string $category) {
+    $out = classifierHarvester()->classify('https://megatix.com.au/'.$path);
+
+    expect($out['category'] ?? null)->toBe($category);
+})->with([
+    // All three confirmed-genuine slugs: CamelCase, or a single lowercase word.
+    'camelcase title (corpus-real)' => ['SnowMachineQueenstownAud', 'event'],
+    'single lowercase word' => ['miniraves', 'event'],
+    'capitalised word' => ['Restricted', 'event'],
+    // Kebab-case is chrome, by shape — no entry in any list needed.
+    'the three that leaked: privacy' => ['privacy-policy', 'link'],
+    'the three that leaked: terms' => ['terms-conditions', 'link'],
+    'unlisted variants stay refused' => ['help-centre', 'link'],
+    'and the -us family' => ['contact-us', 'link'],
+    // Single lowercase words shape cannot see — this is what the list is for.
+    'the third that leaked: support' => ['support', 'link'],
+    'a word the first list missed' => ['blog', 'link'],
+    'and one it had' => ['orders', 'link'],
+    // The prefixed shapes are untouched.
+    'prefixed event' => ['events/kelmscott-agricultural-show-2026', 'event'],
+    'white-label checkout' => ['white-label/some-promoter', 'event'],
+]);
+
 it('pins humanitix org-before-event ordering (shared host, /host/ discriminates)', function () {
     // If the event check ran first, /host/ pages would classify as events —
     // NON_EVENT_SLUGS guards it scraper-side, but the ordering must hold too.

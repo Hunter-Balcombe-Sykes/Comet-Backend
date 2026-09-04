@@ -978,17 +978,48 @@ class WebsiteLinkHarvester
             // Critic-caught 2026-09-04: corpus-real.php also has a
             // bare-root-slug shape with neither prefix
             // (megatix.com.au/SnowMachineQueenstownAud) — the site mints
-            // some event slugs straight off the root. Denylist the known
-            // marketing/account paths from the same catalog docblock so this
-            // branch doesn't swallow them as events.
-            if (preg_match('~^/([A-Za-z0-9-]{4,})/?$~', $megatixPath, $m)
-                && ! in_array(strtolower($m[1]), [
-                    'sell-tickets', 'orders', 'about', 'contact', 'faq',
-                    'terms', 'privacy', 'login', 'register', 'cart',
-                    'checkout', 'events', 'white-label',
-                ], true)
-            ) {
-                return ['platform' => 'megatix', 'category' => 'event', 'label' => 'Megatix'];
+            // some event slugs straight off the root.
+            //
+            // That branch first shipped with a hand-enumerated denylist, which
+            // was written from imagination rather than from the site: it named
+            // paths megatix does not serve ('cart', 'checkout', 'register')
+            // while missing three it does — /privacy-policy, /terms-conditions
+            // and /support all classified as EVENTS, so pasting a legal page
+            // was told "that belongs on your Events page" and could then be
+            // added to the events pool, since this grammar answer is the only
+            // server-side gate there. An enumeration cannot win this: the next
+            // -policy/-conditions/-centre variant is always unlisted.
+            //
+            // So: SHAPE first, words only for what shape cannot see. Megatix's
+            // real root slugs are minted from event titles and are CamelCase
+            // or a single lowercase word (SnowMachineQueenstownAud, miniraves,
+            // Restricted — all three of the confirmed genuine ones); its
+            // chrome is kebab-case. An all-lowercase slug containing a hyphen
+            // is therefore chrome, whatever it is called. A genuine
+            // lowercase-hyphenated event would fall through to a link card,
+            // which is this file's stated safe default (see the skiddle arm).
+            //
+            // The word list stays for single lowercase words, where shape says
+            // nothing. It is NOT shared with HumanitixScraper::NON_EVENT_SLUGS
+            // or PastedLinkClassifier::PROFILE_CHROME even though all three
+            // look alike: those answer different questions, and the latter
+            // holds 'events' and 'video', which are not chrome on a ticketing
+            // root.
+            if (preg_match('~^/([A-Za-z0-9-]{4,})/?$~', $megatixPath, $m)) {
+                $slug = $m[1];
+                $lower = strtolower($slug);
+                $kebabChrome = $slug === $lower && str_contains($slug, '-');
+                $wordChrome = in_array($lower, [
+                    'about', 'account', 'blog', 'careers', 'cart', 'checkout',
+                    'contact', 'cookies', 'events', 'faq', 'faqs', 'help',
+                    'legal', 'login', 'orders', 'press', 'pricing', 'privacy',
+                    'refunds', 'register', 'search', 'sell', 'signin', 'signup',
+                    'support', 'terms',
+                ], true);
+
+                if (! $kebabChrome && ! $wordChrome) {
+                    return ['platform' => 'megatix', 'category' => 'event', 'label' => 'Megatix'];
+                }
             }
         }
         if (preg_match('~(^|\.)moshtix\.com\.au$~', $host)) {
