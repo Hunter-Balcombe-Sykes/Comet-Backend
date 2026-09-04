@@ -62,7 +62,7 @@ function seedReadyLogo(string $siteId, string $purpose, string $webpPath, ?strin
     $now = now()->toDateTimeString();
 
     DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => $id, 'site_id' => $siteId, 'pool' => 'design', 'purpose' => $purpose,
+        'id' => $id, 'site_id' => $siteId, 'usage' => 'design', 'purpose' => $purpose,
         'path' => "images/{$purpose}.png", 'sort_order' => 0, 'is_active' => 1,
         'media_type' => 'image', 'processing_state' => 'ready',
         'created_at' => $now, 'updated_at' => $now,
@@ -259,7 +259,7 @@ it('publishes the original SVG as the vector variant when the processor fails', 
 
     $mediaId = (string) Str::uuid();
     DB::table('site.site_media')->insert([
-        'id' => $mediaId, 'site_id' => $siteId, 'pool' => 'design',
+        'id' => $mediaId, 'site_id' => $siteId, 'usage' => 'design',
         'purpose' => 'logo_full', 'bucket' => 'test_disk',
         'path' => 'logos/x/original_abc.svg', 'original_mime' => 'image/svg+xml',
         'media_type' => 'image',
@@ -290,7 +290,7 @@ it('still falls back to the raster pipeline for a non-svg original', function ()
 
     $mediaId = (string) Str::uuid();
     DB::table('site.site_media')->insert([
-        'id' => $mediaId, 'site_id' => $siteId, 'pool' => 'design',
+        'id' => $mediaId, 'site_id' => $siteId, 'usage' => 'design',
         'purpose' => 'logo_full', 'bucket' => 'test_disk',
         'path' => 'logos/y/original_abc.png', 'original_mime' => 'image/png',
         'media_type' => 'image',

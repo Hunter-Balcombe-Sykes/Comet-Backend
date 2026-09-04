@@ -28,7 +28,7 @@ beforeEach(function () {
     config([
         'partna.media_disk' => 'local',
         'filesystems.disks.local.root' => $testRoot,
-        'partna.image_pools.gallery.max' => 50,
+        'partna.upload_limits.gallery.max' => 50,
         'partna.features.video_uploads' => true,
     ]);
 
@@ -94,7 +94,7 @@ it('emits media.original_stored with media_id, disk, and path when an image is s
         pro: $pro,
         site: $site,
         file: $file,
-        pool: 'gallery',
+        usage: 'gallery',
         isVideo: false,
         altText: null,
         caption: null,

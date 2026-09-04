@@ -36,7 +36,7 @@ function seedLogoRow(?string $siteId = null): string
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $id,
         'site_id' => $siteId ?? (string) Str::uuid(),
-        'pool' => 'design',
+        'usage' => 'design',
         'purpose' => 'logo_full',
         'path' => '',
         'sort_order' => 0,

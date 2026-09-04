@@ -30,7 +30,7 @@ function autopilotSite(array $palette = ['dominant' => '#e0491f', 'colors' => ['
     DB::table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => $siteId,
-        'pool' => SiteMedia::POOL_DESIGN,
+        'usage' => SiteMedia::USAGE_DESIGN,
         'purpose' => SiteMedia::PURPOSE_LOGO_FULL,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,
         'palette' => json_encode($palette),
@@ -206,7 +206,7 @@ it('the imagery fallback reads POOL_CONTENT — the one media pool (uploads + we
     DB::connection('pgsql')->table('site.site_media')->where('site_id', $siteId)->delete();
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
-        'site_id' => $siteId, 'pool' => 'content', 'purpose' => null,
+        'site_id' => $siteId, 'usage' => 'content', 'purpose' => null,
         'processing_state' => 'ready',
         'palette' => json_encode(['dominant' => '#e0491f', 'colors' => ['#e0491f'], 'warm' => true]),
         'created_at' => now()->toISOString(), 'updated_at' => now()->toISOString(),
@@ -225,7 +225,7 @@ it('a leftover legacy gallery-pool palette no longer feeds the accent', function
     DB::connection('pgsql')->table('site.site_media')->where('site_id', $siteId)->delete();
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
-        'site_id' => $siteId, 'pool' => 'gallery', 'purpose' => null,
+        'site_id' => $siteId, 'usage' => 'gallery', 'purpose' => null,
         'processing_state' => 'ready',
         'palette' => json_encode(['dominant' => '#e0491f', 'colors' => ['#e0491f'], 'warm' => true]),
         'created_at' => now()->toISOString(), 'updated_at' => now()->toISOString(),
@@ -242,7 +242,7 @@ it('a neutral MEDIA-POOL palette reports neutral_palette, not the wordmark copy'
     DB::connection('pgsql')->table('site.site_media')->where('site_id', $siteId)->delete();
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
-        'site_id' => $siteId, 'pool' => 'content', 'purpose' => null,
+        'site_id' => $siteId, 'usage' => 'content', 'purpose' => null,
         'processing_state' => 'ready',
         'palette' => json_encode(['dominant' => '#111111', 'colors' => ['#111111', '#fafafa'], 'warm' => false]),
         'created_at' => now()->toISOString(), 'updated_at' => now()->toISOString(),
@@ -259,7 +259,7 @@ it('falls back to the oldest ready media-pool image palette when no logo palette
     DB::connection('pgsql')->table('site.site_media')->where('site_id', $siteId)->delete();
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
-        'site_id' => $siteId, 'pool' => 'content', 'purpose' => null,
+        'site_id' => $siteId, 'usage' => 'content', 'purpose' => null,
         'processing_state' => 'ready',
         'palette' => json_encode(['dominant' => '#0f766e', 'colors' => ['#0f766e'], 'warm' => false]),
         'created_at' => now()->toISOString(), 'updated_at' => now()->toISOString(),

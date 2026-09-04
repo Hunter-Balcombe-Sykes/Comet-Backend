@@ -26,7 +26,7 @@ function grabRow(string $siteId, array $overrides = [], bool $withVariant = true
     $id = (string) Str::uuid();
     DB::table('site.site_media')->insert(array_merge([
         'id' => $id, 'site_id' => $siteId, 'bucket' => 'media',
-        'path' => "images/{$id}/original.jpg", 'pool' => 'content', 'media_type' => 'image',
+        'path' => "images/{$id}/original.jpg", 'usage' => 'content', 'media_type' => 'image',
         'processing_state' => 'ready', 'is_active' => 1, 'sort_order' => 0,
         'alt_text' => null, 'caption' => null,
         'created_at' => now()->subMonth(), 'updated_at' => now()->subMonth(),
@@ -67,7 +67,7 @@ it('mints a website-provenance item for an item-less legacy gallery row, dated a
 
 it('is idempotent and works the same after the pool-flip migration (content pool)', function () {
     [$pro, $siteId] = poolTenant();
-    $mediaId = grabRow($siteId, ['pool' => 'content']);
+    $mediaId = grabRow($siteId, ['usage' => 'content']);
 
     $this->artisan('content:backfill-website-grab-media')->assertExitCode(0);
     $this->artisan('content:backfill-website-grab-media')

@@ -29,7 +29,7 @@ function brandSingleton(string $siteId, string $purpose, array $variants = ['opt
     $now = now()->toDateTimeString();
 
     DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => $id, 'site_id' => $siteId, 'pool' => 'design', 'purpose' => $purpose,
+        'id' => $id, 'site_id' => $siteId, 'usage' => 'design', 'purpose' => $purpose,
         'path' => "images/{$purpose}.png", 'sort_order' => 0, 'is_active' => 1,
         'media_type' => 'image', 'processing_state' => 'ready',
         'created_at' => $now, 'updated_at' => $now,

@@ -7,7 +7,8 @@
 --   * site.services / site.service_categories were DROPPED 2026-08-18 (services
 --     cutover) — the seed raised 42P01 partway through and the harness could not
 --     run at all.
---   * the site_media 'gallery' pool was retired 2026-09-01/02.
+--   * the site_media 'gallery' usage was retired 2026-09-01/02 (and the
+--     column itself became site_media.usage on 2026-09-04).
 -- Curated content now lives in content.*, so the seed has to mint the real
 -- shapes. Row shapes below were read off live dev rows, not invented.
 --
@@ -80,11 +81,11 @@ BEGIN
     (v_user, v_site, 'newsletter', 'sections', 'Newsletter', 4, true, true, '{"input_placeholder":"Your email"}'::jsonb),
     (v_user, v_site, 'workplace',  'sections', 'Workplace',  5, true, true, '{"name":"Test Studio","city":"Melbourne"}'::jsonb);
 
-  -- ---- byte lane: 6 ready images in the CONTENT pool ('gallery' retired
-  -- 2026-09-01; the content pool's cap is 20 via config partna.image_pools).
+  -- ---- byte lane: 6 ready images in the CONTENT usage ('gallery' retired
+  -- 2026-09-01; the content usage's cap is 20 via config partna.upload_limits).
   -- 6 is kept as the seeded count so earlier baseline results stay comparable.
   INSERT INTO site.site_media
-    (site_id, bucket, path, alt_text, sort_order, is_active, pool, media_type, processing_state)
+    (site_id, bucket, path, alt_text, sort_order, is_active, "usage", media_type, processing_state)
   SELECT v_site, 'public-assets', 'loadtest/img-' || g || '.webp',
          'Gallery image ' || g, g, true, 'content', 'image', 'ready'
   FROM generate_series(1, 6) g;
@@ -94,7 +95,7 @@ BEGIN
   -- these): SiteMedia::variantUrls() only reads artifact_type='webp' rows.
   INSERT INTO site.media_variants (media_id, variant_key, artifact_type, disk, path)
   SELECT id, 'optimized', 'webp', 'media', 'loadtest/img-' || sort_order || '-optimized.webp'
-  FROM site.site_media WHERE site_id = v_site AND pool = 'content';
+  FROM site.site_media WHERE site_id = v_site AND "usage" = 'content';
 
   -- ---- the manual source. idx_content_sources_manual is UNIQUE on user_id
   -- WHERE kind='manual', so there is exactly ONE per user; both lanes share it.
@@ -179,7 +180,7 @@ BEGIN
   INSERT INTO content.media_assets (id, user_id, fingerprint, mime_type, width, height, site_media_id, created_at)
   SELECT ('00000000-0000-4000-d000-' || lpad(g::text, 12, '0'))::uuid,
          v_user, 'loadtest-img-' || g, 'image/webp', 1200, 1200,
-         (SELECT id FROM site.site_media WHERE site_id = v_site AND pool = 'content' AND sort_order = g),
+         (SELECT id FROM site.site_media WHERE site_id = v_site AND "usage" = 'content' AND sort_order = g),
          now()
   FROM generate_series(1, 6) g;
 

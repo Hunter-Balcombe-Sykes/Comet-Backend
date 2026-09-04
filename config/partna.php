@@ -1918,23 +1918,27 @@ return [
 
     /*
     |----------------------------------------------------------------------
-    | Image pools – per-professional limits
+    | Upload usages – per-professional limits
     |----------------------------------------------------------------------
-    | gallery = showcase images (portfolio, work samples)
-    | content = broad-use images (icon, headshot, banner, etc. – frontend assigns purpose)
+    | A site_media "usage" says what an uploaded file is FOR. It is NOT a
+    | content.* pool — those are public page sections (media, shop, events…)
+    | and have no relationship to these keys. Renamed off "pool" 2026-09-04.
     |
-    | upload_pools = pools accepted by the generic professional upload endpoint
-    |   (UploadImageRequest / ReorderPoolImagesRequest). Other pools have
-    |   dedicated controllers with their own authorization logic.
+    | content   = owner photos, bridged into the media pool by ManualMediaWriter
+    | design    = logo / favicon / brand assets, never published as a card
+    | documents = one downloadable file per site
+    |
+    | upload_usages = usages accepted by the generic professional upload
+    |   endpoint (UploadImageRequest / ReorderPoolImagesRequest). `design` and
+    |   `documents` have dedicated controllers with their own authorization.
     |   'gallery' retired 2026-09-01 (Item 5, one media pool): the wire
     |   stopped serving that lane 2026-08-14, the dashboard never sends it,
     |   and every remaining writer moved to the content + pool-item bridge —
     |   accepting it here was the last open write door.
     */
-    'upload_pools' => ['content'],
+    'upload_usages' => ['content'],
 
-    'image_pools' => [
-        // 'gallery' left with the pool (Wave 6, 2026-09-02).
+    'upload_limits' => [
         // 6 -> 20 (owner, 2026-08-27): sized for the old gallery-style use;
         // the media pool is a real photo library now that the upload door
         // feeds the sitepage gallery.

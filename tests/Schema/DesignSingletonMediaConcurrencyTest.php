@@ -123,7 +123,7 @@ it('createSingletonRow throws an uncaught unique-violation when a purge-then-cre
         // unhandled 500, not the row count.
         $active = SiteMedia::query()
             ->where('site_id', $site->id)
-            ->where('pool', SiteMedia::POOL_DESIGN)
+            ->where('usage', SiteMedia::USAGE_DESIGN)
             ->where('purpose', 'logo_full')
             ->get();
 
@@ -160,7 +160,7 @@ it('createSingletonRowOrConflict converts the same interleaved race into a typed
         // and exactly one (A's) active row survives.
         $allRows = SiteMedia::withTrashed()
             ->where('site_id', $site->id)
-            ->where('pool', SiteMedia::POOL_DESIGN)
+            ->where('usage', SiteMedia::USAGE_DESIGN)
             ->where('purpose', 'logo_full')
             ->get();
         expect($allRows)->toHaveCount(1);
@@ -217,7 +217,7 @@ it('uploadSingleton converts a concurrent-replace race into a 409-mappable excep
         // Winner intact: exactly one active row for this purpose.
         $active = SiteMedia::query()
             ->where('site_id', $site->id)
-            ->where('pool', SiteMedia::POOL_DESIGN)
+            ->where('usage', SiteMedia::USAGE_DESIGN)
             ->where('purpose', 'logo_full')
             ->get();
         expect($active)->toHaveCount(1);
@@ -225,7 +225,7 @@ it('uploadSingleton converts a concurrent-replace race into a 409-mappable excep
         // The loser's failed INSERT left no row at all, not even a trashed one.
         $allRows = SiteMedia::withTrashed()
             ->where('site_id', $site->id)
-            ->where('pool', SiteMedia::POOL_DESIGN)
+            ->where('usage', SiteMedia::USAGE_DESIGN)
             ->where('purpose', 'logo_full')
             ->get();
         expect($allRows)->toHaveCount(1);

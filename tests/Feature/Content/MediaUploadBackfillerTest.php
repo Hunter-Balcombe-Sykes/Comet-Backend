@@ -31,7 +31,7 @@ function uploadRow(string $siteId, array $overrides = [], bool $withVariant = tr
     $id = (string) Str::uuid();
     DB::table('site.site_media')->insert(array_merge([
         'id' => $id, 'site_id' => $siteId, 'bucket' => 'media',
-        'path' => "uploads/{$id}.jpg", 'pool' => 'content', 'media_type' => 'image',
+        'path' => "uploads/{$id}.jpg", 'usage' => 'content', 'media_type' => 'image',
         'processing_state' => 'ready', 'is_active' => 1, 'sort_order' => 0,
         'alt_text' => 'An upload', 'caption' => null,
         'created_at' => now(), 'updated_at' => now(),
@@ -87,14 +87,14 @@ it('skips and counts non-ready and variantless rows, and scopes design/documents
     uploadRow($siteId);                                                     // eligible
     uploadRow($siteId, ['processing_state' => 'failed']);                   // skipped: not ready
     uploadRow($siteId, ['media_type' => 'video'], withVariant: false);      // skipped: no webp variant
-    uploadRow($siteId, ['pool' => 'design']);                               // out of scope entirely
-    uploadRow($siteId, ['pool' => 'documents']);                            // out of scope entirely
+    uploadRow($siteId, ['usage' => 'design']);                               // out of scope entirely
+    uploadRow($siteId, ['usage' => 'documents']);                            // out of scope entirely
     uploadRow($siteId, ['deleted_at' => now()]);                            // soft-deleted: out of scope
 
     $result = app(MediaUploadBackfiller::class)->run();
 
     // design/documents/soft-deleted rows never enter the query at all — the
-    // scope is `pool IN ('content')` (GALLERY_POOLS post-Wave-6) with SiteMedia's SoftDeletes
+    // scope is `usage IN ('content')` (LISTABLE_USAGES post-Wave-6) with SiteMedia's SoftDeletes
     // global scope, so they land in NEITHER counter, not even 'failed'.
     // Total accounted-for rows: 3 (1 eligible + 1 not-ready + 1 no-variant),
     // not 6.

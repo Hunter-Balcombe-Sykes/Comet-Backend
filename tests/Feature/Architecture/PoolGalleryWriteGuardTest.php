@@ -13,7 +13,7 @@ use Symfony\Component\Finder\Finder;
 //   - `'pool' => …POOL_GALLERY`         (attribute array / insert)
 //   - `'pool' => 'gallery'`             (string-literal insert)
 // A dynamic `'pool' => $pool` is invisible to this sweep by design; its
-// sources are request-validated pools (config partna.upload_pools), which is
+// sources are request-validated pools (config partna.upload_usages), which is
 // the one remaining gallery door and is tracked for retirement with that
 // endpoint, not here.
 //
@@ -22,9 +22,25 @@ use Symfony\Component\Finder\Finder;
 // controller + resolver arms are gone. The string-literal patterns below are
 // now the whole guard — a const reference can't compile (POOL_GALLERY no
 // longer exists), and re-adding the const is a review-sized diff by itself.
+//
+// 2026-09-04: the column is `usage`, not `pool` (see migration
+// 20260904235904). Both spellings are swept — the new one because that is
+// what a regression would actually look like now, the old one because a
+// write naming a column that no longer exists is its own bug.
 it('nothing in app/ writes site_media into the retired gallery pool', function () {
     $offenders = [];
     $patterns = [
+        // current spelling (column renamed pool → usage, 2026-09-04)
+        'usage: SiteMedia::USAGE_GALLERY',
+        "'usage' => SiteMedia::USAGE_GALLERY",
+        '"usage" => SiteMedia::USAGE_GALLERY',
+        "'usage' => self::USAGE_GALLERY",
+        '"usage" => self::USAGE_GALLERY',
+        "'usage' => 'gallery'",
+        '"usage" => "gallery"',
+        "'usage' => \"gallery\"",
+        '"usage" => \'gallery\'',
+        // legacy spelling — the column is gone, so any hit is a bug either way
         'pool: SiteMedia::POOL_GALLERY',
         "'pool' => SiteMedia::POOL_GALLERY",
         '"pool" => SiteMedia::POOL_GALLERY',
@@ -57,10 +73,13 @@ it('nothing in app/ writes site_media into the retired gallery pool', function (
 it('nothing in scripts/ seeds site_media into the retired gallery pool', function () {
     $offenders = [];
     $patterns = [
+        "'usage' => 'gallery'",
+        '"usage" => "gallery"',
         "'pool' => 'gallery'",
         '"pool" => "gallery"',
-        "'gallery', 'image'",      // positional INSERT ... SELECT column list
-        "pool = 'gallery'",        // WHERE/UPDATE against the retired lane
+        "'gallery', 'image'",       // positional INSERT ... SELECT column list
+        "usage = 'gallery'",        // WHERE/UPDATE against the retired lane
+        "pool = 'gallery'",         // ditto, pre-rename spelling
     ];
 
     $finder = Finder::create()->files()->in(base_path('scripts'))
@@ -83,13 +102,13 @@ it('nothing in scripts/ seeds site_media into the retired gallery pool', functio
 // about the patterns themselves — this proves the exact write shape the
 // grabber used until Item 5 would be caught.
 it('would catch the write shapes the sweep exists for', function () {
-    $regression = '$this->uploads->upload(pool: SiteMedia::POOL_GALLERY, isVideo: false);';
-    $insert = "SiteMedia::query()->create(['pool' => 'gallery']);";
+    $regression = '$this->uploads->upload(usage: SiteMedia::USAGE_GALLERY, isVideo: false);';
+    $insert = "SiteMedia::query()->create(['usage' => 'gallery']);";
     $seedSql = "SELECT v_site, 'loadtest.webp', g, true, 'gallery', 'image', 'ready'";
-    $seedWhere = "FROM site.site_media WHERE site_id = v_site AND pool = 'gallery';";
+    $seedWhere = "FROM site.site_media WHERE site_id = v_site AND usage = 'gallery';";
 
-    expect(str_contains($regression, 'pool: SiteMedia::POOL_GALLERY'))->toBeTrue()
-        ->and(str_contains($insert, "'pool' => 'gallery'"))->toBeTrue()
+    expect(str_contains($regression, 'usage: SiteMedia::USAGE_GALLERY'))->toBeTrue()
+        ->and(str_contains($insert, "'usage' => 'gallery'"))->toBeTrue()
         ->and(str_contains($seedSql, "'gallery', 'image'"))->toBeTrue()
-        ->and(str_contains($seedWhere, "pool = 'gallery'"))->toBeTrue();
+        ->and(str_contains($seedWhere, "usage = 'gallery'"))->toBeTrue();
 });

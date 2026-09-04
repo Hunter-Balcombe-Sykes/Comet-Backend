@@ -47,7 +47,7 @@ function seedLogoMediaRow(string $siteId, string $purpose): string
 {
     $id = (string) Str::uuid();
     DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => $id, 'site_id' => $siteId, 'pool' => 'design', 'purpose' => $purpose,
+        'id' => $id, 'site_id' => $siteId, 'usage' => 'design', 'purpose' => $purpose,
         'path' => '', 'sort_order' => 0, 'is_active' => true,
         'media_type' => SiteMedia::MEDIA_TYPE_IMAGE, 'processing_state' => SiteMedia::PROCESSING_STATE_PENDING,
         'original_mime' => 'image/png', 'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),

@@ -52,7 +52,7 @@ function seedReadyDesignSingleton(string $siteId, string $purpose, string $webpP
     $now = now()->toDateTimeString();
 
     DB::connection('pgsql')->table('site.site_media')->insert([
-        'id' => $id, 'site_id' => $siteId, 'pool' => 'design', 'purpose' => $purpose,
+        'id' => $id, 'site_id' => $siteId, 'usage' => 'design', 'purpose' => $purpose,
         'path' => "images/{$purpose}.png", 'sort_order' => 0, 'is_active' => 1,
         'media_type' => 'image', 'processing_state' => 'ready',
         'created_at' => $now, 'updated_at' => $now,
@@ -181,7 +181,7 @@ it('replaces the existing singleton of the same purpose on re-upload', function 
 
     $active = SiteMedia::query()
         ->where('site_id', $site->id)
-        ->where('pool', 'design')
+        ->where('usage', 'design')
         ->where('purpose', 'logo_full')
         ->get();
 
@@ -214,7 +214,7 @@ it('409s and logs when the row is soft-deleted during storeOriginal (mid-store l
     $imageService->shouldReceive('storeOriginal')->once()->andReturnUsing(function () use ($site) {
         SiteMedia::query()
             ->where('site_id', $site->id)
-            ->where('pool', 'design')
+            ->where('usage', 'design')
             ->where('purpose', 'logo_full')
             ->whereNull('deleted_at')
             ->update(['deleted_at' => now()]);

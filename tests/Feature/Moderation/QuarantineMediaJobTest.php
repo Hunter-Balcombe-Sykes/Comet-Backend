@@ -20,7 +20,8 @@ beforeEach(function () {
         id TEXT PRIMARY KEY,
         site_id TEXT NULL,
         user_id TEXT NULL,
-        pool TEXT NULL,
+        "usage" TEXT NULL,
+        bucket TEXT NULL,
         path TEXT NULL,
         original_path TEXT NULL,
         original_mime TEXT NULL,
@@ -48,7 +49,7 @@ it('sets site_media.processing_state to quarantined', function () {
     $site = Site::factory()->for($user, 'user')->create();
     $mediaId = Str::uuid()->toString();
     DB::insert(
-        "INSERT INTO site.site_media (id, site_id, pool, path, processing_state) VALUES (?, ?, 'public-assets', 'p.jpg', 'scanning')",
+        "INSERT INTO site.site_media (id, site_id, bucket, path, processing_state) VALUES (?, ?, 'public-assets', 'p.jpg', 'scanning')",
         [$mediaId, $site->id]
     );
 
@@ -74,7 +75,7 @@ it('falls back to reportable_id when action_target has no site_media_id', functi
     $site = Site::factory()->for($user, 'user')->create();
     $mediaId = Str::uuid()->toString();
     DB::insert(
-        "INSERT INTO site.site_media (id, site_id, pool, path, processing_state) VALUES (?, ?, 'public-assets', 'p.jpg', 'scanning')",
+        "INSERT INTO site.site_media (id, site_id, bucket, path, processing_state) VALUES (?, ?, 'public-assets', 'p.jpg', 'scanning')",
         [$mediaId, $site->id]
     );
 
@@ -100,7 +101,7 @@ it('is idempotent (running twice does not error, state stays quarantined)', func
     $site = Site::factory()->for($user, 'user')->create();
     $mediaId = Str::uuid()->toString();
     DB::insert(
-        "INSERT INTO site.site_media (id, site_id, pool, path, processing_state) VALUES (?, ?, 'public-assets', 'p.jpg', 'scanning')",
+        "INSERT INTO site.site_media (id, site_id, bucket, path, processing_state) VALUES (?, ?, 'public-assets', 'p.jpg', 'scanning')",
         [$mediaId, $site->id]
     );
 
@@ -130,7 +131,7 @@ it('does not re-quarantine media cleared after this action log entry already com
     $site = Site::factory()->for($user, 'user')->create();
     $mediaId = Str::uuid()->toString();
     DB::insert(
-        "INSERT INTO site.site_media (id, site_id, pool, path, processing_state) VALUES (?, ?, 'public-assets', 'p.jpg', 'scanning')",
+        "INSERT INTO site.site_media (id, site_id, bucket, path, processing_state) VALUES (?, ?, 'public-assets', 'p.jpg', 'scanning')",
         [$mediaId, $site->id]
     );
 

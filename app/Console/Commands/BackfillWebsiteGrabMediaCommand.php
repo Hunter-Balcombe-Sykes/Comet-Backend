@@ -57,11 +57,11 @@ class BackfillWebsiteGrabMediaCommand extends Command
         $result = ['minted' => 0, 'already_bridged' => 0, 'skipped_not_ready' => 0, 'skipped_no_variant' => 0, 'failed' => 0];
         $touchedSites = [];
 
-        // GALLERY_POOLS, not POOL_CONTENT: tolerant of running before the
+        // LISTABLE_USAGES, not USAGE_CONTENT: tolerant of running before the
         // pool-flip migration as well as after — the anchor-absence check
         // below is the real discriminator either way.
         $rows = SiteMedia::query()
-            ->whereIn('pool', SiteMedia::GALLERY_POOLS)
+            ->whereIn('usage', SiteMedia::LISTABLE_USAGES)
             ->when($siteId !== null, fn ($q) => $q->where('site_id', $siteId))
             ->with(['site', 'mediaVariants'])
             ->orderBy('created_at')

@@ -33,7 +33,7 @@ it('touches the parent Site updated_at when video variant processing completes',
 
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId, 'site_id' => $siteId,
-        'pool' => 'content', 'media_type' => 'video',
+        'usage' => 'content', 'media_type' => 'video',
         'processing_state' => 'processing', 'sort_order' => 0, 'is_active' => 1,
         'path' => 'videos/touch-test/orig.mp4',
         'created_at' => now()->subHour()->toDateTimeString(),

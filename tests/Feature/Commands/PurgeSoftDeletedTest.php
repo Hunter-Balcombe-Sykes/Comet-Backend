@@ -107,7 +107,7 @@ it('hard-deletes failed SiteMedia rows older than 7 days', function () {
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $id,
         'site_id' => $siteId,
-        'pool' => SiteMedia::POOL_CONTENT,
+        'usage' => SiteMedia::USAGE_CONTENT,
         'path' => 'images/test.jpg',
         'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
         'processing_state' => SiteMedia::PROCESSING_STATE_FAILED,
@@ -129,7 +129,7 @@ it('keeps failed SiteMedia rows newer than 7 days', function () {
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $id,
         'site_id' => $siteId,
-        'pool' => SiteMedia::POOL_CONTENT,
+        'usage' => SiteMedia::USAGE_CONTENT,
         'path' => 'images/test.jpg',
         'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
         'processing_state' => SiteMedia::PROCESSING_STATE_FAILED,
@@ -151,7 +151,7 @@ it('does not delete ready SiteMedia rows via the failed-media cleanup pass', fun
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $id,
         'site_id' => $siteId,
-        'pool' => SiteMedia::POOL_CONTENT,
+        'usage' => SiteMedia::USAGE_CONTENT,
         'path' => 'images/test.jpg',
         'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,

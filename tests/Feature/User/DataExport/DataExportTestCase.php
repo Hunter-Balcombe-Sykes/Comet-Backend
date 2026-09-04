@@ -366,7 +366,7 @@ class DataExportTestCase
             id TEXT PRIMARY KEY,
             site_id TEXT,
             bucket TEXT,
-            pool TEXT,
+            "usage" TEXT,
             purpose TEXT,
             path TEXT,
             media_type TEXT,

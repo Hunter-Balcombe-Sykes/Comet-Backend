@@ -11,11 +11,11 @@ it('registers documents as a section_block_type', function () {
 });
 
 it('registers documents pool with max 1', function () {
-    expect(config('partna.image_pools.documents'))->toMatchArray(['max' => 1]);
+    expect(config('partna.upload_limits.documents'))->toMatchArray(['max' => 1]);
 });
 
 it('exposes POOL_DOCUMENTS and MEDIA_TYPE_DOCUMENT constants', function () {
-    expect(SiteMedia::POOL_DOCUMENTS)->toBe('documents');
+    expect(SiteMedia::USAGE_DOCUMENTS)->toBe('documents');
     expect(SiteMedia::MEDIA_TYPE_DOCUMENT)->toBe('document');
 });
 
@@ -56,7 +56,7 @@ it('SectionVisibilityService allows documents section when a document exists', f
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => $siteId,
-        'pool' => 'documents',
+        'usage' => 'documents',
         'media_type' => 'document',
         'path' => 'documents/foo/bar/original.pdf',
         'alt_text' => 'Schedule',
@@ -74,7 +74,7 @@ it('SectionVisibilityService allows documents section when a document exists', f
 it('SiteMedia accepts original_filename via mass assignment', function () {
     $media = new SiteMedia([
         'site_id' => (string) Str::uuid(),
-        'pool' => 'documents',
+        'usage' => 'documents',
         'media_type' => 'document',
         'path' => 'documents/foo/bar/original.pdf',
         'alt_text' => 'Spring Schedule',
@@ -86,6 +86,6 @@ it('SiteMedia accepts original_filename via mass assignment', function () {
     ]);
 
     expect($media->original_filename)->toBe('schedule-spring-2026.pdf');
-    expect($media->pool)->toBe('documents');
+    expect($media->usage)->toBe('documents');
     expect($media->media_type)->toBe('document');
 });

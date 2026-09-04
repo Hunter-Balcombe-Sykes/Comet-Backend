@@ -137,7 +137,7 @@ function seedIdentity(string $label): array
 
     $media = new SiteMedia([
         'path' => "dast/{$label}/gallery-1.jpg",
-        'pool' => 'content',
+        'usage' => 'content',
         'media_type' => 'image',
     ]);
     $media->site_id = $site->id;
@@ -248,19 +248,19 @@ function seedProbeFixtures(User $user, Site $site, string $label): array
     $db->table('site.site_media')->insert([
         [
             'id' => $mediaImageId, 'site_id' => $siteId,
-            'path' => "dast/{$label}/content-2.jpg", 'pool' => 'content',
+            'path' => "dast/{$label}/content-2.jpg", 'usage' => 'content',
             'media_type' => 'image', 'sort_order' => 2,
             'created_at' => $now, 'updated_at' => $now,
         ],
         [
             'id' => $mediaDocumentId, 'site_id' => $siteId,
-            'path' => "dast/{$label}/document.pdf", 'pool' => 'documents',
+            'path' => "dast/{$label}/document.pdf", 'usage' => 'documents',
             'media_type' => 'document', 'sort_order' => 0,
             'created_at' => $now, 'updated_at' => $now,
         ],
         [
             'id' => $mediaContentId, 'site_id' => $siteId,
-            'path' => "dast/{$label}/content-1.jpg", 'pool' => 'content',
+            'path' => "dast/{$label}/content-1.jpg", 'usage' => 'content',
             'media_type' => 'image', 'sort_order' => 1,
             'created_at' => $now, 'updated_at' => $now,
         ],
