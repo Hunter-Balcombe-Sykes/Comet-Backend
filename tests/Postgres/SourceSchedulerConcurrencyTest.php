@@ -80,11 +80,35 @@ beforeEach(function () {
         source_id uuid NOT NULL,
         run_id uuid NOT NULL
     )');
+
+    // scoreDue() admits a scheduled (auto_sync) source only when its owner's
+    // site is PUBLISHED (2026-09-04 refresh gate), so this lane needs the
+    // table to exist and to hold a published row per seeded user — without
+    // one, claimDue() correctly returns nothing and the concurrency property
+    // under test is never exercised. Minimal shape, no FK to core.users:
+    // ingest.sources.user_id has none either (see the file header).
+    $pg->statement('CREATE SCHEMA IF NOT EXISTS site');
+    $pg->statement('DROP TABLE IF EXISTS site.sites CASCADE');
+    $pg->statement('CREATE TABLE site.sites (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL,
+        is_published boolean NOT NULL DEFAULT false
+    )');
 });
+
+/** A published site for this owner — what the refresh gate looks for. */
+function schedulerConcurrencyPublishedSite(string $userId): void
+{
+    DB::connection('pgsql')->table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $userId,
+        'is_published' => true,
+    ]);
+}
 
 afterAll(function () {
     $pg = DB::connection('pgsql');
-    foreach (['ingest.claim_probe', 'ingest.runs', 'ingest.sources'] as $t) {
+    foreach (['ingest.claim_probe', 'ingest.runs', 'ingest.sources', 'site.sites'] as $t) {
         $pg->statement("DROP TABLE IF EXISTS {$t} CASCADE");
     }
 });
@@ -200,9 +224,11 @@ it('never double-claims a source across 8 concurrent processes, and claims all o
     foreach (range(1, $sourceCount) as $i) {
         $id = (string) Str::uuid();
         $sourceIds[] = $id;
+        $userId = (string) Str::uuid();
+        schedulerConcurrencyPublishedSite($userId);
         $pg->table('ingest.sources')->insert([
             'id' => $id,
-            'user_id' => (string) Str::uuid(),
+            'user_id' => $userId,
             'source_key' => 'bandcamp',
             'surface_key' => 'music',
             'identifier' => "concurrency-test-{$i}",

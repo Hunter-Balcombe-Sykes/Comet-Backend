@@ -72,6 +72,19 @@ beforeEach(function () {
         cost_claimed integer NOT NULL DEFAULT 0
     )');
 
+    // scoreDue() admits a scheduled (auto_sync) source only when its owner's
+    // site is PUBLISHED (2026-09-04 refresh gate). Without a stand-in here
+    // claimDue() correctly returns nothing, and a release-race test that
+    // claims nothing proves nothing. No FK to core.users — ingest.sources
+    // has none either (see the file header).
+    $pg->statement('CREATE SCHEMA IF NOT EXISTS site');
+    $pg->statement('DROP TABLE IF EXISTS site.sites CASCADE');
+    $pg->statement('CREATE TABLE site.sites (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id uuid NOT NULL,
+        is_published boolean NOT NULL DEFAULT false
+    )');
+
     // Same shape as the real ingest.anomalies table (20260727130000), only
     // columns releaseStranded() actually writes plus the ones the property
     // assertions read back.
@@ -100,7 +113,7 @@ beforeEach(function () {
 
 afterAll(function () {
     $pg = DB::connection('pgsql');
-    foreach (['ingest.claim_probe', 'ingest.release_probe', 'ingest.anomalies', 'ingest.runs', 'ingest.sources'] as $t) {
+    foreach (['ingest.claim_probe', 'ingest.release_probe', 'ingest.anomalies', 'ingest.runs', 'ingest.sources', 'site.sites'] as $t) {
         $pg->statement("DROP TABLE IF EXISTS {$t} CASCADE");
     }
 });
@@ -123,9 +136,17 @@ it('never releases a source that was legitimately re-claimed under it, and files
     foreach (range(1, $sourceCount) as $i) {
         $id = (string) Str::uuid();
         $sourceIds[] = $id;
+        $userId = (string) Str::uuid();
+        // The refresh gate (2026-09-04) only admits a scheduled source whose
+        // owner's site is published — see the beforeEach stand-in.
+        $pg->table('site.sites')->insert([
+            'id' => (string) Str::uuid(),
+            'user_id' => $userId,
+            'is_published' => true,
+        ]);
         $pg->table('ingest.sources')->insert([
             'id' => $id,
-            'user_id' => (string) Str::uuid(),
+            'user_id' => $userId,
             'source_key' => 'bandcamp',
             'surface_key' => 'music',
             'identifier' => "stranded-release-{$i}",
