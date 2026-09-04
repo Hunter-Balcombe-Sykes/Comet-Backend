@@ -87,6 +87,70 @@ class LegacyPlatformMap
     }
 
     /**
+     * Whether the platform a legacy slug names has a live connect flow.
+     *
+     * Deliberately separate from surfaceFor() rather than widening it (that
+     * method's own docblock says its narrowness is load-bearing for other
+     * callers). This resolves the slug two ways: first as a legacy alias
+     * (covers apple-music, apple-podcast, eventbrite, humanitix, trybooking —
+     * every surface with an explicit legacyPlatform() entry), then, if that
+     * misses, as a bare brand prefix (covers single-surface catalog-only
+     * brands like audiomack, tixr, spotify_podcasts, whose surface key is
+     * literally "{slug}.{product}" with no legacy alias needed).
+     *
+     * Returns null for a slug that resolves neither way — an unrecognised
+     * platform, not a known-and-refused one — so callers can choose their own
+     * safe default instead of this method guessing on their behalf. Found
+     * by measuring MediaPageReader::accountPlatform() /
+     * EventPageReader::organiserPlatform() / WebsiteLinkHarvester::classify()
+     * against the compiled catalog directly (2026-09-04): 16 platforms
+     * (audiomack, beatport, dailymotion, feature_fm, laylo, linkfire, rumble,
+     * admitone, bandsintown, dice, etix, moshtix, skiddle, songkick,
+     * ticketweb, tixr) are catalog-declared notConnectable() yet the 422 copy
+     * in PoolItemCreateController and PastedLinkClassifier's account/organiser
+     * answer told the user to "Connect X as a platform" regardless — a
+     * dead-end instruction, since none of the 16 has a connect route at all.
+     */
+    public static function connectableForSlug(string $slug): ?bool
+    {
+        $surfaceKey = self::surfaceFor($slug);
+        if ($surfaceKey !== null) {
+            return (bool) (CompiledCatalog::surface($surfaceKey)['is_connectable'] ?? false);
+        }
+
+        foreach (self::brandPrefixSurfaces() as $brandKey => $surface) {
+            if ($brandKey === $slug) {
+                return (bool) ($surface['is_connectable'] ?? false);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * One representative surface per brand key that has no legacy alias —
+     * exactly the brands a bare slug can name directly. Where a brand has
+     * more than one such surface (none currently do), the first compiled
+     * wins; that ambiguity would mean connectableForSlug() cannot answer for
+     * one bare slug in the first place, so any pick is as valid as any other.
+     *
+     * @return array<string, array<string, mixed>> brand key => surface array
+     */
+    private static function brandPrefixSurfaces(): array
+    {
+        $legacyAliasedSurfaceKeys = array_flip(array_values(self::inverse()));
+        $map = [];
+        foreach (CompiledCatalog::surfaces() as $key => $surface) {
+            if (isset($legacyAliasedSurfaceKeys[$key])) {
+                continue;
+            }
+            $map[$surface['brand_key']] ??= $surface;
+        }
+
+        return $map;
+    }
+
+    /**
      * The legacy slug for a surface: the catalog's `legacy_platform` where the
      * surface carries one, otherwise the brand prefix — the same rule as
      * split_part(surface_key, '.', 1) in Postgres.

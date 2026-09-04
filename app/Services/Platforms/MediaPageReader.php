@@ -522,9 +522,22 @@ class MediaPageReader extends PlatformScraper
     /**
      * The platform label when the URL is a PROFILE/CHANNEL page of a media
      * platform — the caller should send the owner to the connect flow rather
-     * than filing an account as an "item". Pure, no fetch.
+     * than filing an account as an "item". Pure, no fetch. The arms
+     * themselves now live in accountPlatform(); this just unwraps its label.
      */
     public function accountPlatformLabel(string $url): ?string
+    {
+        return $this->accountPlatform($url)['label'] ?? null;
+    }
+
+    /**
+     * The platform (slug + label) when the URL is a PROFILE/CHANNEL page of a
+     * media platform — the caller should send the owner to the connect flow
+     * rather than filing an account as an "item". Pure, no fetch.
+     *
+     * @return array{platform: string, label: string}|null
+     */
+    public function accountPlatform(string $url): ?array
     {
         // An ITEM claim always wins: some platforms name an item with a query
         // param on an account-shaped path (Apple Podcasts' show/id…?i=episode),
@@ -540,15 +553,15 @@ class MediaPageReader extends PlatformScraper
 
         if (in_array($host, ['youtube.com', 'm.youtube.com'], true)
             && preg_match('~^/(@[\w.-]+|channel/[\w-]+|c/[\w.-]+|user/[\w.-]+)/?$~', $path)) {
-            return 'YouTube';
+            return ['platform' => 'youtube', 'label' => 'YouTube'];
         }
         if ($host === 'vimeo.com' && preg_match('~^/[a-z][\w-]*/?$~i', $path)
             && ! preg_match('~^/(channels|ondemand|categories|features|upgrade|log_in|join|watch|site_map|about|blog|help|stock|create|solutions|enterprise)\b~i', $path)) {
-            return 'Vimeo';
+            return ['platform' => 'vimeo', 'label' => 'Vimeo'];
         }
         if ($host === 'twitch.tv' && preg_match('~^/[A-Za-z0-9_]{3,25}/?$~', $path)
             && ! preg_match('~^/(videos|directory|downloads|jobs|turbo|settings|subscriptions|wallet|drops|search|p)\b~i', $path)) {
-            return 'Twitch';
+            return ['platform' => 'twitch', 'label' => 'Twitch'];
         }
         // A podcast SHOW is its own brand, and must be named before the
         // generic Spotify arm below or it inherits the wrong one. The catalog
@@ -562,7 +575,7 @@ class MediaPageReader extends PlatformScraper
         // player, which does not bring a show's episodes in. Named by the W9
         // completeness critic (2026-09-04) as plan §1b's one unresolved item.
         if ($host === 'open.spotify.com' && preg_match('~^(?:/intl-[a-z]{2,5})?/show/~', $path)) {
-            return 'Spotify Podcasts';
+            return ['platform' => 'spotify_podcasts', 'label' => 'Spotify Podcasts'];
         }
         // `playlist` joined artist/user on 2026-09-03: a playlist is not
         // one track, so the Listen pool must refuse it — and the advice that
@@ -571,53 +584,53 @@ class MediaPageReader extends PlatformScraper
         // label it fell through to the generic "not a track" error, which
         // tells the person nothing about what to do instead.
         if ($host === 'open.spotify.com' && preg_match('~^(?:/intl-[a-z]{2,5})?/(artist|user|playlist)/~', $path)) {
-            return 'Spotify';
+            return ['platform' => 'spotify', 'label' => 'Spotify'];
         }
         if (in_array($host, ['tiktok.com', 'm.tiktok.com'], true) && preg_match('~^/@[\w.]{1,24}/?$~', $path)) {
-            return 'TikTok';
+            return ['platform' => 'tiktok', 'label' => 'TikTok'];
         }
         if ($host === 'soundcloud.com' && preg_match('~^/[a-z0-9_-]+/?$~i', $path)
             && ! preg_match('~^/(discover|search|upload|stream|library|charts|feed|you|messages|notifications|settings|pro|premium|mobile|imprint|terms-of-use|jobs|blog|pages)\b~i', $path)) {
-            return 'SoundCloud';
+            return ['platform' => 'soundcloud', 'label' => 'SoundCloud'];
         }
         if ($host === 'mixcloud.com' && preg_match('~^/[A-Za-z0-9_-]+/?$~', $path)
             && ! preg_match('~^/(discover|upload|live|pro|premium|select|about|jobs|competitions|categories|search)\b~i', $path)) {
-            return 'Mixcloud';
+            return ['platform' => 'mixcloud', 'label' => 'Mixcloud'];
         }
         // Locale optional (L-2) — the catalog detector already accepts both.
         if ($host === 'music.apple.com' && preg_match('~^(?:/[a-z]{2})?/artist/~', $path)) {
-            return 'Apple Music';
+            return ['platform' => 'apple-music', 'label' => 'Apple Music'];
         }
         if ($host === 'podcasts.apple.com' && preg_match('~^/[a-z]{2}/podcast/[^/]+/id\d+$~', $path)) {
             // The show page WITHOUT ?i= — classifyItem() claims it first when
             // an episode is named, so reaching here means the show itself.
-            return 'Apple Podcasts';
+            return ['platform' => 'apple-podcast', 'label' => 'Apple Podcasts'];
         }
         if (str_ends_with($host, '.bandcamp.com') && ($path === '/' || $path === '' || preg_match('~^/(music|merch|community)/?$~', $path))) {
-            return 'Bandcamp';
+            return ['platform' => 'bandcamp', 'label' => 'Bandcamp'];
         }
         if (in_array($host, ['tidal.com', 'listen.tidal.com'], true) && preg_match('~^(?:/browse)?/artist/~', $path)) {
-            return 'Tidal';
+            return ['platform' => 'tidal', 'label' => 'Tidal'];
         }
         if ($host === 'music.youtube.com'
             && preg_match('~^/(@[\w.-]+|channel/[\w-]+|c/[\w.-]+|user/[\w.-]+)/?$~', $path)) {
-            return 'YouTube Music';
+            return ['platform' => 'youtube-music', 'label' => 'YouTube Music'];
         }
         if ($host === 'audiomack.com' && preg_match('~^/([\w.-]+)/?$~', $path, $m)) {
             $reserved = ['trending-now', 'top', 'albums', 'songs', 'songalbum', 'album', 'download', 'search', 'upload'];
             if (! in_array(strtolower($m[1]), $reserved, true)) {
-                return 'Audiomack';
+                return ['platform' => 'audiomack', 'label' => 'Audiomack'];
             }
         }
         if ($host === 'beatport.com'
             && (preg_match('~^/artist/[a-z0-9-]+/\d+~', $path) || preg_match('~^/label/[a-z0-9-]+/\d+~', $path))) {
-            return 'Beatport';
+            return ['platform' => 'beatport', 'label' => 'Beatport'];
         }
         // /playlist/{id} joins /artist/{id} here (not classifyItem) the same
         // way Spotify's playlist does — a collection, not one track.
         if ($host === 'deezer.com'
             && (preg_match('~^(?:/[a-z]{2})?/artist/\d+~', $path) || preg_match('~^(?:/[a-z]{2})?/playlist/\d+~', $path))) {
-            return 'Deezer';
+            return ['platform' => 'deezer', 'label' => 'Deezer'];
         }
         if ($host === 'dailymotion.com' && preg_match('~^/([A-Za-z0-9_-]+)/?$~', $path, $m)) {
             $reserved = [
@@ -625,14 +638,14 @@ class MediaPageReader extends PlatformScraper
                 'partner', 'gaming', 'login', 'signup', 'about', 'press', 'legal', 'help',
             ];
             if (! in_array(strtolower($m[1]), $reserved, true)) {
-                return 'Dailymotion';
+                return ['platform' => 'dailymotion', 'label' => 'Dailymotion'];
             }
         }
         if ($host === 'rumble.com' && preg_match('~^/(?:user|c)/[A-Za-z0-9_-]+/?$~', $path)) {
-            return 'Rumble';
+            return ['platform' => 'rumble', 'label' => 'Rumble'];
         }
         if (($host === 'ffm.bio' || str_ends_with($host, '.ffm.bio')) && preg_match('~^/[A-Za-z0-9_-]+/?$~', $path)) {
-            return 'Feature.fm';
+            return ['platform' => 'feature_fm', 'label' => 'Feature.fm'];
         }
         // Hypeddit has NO accountPlatformLabel arm, deliberately: there is no
         // public account/profile page shape at all — stripping the second
@@ -642,11 +655,11 @@ class MediaPageReader extends PlatformScraper
         if ($host === 'laylo.com' && preg_match('~^/([\w-]+)/?$~', $path, $m)) {
             $reserved = ['music', 'join', 'pricing', 'blog', 'dashboard', 'auth'];
             if (! in_array(strtolower($m[1]), $reserved, true)) {
-                return 'Laylo';
+                return ['platform' => 'laylo', 'label' => 'Laylo'];
             }
         }
         if (($host === 'bio.to' || str_ends_with($host, '.bio.to')) && preg_match('~^/[A-Za-z0-9_-]+/?$~', $path)) {
-            return 'Linkfire';
+            return ['platform' => 'linkfire', 'label' => 'Linkfire'];
         }
 
         return null;

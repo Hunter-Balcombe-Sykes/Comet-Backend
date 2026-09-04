@@ -2,6 +2,7 @@
 
 namespace App\Services\Content;
 
+use App\Catalog\LegacyPlatformMap;
 use App\Services\Platforms\EventPageReader;
 use App\Services\Platforms\MediaPageReader;
 use App\Services\Platforms\WebsiteLinkHarvester;
@@ -39,6 +40,7 @@ class PastedLinkClassifier
      * @return array{
      *   belongsTo: array{pool: string, kind: string, pageLabel: string}|null,
      *   account: string|null,
+     *   accountConnectable: bool|null,
      *   store: string|null,
      * }
      */
@@ -49,10 +51,10 @@ class PastedLinkClassifier
             return $this->answer(belongsTo: $this->belongsTo($item['kind']));
         }
 
-        $account = $this->media->accountPlatformLabel($url)
-            ?? $this->events->organiserPlatformLabel($url);
+        $account = $this->media->accountPlatform($url)
+            ?? $this->events->organiserPlatform($url);
         if ($account !== null) {
-            return $this->answer(account: $account);
+            return $this->answer(account: $account['label'], accountConnectable: $this->connectable($account['platform']));
         }
 
         // Events + social + shop grammar lives in the harvester (pure — regex
@@ -67,7 +69,10 @@ class PastedLinkClassifier
             return $this->answer(belongsTo: $this->belongsTo('event'));
         }
         if (($classified['category'] ?? null) === 'event-organiser') {
-            return $this->answer(account: (string) $classified['label']);
+            return $this->answer(
+                account: (string) $classified['label'],
+                accountConnectable: $this->connectable($classified['platform'])
+            );
         }
         // The harvester's looksLikeProfile() is a bio-scan heuristic that
         // calls ANY non-root path a profile — good enough when a false
@@ -76,13 +81,32 @@ class PastedLinkClassifier
         // a PROFILE-SHAPED path earns the account answer here; the rest fall
         // through to null/null — the honest "we don't recognise this" band.
         if (($classified['category'] ?? null) === 'social' && $this->profileShaped($url)) {
-            return $this->answer(account: (string) $classified['label']);
+            return $this->answer(
+                account: (string) $classified['label'],
+                accountConnectable: $this->connectable($classified['platform'])
+            );
         }
         if (($classified['category'] ?? null) === 'shop') {
             return $this->answer(store: (string) $classified['label']);
         }
 
         return $this->answer();
+    }
+
+    /**
+     * accountConnectable for the wire: whether the platform named in
+     * `account` has a live connect flow, so the caller can drop the "Connect
+     * X as a platform" CTA for one that doesn't. Measured 2026-09-04 against
+     * CompiledCatalog directly (see LegacyPlatformMap::connectableForSlug's
+     * docblock for the 16-platform gap this closes) rather than assumed —
+     * the same fix PoolItemCreateController's two 422s carry. An
+     * unrecognised slug defaults to true, matching this class's prior
+     * unconditional behaviour rather than inventing a new "unknown" state on
+     * the wire.
+     */
+    private function connectable(string $slug): bool
+    {
+        return LegacyPlatformMap::connectableForSlug($slug) ?? true;
     }
 
     /**
@@ -103,11 +127,11 @@ class PastedLinkClassifier
 
     /**
      * @param  array{pool: string, kind: string, pageLabel: string}|null  $belongsTo
-     * @return array{belongsTo: array{pool: string, kind: string, pageLabel: string}|null, account: string|null, store: string|null}
+     * @return array{belongsTo: array{pool: string, kind: string, pageLabel: string}|null, account: string|null, accountConnectable: bool|null, store: string|null}
      */
-    private function answer(?array $belongsTo = null, ?string $account = null, ?string $store = null): array
+    private function answer(?array $belongsTo = null, ?string $account = null, ?bool $accountConnectable = null, ?string $store = null): array
     {
-        return ['belongsTo' => $belongsTo, 'account' => $account, 'store' => $store];
+        return ['belongsTo' => $belongsTo, 'account' => $account, 'accountConnectable' => $accountConnectable, 'store' => $store];
     }
 
     /**
