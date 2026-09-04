@@ -460,7 +460,7 @@ class DataExportPayloadBuilder
             DB::connection('pgsql')
                 ->table('site.site_media')
                 ->select([
-                    'id', 'pool', 'purpose', 'path', 'media_type',
+                    'id', 'usage', 'purpose', 'path', 'media_type',
                     'original_filename', 'caption', 'alt_text', 'created_at',
                 ])
                 ->where('site_id', $siteId)

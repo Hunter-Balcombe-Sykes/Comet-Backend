@@ -54,7 +54,7 @@ it('exports site media scoped through the user site, not a user_id column', func
         [
             'id' => (string) Str::uuid(),
             'site_id' => $siteId,
-            'pool' => 'content',
+            'usage' => 'content',
             'purpose' => 'portfolio',
             'path' => 'media/jane/one.jpg',
             'media_type' => 'image',
@@ -67,7 +67,7 @@ it('exports site media scoped through the user site, not a user_id column', func
             // Another user's media — must NOT leak into Jane's export.
             'id' => (string) Str::uuid(),
             'site_id' => $otherSiteId,
-            'pool' => 'content',
+            'usage' => 'content',
             'purpose' => 'portfolio',
             'path' => 'media/someone/two.jpg',
             'media_type' => 'image',

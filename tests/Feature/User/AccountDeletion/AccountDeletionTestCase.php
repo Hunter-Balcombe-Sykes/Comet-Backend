@@ -183,7 +183,7 @@ class AccountDeletionTestCase
             id TEXT PRIMARY KEY,
             site_id TEXT,
             user_id TEXT,
-            pool TEXT,
+            "usage" TEXT,
             path TEXT,
             media_type TEXT,
             processing_state TEXT,

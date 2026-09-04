@@ -75,7 +75,7 @@ it('uses a ready design-pool logo url when present', function () {
 
     $site = makeProSite();
     $media = new SiteMedia([
-        'pool' => SiteMedia::POOL_DESIGN,
+        'usage' => SiteMedia::USAGE_DESIGN,
         'purpose' => SiteMedia::PURPOSE_LOGO_FULL,
         'is_active' => true,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,

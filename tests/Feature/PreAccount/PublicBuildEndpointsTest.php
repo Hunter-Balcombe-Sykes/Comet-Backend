@@ -226,7 +226,7 @@ it('stamps content_filled/enriched lazily on the poll once their conditions are 
     // Content lands (a READY content-pool asset) → next poll stamps content_filled.
     $site = $build->user->site;
     (new SiteMedia([
-        'pool' => 'content', 'path' => 'images/t.webp', 'media_type' => 'image',
+        'usage' => 'content', 'path' => 'images/t.webp', 'media_type' => 'image',
         'processing_state' => 'ready', 'sort_order' => 0, 'is_active' => true,
     ]))->site()->associate($site)->save();
 
@@ -335,7 +335,7 @@ it('carries a progress block from the first poll, fills it from the ledger, and 
     // Ready + content, but the workplace question still open: not done.
     $build->forceFill(['build_state' => PreAccountBuild::STATE_READY])->save();
     $site = $build->user->site;
-    (new SiteMedia(['pool' => 'content', 'path' => 'images/t.webp', 'media_type' => 'image', 'processing_state' => 'ready', 'sort_order' => 0, 'is_active' => true]))->site()->associate($site)->save();
+    (new SiteMedia(['usage' => 'content', 'path' => 'images/t.webp', 'media_type' => 'image', 'processing_state' => 'ready', 'sort_order' => 0, 'is_active' => true]))->site()->associate($site)->save();
     $this->getJson("/api/public/signup/builds/{$build->id}")->assertJsonPath('progress.done', false);
 
     // The chain says skipped — the workplace question is answered, but an

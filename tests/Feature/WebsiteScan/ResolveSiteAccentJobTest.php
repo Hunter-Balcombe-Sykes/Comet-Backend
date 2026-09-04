@@ -35,7 +35,7 @@ it('fills color_accent from the resolved chain when empty, never overwriting man
     $user = createTenant('accent-job-fill');
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(), 'site_id' => $user->site->id,
-        'pool' => SiteMedia::POOL_CONTENT, 'purpose' => null, 'path' => 'x', 'sort_order' => 0,
+        'usage' => SiteMedia::USAGE_CONTENT, 'purpose' => null, 'path' => 'x', 'sort_order' => 0,
         'is_active' => true, 'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY, 'dominant_color' => '#ab3516',
         'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
@@ -58,7 +58,7 @@ it('prefers the passed-in theme-color over a gallery palette', function () {
     $user = createTenant('accent-job-theme');
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(), 'site_id' => $user->site->id,
-        'pool' => SiteMedia::POOL_CONTENT, 'purpose' => null, 'path' => 'x', 'sort_order' => 0,
+        'usage' => SiteMedia::USAGE_CONTENT, 'purpose' => null, 'path' => 'x', 'sort_order' => 0,
         'is_active' => true, 'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY, 'dominant_color' => '#ab3516',
         'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
@@ -83,7 +83,7 @@ it('a low-quality theme-color candidate does not block the gallery fallback', fu
     $user = createTenant('accent-job-fallthrough');
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(), 'site_id' => $user->site->id,
-        'pool' => SiteMedia::POOL_CONTENT, 'purpose' => null, 'path' => 'x', 'sort_order' => 0,
+        'usage' => SiteMedia::USAGE_CONTENT, 'purpose' => null, 'path' => 'x', 'sort_order' => 0,
         'is_active' => true, 'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY, 'dominant_color' => '#e0491f',
         'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),

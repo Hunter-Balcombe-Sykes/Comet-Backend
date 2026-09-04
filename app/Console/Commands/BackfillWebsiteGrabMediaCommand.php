@@ -61,7 +61,7 @@ class BackfillWebsiteGrabMediaCommand extends Command
         // pool-flip migration as well as after — the anchor-absence check
         // below is the real discriminator either way.
         $rows = SiteMedia::query()
-            ->whereIn('pool', SiteMedia::GALLERY_POOLS)
+            ->whereIn('usage', SiteMedia::LISTABLE_USAGES)
             ->when($siteId !== null, fn ($q) => $q->where('site_id', $siteId))
             ->with(['site', 'mediaVariants'])
             ->orderBy('created_at')

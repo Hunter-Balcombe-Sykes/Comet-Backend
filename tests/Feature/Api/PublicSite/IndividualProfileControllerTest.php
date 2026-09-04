@@ -439,7 +439,7 @@ it('projects content-pool videos with kind=video, poster and duration_ms', funct
 
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId, 'site_id' => $siteId,
-        'pool' => 'content', 'path' => 'videos/content/original.mp4',
+        'usage' => 'content', 'path' => 'videos/content/original.mp4',
         'media_type' => 'video', 'processing_state' => 'ready',
         'sort_order' => 0, 'is_active' => 1,
         'alt_text' => 'Intro reel', 'duration_ms' => 12500,
@@ -480,14 +480,14 @@ it('interleaves content-pool images and videos by sort_order', function () {
     DB::connection('pgsql')->table('site.site_media')->insert([
         [
             'id' => $imageId, 'site_id' => $siteId,
-            'pool' => 'content', 'path' => 'images/content/a.jpg',
+            'usage' => 'content', 'path' => 'images/content/a.jpg',
             'media_type' => 'image', 'processing_state' => 'ready',
             'sort_order' => 1, 'is_active' => 1,
             'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
         ],
         [
             'id' => $videoId, 'site_id' => $siteId,
-            'pool' => 'content', 'path' => 'videos/content/a.mp4',
+            'usage' => 'content', 'path' => 'videos/content/a.mp4',
             'media_type' => 'video', 'processing_state' => 'ready',
             'sort_order' => 0, 'is_active' => 1,
             'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
@@ -529,13 +529,13 @@ it('excludes content-pool media that is not ready / not active / soft-deleted / 
     ];
     DB::connection('pgsql')->table('site.site_media')->insert([
         // Excluded: processing_state != ready
-        array_merge($base, ['id' => (string) Str::uuid(), 'pool' => 'content', 'path' => 'a.jpg', 'processing_state' => 'processing', 'is_active' => 1]),
+        array_merge($base, ['id' => (string) Str::uuid(), 'usage' => 'content', 'path' => 'a.jpg', 'processing_state' => 'processing', 'is_active' => 1]),
         // Excluded: is_active = false
-        array_merge($base, ['id' => (string) Str::uuid(), 'pool' => 'content', 'path' => 'b.jpg', 'processing_state' => 'ready', 'is_active' => 0]),
+        array_merge($base, ['id' => (string) Str::uuid(), 'usage' => 'content', 'path' => 'b.jpg', 'processing_state' => 'ready', 'is_active' => 0]),
         // Excluded: soft-deleted
-        array_merge($base, ['id' => (string) Str::uuid(), 'pool' => 'content', 'path' => 'c.jpg', 'processing_state' => 'ready', 'is_active' => 1, 'deleted_at' => now()->toDateTimeString()]),
+        array_merge($base, ['id' => (string) Str::uuid(), 'usage' => 'content', 'path' => 'c.jpg', 'processing_state' => 'ready', 'is_active' => 1, 'deleted_at' => now()->toDateTimeString()]),
         // Excluded: gallery pool (wrong pool)
-        array_merge($base, ['id' => (string) Str::uuid(), 'pool' => 'gallery', 'path' => 'd.jpg', 'processing_state' => 'ready', 'is_active' => 1]),
+        array_merge($base, ['id' => (string) Str::uuid(), 'usage' => 'gallery', 'path' => 'd.jpg', 'processing_state' => 'ready', 'is_active' => 1]),
     ]);
 
     $site = Site::query()->findOrFail($siteId);
@@ -556,7 +556,7 @@ it('handles content-pool video with no poster artifact (poster=null)', function 
 
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId, 'site_id' => $siteId,
-        'pool' => 'content', 'media_type' => 'video',
+        'usage' => 'content', 'media_type' => 'video',
         'processing_state' => 'ready', 'sort_order' => 0, 'is_active' => 1,
         'path' => 'videos/np.mp4', 'duration_ms' => 4200,
         'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
@@ -584,7 +584,7 @@ it('returns url_hd=null for content-pool video with only optimized variant', fun
 
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId, 'site_id' => $siteId,
-        'pool' => 'content', 'media_type' => 'video',
+        'usage' => 'content', 'media_type' => 'video',
         'processing_state' => 'ready', 'sort_order' => 0, 'is_active' => 1,
         'path' => 'videos/oo.mp4', 'duration_ms' => 3000,
         'created_at' => now()->toDateTimeString(), 'updated_at' => now()->toDateTimeString(),
@@ -688,7 +688,7 @@ it('document engine returns DocumentData when a ready document exists', function
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => (string) Str::uuid(),
         'site_id' => $siteId,
-        'pool' => 'documents',
+        'usage' => 'documents',
         'path' => 'docs/rate-card.pdf',
         'media_type' => 'document',
         'processing_state' => 'ready',

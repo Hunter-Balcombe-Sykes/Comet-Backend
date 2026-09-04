@@ -35,7 +35,7 @@ class UserDocumentController extends ApiController
         // the dashboard — the frontend publish toggle flips is_active directly.
         $media = SiteMedia::query()
             ->where('site_id', $site->id)
-            ->where('pool', SiteMedia::POOL_DOCUMENTS)
+            ->where('usage', SiteMedia::USAGE_DOCUMENTS)
             ->whereNull('deleted_at')
             ->first();
 
@@ -102,7 +102,7 @@ class UserDocumentController extends ApiController
             // so uploading a new file always takes over the single slot.
             $existing = SiteMedia::query()
                 ->where('site_id', $site->id)
-                ->where('pool', SiteMedia::POOL_DOCUMENTS)
+                ->where('usage', SiteMedia::USAGE_DOCUMENTS)
                 ->whereNull('deleted_at')
                 ->first();
 
@@ -133,7 +133,7 @@ class UserDocumentController extends ApiController
             $nextSort = is_null($maxSort) ? 0 : ((int) $maxSort + 1);
 
             $media = new SiteMedia([
-                'pool' => SiteMedia::POOL_DOCUMENTS,
+                'usage' => SiteMedia::USAGE_DOCUMENTS,
                 'path' => '',
                 'alt_text' => $title,
                 'caption' => $caption,
@@ -223,7 +223,7 @@ class UserDocumentController extends ApiController
 
         // Pool check: only operate on document-pool media (not gallery, etc).
         // Route model binding already 404s on soft-deleted rows.
-        abort_unless($document->pool === SiteMedia::POOL_DOCUMENTS, 404);
+        abort_unless($document->usage === SiteMedia::USAGE_DOCUMENTS, 404);
         // Ownership via SitePolicy — must setRelation so the policy resolves through
         // the already-loaded site instead of lazy-loading.
         $document->setRelation('site', $site);
@@ -266,7 +266,7 @@ class UserDocumentController extends ApiController
         $site = $this->currentSite($pro);
 
         // Pool check: only operate on document-pool media.
-        abort_unless($document->pool === SiteMedia::POOL_DOCUMENTS, 404);
+        abort_unless($document->usage === SiteMedia::USAGE_DOCUMENTS, 404);
         $document->setRelation('site', $site);
         $this->authorizeForUser($pro, 'delete', $document);
 

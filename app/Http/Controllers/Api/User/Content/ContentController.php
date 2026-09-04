@@ -57,7 +57,7 @@ class ContentController extends ApiController
 
         $uploads = SiteMedia::query()
             ->where('site_id', $site->id)
-            ->where('pool', SiteMedia::POOL_CONTENT)
+            ->where('usage', SiteMedia::USAGE_CONTENT)
             ->where('is_active', true)
             ->orderBy('sort_order')
             ->orderBy('created_at')
@@ -95,7 +95,7 @@ class ContentController extends ApiController
                 pro: $pro,
                 site: $site,
                 file: $request->file($isVideo ? 'video' : 'image'),
-                pool: SiteMedia::POOL_CONTENT,
+                usage: SiteMedia::USAGE_CONTENT,
                 isVideo: $isVideo,
                 altText: $request->validated('alt_text'),
                 caption: $request->validated('caption'),
@@ -151,7 +151,7 @@ class ContentController extends ApiController
         $upload->setRelation('site', $site);
         $this->authorizeForUser($pro, 'delete', $upload);
 
-        if ($upload->pool !== SiteMedia::POOL_CONTENT) {
+        if ($upload->usage !== SiteMedia::USAGE_CONTENT) {
             return $this->error('Not found.', 404);
         }
 

@@ -46,7 +46,7 @@ class BackfillMediaPaletteCommand extends Command
         // Only READY images in a gallery/content pool with no palette yet are
         // candidates — failed/pending rows have no reliable original to read.
         $query = SiteMedia::query()
-            ->whereIn('pool', SiteMedia::GALLERY_POOLS)
+            ->whereIn('usage', SiteMedia::LISTABLE_USAGES)
             ->where('media_type', SiteMedia::MEDIA_TYPE_IMAGE)
             ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
             ->whereNull('deleted_at')

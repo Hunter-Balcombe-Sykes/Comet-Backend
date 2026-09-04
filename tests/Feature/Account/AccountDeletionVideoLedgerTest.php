@@ -32,7 +32,7 @@ function insertVideoMedia(string $siteId, string $proId): string
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $mediaId,
         'site_id' => $siteId,
-        'pool' => SiteMedia::POOL_CONTENT,
+        'usage' => SiteMedia::USAGE_CONTENT,
         'path' => "videos/{$proId}/{$mediaId}",
         'media_type' => SiteMedia::MEDIA_TYPE_VIDEO,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,

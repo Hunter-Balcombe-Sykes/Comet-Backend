@@ -46,7 +46,7 @@ function seedBackfillRow(int $r, int $g, int $b): string
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $id,
         'site_id' => (string) Str::uuid(),
-        'pool' => SiteMedia::POOL_CONTENT,
+        'usage' => SiteMedia::USAGE_CONTENT,
         'media_type' => SiteMedia::MEDIA_TYPE_IMAGE,
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,
         'path' => $path,

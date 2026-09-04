@@ -129,7 +129,7 @@ class CacheKeyGenerator
     /**
      * Pool/media_type tuples enumerated by invalidateSite to bust every
      * filtered-view variant. Alignment with UserUploadController::index is
-     * now enforced by shared constants (SiteMedia::GALLERY_POOLS and
+     * now enforced by shared constants (SiteMedia::LISTABLE_USAGES and
      * SiteMedia::MEDIA_TYPE_FILTERS) and locked by CacheKeyGeneratorTest.
      *
      * @return array<int, array{0: ?string, 1: string}>
@@ -137,9 +137,9 @@ class CacheKeyGenerator
     public static function siteImagesViewVariants(): array
     {
         $variants = [];
-        // null pool = "all pools" (no filter); the rest mirror SiteMedia::GALLERY_POOLS —
+        // null usage = "all usages" (no filter); the rest mirror SiteMedia::LISTABLE_USAGES —
         // the same pool inputs UserUploadController::index accepts.
-        foreach (array_merge([null], SiteMedia::GALLERY_POOLS) as $pool) {
+        foreach (array_merge([null], SiteMedia::LISTABLE_USAGES) as $pool) {
             foreach (SiteMedia::MEDIA_TYPE_FILTERS as $mediaType) {
                 $variants[] = [$pool, $mediaType];
             }

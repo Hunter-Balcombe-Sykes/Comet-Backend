@@ -21,7 +21,7 @@ class DocumentsVisibility implements SectionVisibilityContract
             'has_document' => SiteMedia::query()
                 ->select(DB::raw('1'))
                 ->where('site_id', $siteId)
-                ->where('pool', SiteMedia::POOL_DOCUMENTS)
+                ->where('usage', SiteMedia::USAGE_DOCUMENTS)
                 ->where('is_active', true)
                 ->whereNull('deleted_at')
                 ->getQuery(),

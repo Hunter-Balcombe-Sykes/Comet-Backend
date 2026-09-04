@@ -65,7 +65,7 @@ class GalleryAutoGrabber
 
         $hasExisting = SiteMedia::query()
             ->where('site_id', $site->id)
-            ->where('pool', SiteMedia::POOL_CONTENT)
+            ->where('usage', SiteMedia::USAGE_CONTENT)
             ->where('is_active', true)
             ->where('processing_state', '!=', SiteMedia::PROCESSING_STATE_FAILED)
             ->exists();
@@ -161,7 +161,7 @@ class GalleryAutoGrabber
                 pro: $pro,
                 site: $site,
                 file: $file,
-                pool: SiteMedia::POOL_CONTENT,
+                usage: SiteMedia::USAGE_CONTENT,
                 isVideo: false,
                 altText: null,
                 caption: null,

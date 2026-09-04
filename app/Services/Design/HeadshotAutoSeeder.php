@@ -42,7 +42,7 @@ class HeadshotAutoSeeder
 
         $occupied = SiteMedia::query()
             ->where('site_id', $site->id)
-            ->where('pool', SiteMedia::POOL_DESIGN)
+            ->where('usage', SiteMedia::USAGE_DESIGN)
             ->where('purpose', SiteMedia::PURPOSE_HEADSHOT)
             ->where('is_active', true)
             // Same occupancy convention as LogoAutoGrabber: a FAILED row never

@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Log;
 
 // V2: Re-evaluates section visibility when media rows are saved, deleted, or restored.
 // Handles gallery images and documents — each maps to a distinct section block type;
-// mapping is defined in poolToBlockType().
+// mapping is defined in usageToBlockType().
 class SiteMediaObserver
 {
     use LogsWithRequestContext;
@@ -33,7 +33,7 @@ class SiteMediaObserver
      * first time. `path` covers storage-path corrections after reprocessing.
      */
     private const CACHE_AFFECTING_COLUMNS = [
-        'is_active', 'processing_state', 'pool', 'media_type', 'path', 'sort_order',
+        'is_active', 'processing_state', 'usage', 'media_type', 'path', 'sort_order',
     ];
 
     public function created(SiteMedia $media): void
@@ -76,10 +76,10 @@ class SiteMediaObserver
             return;
         }
 
-        $isLogo = $media->pool === SiteMedia::POOL_DESIGN
+        $isLogo = $media->usage === SiteMedia::USAGE_DESIGN
             && in_array($media->purpose, [SiteMedia::PURPOSE_LOGO_FULL, SiteMedia::PURPOSE_LOGO_SQUARE], true);
-        $isGallery = in_array($media->pool, SiteMedia::GALLERY_POOLS, true) && $media->is_active;
-        if (! $isLogo && ! $isGallery) {
+        $isListable = in_array($media->usage, SiteMedia::LISTABLE_USAGES, true) && $media->is_active;
+        if (! $isLogo && ! $isListable) {
             return;
         }
 
@@ -116,13 +116,13 @@ class SiteMediaObserver
         $this->invalidator->touchSite(fn () => $media->site, $action, [
             'site_media_id' => $media->id,
             'site_id' => $media->site_id,
-            'pool' => $media->pool,
+            'usage' => $media->usage,
         ]);
     }
 
     private function reevaluateIfRelevant(SiteMedia $media): void
     {
-        $blockType = $this->poolToBlockType($media->pool);
+        $blockType = $this->usageToBlockType($media->usage);
         if ($blockType === null) {
             return;
         }
@@ -144,7 +144,7 @@ class SiteMediaObserver
                 'site_media_id' => $media->id,
                 'site_id' => $media->site_id,
                 'user_id' => $site?->user_id,
-                'pool' => $media->pool,
+                'usage' => $media->usage,
                 'block_type' => $blockType,
                 'message' => $e->getMessage(),
             ]));
@@ -152,14 +152,14 @@ class SiteMediaObserver
     }
 
     /**
-     * Map a site_media pool to the section block_type it feeds. Returns null
-     * for pools that don't drive a section (brand gallery, design, product).
+     * Map a site_media usage to the section block_type it feeds. Returns null
+     * for usages that don't drive a section (design).
      */
-    private function poolToBlockType(?string $pool): ?string
+    private function usageToBlockType(?string $usage): ?string
     {
-        return match ($pool) {
+        return match ($usage) {
             // POOL_GALLERY's arm left with the pool (Wave 6, 2026-09-02).
-            SiteMedia::POOL_DOCUMENTS => 'documents',
+            SiteMedia::USAGE_DOCUMENTS => 'documents',
             default => null,
         };
     }

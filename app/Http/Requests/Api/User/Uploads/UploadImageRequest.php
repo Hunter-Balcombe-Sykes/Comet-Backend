@@ -3,14 +3,16 @@
 namespace App\Http\Requests\Api\User\Uploads;
 
 use App\Http\Requests\BaseFormRequest;
+use App\Http\Requests\Concerns\AcceptsLegacyPoolField;
 use App\Http\Requests\Concerns\SniffsFileMimeType;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Validation\Rule;
 
-// V2: Validates image or video upload to a pool — enforces one-of constraint, file type/size limits, and video feature flag check.
+// V2: Validates image or video upload under a usage — enforces one-of constraint, file type/size limits, and video feature flag check.
+// Accepts the legacy `pool` spelling of `usage` (see AcceptsLegacyPoolField).
 class UploadImageRequest extends BaseFormRequest
 {
-    use SniffsFileMimeType;
+    use AcceptsLegacyPoolField, SniffsFileMimeType;
 
     public function rules(): array
     {
@@ -18,10 +20,10 @@ class UploadImageRequest extends BaseFormRequest
         $videoMaxKb = (int) config('partna.video_max_upload_size', 512000);
 
         return [
-            'pool' => [
+            'usage' => [
                 'required',
                 'string',
-                Rule::in(config('partna.upload_pools')),
+                Rule::in(config('partna.upload_usages')),
             ],
             // Either `image` or `video` must be provided (not both). The after-validator
             // enforces the one-of constraint; individual rules run only when the field exists.
@@ -77,9 +79,7 @@ class UploadImageRequest extends BaseFormRequest
 
     protected function prepareForValidation(): void
     {
-        if (is_string($this->pool ?? null)) {
-            $this->merge(['pool' => strtolower(trim($this->pool))]);
-        }
+        $this->foldLegacyPoolField();
     }
 
     public function messages(): array
@@ -88,7 +88,8 @@ class UploadImageRequest extends BaseFormRequest
         $videoMaxMb = round(((int) config('partna.video_max_upload_size', 512000)) / 1024, 0);
 
         return [
-            'pool.in' => 'Pool must be one of: '.implode(', ', config('partna.upload_pools')).'.',
+            'usage.in' => ucfirst($this->usageFieldLabel()).' must be one of: '.implode(', ', config('partna.upload_usages')).'.',
+            'usage.required' => 'A '.$this->usageFieldLabel().' is required.',
             'image.max' => "Image must be smaller than {$imageMaxMb} MB.",
             'image.mimes' => 'Image must be JPEG, PNG, or WebP.',
             'image.image' => 'The file must be a valid image.',

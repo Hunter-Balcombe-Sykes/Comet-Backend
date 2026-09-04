@@ -306,7 +306,7 @@ class DesignKitAutopilot
         foreach ([SiteMedia::PURPOSE_LOGO_FULL, SiteMedia::PURPOSE_LOGO_SQUARE] as $purpose) {
             $palette = SiteMedia::query()
                 ->where('site_id', $siteId)
-                ->where('pool', SiteMedia::POOL_DESIGN)
+                ->where('usage', SiteMedia::USAGE_DESIGN)
                 ->where('purpose', $purpose)
                 ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
                 ->whereNotNull('palette')
@@ -326,7 +326,7 @@ class DesignKitAutopilot
         // live in content.media_assets and never touch site_media.
         $galleryPalette = SiteMedia::query()
             ->where('site_id', $siteId)
-            ->where('pool', SiteMedia::POOL_CONTENT)
+            ->where('usage', SiteMedia::USAGE_CONTENT)
             ->where('processing_state', SiteMedia::PROCESSING_STATE_READY)
             ->whereNotNull('palette')
             ->orderBy('created_at')

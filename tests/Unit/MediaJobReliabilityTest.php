@@ -294,7 +294,7 @@ function seedSiteImageRow(string $mediaType): string
     DB::connection('pgsql')->table('site.site_media')->insert([
         'id' => $id,
         'site_id' => (string) Str::uuid(),
-        'pool' => 'content',
+        'usage' => 'content',
         'path' => '',
         'sort_order' => 0,
         'is_active' => true,

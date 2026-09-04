@@ -40,7 +40,7 @@ class FleetVerifyCommand extends Command
             $contact = '-';
             if ($site) {
                 $shot = SiteMedia::query()->where('site_id', $site->id)
-                    ->where('pool', SiteMedia::POOL_DESIGN)
+                    ->where('usage', SiteMedia::USAGE_DESIGN)
                     ->where('purpose', SiteMedia::PURPOSE_HEADSHOT)
                     ->first();
                 $headshot = $shot->processing_state ?? '-';

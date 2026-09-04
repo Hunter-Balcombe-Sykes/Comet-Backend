@@ -50,7 +50,7 @@ it('skips fetching entirely when the media pool already has an active photo', fu
     $user = wgsjUser('wgsjexisting');
     $site = Site::factory()->for($user, 'user')->create();
     (new SiteMedia([
-        'pool' => SiteMedia::POOL_CONTENT,
+        'usage' => SiteMedia::USAGE_CONTENT,
         'bucket' => 'test-bucket',
         'path' => 'images/existing.jpg',
         'processing_state' => SiteMedia::PROCESSING_STATE_READY,

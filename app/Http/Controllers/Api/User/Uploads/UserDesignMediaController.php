@@ -43,7 +43,7 @@ class UserDesignMediaController extends ApiController
 
         $rows = SiteMedia::query()
             ->where('site_id', $site->id)
-            ->where('pool', SiteMedia::POOL_DESIGN)
+            ->where('usage', SiteMedia::USAGE_DESIGN)
             ->whereIn('purpose', SiteMedia::designSingletonPurposes())
             ->where('is_active', true)
             ->with('mediaVariants')
@@ -115,7 +115,7 @@ class UserDesignMediaController extends ApiController
         // (never lazy — see resolveOwnerId), so set it explicitly.
         $rows = SiteMedia::query()
             ->where('site_id', $site->id)
-            ->where('pool', SiteMedia::POOL_DESIGN)
+            ->where('usage', SiteMedia::USAGE_DESIGN)
             ->where('purpose', $purpose)
             ->whereNull('deleted_at')
             ->get();
