@@ -14,7 +14,7 @@ it('no longer calls the retired warmSiteCache', function () {
     expect(method_exists(CacheKeyGenerator::class, 'publicSitePayload'))->toBeFalse();
 });
 
-it('still warms the §28.8 individual-profile key, and only that', function () {
+it('survives a failed §28.8 warm without tripping retries', function () {
     Exceptions::fake();
 
     $cacheLock = Mockery::mock(CacheLockService::class);
@@ -31,6 +31,12 @@ it('still warms the §28.8 individual-profile key, and only that', function () {
     $job = new WarmPublicSiteCacheJob('My-Site');
     $job->handle($cacheLock, $builder);
 
+    // FIXTURE-DEPENDENT COUNT. This is 1 only because this file has no
+    // setupUsersTable(): the lookup throws and is reported. Attach core.users here
+    // and $pro resolves to null instead, handle() returns early at
+    // WarmPublicSiteCacheJob.php:67 with zero reports, and this line goes red while
+    // the job is still correct. Fix it by re-deciding what the test proves, not by
+    // changing the count.
     Exceptions::assertReportedCount(1);
 });
 

@@ -73,7 +73,10 @@ beforeEach(function () {
     // Sites are created per-test, i.e. AFTER the flush above, and
     // QUEUE_CONNECTION=sync would run SiteObserver's WarmPublicSiteCacheJob
     // inline — caching the profile payload under the site's current
-    // updated_at. Tests that then seed rows via raw DB::table() inserts
+    // updated_at. (The observer gates that dispatch on $site->is_published,
+    // SiteObserver.php:58, so this only bites for the published fixtures here —
+    // which is most of them, and an unpublished one becoming published later
+    // would reopen it silently.) Tests that then seed rows via raw DB::table() inserts
     // (bypassing every observer) never roll updated_at, so the timestamp-keyed
     // profile key would not rotate and the GET would read the pre-seed warm.
     // (Latent until 2026-09-04: the job used to throw on its legacy

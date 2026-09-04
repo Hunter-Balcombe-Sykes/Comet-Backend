@@ -17,6 +17,14 @@ use Illuminate\Support\Facades\Cache;
 // CacheKeyGenerator::publicProfile($handleLc, $updatedAtTs) — a timestamp-keyed
 // key, which is why invalidateSitePayload() below busts handle.resolve rather
 // than any payload key of its own.
+//
+// Entry points, in the order SiteObserver reaches them:
+//   invalidateSite()        — everything; the observer's default on any site save.
+//   invalidateSitePayload() — blocks, email branding, the auth-path model cache,
+//                             handle.resolve + its floor. No media.
+//   invalidateSiteImages()  — the /api/images variants only.
+//   raiseResolveFloor()     — public, because ConvergeSiteSubdomainsCommand
+//                             writes subdomains by raw UPDATE and needs it alone.
 class SiteCacheService
 {
     public function __construct(private readonly CacheLockService $cacheLock) {}
@@ -33,9 +41,10 @@ class SiteCacheService
     }
 
     /**
-     * Invalidate payload-related cache keys for a site (excludes image-gallery variants).
-     * Use when a mutation affects site content but not media rows — service edits,
-     * category renames, profile updates, block reorders.
+     * Invalidate a site's non-media cache keys — blocks, email branding, the
+     * auth-path model cache, and handle.resolve plus its floor. Excludes the
+     * image-gallery variants; use when a mutation affects site content but not
+     * media rows — service edits, category renames, profile updates, block reorders.
      */
     public function invalidateSitePayload(Site $site): void
     {
@@ -46,8 +55,8 @@ class SiteCacheService
             // invalidation must clear both copies of every key.
             ...self::bustWithStale(CacheKeyGenerator::siteBlocks($site->id, 'links')),
             ...self::bustWithStale(CacheKeyGenerator::siteBlocks($site->id, 'sections')),
-            // White-label email branding bundle (logo, palette, reply-to). Same SWR
-            // contract as the payload keys — bust both primary and :stale.
+            // White-label email branding bundle (logo, palette, reply-to). Same
+            // CACHE-2 both-copies rule as the block keys above.
             ...self::bustWithStale(CacheKeyGenerator::emailBrand($site->id)),
         ];
 
@@ -63,6 +72,15 @@ class SiteCacheService
         // Bust handle.resolve so the timestamp-keyed public.profile:* key rotates
         // on the next request — without this, the 30s resolve cache continues
         // serving the old updated_at_ts and the new key is never constructed.
+        //
+        // ONE handle here, not two, and that asymmetry with
+        // ConvergeSiteSubdomainsCommand::cacheKeysFor() (which busts the OLD and
+        // the NEW handle) is correct, not a missing case. This method reads
+        // $site->subdomain — the value already written — so it has no access to
+        // the previous one; the rename command does, because it holds both sides
+        // of the raw UPDATE it is about to run. Do not "fix" either to match the
+        // other: adding an old-handle bust here has nothing to bust, and dropping
+        // one there would strand the pre-rename resolve entry for its full TTL.
         $handle = strtolower((string) ($site->subdomain ?? ''));
         if ($handle !== '') {
             $resolveKey = CacheKeyGenerator::handleResolve($handle);
