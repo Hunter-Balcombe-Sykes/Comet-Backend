@@ -15,7 +15,7 @@ beforeEach(function () {
 // Creates a User + Menu with one 'unavailable' platform link — the minimum
 // fixture the retry command selects on. The real MenuPlatformLink column is
 // `store_url`, not `url`.
-function retryMenuFor(string $handle): Menu
+function retryMenuFor(string $handle, string $status = 'unavailable'): Menu
 {
     $user = User::create([
         'handle' => $handle, 'handle_lc' => $handle, 'display_name' => $handle,
@@ -24,7 +24,7 @@ function retryMenuFor(string $handle): Menu
         'primary_email' => $handle.'@example.com',
     ]);
     $menu = Menu::create(['user_id' => $user->id, 'last_fetched_at' => now()->subHour()]);
-    $menu->platformLinks()->create(['platform' => 'ubereats', 'status' => 'unavailable', 'store_url' => 'https://ubereats.com/x']);
+    $menu->platformLinks()->create(['platform' => 'ubereats', 'status' => $status, 'store_url' => 'https://ubereats.com/x']);
 
     return $menu;
 }
@@ -104,4 +104,40 @@ it('stops retrying an old connection that never once succeeded', function () {
     $this->artisan('menu:retry-unavailable')->assertSuccessful();
 
     Queue::assertNothingPushed();
+});
+
+// The 2026-09-03 status split. This cron is the reason the split had to reach
+// the selection query: the three values are not interchangeable, and reading
+// them as "anything that isn't ok" would re-bill a paid actor run forever to be
+// told the same thing.
+it('retries a blocked scrape — the transient bot-block this cron exists for', function () {
+    retryMenuFor('retry-blocked', 'blocked');
+
+    $this->artisan('menu:retry-unavailable')->assertExitCode(0);
+
+    Queue::assertPushed(MenuFetchJob::class, 1);
+});
+
+it('retries an empty_menu scrape — the store is there and mapped to nothing', function () {
+    retryMenuFor('retry-empty', 'empty_menu');
+
+    $this->artisan('menu:retry-unavailable')->assertExitCode(0);
+
+    Queue::assertPushed(MenuFetchJob::class, 1);
+});
+
+it('never retries not_found — the actor already answered, and answering again costs money', function () {
+    retryMenuFor('retry-notfound', 'not_found');
+
+    $this->artisan('menu:retry-unavailable')->assertExitCode(0);
+
+    Queue::assertNotPushed(MenuFetchJob::class);
+});
+
+it('still retries the legacy blanket status, which the http driver lane still writes', function () {
+    retryMenuFor('retry-legacy', 'unavailable');
+
+    $this->artisan('menu:retry-unavailable')->assertExitCode(0);
+
+    Queue::assertPushed(MenuFetchJob::class, 1);
 });

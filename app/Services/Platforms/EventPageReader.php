@@ -4,14 +4,21 @@ namespace App\Services\Platforms;
 
 use App\Services\Http\SafeUrlFetcher;
 
-// Generic event-page reader: any page carrying a schema.org Event JSON-LD
-// node (Luma, Partiful, Ticketmaster, Ticketek, Oztix, TryBooking, Resident
-// Advisor, Meetup, a venue's own site…) yields the same stored event shape
-// the two bespoke scrapers produce — the events-pool equivalent of the shop
-// lane's ProductPageAdder reading any product page. Eventbrite/Humanitix
-// URLs delegate to their own scrapers so their canonicalisation quirks
-// (regional-host rewrite, slug chrome filters, event-node selection) stay
-// authoritative in exactly one place each.
+// Generic event-page reader (corrected 2026-09-04 overnight run, §1F — the
+// text below used to claim a standalone "any venue's own site" capability
+// that T3 removed). read() itself is still host-agnostic — it JSON-LD-
+// parses whatever page it's given and does not branch on the host — but
+// every call site now reaches it only for a URL a KNOWN events platform
+// already claims: PoolItemCreateController's events-pool item-creation path
+// calls it only after PastedLinkClassifier::claims() recognises the URL for
+// 'events' (T3, owner, 2026-08-20), and EventsSeeder calls it only for its
+// GENERIC_EVENT_PLATFORMS roster (Luma, Partiful, Ticketmaster, Ticketek,
+// Oztix, TryBooking, Resident Advisor, Meetup). An arbitrary unrecognised
+// host — a venue's own site with no platform behind it — now falls to the
+// plain card path upstream and never reaches this class at all. Eventbrite/
+// Humanitix URLs still delegate to their own scrapers so their
+// canonicalisation quirks (regional-host rewrite, slug chrome filters,
+// event-node selection) stay authoritative in exactly one place each.
 class EventPageReader extends PlatformScraper
 {
     public function __construct(
@@ -74,6 +81,17 @@ class EventPageReader extends PlatformScraper
         }
         if (preg_match('~^https?://(?:events\.)?humanitix\.com/host/[a-z0-9-]+~i', PlatformInput::urlish($url))) {
             return 'Humanitix';
+        }
+        // /eventlist/<organiser> is TryBooking's whole-organiser listing page —
+        // the same shape class as Eventbrite's /o/ and Humanitix's /host/ above.
+        // Found missing by the 2026-09-04 overnight item-path sweep (F6):
+        // WebsiteLinkHarvester's TryBooking arm is host-only unconditional, so
+        // without this check an organiser's listing page fell all the way
+        // through to the generic claimed-host card fallback and was written as
+        // a bare, dateless 'event' — not refused with the connect hint its
+        // siblings give.
+        if (preg_match('~^https?://(?:www\.)?trybooking\.com/eventlist/[a-z0-9-]+~i', PlatformInput::urlish($url))) {
+            return 'TryBooking';
         }
 
         return null;

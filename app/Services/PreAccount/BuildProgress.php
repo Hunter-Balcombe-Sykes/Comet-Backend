@@ -2,6 +2,7 @@
 
 namespace App\Services\PreAccount;
 
+use App\Catalog\LegacyPlatformMap;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\PreAccountBuildEvent;
@@ -118,15 +119,25 @@ final class BuildProgress
             return [];
         }
 
+        // Both emitters hand us classify() values, which are dotted SURFACE
+        // KEYS for every catalog-only brand (calendly.book, deezer.artist, …).
+        // `platform` is a GENERATED column carrying only the brand prefix, so
+        // asking it with a dotted key found nothing and those brands rendered
+        // with a null handle and url. Match on either column and index the
+        // payload under both, so the $slug lookup below hits whichever form
+        // the emitter used.
+        $surfaces = array_map(static fn (string $s): string => LegacyPlatformMap::surfaceFor($s) ?? $s, $slugs);
+
         $byPlatform = [];
         try {
             $rows = IntegrationConnection::query()
                 ->where('user_id', $userId)
-                ->whereIn('platform', $slugs)
+                ->where(fn ($q) => $q->whereIn('platform', $slugs)->orWhereIn('surface_key', $surfaces))
                 ->orderBy('created_at')
-                ->get(['platform', 'payload']);
+                ->get(['platform', 'surface_key', 'payload']);
             foreach ($rows as $row) {
                 $byPlatform[(string) $row->platform] ??= $row->payload ?? [];
+                $byPlatform[(string) $row->surface_key] ??= $row->payload ?? [];
             }
         } catch (\Throwable $e) {
             report($e);

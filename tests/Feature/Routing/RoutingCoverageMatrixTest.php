@@ -215,12 +215,21 @@ it('a reconciler-applied connection captures a real ID and gets the enrichment f
     // Platforms page showed the URL as the account. Two halves: the detector
     // captures the artist id now, and applyIntent dispatches the same
     // ConnectFetchJob the interactive connect flows use.
+    //
+    // Exercised via a direct paste, not the legacy scan lane (LinkRouter),
+    // since 2026-09-03: seedCatalogLink() hardcodes origin 'bio_harvest',
+    // and nothing a harvester finds auto-connects any more (F6 above pins
+    // that lane now only ever proposes). A paste is still a direct request
+    // (RoutingContext::isConfirmedByUser()), so it is the surviving way to
+    // reach SourceReconciler::applyIntent() and pin its enrichment contract
+    // — the detector/applyIntent code under test is origin-agnostic.
     Queue::fake();
     $pro = createTenant('f9-apple');
     Http::fake(['*' => Http::response('', 404)]);
 
-    app(LinkRouter::class)
-        ->route($pro, 'https://music.apple.com/au/artist/the-046/1492426191', new RouteContext);
+    actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://music.apple.com/au/artist/the-046/1492426191'])
+        ->assertStatus(202)
+        ->assertJsonPath('verdict', 'place');
 
     $conn = IntegrationConnection::query()
         ->where('user_id', $pro->id)->where('surface_key', 'apple_music.artist')->first();

@@ -44,7 +44,8 @@ class Deezer
                         ->path('#^(?:/[a-z]{2})?/artist/(?<id>\d{1,15})/?$#')
                         ->captures('id')
                         ->from(IdentifierSource::Path)
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://www.deezer.com/artist/145 — verified live 2026-09-03'),
                 )
                 ->build(),
         ];

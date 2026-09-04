@@ -46,7 +46,8 @@ class Vimeo
                         ->path('#^/channels/(?<name>[A-Za-z0-9_-]+)/?$#')
                         ->captures('name')
                         ->from(IdentifierSource::Path)
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://vimeo.com/channels/premieres — verified live 2026-09-03'),
                     Detector::url('vimeo.com')
                         ->path('#^/(?!(?:'.self::RESERVED.')(?:/|$))(?<user>[A-Za-z0-9_-]+)/?$#')
                         ->captures('user')

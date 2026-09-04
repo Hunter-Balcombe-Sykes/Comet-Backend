@@ -75,8 +75,6 @@ final readonly class ProbeOutcome
             surfaceKey: $this->surfaceKey,
             detectorId: null,
             captures: [],
-            confidence: $this->isMatch() ? ProbeGate::PROBE_CONFIDENCE : 0,
-            margin: $this->isMatch() ? 100 : 0,
             identifier: $this->identifier,
             reason: $this->isMatch() ? null : ($this->reason ?? 'probe_miss'),
         );

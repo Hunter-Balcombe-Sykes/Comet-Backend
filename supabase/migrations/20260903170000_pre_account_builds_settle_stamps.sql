@@ -7,6 +7,13 @@
 --
 -- The sweep's covering index lives in the +1 file, alone, per CONVENTIONS.md §1.
 --
+-- History (2026-09-04): this migration was applied to the dev ref ad hoc via the
+-- Supabase MCP, which writes a ledger row and no file. That left version
+-- 20260903170000 in schema_migrations with nothing in git, and `supabase db push`
+-- then refused EVERY later migration on EVERY lane (LegacyDbPushMissingLocalError)
+-- until another session reconstructed a stand-in from the live schema (5a32f9a51).
+-- This is that lane's original, restored per that commit's own instruction.
+--
 -- ROLLBACK: ALTER TABLE core.pre_account_builds DROP COLUMN IF EXISTS settled_at;
 --           ALTER TABLE core.pre_account_builds DROP COLUMN IF EXISTS setup_stalled_at;
 --           ALTER TABLE core.pre_account_builds DROP COLUMN IF EXISTS welcomed_at;

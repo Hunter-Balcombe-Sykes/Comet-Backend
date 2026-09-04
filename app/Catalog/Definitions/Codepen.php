@@ -42,7 +42,8 @@ class Codepen
                         ->captures('handle')
                         ->from(IdentifierSource::Path)
                         ->reject('#^/(?:pen|pens|features|pricing|login|signup|challenges|topics|collections|spark|trending|picked|search|settings|accounts|pro|teams|support|about|legal|pattern)(?:/|$)#i')
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://codepen.io/chriscoyier — verified live 2026-09-03'),
                     Detector::url('codepen.io')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),

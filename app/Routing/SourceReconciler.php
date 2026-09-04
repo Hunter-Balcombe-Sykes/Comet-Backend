@@ -79,21 +79,26 @@ class SourceReconciler
         // commerce lane's OWN writes (origin commerce_probe) must pass
         // through, or this arm intercepts the very writer it delegates to
         // (SuggestionsInboxTest's accept flow caught exactly that).
-        // On a sign-up build decide() never emits Place (A.2), so the arm
-        // also catches the Choose band there — otherwise a harvested store
-        // root would write a bare proposed intent with none of the commerce
-        // lane's enrichment (shop name, deep-page rules) behind it.
+        // Since 2026-09-03 decide() never emits Place for an unconfirmed
+        // request, so the arm catches the CHOOSE band on every indirect origin
+        // — not just sign-up builds, as it did while a post-claim harvest could
+        // still reach Place. Without that widening a harvested store root would
+        // write a bare proposed intent with none of the commerce lane's
+        // enrichment (shop name, logo, deep-page rules) behind it, and the
+        // inbox would render a nameless "Shopify?" the accept path could not
+        // fill in. Place stays in the set for a confirmed non-paste origin.
         if ($routingClass === 'shop'
-            && ($placement->verdict === Verdict::Place
-                || ($context->isSignupBuild() && $placement->verdict === Verdict::Choose))
+            && in_array($placement->verdict, [Verdict::Place, Verdict::Choose], true)
             && ! $context->isDirectRequest() && $context->origin !== 'commerce_probe') {
             CommerceProbeJob::dispatch(
                 (string) $user->id,
                 $iri->canonical ?? SecretParams::redactUrl($iri->raw) ?? '',
-                // A sign-up build's store root must SUGGEST, never bare-connect
-                // (A.2): the full commerce lane would otherwise stand up a
-                // storefront nobody asked for before the account is claimed.
-                suggestOnly: $context->isSignupBuild(),
+                // Always suggest-only now. A store is a storefront row, a
+                // catalogue, a fill and an auto-select — the biggest thing this
+                // pipeline can install — and nobody asked for it: this arm is
+                // only ever reached from a harvest. The user answers in the
+                // inbox and the accept lane builds it for real.
+                suggestOnly: true,
             );
 
             return $result;
@@ -163,11 +168,21 @@ class SourceReconciler
         $settle = function () use (
             $user, $placement, $context, $iri, $routingClass, $surface, $identifier, $aliasConnectionId, &$verdict, &$blockReason, &$conflictId
         ): array {
-            if ($verdict === Verdict::Place && $this->isExclusiveAuto($routingClass) && ! $context->isDirectRequest()) {
+            // Choose is in the set since 2026-09-03. CONFLICT DETECTION is not
+            // the same question as auto-connecting: a harvested booking link
+            // that collides with the incumbent must still be filed as a Swap
+            // ("Keep / Replace") rather than as a plain suggestion, because
+            // SuggestionApplier has no XOR check of its own — it trusts
+            // conflicting_connection_id, which only this arm writes. Without
+            // the widening, accepting the suggestion would insert a second
+            // is_primary row and raise 23505 on
+            // idx_platform_connections_primary_per_class at accept time.
+            if (in_array($verdict, [Verdict::Place, Verdict::Choose], true)
+                && $this->isExclusiveAuto($routingClass) && ! $context->isDirectRequest()) {
                 $incumbent = $this->incumbentFor($user, $routingClass, $placement->surfaceKey, $identifier, $aliasConnectionId);
                 if ($incumbent !== null) {
                     $verdict = Verdict::Hold;
-                    $blockReason = 'conflict';
+                    $blockReason = $this->isSettledWorkplaceSlot($user, $context, $incumbent) ? 'sibling_branch' : 'conflict';
                     $conflictId = $incumbent;
                 }
             }
@@ -249,7 +264,13 @@ class SourceReconciler
         // setup dialog has real items behind the tick. AFTER the transaction
         // and outside $settle's lock for the same reasons as the fresha gate
         // above — the dispatcher re-reads the intent row it needs.
-        if ($verdict === Verdict::Choose && $intentId !== null && $context->isSignupBuild()) {
+        // isSelfServeSignup(), NOT isSignupBuild(): pre-scrape SPENDS (15 of 32
+        // connectors are CostClass::Actor), and isSignupBuild() is true for any
+        // unclaimed non-paste user — so outreach builds, which may sit
+        // unclaimed for weeks with nobody to ask, were buying the same paid
+        // scrapes as someone seconds from the setup dialog. Every other use of
+        // isSignupBuild() is a SAFETY gate and must keep its wider meaning.
+        if ($verdict === Verdict::Choose && $intentId !== null && $context->isSelfServeSignup()) {
             $this->preScrape->maybeApply($user, $placement, $surface, $intentId);
         }
 
@@ -288,7 +309,17 @@ class SourceReconciler
         // cap is guarding against — and with socials at max_accounts=1 (FI-1,
         // 2026-08-20) a mere exclude-the-alias-from-the-count would still let
         // OTHER over-cap legacy rows block the fold (#R4 test 4's shape).
-        if ($verdict === Verdict::Place && $aliasConnectionId === null && $this->capReached($user, $placement->surfaceKey, (int) $surface['max_accounts'], $identifier, $aliasConnectionId)) {
+        //
+        // An INDIRECT Choose is capped here too since 2026-09-03, for the same
+        // reason the XOR arm above widened: a harvest no longer reaches Place,
+        // and SuggestionApplier's Swap path is driven entirely by the
+        // block_reason/conflicting_connection_id this block writes. A plain
+        // proposed intent over the cap would accept into an (N+1)th connection
+        // the surface says cannot exist. A direct paste is left exactly as it
+        // was — it has its own 422 slot_taken contract with the dashboard.
+        if (($verdict === Verdict::Place || ($verdict === Verdict::Choose && ! $context->isDirectRequest()))
+            && $aliasConnectionId === null
+            && $this->capReached($user, $placement->surfaceKey, (int) $surface['max_accounts'], $identifier, $aliasConnectionId)) {
             $verdict = Verdict::Hold;
             $blockReason = 'cap_reached';
             // On a SINGLE-account surface the cap names exactly one incumbent,
@@ -402,6 +433,64 @@ class SourceReconciler
             ->value('id');
     }
 
+    /**
+     * Is this link merely ANOTHER BRANCH of a workplace whose slot is already
+     * settled — a question that has been ANSWERED rather than one still to ask?
+     *
+     * A chain's locations page carries one booking link per branch, and Fresha
+     * models every branch as its own business (separate venue id, separate
+     * owner id, empty `additionalLocations`), so ConnectionIdentity correctly
+     * refuses to merge them and the XOR above holds every one after the first.
+     * Six branches then became five "use this one instead?" cards — measured
+     * on dev 2026-09-03, teegandyson and liamsaunders, five rows each. The
+     * slot was never actually in dispute.
+     *
+     * Two things settle it, and BOTH are already recorded, so neither costs a
+     * fetch:
+     *
+     *  · the incumbent is the account holder's OWN (`owner_scope` 'self') —
+     *    harvested from their bio or typed by them. A link off their
+     *    employer's site does not get to propose replacing that. This is the
+     *    booking-lane counterpart of the 2026-09-03 identity gate, which drew
+     *    the line at "an account says who you are, a booking link says how to
+     *    reach you" and so left the action classes wide.
+     *  · the incumbent's roster NAMED them (`selection.mode` 'employee').
+     *    FreshaAutoSelector reaches that only via StaffNameMatcher AND a
+     *    successful per-employee services fetch, so it is a positive
+     *    identification of THIS person at THAT branch — strictly stronger
+     *    evidence than a bare name match.
+     *
+     * A 'storewide' incumbent deliberately still conflicts: the roster did not
+     * name them, so which branch is theirs is genuinely unknown and the
+     * question is real.
+     *
+     * Scoped through ownerScopeFor() — the same derivation that stamps the
+     * column — so this refuses a HARVEST, never a platform: a business
+     * account's own website is its own brand and never lands here, and a
+     * partna PASTING a branch link is stating a fact about themselves, which
+     * still asks.
+     *
+     * One query, only on the already-rare conflict branch, and never on the
+     * happy path.
+     */
+    private function isSettledWorkplaceSlot(User $user, RoutingContext $context, string $incumbentId): bool
+    {
+        if (RoutingCapabilityGate::ownerScopeFor($user, $context->origin) !== 'workplace') {
+            return false;
+        }
+
+        $incumbent = IntegrationConnection::query()
+            ->whereKey($incumbentId)
+            ->first(['owner_scope', 'payload']);
+
+        if ($incumbent === null) {
+            return false;
+        }
+
+        return $incumbent->owner_scope === 'self'
+            || data_get($incumbent->payload, 'selection.mode') === 'employee';
+    }
+
     /** $aliasConnectionId: see incumbentFor() — an alias is not a second account. */
     private function capReached(User $user, string $surfaceKey, int $maxAccounts, string $identifier, ?string $aliasConnectionId = null): bool
     {
@@ -499,11 +588,10 @@ class SourceReconciler
         ];
 
         // Same coalesce-don't-clobber rule as identifier_label below: a later
-        // pass through a lane that carried no decision-band (a cap-reached
-        // Hold, a Note) must not blank the confidence an earlier Place/Choose
-        // recorded — the setup dialog preselects off `band`.
+        // pass through a lane that carried no band (a cap-reached Hold, a Note)
+        // must not blank the band an earlier Place/Choose recorded — the setup
+        // dialog preselects off it.
         if ($placement->band !== null) {
-            $fields['confidence'] = $placement->confidence;
             $fields['band'] = $placement->band;
         }
 
@@ -543,7 +631,6 @@ class SourceReconciler
             'state' => $verdict->intentState(),
             'block_reason' => $blockReason,
             'conflicting_connection_id' => $conflictId,
-            'confidence' => $placement->confidence,
             'band' => $placement->band,
             'origin' => $context->origin,
             'import_run_id' => $context->importRunId,
@@ -588,7 +675,13 @@ class SourceReconciler
             ->where('user_id', $user->id)
             ->where('surface_key', $surfaceKey)
             ->where('identifier', $identifier)
-            ->whereIn('state', ['proposed', 'applied', 'blocked']);
+            // 'verifying' is LIVE and MUST be here (2026-09-03). It is one of
+            // the four states idx_source_intents_live covers, so a second
+            // harvest of the same link while its L2 check is still in flight
+            // would find no row to advance, fall through to the INSERT, and
+            // raise 23505 on that unique index — inside the LIFE-16
+            // transaction, taking the whole reconcile down.
+            ->whereIn('state', ['proposed', 'verifying', 'applied', 'blocked']);
 
         if ($live()->update($fields) === 0) {
             return null;
@@ -670,6 +763,11 @@ class SourceReconciler
             'last_refresh_status' => ConnectionPayload::contentIsOwed($surfaceKey, $routingClass) ? 'pending' : 'ok',
         ]);
         $connection->created_by_catalog_digest = CompiledCatalog::digest();
+        // Whose this is, decided from the origin while we still have it. A week
+        // later the context is gone and the answer costs a re-scrape or a guess.
+        // Non-fillable, like the digest above: system-written provenance, never
+        // mass-assigned from a request.
+        $connection->owner_scope = RoutingCapabilityGate::ownerScopeFor($user, $context->origin);
 
         // #W1-LIFE-3 / #W2-LIFE-2. The read above and this INSERT are a
         // classic pre-read/write gap: a concurrent reconcile for the same

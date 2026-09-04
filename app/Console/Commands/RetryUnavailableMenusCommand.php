@@ -33,7 +33,24 @@ class RetryUnavailableMenusCommand extends Command
         $since = now()->subHours($hours);
 
         $menus = Menu::query()
-            ->whereHas('platformLinks', fn ($q) => $q->where('status', 'unavailable'))
+            // The RETRYABLE statuses, enumerated — not a "everything that isn't
+            // ok" negation. Since 2026-09-03 a failed scrape records WHY
+            // (MenuFetchJob::writePlatformSyncStatus), and the difference is the
+            // whole point of this cron:
+            //
+            //   blocked      the actor was refused. Transient — exactly what
+            //                this command exists to self-heal.
+            //   empty_menu   the store is there and mapped to nothing. Often a
+            //                shape change or a mid-update store; worth retrying.
+            //   unavailable  the legacy blanket value. Still written by the
+            //                transport=http driver lane and by any path that
+            //                records no reason, so it stays in the set.
+            //
+            //   not_found    DELIBERATELY ABSENT. The actor ran cleanly and the
+            //                store is not there. Retrying is re-billing a paid
+            //                run to be told the same thing forever, which is the
+            //                guzman-y-gomez failure mode in a new costume.
+            ->whereHas('platformLinks', fn ($q) => $q->whereIn('status', ['unavailable', 'blocked', 'empty_menu']))
             // Bound the retry window so a permanently-dead store isn't re-billed
             // forever. This used to read last_fetched_at, which was the one
             // column that CANNOT expire: MenuFetchJob advances it on every

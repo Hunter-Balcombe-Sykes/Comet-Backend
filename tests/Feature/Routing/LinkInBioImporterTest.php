@@ -727,16 +727,21 @@ it('reads Linktree music-embed links from __NEXT_DATA__ — the full sammy.pdf r
     $result = app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/samakhurst', 'bio_harvest');
 
     // The expected best-case outcome from the run plan, verbatim: four
-    // connections (Spotify artist, Apple Music artist, SoundCloud artist via
-    // short-link expansion, Instagram), two Listen items, nothing carded.
+    // SUGGESTIONS (Spotify artist, Apple Music artist, SoundCloud artist via
+    // short-link expansion, Instagram — nothing a harvester finds
+    // auto-connects since 2026-09-03), two Listen items, nothing carded.
     expect($result['items'])->toBe(2)
-        ->and($result['connected'])->toBe(4)
+        ->and($result['connected'])->toBe(0)
+        ->and($result['suggested'])->toBe(4)
         ->and($result['noted'])->toBe(0)
         ->and($result['dropped'])->toBe(0);
 
-    $connections = IntegrationConnection::where('user_id', $pro->id)->get()
-        ->map(fn ($c) => $c->surface_key.':'.$c->resource_id)->sort()->values()->all();
-    expect($connections)->toBe([
+    expect(IntegrationConnection::where('user_id', $pro->id)->count())->toBe(0);
+
+    $proposed = DB::table('routing.source_intents')
+        ->where('user_id', $pro->id)->where('state', 'proposed')
+        ->get()->map(fn ($i) => $i->surface_key.':'.$i->identifier)->sort()->values()->all();
+    expect($proposed)->toBe([
         'apple_music.artist:1810969283',
         'instagram.profile:ssml.wav',
         'soundcloud.player:sam-akhurst',
@@ -754,8 +759,29 @@ it('folds a second URL that canonicalizes identically instead of carding it (FI-
     // Round 3 live shape: the same Spotify artist arrived as a __NEXT_DATA__
     // tile AND as the shell's own anchor, differing only in tracking params.
     // Same canonical → silent fold; a card here duplicated the connection.
+    //
+    // Since 2026-09-03 a harvested link no longer auto-connects on its own,
+    // so with NO incumbent this run would produce two plain suggestions and
+    // never touch the fold machinery this test exists to pin at all. The
+    // fold this test is about lives in SourceReconciler's alias-upgrade
+    // (matchExisting): a Choose that matches an EXISTING connection is still
+    // upgraded to Place — folding a variant URL into a row the person
+    // already holds adds no account and asks no question. Seeding the
+    // incumbent explicitly (rather than routing the first link as 'paste')
+    // keeps this a same-run, two-anchor scenario exactly as the fixture
+    // describes.
     Queue::fake();
     $pro = createTenant('fi8-canonical-fold');
+    $incumbent = new IntegrationConnection([
+        'surface_key' => 'instagram.profile',
+        'routing_class' => 'social',
+        'resource_id' => 'theartist',
+        'payload' => [],
+        'is_active' => true,
+    ]);
+    $incumbent->user_id = $pro->id;
+    $incumbent->save();
+
     bioPage('<html><body>
         <a href="https://www.instagram.com/theartist?utm_source=a">One</a>
         <a href="https://instagram.com/theartist?utm_source=b">Two</a>
@@ -769,24 +795,29 @@ it('folds a second URL that canonicalizes identically instead of carding it (FI-
         ->and($result['folded'])->toBe(1)
         ->and($result['noted'])->toBe(0);
     expect(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->where('kind', 'link')->count())->toBe(0)
-        ->and(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1);
+        ->and(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1)
+        ->and(IntegrationConnection::query()->where('user_id', $pro->id)->value('id'))->toBe($incumbent->id);
 });
 
 // The whole chain against the page that exposed it (themetapunter, 2026-08-24):
-// clk.bio is recognised, its four owner links are PLACED, its seven share
-// widgets and five hidden SEO backlinks are not.
+// clk.bio is recognised, its four owner links are SUGGESTED (since 2026-09-03
+// nothing a harvester finds auto-connects — decide() records the raw
+// PlacementPolicy verdict on link_observations BEFORE the reconciler ever
+// runs, so this stays 'choose' even though these four are the run's only
+// four routed anchors), its seven share widgets and five hidden SEO
+// backlinks are not.
 it('unrolls a real Lnk.Bio page to the owner\'s links and nothing else', function () {
     $pro = createTenant('bio-clkbio');
     bioPage(Recorded::html('linkinbio/lnkbio.clkbio.html'));
 
     $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/TheMetaPunter');
 
-    $placed = DB::table('routing.link_observations')
-        ->where('source', 'link_in_bio')->where('verdict', 'place')
+    $suggested = DB::table('routing.link_observations')
+        ->where('source', 'link_in_bio')->where('verdict', 'choose')
         ->pluck('surface_key')->sort()->values()->all();
 
     expect($result['outcome'])->toBe('ok')
-        ->and($placed)->toBe(['instagram.profile', 'kick.channel', 'tiktok.profile', 'youtube.channel']);
+        ->and($suggested)->toBe(['instagram.profile', 'kick.channel', 'tiktok.profile', 'youtube.channel']);
 
     // "Nothing else" has to mean CARDS too, not just placed surfaces. Before
     // the vendor-chrome and share-widget rules this page seeded EIGHT junk
@@ -1027,7 +1058,13 @@ it('returns the same outcome and counts whether or not pacing runs', function ()
     expect($paced)->toBe($unpaced);
 });
 
-it('connects a harvested Square Appointments deep link as the booking provider, not a card', function () {
+it('suggests a harvested Square Appointments deep link as the booking provider, not a card', function () {
+    // Since 2026-09-03 a harvested booking link no longer auto-connects
+    // (nothing a harvester finds does — decide() mints Place only for
+    // $context->isConfirmedByUser()): it lands as a Choose suggestion
+    // instead, with no connection until the user accepts it in the inbox.
+    // No incumbent exists here, so the exclusive-slot conflict check never
+    // fires either — this is a plain proposed intent, not a Hold.
     Queue::fake();
     $pro = createTenant('bio-square');
     bioPage('<html><body>
@@ -1036,19 +1073,39 @@ it('connects a harvested Square Appointments deep link as the booking provider, 
 
     app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/bio-square', 'link_in_bio');
 
-    $row = IntegrationConnection::query()
-        ->where('user_id', $pro->id)->where('surface_key', 'square.book')->whereNull('deleted_at')->first();
-    expect($row)->not->toBeNull()
-        ->and($row->routing_class)->toBe('booking')
-        ->and($row->is_active)->toBeTrue()
-        ->and($row->payload['url'])->toContain('book.squareup.com/appointments/7rn54rnv21ng7n/location/LAJZK7J54JGCW')
-        ->and($row->payload['url'])->toContain('team_member_id=TM-qREuvGrHGnJ5Z');
-    expect(DB::table('routing.link_observations')->where('surface_key', 'square.book')->value('verdict'))->toBe('place');
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'square.book')->whereNull('deleted_at')->exists())->toBeFalse();
+
+    $intent = DB::table('routing.source_intents')
+        ->where('user_id', $pro->id)->where('surface_key', 'square.book')->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->state)->toBe('proposed')
+        ->and($intent->routing_class)->toBe('booking')
+        // No captures() on square.book (see Square's catalog definition): the
+        // canonical URL IS the identity, so it carries the same two markers
+        // the old connection payload was pinned on.
+        ->and($intent->canonical_url)->toContain('book.squareup.com/appointments/7rn54rnv21ng7n/location/LAJZK7J54JGCW')
+        ->and($intent->canonical_url)->toContain('team_member_id=TM-qREuvGrHGnJ5Z');
+    expect(DB::table('routing.link_observations')->where('surface_key', 'square.book')->value('verdict'))->toBe('choose');
 });
 
 it('folds a link that differs from a placed one only by query string, instead of carding it', function () {
+    // As FI-8 above: since 2026-09-03 a harvested link only reaches Place by
+    // folding onto an EXISTING connection (SourceReconciler's alias
+    // upgrade) — nothing auto-connects the first time round any more. Seed
+    // the incumbent explicitly so the query-string fold this test targets
+    // still has a live row to fold onto.
     Queue::fake();
     $pro = createTenant('bio-ytq');
+    $incumbent = new IntegrationConnection([
+        'surface_key' => 'youtube.channel',
+        'routing_class' => 'content',
+        'resource_id' => 'acmebarbers',
+        'payload' => [],
+        'is_active' => true,
+    ]);
+    $incumbent->user_id = $pro->id;
+    $incumbent->save();
+
     bioPage('<html><body>
         <a href="https://www.youtube.com/@acmebarbers">YouTube</a>
         <a href="https://www.youtube.com/@acmebarbers?sub_confirmation=1">Subscribe</a>
@@ -1070,4 +1127,36 @@ it('hands an unknown store tile\'s discount code to the commerce probe that will
     app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/bio-code', 'link_in_bio');
 
     Queue::assertPushed(CommerceProbeJob::class, fn (CommerceProbeJob $job): bool => str_contains($job->url, 'gammaplus.example.au') && $job->discountCode === 'TEEGAN10');
+});
+
+it('folds a bare brand url into the connection the person already has, even for a catalog-only brand', function () {
+    // The fold reads classify()'s answer, which for every catalog-only brand is
+    // a dotted SURFACE KEY ('calendly.book'), while `platform` is a GENERATED
+    // column holding only the brand prefix. Asking the generated column with a
+    // dotted key could never hit, so the fold silently never fired for these
+    // brands and a duplicate link card was published beside the live booking
+    // connection. Found 2026-09-04.
+    Queue::fake();
+    $pro = createTenant('fold-catalog-only');
+    $incumbent = new IntegrationConnection([
+        'surface_key' => 'calendly.book',
+        'routing_class' => 'booking',
+        'resource_id' => 'calendly',
+        'payload' => ['url' => 'https://calendly.com/theartist/30min'],
+        'is_active' => true,
+    ]);
+    $incumbent->user_id = $pro->id;
+    $incumbent->save();
+
+    // Host-only: matches the brand but names no account, so PlacementPolicy
+    // returns a Note and the fold is the only thing standing between this and
+    // a duplicate card.
+    bioPage('<html><body><a href="https://calendly.com/">Book me</a></body></html>');
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/theartist');
+
+    expect($result['folded'])->toBe(1)
+        ->and($result['noted'])->toBe(0);
+    expect(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->where('kind', 'link')->count())->toBe(0)
+        ->and(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1);
 });

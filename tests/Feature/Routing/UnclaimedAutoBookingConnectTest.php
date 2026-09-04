@@ -3,6 +3,7 @@
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Routing\Importers\LinkInBioImporter;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
@@ -24,6 +25,7 @@ use Illuminate\Support\Facades\Queue;
  */
 beforeEach(function () {
     setupUsersTable();
+    setupPreAccountBuildsTable();
     setupSitesTable();
     setupNotificationsTable();
     setupRoutingTables();
@@ -59,7 +61,7 @@ it('suggests (never auto-connects) a Fresha link that arrives via an aggregator 
 
     expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
 
-    $intent = \Illuminate\Support\Facades\DB::table('routing.source_intents')
+    $intent = DB::table('routing.source_intents')
         ->where('user_id', $user->id)->where('surface_key', 'fresha.book')->first();
     expect($intent)->not->toBeNull()
         ->and($intent->state)->toBe('proposed');
@@ -67,9 +69,19 @@ it('suggests (never auto-connects) a Fresha link that arrives via an aggregator 
     Queue::assertNotPushed(ConnectFetchJob::class);
 });
 
-it('does NOT auto-connect for a claimed user — they keep the picker', function () {
-    // The important half. Without this, the change quietly takes the team-member
-    // picker away from every real dashboard user whose bio page names a salon.
+it('does NOT auto-connect for a claimed user either — same suggest-only outcome as the unclaimed lane now', function () {
+    // Pre-2026-09-03 this pinned a NARROWER guarantee: the harvest still
+    // auto-connected (Place) for a claimed user, and this test only checked
+    // that AutoBookingConnectDispatcher's team-picker auto-fill was skipped
+    // for them (gated on $user->isUnclaimed() in SourceReconciler.php).
+    // Since "nothing a harvester found ever auto-connects" (owner,
+    // 2026-09-03), decide() never reaches Place for this indirect,
+    // unconfirmed 'link_in_bio' origin regardless of claim state — so no
+    // connection is written at all any more, for a claimed user exactly as
+    // for an unclaimed one (the sibling test above). The picker-preserving
+    // claim/unclaimed split in AutoBookingConnectDispatcher only fires once
+    // a Place actually reaches applyIntent() (e.g. via the suggestions-inbox
+    // accept lane), which this harvest path can no longer do.
     Queue::fake();
     freshaBioPage();
 
@@ -78,7 +90,12 @@ it('does NOT auto-connect for a claimed user — they keep the picker', function
 
     app(LinkInBioImporter::class)->import($user, 'https://example.com/simon');
 
-    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
+
+    $intent = DB::table('routing.source_intents')
+        ->where('user_id', $user->id)->where('surface_key', 'fresha.book')->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->state)->toBe('proposed');
 
     Queue::assertNotPushed(ConnectFetchJob::class);
 });

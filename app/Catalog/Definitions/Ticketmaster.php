@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -21,6 +22,15 @@ use App\Catalog\SurfaceBuilder;
  * hardcodes ticketmaster.* to platform 'events-custom' (never this key) —
  * a pre-existing two-classifier disagreement (inventory D2#3), unrelated to
  * this catalog definition.
+ *
+ * Ticketmaster also publishes PERSISTENT artist and venue pages (unlike
+ * Ticketek, which only ever produces one-off /shows/show.aspx?sh=<code>
+ * event links — no comparable persistent page was found there, so Ticketek
+ * gets nothing in this pass). Confirmed live on two TLDs:
+ * .com/imagine-dragons-tickets/artist/1435919 (About/Gallery/Setlists/News
+ * sections, a permanent artist hub) and
+ * .com.au/marvel-stadium-tickets-docklands/venue/303717. Same TLD list as
+ * the host-only rule, same array_map shape.
  */
 class Ticketmaster
 {
@@ -50,9 +60,30 @@ class Ticketmaster
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
                 ->detect(
-                    ...array_map(
-                        fn (string $tld) => Detector::url("ticketmaster.{$tld}")->strength(EvidenceStrength::MarketplaceListing),
-                        self::TLDS,
+                    ...array_merge(
+                        array_map(
+                            fn (string $tld) => Detector::url("ticketmaster.{$tld}")->strength(EvidenceStrength::MarketplaceListing),
+                            self::TLDS,
+                        ),
+                        array_map(
+                            // The leading segment is NOT required to end in
+                            // '-tickets'. Venue pages append the locality
+                            // ('marvel-stadium-tickets-docklands',
+                            // 'the-o2-tickets-london'), and the non-English
+                            // TLDs in the list above don't use the English word
+                            // at all. `/artist/<digits>` and `/venue/<digits>`
+                            // are already distinctive on their own, so the
+                            // word bought nothing and cost every venue link its
+                            // identifier — those fell through to the host-only
+                            // rule and connected with no id at all.
+                            fn (string $tld) => Detector::url("ticketmaster.{$tld}")
+                                ->path('#^/[\w-]+/(?:artist|venue)/(?<id>\d+)/?$#i')
+                                ->captures('id')
+                                ->from(IdentifierSource::Path)
+                                ->strength(EvidenceStrength::DeepLinkWithSlug)
+                                ->note('e.g. https://www.ticketmaster.com/imagine-dragons-tickets/artist/1435919 and https://www.ticketmaster.com.au/marvel-stadium-tickets-docklands/venue/303717 — both verified live (HTTP 200) 2026-09-03'),
+                            self::TLDS,
+                        ),
                     ),
                 )
                 ->build(),

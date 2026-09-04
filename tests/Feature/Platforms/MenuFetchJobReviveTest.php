@@ -64,6 +64,7 @@ function mfjrScrape(User $user, array $items): void
             'store' => ['name' => 'Revive Cafe', 'currency' => 'AUD'],
             'categories' => [['name' => 'Drinks', 'items' => $items]],
         ]]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     (new MenuFetchJob((string) $user->id, true))->handle(
@@ -265,6 +266,7 @@ it('drops rail categories but keeps their dishes, filing category-less dishes un
                 ]],
             ],
         ]]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
     (new MenuFetchJob((string) $user->id, true))->handle(
         app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class)
@@ -295,6 +297,7 @@ it('drops rail categories but keeps their dishes, filing category-less dishes un
                 ['name' => 'Mystery Special', 'pickupPrice' => 12.0, 'deliveryPrice' => 12.0],
             ]]],
         ]]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
     (new MenuFetchJob((string) $user->id, true))->handle(
         app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class)
@@ -335,6 +338,7 @@ it('defers retirement of a failed platform\'s exclusive dishes instead of treati
                 ]]],
             ],
         ]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
     expect(app(ManualMenuItems::class)->rows((string) $user->id)->pluck('headline')->sort()->values()->all())
@@ -349,6 +353,7 @@ it('defers retirement of a failed platform\'s exclusive dishes instead of treati
             ],
             'square' => null,
         ]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
     (new MenuFetchJob((string) $user->id, true))->handle(app(MenuSource::class), app(MenuApifyScraper::class), app(MenuMerger::class));
 

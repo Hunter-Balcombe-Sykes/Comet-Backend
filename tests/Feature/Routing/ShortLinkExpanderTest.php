@@ -57,12 +57,17 @@ it('expands a short link and routes its real destination (the sammy.pdf shape)',
         RoutingContext::forUser($pro, 'bio_harvest'),
     );
 
-    expect($out['verdict'])->toBe('place')
+    // Since 2026-09-03 an indirect, unconfirmed origin like 'bio_harvest'
+    // never reaches Place (only isConfirmedByUser() does) — this test's
+    // subject is shortlink EXPANSION (does on.soundcloud.com/... resolve to
+    // the real soundcloud.player/sam-akhurst target), which is unaffected:
+    // the expanded destination still routes correctly, it just lands as a
+    // proposed suggestion instead of a live connection.
+    expect($out['verdict'])->toBe('choose')
         ->and($out['routedTo']['surfaceKey'] ?? null)->toBe('soundcloud.player')
         ->and($out['routedTo']['identifier'] ?? null)->toBe('sam-akhurst');
 
-    $connection = IntegrationConnection::query()->where('user_id', $pro->id)->firstOrFail();
-    expect($connection->resource_id)->toBe('sam-akhurst');
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->exists())->toBeFalse();
 });
 
 it('rejects an unexpandable platform short code instead of minting a fake profile', function () {

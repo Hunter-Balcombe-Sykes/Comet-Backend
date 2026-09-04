@@ -310,7 +310,19 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
 
     private function seedStore(StoreBrandSeeder $brands, User $user, string $url, bool $deepPage = false): bool
     {
-        $result = $brands->seed($user, $url, self::ORIGIN, suggestOnly: $this->suggestOnly || $deepPage);
+        // `confirmed` is what makes the ACCEPT lane able to place at all since
+        // 2026-09-03 (PlacementPolicy mints Place only for a request the user
+        // made). acceptedIntentId is exactly that signal — SuggestionsController
+        // sets it and no discovery lane does. Without it an accept would loop:
+        // re-decide the same URL, get Choose again, and settle the intent it
+        // was answering as unservable.
+        $result = $brands->seed(
+            $user,
+            $url,
+            self::ORIGIN,
+            suggestOnly: $this->suggestOnly || $deepPage,
+            confirmed: $this->acceptedIntentId !== null,
+        );
 
         // A suggest-only seed that filed its question is a RESOLUTION —
         // handle() must not also card the link (the suggestion carries it).
@@ -346,11 +358,11 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
             ->where('id', $this->acceptedIntentId)
             ->where('user_id', $this->userId)
             ->whereIn('state', ['proposed', 'blocked'])
-            // 'below_threshold' and NULL both mean "recognised, nothing
+            // 'needs_confirmation' and NULL both mean "recognised, nothing
             // decided"; re-settling an existing 'unservable' keeps a retry
             // idempotent.
             ->where(fn ($q) => $q->whereNull('block_reason')
-                ->orWhereIn('block_reason', ['below_threshold', 'unservable']))
+                ->orWhereIn('block_reason', ['needs_confirmation', 'unservable']))
             ->update([
                 'state' => 'blocked',
                 'block_reason' => 'unservable',

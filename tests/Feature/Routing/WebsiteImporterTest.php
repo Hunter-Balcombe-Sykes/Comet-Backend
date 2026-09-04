@@ -66,12 +66,12 @@ it('counts one decision per distinct link, not per occurrence', function () {
         ->and(DB::table('routing.source_intents')->where('user_id', $pro->id)->count())->toBe(1);
 });
 
-it('connects a suggest-band link it found on a page', function () {
-    // Owner ruling 2026-08-18: harvest origins auto-apply the suggest band.
-    // The indirect penalty still applies to the score, but a harvested link
-    // clearing the suggest threshold with a clean margin now connects instead
-    // of waiting in the inbox. (Pre-ruling this test pinned the opposite —
-    // 0 connections, state 'proposed'.)
+it('suggests a suggest-band link it found on a page, rather than connecting it', function () {
+    // Owner ruling 2026-09-03: nothing a harvester found ever auto-connects.
+    // (The 2026-08-18 "harvest maximisation" ruling briefly auto-applied the
+    // suggest band on any indirect origin — that arm is deleted; a harvested
+    // link now lands as a proposed intent, 0 live connections, exactly as it
+    // did before that ruling.)
     // Business, for the same reason as the dedupe test above: a partna's
     // scanned page is their workplace's, and its socials never reach the
     // banding this test is about.
@@ -80,8 +80,8 @@ it('connects a suggest-band link it found on a page', function () {
 
     app(WebsiteImporter::class)->import($pro, 'https://example.com/');
 
-    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1)
-        ->and(DB::table('routing.source_intents')->where('user_id', $pro->id)->value('state'))->toBe('applied');
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0)
+        ->and(DB::table('routing.source_intents')->where('user_id', $pro->id)->value('state'))->toBe('proposed');
 });
 
 it('marks harvested links as found, not typed', function () {

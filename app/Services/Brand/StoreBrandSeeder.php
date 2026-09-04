@@ -73,12 +73,21 @@ class StoreBrandSeeder
     /**
      * @return array{outcome: string, verdict: ?string, reason: ?string, connectionId: ?string, brandId: ?string}
      */
-    public function seed(User $user, string $url, string $origin = 'paste', bool $suggestOnly = false): array
+    /**
+     * @param  bool  $confirmed  the user pressed Accept on this store's own
+     *                           suggestion. Since 2026-09-03 PlacementPolicy
+     *                           mints Place only for a confirmed request, so
+     *                           without this the accept lane would re-offer the
+     *                           suggestion it is answering and never build the
+     *                           store. The paste lane says the same thing
+     *                           through origin 'paste' and needs no flag.
+     */
+    public function seed(User $user, string $url, string $origin = 'paste', bool $suggestOnly = false, bool $confirmed = false): array
     {
         $iri = $this->canonicalizer->canonicalize($url);
         $probe = $this->worker->probe($iri, (string) $user->id);
 
-        $context = RoutingContext::forUser($user, $origin);
+        $context = RoutingContext::forUser($user, $origin, confirmed: $confirmed);
         $projection = $probe->toProjection();
         $placement = $this->policy->decide($projection, $context);
 
@@ -101,7 +110,7 @@ class StoreBrandSeeder
         // suggestion — "Is this your Shopify?" in the inbox — and the accept
         // path builds the store through this same seeder.
         if ($suggestOnly && $placement->verdict === Verdict::Place) {
-            $placement = (new Placement(Verdict::Choose, $placement->surfaceKey, $placement->identifier, 'below_threshold', 'offered from a pasted link'))
+            $placement = (new Placement(Verdict::Choose, $placement->surfaceKey, $placement->identifier, 'needs_confirmation', 'offered from a pasted link'))
                 // Carry the name AND icon across the downgrade. This rebuild
                 // is positional, so a new Placement field is silently dropped
                 // here unless it is named — which is exactly how the store's

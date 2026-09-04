@@ -8,11 +8,13 @@ use App\Catalog\LegacyPlatformMap;
 use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\Concerns\ResolveCurrentUser;
 use App\Jobs\Platforms\CommerceProbeJob;
+use App\Jobs\Routing\VerifyLinkJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Routing\ConnectionIdentity;
 use App\Routing\SuggestionApplier;
 use App\Routing\SyncFindingsBridge;
+use App\Routing\Verification\LinkVerifier;
 use App\Routing\WorkplaceCandidates;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\GoogleBusinessAutoSync;
@@ -72,7 +74,10 @@ class SuggestionsController extends ApiController
 
         $intents = DB::table('routing.source_intents')
             ->where('user_id', $user->id)
-            ->whereIn('state', ['proposed', 'blocked'])
+            // 'verifying' renders too (2026-09-03): the person accepted it and
+            // is owed a "checking this link…" card, not a suggestion that
+            // silently vanishes from the inbox for as long as the queue takes.
+            ->whereIn('state', ['proposed', 'verifying', 'blocked'])
             ->orderByDesc('first_seen_at')
             ->limit(100)
             ->get();
@@ -122,6 +127,23 @@ class SuggestionsController extends ApiController
         // the slot and SyncFindingsBridge asks the same question in the old
         // vocabulary, one row lower. Same dedup bug, other door.
         $claimedSurfaces = $intents->pluck('surface_key')->all();
+
+        // A settled sibling branch is recorded, never asked
+        // (SourceReconciler::isSettledWorkplaceSlot). A chain's locations page
+        // yields one booking link per branch, and the booking XOR held every
+        // one after the first — five "use this one instead?" cards for a
+        // six-branch chain. The slot is not in dispute: the incumbent is
+        // either the account holder's own link or the branch whose roster
+        // named them, so there is nothing to ask.
+        //
+        // Rejected here rather than filtered in the query above so the row
+        // still CLAIMS its surface — dropping it from the fetch would free
+        // fresha.book for payloadSuggestions() to ask the same question in
+        // the legacy vocabulary, one row lower. Same door the
+        // already-connected filter below is careful about.
+        $intents = $intents->reject(
+            fn (object $intent): bool => $intent->block_reason === 'sibling_branch'
+        )->values();
 
         $intents = $intents->reject(fn (object $intent): bool => $this->identity->matchWithin(
             $connectionsBySurface->get($intent->surface_key, collect()),
@@ -369,6 +391,47 @@ class SuggestionsController extends ApiController
                 'surfaceKey' => $intent->surface_key,
                 'displayName' => $surface['display_name'],
                 'status' => 'pending',
+            ], 202);
+        }
+
+        // L2 (2026-09-03). The person has said yes; the question left is
+        // whether the page they said yes to actually exists.
+        //
+        // The trigger is "can we check this brand at all", NOT "is L1 weak".
+        // Gating on weakness was wrong twice over. It made the lane unreachable
+        // — PlacementPolicy's Gate 3 now turns a weak match into a Note before
+        // any intent is written, so an intent on a shaped surface is always L1
+        // PASS — and it asked the wrong question anyway: L1 says the URL is
+        // SHAPED like an account page, which a fabricated id also is.
+        // quandoo.com/place/not-a-place-99999999 passes L1 and 404s.
+        //
+        // It is also no longer scoped to LinkValidity::applies(). That scoping
+        // belongs to L1, which must never judge an identity a person GAVE us
+        // (a handle, a place id). L2 asks a different question, and a typed
+        // handle can be checked exactly as definitively as a pasted URL —
+        // github.com/{handle} and x.com/{handle} both 404 honestly.
+        //
+        // A network call cannot happen here (LinkProbeWorker's rule), so the
+        // intent parks in 'verifying' — which holds its slot — and the queue
+        // answers. Every outcome writes the connection except a definitive
+        // not_found; see VerifyLinkJob.
+        //
+        // Deliberately AFTER the store arm above: a probed storefront has its
+        // own richer lane which already ends in a real fetch of the store.
+        if (is_string($intent->canonical_url ?? null) && $intent->canonical_url !== ''
+            && app(LinkVerifier::class)->canVerify((string) $intent->surface_key)) {
+            DB::table('routing.source_intents')
+                ->where('id', $intent->id)
+                ->where('user_id', $user->id)
+                ->update(['state' => 'verifying', 'updated_at' => now()]);
+
+            VerifyLinkJob::dispatch((string) $user->id, (string) $intent->id);
+
+            return $this->success([
+                'connectionId' => null,
+                'surfaceKey' => $intent->surface_key,
+                'displayName' => $surface['display_name'],
+                'status' => 'verifying',
             ], 202);
         }
 
@@ -678,7 +741,12 @@ class SuggestionsController extends ApiController
         return DB::table('routing.source_intents')
             ->where('id', $intentId)
             ->where('user_id', $userId)
-            ->whereIn('state', ['proposed', 'blocked'])
+            // 'verifying' included so a person can DISMISS a card whose check
+            // is taking too long, rather than being stuck looking at it. An
+            // accept on one is idempotent-ish and harmless: it re-parks the
+            // same row and dispatches a second job, whose claimIntent() takes
+            // the row exactly once.
+            ->whereIn('state', ['proposed', 'verifying', 'blocked'])
             ->first();
     }
 
@@ -703,8 +771,17 @@ class SuggestionsController extends ApiController
             // the default branch below would do — the same question, with no
             // hint that anything was attempted.
             'unservable' => "We couldn't reach this {$name}. Try again?",
-            'below_threshold' => "Is this your {$name}?",
-            default => "Add this {$name} link?",
+            // Every remaining suggestion asks the SAME question, because it is
+            // the same question: PlacementPolicy's ordinary Choose says
+            // "confirm this is yours" and carries no block reason at all, and
+            // the seeder's suggest-only downgrade stamps 'needs_confirmation'
+            // to say the same thing about a probed store. Until 2026-09-03
+            // these were two arms — an ownership question for a link that fell
+            // under a threshold, and "Add this X link?" for one that did not —
+            // and with the thresholds deleted the second copy would have gone
+            // to nearly every row, asking people to add a link they had already
+            // published rather than to confirm it was theirs.
+            default => "Is this your {$name}?",
         };
     }
 

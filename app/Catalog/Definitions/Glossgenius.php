@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -37,6 +38,18 @@ class Glossgenius
                 ->refreshEvery(0)
                 ->detect(
                     Detector::url('glossgenius.com')->strength(EvidenceStrength::ProfileLink),
+                    // The professional's tenant label is the identity —
+                    // GlossGenius hands out <business>.glossgenius.com
+                    // booking sites (same shape as Bandcamp). Verified live:
+                    // ineffablebeautysalon.glossgenius.com (Ineffable Beauty
+                    // Salon, Buda TX), with /team and /booking-flow pages
+                    // under it.
+                    Detector::url('glossgenius.com')
+                        ->subdomain('#^(?!www$)(?<tenant>[a-z0-9-]+)$#i')
+                        ->captures('tenant')
+                        ->from(IdentifierSource::Subdomain)
+                        ->strength(EvidenceStrength::DeepLinkWithSlug)
+                        ->note('e.g. https://ineffablebeautysalon.glossgenius.com/team'),
                 )
                 ->build(),
         ];

@@ -362,8 +362,5 @@ it('hands back a projection the ordinary pipeline can place', function () {
     $projection = probeWorker()->probe(probeIri('https://example.com'), 'user-proj')->toProjection();
 
     expect($projection->matched())->toBeTrue()
-        ->and($projection->surfaceKey)->toBe('shopify.store')
-        // Above shop's auto threshold (75) even after the harvest penalty.
-        ->and($projection->confidence)->toBeGreaterThan(85)
-        ->and($projection->margin)->toBe(100);
+        ->and($projection->surfaceKey)->toBe('shopify.store');
 });

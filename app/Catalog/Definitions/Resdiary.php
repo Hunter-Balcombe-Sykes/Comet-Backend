@@ -42,7 +42,8 @@ class Resdiary
                         ->path('#^/widget/[^/]+/(?<name>[^/?]+)#')
                         ->captures('name')
                         ->from(IdentifierSource::Path)
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://booking.resdiary.com/widget/Standard/CafeAndaluzCity/29211 — verified live 2026-09-03'),
                     Detector::url('resdiary.com')
                         ->path('#^/(?:restaurant|r)/(?<name>[^/?]+)#')
                         ->captures('name')

@@ -8,6 +8,11 @@
 #       it out from the controller signature. This is the STRONG form — a real
 #       cross-tenant probe.
 #
+#       A schema-qualified TABLE name ("site.logo_candidates") is the same strong
+#       form for a table with no Eloquent model. The value is only a lookup key
+#       into Fixtures::$ids, so what matters is that seedOwnedBy() remembers the
+#       same string against a real identity-B row id.
+#
 #   fixture: { p: unknown }
 #       The param is not a model primary key. The platform controllers resolve
 #       {id} as a `resource_id` looked up INSIDE rows already scoped to the
@@ -122,6 +127,28 @@
 - route: "api/design-media/{purpose}"
   expect: exempt
   reason: "{purpose} is a design-slot name (logo_full, placeholder, …) validated against SiteMedia::designSingletonPurposes(); the site is resolved from the caller, not the path — there is no identity-B key to substitute."
+
+# {candidate} IS a real resource id (site.logo_candidates.id), so this is the
+# `unknown` form and not an exemption: LogoCandidates::promote() looks it up
+# with ->where('site_id', $site->id) and returns false for anything that is not
+# this site's proposed row, which the controller renders as 404 by the
+# public-enumeration convention. The probe proves that scoped lookup 404s
+# rather than 500ing or leaking. Reflection cannot bind it because the
+# controller takes `string $candidate`, not a model.
+# promote() takes `string $candidate` (no route model binding) and scopes
+# site.logo_candidates by site_id AND state='proposed'. Upgraded from
+# `unknown` to the strong form: identity B's real proposed candidate is now
+# substituted, so the site_id scope is actually crossed rather than probed
+# with an id that matches nothing.
+#
+# ⚠️ This probe alone still cannot prove the scope: promote() also returns
+# false when the mirrored bytes are missing, which they are for this seeded
+# row, so a tenancy break would read as 404 here either way. The scope itself
+# is pinned by tests/Feature/Design/LogoCandidatesTest.php ("promote refuses a
+# foreign or already-settled id"), which seeds a foreign candidate WITH bytes
+# and is mutation-checked against removing the site_id where().
+- route: "api/logo-candidates/{candidate}/promote"
+  fixture: { candidate: "site.logo_candidates" }
 
 # ── Account / session ────────────────────────────────────────────────────────
 - route: "api/account/mfa/factors/{factorId}"

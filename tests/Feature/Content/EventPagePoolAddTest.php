@@ -106,6 +106,23 @@ it('refuses an organiser page with the connect hint', function () {
     ])->assertStatus(422);
 });
 
+it('refuses a TryBooking eventlist organiser page with the connect hint (F6, 2026-09-04 overnight sweep)', function () {
+    [$user] = makeShopUser(withSite: true);
+
+    // Before the fix, WebsiteLinkHarvester's TryBooking arm is host-only
+    // unconditional (no /eventlist/ vs /events/ distinction), and
+    // organiserPlatformLabel() had no TryBooking arm at all — so this
+    // organiser listing page fell all the way through to the claimed-host
+    // card fallback and was written as a bare, dateless 'event' instead of
+    // being refused like its Eventbrite/Humanitix siblings.
+    actingAsUser($user)->postJson('/api/content/pools/events/items', [
+        'url' => 'https://www.trybooking.com/eventlist/constantreader',
+    ])->assertStatus(422)
+        ->assertJsonFragment(['message' => "That looks like a TryBooking organiser page, not a single event. Connect it as a platform to bring in its upcoming events, or paste one event's page."]);
+
+    expect(DB::connection('pgsql')->table('content.items')->count())->toBe(0);
+});
+
 it('falls through to the plain card when a KNOWN platform page carries no event markup', function () {
     [$user] = makeShopUser(withSite: true);
     eppMockFetch('<html><head></head><body>No JSON-LD here.</body></html>');

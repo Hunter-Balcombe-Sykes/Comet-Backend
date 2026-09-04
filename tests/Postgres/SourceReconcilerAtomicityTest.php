@@ -53,7 +53,15 @@ beforeEach(function () {
     $pg->statement('DROP TABLE IF EXISTS routing.item_tombstones CASCADE');
     $pg->statement('DROP TABLE IF EXISTS site.platform_connections CASCADE');
 
-    // Verbatim shape from supabase/migrations/20260727120000_routing_schema.sql:51-83.
+    // Shape from supabase/migrations/20260727120000_routing_schema.sql:51-83,
+    // then the migrations that widened it — the CHECKs and the live-slot index
+    // predicate below come from 20260903220001_source_intents_verifying_state.sql
+    // (:59-61 state, :72-78 block_reason), 20260902190000_source_intents_band.sql
+    // (:11-12) and 20260904235902_source_intents_idx_live.sql (:15-17). It said
+    // "verbatim" against the FIRST file alone until 2026-09-04, which is how
+    // three drifts survived: no 'verifying' state, no 'not_found'/
+    // 'sibling_branch' block reasons (SourceReconciler.php:185 writes the
+    // latter), and a live-slot predicate one state short.
     $pg->statement('CREATE TABLE routing.source_intents (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id uuid NOT NULL,
@@ -64,15 +72,15 @@ beforeEach(function () {
         identifier_icon text,
         canonical_url text,
         state text NOT NULL DEFAULT \'proposed\'
-            CHECK (state IN (\'proposed\', \'applied\', \'blocked\', \'dismissed\', \'superseded\')),
+            CHECK (state IN (\'proposed\', \'verifying\', \'applied\', \'blocked\', \'dismissed\', \'superseded\')),
         block_reason text
             CHECK (block_reason IS NULL OR block_reason IN (
-                \'gate\', \'capability\', \'conflict\', \'cap_reached\', \'below_threshold\',
-                \'tombstoned\', \'unservable\', \'invalid_identifier\', \'duplicate\'
+                \'gate\', \'capability\', \'conflict\', \'cap_reached\', \'needs_confirmation\',
+                \'tombstoned\', \'unservable\', \'invalid_identifier\', \'duplicate\',
+                \'not_found\', \'sibling_branch\'
             )),
         conflicting_connection_id uuid,
         connection_id uuid,
-        confidence smallint CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 100)),
         origin text NOT NULL
             CHECK (origin IN (\'paste\', \'website_import\', \'link_in_bio\', \'bio_harvest\', \'google_business\', \'staff\', \'reproject\', \'commerce_probe\')),
         import_run_id uuid,
@@ -84,10 +92,14 @@ beforeEach(function () {
         updated_at timestamptz NOT NULL DEFAULT now()
     )');
     $pg->statement('ALTER TABLE routing.source_intents ADD COLUMN IF NOT EXISTS band text');
+    // SourceReconciler writes band on every insert these tests perform, so the
+    // stand-in must carry its CHECK or a bad value passes here and fails live.
+    $pg->statement('ALTER TABLE routing.source_intents ADD CONSTRAINT source_intents_band_check
+        CHECK (band IS NULL OR band IN (\'auto\', \'suggest\'))');
 
     $pg->statement('CREATE UNIQUE INDEX idx_source_intents_live
         ON routing.source_intents (user_id, surface_key, identifier)
-        WHERE (state IN (\'proposed\', \'applied\', \'blocked\'))');
+        WHERE (state IN (\'proposed\', \'verifying\', \'applied\', \'blocked\'))');
 
     $pg->statement('CREATE TABLE routing.item_tombstones (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -154,6 +166,13 @@ beforeEach(function () {
         CONSTRAINT reject_all CHECK (id IS NULL)
     )');
     $pg->statement("ALTER TABLE site.platform_connections ADD COLUMN IF NOT EXISTS visibility text NOT NULL DEFAULT 'visible'");
+    // owner_scope landed 2026-09-03 (c8ddc01a7) and SourceReconciler::applyIntent
+    // assigns it on EVERY apply, but no stand-in gained the column — so this lane
+    // went red with 42703 before the reject_all CHECK under test could fire, which
+    // is exactly the trap the block comment above already warns about twice. The
+    // static guard cannot see it: the write is Eloquent attribute assignment, which
+    // emits no literal column string for PostgresLaneReadCoverageTest to find.
+    $pg->statement('ALTER TABLE site.platform_connections ADD COLUMN IF NOT EXISTS owner_scope text');
 
     $this->userId = (string) Str::uuid();
 });

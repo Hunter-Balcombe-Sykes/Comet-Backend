@@ -7,6 +7,7 @@ use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
 use App\Catalog\Enums\IdentifierSource;
+use App\Catalog\Enums\Lifecycle;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -36,6 +37,11 @@ class Tock
                 ->shelf(Shelf::Food)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
+                // RETIRED 2026-09-03: Amex merged Tock into Resy — the venues moved
+                // across on 2026-08-11 and exploretock.com is being taken dark.
+                // A Tock link therefore points at a venue that now lives on Resy,
+                // which is a wrong CTA rather than a broken one.
+                ->lifecycle(Lifecycle::Retired)
                 ->canonicalUrl('https://www.exploretock.com/{handle}')
                 ->detect(
                     Detector::url('exploretock.com')

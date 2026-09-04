@@ -159,6 +159,7 @@ it('LIFE-12: a genuine successful scrape between two failures DOES reopen the ep
             'store' => ['name' => 'Ollies', 'currency' => 'AUD'],
             'categories' => [['name' => 'Pizzas', 'items' => [['name' => 'Margherita', 'pickupPrice' => 12.5, 'deliveryPrice' => 12.5]]]],
         ]]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
     msfnRunFetch($user);
 
@@ -186,6 +187,7 @@ it('LIFE-12: the soft-unavailable branch is not a recovery and does NOT reopen t
     // completed-run costume, so it must not move the boundary.
     $this->mock(MenuApifyScraper::class, function ($m) {
         $m->shouldReceive('fetchStores')->once()->andReturn(['uber-eats' => null]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
     msfnRunFetch($user);
 

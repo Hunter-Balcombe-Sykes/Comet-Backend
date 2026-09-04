@@ -53,8 +53,6 @@ class LinkObserver
                 'evidence' => json_encode($this->evidence($iri, $projection)),
                 'detector_id' => $projection->detectorId,
                 'surface_key' => $projection->surfaceKey,
-                'confidence' => $projection->matched() ? $projection->confidence : null,
-                'margin' => $projection->matched() ? $projection->margin : null,
                 'verdict' => $placement->verdict->value,
                 'block_reason' => $placement->blockReason,
                 'catalog_digest' => CompiledCatalog::digest(),

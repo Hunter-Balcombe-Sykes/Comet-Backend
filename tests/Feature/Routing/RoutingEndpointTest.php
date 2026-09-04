@@ -67,17 +67,20 @@ it('explains an unrecognised link rather than failing', function () {
         ->assertJsonPath('probe', null);
 });
 
-it('previews a below-auto-threshold link without a blockReason so it can be submitted for review', function () {
+it('previews a link it cannot name without a blockReason, so it can be submitted for review', function () {
     $pro = createTenant('routing-choose-preview');
 
-    // fresha.com/a/… projects at 75, under booking's auto bar (80) but over
-    // suggest (55) → Choose. A Choose is a question for the review inbox, not
-    // a block — blockReason non-null here would disable the Add button and the
-    // question could never be asked.
-    actingAsUser($pro)->postJson('/api/routing/preview', ['url' => 'https://www.fresha.com/a/some-salon-abc123'])
+    // Square's appointments detectors constrain a path but declare no capture
+    // group, so this is a real booking page we cannot attribute → Choose. A
+    // Choose is a question for the review inbox, not a block — blockReason
+    // non-null here would disable the Add button and the question could never
+    // be asked. (Was fresha.com/a/…, which used to land here by scoring 75
+    // against booking's auto bar of 80; that URL names its salon, so with the
+    // thresholds gone it connects on a paste instead.)
+    actingAsUser($pro)->postJson('/api/routing/preview', ['url' => 'https://book.squareup.com/appointments/7rn54rnv21ng7n'])
         ->assertOk()
         ->assertJsonPath('verdict', 'choose')
-        ->assertJsonPath('routedTo.surfaceKey', 'fresha.book')
+        ->assertJsonPath('routedTo.surfaceKey', 'square.book')
         ->assertJsonPath('blockReason', null);
 });
 
@@ -192,12 +195,13 @@ it('answers a structured 422 when the link cap is full', function () {
     expect(app(LinkPoolReader::class)->cards($pro->refresh()))->toHaveCount(50);
 });
 
-it('sends a below-auto-threshold link to review rather than connecting or noting it', function () {
+it('sends a link it cannot name to review rather than connecting or noting it', function () {
     $pro = createTenant('routing-review');
 
-    // fresha.com/a/… projects at 75 — under booking's auto bar (80), over
-    // suggest (55) → Choose: an intent for the suggestions inbox.
-    actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://www.fresha.com/a/some-salon-abc123'])
+    // Same URL and same reason as the preview test above: a real booking page
+    // whose detector captures nothing, so we can propose it but not claim it →
+    // Choose, an intent for the suggestions inbox.
+    actingAsUser($pro)->postJson('/api/routing/links', ['url' => 'https://book.squareup.com/appointments/7rn54rnv21ng7n'])
         ->assertStatus(202)
         ->assertJsonPath('status', 'pending')
         ->assertJsonPath('outcome', 'review')
@@ -252,7 +256,11 @@ it('gates a reservations link for an account that cannot use reservations', func
         ->assertJsonPath('verdict', 'note')
         ->assertJsonPath('outcome', 'link')
         ->assertJsonPath('blockReason', null)
-        ->assertJsonPath('routedTo', null);
+        ->assertJsonPath('routedTo', null)
+        // F7 (2026-09-04 overnight sweep): the SPECIFIC gate reason
+        // PlacementPolicy computed must survive to the wire, not the generic
+        // "we'll keep this as a link" line every other Note shares.
+        ->assertJsonPath('explanation', 'reservations are not available for this account');
 
     expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0)
         ->and(app(LinkPoolReader::class)->cards($pro->refresh()))->toHaveCount(1)

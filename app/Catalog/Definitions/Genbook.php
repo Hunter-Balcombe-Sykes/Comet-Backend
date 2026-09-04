@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\Lifecycle;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -34,6 +35,13 @@ class Genbook
                 ->shelf(Shelf::Booking)
                 ->identifier(IdentifierKind::Url)
                 ->refreshEvery(0)
+                // RETIRED 2026-09-03: Booksy acquired Genbook on 2021-09-07 and
+                // sunset it — genbook.com now 301s to booksy.com/biz, so every
+                // genbook.com link a harvest could find is a redirect to a
+                // different brand's marketing page, never a bookable profile.
+                // This is the failure mode a status check cannot catch: the
+                // redirect resolves 200, so "the page loads" proves nothing.
+                ->lifecycle(Lifecycle::Retired)
                 ->detect(
                     Detector::url('genbook.com')->strength(EvidenceStrength::ProfileLink),
                 )

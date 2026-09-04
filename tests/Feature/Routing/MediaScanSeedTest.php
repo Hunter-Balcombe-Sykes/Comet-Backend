@@ -50,17 +50,21 @@ function mediaBioFake(): void
     ]);
 }
 
-it('turns a bio with a channel link and three video links into one connection and three REAL video items', function () {
+it('turns a bio with a channel link and three video links into one suggested connection and three REAL video items', function () {
     Queue::fake();
     $pro = createTenant('media-scan');
     mediaBioFake();
 
     $result = app(LinkInBioImporter::class)->import($pro, 'https://linktr.ee/mediascan', 'bio_harvest');
 
-    expect($result['connected'])->toBe(1)
+    // Since 2026-09-03 the channel link no longer auto-connects (nothing a
+    // harvester finds does) — it lands as a suggestion instead.
+    expect($result['connected'])->toBe(0)
+        ->and($result['suggested'])->toBe(1)
         ->and($result['items'])->toBe(3)
         ->and($result['noted'])->toBe(0)
         ->and($result['probed'])->toBe(0);
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
 
     $items = DB::connection('pgsql')->table('content.items')
         ->where('user_id', $pro->id)->where('kind', 'video')->get();

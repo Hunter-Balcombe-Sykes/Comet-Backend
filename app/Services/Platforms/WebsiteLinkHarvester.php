@@ -131,6 +131,45 @@ class WebsiteLinkHarvester
         'twitch' => '~(^|\.)twitch\.tv$~',
         // Wave 2 (2026-08-28): Deezer joined with a real content connector.
         'deezer' => '~(^|\.)deezer\.com$~',
+        // 2026-09-03: Skool gained a URL detector (see its definition), so a
+        // skool.com link found on someone's site is now a platform we can name
+        // rather than a generic link card. Sits here beside Discord — the
+        // other Community-shelf brand — because this map is keyed by the
+        // legacy platform key, not by shelf.
+        'skool' => '~(^|\.)skool\.com$~',
+        // 2026-09-04: brands the catalog already carried a real host detector
+        // for but this hand-maintained table never learned — each host below
+        // is the brand's own Detector::url() call in app/Catalog/Definitions,
+        // not a guess.
+        //
+        // SIX of the twelve originally added this day were REMOVED again the
+        // same night (F8): cameo, cash_app, paypal, tumblr, venmo and vsco are
+        // all `->notConnectable()` catalog surfaces, and this map is only for
+        // brands that can actually become a connection. Bucketing a detect-only
+        // surface here is the exact mistake the yelp.listing test above warns
+        // about in its own words ("bucketing it would silently reverse that
+        // policy — the single most likely way to get this change wrong"): it
+        // sends the link to LinkRouter::seedSocial(), which resolves the bare
+        // brand key to no surface, trips IntegrationConnection::booted()'s
+        // isKnownSurface() guard, reports an UnregisteredPlatformException, and
+        // degrades to the same plain card the fall-through would have produced
+        // anyway — but with two Nightwatch reports per occurrence. Those six
+        // reach the card cleanly via classifyFromCatalog() instead. Making them
+        // connectable is a product decision (they need connect cards, and half
+        // are payment links rather than profiles), not a bug fix.
+        'bluesky' => '~(^|\.)bsky\.app$~',
+        'buymeacoffee' => '~(^|\.)buymeacoffee\.com$~',
+        'codepen' => '~(^|\.)codepen\.io$~',
+        'gitlab' => '~(^|\.)gitlab\.com$~',
+        'kick' => '~(^|\.)kick\.com$~',
+        // Key is 'ko-fi' (hyphen), NOT the catalog brand_key 'ko_fi'
+        // (underscore) — critic-caught 2026-09-04: LegacyPlatformMap's
+        // inverse lookup is keyed by legacy_platform ('ko-fi', KoFi.php's
+        // own ->legacyPlatform() override, the one brand of these 12 whose
+        // legacy slug diverges from its brand key). An underscore key here
+        // resolved to no real surface downstream, throwing
+        // UnregisteredPlatformException on every live Ko-fi link.
+        'ko-fi' => '~(^|\.)ko-fi\.com$~',
     ];
 
     /**
@@ -451,7 +490,11 @@ class WebsiteLinkHarvester
         // Expanded 2026-07-25
         'spotify' => ['spotify', 'Spotify'],
         'soundcloud' => ['soundcloud', 'SoundCloud'],
-        'deezer' => ['deezer', 'Deezer'],
+        // Surface key, not brand key — Deezer.php declares no
+        // ->legacyPlatform(), so a bare 'deezer' resolved to no surface and
+        // threw on every Deezer link found on a scanned site. Broken since
+        // this row landed (wave 2, 2026-08-28); found by the F8 sweep.
+        'deezer' => ['deezer.artist', 'Deezer'],
         'snapchat' => ['snapchat', 'Snapchat'],
         'threads' => ['threads', 'Threads'],
         'discord' => ['discord', 'Discord'],
@@ -464,7 +507,27 @@ class WebsiteLinkHarvester
         'behance' => ['behance', 'Behance'],
         'dribbble' => ['dribbble', 'Dribbble'],
         'vimeo' => ['vimeo', 'Vimeo'],
+        'skool' => ['skool', 'Skool'],
         'twitch' => ['twitch', 'Twitch'],
+        // 2026-09-04 — paired with the SOCIAL_HOSTS rows added the same day.
+        // The six detect-only brands were removed from both maps the same
+        // night (F8) — see the SOCIAL_HOSTS block for why.
+        //
+        // bluesky names its SURFACE KEY, not its brand key. Bluesky.php
+        // declares no ->legacyPlatform(), so LegacyPlatformMap::surfaceFor()
+        // cannot resolve a bare 'bluesky' and IntegrationConnection::booted()
+        // rejected it — the ko-fi failure below, reached by a different route
+        // (no legacy slug at all, rather than a diverging one). Naming the
+        // surface directly is the same thing ORDERING_PLATFORM and
+        // RESERVATION_PLATFORM already do for all 45 of their entries
+        // ('uber_eats.order', 'thefork.reserve'), and it keeps the fix inside
+        // this map instead of recompiling the catalog for one alias.
+        'bluesky' => ['bluesky.profile', 'Bluesky'],
+        'buymeacoffee' => ['buymeacoffee', 'Buy Me a Coffee'],
+        'codepen' => ['codepen', 'CodePen'],
+        'gitlab' => ['gitlab', 'GitLab'],
+        'kick' => ['kick', 'Kick'],
+        'ko-fi' => ['ko-fi', 'Ko-fi'],
     ];
 
     public function __construct(private readonly SafeUrlFetcher $fetcher) {}
@@ -616,8 +679,9 @@ class WebsiteLinkHarvester
             // classify(), not classifyFromCatalog(): the same promotion the
             // single-URL entry point applies, so the two cannot drift apart
             // again. Only the three promotable categories bucket — a detect-only
-            // surface answers 'link' and stays out, which is what keeps the 24
-            // detect-only socials (ko-fi, paypal.me, yelp.listing…) out of
+            // surface answers 'link' and stays out, which is what keeps the
+            // remaining detect-only socials (yelp.listing, trustpilot.listing…
+            // — anything not hand-added to SOCIAL_HOSTS above) out of
             // $socials. Do NOT add a socials arm; that reverses the decision.
             // Cost is one pure projector call per otherwise-unmatched link:
             // 7.3ms -> 22.4ms on a 1000-link page, 1.32ms on a realistic 60-link
@@ -706,9 +770,14 @@ class WebsiteLinkHarvester
         }
 
         foreach (self::SOCIAL_HOSTS as $key => $pattern) {
-            // No isset() guard needed: SOCIAL_PLATFORM is hand-maintained with the
-            // exact same 7 keys as SOCIAL_HOSTS, so the lookup below can never
-            // miss for a $key drawn from this loop.
+            // No isset() guard needed: SOCIAL_PLATFORM is hand-maintained with
+            // the exact same keys as SOCIAL_HOSTS, so the lookup below can
+            // never miss for a $key drawn from this loop. ADD TO BOTH MAPS —
+            // a row in only one is an undefined-key ErrorException here, not a
+            // missed classification (it happened adding Skool, 2026-09-03).
+            // The count was written as "7 keys" when there were 7; it drifted
+            // to 24 without the sentence being corrected, which is exactly the
+            // reading that makes someone add to one map and stop.
             if (preg_match($pattern, $host) && $this->looksLikeProfile($url)) {
                 [$platform, $label] = self::SOCIAL_PLATFORM[$key];
 
@@ -817,6 +886,272 @@ class WebsiteLinkHarvester
             // No brand key of its own yet — the generic events-pool reader
             // covers a pasted Meetup event page; scans card it.
             return ['platform' => 'events-custom', 'category' => 'event', 'label' => 'Meetup'];
+        }
+
+        // 2026-09-04 — fourteen brands added from live-researched path
+        // grammars (research phase this same run): each catalog entry above
+        // was a MarketplaceListing host-only detect-only surface (or, for
+        // bandsintown/dice/songkick, an existing artist/venue path capture
+        // this reclassifies as event-organiser and pairs with a new event
+        // shape), and none of them could tell a single event apart from an
+        // organiser/venue listing page — this block is what makes that
+        // distinction, same job Eventbrite/Humanitix do above.
+        if (preg_match('~(^|\.)(admitone\.com|admitonelive\.com)$~', $host)) {
+            // Two hosts, NOT one shape — critic-caught 2026-09-04: the
+            // original comment here assumed admitonelive.com shared
+            // admitone.com's grammar since it wasn't independently curled;
+            // corpus-real.php's actual recorded URLs
+            // (tickets.admitonelive.com/event/dropout-improv-vancouver-9812776)
+            // use a singular /event/<slug>-<numericId> path, not the plural
+            // /events/.../<24-hex-ObjectId> shape below. Both branches kept,
+            // now genuinely per-host. /organizer/ first: it is the venue's
+            // own multi-event listing page, the same hazard Eventbrite's /o/
+            // and Humanitix's /host/ guard against.
+            $path = (string) parse_url($url, PHP_URL_PATH);
+            if (preg_match('~^/organizer/~i', $path)) {
+                return ['platform' => 'admitone', 'category' => 'event-organiser', 'label' => 'AdmitONE'];
+            }
+            // The trailing 24-char hex Mongo ObjectId is load-bearing: a
+            // bare /events/<city> path is a city LISTING page (confirmed
+            // live, title "Events in Vancouver"), not an event.
+            if (preg_match('~^/events/.+/[0-9a-f]{24}(?:[/?#]|$)~i', $path)) {
+                return ['platform' => 'admitone', 'category' => 'event', 'label' => 'AdmitONE'];
+            }
+            // tickets.admitonelive.com's real shape: singular /event/, a
+            // slug, then a trailing numeric id (not hex, not 24-char).
+            if (preg_match('~^/event/[a-z0-9-]+-\d+/?$~i', $path)) {
+                return ['platform' => 'admitone', 'category' => 'event', 'label' => 'AdmitONE'];
+            }
+        }
+        if (preg_match('~(^|\.)etix\.com$~', $host)) {
+            // Live content could not be fetched (AWS WAF JS challenge on
+            // every /ticket/... path) — shape rests on a followed 301
+            // (viewPerformanceGroup.jsp -> /ticket/o/og/<id>/<slug>) and
+            // indexed page titles, not a curled body. /v/<venueId> and
+            // /o/og/<groupId> are both multi-date listings (a venue's own
+            // page, or a tour/performance-group spanning many dates) —
+            // event-organiser, checked before the single-performance /p/.
+            $path = (string) parse_url($url, PHP_URL_PATH);
+            if (preg_match('~^/ticket/(?:v/\d+|o/og/\d+)~i', $path)) {
+                return ['platform' => 'etix', 'category' => 'event-organiser', 'label' => 'Etix'];
+            }
+            if (preg_match('~^/ticket/p/\d+~i', $path)) {
+                return ['platform' => 'etix', 'category' => 'event', 'label' => 'Etix'];
+            }
+        }
+        if (preg_match('~(^|\.)eventfinda\.(?:com\.au|co\.nz|com)$~', $host)) {
+            // Event shape is a bare year-prefixed path: /{YYYY}/{slug}/{city}
+            // [/{suburb}]. No promoter/organiser page shape exists on this
+            // brand (checked) — /venue/<slug> is a multi-year listing but
+            // simply fails this regex and falls through, same as
+            // Ticketmaster's artist pages.
+            if (preg_match('~^/(?:19|20)\d{2}/[a-z0-9-]+/[a-z0-9-]+(?:/[a-z0-9-]+)?/?$~i', (string) parse_url($url, PHP_URL_PATH))) {
+                return ['platform' => 'eventfinda', 'category' => 'event', 'label' => 'Eventfinda'];
+            }
+        }
+        if (preg_match('~(^|\.)eventim\.(?:de|com|co\.uk|fr|nl|pl)$~', $host)) {
+            // No TLDS const on Eventim.php to drive brandTldRegex() — its
+            // six catalog hosts are inlined here instead. Every regional TLD
+            // tested (de, co.uk; fr/nl/pl/com inferred, same CTS Eventim
+            // codebase) shares one /event/<slug>-<id>/ shape, including
+            // under a locale prefix (/en/event/...) — Ticketmaster-style
+            // substring match is robust to that. /artist/<slug> is a
+            // tour-wide browse page (all dates), not a seller account —
+            // deliberately not given an event-organiser arm, it just fails
+            // to contain '/event/' and falls through.
+            if (str_contains(strtolower((string) parse_url($url, PHP_URL_PATH)), '/event/')) {
+                return ['platform' => 'eventim', 'category' => 'event', 'label' => 'Eventim'];
+            }
+        }
+        if (preg_match('~(^|\.)megatix\.com\.au$~', $host)) {
+            // Path-gated (unlike Ticketek's unconditional host match) because
+            // this host does carry real non-event marketing pages
+            // (/sell-tickets, /orders). Two confirmed single-event shapes:
+            // /events/<slug> and /white-label/<slug> (a rebranded
+            // single-promoter checkout). No organiser/venue listing shape
+            // exists anywhere on the site (catalog docblock's own claim,
+            // independently reconfirmed).
+            $megatixPath = (string) parse_url($url, PHP_URL_PATH);
+            if (preg_match('~^/(?:events|white-label)/[a-z0-9-]+~i', $megatixPath)) {
+                return ['platform' => 'megatix', 'category' => 'event', 'label' => 'Megatix'];
+            }
+            // Critic-caught 2026-09-04: corpus-real.php also has a
+            // bare-root-slug shape with neither prefix
+            // (megatix.com.au/SnowMachineQueenstownAud) — the site mints
+            // some event slugs straight off the root.
+            //
+            // That branch first shipped with a hand-enumerated denylist, which
+            // was written from imagination rather than from the site: it named
+            // paths megatix does not serve ('cart', 'checkout', 'register')
+            // while missing three it does — /privacy-policy, /terms-conditions
+            // and /support all classified as EVENTS, so pasting a legal page
+            // was told "that belongs on your Events page" and could then be
+            // added to the events pool, since this grammar answer is the only
+            // server-side gate there. An enumeration cannot win this: the next
+            // -policy/-conditions/-centre variant is always unlisted.
+            //
+            // So: SHAPE first, words only for what shape cannot see. Megatix's
+            // real root slugs are minted from event titles and are CamelCase
+            // or a single lowercase word (SnowMachineQueenstownAud, miniraves,
+            // Restricted — all three of the confirmed genuine ones); its
+            // chrome is kebab-case. An all-lowercase slug containing a hyphen
+            // is therefore chrome, whatever it is called. A genuine
+            // lowercase-hyphenated event would fall through to a link card,
+            // which is this file's stated safe default (see the skiddle arm).
+            //
+            // The word list stays for single lowercase words, where shape says
+            // nothing. It is NOT shared with HumanitixScraper::NON_EVENT_SLUGS
+            // or PastedLinkClassifier::PROFILE_CHROME even though all three
+            // look alike: those answer different questions, and the latter
+            // holds 'events' and 'video', which are not chrome on a ticketing
+            // root.
+            if (preg_match('~^/([A-Za-z0-9-]{4,})/?$~', $megatixPath, $m)) {
+                $slug = $m[1];
+                $lower = strtolower($slug);
+                $kebabChrome = $slug === $lower && str_contains($slug, '-');
+                $wordChrome = in_array($lower, [
+                    'about', 'account', 'blog', 'careers', 'cart', 'checkout',
+                    'contact', 'cookies', 'events', 'faq', 'faqs', 'help',
+                    'legal', 'login', 'orders', 'press', 'pricing', 'privacy',
+                    'refunds', 'register', 'search', 'sell', 'signin', 'signup',
+                    'support', 'terms',
+                ], true);
+
+                if (! $kebabChrome && ! $wordChrome) {
+                    return ['platform' => 'megatix', 'category' => 'event', 'label' => 'Megatix'];
+                }
+            }
+        }
+        if (preg_match('~(^|\.)moshtix\.com\.au$~', $host)) {
+            // /v2/venues/<slug>/<id> is a venue's own rolling listing of 90+
+            // gigs (confirmed live) — the Humanitix /host/ hazard, checked
+            // first. /v2/event/<slug>/<id> is the single-ticket page. No
+            // artist entity page shape exists (catalog docblock).
+            $path = (string) parse_url($url, PHP_URL_PATH);
+            if (preg_match('~^/v2/venues/[a-z0-9-]+/\d+~i', $path)) {
+                return ['platform' => 'moshtix', 'category' => 'event-organiser', 'label' => 'Moshtix'];
+            }
+            if (preg_match('~^/v2/event/[a-z0-9-]+/\d+~i', $path)) {
+                return ['platform' => 'moshtix', 'category' => 'event', 'label' => 'Moshtix'];
+            }
+        }
+        if (preg_match('~(^|\.)tickethype\.com\.mt$~', $host)) {
+            // Every event lives at a bare single-segment slug under the
+            // root — no /events/ prefix at all on this brand. The domain
+            // root itself is a host-wide marketplace index (not one
+            // promoter's page), excluded by requiring a non-empty path
+            // segment rather than a bespoke event-organiser arm. Same
+            // unconditional-host-family risk Ticketek/Oztix/TryBooking
+            // already accept below.
+            if (preg_match('~^/[a-z0-9][a-z0-9-]{2,}~i', (string) parse_url($url, PHP_URL_PATH))) {
+                return ['platform' => 'tickethype', 'category' => 'event', 'label' => 'TicketHype'];
+            }
+        }
+        if (preg_match('~(^|\.)tixr\.com$~', $host)) {
+            // /groups/<org>/events/<slug> is the single-event page;
+            // /groups/<org> alone (no /events/ suffix) is the promoter/venue
+            // landing page — directly analogous to Eventbrite's /o/<slug>.
+            // The two shapes never overlap (the event shape always has a
+            // further /events/ segment), so order is not load-bearing, but
+            // organiser is checked first to match the Eventbrite/Humanitix
+            // precedence style. NOT requiring a literal "--" before the
+            // trailing id: the finding's own confirmed example
+            // (.../events/riot-fest-2026-158068) uses a single dash, so a
+            // double-dash requirement would have missed its own evidence.
+            $path = (string) parse_url($url, PHP_URL_PATH);
+            if (preg_match('~^/groups/[a-z0-9-]+/?$~i', $path)) {
+                return ['platform' => 'tixr', 'category' => 'event-organiser', 'label' => 'Tixr'];
+            }
+            if (preg_match('~^/groups/[a-z0-9-]+/events/[a-z0-9-]+~i', $path)) {
+                return ['platform' => 'tixr', 'category' => 'event', 'label' => 'Tixr'];
+            }
+        }
+        if (preg_match('~(^|\.)seetickets\.com$~', $host)) {
+            // (^|\.) also covers the white-label promoter subdomains this
+            // brand runs on the same path shape (e.g.
+            // mutations.seetickets.com/event/...). /tour/<artist> is a
+            // multi-date tour listing — it simply does not contain '/event/'
+            // and falls through, same as a Ticketmaster artist page; no
+            // bespoke event-organiser arm needed.
+            if (str_contains(strtolower((string) parse_url($url, PHP_URL_PATH)), '/event/')) {
+                return ['platform' => 'see_tickets', 'category' => 'event', 'label' => 'See Tickets'];
+            }
+        }
+        if (preg_match('~(^|\.)skiddle\.com$~', $host)) {
+            // /g/<slug> is a promoter/brand "group" page (curl-confirmed,
+            // og:type="group") — the clearest organiser shape found, checked
+            // first. Event shape requires the trailing numeric id under
+            // /whats-on/ (a bare City/ or City/Venue/ path is a browse page,
+            // not an event). A secondary venue-listing organiser shape was
+            // also found (/whats-on/City/Venue/, no trailing id) but with
+            // only one example verified — left unclassified rather than
+            // guessed; it already fails the event regex below and falls
+            // through to a link card, which is the safe default.
+            $path = (string) parse_url($url, PHP_URL_PATH);
+            if (preg_match('~^/g/[^/]+/?$~i', $path)) {
+                return ['platform' => 'skiddle', 'category' => 'event-organiser', 'label' => 'Skiddle'];
+            }
+            if (preg_match('~^/whats-on/(?:[^/]+/){2,}\d+/?$~i', $path)) {
+                return ['platform' => 'skiddle', 'category' => 'event', 'label' => 'Skiddle'];
+            }
+        }
+        if (preg_match('~(^|\.)ticketweb\.(?:com|co\.uk|ca)$~', $host)) {
+            // No TLDS const on Ticketweb.php — its three catalog hosts are
+            // inlined here. Same '/event/' / '/venue/' substring style as
+            // the Ticketmaster arm above, which is expected: TicketWeb is
+            // Ticketmaster's independent-venue brand on the same software.
+            $path = strtolower((string) parse_url($url, PHP_URL_PATH));
+            if (str_contains($path, '/venue/')) {
+                return ['platform' => 'ticketweb', 'category' => 'event-organiser', 'label' => 'TicketWeb'];
+            }
+            if (str_contains($path, '/event/')) {
+                return ['platform' => 'ticketweb', 'category' => 'event', 'label' => 'TicketWeb'];
+            }
+        }
+        if (preg_match('~(^|\.)bandsintown\.com$~', $host)) {
+            // The catalog's own /a/{id} capture is a multi-show artist
+            // listing ("34 upcoming shows"), not a single event — reclassed
+            // event-organiser here, analogous to Eventbrite's /o/<org>.
+            // /e/{id}-{slug} (new shape, no catalog detector yet) is the
+            // single dated show. The /e/ slug can carry periods/apostrophes
+            // (venue names like "crypto.com-arena"), hence the permissive
+            // [^/?#]+ instead of the stricter charset used for /a/.
+            $path = (string) parse_url($url, PHP_URL_PATH);
+            if (preg_match('~^/a/\d{1,12}(?:-[a-z0-9-]+)?/?$~i', $path)) {
+                return ['platform' => 'bandsintown', 'category' => 'event-organiser', 'label' => 'Bandsintown'];
+            }
+            if (preg_match('~^/e/\d{1,12}(?:-[^/?#]+)?/?$~i', $path)) {
+                return ['platform' => 'bandsintown', 'category' => 'event', 'label' => 'Bandsintown'];
+            }
+        }
+        if (preg_match('~(^|\.)dice\.fm$~', $host)) {
+            // The catalog's own capture (all four entity kinds share one
+            // grammar) is a multi-show profile page — reclassed
+            // event-organiser. /event/{slug} (new shape) embeds a
+            // schema.org MusicEvent with one startDate/endDate/location: a
+            // genuine single show. The two prefixes never collide.
+            $path = (string) parse_url($url, PHP_URL_PATH);
+            if (preg_match('~^/(?:artist|venue|promoter|partner)/[a-z0-9-]+/?$~i', $path)) {
+                return ['platform' => 'dice', 'category' => 'event-organiser', 'label' => 'DICE'];
+            }
+            if (preg_match('~^/event/[a-z0-9-]+/?$~i', $path)) {
+                return ['platform' => 'dice', 'category' => 'event', 'label' => 'DICE'];
+            }
+        }
+        if (preg_match('~(^|\.)songkick\.com$~', $host)) {
+            // The catalog's own /artists/{id} capture is a tour-schedule
+            // listing ("AC/DC Full Tour Schedule") — reclassed
+            // event-organiser. /concerts/{id}-{slug} (new shape) is one
+            // dated show. The regex requires digits immediately after
+            // /concerts/, which excludes both /concerts/similar-to/{id}-…
+            // and the bare /concerts discovery page.
+            $path = (string) parse_url($url, PHP_URL_PATH);
+            if (preg_match('~^/artists/\d{1,12}(?:-[a-z0-9-]+)?/?$~i', $path)) {
+                return ['platform' => 'songkick', 'category' => 'event-organiser', 'label' => 'Songkick'];
+            }
+            if (preg_match('~^/concerts/\d{1,12}(?:-[a-z0-9-]+)?/?$~i', $path)) {
+                return ['platform' => 'songkick', 'category' => 'event', 'label' => 'Songkick'];
+            }
         }
 
         foreach (self::SHOP_HOSTS as $label => $pattern) {

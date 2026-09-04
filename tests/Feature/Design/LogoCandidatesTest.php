@@ -99,10 +99,53 @@ it('promote turns the chosen candidate into the slot singleton and settles the s
 
 it('promote refuses a foreign or already-settled id', function () {
     [$user, $site] = lcandSignupBusiness('lcandforeign');
+    [, $otherSite] = lcandSignupBusiness('lcandforeignb');
+
+    // A REAL candidate of another site, bytes and all. A bare Str::uuid() is
+    // absent, not foreign: promote() would refuse it at the `id` lookup and
+    // never reach the site_id scope, so dropping that scope would not have
+    // failed this test. The mirrored bytes matter for the same reason — a
+    // missing object also returns false, which would mask the leak.
+    // (UploadedFile::fake() unlinks on destruct, so hold it.)
+    $fake = UploadedFile::fake()->image('logo.png', 200, 200);
+    $png = file_get_contents($fake->getRealPath());
+    expect(app(LogoCandidates::class)->store($otherSite, 'square', 'https://example.com/foreign.png', $png, 'image/png', 60, 200, 200))->toBeTrue();
+
+    $foreign = lcandRows($otherSite)[0];
+    $disk = Storage::disk(app(ImageVariantService::class)->resolvedDiskName());
+    expect($disk->exists((string) $foreign->storage_path))->toBeTrue();
 
     $uploads = Mockery::mock(MediaUploadService::class);
     $uploads->shouldNotReceive('uploadSingleton');
-
     $service = new LogoCandidates(app(ImageVariantService::class), $uploads);
-    expect($service->promote($user, $site, (string) Str::uuid()))->toBeFalse();
+
+    expect($service->promote($user, $site, (string) $foreign->id))->toBeFalse()
+        ->and($service->promote($user, $site, (string) Str::uuid()))->toBeFalse();
+
+    // The foreign row is untouched — a refusal that still settled it would
+    // burn another site's candidate.
+    expect((string) lcandRows($otherSite)[0]->state)->toBe('proposed');
+});
+
+it('promote refuses a candidate of its own site that is already settled', function () {
+    // The other half of the name above, which had never been exercised:
+    // promote() also requires state = 'proposed', so a promoted id must not
+    // be re-promotable into a second singleton upload.
+    [$user, $site] = lcandSignupBusiness('lcandsettled');
+
+    $fake = UploadedFile::fake()->image('logo.png', 200, 200);
+    $png = file_get_contents($fake->getRealPath());
+    expect(app(LogoCandidates::class)->store($site, 'square', 'https://example.com/a.png', $png, 'image/png', 60, 200, 200))->toBeTrue();
+    $id = (string) lcandRows($site)[0]->id;
+
+    $uploads = Mockery::mock(MediaUploadService::class);
+    $uploads->shouldReceive('uploadSingleton')->once()->andReturn(new SiteMedia);
+    $service = new LogoCandidates(app(ImageVariantService::class), $uploads);
+
+    expect($service->promote($user, $site, $id))->toBeTrue()
+        ->and((string) lcandRows($site)[0]->state)->toBe('promoted');
+
+    // Second call: the `once()` above is the assertion — a re-promote would
+    // upload a second singleton and fail the expectation.
+    expect($service->promote($user, $site, $id))->toBeFalse();
 });

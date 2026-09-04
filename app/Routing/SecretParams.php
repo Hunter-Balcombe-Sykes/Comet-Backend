@@ -43,7 +43,19 @@ final class SecretParams
      */
     // 'restref' (lowercased restRef): OpenTable's booking-widget id param —
     // same numeric id space as rid (M-3, 2026-08-21).
-    private const IDENTITY_PARAMS = ['rid', 'accountid', 'venueid', 'restref'];
+    //
+    // 'shopid' / 'studioid' / 'owner' joined 2026-09-03 with the pattern fleet:
+    // HungryPanda, Mindbody and Acuity all identify the account in the QUERY
+    // rather than the path, so their new detectors would have had their
+    // identity param stripped as a suspected secret and demoted to Note. This
+    // is the exact failure the pin exists to catch, and it caught it.
+    //
+    // 'event' / 'sh' joined later the same day, from the real-URL sweep's L1
+    // pass: Oztix and Ticketek both name the thing in the query. 'sh' is two
+    // letters, which SECRET_SEGMENTS avoids on collision grounds — that
+    // caution is about guessing a name is a SECRET, and does not apply to
+    // naming one exactly as an identity.
+    private const IDENTITY_PARAMS = ['rid', 'accountid', 'venueid', 'restref', 'shopid', 'studioid', 'owner', 'event', 'sh'];
 
     /**
      * Segment vocabulary. Deliberately excludes `mac` (macOS/`mac_address`

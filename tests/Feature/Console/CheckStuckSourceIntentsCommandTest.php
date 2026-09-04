@@ -32,10 +32,9 @@ function seedSourceIntent(array $overrides = []): string
         'identifier' => 'store-'.$id,
         'canonical_url' => null,
         'state' => 'proposed',
-        'block_reason' => 'below_threshold',
+        'block_reason' => 'needs_confirmation',
         'conflicting_connection_id' => null,
         'connection_id' => null,
-        'confidence' => 60,
         // 'import' is NOT in routing.source_intents' origin domain
         // (20260727120000_routing_schema.sql). This seeded an invalid row that
         // only passed because the SQLite stand-in had no CHECK — the exact
@@ -115,4 +114,22 @@ it('a blocked intent past the age gate is counted toward the backlog', function 
     $this->artisan('routing:stuck-intents')->assertExitCode(0);
 
     Exceptions::assertReported(fn (StuckSourceIntentBacklogException $e) => $e->stuckCount === 1);
+});
+
+it('does not count a settled sibling branch — a row nobody can answer is not stuck', function () {
+    // 2026-09-03. A chain's locations page yields one booking link per branch,
+    // and the booking XOR held every one after the first. Those rows are now
+    // recorded `sibling_branch` and deliberately never rendered
+    // (SuggestionsController::index), so counting them here would be the exact
+    // divergence this command's docblock warns about — an alarm drifting
+    // upward with no path back down, because nobody can answer a card they
+    // cannot see. Unlike the already-connected case there is no settle command
+    // to close them, so the exclusion has to live here.
+    Exceptions::fake();
+    config()->set('partna.routing.intents.stuck_alert_threshold', 0);
+    seedSourceIntent(['state' => 'blocked', 'block_reason' => 'sibling_branch']);
+
+    $this->artisan('routing:stuck-intents')->assertExitCode(0);
+
+    Exceptions::assertNothingReported();
 });

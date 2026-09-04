@@ -2,6 +2,7 @@
 
 namespace App\Routing\Importers;
 
+use App\Catalog\LegacyPlatformMap;
 use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
@@ -632,6 +633,27 @@ class LinkInBioImporter
 
             $result = $this->routing->route($url, $context);
 
+            // An ITEM claim beats every account answer — WebsiteLinkHarvester
+            // says so in classify()'s own docblock, and MediaPageReader applies
+            // the same precedence internally. Asked HERE, before the verdict is
+            // read, because until 2026-09-03 it was only ever asked on the Note
+            // branch and so held by accident: a bandcamp /track/ URL reached
+            // Note because it scored below the suggest threshold, not because
+            // anything had decided it was a track. Deleting the thresholds took
+            // that away — the same URL now projects to bandcamp.artist with the
+            // subdomain as its identifier, which is a perfectly good ACCOUNT
+            // answer to a question nobody asked, and Kim Cosmik's two releases
+            // turned into "Is this your Bandcamp?" instead of landing in the
+            // listen pool. The rule was never about a number; now it does not
+            // depend on one.
+            //
+            // Still after route(), so the observation ledger records the
+            // decision either way: "why is this a library item rather than a
+            // connection?" has to stay answerable.
+            if ($this->seedContentItem($url, $context, $tally)) {
+                continue;
+            }
+
             match ($result['verdict']) {
                 'place' => $this->handlePlaced($url, $result, $context, $tally, $placedKeys),
                 'choose', 'hold' => $tally['suggested']++,
@@ -872,6 +894,51 @@ class LinkInBioImporter
      * @param  array<string, true>  $probedHosts
      * @param  array<string, int>  $droppedReasons  reason => count, for the run detail
      */
+    /**
+     * T6 (2026-08-20): media ITEMS — a video/track/release/episode URL becomes
+     * a real watch/listen pool item (library, never auto-pinned), the media
+     * twin of handleUnrouted()'s events arm. The grammar is MediaPageReader's
+     * own (shared via classify), so the scan lane and the paste lane can never
+     * disagree about what an item is. A failed read or a tombstoned item cards
+     * the link — nothing vanishes. Spends NO commerce budget.
+     *
+     * Lifted out of handleUnrouted() 2026-09-03 so it is asked of every link
+     * rather than only of the ones that happened to reach Note; see the call
+     * site for what the confidence deletion exposed.
+     *
+     * @param  array{connected:int, suggested:int, noted:int, items:int, probed:int, dropped:int, folded:int, skipped_chrome:int}  $tally
+     * @return bool true when this URL was handled as an item and needs no verdict
+     */
+    private function seedContentItem(string $url, RoutingContext $context, array &$tally): bool
+    {
+        // A pre-account build has no user, so there is nothing to seed onto and
+        // no card to fall back to — the same reason handleUnrouted() bails on a
+        // null user before its own arms.
+        if ($context->user === null) {
+            return false;
+        }
+
+        if (($this->harvester->classify($url)['category'] ?? null) !== 'content-item') {
+            return false;
+        }
+
+        try {
+            $seeded = $this->media->seedItem($context->user, $url, origin: $context->origin);
+        } catch (\Throwable $e) {
+            report($e);
+            $seeded = null;
+        }
+
+        if ($seeded !== null) {
+            $tally['items']++;
+        } else {
+            $tally['noted']++;
+            $this->seeder->seedCustom($context->user, $url);
+        }
+
+        return true;
+    }
+
     private function handleUnrouted(string $url, array $result, RoutingContext $context, array &$tally, array &$probedHosts, array &$droppedReasons, array &$placedKeys): void
     {
         // A pre-account build has no user, so nothing can be carded or probed;
@@ -886,31 +953,6 @@ class LinkInBioImporter
 
         if ($result['verdict'] === 'note') {
             $classified = $this->harvester->classify($url);
-
-            // T6 (2026-08-20): media ITEMS — a video/track/release/episode
-            // URL becomes a real watch/listen pool item (library, never
-            // auto-pinned), the media twin of the events arm below. The
-            // grammar is MediaPageReader's own (shared via classify), so the
-            // scan lane and the paste lane can never disagree about what an
-            // item is. A failed read or a tombstoned item cards the link —
-            // nothing vanishes. Spends NO commerce budget.
-            if (($classified['category'] ?? null) === 'content-item') {
-                try {
-                    $seeded = $this->media->seedItem($context->user, $url, origin: $context->origin);
-                } catch (\Throwable $e) {
-                    report($e);
-                    $seeded = null;
-                }
-
-                if ($seeded !== null) {
-                    $tally['items']++;
-                } else {
-                    $tally['noted']++;
-                    $this->seeder->seedCustom($context->user, $url);
-                }
-
-                return;
-            }
 
             // Standalone EVENT pages (an Eventbrite /e/… link, a Humanitix
             // event) carry a Note-strength detector at best — never a
@@ -999,9 +1041,23 @@ class LinkInBioImporter
             }
             // A page of a platform the person already has connected is not
             // a link card beside the connection — fold it (2026-09-02).
+            //
+            // classify() answers a dotted SURFACE KEY for every catalog-only
+            // brand (calendly.book, uber_eats.order, deezer.artist, …) and a
+            // legacy slug for the rest, while `platform` is a GENERATED column
+            // holding only the brand prefix. Asking the generated column with a
+            // dotted key can never hit, so the fold silently never fired for
+            // those brands and a duplicate card was published beside the live
+            // connection. Either-match rather than a straight swap: a legacy
+            // slug must keep matching every surface of its brand
+            // (spotify.artist AND spotify.show), which only the generated
+            // column expresses.
             $slug = is_array($classified ?? null) ? $classified['platform'] : '';
+            $surface = $slug === '' ? '' : (LegacyPlatformMap::surfaceFor($slug) ?? $slug);
             if ($slug !== ''
-                && IntegrationConnection::query()->where('user_id', $context->user->id)->where('platform', $slug)->whereNull('deleted_at')->exists()) {
+                && IntegrationConnection::query()->where('user_id', $context->user->id)
+                    ->where(fn ($q) => $q->where('platform', $slug)->orWhere('surface_key', $surface))
+                    ->whereNull('deleted_at')->exists()) {
                 $tally['folded']++;
 
                 return;

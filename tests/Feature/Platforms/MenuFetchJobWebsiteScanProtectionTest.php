@@ -75,6 +75,7 @@ it('protects website-scan-sourced menu content from an ordering-platform rebuild
                 ['name' => 'Cola', 'pickupPrice' => 3.0, 'deliveryPrice' => 3.0],
             ]]],
         ]]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     (new MenuFetchJob((string) $user->id, false))->handle(
@@ -137,6 +138,7 @@ it('reports (but does not fail the scrape on) a scan-reapply failure (R3-OBS-3)'
                 ['name' => 'Cola', 'pickupPrice' => 3.0, 'deliveryPrice' => 3.0],
             ]]],
         ]]);
+        $m->shouldReceive('lastFailureReasons')->andReturn([]);
     });
 
     $this->mock(MenuScanApplier::class, function ($m) {

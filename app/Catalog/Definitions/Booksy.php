@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -38,6 +39,18 @@ class Booksy
                 ->refreshEvery(0)
                 ->detect(
                     Detector::url('booksy.com')->strength(EvidenceStrength::ProfileLink),
+                    // Business profile paths carry a leading numeric business
+                    // id before the slug: /<locale>/<id>_<slug>_<category>_
+                    // <city-id>_<city> (verified live, booksy.com/en-us
+                    // search results). Category-listing pages (/en-us/s/...)
+                    // and account paths have no leading digit, so they can't
+                    // match this without a reject list.
+                    Detector::url('booksy.com')
+                        ->path('#^/[a-z]{2}-[a-z]{2}/(?<id>\d+)_#')
+                        ->captures('id')
+                        ->from(IdentifierSource::Path)
+                        ->strength(EvidenceStrength::DeepLinkWithSlug)
+                        ->note('e.g. https://booksy.com/en-us/904207_hairgameconcepts-by-adorned_hair-salon_134655_los-angeles'),
                 )
                 ->build(),
         ];

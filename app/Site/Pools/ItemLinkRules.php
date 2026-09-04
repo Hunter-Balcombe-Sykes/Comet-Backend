@@ -23,18 +23,50 @@ class ItemLinkRules
 {
     /** @var array<string, list<string>> pool → the platforms a link may name */
     public const ROSTER = [
-        'watch' => ['youtube', 'vimeo', 'twitch'],
+        // TikTok joined 2026-09-03: its /@handle/video/<id> shape is a real
+        // `video` kind in MediaPageReader::classifyItem(), so the pool can
+        // hold one — and a roster that omitted it would refuse the hand-added
+        // alternate link for an item the paste lane happily creates.
+        // dailymotion/rumble joined 2026-09-04 overnight run (§1C/W4)
+        // alongside their MediaPageReader::classifyItem() grammar.
+        'watch' => ['youtube', 'vimeo', 'twitch', 'tiktok', 'dailymotion', 'rumble'],
         'listen' => [
             'spotify', 'soundcloud', 'mixcloud', 'tidal',
             'apple-music', 'apple-podcast', 'youtube-music', 'bandcamp',
+            // beatport/hypeddit/audiomack/deezer/feature_fm/laylo/linkfire
+            // joined 2026-09-04 overnight run (§1C/W4) alongside their
+            // MediaPageReader::classifyItem() grammar — beatport/hypeddit
+            // were caught by ItemUrlCorpusTest's cross-file roster check;
+            // the rest added the same pass to close the same gap for every
+            // platform that pass gave classifyItem() coverage to.
+            'beatport', 'hypeddit', 'audiomack', 'deezer', 'feature_fm',
+            'laylo', 'linkfire',
         ],
         'media' => ['instagram'],
+        // No entry for 'shop', 'services' or 'custom_links' — not an
+        // oversight. 'custom_links' is a link kind end-to-end, already
+        // documented at PastedLinkClassifier.php:90 ("a card is its
+        // product") — there is no separate platform for a link card to
+        // alternate onto. For 'shop'/'services': a shop item's canonical
+        // source is the connected store and a service item is
+        // owner-authored, so an "alternate platform link" per item isn't a
+        // coherent concept the way it is for a video's alternate host.
+        // Assessed during the 2026-09-04 overnight run (§1E) and closed
+        // WONTFIX, rather than left as an apparent gap for the next reader
+        // to re-investigate.
         // Events-parity (2026-08-19): every events brand the platform knows,
         // not just the two with bespoke scrapers — an event item may carry a
-        // hand-added ticket link on any of them.
+        // hand-added ticket link on any of them. Extended 2026-09-04
+        // overnight run (§1A/W2): 14 more catalog events brands — admitone
+        // through tixr below — were missing from this roster even though
+        // EventPageReader's JSON-LD read is host-agnostic and already ready
+        // for all of them.
         'events' => [
             'eventbrite', 'humanitix', 'luma', 'partiful', 'ticketmaster',
             'ticketek', 'oztix', 'trybooking', 'resident-advisor',
+            'admitone', 'bandsintown', 'dice', 'etix', 'eventfinda',
+            'eventim', 'megatix', 'moshtix', 'see_tickets', 'skiddle',
+            'songkick', 'tickethype', 'ticketweb', 'tixr',
         ],
         // Menus (overnight 2026-08-18, W5): a dish carries one link per
         // ordering platform — the store page on each. Synced links come from
@@ -55,6 +87,7 @@ class ItemLinkRules
         'youtube' => ['youtube.com', 'youtu.be'],
         'vimeo' => ['vimeo.com'],
         'twitch' => ['twitch.tv'],
+        'tiktok' => ['tiktok.com'],
         'spotify' => ['open.spotify.com', 'spotify.link'],
         'soundcloud' => ['soundcloud.com', 'on.soundcloud.com'],
         'mixcloud' => ['mixcloud.com'],
@@ -79,6 +112,42 @@ class ItemLinkRules
         'oztix' => ['oztix.com.au'],
         'trybooking' => ['trybooking.com'],
         'resident-advisor' => ['ra.co', 'residentadvisor.net'],
+        // 14 events brands added 2026-09-04 overnight run (§1A/W2) to close
+        // the roster gap — hosts taken from each brand's own catalog
+        // Detector::url() calls (app/Catalog/Definitions/<Name>.php), none
+        // of which carry a TLDS const, so none get a hostsFor() match arm;
+        // eventfinda/eventim/ticketweb are the multi-host brands among them.
+        'admitone' => ['admitone.com', 'admitonelive.com'],
+        'bandsintown' => ['bandsintown.com'],
+        'dice' => ['dice.fm'],
+        'etix' => ['etix.com'],
+        'eventfinda' => ['eventfinda.com.au', 'eventfinda.co.nz', 'eventfinda.com'],
+        'eventim' => [
+            'eventim.de', 'eventim.com', 'eventim.co.uk',
+            'eventim.fr', 'eventim.nl', 'eventim.pl',
+        ],
+        'megatix' => ['megatix.com.au'],
+        'moshtix' => ['moshtix.com.au'],
+        'see_tickets' => ['seetickets.com'],
+        'skiddle' => ['skiddle.com'],
+        'songkick' => ['songkick.com'],
+        'tickethype' => ['tickethype.com.mt'],
+        'ticketweb' => ['ticketweb.com', 'ticketweb.co.uk', 'ticketweb.ca'],
+        'tixr' => ['tixr.com'],
+        // 7 more item-URL-grammar brands added the same run (§1C/W4), hosts
+        // taken straight from MediaPageReader::classifyItem()'s new arms —
+        // feature_fm/linkfire are host-keyed (item host differs from their
+        // account host, both listed here since a hand-added link only ever
+        // needs the item form).
+        'audiomack' => ['audiomack.com'],
+        'beatport' => ['beatport.com'],
+        'deezer' => ['deezer.com'],
+        'dailymotion' => ['dailymotion.com', 'dai.ly'],
+        'rumble' => ['rumble.com'],
+        'feature_fm' => ['ffm.to'],
+        'hypeddit' => ['hypeddit.com'],
+        'laylo' => ['laylo.com'],
+        'linkfire' => ['lnk.to', 'lnkfi.re'],
     ];
 
     /**
@@ -157,17 +226,98 @@ class ItemLinkRules
     }
 
     /** Host check: the URL must sit on the platform's own domain(s). */
-    /** The roster platform a URL belongs to (by host suffix), or null. */
+
+    /**
+     * The roster platform a URL belongs to (by host suffix), or null.
+     *
+     * MOST SPECIFIC host wins, not the first declared. `urlBelongsTo()` matches
+     * a suffix, so one brand's domain can swallow another brand that lives on a
+     * subdomain of it: `music.youtube.com` ends with `.youtube.com`, and with
+     * first-wins iteration every YouTube Music link answered 'youtube' —
+     * youtube-music was in ROSTER['listen'] but unreachable from a URL, so a
+     * manually-added YouTube Music link was badged YouTube on the public wire,
+     * and PoolResolver's per-platform dedupe (:2456) then dropped it outright
+     * when the item already had a youtube.com link. Found 2026-09-04; it was
+     * the only shadowing pair, and platformForUrlShadowing() below is what
+     * keeps it that way as hosts are added.
+     */
     public static function platformForUrl(string $url): ?string
     {
-        $platforms = [...array_keys(self::HOSTS), 'eventbrite', 'ticketmaster', 'ticketek'];
-        foreach ($platforms as $platform) {
-            if (self::urlBelongsTo($platform, $url)) {
-                return $platform;
+        $best = null;
+        $bestLen = -1;
+        foreach (self::allPlatforms() as $platform) {
+            $len = self::matchedHostLength($platform, $url);
+            if ($len > $bestLen) {
+                $best = $platform;
+                $bestLen = $len;
             }
         }
 
-        return null;
+        return $best;
+    }
+
+    /**
+     * Every platform platformForUrl() considers, in declaration order.
+     *
+     * @return list<string>
+     */
+    public static function allPlatforms(): array
+    {
+        return [...array_keys(self::HOSTS), 'eventbrite', 'ticketmaster', 'ticketek'];
+    }
+
+    /**
+     * Pairs where one platform's host suffix swallows another's host — the
+     * shape that made YouTube Music unreachable.
+     *
+     * A non-empty result is NOT a defect: a brand living on a subdomain of
+     * another brand's domain is a fact about the world, not a mistake in this
+     * file. What must hold is that longest-suffix resolution still answers the
+     * SHADOWED brand for its own hosts, and that is what the test asserts —
+     * pair by pair, for whatever pairs exist at the time it runs. Exposed
+     * rather than kept private so a future host addition is checked by CI
+     * instead of by whoever remembers this comment.
+     *
+     * @return list<array{shadowed: string, shadowing: string, host: string, by: string}>
+     */
+    public static function hostShadowing(): array
+    {
+        $out = [];
+        foreach (self::allPlatforms() as $a) {
+            foreach (self::hostsFor($a) as $hostA) {
+                foreach (self::allPlatforms() as $b) {
+                    if ($a === $b) {
+                        continue;
+                    }
+                    foreach (self::hostsFor($b) as $hostB) {
+                        if ($hostA !== $hostB && str_ends_with($hostA, '.'.$hostB)) {
+                            $out[] = ['shadowed' => $a, 'shadowing' => $b, 'host' => $hostA, 'by' => $hostB];
+                        }
+                    }
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /** Length of the longest host suffix of $platform that $url matches, or -1. */
+    private static function matchedHostLength(string $platform, string $url): int
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        if ($host === '') {
+            return -1;
+        }
+        $host = preg_replace('/^www\./', '', $host) ?? $host;
+
+        $best = -1;
+        foreach (self::hostsFor($platform) as $allowed) {
+            if ($host === $allowed || str_ends_with($host, '.'.$allowed)) {
+                $best = max($best, strlen($allowed));
+            }
+        }
+
+        return $best;
     }
 
     public static function urlBelongsTo(string $platform, string $url): bool

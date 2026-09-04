@@ -43,7 +43,8 @@ class Dribbble
                         ->captures('handle')
                         ->from(IdentifierSource::Path)
                         ->reject('#^/(?:shots|designers|jobs|hiring|pro|learn|stories|tags|session|signup|login|about|search|following|account|pricing|courses|freelance\-jobs|places|buckets|teams|likes|projects|feed)(?:/|$)#i')
-                        ->strength(EvidenceStrength::ProfileLink),
+                        ->strength(EvidenceStrength::ProfileLink)
+                        ->note('e.g. https://dribbble.com/google — verified live 2026-09-03'),
                     Detector::url('dribbble.com')->strength(EvidenceStrength::ProfileLink),
                 )
                 ->build(),

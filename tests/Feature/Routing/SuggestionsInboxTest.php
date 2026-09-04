@@ -40,7 +40,7 @@ function seedIntent(string $userId, array $overrides = []): string
 it('lists what the router recognised but would not act on alone', function () {
     $pro = createTenant('inbox-list');
     seedIntent($pro->id);
-    seedIntent($pro->id, ['identifier' => 'other', 'state' => 'blocked', 'block_reason' => 'below_threshold']);
+    seedIntent($pro->id, ['identifier' => 'other', 'state' => 'blocked', 'block_reason' => 'needs_confirmation']);
     // Applied and dismissed intents are settled: an inbox that re-shows them
     // is an inbox people stop reading.
     seedIntent($pro->id, ['identifier' => 'applied-one', 'state' => 'applied']);
@@ -54,8 +54,8 @@ it('lists what the router recognised but would not act on alone', function () {
 
 it('emits band and preselected so the setup dialog ticks the auto band by default', function () {
     $pro = createTenant('inbox-band');
-    seedIntent($pro->id, ['identifier' => 'auto-one', 'band' => 'auto', 'confidence' => 82]);
-    seedIntent($pro->id, ['identifier' => 'suggest-one', 'band' => 'suggest', 'confidence' => 61]);
+    seedIntent($pro->id, ['identifier' => 'auto-one', 'band' => 'auto']);
+    seedIntent($pro->id, ['identifier' => 'suggest-one', 'band' => 'suggest']);
     seedIntent($pro->id, ['identifier' => 'legacy-one']); // pre-A.1 row, band null
 
     $response = actingAsUser($pro)->getJson('/api/routing/suggestions');
@@ -72,7 +72,7 @@ it('emits band and preselected so the setup dialog ticks the auto band by defaul
 
 it('asks the question in the user\'s words, not the reconciler\'s', function () {
     $pro = createTenant('inbox-question');
-    seedIntent($pro->id, ['state' => 'blocked', 'block_reason' => 'below_threshold']);
+    seedIntent($pro->id, ['state' => 'blocked', 'block_reason' => 'needs_confirmation']);
 
     $response = actingAsUser($pro)->getJson('/api/routing/suggestions');
 
@@ -142,9 +142,14 @@ it('dispatches the enrichment fetch when accepting a content suggestion (F14)', 
     // URL-as-account rows until the next scheduled refresh.
     Queue::fake();
     $pro = createTenant('inbox-accept-fetch');
+    // soundcloud.player, not youtube.channel: youtube is one of the six
+    // surfaces the L2 verifier can check, so accepting one now parks the intent
+    // at 202/verifying instead of connecting in the same request (pinned by
+    // LinkVerificationLaneTest). SoundCloud is content-class with a fetch
+    // capability and no verifier, which is the case THIS test is about.
     $intentId = seedIntent($pro->id, [
-        'surface_key' => 'youtube.channel', 'routing_class' => 'content',
-        'identifier' => 'somechannel', 'canonical_url' => 'https://www.youtube.com/@somechannel',
+        'surface_key' => 'soundcloud.player', 'routing_class' => 'content',
+        'identifier' => 'someone', 'canonical_url' => 'https://soundcloud.com/someone',
     ]);
 
     actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
@@ -179,15 +184,18 @@ it('does not re-dispatch the fetch when the accept resolves to an existing row (
     $pro = createTenant('inbox-accept-existing');
 
     $existing = new IntegrationConnection([
-        'user_id' => $pro->id, 'surface_key' => 'youtube.channel',
-        'routing_class' => 'content', 'resource_id' => 'somechannel',
-        'payload' => ['username' => 'somechannel'], 'is_active' => true,
+        'user_id' => $pro->id, 'surface_key' => 'soundcloud.player',
+        'routing_class' => 'content', 'resource_id' => 'someone',
+        'payload' => ['username' => 'someone'], 'is_active' => true,
     ]);
     $existing->save();
 
+    // soundcloud.player for the same reason as the test above: youtube.channel
+    // is verifiable now, so an accept there answers 202 before it ever reaches
+    // the create-vs-matched branch this test is written to distinguish.
     $intentId = seedIntent($pro->id, [
-        'surface_key' => 'youtube.channel', 'routing_class' => 'content',
-        'identifier' => 'somechannel', 'canonical_url' => 'https://www.youtube.com/@somechannel',
+        'surface_key' => 'soundcloud.player', 'routing_class' => 'content',
+        'identifier' => 'someone', 'canonical_url' => 'https://soundcloud.com/someone',
     ]);
 
     actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
@@ -417,7 +425,16 @@ it('offers a probed Shopify storefront as a suggestion from a paste (never a pla
     $intent = DB::table('routing.source_intents')->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->first();
     expect($intent)->not->toBeNull()
         ->and($intent->state)->toBe('proposed')
-        ->and($intent->block_reason)->toBe('below_threshold')
+        // No block reason, and that is the correct answer rather than a lost
+        // one: a probe origin is not isConfirmedByUser(), so PlacementPolicy
+        // returns a plain Choose and StoreBrandSeeder's suggest-only downgrade
+        // has nothing to downgrade. That downgrade still fires — and still
+        // stamps 'needs_confirmation' — on the ACCEPT lane for a deep store
+        // path, where confirmed and suggestOnly are true together
+        // (CommerceProbeJob:323-324); the deep-path test below covers it.
+        // Under the confidence system this row read 'below_threshold', naming
+        // a bar it had fallen under. There was no bar.
+        ->and($intent->block_reason)->toBeNull()
         ->and(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
     $inbox = actingAsUser($pro)->getJson('/api/routing/suggestions')->assertOk()->json('suggestions');
     expect(collect($inbox)->firstWhere('surfaceKey', 'shopify.store')['question'])->toBe('Is this your Shopify store?');
@@ -428,12 +445,16 @@ it('offers a probed Shopify storefront as a suggestion from a paste (never a pla
         ->assertStatus(202)
         ->assertJsonPath('status', 'pending')
         ->assertJsonPath('connectionId', null);
-    Queue::assertPushed(CommerceProbeJob::class, fn ($j) => $j->userId === (string) $pro->id && $j->category === 'shop' && $j->suggestOnly === false);
+    Queue::assertPushed(CommerceProbeJob::class, fn ($j) => $j->userId === (string) $pro->id && $j->category === 'shop' && $j->suggestOnly === false && $j->acceptedIntentId === $intent->id);
     expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
 
     // 3. That job (probe answer cached from step 1) places the store: connection
     //    named after the shop, storefront collection, intent applied.
-    app()->call([new CommerceProbeJob((string) $pro->id, 'https://example.org/', 'shop'), 'handle']);
+    //    acceptedIntentId is what SuggestionsController::accept() actually
+    //    dispatches (asserted above) and, since 2026-09-03, the ONLY thing
+    //    that sets `confirmed` on the routing context — without it decide()
+    //    can never mint Place, no matter how confident the projection is.
+    app()->call([new CommerceProbeJob((string) $pro->id, 'https://example.org/', 'shop', acceptedIntentId: $intent->id), 'handle']);
     $connection = IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'shopify.store')->first();
     expect($connection)->not->toBeNull()
         ->and($connection->payload['name'] ?? null)->toBe('Beardbrand')
@@ -506,7 +527,7 @@ it('settles an accepted store the seeder could not build, instead of leaving the
         'routing_class' => 'shop',
         'identifier' => '23504463',
         'canonical_url' => 'https://example.net/collections/star-wars/products/mug',
-        'block_reason' => 'below_threshold',
+        'block_reason' => 'needs_confirmation',
     ]);
 
     Queue::fake();
@@ -556,7 +577,7 @@ it('drops a suggestion for an account the user has already connected by another 
     seedIntent($pro->id, [
         'surface_key' => 'shopify.store', 'routing_class' => 'shop',
         'identifier' => '11461296187', 'canonical_url' => 'https://natalieanne.com/',
-        'block_reason' => 'below_threshold',
+        'block_reason' => 'needs_confirmation',
     ]);
     // A second, genuinely unconnected suggestion — the filter must remove one
     // card, not empty the inbox.
@@ -632,7 +653,7 @@ it('leaves accountName null when the probe lane carries no name', function () {
     seedIntent($pro->id, [
         'surface_key' => 'shopify.store', 'routing_class' => 'shop',
         'identifier' => 'acme', 'canonical_url' => 'https://acme.myshopify.com',
-        'block_reason' => 'below_threshold',
+        'block_reason' => 'needs_confirmation',
     ]);
 
     $card = collect(actingAsUser($pro)->getJson('/api/routing/suggestions')->assertOk()->json('suggestions'))
@@ -674,7 +695,7 @@ it('keeps the reconciler\'s own block reason when an accepted store is refused b
     $intentId = seedIntent($pro->id, [
         'surface_key' => 'shopify.store', 'routing_class' => 'shop',
         'identifier' => '999111', 'canonical_url' => 'https://example.com/',
-        'block_reason' => 'below_threshold',
+        'block_reason' => 'needs_confirmation',
     ]);
 
     Queue::fake();

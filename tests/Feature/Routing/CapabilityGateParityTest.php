@@ -20,6 +20,7 @@
 use App\Catalog\CompiledCatalog;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Routing\LinkValidity;
 use App\Routing\PlacementPolicy;
 use App\Routing\Projection;
 use App\Routing\RoutingContext;
@@ -48,6 +49,29 @@ function cgpSurfaceKeyFor(string $routingClass): string
         // surface (instagram.profile) whose actual routing_class is 'social'.
         default => 'instagram.profile',
     };
+}
+
+/**
+ * A REAL, specific detector id belonging to that surface.
+ *
+ * The synthetic 'cgp-test-detector' this used to pass stopped working on
+ * 2026-09-03, and correctly: PlacementPolicy's Gate 3 asks whether the matched
+ * rule identified an account, LinkValidity treats an id the catalog does not
+ * know as WEAK on purpose ("a detector that no longer exists cannot vouch for
+ * anything"), and a weak match on a shaped surface is now a Note. The fix is
+ * not to exempt the test — it is to hand decide() the kind of projection it
+ * actually receives, which is what the rest of this fixture already aims for.
+ */
+function cgpDetectorIdFor(string $surfaceKey): string
+{
+    $detectors = CompiledCatalog::detectors();
+    foreach (CompiledCatalog::surface($surfaceKey)['detectors'] as $id) {
+        if (isset($detectors[$id]) && LinkValidity::detectorIsSpecific($detectors[$id])) {
+            return (string) $id;
+        }
+    }
+
+    throw new RuntimeException("No specific detector for {$surfaceKey} — catalog fixture drifted.");
 }
 
 /**
@@ -123,10 +147,8 @@ it('gives PlacementPolicy::decide() and SuggestionApplier::apply() the same verd
     // actually receive off a real detector match.
     $projection = new Projection(
         surfaceKey: $surfaceKey,
-        detectorId: 'cgp-test-detector',
+        detectorId: cgpDetectorIdFor($surfaceKey),
         captures: [],
-        confidence: 100,
-        margin: 100,
         identifier: 'cgp-test-id',
         reason: null,
     );

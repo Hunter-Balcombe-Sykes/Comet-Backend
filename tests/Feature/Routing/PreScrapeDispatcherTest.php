@@ -3,6 +3,7 @@
 use App\Jobs\Platforms\FreshaListingCandidatesJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
 use App\Routing\IriCanonicalizer;
 use App\Routing\Placement;
@@ -19,16 +20,30 @@ use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
+    setupPreAccountBuildsTable();
     setupSitesTable();
     setupRoutingTables();
     setupContentTables();
     setupIngestTables();
 });
 
-function preScrapeSignupUser(): User
+function preScrapeSignupUser(bool $outreach = false): User
 {
     $user = User::factory()->create(['status' => 'unclaimed', 'auth_user_id' => null, 'primary_email' => null]);
     Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'prescrape-'.substr($user->id, 0, 8), 'is_published' => false]);
+
+    // The build row is what decides whether we may SPEND on this user
+    // (isSelfServeSignup). Every real unclaimed user has one; the fixture used
+    // to omit it, which is why the outreach case went unnoticed.
+    $build = new PreAccountBuild([
+        'source_type' => 'instagram',
+        'source_ref' => 'PreScrape'.substr($user->id, 0, 6),
+        'source_ref_lc' => 'prescrape'.substr($user->id, 0, 6),
+        'built_via' => $outreach ? PreAccountBuild::VIA_STAFF : PreAccountBuild::VIA_SIGNUP,
+        'expires_at' => now()->addDays(30),
+    ]);
+    $build->user()->associate($user);
+    $build->save();
 
     return $user;
 }
@@ -37,8 +52,8 @@ function preScrapeReconcile(User $user, string $band): void
 {
     $iri = app(IriCanonicalizer::class)->canonicalize('https://www.instagram.com/someone');
     app(SourceReconciler::class)->reconcile(
-        new Placement(Verdict::Choose, 'instagram.profile', 'someone', 'below_threshold', 'held for setup review',
-            confidence: $band === 'auto' ? 75 : 50, band: $band),
+        new Placement(Verdict::Choose, 'instagram.profile', 'someone', 'needs_confirmation', 'held for setup review',
+            band: $band),
         RoutingContext::forUser($user, 'link_in_bio'),
         $iri,
     );
@@ -55,6 +70,32 @@ it('pre-scrapes an auto-band suggestion into a hidden connection with an ingest 
         ->and($connection->visibility)->toBe('hidden')
         ->and(DB::table('routing.source_intents')->where('user_id', $user->id)->value('state'))->toBe('applied')
         ->and(DB::table('ingest.sources')->where('connection_id', $connection->id)->exists())->toBeTrue();
+});
+
+it('never spends on an outreach build, even at the auto band', function () {
+    // The bug this closes: the gate was isSignupBuild(), which is true for ANY
+    // unclaimed non-paste user — so a staff/ManyChat outreach build, which may
+    // sit unclaimed for weeks with nobody to ask, bought the same Apify-billed
+    // scrapes as a person seconds from the setup dialog. 15 of 32 connectors
+    // are CostClass::Actor. The suggestion itself must survive untouched: this
+    // is a spending gate, not a routing change.
+    Queue::fake();
+    $user = preScrapeSignupUser(outreach: true);
+
+    preScrapeReconcile($user, 'auto');
+
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->exists())->toBeFalse()
+        ->and(DB::table('routing.source_intents')->where('user_id', $user->id)->value('state'))->toBe('proposed');
+});
+
+it('still spends on a genuine self-serve signup at the auto band', function () {
+    // The complement — asserts the gate did not simply turn pre-scrape off.
+    Queue::fake();
+    $user = preScrapeSignupUser();
+
+    preScrapeReconcile($user, 'auto');
+
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->exists())->toBeTrue();
 });
 
 it('leaves a suggest-band proposal untouched', function () {
@@ -84,7 +125,7 @@ it('does not pre-scrape for a claimed user', function () {
 
     $iri = app(IriCanonicalizer::class)->canonicalize('https://www.instagram.com/someone');
     app(SourceReconciler::class)->reconcile(
-        new Placement(Verdict::Choose, 'instagram.profile', 'someone', 'below_threshold', 'too close', confidence: 75, band: 'auto'),
+        new Placement(Verdict::Choose, 'instagram.profile', 'someone', 'needs_confirmation', 'too close', band: 'auto'),
         RoutingContext::forUser($pro, 'link_in_bio'),
         $iri,
     );
@@ -108,8 +149,8 @@ it('dispatches the Fresha listing-candidates job at any band', function () {
 
     $iri = app(IriCanonicalizer::class)->canonicalize('https://www.fresha.com/a/anseo-studio-v0v92jna');
     app(SourceReconciler::class)->reconcile(
-        new Placement(Verdict::Choose, 'fresha.book', 'anseo-studio-v0v92jna', 'below_threshold', 'held for setup review',
-            confidence: 50, band: 'suggest'),
+        new Placement(Verdict::Choose, 'fresha.book', 'anseo-studio-v0v92jna', 'needs_confirmation', 'held for setup review',
+            band: 'suggest'),
         RoutingContext::forUser($user, 'link_in_bio'),
         $iri,
     );
@@ -128,8 +169,8 @@ it('skips the Fresha venue read once a candidate already exists', function () {
 
     $iri = app(IriCanonicalizer::class)->canonicalize('https://www.fresha.com/a/anseo-studio-v0v92jna');
     app(SourceReconciler::class)->reconcile(
-        new Placement(Verdict::Choose, 'fresha.book', 'anseo-studio-v0v92jna', 'below_threshold', 'held for setup review',
-            confidence: 50, band: 'suggest'),
+        new Placement(Verdict::Choose, 'fresha.book', 'anseo-studio-v0v92jna', 'needs_confirmation', 'held for setup review',
+            band: 'suggest'),
         RoutingContext::forUser($user, 'link_in_bio'),
         $iri,
     );

@@ -101,4 +101,26 @@ final class RoutingCapabilityGate
 
         return 'workplace_not_identity';
     }
+
+    /**
+     * Whose this connection is — `site.platform_connections.owner_scope`.
+     *
+     * The SAME inference foreignIdentityDenial() makes, minus the class filter:
+     * a link found on the workplace's website or Google listing, on an account
+     * whose workplace is not its identity, belongs to the workplace. Where that
+     * reasoning refuses an ACCOUNT outright, this one keeps an ACTION link (the
+     * barber's booking really is the shop's Fresha) and records whose it is, so
+     * the page can say "Book at Anseo Studio" rather than a bare "Book now".
+     *
+     * Deliberately never returns null: a caller that knows the origin knows the
+     * answer. NULL in the column means nobody ever asked — the state every row
+     * written before 2026-09-03 keeps — and it is not this function's to emit.
+     */
+    public static function ownerScopeFor(User $user, string $origin): string
+    {
+        return in_array($origin, self::WORKPLACE_SOURCED_ORIGINS, true)
+            && ! AccountCapabilities::for($user)->workplace_brand_is_site_identity
+                ? 'workplace'
+                : 'self';
+    }
 }

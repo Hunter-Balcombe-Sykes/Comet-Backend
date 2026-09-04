@@ -147,18 +147,52 @@ it('refuses a known SOCIAL profile with the connect hint, not "unknown" (T3)', f
         ->assertJsonFragment(['message' => 'That looks like an Instagram profile — connect it as a platform to bring its content in automatically, or add it to your Links page.']);
 });
 
-it('never calls a social ITEM url a profile — reels and posts get the honest refusal (T3 critic)', function () {
+it('never calls a social ITEM url a profile — reels get the honest refusal (T3 critic)', function () {
     [$user] = makeShopUser(withSite: true);
 
+    // Instagram has no item grammar: a reel is not a profile, and saying so
+    // ("we don't recognise this") is the honest answer. Giving it the profile
+    // hand-off would tell someone to connect an account they just pasted a
+    // single post from.
     actingAsUser($user)->postJson('/api/content/pools/watch/items', [
         'url' => 'https://www.instagram.com/reel/Cxxxxxxxxxx/',
     ])->assertStatus(422)
         ->assertJsonFragment(['message' => "We don't recognise this link as a video — add it to your Links page instead."]);
+});
+
+it('takes a TikTok video into Watch, and still hands off its profile', function () {
+    // TikTok used to sit in the case above, refused as unrecognised. That was
+    // a GAP, not a decision (2026-09-03): its /@handle/video/<id> shape is as
+    // plain as YouTube's, and its oEmbed is public and unauthenticated. The
+    // property the case above defends — an item is never called a profile —
+    // is unchanged and now proven from the other side: the video is taken,
+    // and only the bare handle gets the connect hand-off.
+    [$user] = makeShopUser(withSite: true);
+    mipMockFetch([
+        'tiktok.com/oembed' => json_encode([
+            'title' => 'Rip The Script',
+            'thumbnail_url' => 'https://p16.tiktokcdn.com/cover.jpg',
+            'author_url' => 'https://www.tiktok.com/@nike',
+        ]),
+    ]);
+
+    $res = actingAsUser($user)->postJson('/api/content/pools/watch/items', [
+        'url' => 'https://www.tiktok.com/@nike/video/7647200302189251854?is_from_webapp=1',
+    ])->assertCreated();
+
+    $item = collect($res->json('selection'))->firstWhere('headline', 'Rip The Script');
+    expect($item)->not->toBeNull()
+        ->and($item['kind'])->toBe('video');
+
+    // Share junk is stripped: the canonical is what folds a pasted item onto
+    // its synced twin, so it must not carry the query string it arrived with.
+    expect(DB::table('content.f_link')->value('url'))
+        ->toBe('https://www.tiktok.com/@nike/video/7647200302189251854');
 
     actingAsUser($user)->postJson('/api/content/pools/watch/items', [
-        'url' => 'https://www.tiktok.com/@someuser/video/7123456789012345678',
+        'url' => 'https://www.tiktok.com/@nike',
     ])->assertStatus(422)
-        ->assertJsonFragment(['message' => "We don't recognise this link as a video — add it to your Links page instead."]);
+        ->assertJsonFragment(['message' => "That looks like a TikTok profile, not a single video. Connect TikTok as a platform to bring its content in automatically, or paste one video's link."]);
 });
 
 it('refuses a known store-platform host with the store hand-off (T4)', function () {
@@ -248,6 +282,57 @@ it('keeps the card path for a claimed item whose read fails', function () {
     expect(collect($res->json('selection'))->firstWhere('headline', 'vimeo.com'))->not->toBeNull();
 });
 
+/**
+ * The dead-page guard. Every og:title below is the REAL string the live site
+ * returned on 2026-09-04, captured by the probe that found the leak — a
+ * nonexistent Audiomack song answered HTTP 200 and minted a pool item headlined
+ * "Audiomack - Music platform empowering artists & fans | Audiomack" onto the
+ * public sitepage. The guard had named 11 brands by exact string and never
+ * learned the nine this run added, and exact-matching slid past the decorated
+ * form entirely.
+ */
+it('refuses a title that is the site talking about itself', function (string $url, string $ogTitle) {
+    mipMockFetch([$url => '<meta property="og:title" content="'.$ogTitle.'">']);
+
+    expect(app(MediaPageReader::class)->read($url))->toBeNull();
+})->with([
+    'audiomack decorates its site name' => [
+        'https://audiomack.com/rob49/song/no-such-song-99zz',
+        'Audiomack - Music platform empowering artists &amp; fans | Audiomack',
+    ],
+    'youtube music is its own site name' => [
+        'https://music.youtube.com/watch?v=zzzZZ9zz9Zz',
+        'YouTube Music',
+    ],
+    'the original exact-match rule still holds' => [
+        'https://www.twitch.tv/videos/999999999123',
+        'Twitch',
+    ],
+    'a brand added this run, exact' => [
+        'https://rumble.com/vzzz9z9-no-such-video.html',
+        'Rumble',
+    ],
+]);
+
+it('keeps a real title that merely mentions a platform', function (string $url, string $ogTitle) {
+    mipMockFetch([$url => '<meta property="og:title" content="'.$ogTitle.'">']);
+
+    expect(app(MediaPageReader::class)->read($url)['title'] ?? null)->toBe(html_entity_decode($ogTitle));
+})->with([
+    // Beatport's GENUINE titles carry the site name as a SUFFIX — a trailing-
+    // segment rule would delete every real Beatport track.
+    'beatport suffixes its own name' => [
+        'https://beatport.com/track/lockup/28901951',
+        'Overmono - Lockup (Original Mix) [XL Recordings] | Music &amp; Downloads on Beatport',
+    ],
+    // The leading-segment rule asks only about the page's OWN site, so an
+    // ordinary video named after another platform survives.
+    'a youtube video named after another platform' => [
+        'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        'Spotify - Wrapped 2025 Recap',
+    ],
+]);
+
 it('classifies the grammar matrix — item vs account vs neither', function (string $url, ?string $expectKind, ?string $expectAccount) {
     $reader = app(MediaPageReader::class);
 
@@ -274,6 +359,15 @@ it('classifies the grammar matrix — item vs account vs neither', function (str
     ['https://open.spotify.com/album/79dL7FLiJFOO0EoehUHQBv', 'release', null],
     ['https://open.spotify.com/episode/512ojhOuo1ktJprKbVcKyQ', 'episode', null],
     ['https://open.spotify.com/artist/4gzpq5DPGxSnKTe4SA8HAU', null, 'Spotify'],
+    // A podcast SHOW is its own connectable brand (`spotify_podcasts.show`,
+    // Shelf::Podcast), not `spotify.player` — and this label is what the 422
+    // tells the person to connect, so naming the music player here sent them
+    // to a platform that cannot bring a show's episodes in. The sibling
+    // artist/user/playlist rows must keep saying plain 'Spotify'.
+    ['https://open.spotify.com/show/4rOoJ6Egrf8K2IrywzwOMk', null, 'Spotify Podcasts'],
+    ['https://open.spotify.com/intl-de/show/4rOoJ6Egrf8K2IrywzwOMk', null, 'Spotify Podcasts'],
+    ['https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M', null, 'Spotify'],
+    ['https://open.spotify.com/user/spotify', null, 'Spotify'],
     // SoundCloud: two segments = track, one = profile, chrome reserved
     ['https://soundcloud.com/artist-name/new-single', 'track', null],
     ['https://soundcloud.com/artist-name', null, 'SoundCloud'],

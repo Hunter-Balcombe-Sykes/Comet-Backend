@@ -6,6 +6,7 @@ use App\Catalog\Brand;
 use App\Catalog\Detector;
 use App\Catalog\Enums\EvidenceStrength;
 use App\Catalog\Enums\IdentifierKind;
+use App\Catalog\Enums\IdentifierSource;
 use App\Catalog\Enums\RoutingClass;
 use App\Catalog\Enums\Shelf;
 use App\Catalog\Surface;
@@ -34,6 +35,12 @@ class Wolt
                 ->refreshEvery(0)
                 ->detect(
                     Detector::url('wolt.com')->strength(EvidenceStrength::ProfileLink),
+                    Detector::url('wolt.com')
+                        ->path('#^/[a-z]{2}/[a-z]{2,3}/[\w-]+/restaurant/(?<venue>[\w-]+)#i')
+                        ->captures('venue')
+                        ->from(IdentifierSource::Path)
+                        ->strength(EvidenceStrength::DeepLinkWithSlug)
+                        ->note('e.g. https://wolt.com/en/fin/helsinki/restaurant/noodle-story-freda'),
                 )
                 ->build(),
         ];

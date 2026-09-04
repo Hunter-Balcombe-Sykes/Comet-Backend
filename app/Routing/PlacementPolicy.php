@@ -15,7 +15,8 @@ use Illuminate\Support\Facades\DB;
  *   2. is it tombstoned for this user (they already said no)?
  *   3. Gate 1 — AccountCapabilities (the sanctioned capability read)
  *   4. Gate 2 — the routing gate matrix carried from the 2026-07-25 plan
- *   5. confidence + margin against RoutingPolicy
+ *   5. Gate 3 — does the rule that matched name an ACCOUNT, or only the
+ *      brand? (LinkValidity; replaced the confidence thresholds, 2026-09-03)
  *
  * Both gates are evaluated HERE, before anything is written (plan §2 crowd
  * correction: nothing moves to display time). A denied gate never drops the
@@ -95,8 +96,7 @@ class PlacementPolicy
         }
 
         // ── Gate 1: capabilities ────────────────────────────────────────────
-        // Pre-account builds have no user and therefore no capability set;
-        // Decision 7 (carried) says above-threshold auto-applies for them.
+        // Pre-account builds have no user and therefore no capability set.
         if ($context->user !== null) {
             $denied = $this->capabilityDenial($context->user, $routingClass);
             if ($denied !== null) {
@@ -124,54 +124,103 @@ class PlacementPolicy
             return new Placement(Verdict::Note, $surfaceKey, $projection->identifier, 'gate', 'action classes need a claimed account');
         }
 
-        // ── Confidence ──────────────────────────────────────────────────────
-        $confidence = $projection->confidence;
-        if (! $context->isDirectRequest()) {
-            $confidence -= RoutingPolicy::indirectPenalty();
+        // ── Gate 3: does this link identify an ACCOUNT, or just a brand? ────
+        // The owner's rule, at the ONE place every lane passes through
+        // (2026-09-03): "never let it be saved if it fails as a connectable +
+        // active platform". A URL that matched nothing but the brand's
+        // registrable domain names no account — the identifier the projector
+        // hands back is the whole URL — so it cannot support a CTA, a refresh,
+        // or a name on a card. Note is the right answer rather than a refusal:
+        // Note's standing promise is "kept as a link, never dropped", so the
+        // person still gets their link, minus the false claim that we know
+        // whose account it is.
+        //
+        // Scoped to surfaces that have a shape ON FILE. The nine connectable
+        // surfaces with no specific detector anywhere are ones we have no
+        // standing to judge; they stay on the old path and are checked at
+        // accept time by the L2 lane instead. That asymmetry is the point: we
+        // refuse a claim only where we can say what a real one looks like.
+        //
+        // This is what makes paste and harvest agree with the manual connect
+        // lane, which asks the same question in BrandLinkConnect::shapeRefusal.
+        if (LinkValidity::applies($surface)
+            && LinkValidity::l1($projection) === LinkValidity::WEAK
+            && LinkValidity::hasShape($surfaceKey)) {
+            // identifier deliberately null: a host-only match's "identifier" IS
+            // the URL, and passing it on is how the nameless-card row got
+            // written in the first place.
+            return new Placement(Verdict::Note, $surfaceKey, null, 'invalid_identifier', 'matched the brand, not an account page');
         }
 
-        $auto = RoutingPolicy::autoThreshold($routingClass);
-        $suggest = RoutingPolicy::suggestThreshold($routingClass);
+        // ── The decision ────────────────────────────────────────────────────
+        //
+        // What is left after the confidence system was deleted (2026-09-03):
+        // Gate 3 above has already answered the only question the thresholds
+        // were a proxy for. A link that reaches this point matched a rule that
+        // constrains more than the brand's domain, or matched a surface we hold
+        // no shape for. Either way there is nothing further to score.
+        //
+        //   contested  a rule for a DIFFERENT surface matched too, so which
+        //              brand this is remains open. Never applied unasked;
+        //              still worth asking about.
+        //   band       'auto' when the rule CAPTURED an identifier AND nothing
+        //              else claims the link — we can name the account, so the
+        //              row arrives pre-ticked (owner, 2026-09-03). 'suggest'
+        //              when the rule matched a shape but named nobody, or when
+        //              two brands both claim it: still a real suggestion, just
+        //              not one we should answer on the person's behalf.
+        //
+        // Computed ONCE, above both arms. It was originally derived from the
+        // identifier alone and folded `contested` in only at the final return,
+        // which meant a contested match on a SIGN-UP build — the one lane where
+        // every row is pre-ticked by default — arrived ticked anyway. Pre-ticking
+        // a link two brands both claim is precisely the answer we have no
+        // standing to give.
+        $band = $projection->identifier !== null && ! $projection->contested ? 'auto' : 'suggest';
 
-        // Sign-up builds connect nothing by themselves (A.2): every
-        // above-floor projection is a Choose the setup dialog renders, banded
-        // so the auto tier arrives pre-ticked. The floor is lower than the
-        // normal suggest threshold — rejecting a marginal find there is one
+        // Sign-up builds connect nothing by themselves (A.2): every match is a
+        // Choose the setup dialog renders. Rejecting a wrong find there is one
         // untick, not a wrong CTA on a live page.
         if ($context->isSignupBuild()) {
-            if ($confidence >= RoutingPolicy::signupSuggestFloor($routingClass)) {
-                return new Placement(Verdict::Choose, $surfaceKey, $projection->identifier, 'below_threshold', 'held for setup review',
-                    confidence: $confidence, band: $confidence >= $auto ? 'auto' : 'suggest');
-            }
-
-            return new Placement(Verdict::Note, $surfaceKey, $projection->identifier, 'below_threshold', 'kept as a link');
+            return new Placement(Verdict::Choose, $surfaceKey, $projection->identifier, null, 'held for setup review', band: $band);
         }
 
-        if ($confidence >= $auto && $projection->margin >= RoutingPolicy::minMargin()) {
-            return new Placement(Verdict::Place, $surfaceKey, $projection->identifier, confidence: $confidence, band: 'auto');
+        // NOTHING A HARVESTER FOUND EVER AUTO-CONNECTS (owner, 2026-09-03).
+        // Place is minted ONLY for a link the user asked for in this very
+        // request — a submitted paste, or an accept pressed in the suggestions
+        // inbox — and only when the link names an account and nothing else
+        // claims it.
+        //
+        // The 2026-08-18 "harvest maximisation" arm that used to sit below this
+        // is DELETED and is not coming back: on any indirect origin the suggest
+        // band auto-applied, which meant `suggest` was never a
+        // show-a-suggestion threshold at all — it was the auto-connect
+        // threshold for every post-claim harvest lane. Loosening suggestions
+        // would have loosened auto-connect, the opposite of the intent. Its
+        // stated reason (avoid friction on a link the user demonstrably
+        // published) is served by PRE-TICKING instead: the link still arrives
+        // one Continue away, but it passes the validity gate on the way.
+        //
+        // Place also still arrives at SourceReconciler:134-135, where a Choose
+        // matching an existing ConnectionIdentity is upgraded — folding a
+        // variant URL into a row the person already holds adds no account and
+        // asks no question, so it is not an auto-connect. Sign-up-given
+        // identities (Google Business place_id, Instagram handle) never reach
+        // this method at all: their identity kind is not url.
+        if ($context->isConfirmedByUser() && $projection->identifier !== null && ! $projection->contested) {
+            return new Placement(Verdict::Place, $surfaceKey, $projection->identifier, band: 'auto');
         }
 
-        if ($confidence >= $suggest) {
-            // Harvest maximisation (owner ruling 2026-08-18): on any indirect
-            // origin the suggest band auto-applies. Pre-claim there is no
-            // inbox to see a suggestion; post-claim it is friction on a link
-            // the user demonstrably published. Margin still gates — a
-            // too-close projection stays Choose because the doubt there is
-            // WHICH surface, not whether. Direct paste keeps the confirm
-            // flow: it is a wire contract with the dashboard preview.
-            if (! $context->isDirectRequest() && $projection->margin >= RoutingPolicy::minMargin()) {
-                return new Placement(Verdict::Place, $surfaceKey, $projection->identifier, confidence: $confidence, band: 'suggest');
-            }
-
-            $why = $confidence < $auto
-                ? 'below auto-apply threshold'
-                : 'two rules matched too closely to decide automatically';
-
-            return new Placement(Verdict::Choose, $surfaceKey, $projection->identifier, 'below_threshold', $why,
-                confidence: $confidence, band: $confidence >= $auto ? 'auto' : 'suggest');
-        }
-
-        return new Placement(Verdict::Note, $surfaceKey, $projection->identifier, 'below_threshold', 'kept as a link');
+        return new Placement(
+            Verdict::Choose,
+            $surfaceKey,
+            $projection->identifier,
+            null,
+            $projection->contested
+                ? 'two brands both claim this link'
+                : 'confirm this is yours',
+            band: $band,
+        );
     }
 
     /** The arms live in RoutingCapabilityGate, shared with SuggestionApplier (#DRIFT-1). */
@@ -242,7 +291,7 @@ class PlacementPolicy
     {
         return $this->isTombstoned(
             $user,
-            new Projection(surfaceKey: $surfaceKey, detectorId: null, captures: [], confidence: 0, margin: 0, identifier: $identifier, reason: null),
+            new Projection(surfaceKey: $surfaceKey, detectorId: null, captures: [], identifier: $identifier, reason: null),
             $context,
         );
     }

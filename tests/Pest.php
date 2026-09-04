@@ -1219,6 +1219,10 @@ function setupSitesTable(): void
         display_settings TEXT NULL,
         canonical_key TEXT NULL,
         resource_kind TEXT NULL CHECK (resource_kind IS NULL OR resource_kind IN (\'event\',\'link\')),
+        -- 20260903160000: whose this is. NULL = never asked, which is every row
+        -- written before that migration; the CHECK mirrors Postgres\'s.
+        owner_scope TEXT NULL CHECK (owner_scope IS NULL OR owner_scope IN (\'self\',\'workplace\')),
+        verification_state TEXT NULL CHECK (verification_state IS NULL OR verification_state IN (\'verified\',\'unverified\')),
         -- #PARITY-1: 20260729150016..150018 sets created_at/updated_at NOT
         -- NULL in Postgres. Mirrored here instead of left nullable — the
         -- earlier DECLINED note (this comment used to live here) rested on
@@ -1239,7 +1243,7 @@ function setupSitesTable(): void
     // Plan 5 conditional-request validators — defensive ALTER for any pre-existing
     // test table (SQLite's CREATE TABLE IF NOT EXISTS won't add columns to an
     // already-created table within a run).
-    foreach (['refresh_etag', 'refresh_last_modified', 'canonical_key', 'resource_kind', 'display_settings'] as $vCol) {
+    foreach (['refresh_etag', 'refresh_last_modified', 'canonical_key', 'resource_kind', 'display_settings', 'owner_scope', 'verification_state'] as $vCol) {
         try {
             DB::connection('pgsql')->statement("ALTER TABLE site.platform_connections ADD COLUMN IF NOT EXISTS {$vCol} TEXT NULL");
         } catch (Throwable $e) {
@@ -3573,8 +3577,6 @@ function setupRoutingTables(): void
         evidence TEXT NOT NULL DEFAULT \'{}\',
         detector_id TEXT NULL,
         surface_key TEXT NULL,
-        confidence INTEGER NULL CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 100)),
-        margin INTEGER NULL,
         verdict TEXT NULL CHECK (verdict IS NULL OR verdict IN (\'place\', \'choose\', \'note\', \'hold\', \'reject\')),
         block_reason TEXT NULL,
         catalog_digest TEXT NULL,
@@ -3592,14 +3594,14 @@ function setupRoutingTables(): void
         identifier_label TEXT NULL,
         identifier_icon TEXT NULL,
         canonical_url TEXT NULL,
-        state TEXT NOT NULL DEFAULT \'proposed\' CHECK (state IN (\'proposed\', \'applied\', \'blocked\', \'dismissed\', \'superseded\')),
+        state TEXT NOT NULL DEFAULT \'proposed\' CHECK (state IN (\'proposed\', \'verifying\', \'applied\', \'blocked\', \'dismissed\', \'superseded\')),
         block_reason TEXT NULL CHECK (block_reason IS NULL OR block_reason IN (
-            \'gate\', \'capability\', \'conflict\', \'cap_reached\', \'below_threshold\',
-            \'tombstoned\', \'unservable\', \'invalid_identifier\', \'duplicate\'
+            \'gate\', \'capability\', \'conflict\', \'cap_reached\', \'needs_confirmation\',
+            \'tombstoned\', \'unservable\', \'invalid_identifier\', \'duplicate\',
+            \'not_found\', \'sibling_branch\'
         )),
         conflicting_connection_id TEXT NULL,
         connection_id TEXT NULL,
-        confidence INTEGER NULL CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 100)),
         band TEXT NULL CHECK (band IS NULL OR band IN (\'auto\', \'suggest\')),
         origin TEXT NOT NULL CHECK (origin IN (\'paste\', \'website_import\', \'link_in_bio\', \'bio_harvest\', \'google_business\', \'staff\', \'reproject\', \'commerce_probe\')),
         import_run_id TEXT NULL,
@@ -3612,9 +3614,16 @@ function setupRoutingTables(): void
     )');
 
     try {
+        // 'verifying' is one of the FOUR live states the real predicate covers
+        // (20260904235902_source_intents_idx_live.sql:15-17). Omitting it here
+        // let a verifying row and a proposed row coexist on one
+        // (user, surface, identifier) triple, which production rejects with
+        // 23505 — a false green under the six LinkVerificationLaneTest cases
+        // that are the only tests exercising the verifying writers. Found
+        // 2026-09-04.
         $pg->statement('CREATE UNIQUE INDEX IF NOT EXISTS routing.idx_source_intents_live
             ON source_intents (user_id, surface_key, identifier)
-            WHERE state IN (\'proposed\', \'applied\', \'blocked\')');
+            WHERE state IN (\'proposed\', \'verifying\', \'applied\', \'blocked\')');
     } catch (Throwable $e) {
         // already exists / unsupported — ignore
     }
@@ -4306,10 +4315,17 @@ function setupBrandAssetRefsTable(): void
 }
 
 /**
- * Stand-in for core.pre_account_build_events (migration 20260902030000) —
- * the setup progress ledger BuildProgress::note() appends to. Column set
- * mirrors the migration exactly; the CHECK lists are enforced by the
- * producers' constants in tests, not here.
+ * Stand-in for core.pre_account_build_events (migration 20260902030000,
+ * 'shop' added by 20260902050000) — the setup progress ledger
+ * BuildProgress::note() appends to. Column set mirrors the migration exactly.
+ *
+ * The two CHECK lists were deliberately left off here at first, on the
+ * grounds that the producers' own constants enforce them. They are declared
+ * now because that reasoning only covers the producers we already have: a new
+ * writer that invents a stage would pass every SQLite test and then hit a
+ * constraint violation on Postgres, which is the exact drift class
+ * SchemaDriftGuardTest exists to catch (CLAUDE.md, "Tests run SQLite, prod is
+ * Postgres"). Keep both lists in step with the migrations above.
  */
 function setupPreAccountBuildEventsTable(): void
 {
@@ -4317,8 +4333,8 @@ function setupPreAccountBuildEventsTable(): void
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS core.pre_account_build_events (
         id TEXT PRIMARY KEY NOT NULL,
         build_id TEXT NOT NULL,
-        stage TEXT NOT NULL,
-        status TEXT NOT NULL,
+        stage TEXT NOT NULL CHECK (stage IN (\'identity\', \'media\', \'workplace\', \'platforms\', \'listing\', \'menu\', \'website\', \'shop\', \'ready\', \'failed\')),
+        status TEXT NOT NULL CHECK (status IN (\'started\', \'landed\', \'skipped\', \'failed\')),
         label TEXT NOT NULL,
         payload TEXT NOT NULL DEFAULT \'{}\',
         created_at TEXT NOT NULL

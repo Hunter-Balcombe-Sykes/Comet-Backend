@@ -11,6 +11,7 @@ use App\Services\Platforms\GoogleBusinessApifyScraper;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -340,12 +341,19 @@ it('skips every contacts-crawl social when the listing website is itself a platf
             ->toBeFalse("expected no {$platform} connection from platform-chrome socials");
     }
 
-    // The Instagram connection is the one legitimate outcome — it comes from
-    // the WEBSITE divert (the business naming its own profile as their site,
-    // routed through the engine with the ledger-accepted origin), never from
-    // the chrome socials that were skipped above.
-    $ig = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'instagram')->first();
-    expect($ig)->not->toBeNull();
+    // The Instagram FIND is the one legitimate outcome — it comes from the
+    // WEBSITE divert (the business naming its own profile as their site,
+    // routed through the engine with the ledger-accepted 'google_business'
+    // origin), never from the chrome socials that were skipped above. Since
+    // 2026-09-03 that origin is a harvest like any other — nothing a
+    // harvester finds auto-connects — so the divert lands as a proposed
+    // suggestion rather than a live connection.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'instagram')->exists())->toBeFalse();
+    $intent = DB::table('routing.source_intents')
+        ->where(['user_id' => $user->id, 'surface_key' => 'instagram.profile'])->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->identifier)->toBe('doh.melbourne')
+        ->and((string) $intent->state)->toBe('proposed');
 });
 
 it('consolidates same-store pickup and delivery ordering providers into one row', function () {
@@ -399,7 +407,7 @@ it('does not re-seed an ordering store the user already has (only-if-empty per s
     expect($orders->first()->payload['name'])->toBe('Mine');
 });
 
-it('syncs booking + socials + workplace for a standard (partna) account, but never reservations/ordering (R14)', function () {
+it('syncs booking + workplace for a standard (partna) account, but never its socials, reservations or ordering', function () {
     config(['services.apify.token' => 'apify-token']);
     Http::fake(['api.apify.com/*' => Http::response([gbApifyItem()], 201)]);
     Bus::fake([InstagramConnectJob::class]);
@@ -412,17 +420,28 @@ it('syncs booking + socials + workplace for a standard (partna) account, but nev
     // Booking IS synced for every account type (Google's appointment link, only-if-empty).
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'booking')->exists())->toBeTrue();
 
-    // Ruling R14 (overnight 2026-08-18): socials + workplace seed for every
-    // account type; only reservations + ordering stay business/food-gated.
+    // Ruling R14 (overnight 2026-08-18) held that socials + workplace seed for
+    // every account type. Its WORKPLACE half stands, and is asserted below.
     foreach (['opentable', 'reservations', 'online-ordering'] as $businessOnly) {
         expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', $businessOnly)->exists())
             ->toBeFalse("expected no {$businessOnly} row for a partna account");
     }
+
+    // Its SOCIALS half was narrowed 2026-09-03 (owner). R14's premise was "an
+    // individual who CONNECTS THEIR listing" — but in the pre-account flow the
+    // listing attached to a partna is the WORKPLACE's, put there by
+    // FreshaWorkplaceLinker, so these rows were the salon's accounts landing on
+    // the person's page. lukemunnn got a finding offering to swap their own
+    // Instagram for the shop's @Youthofdulwich. A business account, whose
+    // listing IS its identity, still seeds socials — pinned by
+    // WorkplaceListingSocialsGateTest.
     foreach (['facebook', 'tiktok'] as $social) {
         expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', $social)->exists())
-            ->toBeTrue("expected a {$social} row for a partna account (R14)");
+            ->toBeFalse("expected no {$social} row for a partna: the listing is the workplace's");
     }
-    Bus::assertDispatched(InstagramConnectJob::class);
+
+    // ...and no paid Instagram scrape of the salon's profile either.
+    Bus::assertNotDispatched(InstagramConnectJob::class);
 });
 
 it('seeds no booking when the only booking link is the business website', function () {
