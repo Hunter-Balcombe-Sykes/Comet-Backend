@@ -277,6 +277,13 @@ jobs:
       - name: Use an npm that talks to the supported audit endpoint
         run: npm install -g npm@11
 
+      # Both audits go through npm-audit-retry.sh. The npm@11 pin above fixed
+      # the WRONG-ENDPOINT failure; the supported endpoint then started
+      # answering 503 intermittently (2026-09-04, five red runs on commits that
+      # touched no JS). The wrapper retries ONLY an endpoint that did not
+      # answer, propagates a real advisory failure immediately, and still fails
+      # the job if the endpoint never answers — read its header for why a
+      # silent pass would be the worse bug.
       - name: npm audit (cloudflare-worker)
         working-directory: cloudflare-worker
         # --omit=dev: the Worker's only dependency is wrangler (devDependency),
@@ -284,12 +291,12 @@ jobs:
         # Its transitive sharp/libvips CVEs (via miniflare) can't reach the
         # Worker runtime and have no non-breaking fix (every wrangler >=4.16.0
         # pulls the flagged miniflare). Audit what actually ships.
-        run: npm audit --omit=dev --audit-level=high
+        run: "$GITHUB_WORKSPACE/.github/scripts/npm-audit-retry.sh --omit=dev --audit-level=high"
 
       - name: npm audit (repo root)
         # Root package.json (Vite build tooling) was previously unaudited —
         # Checkpoint caught 2 critical CVEs here 2026-07-19.
-        run: npm audit --audit-level=high
+        run: "$GITHUB_WORKSPACE/.github/scripts/npm-audit-retry.sh --audit-level=high"
 
   # Cloudflare Worker test lane (cloudflare-worker/test/, vitest + the Miniflare
   # programmatic API). The Worker is the public wire for 100% of
