@@ -23,6 +23,12 @@ it('registers each public lead route exactly once', function () {
     expect($counts['api/public/subscribe'])->toBe(1);
 });
 
+// This bans domain scoping application-wide, which is stronger than the finding
+// it closes — the finding is the DUPLICATE lead lane above. That breadth is
+// deliberate today (there is no legitimate domain-scoped route and a second one
+// would most likely be a re-added duplicate), but a future custom-domain lane
+// would be a real reason to narrow this to the {subdomain}.{public_domain}
+// pattern rather than to delete it.
 it('registers no domain-scoped routes at all', function () {
     $domained = collect(Route::getRoutes()->getRoutes())
         ->filter(fn ($r) => $r->getDomain() !== null)

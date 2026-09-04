@@ -18,8 +18,10 @@ use Illuminate\Support\Facades\Cache;
 // key, which is why invalidateSitePayload() below busts handle.resolve rather
 // than any payload key of its own.
 //
-// Entry points, in the order SiteObserver reaches them:
-//   invalidateSite()        — everything; the observer's default on any site save.
+// Entry points:
+//   invalidateSite()        — everything; the ONLY one SiteObserver calls
+//                             (SiteObserver.php:28, :90). It runs payload, then
+//                             raiseResolveFloor, then images.
 //   invalidateSitePayload() — blocks, email branding, the auth-path model cache,
 //                             handle.resolve + its floor. No media.
 //   invalidateSiteImages()  — the /api/images variants only.

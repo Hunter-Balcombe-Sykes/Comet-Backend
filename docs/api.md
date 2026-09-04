@@ -47,12 +47,18 @@ All endpoints below are served under the Laravel API base URL, with the default 
 ### API base URL
 
 - API base URL is your APP_URL (Laravel). Example: https://api.partna.au
-- All API routes live under /api. Example: https://api.partna.au/api/me Public mini-site domain rules Public mini-site routes are domain-scoped. They MUST be called on the mini-site host, not the API host.
-- Host pattern: https://{subdomain}.{PARTNA_PUBLIC_DOMAIN}
-- Public API base URL: https://{subdomain}.{PARTNA_PUBLIC_DOMAIN}/api
-- Example: https://joshbarber.localtest.me/api/public/site Local development tip
-- Use a wildcard-friendly domain such as localtest.me or lvh.me so subdomains resolve to 127.0.0.1.
-- Set PARTNA_PUBLIC_DOMAIN=localtest.me and APP_URL=http://api.localtest.me (or similar).
+- All API routes live under /api. Example: https://api.partna.au/api/me
+- **Public mini-site routes are NOT domain-scoped** (changed 2026-09-04). Call them on the API
+  host like every other route: https://api.partna.au/api/public/... The site is identified by
+  the `X-Site-Subdomain` header, or by the handle in the path for
+  `GET /api/public/profiles/{handle}`.
+- Example: `curl -H 'X-Site-Subdomain: joshbarber' https://api.partna.au/api/public/customers`
+- The `{subdomain}.{PARTNA_PUBLIC_DOMAIN}` route group was removed; there are now zero
+  domain-scoped routes in the application, pinned by
+  `tests/Feature/PublicSite/DomainScopedRouteGroupRetiredTest.php`. `{subdomain}.partna.au` is
+  served by the Cloudflare Worker and the pages app, which never reach Laravel.
+- Local development tip: you no longer need wildcard DNS to exercise the public API. Point at
+  your local APP_URL directly and send `X-Site-Subdomain`.
 
 ## 2) Authentication (Supabase JWT)
 
@@ -711,12 +717,12 @@ Common status codes
 
 All routes below are unauthenticated.
 
-Frontend can connect in 2 modes:
+There is ONE mode as of 2026-09-04. The domain-scoped mini-site host that used to sit beside
+it is gone (see "Retired public endpoints"); what was the "header-based fallback" is now the
+only lane:
 
-1. Domain-scoped mini-site host  
-`https://{subdomain}.{PARTNA_PUBLIC_DOMAIN}/api/public/...`
-2. Header-based API host fallback (no subdomain DNS needed)  
-`https://api.{PARTNA_PUBLIC_DOMAIN}/api/public/...` with header `X-Site-Subdomain: {subdomain}`
+`https://api.{PARTNA_PUBLIC_DOMAIN}/api/public/...` with header `X-Site-Subdomain: {subdomain}`,
+except `GET /api/public/profiles/{handle}`, which carries the site in the path.
 
 For analytics endpoints, provide either `site_id` in the JSON body OR `X-Site-Subdomain` header. Ingest additionally requires an `Origin` header whose host is `{subdomain}.{public_domain}` or the site's active custom domain — a request with no such header is rejected with 404 (Referer is no longer accepted, #SEC-3).
 
@@ -900,8 +906,10 @@ See "Retired public endpoints". Use `GET /api/public/profiles/{handle}`.
 
 #### Header-Based Slug Routing
 
-For frontends that cannot use subdomain DNS routing, the following endpoints accept the subdomain via the `X-Site-Subdomain` header and are accessed on the API host:
-`https://api.{PARTNA_PUBLIC_DOMAIN}/api/public/...`
+These endpoints accept the subdomain via the `X-Site-Subdomain` header and are accessed on the API host:
+`https://api.{PARTNA_PUBLIC_DOMAIN}/api/public/...`. Since 2026-09-04 this is not a fallback for
+frontends without wildcard DNS — it is the only lane, and the duplicate entries below are the same
+registrations as the ones documented above, not header-based twins of a domain-scoped original.
 
 #### `GET /api/public/site-by-slug` — REMOVED 2026-09-04
 
@@ -916,11 +924,11 @@ endpoints below; only the payload read was removed.
 - Rate limit: analytics
 - Headers: `X-Site-Subdomain` (required if `site_id` is not in the request body): the site subdomain slug
 
-**Behavior:** Identical to the domain-scoped analytics endpoints above. You must provide either `site_id` in the body OR the `X-Site-Subdomain` header — otherwise validation returns 422.
+**Behavior:** These ARE the analytics endpoints documented above — one registration, listed twice
+in this document for historical reasons. You must provide either `site_id` in the body OR the
+`X-Site-Subdomain` header; otherwise validation returns 422.
 
-**Request body:** Same as domain-scoped versions above.
-
-**Response:** Same as corresponding domain-scoped endpoints.
+**Request body / Response:** as documented above.
 
 **Common status codes:** 201, 404, 403, 422, 429
 
@@ -1790,7 +1798,7 @@ Note: The frontend does not need any storage credentials — all image URLs come
 
 ### Partna app settings
 
-- PARTNA_PUBLIC_DOMAIN (used for domain-scoped public routes)
+- PARTNA_PUBLIC_DOMAIN (no longer routes anything — no route is domain-scoped since 2026-09-04. Still required: it builds site URLs, the analytics `Origin` check, email branding, KV and Cloudflare purge, and an empty value hard-fails the production boot)
 - PARTNA_MEDIA_DISK (default: media — the Laravel filesystem disk name)
 - PARTNA_GALLERY_IMAGE_MAX (default: 6)
 - PARTNA_CONTENT_IMAGE_MAX (default: 6)
@@ -1829,10 +1837,15 @@ Laravel Cloud auto-injects credentials via `LARAVEL_CLOUD_DISK_CONFIG`. The imag
 
 ## 15) Known implementation gotchas
 
-### Domain-scoped public routes
+### Domain-scoped public routes — GONE 2026-09-04
 
-- If you call /api/public/site on the API host instead of {subdomain}.{PARTNA_PUBLIC_DOMAIN}, the route may not match or may return 404.
-- Always use public_api_base_url = https://{subdomain}.{PARTNA_PUBLIC_DOMAIN}/api for public routes.
+- This gotcha used to say the opposite: call public routes on
+  `{subdomain}.{PARTNA_PUBLIC_DOMAIN}` or risk a 404. **Reversed.** The API host is now the only
+  host these routes exist on — the domain-scoped group was deleted and `/api/public/site` with
+  it. Use `public_api_base_url = https://api.{PARTNA_PUBLIC_DOMAIN}/api` and identify the site by
+  `X-Site-Subdomain` (or by handle, for `/api/public/profiles/{handle}`).
+- Configure no wildcard DNS for this. A request to `{subdomain}.partna.au` is answered by the
+  Cloudflare Worker and the pages app; it never reaches Laravel.
 
 ### Analytics timestamps
 
