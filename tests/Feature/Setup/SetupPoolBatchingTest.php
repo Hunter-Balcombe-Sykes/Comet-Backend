@@ -5,6 +5,7 @@ use App\Services\Setup\SetupPayload;
 use App\Site\Pools\PoolResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 // The setup dialog resolves seven content pools. Resolving them one at a
 // time paid PoolResolver's per-pool pre-reads seven times over; PoolWire
@@ -128,4 +129,51 @@ it('returns null for a pass the user does not have', function () {
     $pro = createTenant('setup-nopass');
 
     expect(app(SetupPayload::class)->forPass($pro, 'platforms.ordering'))->toBeNull();
+});
+
+/**
+ * Mirrors SetupControllerTest's setupSeedIntent — redeclared here under a
+ * different name because Pest test files in the same directory share the
+ * global function namespace, and redeclaring setupSeedIntent would fatal.
+ */
+function seedSetupSourceIntentForBatching(string $userId, array $overrides = []): string
+{
+    $id = (string) Str::uuid();
+    DB::table('routing.source_intents')->insert(array_merge([
+        'id' => $id,
+        'user_id' => $userId,
+        'surface_key' => 'instagram.profile',
+        'routing_class' => 'social',
+        'identifier' => 'someone',
+        'canonical_url' => 'https://www.instagram.com/someone',
+        'state' => 'proposed',
+        'origin' => 'link_in_bio',
+        'band' => 'auto',
+        'first_seen_at' => now(),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ], $overrides));
+
+    return $id;
+}
+
+// items.watch (above) never exercises forPass()'s prelude guard: it needs
+// neither suggestionRows() nor onboarding->for() either way. platforms.social
+// is the only branch where for()'s prelude and forPass()'s prelude actually
+// differ — forPass() skips both calls unless the key starts with
+// 'platforms.' — so it is the one equivalence case that can catch a
+// forPass() prelude bug that items.watch cannot.
+it('returns the same pass from forPass as from the full compose on the platforms branch too', function () {
+    $pro = createTenant('setup-oneplatform');
+    seedSetupSourceIntentForBatching($pro->id);
+
+    $payload = app(SetupPayload::class);
+
+    $fromAll = collect($payload->for($pro)['passes'])->firstWhere('key', 'platforms.social');
+    $fromOne = $payload->forPass($pro, 'platforms.social');
+
+    // Assert the pass is actually populated before comparing — otherwise
+    // this would pass even if forPass() silently skipped suggestions.
+    expect($fromAll['suggestions'])->not->toBeEmpty();
+    expect($fromOne)->toEqual($fromAll);
 });
