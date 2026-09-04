@@ -124,17 +124,23 @@ own pooler slots (separately from the worker processes counted above) is
 stopped vs. running on the same environment.** If they do, the real Horizon-side floor is
 higher than 5.
 
-**Pool size itself is unsettled between dev and prod — do not assert a specific number as
-current fact beyond what's stated here.** A note from a prior investigation records
-`default_pool_size` being raised to 30 on dev on 2026-07-26, with prod left at `null`
-(Supabase's default of 15). But the live measurement above shows the pool still capping at 15
-connections on dev, and the app's own error message says `pool_size: 15` — i.e. the recorded
-30-on-dev change is not what's actually in effect, or it applies to a different pool mode than
-the one the app uses. **UNVERIFIED — read `GET
-https://api.supabase.com/v1/projects/<ref>/config/database/pooler`; note the Management API
-is documented to only surface the port-6543 (transaction-mode) pooler entry, so session
-mode's `pool_size` may be governed by a setting this endpoint doesn't expose at all** — don't
-assume a clean answer is waiting there.
+**Pool size — RESOLVED 2026-09-04, this section previously said the opposite.** The
+Management API's `default_pool_size` **does** govern session mode, even though the entry it
+returns is labelled `pool_mode: transaction` / port 6543. Proof: the app's own 5432 error on
+dev now reads `pool_size: 30`, matching the 2026-07-26 raise. The earlier "the 30-on-dev
+change is not what's actually in effect" reading was drawn from an error message that still
+said 15 because the raise post-dated it. Read or change it with:
+
+```bash
+TOK=$(security find-generic-password -s "Supabase CLI" -w)   # strip a go-keyring-base64: prefix and base64 -d
+curl -s -H "Authorization: Bearer $TOK" \
+  https://api.supabase.com/v1/projects/<ref>/config/database/pooler
+```
+
+**Live values, 2026-09-04:** dev (`glncumufgaqcmqhzwrxm`) = **30**, prod
+(`edplucmvkcnokyygxqsb`) = **40**. Both projects `max_connections = 60`. Note prod's 40 sits
+at the very edge of the budget computed under Prevention below (~42) — there is no meaningful
+headroom left to buy by raising it again.
 
 ## Recovery + rollback
 
@@ -183,21 +189,81 @@ cloud command:run development --cmd="php artisan horizon:status"
   app's code — **there is no `DB_POOL_*` env key**; the pool is entirely Supavisor-side and
   invisible to `config/database.php`. Don't waste time grepping the app for one.
 - **Or move runtime traffic to port 6543 (transaction mode)**, keeping 5432 reserved for
-  migrations and `pg_dump` only (transaction mode doesn't support session-level features like
-  advisory locks or `SET` that some migration tooling relies on). This requires setting
-  `PDO::ATTR_EMULATE_PREPARES => true` in the `pgsql` connection's `options` array in
-  `config/database.php` — that key doesn't exist there today (checked 2026-07-30), so this is
-  a real code change, not just an env-var flip, and needs its own test pass before shipping.
+  migrations and `pg_dump` only. **The code side of this is now PREPARED and inert** (branch
+  `feat/pg-transaction-mode-ready-2026-09-04`) — see the checklist below. It is no longer a
+  code change; on dev it is one env var plus one `ALTER ROLE`.
 - **Or tighten `maxProcesses` per lane** (`config/horizon.php:376-390`) to shrink Horizon's own
   floor/ceiling share of the pool — cheaper than a pooler resize but reduces job throughput.
+
+## Switching to transaction mode (port 6543)
+
+The app is already wired for this and the wiring is **inert on 5432**, so nothing below has
+been done to a running environment yet. Two things are already in the repo:
+
+1. `config/database.php` sets `PDO::ATTR_EMULATE_PREPARES` **derived from `DB_PORT`** — true
+   at 6543, false otherwise. Server-side prepared statements need both halves of the exchange
+   (PREPARE, then EXECUTE) on the same backend; transaction mode cannot promise that.
+   Pinned by `tests/Feature/Architecture/PoolerModeConfigTest.php`.
+2. `supabase/migrations/20260905120000_app_backend_role_timeout_defaults.sql` puts
+   `statement_timeout` / `lock_timeout` on the **role**, because
+   `DatabaseServiceProvider::boot()`'s per-connection `SET` does not survive multiplexing.
+   The values mirror the config defaults exactly, so it changes nothing on 5432.
+
+**Per-environment step that is NOT in the migration — `search_path`.** Laravel issues
+`set search_path` at connect, which has the same problem as the timeouts, but the correct
+value differs per environment so it cannot be baked into a shared migration. Run the one that
+matches the env's own `DB_SEARCH_PATH` **before** flipping its port:
+
+```sql
+-- dev (glncumufgaqcmqhzwrxm)
+ALTER ROLE app_backend SET search_path = 'core,site,public,analytics,moderation';
+
+-- prod (edplucmvkcnokyygxqsb) — note the extra `audit`
+ALTER ROLE app_backend SET search_path = 'core,site,public,analytics,moderation,audit';
+```
+
+Verify with `select rolname, rolconfig from pg_roles where rolname = 'app_backend';` — all
+three settings should be listed. **If `DB_SEARCH_PATH` is ever changed on an env, the role
+default must be changed with it**; they are two copies of one value and nothing enforces
+agreement.
+
+**Then the flip itself:** set `DB_PORT=6543` on the env and redeploy. **Rollback is the same
+var back to 5432** — no migration to reverse, no schema change, no data touched. The role
+defaults are harmless in session mode (they duplicate what the app already sets), so leave
+them in place across a rollback.
+
+**What is already safe, checked 2026-09-04:** every advisory lock in `app/` uses
+`pg_advisory_xact_lock` (transaction-scoped, released at commit), not the session-scoped
+`pg_advisory_lock`. `AdvisoryLock.php`'s `SET LOCAL lock_timeout` is likewise transaction-
+scoped. Neither needs changing.
+
+**What to watch on dev afterwards, and why a green suite proves none of it:** the test suite
+runs SQLite, which has no pooler, no `search_path`, no timeouts and no advisory locks — it is
+structurally blind to every risk here. Watch for:
+
+- **Timeouts silently gone.** `select * from pg_settings where name in ('statement_timeout',
+  'lock_timeout')` from an app connection, plus watch for endpoints that hang rather than
+  erroring at 30s.
+- **Unqualified table names failing** (`failed_jobs`, `jobs`, `cache` — Laravel's own). These
+  surface only when a job fails, i.e. the error path breaks exactly when something else has
+  already gone wrong.
+- **Type handling under emulated prepares** — values arrive as quoted literals rather than
+  typed parameters. Shows up as a wrong result or a changed plan, not a crash.
+- **New exhaustion shape:** slots are now held per *transaction*, so a long transaction
+  (especially one making an external HTTP call inside `DB::transaction`) pins one for its
+  whole duration. Far harder to exhaust 30, but it is a different thing to look for.
+
+None of these throw. Nightwatch catches thrown exceptions well and will not catch "the
+timeout quietly stopped existing" — which is the whole reason this wants a watch period on
+dev rather than a deploy-and-forget.
 
 ## What's deliberately NOT here
 
 - **No automated pool-size tuning.** This is a manual Dashboard change, considered and applied
   by a human, not something a script adjusts reactively.
-- **No transaction-mode migration.** Moving runtime traffic to port 6543 is a real change
-  (see Prevention) that needs its own implementation and test pass — this runbook documents
-  the option, it doesn't execute it.
+- **No transaction-mode flip.** The groundwork is in place (see the checklist above) but
+  `DB_PORT` is deliberately still 5432 in both envs. Flipping it is an owner decision with a
+  watch period, not something this runbook does on your behalf.
 - **No Postgres-level `max_connections` increase.** That's a Supabase plan-tier lever, not
   something this doc assumes is available on the Free plan this project is currently on (see
   this repo's `CLAUDE.md` — Supabase org is on Free, no PITR/managed backups either).
