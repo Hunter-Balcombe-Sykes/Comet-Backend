@@ -10,6 +10,18 @@
 # This is a PATH-SCOPED allowlist, NOT a blanket disable: real application code
 # (app/, config/, routes/, real .env) is still scanned in full, so a live secret
 # committed to production code will still fail CI.
+#
+# ⚠️ BUT within the allowlisted paths it IS blanket, and that is a real blind spot:
+# verified 2026-09-04, an AKIA key pair, a `ghp_` PAT and an RSA private key planted
+# under `audits/` and `tests/` all scored ZERO findings here. `.audit-work/logs/`
+# alone holds 138 committed agent transcripts (68MB) and grows with every audit run.
+# `.gitleaks-strict.toml` is the second CI pass that covers exactly this gap — it
+# drops the path allowlist and disables only the four heuristic rules responsible
+# for the false positives above. BOTH passes run in ci.yml's supply-chain job and
+# neither subsumes the other: this one keeps `generic-api-key` armed over app code,
+# that one keeps `aws-access-token`/`github-pat`/`private-key` armed over fixtures.
+# Adding a path here therefore no longer hides a real key — but it still blinds this
+# pass, so prefer fixing the fixture over widening the list.
 title = "Partna gitleaks config"
 
 [extend]

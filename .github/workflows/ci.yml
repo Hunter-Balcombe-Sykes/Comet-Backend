@@ -255,8 +255,16 @@ jobs:
         run: |
           GITLEAKS_VERSION=8.24.3
           curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar -xz gitleaks
-          # Uses the repo-root .gitleaks.toml (default ruleset + path allowlist for test/doc/log fixtures).
-          ./gitleaks detect --source . --no-banner --redact --exit-code 1
+          # TWO passes, deliberately. Pass 1 is the full default ruleset with a blanket
+          # path allowlist for test/doc/audit fixtures; that allowlist is what makes it
+          # blind to a real key committed under tests/, docs/, audits/ or .audit-work/
+          # (verified 2026-09-04: an AKIA pair, a ghp_ PAT and an RSA private key planted
+          # there all scored ZERO). Pass 2 removes the path allowlist entirely and instead
+          # disables only the four heuristic rules that generate this repo's false
+          # positives, so unambiguous credential formats are caught everywhere.
+          # Neither pass subsumes the other — keep both. See .gitleaks-strict.toml.
+          ./gitleaks detect --source . --config .gitleaks.toml        --no-banner --redact --exit-code 1
+          ./gitleaks detect --source . --config .gitleaks-strict.toml --no-banner --redact --exit-code 1
 
       - name: Setup Node
         uses: actions/setup-node@v4
