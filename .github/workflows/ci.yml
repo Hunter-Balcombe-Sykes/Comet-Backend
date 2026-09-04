@@ -106,6 +106,23 @@ jobs:
         if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
         run: composer analyse
 
+      # Checkpoint's NpmAuditCheck shells out to `npm audit --json` with its own
+      # 120s timeout. This job otherwise sets up no Node at all, so it inherited
+      # the runner image's npm 10 — which calls the legacy quick audit endpoint
+      # npm is decommissioning, and on 2026-09-03/04 that endpoint got slow
+      # enough to blow the 120s budget and fail the whole test job on a
+      # PHP-only commit. Same root cause as the supply-chain job's npm pin
+      # below; same fix, and the npm CVE gate itself still lives there.
+      - name: Setup Node (for Checkpoint's npm audit check)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # node 22 still ships npm 10, so the version pin has to be explicit here
+      # too — setting node-version alone would leave the legacy endpoint in play.
+      - name: Use an npm that talks to the supported audit endpoint
+        run: npm install -g npm@11
+
       - name: Security scan (Checkpoint)
         if: ${{ !cancelled() && steps.copy_env.outcome == 'success' }}
         # False positives are suppressed by hash in config/checkpoint.php. FAIL
@@ -245,6 +262,20 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
+      # npm 10 (what node 20 ships) still calls the LEGACY quick audit endpoint,
+      # /-/npm/v1/security/audits/quick, which npm is decommissioning — it began
+      # answering `400 Bad Request` ("This endpoint is being retired. Use the
+      # bulk advisory endpoint instead.") and then `503 Service Unavailable`
+      # on 2026-09-03/04, reddening both audit steps below on commits that
+      # touched no JS at all. npm 11 uses the supported bulk advisory endpoint.
+      #
+      # This does NOT relax the gate: --audit-level=high is unchanged on both
+      # steps, and both package roots were verified clean (0 vulnerabilities)
+      # under npm 11 before this pin landed. Pinned to a major, not @latest, so
+      # a future npm release cannot change CI behaviour on its own.
+      - name: Use an npm that talks to the supported audit endpoint
+        run: npm install -g npm@11
 
       - name: npm audit (cloudflare-worker)
         working-directory: cloudflare-worker

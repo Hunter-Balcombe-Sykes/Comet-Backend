@@ -642,3 +642,54 @@ carries `legacy_platform=NULL`, but unlike the F8 brands nothing ever emits
 `spotify_podcasts` as a platform value (the harvester and MediaPageReader both
 emit `spotify`), so it cannot reach the connection guard. Plan §1b's question
 is now closed.
+
+### X5 — CI red on every push: npm decommissioning the legacy audit endpoint (pre-existing, unrelated)
+
+**What**: `6d3458f29` (F6) and `7489cb78a` (F7) both went red on commits that
+touched only PHP and docs. Two different jobs, one root cause:
+
+- `supply-chain` / `npm audit (repo root)`:
+  `400 Bad Request - POST .../security/audits/quick` carrying npm's own notice
+  *"This endpoint is being retired. Use the bulk advisory endpoint instead."*
+  On the rerun 40 minutes later the same step got `503 Service Unavailable`
+  from the same URL — so this is a decommissioning, not a blip.
+- `test` / `Security scan (Checkpoint)`: `The process "'npm' 'audit' '--json'"
+  exceeded the timeout of 120 seconds` — Checkpoint's `NpmAuditCheck` shelling
+  out to the same dying endpoint.
+
+**Not our code**: `git diff f9a88d8f8..6d3458f29` is 3 files, all PHP/docs, and
+**no npm file was touched anywhere in this run**. `f9a88d8f8` (F5) passed the
+identical job minutes earlier.
+
+**Root cause**: npm 10 — what node 20 ships, and what the runner image gives
+the `test` job, which sets up no Node at all — still calls the legacy
+`/-/npm/v1/security/audits/quick`. npm 11 uses the supported bulk advisory
+endpoint. Confirmed locally on npm 11.6.2: both package roots audit clean and
+fast.
+
+**A hypothesis I tested and discarded** rather than shipping: the 400's own
+text says *"Invalid package tree, run `npm install`"*, and neither audit step
+runs `npm ci` first — so a missing install looked like the obvious cause.
+Reproduced the exact CI condition in a scratch dir (package.json +
+package-lock.json, no `node_modules`) and `npm audit --audit-level=high`
+still returned "found 0 vulnerabilities", exit 0. The missing install is NOT
+the cause; the npm version is.
+
+**Fix**: `.github/workflows/ci.yml` — pin `npm install -g npm@11` before the
+audit steps in `supply-chain`, and give the `test` job a Setup Node + the same
+pin so Checkpoint's shell-out uses a working npm (node 22 still ships npm 10,
+so the version pin has to be explicit — setting `node-version` alone would
+have left the legacy endpoint in play).
+
+**Explicitly NOT weakened**: `--audit-level=high` is unchanged on both steps,
+nothing is `continue-on-error`, and no Checkpoint check was disabled. Both
+package roots were verified at 0 vulnerabilities under npm 11 before the pin
+landed, so the bump cannot newly-red the build. Pinned to a major rather than
+`@latest` so a future npm release cannot change CI behaviour on its own.
+
+Related precedent, deliberately NOT followed: the `checkpoint-suppressions`
+job already disables `NpmAuditCheck` outright because it "shell[s] out to
+Packagist / the npm registry so an upstream advisory appearing cannot flip it
+red on an unrelated commit". Disabling it in `test` too would have been the
+easier fix and is arguably redundant with the dedicated `supply-chain` steps —
+but it removes a real check, so the version pin was preferred.
