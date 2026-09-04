@@ -75,8 +75,13 @@ it('degrades to storewide when the surname never made it onto the user', functio
     // The exact state a fold-after-seed() regression produces at routing time.
     // Without this case the test above could pass for reasons unrelated to the
     // name ever being read.
+    // Unclaimed, as this lane's users really are (an Instagram build): the
+    // storewide degrade this test pins is the UNCLAIMED outcome — a claimed
+    // partna in the same state now defers to the picker instead
+    // (FreshaAutoConnectFetchTest pins that half).
     $user = User::factory()->create([
         'account_type' => 'partna',
+        'status' => 'unclaimed',
         'display_name' => 'SIMON DOYLE | Barber & Educator',
         'first_name' => 'SIMON DOYLE | Barber & Educator',
         'last_name' => null,

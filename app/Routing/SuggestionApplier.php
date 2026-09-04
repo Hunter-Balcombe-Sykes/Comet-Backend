@@ -7,6 +7,7 @@ use App\Jobs\Content\ReparentBioItemsJob;
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Platforms\AutoBookingConnectDispatcher;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 
@@ -21,7 +22,10 @@ use Illuminate\Support\Facades\DB;
  */
 class SuggestionApplier
 {
-    public function __construct(private readonly ConnectionIdentity $identity) {}
+    public function __construct(
+        private readonly ConnectionIdentity $identity,
+        private readonly AutoBookingConnectDispatcher $autoBookingConnect,
+    ) {}
 
     /**
      * Connect a link that has no intent behind it — the standing Google-listing
@@ -98,7 +102,7 @@ class SuggestionApplier
             throw new AuthorizationException($denied);
         }
 
-        return DB::transaction(function () use ($user, $intent, $surface, $hidden) {
+        $connection = DB::transaction(function () use ($user, $intent, $surface, $hidden) {
             // Replacing an incumbent. Two shapes share this column:
             //  - a booking-class CONFLICT: demote it rather than delete it —
             //    the user asked for a different primary, not for their data
@@ -203,8 +207,8 @@ class SuggestionApplier
                 // and sat as the same nameless URL-as-account row F9 exists
                 // to prevent until a scheduled refresh happened by. Same rule
                 // as applyIntent, verbatim: CONTENT class only (booking
-                // enrichment is owned by AutoBookingConnectDispatcher's
-                // claimed/unclaimed rule; shop rows enrich through their own
+                // enrichment goes through maybeDispatchAutoBooking() below,
+                // post-transaction; shop rows enrich through their own
                 // connect jobs), only when the surface declares a fetch, and
                 // afterCommit because this runs inside the transaction. Only
                 // for a row created here — a matched-existing row came from a
@@ -259,5 +263,49 @@ class SuggestionApplier
 
             return $connection;
         });
+
+        $this->maybeDispatchAutoBooking($user, (string) $intent->surface_key, $connection);
+
+        return $connection;
+    }
+
+    /**
+     * 2026-09-04: an accepted booking connection is born selection-less, and
+     * before this the accept lane simply never enriched it — F14's comment
+     * ("booking enrichment is owned by AutoBookingConnectDispatcher's
+     * claimed/unclaimed rule") was true and the rule never fired here, so a
+     * Get Started accept sat waiting on the client's picker round-trip.
+     * Hand it to the same dispatcher SourceReconciler uses, under the same
+     * kill switch and install-wide daily cap, and only while the person is
+     * still in setup — a post-setup inbox accept keeps today's picker-first
+     * flow. FreshaAutoSelector's picker-preserving degrade means a claimed
+     * partna can only ever gain their OWN menu from this; an ambiguous match
+     * still lands the team picker, now pre-scraped.
+     *
+     * AFTER the transaction, deliberately (mirrors SourceReconciler): the
+     * dispatcher re-queries the row just written, and under sync queues the
+     * Fresha strategy takes the booking-XOR lock this stack must not hold.
+     * A row that already carries a selection is left alone — enrichment is
+     * for the newborn, not a lane to overwrite a pick.
+     */
+    private function maybeDispatchAutoBooking(User $user, string $surfaceKey, IntegrationConnection $connection): void
+    {
+        if (! in_array($surfaceKey, ['fresha.book', 'square.book'], true)) {
+            return;
+        }
+        if (! (bool) config('partna.connect.auto_booking.enabled', true)) {
+            return;
+        }
+        if (! $user->isInSetup()) {
+            return;
+        }
+        if ((($connection->payload ?? [])['selection'] ?? null) !== null) {
+            return;
+        }
+
+        $this->autoBookingConnect->dispatchFor(
+            (string) $user->id,
+            $surfaceKey === 'square.book' ? 'square' : 'fresha',
+        );
     }
 }

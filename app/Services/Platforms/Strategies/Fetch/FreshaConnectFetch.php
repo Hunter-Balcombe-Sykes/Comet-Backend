@@ -274,8 +274,20 @@ final readonly class FreshaConnectFetch implements FetchStrategy
                     // A concurrent forget()/clearBooking() may have soft-deleted
                     // this row while the scrape above was in flight — that
                     // teardown must win, not get resurrected by the write below.
-                    if (IntegrationConnection::find($connection->id) === null) {
+                    $live = IntegrationConnection::find($connection->id);
+                    if ($live === null) {
                         throw new FetchUnavailableException('fresha_disconnected', FetchUnavailableException::GENERIC_USER_MESSAGE);
+                    }
+
+                    // A human's pick may equally have landed while the scrape
+                    // was in flight (2026-09-04: the accept lane now runs auto
+                    // mode for claimed in-setup users, who have a live picker).
+                    // saveSelection() replaces the whole payload under this
+                    // same XOR lock; a machine guess must never overwrite it.
+                    // NotModified, not unavailable: the row is healthy — it is
+                    // the person's, not ours.
+                    if ($auto && (($live->payload ?? [])['selection'] ?? null) !== null) {
+                        throw new FetchNotModifiedException('fresha');
                     }
 
                     // Re-assert the XOR under the SAME lock forget()/clearBooking()
@@ -316,6 +328,26 @@ final readonly class FreshaConnectFetch implements FetchStrategy
             // existing FetchUnavailableException catch marks the row terminal
             // instead of leaving it 'pending' forever.
             throw new FetchUnavailableException('fresha_services_lock', FetchUnavailableException::GENERIC_USER_MESSAGE);
+        }
+
+        if ($auto && $projected['selection'] === null) {
+            // FreshaAutoSelector declined to guess (claimed partna, no employee
+            // menu landed — see its docblock). Fall back to exactly what team
+            // mode persists: the menu snapshot the picker reads, suggestion
+            // included when the matcher had one, and no selection — so the
+            // Get Started walk (and the dashboard sheet) renders the "Which one
+            // is you?" step instead of a whole salon's prices. No new top-level
+            // key: teamMenu is fetchTeam()'s own, and connectMode/teamMenu-null
+            // drop per R3 as on every other success path.
+            $teamMenu = $menu;
+            if (($projected['suggestedEmployeeId'] ?? null) !== null) {
+                $teamMenu['suggestedEmployeeId'] = $projected['suggestedEmployeeId'];
+            }
+
+            $next = $payload;
+            unset($next['connectMode']);
+
+            return [...$next, 'url' => $url, 'teamMenu' => $teamMenu, 'connectPendingAt' => null];
         }
 
         if ($auto) {

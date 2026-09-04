@@ -3,6 +3,7 @@
 namespace App\Services\Platforms;
 
 use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -20,9 +21,21 @@ use Illuminate\Support\Facades\Log;
  * self-heal backstop) — and they have different constructor dependencies. A
  * copy in each would be the drift risk we avoided by not forking fetchStorewide.
  *
- * Every failure after the caller's single fetchMenu() degrades to a WORKING
- * storewide selection, never an error: that first scrape already returned the
- * whole-location services, so there is nothing left to fail on.
+ * Every failure after the caller's single fetchMenu() degrades WITHOUT an
+ * error — but what it degrades TO depends on who the menu is for (2026-09-04):
+ *
+ *  - unclaimed, or a capability set with can_book_storewide (business): the
+ *    WORKING storewide selection this class has always written. The first
+ *    scrape already returned the whole-location services, so there is nothing
+ *    left to fail on, and either there is no human to ask or storewide is a
+ *    legitimate mode for the account.
+ *  - claimed WITHOUT can_book_storewide (a partna): NO selection at all —
+ *    `selection: null` in the return, nothing projected. A whole salon's menu
+ *    on an individual's page misprices almost everything (22 of 23 prices
+ *    understated, owner rule), and a claimed owner HAS a picker; the callers
+ *    fall back to the team-snapshot payload so that picker renders,
+ *    pre-highlighted via `suggestedEmployeeId` when the matcher found someone
+ *    but the employee menu could not be fetched.
  */
 final readonly class FreshaAutoSelector
 {
@@ -34,7 +47,7 @@ final readonly class FreshaAutoSelector
 
     /**
      * @param  array{storeName:?string, team:list<array<string,mixed>>, services:list<array<string,mixed>>}  $menu
-     * @return array{selection: array<string,mixed>, matchTier: ?string, raw: list<array<string,mixed>>}
+     * @return array{selection: ?array<string,mixed>, matchTier: ?string, raw: list<array<string,mixed>>, suggestedEmployeeId: ?string}
      */
     public function select(User $user, array $menu, string $url): array
     {
@@ -85,6 +98,27 @@ final readonly class FreshaAutoSelector
             }
         }
 
+        // The degrade split described in the class docblock: no employee menu
+        // landed, and this account may not wear a storewide one. Nothing is
+        // projected — no services are being connected — and the caller composes
+        // the team-snapshot payload the picker reads.
+        if ($services === null
+            && ! $user->isUnclaimed()
+            && ! AccountCapabilities::for($user)->can_book_storewide
+        ) {
+            Log::info('fresha.auto_selection.deferred_to_picker', [
+                'user_id' => (string) $user->id,
+                'match_tier' => $match['tier'],
+            ]);
+
+            return [
+                'selection' => null,
+                'matchTier' => $match['tier'],
+                'raw' => [],
+                'suggestedEmployeeId' => $match['employeeId'],
+            ];
+        }
+
         $mode = $services === null ? 'storewide' : 'employee';
         $services ??= $menu['services'];
 
@@ -123,6 +157,7 @@ final readonly class FreshaAutoSelector
             ],
             'matchTier' => $match['tier'],
             'raw' => $projected['raw'],
+            'suggestedEmployeeId' => $match['employeeId'],
         ];
     }
 
