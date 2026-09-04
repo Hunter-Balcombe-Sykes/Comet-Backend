@@ -21,6 +21,7 @@ use App\Site\Actions\ActionCandidates;
 use App\Site\Actions\ActionSettings;
 use App\Site\Actions\ActionSlots;
 use App\Site\Pools\PoolWire;
+use App\Site\Sections\SectionCandidates;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -89,6 +90,29 @@ class IndividualProfilePayloadBuilder
      * @return array<string, mixed>
      */
     public function build(User $pro, ?Site $site): array
+    {
+        // pageOrder() (via presentPageIds), buildPools() (via PoolWire ->
+        // PoolResolver::plan()) and buildActions() (via ActionCandidates ->
+        // presentPageIds() again) each independently ask every pool section
+        // for its rule candidates — the same read-only query 3x per render
+        // (Nightwatch #499: 96 spans, >1s on the profile route). Binding one
+        // SectionCandidates instance for the lifetime of this single build()
+        // call lets its internal memo dedupe those calls; scoped narrowly
+        // here (not container-wide) so it can never bleed into DocumentBuilder
+        // or any other consumer that rebuilds after writing content in the
+        // same process.
+        app()->instance(SectionCandidates::class, new SectionCandidates);
+        try {
+            return $this->buildPayload($pro, $site);
+        } finally {
+            app()->forgetInstance(SectionCandidates::class);
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildPayload(User $pro, ?Site $site): array
     {
         $sections = $this->resolver->loadSections($site);
         $caps = AccountCapabilities::for($pro);

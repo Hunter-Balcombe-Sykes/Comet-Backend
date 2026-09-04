@@ -331,6 +331,50 @@ it('ships the events pool selection on the public payload', function () {
     expect($events['items'][0]['startsAt'])->not->toBeNull();
 });
 
+it('resolves the events section rule at most twice per public payload build, not three times', function () {
+    // Nightwatch #499: pageOrder() and buildActions() each independently ask
+    // presentPageIds() -> PoolResolver::hasSelection() for every pool's
+    // presence, and buildPools() asks PoolResolver::plan() for the same
+    // section again to render it — the identical content.items rule query
+    // running 3x per profile render. IndividualProfilePayloadBuilder::build()
+    // now shares one SectionCandidates instance for its own duration, so its
+    // memo collapses the two presence probes (pageOrder + buildActions) into
+    // one DB hit. The plan() read stays a separate, genuine query — it is
+    // fed pre-fetched sections/curation by PoolWire's own batching rather
+    // than the standalone provisioner->ensure() the probes use, so its key
+    // does not line up with the probes' — and hasSelection() is deliberately
+    // independent of resolve()/plan() anyway (see the "Do not simplify the
+    // two branches" note on PoolResolver::hasSelection()), so collapsing
+    // that pair too is not a change to make here. Three real hits is the
+    // regression this pins against.
+    setupMediaTables();
+    setupBlocksTable();
+    setupServicesTable();
+    setupDesignKitsTable();
+
+    $pro = createTenant('evpoolmemo-'.Str::lower(Str::random(6)));
+    $site = Site::query()->where('user_id', $pro->id)->firstOrFail();
+    $source = eventsSource($pro->id, eventsConnection($pro->id));
+    eventItem($pro->id, $source, 'Ultimo clothes swap', now()->addDays(6)->toDateTimeString());
+
+    // Fingerprint the events section's own rule query specifically (the join
+    // clause is common to every pool section's ruleCandidates() call, so it
+    // alone can't tell events apart from watch/listen/custom_links — the
+    // 'event' kind_is binding can).
+    $ruleQueries = 0;
+    DB::listen(function ($query) use (&$ruleQueries, $site): void {
+        if (str_contains($query->sql, 'site"."sites"."user_id" = "content"."items"."user_id"')
+            && in_array($site->id, $query->bindings, true)
+            && in_array('event', $query->bindings, true)) {
+            $ruleQueries++;
+        }
+    });
+
+    app(IndividualProfilePayloadBuilder::class)->build($pro->fresh(), $site);
+
+    expect($ruleQueries)->toBe(2);
+});
+
 // The pool must be what grants the page. PLATFORM_TO_PAGE already maps
 // eventbrite/humanitix/events-custom → 'events', so a fixture built on a
 // ticketing CONNECTION would pass this test with the pool loop deleted. A

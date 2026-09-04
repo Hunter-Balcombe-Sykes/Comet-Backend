@@ -26,6 +26,17 @@ class SectionCandidates
     public const CANDIDATE_SCAN_LIMIT = 200;
 
     /**
+     * Per-request memo. The presence-probe pass (SitepageDataResolverService)
+     * and the resolve pass (PoolWire/PoolResolver) each ask every pool section
+     * for its candidates independently, so an uncached call site runs the same
+     * rule query 2-3x per request (Nightwatch #499: 96 spans on the profile
+     * route). Section id + limit + pinned set is the query's whole input.
+     *
+     * @var array<string, list<string>>
+     */
+    private array $memo = [];
+
+    /**
      * The rule operators {@see applyPredicate()} actually executes — the
      * single source of truth for "does this predicate narrow the list?".
      * DocumentBuilder re-exports it for its historical readers.
@@ -91,6 +102,11 @@ class SectionCandidates
      */
     public function ruleCandidates(object $section, array $alreadyPinned, int $limit = self::CANDIDATE_SCAN_LIMIT): array
     {
+        $key = $section->id.'|'.$limit.'|'.implode(',', $alreadyPinned);
+        if (array_key_exists($key, $this->memo)) {
+            return $this->memo[$key];
+        }
+
         $rawRule = $section->rule ?? '{}';
         $rule = is_array($rawRule) ? $rawRule : (json_decode((string) $rawRule, true) ?: []);
         $predicates = $rule['all'] ?? [];
@@ -184,7 +200,7 @@ class SectionCandidates
             ),
         };
 
-        return array_values($ordered
+        return $this->memo[$key] = array_values($ordered
             ->whereNotIn('content.items.id', $alreadyPinned ?: ['00000000-0000-0000-0000-000000000000'])
             ->limit($limit)
             ->pluck('content.items.id')
