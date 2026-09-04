@@ -169,3 +169,84 @@ it('B3/P2-12: write-failure warning includes the X-Request-Id header for correla
             && ($context['request_id'] ?? null) === 'req-abc-123'
         );
 });
+
+// The force-delete path hard-deletes core.users inside the request, but
+// RecordStaffAuditEntry writes from terminate() — after the response. The FK
+// then has no parent and the whole row used to be discarded, leaving the most
+// destructive staff endpoint with no audit trail at all.
+it('keeps the audit row, unlinked, when the target user was hard-deleted before the write', function () {
+    $conn = DB::connection('pgsql');
+    $ghostId = (string) Str::uuid();
+
+    // Stage the driver's REAL failure shape. SQLite says "FOREIGN KEY constraint
+    // failed"; Postgres raises 23503 with the same wording in production. A
+    // trigger is the only way to stage it here — SQLite does not support foreign
+    // keys across ATTACHed databases, which is how the audit/core split is faked.
+    $conn->statement('DROP TRIGGER IF EXISTS audit.staff_audit_log_fk_sim');
+    $conn->statement("CREATE TRIGGER audit.staff_audit_log_fk_sim
+        BEFORE INSERT ON staff_audit_log
+        FOR EACH ROW WHEN NEW.user_id = '{$ghostId}'
+        BEGIN SELECT RAISE(ABORT, 'FOREIGN KEY constraint failed'); END");
+
+    $staff = new PartnaStaff;
+    $staff->id = (string) Str::uuid();
+    $staff->primary_email = 'admin@partna.au';
+    $staff->role = PartnaStaff::ROLE_ADMIN;
+
+    $professional = new User;
+    $professional->id = $ghostId;
+    $professional->handle = 'deleted-pro';
+
+    $entry = (new StaffAuditService)->record(
+        staff: $staff,
+        impersonator: null,
+        professional: $professional,
+        route: 'staff.professionals.force-destroy',
+        httpMethod: 'DELETE',
+        statusCode: 200,
+        payloadSummary: ['professional' => $ghostId],
+    );
+
+    // The row survives; only the FK link is dropped. Identity is still
+    // recoverable from the handle snapshot and payload_summary.
+    expect($entry)->not->toBeNull();
+    expect($entry->user_id)->toBeNull();
+    expect($entry->professional_handle_snapshot)->toBe('deleted-pro');
+    expect($entry->payload_summary['professional'])->toBe($ghostId);
+    expect($conn->table('audit.staff_audit_log')->count())->toBe(1);
+
+    $conn->statement('DROP TRIGGER IF EXISTS audit.staff_audit_log_fk_sim');
+});
+
+// A failure that is NOT a foreign-key violation must still fail closed — the
+// retry is narrow, not a blanket "insert anyway".
+it('does not retry unlinked when the insert fails for a non-FK reason', function () {
+    Log::spy();
+
+    $conn = DB::connection('pgsql');
+    $conn->statement('DROP TRIGGER IF EXISTS audit.staff_audit_log_other_sim');
+    $conn->statement("CREATE TRIGGER audit.staff_audit_log_other_sim
+        BEFORE INSERT ON staff_audit_log
+        FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END");
+
+    $professional = new User;
+    $professional->id = (string) Str::uuid();
+    $professional->handle = 'still-here';
+
+    $entry = (new StaffAuditService)->record(
+        staff: null,
+        impersonator: null,
+        professional: $professional,
+        route: 'staff.professionals.update',
+        httpMethod: 'PATCH',
+        statusCode: 200,
+    );
+
+    expect($entry)->toBeNull();
+    expect($conn->table('audit.staff_audit_log')->count())->toBe(0);
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message) => $message === 'staff.audit.write_failed');
+
+    $conn->statement('DROP TRIGGER IF EXISTS audit.staff_audit_log_other_sim');
+});
