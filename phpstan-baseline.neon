@@ -115,12 +115,6 @@ parameters:
 			path: app/Http/Controllers/Api/PublicSite/PublicCustomerLeadController.php
 
 		-
-			message: '#^Call to function is_string\(\) with non\-falsy\-string will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: app/Http/Controllers/Api/PublicSite/PublicSiteController.php
-
-		-
 			message: '#^Negated boolean expression is always false\.$#'
 			identifier: booleanNot.alwaysFalse
 			count: 1
@@ -1404,18 +1398,6 @@ parameters:
 			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Services/Audit/StaffAuditService.php
-
-		-
-			message: '#^Call to an undefined method Illuminate\\Contracts\\Cache\\Repository\:\:lock\(\)\.$#'
-			identifier: method.notFound
-			count: 2
-			path: app/Services/Cache/SiteCacheService.php
-
-		-
-			message: '#^Parameter \#1 \$array \(list\<non\-empty\-array\>\) of array_values is already a list, call has no effect\.$#'
-			identifier: arrayValues.list
-			count: 1
-			path: app/Services/Cache/SiteCacheService.php
 
 		-
 			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'

@@ -181,7 +181,7 @@ it('SiteMedia::delete clears the public payload cache via SiteObserver (invalida
     $media->save();
 
     // Seed the key AFTER create() so the create's own invalidation can't pre-clear it.
-    $key = CacheKeyGenerator::publicSitePayload('touchtest');
+    $key = CacheKeyGenerator::handleResolve('touchtest');
     Cache::put($key, ['stale' => true], 600);
 
     $media->delete();

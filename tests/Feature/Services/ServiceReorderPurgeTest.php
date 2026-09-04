@@ -188,8 +188,8 @@ it('category reorder touches the site and dispatches CloudflareCachePurgeJob (us
     [$pro, $siteId, $catIds] = seedServiceReorderFixture();
     Queue::fake();
 
-    $siteKey = CacheKeyGenerator::publicSitePayload('service-purge');
-    $controlKey = CacheKeyGenerator::publicSitePayload('other-site');
+    $siteKey = CacheKeyGenerator::handleResolve('service-purge');
+    $controlKey = CacheKeyGenerator::handleResolve('other-site');
     Cache::put($siteKey, ['sentinel' => true], 600);
     Cache::put($controlKey, ['sentinel' => true], 600);
     expect(Cache::get($siteKey))->not->toBeNull();
@@ -221,8 +221,8 @@ it('service reorder touches the site and dispatches CloudflareCachePurgeJob (use
     $svcIds = [$manualId, $freshaId];
     Queue::fake();
 
-    $siteKey = CacheKeyGenerator::publicSitePayload('service-purge');
-    $controlKey = CacheKeyGenerator::publicSitePayload('other-site');
+    $siteKey = CacheKeyGenerator::handleResolve('service-purge');
+    $controlKey = CacheKeyGenerator::handleResolve('other-site');
     Cache::put($siteKey, ['sentinel' => true], 600);
     Cache::put($controlKey, ['sentinel' => true], 600);
     expect(Cache::get($siteKey))->not->toBeNull();
@@ -253,8 +253,8 @@ it('reorderLayout touches the site and dispatches CloudflareCachePurgeJob (user-
     [$manualId, $freshaId, $collectionId] = seedServiceReorderContentFixture($pro);
     Queue::fake();
 
-    $siteKey = CacheKeyGenerator::publicSitePayload('service-purge');
-    $controlKey = CacheKeyGenerator::publicSitePayload('other-site');
+    $siteKey = CacheKeyGenerator::handleResolve('service-purge');
+    $controlKey = CacheKeyGenerator::handleResolve('other-site');
     Cache::put($siteKey, ['sentinel' => true], 600);
     Cache::put($controlKey, ['sentinel' => true], 600);
     expect(Cache::get($siteKey))->not->toBeNull();

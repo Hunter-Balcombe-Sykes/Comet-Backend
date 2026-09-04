@@ -1,8 +1,6 @@
 <?php
 
-use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
-use App\Services\Cache\SiteCacheService;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Support\Defer\DeferredCallbackCollection;
 use Illuminate\Support\Facades\Cache;
@@ -150,101 +148,6 @@ describe('HTTP context', function () {
         expect($result)->toBe(['fresh' => true]);
         expect(count(app(DeferredCallbackCollection::class)))->toBe(0);
     });
-
-    it('SiteCacheService defers the payload rebuild and serves the healed stale copy', function () {
-        // cache_locks is a redis store in config/cache.php — swap it to array so
-        // this exercises a real lock instead of a mock.
-        config(['cache.stores.cache_locks' => ['driver' => 'array']]);
-
-        $subdomain = 'swr-defer-site';
-        $key = CacheKeyGenerator::publicSitePayload($subdomain);
-        $stale = swrDeferStalePayload();
-        Cache::put($key.':stale', $stale, 600);
-
-        $service = new class(new CacheLockService) extends SiteCacheService
-        {
-            public int $built = 0;
-
-            protected function buildPayloadFromDb(string $subdomain, string $key): ?array
-            {
-                $this->built++;
-
-                return swrDeferStalePayload();
-            }
-        };
-
-        $result = $service->getPublicSitePayload($subdomain);
-
-        expect($service->built)->toBe(0);
-        expect($result)->toEqual($stale);
-        expect(count(app(DeferredCallbackCollection::class)))->toBe(1);
-
-        app(DeferredCallbackCollection::class)->invoke();
-
-        expect($service->built)->toBe(1);
-        // Lock released by the closure's finally.
-        expect(Cache::store('cache_locks')->lock('site:fill:'.$subdomain, 10)->get())->toBeTrue();
-    });
-
-    it('SiteCacheService rebuilds synchronously (not deferred) when the stale copy is legacy-shaped', function () {
-        config(['cache.stores.cache_locks' => ['driver' => 'array']]);
-
-        $subdomain = 'swr-defer-legacy-stale';
-        $key = CacheKeyGenerator::publicSitePayload($subdomain);
-        // Legacy shape — no `services` key, so it can't be served as the SWR fast
-        // path and must not be left standing behind a deferred rebuild.
-        Cache::put($key.':stale', ['site' => null], 600);
-
-        $service = new class(new CacheLockService) extends SiteCacheService
-        {
-            public int $built = 0;
-
-            protected function buildPayloadFromDb(string $subdomain, string $key): ?array
-            {
-                $this->built++;
-
-                return swrDeferStalePayload();
-            }
-        };
-
-        $result = $service->getPublicSitePayload($subdomain);
-
-        // Single synchronous rebuild, not a deferred one.
-        expect($service->built)->toBe(1);
-        expect($result)->toEqual(swrDeferStalePayload());
-        expect(count(app(DeferredCallbackCollection::class)))->toBe(0);
-        // Lock released synchronously — no deferred closure is holding it.
-        expect(Cache::store('cache_locks')->lock('site:fill:'.$subdomain, 10)->get())->toBeTrue();
-    });
-
-    it('SiteCacheService does not let a second caller rebuild while one is deferred', function () {
-        config(['cache.stores.cache_locks' => ['driver' => 'array']]);
-
-        $subdomain = 'swr-defer-single';
-        $key = CacheKeyGenerator::publicSitePayload($subdomain);
-        Cache::put($key.':stale', swrDeferStalePayload(), 600);
-
-        $service = new class(new CacheLockService) extends SiteCacheService
-        {
-            public int $built = 0;
-
-            protected function buildPayloadFromDb(string $subdomain, string $key): ?array
-            {
-                $this->built++;
-
-                return swrDeferStalePayload();
-            }
-        };
-
-        $service->getPublicSitePayload($subdomain);
-        $service->getPublicSitePayload($subdomain);
-
-        expect(count(app(DeferredCallbackCollection::class)))->toBe(1);
-
-        app(DeferredCallbackCollection::class)->invoke();
-
-        expect($service->built)->toBe(1);
-    });
 });
 
 describe('console context', function () {
@@ -265,67 +168,4 @@ describe('console context', function () {
         expect(Cache::get('swr:console'))->toBe(['fresh' => true]);
         expect(count(app(DeferredCallbackCollection::class)))->toBe(0);
     });
-
-    it('SiteCacheService rebuilds synchronously in a worker or command', function () {
-        config(['cache.stores.cache_locks' => ['driver' => 'array']]);
-
-        $subdomain = 'swr-console-site';
-        $key = CacheKeyGenerator::publicSitePayload($subdomain);
-        Cache::put($key.':stale', swrDeferStalePayload(), 600);
-
-        $service = new class(new CacheLockService) extends SiteCacheService
-        {
-            public int $built = 0;
-
-            protected function buildPayloadFromDb(string $subdomain, string $key): ?array
-            {
-                $this->built++;
-
-                return ['published' => true, 'services' => [], 'links' => [], 'sections' => [],
-                    'blocks' => [], 'site' => null, 'professional' => null, 'legal' => null, 'fresh' => true];
-            }
-        };
-
-        $result = $service->getPublicSitePayload($subdomain);
-
-        expect($service->built)->toBe(1);
-        expect($result['fresh'] ?? null)->toBeTrue();
-        expect(count(app(DeferredCallbackCollection::class)))->toBe(0);
-    });
-
-    it('SiteCacheService still returns a legitimate null from a synchronous rebuild', function () {
-        // Regression guard for the RECOMPUTE_FAILED sentinel: buildPayloadFromDb
-        // returning null means "no such site" and must pass straight through,
-        // NOT fall into the stale-healing ladder the way a thrown error does.
-        config(['cache.stores.cache_locks' => ['driver' => 'array']]);
-
-        $subdomain = 'swr-console-null';
-        $key = CacheKeyGenerator::publicSitePayload($subdomain);
-        Cache::put($key.':stale', swrDeferStalePayload(), 600);
-
-        $service = new class(new CacheLockService) extends SiteCacheService
-        {
-            protected function buildPayloadFromDb(string $subdomain, string $key): ?array
-            {
-                return null;
-            }
-        };
-
-        expect($service->getPublicSitePayload($subdomain))->toBeNull();
-    });
 });
-
-/** Minimal payload shape that passes SiteCacheService's cache-healing checks. */
-function swrDeferStalePayload(): array
-{
-    return [
-        'published' => true,
-        'services' => [],
-        'links' => [],
-        'sections' => [],
-        'blocks' => [],
-        'site' => null,
-        'professional' => null,
-        'legal' => null,
-    ];
-}

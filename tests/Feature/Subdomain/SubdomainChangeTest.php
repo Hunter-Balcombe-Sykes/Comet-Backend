@@ -126,48 +126,15 @@ it('syncs professional.handle + handle_lc and writes a handle alias on subdomain
     expect($handleAlias->handle)->toBe('old');
 });
 
-it('redirects old subdomain to new site host', function () {
-    $domain = config('partna.public_domain');
-    $oldHost = 'old.'.$domain;
-    $newHost = 'new.'.$domain;
-
-    $proId = (string) Str::uuid();
-    $siteId = (string) Str::uuid();
-    $aliasId = (string) Str::uuid();
-
-    DB::table('core.users')->insert([
-        'id' => $proId,
-        'display_name' => 'Test Pro',
-        'handle' => 'testpro',
-        'handle_lc' => 'testpro',
-        'first_name' => 'Test',
-    ]);
-
-    DB::table('site.sites')->insert([
-        'id' => $siteId,
-        'user_id' => $proId,
-        'subdomain' => 'new',
-        'is_published' => 1,
-    ]);
-
-    DB::table('site.site_subdomain_aliases')->insert([
-        'id' => $aliasId,
-        'site_id' => $siteId,
-        'subdomain' => 'old',
-        'created_at' => now()->toDateTimeString(),
-    ]);
-
-    DB::table('site.public_site_payload')->insert([
-        'site_id' => $siteId,
-        'subdomain' => 'new',
-        'payload' => json_encode(['site' => ['id' => $siteId]]),
-    ]);
-
-    $response = $this->get('http://'.$oldHost.'/api/public/site');
-
-    $response->assertStatus(301);
-    $response->assertRedirect('http://'.$newHost.'/api/public/site');
-});
+// REMOVED 2026-09-04: it('redirects old subdomain to new site host').
+// It asserted a host-based 301 served by the domain-scoped /api/public/site
+// route, which Task 1 retired (Task 5 removes the whole
+// {subdomain}.partna.au group). Users lose nothing: the alias 301 is EDGE
+// behaviour — the Cloudflare Worker serves it from SUBDOMAIN_KV on a
+// {type:"alias"} entry written by SyncSubdomainToKvJob. The backend route was
+// a second implementation of the same redirect, reachable only through a lane
+// with no callers. The alias ROW this file still pins (see above) is the input
+// that job reads.
 
 function setupCoreSchema(): void
 {

@@ -5,7 +5,6 @@ namespace App\Jobs\Cache;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheLockService;
-use App\Services\Cache\SiteCacheService;
 use App\Services\PublicSite\IndividualProfilePayloadBuilder;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -15,14 +14,13 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
-// V2: Pre-warms public site cache after publish events. Prevents cold-cache latency for first visitor.
+// V2: Pre-warms the public sitepage cache after publish events, so the first
+// visitor does not pay a cold build.
 //
-// Audit #12: for individuals, the legacy SiteCacheService::warmSiteCache populates
-// a cache key that visitors of `<handle>.partna.au` never read — they hit the §28.8
-// endpoint (IndividualProfileController) which uses its own CacheLockService key.
-// This job now ALSO pre-fills that §28.8 key when the subdomain belongs to an
-// individual, sharing the canonical builder + cache-key helpers so the two paths
-// can't drift.
+// Warms the IndividualProfileController key only. The legacy
+// SiteCacheService::warmSiteCache key was removed 2026-09-04 with the rest of
+// the payload lane — Audit #12 had already recorded that visitors of
+// `<handle>.partna.au` never read it.
 class WarmPublicSiteCacheJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
@@ -55,12 +53,10 @@ class WarmPublicSiteCacheJob implements ShouldBeUnique, ShouldQueue
     }
 
     public function handle(
-        SiteCacheService $siteCache,
         CacheLockService $cacheLock,
         IndividualProfilePayloadBuilder $builder,
     ): void {
         $subdomain = strtolower($this->subdomain);
-        $siteCache->warmSiteCache($subdomain);
 
         // §28.8 warm — best-effort. A miss here costs the first visitor full
         // payload assembly but never breaks correctness; swallow errors so a

@@ -27,16 +27,6 @@ class CacheKeyGenerator
         return 'instagram:profile:'.strtolower(ltrim(trim($username), '@'));
     }
 
-    public static function publicSite(string $subdomain): string
-    {
-        return 'site:public:'.strtolower($subdomain);
-    }
-
-    public static function publicSitePayload(string $subdomain): string
-    {
-        return 'site:payload:'.strtolower($subdomain);
-    }
-
     public static function professionalByHandle(string $handle): string
     {
         // Handle validation enforces [a-z0-9_-] on every write path
