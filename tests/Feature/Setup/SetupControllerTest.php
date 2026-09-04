@@ -201,6 +201,64 @@ it('a visible connection WITHOUT an intent still renders in its pass, connected 
         ->and($row['connectionId'])->toBe((string) $connection->id);
 });
 
+it('a hidden connection WITHOUT an intent renders as a preselected, syncing suggestion (setup-variant manual connect, 2026-09-04)', function () {
+    $pro = createTenant('setup-manual-hidden');
+    $connection = new IntegrationConnection([
+        'user_id' => $pro->id, 'surface_key' => 'youtube.channel', 'routing_class' => 'content',
+        'resource_id' => 'somechannel', 'payload' => ['url' => 'https://youtube.com/@somechannel'],
+        'is_active' => true, 'visibility' => 'hidden', 'last_refresh_status' => 'pending',
+    ]);
+    $connection->save();
+
+    $passes = collect(actingAsUser($pro)->getJson('/api/site/setup')->json('passes'));
+    $social = $passes->firstWhere('key', 'platforms.social');
+    $row = collect($social['suggestions'])->firstWhere('surfaceKey', 'youtube.channel');
+
+    expect($row)->not->toBeNull()
+        ->and($row['id'])->toBe('connection:'.$connection->id)
+        ->and($row['preselected'])->toBeTrue()
+        ->and($row['syncing'])->toBeTrue()
+        ->and($row['connectionId'])->toBeNull()
+        ->and($row['actions'])->toBe(['accept', 'dismiss']);
+});
+
+it('accepting a connection:<id> row reveals a hidden manual connect (setup-variant, 2026-09-04)', function () {
+    $pro = createTenant('setup-manual-reveal');
+    $connection = new IntegrationConnection([
+        'user_id' => $pro->id, 'surface_key' => 'youtube.channel', 'routing_class' => 'content',
+        'resource_id' => 'somechannel', 'payload' => [], 'is_active' => true, 'visibility' => 'hidden',
+    ]);
+    $connection->save();
+
+    $response = actingAsUser($pro)->postJson('/api/site/setup/accept', [
+        'pass' => 'platforms.social',
+        'accept' => ['connection:'.$connection->id],
+    ]);
+
+    $response->assertOk();
+    expect($response->json('errors'))->toBe([])
+        ->and($connection->fresh()->visibility)->toBe('visible');
+});
+
+it('accepting a connection:<id> for another user\'s row is refused', function () {
+    $pro = createTenant('setup-manual-reveal-owner');
+    $other = createTenant('setup-manual-reveal-other');
+    $connection = new IntegrationConnection([
+        'user_id' => $other->id, 'surface_key' => 'youtube.channel', 'routing_class' => 'content',
+        'resource_id' => 'somechannel', 'payload' => [], 'is_active' => true, 'visibility' => 'hidden',
+    ]);
+    $connection->save();
+
+    $response = actingAsUser($pro)->postJson('/api/site/setup/accept', [
+        'pass' => 'platforms.social',
+        'accept' => ['connection:'.$connection->id],
+    ]);
+
+    $response->assertOk();
+    expect($response->json('errors'))->toHaveKey('accept:connection:'.$connection->id)
+        ->and($connection->fresh()->visibility)->toBe('hidden');
+});
+
 it('a connected google-business listing renders as a candidate row without blanking the pass (item 12)', function () {
     $pro = createTenant('setup-listing');
     $connection = new IntegrationConnection([

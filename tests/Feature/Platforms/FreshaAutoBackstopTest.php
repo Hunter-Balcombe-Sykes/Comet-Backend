@@ -43,7 +43,9 @@ function stubBackstopMenu(): void
 }
 
 it('repairs a failed auto row instead of 304ing it', function () {
-    $user = User::factory()->create();
+    // Unclaimed: the storewide repair is the unclaimed outcome — a claimed
+    // partna's repair persists the team snapshot instead (below).
+    $user = User::factory()->create(['status' => 'unclaimed']);
     stubBackstopMenu();
 
     $next = app(FreshaFetch::class)->fetch(freshaRow($user, [
@@ -53,6 +55,25 @@ it('repairs a failed auto row instead of 304ing it', function () {
     ]));
 
     expect($next['selection']['mode'])->toBe('storewide');
+});
+
+it('repairs a claimed partna auto row to the team snapshot — the picker stays theirs', function () {
+    // The self-heal mirrors FreshaConnectFetch's picker-preserving degrade
+    // (2026-09-04): nobody matched, so no selection is guessed; the persisted
+    // teamMenu makes the row a team-mode one awaiting its picker, and
+    // connectMode still drops so the sweep stops re-repairing it.
+    $user = User::factory()->create();
+    stubBackstopMenu();
+
+    $next = app(FreshaFetch::class)->fetch(freshaRow($user, [
+        'url' => 'https://www.fresha.com/a/anseo-studio-v0v92jna',
+        'selection' => null,
+        'connectMode' => 'auto',
+    ]));
+
+    expect($next['selection'] ?? null)->toBeNull()
+        ->and($next['teamMenu']['storeName'])->toBe('Anseo Studio')
+        ->and($next)->not->toHaveKey('connectMode');
 });
 
 it('drops connectMode once the repair succeeds', function () {

@@ -54,7 +54,7 @@ it('selects the matched employee menu', function () use ($canonical) {
 });
 
 it('falls back to storewide when nothing matches', function () use ($canonical) {
-    $user = User::factory()->create(['first_name' => 'Prahran', 'last_name' => 'Hairdresser']);
+    $user = User::factory()->create(['first_name' => 'Prahran', 'last_name' => 'Hairdresser', 'status' => 'unclaimed']);
 
     $result = app(FreshaAutoSelector::class)->select(
         $user,
@@ -68,7 +68,7 @@ it('falls back to storewide when nothing matches', function () use ($canonical) 
 });
 
 it('falls back to storewide when the slug cannot be extracted', function () {
-    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle']);
+    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle', 'status' => 'unclaimed']);
 
     $result = app(FreshaAutoSelector::class)->select(
         $user,
@@ -81,7 +81,7 @@ it('falls back to storewide when the slug cannot be extracted', function () {
 });
 
 it('falls back to storewide when the employee menu comes back empty', function () use ($canonical) {
-    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle']);
+    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle', 'status' => 'unclaimed']);
 
     $this->mock(FreshaScraper::class, function (MockInterface $m) {
         $m->shouldReceive('slugFromUrl')->andReturn('anseo-studio-v0v92jna');
@@ -107,7 +107,7 @@ it('writes no site.services rows — the pool is the connector\'s to fill', func
     // the Fresha service menu lands in content.* through the ingest connector,
     // and sync() only composes. Pinned as a zero rather than deleted so a
     // reintroduced write is caught rather than silently accepted.
-    $user = User::factory()->create(['first_name' => 'Prahran', 'last_name' => 'Hairdresser']);
+    $user = User::factory()->create(['first_name' => 'Prahran', 'last_name' => 'Hairdresser', 'status' => 'unclaimed']);
 
     app(FreshaAutoSelector::class)->select($user, autoMenu(), $canonical);
 
@@ -117,7 +117,7 @@ it('writes no site.services rows — the pool is the connector\'s to fill', func
 it('carries the store name onto the selection', function () use ($canonical) {
     // storeName is what the sitepage renders as the booking card heading; a null
     // here is the difference between "Anseo Studio" and a bare link.
-    $user = User::factory()->create(['first_name' => 'Prahran', 'last_name' => 'Hairdresser']);
+    $user = User::factory()->create(['first_name' => 'Prahran', 'last_name' => 'Hairdresser', 'status' => 'unclaimed']);
 
     $result = app(FreshaAutoSelector::class)->select($user, autoMenu(), $canonical);
 
@@ -165,8 +165,9 @@ it('retries the employee menu on the rotated slug instead of degrading to storew
 
 it('still degrades to storewide when the rotated slug also has no employee menu', function () {
     // The retry is one extra attempt, not a loop. A venue that genuinely has no
-    // per-employee menu must still land a WORKING storewide selection.
-    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle']);
+    // per-employee menu must still land a WORKING storewide selection (for an
+    // unclaimed build — a claimed partna defers to the picker instead, below).
+    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle', 'status' => 'unclaimed']);
 
     $this->mock(FreshaScraper::class, function (MockInterface $m) {
         $m->shouldReceive('slugFromUrl')->andReturn('old-slug');
@@ -204,4 +205,67 @@ it('does not re-resolve when the stored slug already serves the employee menu', 
     );
 
     expect($result['selection']['mode'])->toBe('employee');
+});
+
+it('declines to guess for a claimed partna when nobody matches — no selection, nothing projected', function () use ($canonical) {
+    // The picker-preserving degrade (2026-09-04): a whole salon's menu on an
+    // individual's page misprices almost everything (22 of 23 prices were the
+    // salon's "from" prices in the live case), and a claimed owner HAS a
+    // picker. The caller composes the team snapshot from this null.
+    $user = User::factory()->create(['first_name' => 'Prahran', 'last_name' => 'Hairdresser']);
+
+    $result = app(FreshaAutoSelector::class)->select(
+        $user,
+        autoMenu([['employeeId' => 'e1', 'displayName' => 'Simon Doyle']]),
+        $canonical
+    );
+
+    expect($result['selection'])->toBeNull()
+        ->and($result['matchTier'])->toBeNull()
+        ->and($result['suggestedEmployeeId'])->toBeNull()
+        ->and($result['raw'])->toBe([]);
+});
+
+it('still hands the picker its suggestion when the match landed but the employee menu did not', function () use ($canonical) {
+    // Matched-but-unfetchable is the half-way state: the person is identified,
+    // only their menu is missing. The suggestion rides back so the picker opens
+    // pre-highlighted and saveSelection()'s own scrape gets a second chance.
+    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle']);
+
+    $this->mock(FreshaScraper::class, function (MockInterface $m) {
+        $m->shouldReceive('slugFromUrl')->andReturn('anseo-studio-v0v92jna');
+        $m->shouldReceive('resolveCurrentSlug')->andReturn('anseo-studio-v0v92jna');
+        $m->shouldReceive('fetchEmployeeServices')->once()->andReturn(null);
+    });
+
+    $result = app(FreshaAutoSelector::class)->select(
+        $user,
+        autoMenu([['employeeId' => 'e1', 'displayName' => 'Simon Doyle']]),
+        $canonical
+    );
+
+    expect($result['selection'])->toBeNull()
+        ->and($result['matchTier'])->toBe('exact')
+        ->and($result['suggestedEmployeeId'])->toBe('e1');
+});
+
+it('still writes the employee selection for a claimed partna — declining is only for the storewide degrade', function () use ($canonical) {
+    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle']);
+
+    $this->mock(FreshaScraper::class, function (MockInterface $m) {
+        $m->shouldReceive('slugFromUrl')->andReturn('anseo-studio-v0v92jna');
+        $m->shouldReceive('fetchEmployeeServices')->once()->andReturn([[
+            'serviceId' => 's:9', 'name' => 'Simon Cut', 'duration' => '45min', 'description' => null,
+            'price' => 'A$80', 'priceValue' => 80, 'currency' => 'AUD', 'category' => 'Hair', 'hasVariants' => false,
+        ]]);
+    });
+
+    $result = app(FreshaAutoSelector::class)->select(
+        $user,
+        autoMenu([['employeeId' => 'e1', 'displayName' => 'Simon Doyle']]),
+        $canonical
+    );
+
+    expect($result['selection']['mode'])->toBe('employee')
+        ->and($result['selection']['employee']['employeeId'])->toBe('e1');
 });

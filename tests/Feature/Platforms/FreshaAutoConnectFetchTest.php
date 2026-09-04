@@ -3,6 +3,7 @@
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\FreshaScraper;
+use App\Services\Platforms\Strategies\Fetch\FetchNotModifiedException;
 use App\Services\Platforms\Strategies\Fetch\FetchUnavailableException;
 use App\Services\Platforms\Strategies\Fetch\FreshaConnectFetch;
 use Mockery\MockInterface;
@@ -53,8 +54,8 @@ function stubMenu(array $team = []): void
     });
 }
 
-it('writes a storewide selection when nobody matches', function () {
-    $user = User::factory()->create(['first_name' => 'Prahran', 'last_name' => 'Hairdresser']);
+it('writes a storewide selection when nobody matches on an unclaimed build', function () {
+    $user = User::factory()->create(['first_name' => 'Prahran', 'last_name' => 'Hairdresser', 'status' => 'unclaimed']);
     stubMenu([['employeeId' => 'e1', 'displayName' => 'Simon Doyle']]);
 
     $next = app(FreshaConnectFetch::class)->fetch(autoConnectionFor($user));
@@ -205,7 +206,7 @@ it('marks an auto-chosen selection so the owner can be asked to confirm it', fun
     // at claim time. matchTier alone cannot carry it: a null tier means "storewide
     // because nothing matched", which is indistinguishable from a storewide the
     // owner deliberately chose in the picker.
-    $user = User::factory()->create(['first_name' => 'Prahran', 'last_name' => 'Hairdresser']);
+    $user = User::factory()->create(['first_name' => 'Prahran', 'last_name' => 'Hairdresser', 'status' => 'unclaimed']);
     stubMenu([['employeeId' => 'e1', 'displayName' => 'Simon Doyle']]);
 
     $next = app(FreshaConnectFetch::class)->fetch(autoConnectionFor($user));
@@ -277,7 +278,9 @@ it('persists the rotated slug so the stale one stops being the starting point', 
     // reports what it landed on via lastResolvedSlug(); the dashboard lane has
     // always written that back, this lane never did — so a rotated venue
     // re-resolved on every refresh and kept feeding the employee leg a dead slug.
-    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle']);
+    // (Unclaimed: the no-match outcome must still land a storewide SELECTION for
+    // this pin to read the rewritten url off it.)
+    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle', 'status' => 'unclaimed']);
 
     test()->mock(FreshaScraper::class, function (MockInterface $m) {
         $m->shouldReceive('fetchMenu')->once()->andReturn([
@@ -322,4 +325,70 @@ it('leaves the url alone when nothing rotated', function () {
     $next = app(FreshaConnectFetch::class)->fetch(autoConnectionFor($user));
 
     expect($next['url'])->toBe('https://www.fresha.com/a/anseo-studio-v0v92jna');
+});
+
+it('falls back to the team snapshot for a claimed partna nobody matched — the picker stays theirs', function () {
+    // 2026-09-04: the accept lane now runs auto mode for claimed in-setup
+    // users. When FreshaAutoSelector declines to guess, this branch persists
+    // exactly what team mode would have: the menu snapshot the picker reads,
+    // no selection, no autoSelected marker — so the Get Started walk renders
+    // "Which one is you?" instead of a whole salon's understated prices.
+    $user = User::factory()->create(['first_name' => 'Prahran', 'last_name' => 'Hairdresser']);
+    stubMenu([['employeeId' => 'e1', 'displayName' => 'Simon Doyle']]);
+
+    $next = app(FreshaConnectFetch::class)->fetch(autoConnectionFor($user));
+
+    expect($next['selection'] ?? null)->toBeNull()
+        ->and($next['teamMenu']['team'][0]['employeeId'])->toBe('e1')
+        ->and($next['teamMenu'])->not->toHaveKey('suggestedEmployeeId')
+        ->and($next)->not->toHaveKey('autoSelected')
+        ->and($next)->not->toHaveKey('connectMode');
+});
+
+it('pre-highlights the picker when the match landed but the employee menu did not', function () {
+    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle']);
+    stubMenu([['employeeId' => 'e1', 'displayName' => 'Simon Doyle']]);
+
+    $next = app(FreshaConnectFetch::class)->fetch(autoConnectionFor($user));
+
+    expect($next['selection'] ?? null)->toBeNull()
+        ->and($next['teamMenu']['suggestedEmployeeId'])->toBe('e1');
+});
+
+it('stands down when a human pick landed while the auto scrape was in flight', function () {
+    // The accept-lane dispatch races the walk's own picker: saveSelection()
+    // replaces the payload under the booking-XOR lock, and a machine guess
+    // arriving second must lose. NotModified, not a write — the row is healthy
+    // and it is the person's.
+    $user = User::factory()->create(['first_name' => 'Simon', 'last_name' => 'Doyle']);
+    $row = autoConnectionFor($user);
+
+    test()->mock(FreshaScraper::class, function (MockInterface $m) use ($row) {
+        $m->shouldReceive('fetchMenu')->once()->andReturnUsing(function () use ($row) {
+            $row->forceFill(['payload' => [...$row->payload, 'selection' => [
+                'url' => 'https://www.fresha.com/a/anseo-studio-v0v92jna',
+                'storeName' => 'Anseo Studio', 'mode' => 'employee',
+                'employee' => ['employeeId' => 'e2', 'displayName' => 'Someone Else'],
+                'services' => [], 'hiddenServiceIds' => [],
+            ]]])->saveQuietly();
+
+            return [
+                'storeName' => 'Anseo Studio',
+                'team' => [['employeeId' => 'e1', 'displayName' => 'Simon Doyle']],
+                'services' => [[
+                    'serviceId' => 's:1', 'name' => 'Cut', 'duration' => '30min', 'description' => null,
+                    'price' => 'A$50', 'priceValue' => 50, 'currency' => 'AUD', 'category' => 'Hair', 'hasVariants' => false,
+                ]],
+            ];
+        });
+        $m->shouldReceive('slugFromUrl')->andReturn('anseo-studio-v0v92jna');
+        $m->shouldReceive('lastResolvedSlug')->andReturn(null);
+        $m->shouldReceive('resolveCurrentSlug')->andReturn(null);
+        $m->shouldReceive('fetchEmployeeServices')->andReturn(null);
+    });
+
+    expect(fn () => app(FreshaConnectFetch::class)->fetch($row))
+        ->toThrow(FetchNotModifiedException::class);
+
+    expect($row->fresh()->payload['selection']['employee']['employeeId'])->toBe('e2');
 });

@@ -208,6 +208,17 @@ class User extends BaseModel
         return mb_strtolower(trim((string) $this->status)) === 'unclaimed';
     }
 
+    // Nobody has finished the Get Started walk yet: unclaimed, or claimed with
+    // the setup done-bit unstamped (a missing site row counts as unfinished —
+    // there is nothing to have completed setup ON). The auto-booking lanes gate
+    // on this rather than isUnclaimed() since 2026-09-04: a claimed owner mid-
+    // signup benefits from the same background enrichment as a build, and the
+    // picker-preserving degrade in FreshaAutoSelector keeps their choice theirs.
+    public function isInSetup(): bool
+    {
+        return $this->isUnclaimed() || $this->site?->setup_completed_at === null;
+    }
+
     /** @return HasOne<Site, $this> */
     public function site(): HasOne
     {

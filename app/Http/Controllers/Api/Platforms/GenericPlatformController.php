@@ -194,15 +194,25 @@ class GenericPlatformController extends ApiController
 
         $accountKey = $result->accountKey;
 
+        // Get Started's setup-variant ConnectionSheet (owner, 2026-09-04):
+        // a manual pick there writes hidden — same visibility column and
+        // reveal (HiddenConnections, at /site/setup/accept) the automatic
+        // pre-scrape path already uses — so the person sees it selected at
+        // once while the real connection settles in the background, and
+        // nothing is publicly live until they press Continue. Read directly
+        // off the request, same as connectBrand()'s $replace above: not part
+        // of PlatformConnectRequest::rules() because it isn't per-descriptor.
+        $hidden = $request->boolean('hidden') ? true : null;
+
         // PWL-2: ConnectFetchJob and ScheduledRefresh both write this same row
         // behind platformConnectionLock — the write (writeAccountConnection/
         // writeConnection) must serialise against them, or a background
         // refresh can clobber this connect.
-        return $this->withConnectionLock($user, function () use ($user, $descriptor, $selection, $resourceClass, $accountKey): JsonResponse {
+        return $this->withConnectionLock($user, function () use ($user, $descriptor, $selection, $resourceClass, $accountKey, $hidden): JsonResponse {
             if ($descriptor->multiAccount()) {
                 $key = $accountKey ?? $this->defaultAccountKey($selection);
                 if ($key !== null) {
-                    $row = $this->writeAccountConnection($user, $key, $selection);
+                    $row = $this->writeAccountConnection($user, $key, $selection, hidden: $hidden);
                     if ($row === null) {
                         return $this->error('You can connect up to '.$this->maxAccounts().' accounts.', 422);
                     }
@@ -211,7 +221,7 @@ class GenericPlatformController extends ApiController
                 }
             }
 
-            $this->writeConnection($user, $selection);
+            $this->writeConnection($user, $selection, hidden: $hidden);
 
             return $this->success((new $resourceClass($selection))->resolve());
         });

@@ -313,7 +313,17 @@ class ImageVariantService
             // the public deliverable is the variants (ACL 'public') in
             // MediaVariant rows. Document originals are a separate path
             // (UserDocumentController) and remain 'public'.
-            $this->disk()->put($path, $stream, 'private');
+            //
+            // The return value MUST be checked: on the non-throwing
+            // public_dev alias a failed write is a false return, and this
+            // method's path was then stamped onto the DB row as if stored —
+            // ProcessImageVariantsJob later died on "Original file not found
+            // on media disk" (Nightwatch #493, 2026-09-04) with the actual
+            // failure long gone.
+            $stored = $this->disk()->put($path, $stream, 'private');
+            if ($stored === false) {
+                throw new \RuntimeException("Media disk rejected the original write ({$path}).");
+            }
         } finally {
             // Flysystem-S3 closes the resource on success; the finally covers
             // failure paths. Double-fclose on a closed handle is harmless.

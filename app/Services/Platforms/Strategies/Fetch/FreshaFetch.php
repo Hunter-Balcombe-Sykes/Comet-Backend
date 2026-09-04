@@ -63,6 +63,18 @@ final readonly class FreshaFetch implements FetchStrategy
             $next = $connection->payload;
             unset($next['connectMode']);
 
+            // Same fallback as FreshaConnectFetch's auto branch (2026-09-04):
+            // the selector declined to guess for a claimed partna, so persist
+            // the team snapshot the picker reads instead of a selection.
+            if ($chosen['selection'] === null) {
+                unset($menu['venue']);
+                if (($chosen['suggestedEmployeeId'] ?? null) !== null) {
+                    $menu['suggestedEmployeeId'] = $chosen['suggestedEmployeeId'];
+                }
+
+                return [...$next, 'url' => $url, 'teamMenu' => $menu];
+            }
+
             return [...$next, 'url' => $url, 'selection' => $chosen['selection'],
                 'matchTier' => $chosen['matchTier'], 'raw' => ['services' => $chosen['raw']]];
         }

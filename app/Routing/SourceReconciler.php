@@ -235,10 +235,15 @@ class SourceReconciler
         // own menu when the staff matcher identifies them, storewide when it
         // cannot.
         //
-        // Gated on the USER's claim state, not a caller flag. This lane's
+        // Gated on the USER's state, not a caller flag. This lane's
         // $autoConnectBooking is vestigial (LinkInBioScanJob:52-56) — a flag has
-        // to survive every hop and that one did not. A claimed owner is present
-        // and keeps their picker.
+        // to survive every hop and that one did not. Widened 2026-09-04 from
+        // isUnclaimed() to isInSetup(): a claimed owner mid-signup gets the same
+        // background enrichment as a build, and keeps their picker anyway —
+        // FreshaAutoSelector only writes a selection for them when it lands
+        // their OWN employee menu (its picker-preserving degrade), and
+        // SquareAutoSelectJob has always stood down on no match. Post-setup, a
+        // claimed owner still keeps today's picker-first flow.
         //
         // AFTER the transaction, deliberately: dispatchFor() re-queries the row
         // just written and enqueues a job that must not run against a rolled-back
@@ -253,7 +258,7 @@ class SourceReconciler
         if ($verdict === Verdict::Place
             && $connectionId !== null
             && in_array($placement->surfaceKey, ['fresha.book', 'square.book'], true)
-            && $user->isUnclaimed()
+            && $user->isInSetup()
             && (bool) config('partna.connect.auto_booking.enabled', true)
         ) {
             $this->autoBookingConnect->dispatchFor((string) $user->id, $placement->surfaceKey === 'square.book' ? 'square' : 'fresha');
@@ -861,10 +866,11 @@ class SourceReconciler
         // get the same job when the surface declares a fetch capability.
         //
         // CONTENT class only, deliberately: booking's enrichment is OWNED by
-        // AutoBookingConnectDispatcher with its claimed/unclaimed rule (a
-        // claimed user keeps the team-member picker — an unconditional fetch
-        // here would auto-complete it; UnclaimedAutoBookingConnectTest pins
-        // that), and shop rows enrich through their own connect jobs.
+        // AutoBookingConnectDispatcher with its in-setup rule (2026-09-04 —
+        // was claimed/unclaimed; the picker survives either way because
+        // FreshaAutoSelector only auto-completes a claimed partna's row when
+        // it lands their own employee menu), and shop rows enrich through
+        // their own connect jobs.
         // afterCommit: this runs inside reconcile()'s transaction.
         if (ConnectionPayload::contentIsOwed($surfaceKey, $routingClass)) {
             ConnectFetchJob::dispatch((string) $connection->id, LegacyPlatformMap::legacyFor($surfaceKey), systemInitiated: true)->afterCommit();
