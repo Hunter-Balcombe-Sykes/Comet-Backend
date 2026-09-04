@@ -18,6 +18,7 @@ Audience: whoever is doing the move, plus the Claude session assisting. Steps ar
 | Prod has `usesPushToDeploy: true` — the push IS the deploy. | Between the transfer and the Laravel Cloud reconnect, **deploys are dead**. Serving is unaffected: `api.partna.au` keeps answering. This is a deploy outage, not a site outage. |
 | A transfer can be transferred back. | The whole operation is reversible. The only genuinely one-way step is reauthorising the Apps, which is tedious rather than risky. |
 | `scripts/db/backup-to-r2.sh:132-133` hard-codes `Hunter-Balcombe-Sykes/partna-db-backup`. | Those two lines are correct **only while that repo sits in the old org**. Moving it makes them wrong, and they are the only such references in the codebase. |
+| `partna-db-backup` carries **11** repo Actions secrets, including `BACKUP_PASSPHRASE` and `SUPABASE_DB_URL`. | Secrets are **write-only** — they cannot be read back out of GitHub. If a transfer drops them they must be re-entered from the password manager. **`BACKUP_PASSPHRASE` is the one that matters**: every `.enc` object in R2 was encrypted with it (`openssl enc -aes-256-cbc -pbkdf2`, `backup-to-r2.sh:111`), so losing it makes every existing encrypted backup permanently undecryptable. `backup-to-r2.sh:108` states it lives in the password manager — **confirm that before B3, not after**. |
 
 ### The invariant
 
@@ -60,8 +61,19 @@ Do this when you are at a keyboard and free to run Phase C immediately after. No
 | C1 | **[you]** | Laravel Cloud → install / authorise its GitHub App on `PartnaAu`, granting `partna-backend` |
 | C2 | **[you]** | Re-point **both** envs at `PartnaAu/partna-backend`; confirm prod still has `usesPushToDeploy: true` and `branch: production` |
 | C3 | **[you]** | Reinstall any other App you want on the new org (Copilot, Claude Code) |
-| C4 | **[you]** | Re-add the two Actions secrets on `partna-db-backup` if the transfer dropped them: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` (write-only; they cannot be read back, so have them to hand) |
+| C4 | **[you]** | Verify the **11** Actions secrets on `partna-db-backup` survived (list below). They are write-only — if any dropped, they must be re-entered from the password manager, not recovered from GitHub |
 | C5 | **[claude]** | Smoke test: trigger a `development` deploy, then `cloud deployment:list development` — look for a `*.succeeded` status, not a bare `running` |
+
+### `partna-db-backup` secrets to verify after transfer
+
+```
+BACKUP_PASSPHRASE              R2_MEDIA_DST_ACCESS_KEY_ID     R2_SRC_ENDPOINT
+R2_ACCESS_KEY_ID               R2_MEDIA_DST_SECRET_ACCESS_KEY R2_SRC_SECRET_ACCESS_KEY
+R2_ENDPOINT                    R2_SRC_ACCESS_KEY_ID           SUPABASE_DB_URL
+R2_SECRET_ACCESS_KEY           R2_SRC_BUCKET
+```
+
+Check with `gh api repos/PartnaAu/partna-db-backup/actions/secrets --jq '.secrets[].name'` — names are readable, values are not.
 
 ## Phase D — cleanup
 
