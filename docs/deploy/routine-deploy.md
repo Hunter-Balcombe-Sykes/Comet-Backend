@@ -452,7 +452,7 @@ deleted when the push goes green) until the pilot has run without incident.
 **Context — the dump is the only net.** The Supabase org is on the **Free** plan: no PITR, no managed
 daily backups, and the preferred "restore to a new project" path is a paid-tier feature
 (`docs/runbooks/drills/04-backup-restore.md`). The weekly encrypted dump in
-`Hunter-Balcombe-Sykes/partna-db-backup` is the only backup that exists, so **schema RPO is ~7 days**.
+`PartnaAu/partna-db-backup` is the only backup that exists, so **schema RPO is ~7 days**.
 Between the last weekly run and your push there is nothing, which is exactly the gap this step closes.
 
 **How to take it.** Same invocation and same connection form as the restore drill and the weekly

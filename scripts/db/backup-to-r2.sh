@@ -6,7 +6,7 @@
 #   The routine deploy runbook tells you to take a pre-flight `pg_dump` before a risky
 #   migration or a DROP, but it stops at "take the dump" — the dump then lives on one
 #   laptop, which is not a backup. The scheduled `weekly-db-backup` workflow in
-#   `Hunter-Balcombe-Sykes/partna-db-backup` is the only thing that ever writes to R2, and
+#   `PartnaAu/partna-db-backup` is the only thing that ever writes to R2, and
 #   its R2 credentials are GitHub Actions secrets: write-only, unreadable from here.
 #   A previous session concluded R2 was therefore unreachable locally. That was wrong.
 #
@@ -129,8 +129,8 @@ if [ "$ENCRYPT" -eq 1 ]; then
     cat <<EOF
 
 Restore rehearsal for this object (runs where the secrets live, nothing touches a laptop):
-  gh workflow run restore-drill -R Hunter-Balcombe-Sykes/partna-db-backup -f object_key='$(basename "$KEY")'
-  gh run watch \$(gh run list -R Hunter-Balcombe-Sykes/partna-db-backup --workflow restore-drill -L1 --json databaseId --jq '.[0].databaseId') -R Hunter-Balcombe-Sykes/partna-db-backup
+  gh workflow run restore-drill -R PartnaAu/partna-db-backup -f object_key='$(basename "$KEY")'
+  gh run watch \$(gh run list -R PartnaAu/partna-db-backup --workflow restore-drill -L1 --json databaseId --jq '.[0].databaseId') -R PartnaAu/partna-db-backup
 
 Note: restore-drill resolves object_key under weekly/ only. An object uploaded under any
 other prefix cannot be drilled without editing that workflow.

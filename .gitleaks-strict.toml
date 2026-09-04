@@ -1,0 +1,35 @@
+# Second gitleaks pass — the deliberate complement of `.gitleaks.toml`.
+#
+# WHY TWO CONFIGS. The primary pass runs the full default ruleset but blanket
+# path-allowlists `tests/`, `docs/`, `audits/` and `.audit-work/`, because audit
+# prose and test fixtures legitimately carry fake secrets. Blanket is the problem:
+# verified 2026-09-04, four live-FORMAT secrets (an AKIA pair, a `ghp_` PAT and an
+# RSA private key) planted under `audits/` and `tests/` scored ZERO findings under
+# that config. Those directories hold 138 committed agent transcripts (68MB) and
+# grow with every audit run, so the unscanned surface widens over time.
+#
+# This pass inverts the trade: NO path allowlist — every file is scanned, including
+# `tests/`, `docs/`, `audits/` and `.audit-work/` — with only the heuristic rules
+# disabled that generate this repo's false positives. Measured 2026-09-04 across
+# those four directories: 129 findings, ALL from the four rules listed below, and
+# ZERO from `aws-access-token`, `github-pat`, `private-key` or any other
+# high-confidence rule. So disabling exactly these four is clean today while
+# leaving every unambiguous live-credential format armed everywhere.
+#
+# `targetRules` (per-rule allowlists) would express this in one config, but it does
+# not exist in gitleaks 8.24.3 — the binary knows `allowlists` and `regexTarget`
+# only. Re-check on a gitleaks upgrade; if it lands, collapse these two files.
+#
+# IF THIS PASS FAILS a real credential format has landed somewhere the primary scan
+# is structurally blind to. Do NOT silence it by adding a path here — remove the
+# secret and rotate it.
+title = "Partna gitleaks — strict pass (no path allowlist)"
+
+[extend]
+useDefault = true
+disabledRules = [
+    "generic-api-key",     # 85 hits: entropy heuristic on audit prose + base64 fixture blobs
+    "curl-auth-header",    # 28 hits: runbooks and DAST logs quote `curl -H "Authorization: …"`
+    "jwt",                 # 10 hits: Laravel `{"iv":…}` encrypted payloads + fabricated test JWTs
+    "stripe-access-token", #  6 hits: `sk_test_` / `whsec_` values in billing tests
+]
