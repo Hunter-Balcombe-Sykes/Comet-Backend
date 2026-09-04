@@ -107,9 +107,21 @@ it('accepts a real url for its own host on every brand platform', function () {
         // first Brand platform whose detector anchors on a deeper path
         // (/profile/…) that the generic '/x' shapes below can't reach.
         $canonicalProbes = [];
-        $template = CompiledCatalog::surface($descriptor->getSurfaceKey())['canonical_url_template'] ?? null;
+        $surfaceRow = CompiledCatalog::surface($descriptor->getSurfaceKey()) ?? [];
+        $template = $surfaceRow['canonical_url_template'] ?? null;
         if (is_string($template) && $template !== '') {
-            $canonicalProbes[] = preg_replace('/\{[a-z_]+\}/i', 'x', $template);
+            // A numeric_id surface's own detector requires digits (e.g.
+            // Deezer.php's /artist/(?<id>\d{1,15})) — the literal 'x' this
+            // probe used everywhere else fails that shape and reads as the
+            // surface rejecting its own canonical URL, when the real defect
+            // (if any) is this probe's placeholder, not the surface. Found
+            // 2026-09-04 fixing the equivalent real over-matching bug in
+            // WebsiteLinkHarvester (deezer.com/<non-artist-path> was wrongly
+            // claimed as deezer.artist before that fix); tightening the
+            // harvester's own deezer detector surfaced this probe's blind
+            // spot in the same run.
+            $placeholder = ($surfaceRow['identifier_kind'] ?? null) === 'numeric_id' ? '123' : 'x';
+            $canonicalProbes[] = preg_replace('/\{[a-z_]+\}/i', $placeholder, $template);
         }
 
         foreach ($bySurface[$descriptor->getSurfaceKey()] ?? [] as $host) {
