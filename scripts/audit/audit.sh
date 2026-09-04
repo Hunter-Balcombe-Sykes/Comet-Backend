@@ -27,7 +27,8 @@
 #     pre-merge        — migration-safety + api-contract + configuration-hygiene + test-coverage
 #                        + test-prod-parity (run before merging a PR that touches schema or
 #                        public API; parity catches SQLite-green/Postgres-500 writes)
-#     code-quality     — code-quality-slop + semantic-correctness
+#     code-quality     — code-quality-slop + semantic-correctness +
+#                        legacy-surface-inventory
 #                        (AI slop + plausible-but-wrong logic the compiler can't see;
 #                         the qualitative companion to `composer analyse`)
 #     pre-pilot        — core + data-integrity + job-queue-correctness + observability
@@ -40,8 +41,9 @@
 #                        + migration-safety + api-contract (the go-live gate)
 #     scale-health     — caching trio + database-and-queue-scaling + job-queue-correctness
 #                        + observability, graded against a 10k-user target (run post-launch)
-#     full-sweep       — ALL 21 lenses (the stage bundles plus test-coverage,
-#                        test-prod-parity, code-quality-slop, semantic-correctness).
+#     full-sweep       — ALL 22 lenses (the stage bundles plus test-coverage,
+#                        test-prod-parity, code-quality-slop, semantic-correctness,
+#                        legacy-surface-inventory).
 #                        Nothing left unturned; use with --codebase for a whole-repo audit.
 #     cross-repo       — frontend-backend-contract (XREPO) + cross-repo-dead-code (XDEAD):
 #                        backend↔frontend contract drift & frontend/cross-repo dead code.
@@ -462,6 +464,12 @@ ingest-third-party|app/Ingest/Connectors app/Ingest/Landing app/Content
 schema-pii|supabase/migrations
 EOF
         ;;
+        legacy-surface-inventory) cat <<'EOF'
+payload-lane|app/Services/Cache app/Http/Controllers/Api/PublicSite app/Models/Views app/Services/PublicSite
+wire-and-wiring|routes config/partna.php app/Providers
+resources-site-models|app/Http/Resources app/Models/Core/Site app/Site
+EOF
+        ;;
         code-quality-slop) cat <<'EOF'
 services-platforms|app/Services/Platforms app/Services/Brand app/Services/Shop
 services-design-media|app/Services/Design app/Services/Media app/Services/WebsiteScan app/Services/Migration
@@ -742,6 +750,7 @@ if $FULL; then
             LENS_FILES=(
                 "$SCRIPT_DIR/lenses/code-quality-slop.md"
                 "$SCRIPT_DIR/lenses/semantic-correctness.md"
+                "$SCRIPT_DIR/lenses/legacy-surface-inventory.md"
             )
             META_PREFIXES="AI slop & low-value code (SLOP-*) and semantic correctness — type-valid-but-wrong behaviour (SEM-*). Complementary lenses: SLOP is a taste/maintainability pass graded against CLAUDE.md house style; SEM hunts plausible-but-wrong logic that compiles AND passes Larastan. Larastan already enforces symbol existence (undefined methods/properties/classes/config), so do NOT re-report missing-symbol findings here. When a single line is both slop and a semantic bug, keep the SEM finding (higher signal) and drop the SLOP duplicate. Apply both lenses' anti-hallucination directive: confirm every finding against the actual repo via Read/Grep before keeping it — never on a prior about how a library 'should' behave"
             ;;
@@ -821,8 +830,9 @@ if $FULL; then
                 "$SCRIPT_DIR/lenses/test-prod-parity.md"
                 "$SCRIPT_DIR/lenses/code-quality-slop.md"
                 "$SCRIPT_DIR/lenses/semantic-correctness.md"
+                "$SCRIPT_DIR/lenses/legacy-surface-inventory.md"
             )
-            META_PREFIXES="every audit theme the pipeline knows: SEC, LIFE, CACHE, SCALE, SCHEMA, CCH, WHK, TXN, DINT, JOB, OBS, CCG, PRIV, EDGE, CFG, MIG, API, TEST, SLOP, SEM, and PARITY — the exhaustive nothing-left-unturned sweep"
+            META_PREFIXES="every audit theme the pipeline knows: SEC, LIFE, CACHE, SCALE, SCHEMA, CCH, WHK, TXN, DINT, JOB, OBS, CCG, PRIV, EDGE, CFG, MIG, API, TEST, SLOP, SEM, LEGACY, and PARITY — the exhaustive nothing-left-unturned sweep"
             ADJ_BUDGET="12.00"
             ;;
         foundational)

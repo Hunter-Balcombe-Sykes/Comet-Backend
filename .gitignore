@@ -73,3 +73,14 @@ audits/launch-check/
 .env.drill
 .env.testing
 .env.backup-*
+
+# Audit campaign scratch — mutation backups, measurement scripts, per-campaign
+# notes. Working state for a run in progress, never a deliverable.
+/.audit-work/
+
+# Raw audit sweep output. The pipeline regenerates it, a full sweep is ~450
+# files, and the per-lens reports quote source verbatim — on a public repo that
+# publishes raw findings. Same reasoning as audits/launch-check/ above.
+# Already-tracked runs stay tracked; this only stops new ones landing.
+audits/sweeps/
+audits/cleanup/
