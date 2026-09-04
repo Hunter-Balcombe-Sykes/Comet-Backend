@@ -186,6 +186,18 @@ class SetupPayload
 
         // withDuplicateCandidates: true keeps this byte-identical to the
         // resolve() calls it replaces.
+        //
+        // Investigated for Task 3 (2026-09-04) and found LOAD-BEARING: the
+        // premise that setupItem() never reads a duplicate-candidates key is
+        // true for the 'services' pass only. The 'items.*'/'media'/'links'
+        // branches in composePass() put resolvedPools['library'] rows on the
+        // wire VERBATIM — no setupItem() transform — so duplicateCandidates
+        // IS a live setup-wire field for six of the seven pools. Flipping
+        // this to false was proven wire-breaking by
+        // SetupPoolBatchingTest.php's "the setup wire carries a populated
+        // duplicateCandidates today" test: it passes on this code and fails
+        // the moment the flag flips. Do not flip it without re-deriving
+        // duplicateCandidates some other way for those four pools first.
         [$payloads, $stores] = $this->pools->hydrateItems(
             $site,
             array_values(array_unique($ids)),

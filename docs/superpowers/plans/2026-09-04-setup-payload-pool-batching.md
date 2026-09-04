@@ -517,7 +517,9 @@ EOF
 
 **Why this is safe:** `hydrateItems`'s `$withDuplicateCandidates` flag runs a `content.identity_candidates` read. `SetupPayload` renders items through `setupItem()` (`:548`), which reads exactly `id`, `name`/`headline`/`title`, `price`/`basePrice`, `durationMinutes`, `image`/`thumbnail`/`imageUrl`, and `category`. It never reads a duplicate-candidates key. Task 1 passed `true` only to keep that task's diff behaviour-free.
 
-- [ ] **Step 1: Write the failing test**
+**REVERTED 2026-09-04.** The premise above is false for 6 of 7 pools: `composePass()`'s `items.*`/`media`/`links` branches put `resolvedPools['library']` rows on the wire VERBATIM — no `setupItem()` transform — so `duplicateCandidates` (emitted unconditionally by `PoolResolver::itemPayloads`, populated only when the flag is `true`) is a live setup-wire field. A decisive test (seed two items + a `content.identity_candidates` row, assert a non-empty `duplicateCandidates` on the setup wire) passes on unmodified code and FAILS the instant the flag flips to `false` — proof the flip breaks the wire, not just a query-count regression. The flag is kept `true`; Steps 3/4/6 were not executed. Only Steps 1/2 below are ticked, standing in for the equivalent decisive test actually written (`tests/Feature/Setup/SetupPoolBatchingTest.php`, "the setup wire carries a populated duplicateCandidates today").
+
+- [x] **Step 1: Write the failing test**
 
 Append to `tests/Feature/Setup/SetupPoolBatchingTest.php`:
 
@@ -539,7 +541,7 @@ it('does not run the dashboard-only identity_candidates read', function () {
 });
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+- [x] **Step 2: Run it and confirm it fails**
 
 Run: `./vendor/bin/pest tests/Feature/Setup/SetupPoolBatchingTest.php`
 Expected: FAIL — one or more `identity_candidates` selects captured.

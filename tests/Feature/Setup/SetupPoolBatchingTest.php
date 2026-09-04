@@ -177,3 +177,35 @@ it('returns the same pass from forPass as from the full compose on the platforms
     expect($fromAll['suggestions'])->not->toBeEmpty();
     expect($fromOne)->toEqual($fromAll);
 });
+
+// Task 3's brief claims duplicateCandidates is dead weight on the setup wire
+// because setupItem() never reads it — but items.watch/items.shop/media/links
+// put resolvedPools['library'] rows on the wire VERBATIM, bypassing
+// setupItem() entirely (composePass(), the item-pool branch). This test is
+// the decisive check: it proves the field is actually populated on the setup
+// wire TODAY, on unmodified code, so it can serve as a before/after oracle
+// for whatever resolveAllPools()'s withDuplicateCandidates flag ends up
+// being.
+it('the setup wire carries a populated duplicateCandidates today', function () {
+    $pro = createTenant('setup-dupes');
+    $itemA = seedContentItem($pro->id, ['kind' => 'video']);
+    $itemB = seedContentItem($pro->id, ['kind' => 'video']);
+
+    DB::connection('pgsql')->table('content.identity_candidates')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $pro->id,
+        'left_item_id' => $itemA,
+        'right_item_id' => $itemB,
+        'score' => 80,
+        'evidence' => json_encode(['key' => 'phone']),
+        'created_at' => now(),
+    ]);
+
+    $passes = collect(actingAsUser($pro)->getJson('/api/site/setup')->assertOk()->json('passes'));
+    $watchPass = $passes->firstWhere('key', 'items.watch');
+
+    expect($watchPass)->not->toBeNull();
+    $wireItemA = collect($watchPass['items'])->firstWhere('id', $itemA);
+    expect($wireItemA)->not->toBeNull()
+        ->and($wireItemA['duplicateCandidates'])->not->toBeEmpty();
+});
