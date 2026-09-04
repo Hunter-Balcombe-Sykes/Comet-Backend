@@ -429,11 +429,15 @@ class GoogleBusinessService extends PlatformScraper
                 fn ($a) => data_get($a, 'displayName'),
                 (array) data_get($p, 'authorAttributions', []),
             ))),
-            // 15 = the historical content-selection slot count (that surface
-            // retired in slice 7 unit E; the cap stays as the payload's photo
-            // budget). Each kept photo costs one billed media-URL resolve on
-            // connect (carry-forward covers refreshes).
-        ], array_slice(array_values(array_filter((array) data_get($place, 'photos', []), 'is_array')), 0, 15));
+            // Each kept photo costs one billed media-URL resolve on connect
+            // (carry-forward covers refreshes). 6 since 2026-09-04 (was the
+            // retired content-selection slot count, 15): one pooled round
+            // trip, and nobody scrolls past six listing photos at signup.
+        ], array_slice(
+            array_values(array_filter((array) data_get($place, 'photos', []), 'is_array')),
+            0,
+            max(0, (int) config('partna.limits.places.accept_photo_limit', 6)),
+        ));
 
         $serves = array_filter([
             'coffee' => data_get($place, 'servesCoffee'),

@@ -24,7 +24,23 @@ final class WebpEncoder
      */
     public function encode(string $body, int $maxEdge, int $quality = 90): ?array
     {
-        if (! extension_loaded('gd') || ! function_exists('imagewebp')) {
+        $tiers = $this->encodeMany($body, ['only' => [$maxEdge, $quality]]);
+
+        return $tiers === null ? null : $tiers['only'];
+    }
+
+    /**
+     * Several renditions from ONE decode — the mirror writes a 2400px master
+     * and a 640px thumbnail per image, and decoding twice would double the
+     * step that dominates encode time.
+     *
+     * @param  array<string, array{0: int, 1: int}>  $tiers  key => [maxEdge, quality]
+     * @return array<string, array{bytes: string, width: int, height: int}>|null null when the
+     *                                                                           bytes do not decode, exceed the pixel budget, or GD cannot emit WebP
+     */
+    public function encodeMany(string $body, array $tiers): ?array
+    {
+        if ($tiers === [] || ! extension_loaded('gd') || ! function_exists('imagewebp')) {
             return null;
         }
 
@@ -48,23 +64,32 @@ final class WebpEncoder
         try {
             $width = imagesx($source);
             $height = imagesy($source);
-            // Clamped at 1.0: never upscale. A 640px Instagram photo stays
-            // 640px rather than being stretched to the cap.
-            $scale = min(1.0, $maxEdge / max(1, max($width, $height)));
-            $targetW = max(1, (int) round($width * $scale));
-            $targetH = max(1, (int) round($height * $scale));
 
-            $canvas = imagecreatetruecolor($targetW, $targetH);
-            imagealphablending($canvas, false);
-            imagesavealpha($canvas, true);
-            imagecopyresampled($canvas, $source, 0, 0, 0, 0, $targetW, $targetH, $width, $height);
+            $out = [];
+            foreach ($tiers as $key => [$maxEdge, $quality]) {
+                // Clamped at 1.0: never upscale. A 640px Instagram photo stays
+                // 640px rather than being stretched to the cap.
+                $scale = min(1.0, $maxEdge / max(1, max($width, $height)));
+                $targetW = max(1, (int) round($width * $scale));
+                $targetH = max(1, (int) round($height * $scale));
 
-            ob_start();
-            imagewebp($canvas, null, $quality);
-            $bytes = (string) ob_get_clean();
-            imagedestroy($canvas);
+                $canvas = imagecreatetruecolor($targetW, $targetH);
+                imagealphablending($canvas, false);
+                imagesavealpha($canvas, true);
+                imagecopyresampled($canvas, $source, 0, 0, 0, 0, $targetW, $targetH, $width, $height);
 
-            return $bytes === '' ? null : ['bytes' => $bytes, 'width' => $targetW, 'height' => $targetH];
+                ob_start();
+                imagewebp($canvas, null, $quality);
+                $bytes = (string) ob_get_clean();
+                imagedestroy($canvas);
+
+                if ($bytes === '') {
+                    return null;
+                }
+                $out[$key] = ['bytes' => $bytes, 'width' => $targetW, 'height' => $targetH];
+            }
+
+            return $out;
         } finally {
             imagedestroy($source);
         }

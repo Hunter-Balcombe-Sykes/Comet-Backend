@@ -69,7 +69,10 @@ final class SocialActorDriver implements BilledEffectDriver
             // /v1 profile itemList is UNRELIABLE for content (G3) — the
             // videos endpoint is the only vendor content source. ~10/page.
             'vendor_path' => '/v3/tiktok/profile/videos',
-            'vendor_pages' => 3,
+            // 1 page (2026-09-04): the mirror budget keeps 10 posts per pull
+            // (partna.media.pull_budget), so pages 2–3 were billed for frames
+            // nobody would ever see.
+            'vendor_pages' => 1,
             'order' => 'createTimeISO',
         ],
         'facebook' => [

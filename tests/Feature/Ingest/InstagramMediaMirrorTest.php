@@ -2,6 +2,7 @@
 
 use App\Ingest\Projection\ProjectionWriter;
 use App\Jobs\Media\MirrorMediaAssetJob;
+use App\Models\Core\Site\IntegrationConnection;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -212,9 +213,12 @@ it('logs how many mirror candidates it dispatched', function () {
         'https://scontent.cdninstagram.com/v/b.jpg',
     ]);
 
+    // One post, two frames: the cover dispatches, the carousel frame is
+    // budgeted out (partna.media.pull_budget, 2026-09-04) — and COUNTED.
     Log::shouldHaveReceived('info')
         ->withArgs(fn ($message, $context) => $message === 'media_mirror.dispatch'
-            && $context['dispatched'] === 2)
+            && $context['dispatched'] === 1
+            && ($context['skipped']['budget'] ?? 0) === 1)
         ->once();
 });
 
@@ -377,8 +381,89 @@ it('leaves an already-set flag alone rather than rewriting it every sync', funct
 // Item 9f (2026-09-01): videos dispatch before images. An unmirrored image
 // renders from source_url; an unmirrored video renders NOT AT ALL, and its
 // signed URL is the one racing expiry — so the video bytes lead the wave.
-it('dispatches video-role mirrors before image-role mirrors within one projection pass', function () {
+/** The dispatch order of one projection pass, as source urls. */
+function mirrorDispatchOrder(): array
+{
+    $order = [];
+    Bus::assertDispatched(MirrorMediaAssetJob::class, function (MirrorMediaAssetJob $job) use (&$order) {
+        $order[] = $job->sourceUrl;
+
+        return true;
+    });
+
+    return $order;
+}
+
+function setSitePublished(string $userId, bool $published): void
+{
+    $updated = DB::table('site.sites')->where('user_id', $userId)->update(['is_published' => $published ? 1 : 0]);
+    if ($updated === 0) {
+        DB::table('site.sites')->insert([
+            'id' => (string) Str::uuid(),
+            'user_id' => $userId,
+            'subdomain' => 'igm-'.Str::lower(Str::random(8)),
+            'is_published' => $published ? 1 : 0,
+        ]);
+    }
+}
+
+/**
+ * A real Instagram ingest source + its `media` stream, so a test can drive
+ * the CONNECTOR projection path (projectStream) rather than one manual item
+ * per call — the mirror budget is per projection pass.
+ *
+ * @return array{0: array<string, mixed>, 1: string} [source row, stream id]
+ */
+function instagramSourceForMirror(string $userId): array
+{
+    $connection = IntegrationConnection::create([
+        'user_id' => $userId,
+        'platform' => 'instagram',
+        'resource_id' => 'acct-'.substr(sha1(Str::random(8)), 0, 16),
+        'payload' => ['username' => Str::lower(Str::random(8))],
+        'is_active' => true,
+    ]);
+
+    $source = (array) DB::table('ingest.sources')->where('connection_id', $connection->id)->first();
+    $streamId = (string) Str::uuid();
+    DB::table('ingest.streams')->insert([
+        'id' => $streamId, 'source_id' => $source['id'], 'stream_name' => 'media',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    return [$source, $streamId];
+}
+
+/**
+ * Upsert one record per shortcode (doc keys: taken_at, images, video_url) and
+ * project the stream once — ONE pass over every post, like a connector run.
+ *
+ * @param  array<string, array<string, mixed>>  $docsByShortcode
+ */
+function writeInstagramRecords(array $source, string $streamId, array $docsByShortcode): void
+{
+    foreach ($docsByShortcode as $shortcode => $doc) {
+        $doc += ['shortcode' => $shortcode, 'url' => "https://www.instagram.com/p/{$shortcode}/"];
+        $exists = DB::table('ingest.record_versions')->where('stream_id', $streamId)->where('key', $shortcode)->exists();
+        if (! $exists) {
+            DB::table('ingest.record_versions')->insert([
+                'stream_id' => $streamId, 'key' => $shortcode, 'doc_hash' => sha1(json_encode($doc)),
+                'doc' => json_encode($doc), 'first_seen_at' => now(), 'is_current' => 1,
+            ]);
+            $versionId = DB::table('ingest.record_versions')->where('stream_id', $streamId)->where('key', $shortcode)->value('id');
+            DB::table('ingest.record_state')->insert([
+                'stream_id' => $streamId, 'key' => $shortcode, 'current_version_id' => $versionId, 'last_seen_at' => now(),
+            ]);
+        }
+    }
+
+    app(ProjectionWriter::class)->projectStream($source, $streamId, 'media');
+}
+
+it('mirrors one asset per post — the video plus its poster for a reel, the cover for a carousel — and budgets the rest out', function () {
     $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+    setSitePublished($userId, true);
+    Log::spy();
 
     $media = [
         ['role' => 'cover', 'url' => 'https://cdn.example/a.jpg', 'ref' => 'instagram:ord1:0'],
@@ -394,15 +479,79 @@ it('dispatches video-role mirrors before image-role mirrors within one projectio
         'media' => $media,
     ]);
 
-    $order = [];
-    Bus::assertDispatched(MirrorMediaAssetJob::class, function (MirrorMediaAssetJob $job) use (&$order) {
-        $order[] = $job->sourceUrl;
+    // Published site: the video leads (Item 9f), its poster follows; every
+    // other frame keeps its asset row but never costs a byte copy.
+    expect(mirrorDispatchOrder())->toBe(['https://cdn.example/c.mp4', 'https://cdn.example/a.jpg']);
+    expect(DB::table('content.media_assets')->where('user_id', $userId)->count())->toBe(5);
+    Bus::assertDispatched(MirrorMediaAssetJob::class, fn (MirrorMediaAssetJob $job) => $job->video && str_ends_with($job->sourceUrl, 'c.mp4'));
+    Bus::assertDispatched(MirrorMediaAssetJob::class, fn (MirrorMediaAssetJob $job) => ! $job->video && str_ends_with($job->sourceUrl, 'a.jpg'));
+    Log::shouldHaveReceived('info')->withArgs(fn (string $msg, array $ctx) => $msg === 'media_mirror.dispatch'
+        && $ctx['dispatched'] === 2 && ($ctx['skipped']['budget'] ?? null) === 3)->once();
+});
 
-        return true;
-    });
+it('applies the budget across the posts of ONE projection pass, newest first', function () {
+    config(['partna.media.pull_budget.images' => 2, 'partna.media.pull_budget.videos' => 1]);
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+    setSitePublished($userId, true);
 
-    expect(array_slice($order, 0, 2))->toBe(
-        ['https://cdn.example/c.mp4', 'https://cdn.example/e.mp4'],
-        'video-role assets must be dispatched ahead of every image so the watch pool and home background fill first'
-    );
+    [$source, $streamId] = instagramSourceForMirror($userId);
+    writeInstagramRecords($source, $streamId, [
+        'old' => ['taken_at' => '2026-09-01T00:00:00Z', 'images' => ['https://cdn.example/old.jpg']],
+        'new' => ['taken_at' => '2026-09-04T00:00:00Z', 'images' => ['https://cdn.example/new.jpg', 'https://cdn.example/new-2.jpg']],
+        'mid' => ['taken_at' => '2026-09-03T00:00:00Z', 'images' => ['https://cdn.example/mid.jpg']],
+        'r1' => ['taken_at' => '2026-09-02T00:00:00Z', 'images' => ['https://cdn.example/r1.jpg'], 'video_url' => 'https://cdn.example/r1.mp4'],
+        'r2' => ['taken_at' => '2026-08-30T00:00:00Z', 'images' => ['https://cdn.example/r2.jpg'], 'video_url' => 'https://cdn.example/r2.mp4'],
+    ]);
+
+    // Published → videos first: the newest reel (r1) and its poster, then the
+    // two newest image posts (new, mid). `old`, `new-2` and reel r2 are budgeted out.
+    expect(mirrorDispatchOrder())->toBe([
+        'https://cdn.example/r1.mp4',
+        'https://cdn.example/new.jpg',
+        'https://cdn.example/mid.jpg',
+        'https://cdn.example/r1.jpg',
+    ]);
+});
+
+it('dispatches images newest-first ahead of videos while the site is still in setup', function () {
+    config(['partna.media.pull_budget.images' => 10, 'partna.media.pull_budget.videos' => 6]);
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+    setSitePublished($userId, false);
+
+    [$source, $streamId] = instagramSourceForMirror($userId);
+    writeInstagramRecords($source, $streamId, [
+        'old' => ['taken_at' => '2026-09-01T00:00:00Z', 'images' => ['https://cdn.example/old.jpg']],
+        'r1' => ['taken_at' => '2026-09-02T00:00:00Z', 'images' => ['https://cdn.example/r1.jpg'], 'video_url' => 'https://cdn.example/r1.mp4'],
+        'new' => ['taken_at' => '2026-09-04T00:00:00Z', 'images' => ['https://cdn.example/new.jpg']],
+    ]);
+
+    expect(mirrorDispatchOrder())->toBe([
+        'https://cdn.example/new.jpg',
+        'https://cdn.example/r1.jpg',
+        'https://cdn.example/old.jpg',
+        'https://cdn.example/r1.mp4',
+    ]);
+});
+
+it('counts an already-mirrored post against the window so a refresh cannot creep down the backlog', function () {
+    config(['partna.media.pull_budget.images' => 1, 'partna.media.pull_budget.videos' => 1]);
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+    setSitePublished($userId, true);
+
+    [$source, $streamId] = instagramSourceForMirror($userId);
+    $records = [
+        'new' => ['taken_at' => '2026-09-04T00:00:00Z', 'images' => ['https://cdn.example/new.jpg']],
+        'old' => ['taken_at' => '2026-09-01T00:00:00Z', 'images' => ['https://cdn.example/old.jpg']],
+    ];
+    writeInstagramRecords($source, $streamId, $records);
+    expect(mirrorDispatchOrder())->toBe(['https://cdn.example/new.jpg']);
+
+    // The newest post's bytes land; the refresh re-projects the same posts.
+    DB::table('content.media_assets')->where('user_id', $userId)
+        ->where('fingerprint', 'url-'.sha1('instagram:new:0'))
+        ->update(['storage_path' => 'content-media/x/new.webp']);
+    Bus::fake();
+    writeInstagramRecords($source, $streamId, $records);
+
+    Bus::assertNotDispatched(MirrorMediaAssetJob::class);
 });

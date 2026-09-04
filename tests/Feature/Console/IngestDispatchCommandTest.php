@@ -32,9 +32,19 @@ beforeEach(function () {
 function seedDueIngestSource(string $sourceKey = 'bandcamp', ?string $identifier = null): string
 {
     $id = (string) Str::uuid();
+    $userId = (string) Str::uuid();
+    // The scheduler only claims auto_sync sources whose site is published
+    // (2026-09-04 refresh gate) — an unpublished site's sources wait for an
+    // eager run, which is not what these tests exercise.
+    DB::table('site.sites')->insert([
+        'id' => (string) Str::uuid(),
+        'user_id' => $userId,
+        'subdomain' => 'dispatch-'.Str::lower(Str::random(8)),
+        'is_published' => 1,
+    ]);
     DB::table('ingest.sources')->insert([
         'id' => $id,
-        'user_id' => (string) Str::uuid(),
+        'user_id' => $userId,
         'source_key' => $sourceKey,
         'surface_key' => 'music',
         'identifier' => $identifier ?? 'source-'.$id,

@@ -42,6 +42,18 @@ final class MediaMirror
     /** Reels are short; 80 MB is far above a typical 15–60s mp4 and below anything hostile (R7). */
     private const MAX_VIDEO_BYTES = 83886080;
 
+    /** Every image master lives under this prefix; videos and thumbnails too. */
+    private const PATH_PREFIX = 'content-media/';
+
+    /**
+     * The thumbnail tier's key is DERIVED from the master's, not stored: no
+     * schema change, and `storage_path` stays the one column that says
+     * "bytes are ours". The suffix is fixed even though the rendered edge is
+     * config (partna.media.thumb_edge) — a later edge change must not orphan
+     * every existing thumbnail.
+     */
+    public const THUMB_SUFFIX = '.640.webp';
+
     /**
      * Gallery photos, not logos: the upload pipeline's own `optimized` tier
      * allows a 2400px long edge, and mirrored media sits beside uploads in the
@@ -340,10 +352,17 @@ final class MediaMirror
             return $this->fail($assetId, 'pixel_budget', $sourceUrl, userId: $userId);
         }
 
-        $variant = $this->encoder->encode($body, $this->maxEdge());
-        if ($variant === null) {
+        // Master + thumbnail from ONE decode (2026-09-04): the 640px tier is
+        // what setup tiles and cards load (~32 KB against the master's
+        // ~260 KB), and decoding twice would double the step that dominates.
+        $encoded = $this->encoder->encodeMany($body, [
+            'master' => [$this->maxEdge(), 90],
+            'thumb' => [$this->thumbEdge(), $this->thumbQuality()],
+        ]);
+        if ($encoded === null) {
             return $this->fail($assetId, 'undecodable', $sourceUrl, userId: $userId);
         }
+        $variant = $encoded['master'];
 
         // CONTENT-addressed, never connection-addressed. InstagramConnectionSeeder
         // derives its folder from the connection itself, which never changes, so
@@ -351,10 +370,16 @@ final class MediaMirror
         // replacing an image a user already picked. Hashing the encoded
         // bytes means changed bytes land at a NEW path and the old object stays
         // exactly where whoever referenced it expects.
-        $path = 'content-media/'.$userId.'/'.substr(hash('sha256', $variant['bytes']), 0, 32).'.webp';
+        $path = self::PATH_PREFIX.$userId.'/'.substr(hash('sha256', $variant['bytes']), 0, 32).'.webp';
 
         try {
-            $stored = Storage::disk(config('partna.media_disk'))->put($path, $variant['bytes']);
+            $disk = Storage::disk(config('partna.media_disk'));
+            // Thumbnail FIRST: MediaUrlResolver derives the thumb URL from
+            // storage_path without a HEAD, so the master's path must never be
+            // recorded while its thumbnail is missing. A failed thumb put is
+            // a failed mirror, retried like any other store failure.
+            $stored = $disk->put((string) self::thumbPath($path), $encoded['thumb']['bytes'])
+                && $disk->put($path, $variant['bytes']);
         } catch (\Throwable $e) {
             return $this->fail($assetId, 'store_failed', $sourceUrl, $e->getMessage(), $userId);
         }
@@ -477,6 +502,37 @@ final class MediaMirror
         $configured = config('partna.image_variants.optimized.width');
 
         return is_int($configured) && $configured > 0 ? $configured : self::FALLBACK_EDGE;
+    }
+
+    private function thumbEdge(): int
+    {
+        $configured = (int) config('partna.media.thumb_edge', 640);
+
+        return $configured > 0 ? $configured : 640;
+    }
+
+    private function thumbQuality(): int
+    {
+        $configured = (int) config('partna.media.thumb_quality', 80);
+
+        return $configured >= 1 && $configured <= 100 ? $configured : 80;
+    }
+
+    /**
+     * The thumbnail object key for a mirrored image master, or null when the
+     * path is not one this class wrote an image master to (a video, an
+     * upload variant, a brand asset) — the ONE place the derivation lives, so
+     * the writer and MediaUrlResolver cannot disagree about it.
+     */
+    public static function thumbPath(string $storagePath): ?string
+    {
+        if (! str_starts_with($storagePath, self::PATH_PREFIX)
+            || ! str_ends_with($storagePath, '.webp')
+            || str_ends_with($storagePath, self::THUMB_SUFFIX)) {
+            return null;
+        }
+
+        return substr($storagePath, 0, -strlen('.webp')).self::THUMB_SUFFIX;
     }
 
     /**

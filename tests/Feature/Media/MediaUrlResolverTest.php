@@ -38,6 +38,21 @@ function variantFor(string $siteMediaId, string $key, int $width = 1200, int $he
     ]);
 }
 
+it('derives the 640px thumb url from a mirrored image master, and none for videos, uploads or vendor links', function () {
+    $mirrored = assetRow(['storage_path' => 'content-media/u1/abc123.webp']);
+    $video = assetRow(['storage_path' => 'content-media/u1/def456.mp4']);
+    $brand = assetRow(['storage_path' => 'brand-assets/u1/logo.webp']);
+    $vendor = assetRow(['source_url' => 'https://i.scdn.co/image/cover.jpg']);
+
+    $out = app(MediaUrlResolver::class)->resolve([$mirrored, $video, $brand, $vendor]);
+
+    expect($out[$mirrored->id]['thumb'])->toContain('content-media/u1/abc123.640.webp')
+        ->and($out[$mirrored->id]['url'])->toContain('content-media/u1/abc123.webp')
+        ->and($out[$video->id]['thumb'])->toBeNull()
+        ->and($out[$brand->id]['thumb'])->toBeNull()
+        ->and($out[$vendor->id]['thumb'])->toBeNull();
+});
+
 it('serves storage_path off the media disk, first in precedence', function () {
     $asset = assetRow(['storage_path' => 'mirrored/abc.webp', 'width' => 640, 'height' => 480,
         'site_media_id' => (string) Str::uuid()]); // even with a pointer present
@@ -78,7 +93,7 @@ it('passes source_url through unchanged, last in precedence', function () {
 
     $out = app(MediaUrlResolver::class)->resolve([$asset]);
 
-    expect($out[$asset->id])->toBe(['url' => 'https://i.ytimg.com/vi/x/hqdefault.jpg', 'width' => 480, 'height' => 360]);
+    expect($out[$asset->id])->toBe(['url' => 'https://i.ytimg.com/vi/x/hqdefault.jpg', 'width' => 480, 'height' => 360, 'thumb' => null]);
 });
 
 it('omits a raw Instagram / Facebook CDN source_url until the mirror lands', function () {

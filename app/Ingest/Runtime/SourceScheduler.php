@@ -125,7 +125,20 @@ class SourceScheduler
             // a deferral or a failure backoff, health != 'dead' stops a source
             // that keeps failing, and the in_flight claim below stops two
             // workers taking it at once.
-            ->where(fn ($q) => $q->where('auto_sync', true)->orWhere('needs_eager_run', true))
+            // Published sites only for the SCHEDULED refresh (owner,
+            // 2026-09-04): a site nobody can see does not need this week's
+            // posts, and each refresh is a billed vendor request per
+            // platform. The eager obligation is exempt on purpose — a
+            // connect-time pull is what fills the setup walk, and every
+            // signup is unpublished while it runs.
+            ->where(fn ($q) => $q
+                ->where('needs_eager_run', true)
+                ->orWhere(fn ($scheduled) => $scheduled
+                    ->where('auto_sync', true)
+                    ->whereExists(fn ($site) => $site
+                        ->from('site.sites')
+                        ->whereColumn('site.sites.user_id', 'ingest.sources.user_id')
+                        ->where('site.sites.is_published', true))))
             ->where('health', '!=', 'dead')
             ->where('next_attempt_at', '<=', now())
             ->limit($limit * 2)

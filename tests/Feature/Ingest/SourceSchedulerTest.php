@@ -15,19 +15,36 @@ use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupIngestTables();
+    setupSitesTable();
 });
 
 /**
  * ingest.sources row, defaulted to "immediately due, healthy, not in flight" —
  * the baseline every test starts from and overrides away from as needed.
+ *
+ * The owner's site is seeded PUBLISHED by default: since 2026-09-04 the
+ * scheduled (auto_sync) refresh only claims sources whose site is live. Pass
+ * 'site' => 'unpublished' or 'site' => null to exercise the gate.
  */
 function seedSourceForScheduler(array $overrides = []): string
 {
     $id = (string) Str::uuid();
+    $userId = (string) ($overrides['user_id'] ?? Str::uuid());
+    $site = array_key_exists('site', $overrides) ? $overrides['site'] : 'published';
+    unset($overrides['site']);
+
+    if ($site !== null) {
+        DB::connection('pgsql')->table('site.sites')->insert([
+            'id' => (string) Str::uuid(),
+            'user_id' => $userId,
+            'subdomain' => 'sch-'.Str::lower(Str::random(8)),
+            'is_published' => $site === 'published' ? 1 : 0,
+        ]);
+    }
 
     DB::table('ingest.sources')->insert(array_merge([
         'id' => $id,
-        'user_id' => (string) Str::uuid(),
+        'user_id' => $userId,
         'connection_id' => null,
         'source_key' => 'bandcamp',
         'surface_key' => 'music',
@@ -103,6 +120,33 @@ it('does not claim a source with auto_sync disabled', function () {
     $claimed = (new SourceScheduler)->claimDue(10, 'run-1');
 
     expect($claimed)->toBe([]);
+});
+
+// ── the published-site gate (owner, 2026-09-04) ─────────────────────────────
+
+it('does not schedule a refresh for a source whose site is unpublished', function () {
+    seedSourceForScheduler(['site' => 'unpublished']);
+    seedSourceForScheduler(['site' => null]);
+
+    expect((new SourceScheduler)->claimDue(10, 'run-gate'))->toBe([]);
+});
+
+it('still claims the eager (connect-time) pull for an unpublished site', function () {
+    $id = seedSourceForScheduler(['site' => 'unpublished', 'auto_sync' => false, 'needs_eager_run' => true]);
+
+    $claimed = (new SourceScheduler)->claimDue(10, 'run-eager');
+
+    expect($claimed)->toHaveCount(1)
+        ->and($claimed[0]['id'])->toBe($id);
+});
+
+it('claims the scheduled refresh once the site is published', function () {
+    $id = seedSourceForScheduler(['site' => 'published']);
+
+    $claimed = (new SourceScheduler)->claimDue(10, 'run-pub');
+
+    expect($claimed)->toHaveCount(1)
+        ->and($claimed[0]['id'])->toBe($id);
 });
 
 it('does not claim a source whose health is dead', function () {

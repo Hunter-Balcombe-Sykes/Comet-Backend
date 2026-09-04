@@ -472,11 +472,14 @@ return [
         // pre-approved) or trim supervisor-long to 2 if memory bites.
         // 2026-09-02: 24h of dev logs clean of memory kills → supervisor-ingest
         // 1→2 (12 total). Same watch item; trim ingest first if it bites.
+        // supervisor-mirror 2→1 (2026-09-04): image mirrors moved to the
+        // `media-mirror` MANAGED queue (partna.queues.media_mirror_connection);
+        // this Horizon lane now carries only videos (~5% of a wave).
         'production' => [
             'supervisor-1' => ['maxProcesses' => 2],
             'supervisor-mail' => ['maxProcesses' => 2],
             'supervisor-long' => ['maxProcesses' => 3],
-            'supervisor-mirror' => ['maxProcesses' => 2],
+            'supervisor-mirror' => ['maxProcesses' => 1],
             'supervisor-videos' => ['maxProcesses' => 1],
             'supervisor-ingest' => ['maxProcesses' => 2],
         ],
@@ -485,7 +488,7 @@ return [
             'supervisor-1' => ['maxProcesses' => 2],
             'supervisor-mail' => ['maxProcesses' => 2],
             'supervisor-long' => ['maxProcesses' => 3],
-            'supervisor-mirror' => ['maxProcesses' => 2],
+            'supervisor-mirror' => ['maxProcesses' => 1],
             'supervisor-videos' => ['maxProcesses' => 1],
             'supervisor-ingest' => ['maxProcesses' => 2],
         ],

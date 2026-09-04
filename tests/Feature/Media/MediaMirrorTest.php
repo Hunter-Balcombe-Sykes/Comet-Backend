@@ -113,6 +113,42 @@ it('writes storage_path onto the existing asset row without minting a second', f
         ->and((int) $row->height)->toBe(1350);
 });
 
+it('writes a 640px thumbnail beside the master under the derived key', function () {
+    $userId = createTenant('mm-thumb-'.Str::lower(Str::random(6)))->id;
+    $assetId = mirrorProjectedAsset($userId, 'url-'.sha1('thumb-a'));
+    Http::fake(['*' => Http::response(mirrorImageBytes(1600, 1200), 200, ['Content-Type' => 'image/jpeg'])]);
+
+    expect(app(MediaMirror::class)->mirror($userId, $assetId, 'https://scontent.cdninstagram.com/v/thumb-a.jpg'))->toBeTrue();
+
+    $path = (string) DB::table('content.media_assets')->where('id', $assetId)->value('storage_path');
+    $thumbPath = MediaMirror::thumbPath($path);
+    expect($thumbPath)->toBe(substr($path, 0, -5).'.640.webp');
+    Storage::disk('media')->assertExists($path);
+    Storage::disk('media')->assertExists($thumbPath);
+
+    $thumb = @imagecreatefromstring((string) Storage::disk('media')->get($thumbPath));
+    expect($thumb)->not->toBeFalse()
+        ->and(max(imagesx($thumb), imagesy($thumb)))->toBe(640)
+        ->and(strlen((string) Storage::disk('media')->get($thumbPath)))
+        ->toBeLessThan(strlen((string) Storage::disk('media')->get($path)));
+});
+
+it('does not record storage_path when the thumbnail write fails', function () {
+    $userId = createTenant('mm-tfail-'.Str::lower(Str::random(6)))->id;
+    $assetId = mirrorProjectedAsset($userId, 'url-'.sha1('thumb-fail'));
+    Http::fake(['*' => Http::response(mirrorImageBytes(800, 600), 200, ['Content-Type' => 'image/jpeg'])]);
+    // Point the mirror at a disk whose writes throw, so the FIRST put (the
+    // thumbnail) fails before the master is ever attempted.
+    config(['filesystems.disks.media_broken' => ['driver' => 'local', 'root' => '/dev/null/nope', 'throw' => true]]);
+    config(['partna.media_disk' => 'media_broken']);
+
+    expect(app(MediaMirror::class)->mirror($userId, $assetId, 'https://scontent.cdninstagram.com/v/thumb-fail.jpg'))->toBeFalse();
+
+    $row = DB::table('content.media_assets')->where('id', $assetId)->first();
+    expect($row->storage_path)->toBeNull()
+        ->and($row->mirror_last_reason)->toBe('store_failed');
+});
+
 it('does not downsample a gallery photo to the brand-logo edge', function () {
     // BrandAssetPipeline's encoder caps the long edge at 512, which is right
     // for a logo and a visible quality regression for a gallery photo. The
@@ -158,8 +194,9 @@ it('is idempotent — mirroring the same bytes twice writes one object and one p
     app(MediaMirror::class)->mirror($user->id, $assetId, 'https://scontent.cdninstagram.com/v/photo.jpg');
     $second = DB::table('content.media_assets')->where('id', $assetId)->value('storage_path');
 
+    // Two objects per image since 2026-09-04: the master and its 640px thumb.
     expect($second)->toBe($first)
-        ->and(Storage::disk('media')->allFiles())->toHaveCount(1);
+        ->and(Storage::disk('media')->allFiles())->toHaveCount(2);
 });
 
 it('leaves the bytes columns untouched when the fetch fails', function () {
