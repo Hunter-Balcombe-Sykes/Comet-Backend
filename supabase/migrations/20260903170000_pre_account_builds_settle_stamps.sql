@@ -1,41 +1,35 @@
--- RECOVERED, not authored. This migration was applied to the dev ref directly
--- (Supabase MCP `apply_migration` writes the ledger row without ever writing a
--- file), so `supabase_migrations.schema_migrations` carried version
--- 20260903170000 while no file existed in any git ref. That mismatch makes
--- `supabase db push` refuse EVERY subsequent migration with
--- LegacyDbPushMissingLocalError — it blocked this branch's four, and would have
--- blocked every other lane's too.
+-- Setup-settled email timing (2026-09-03): both lifecycle emails fired before
+-- the build had finished filling in -- the welcome at claim (which no longer
+-- waits on the build), the outreach invite at build_state=ready (which
+-- precedes the whole cascade). These three stamps are the settle event's
+-- record. All nullable, no backfill: existing rows stay NULL and the sweep's
+-- 30-minute creation window never looks at them.
 --
--- The CLI suggests `migration repair --status reverted 20260903170000` for this
--- error. That would be wrong: the DDL below IS applied on dev, and marking it
--- reverted would tell the ledger a lie that the next from-zero apply would then
--- act on. Recovering the file is the fix; repairing the ledger is not.
+-- The sweep's covering index lives in the +1 file, alone, per CONVENTIONS.md §1.
 --
--- Reconstructed from the live dev schema on 2026-09-03, not from memory: the
--- column types, nullability and both COMMENT strings below were read back off
--- `core.pre_account_builds` verbatim, which is why the comments read in the
--- originating lane's voice rather than this one's. Behaviour on dev is a
--- guaranteed no-op — every statement is IF NOT EXISTS and every object already
--- exists. What it actually buys is a from-zero apply that reaches the same
--- schema, and a `db push` that works again.
+-- History (2026-09-04): this migration was applied to the dev ref ad hoc via the
+-- Supabase MCP, which writes a ledger row and no file. That left version
+-- 20260903170000 in schema_migrations with nothing in git, and `supabase db push`
+-- then refused EVERY later migration on EVERY lane (LegacyDbPushMissingLocalError)
+-- until another session reconstructed a stand-in from the live schema (5a32f9a51).
+-- This is that lane's original, restored per that commit's own instruction.
 --
--- If the lane that wrote this still has the original, THAT file wins — replace
--- this one wholesale rather than reconciling the two by hand.
---
--- ROLLBACK: ALTER TABLE "core"."pre_account_builds" DROP COLUMN IF EXISTS "settled_at";
---           ALTER TABLE "core"."pre_account_builds" DROP COLUMN IF EXISTS "setup_stalled_at";
---           (drops the stamps and the history they carry; the sweep index in
---           20260903170001 reads both, so reverse that file first or the DROP
---           takes the index with it.)
+-- ROLLBACK: ALTER TABLE core.pre_account_builds DROP COLUMN IF EXISTS settled_at;
+--           ALTER TABLE core.pre_account_builds DROP COLUMN IF EXISTS setup_stalled_at;
+--           ALTER TABLE core.pre_account_builds DROP COLUMN IF EXISTS welcomed_at;
 
-ALTER TABLE "core"."pre_account_builds"
-  ADD COLUMN IF NOT EXISTS "settled_at" timestamptz NULL;
+begin;
 
-ALTER TABLE "core"."pre_account_builds"
-  ADD COLUMN IF NOT EXISTS "setup_stalled_at" timestamptz NULL;
+alter table core.pre_account_builds add column if not exists settled_at timestamptz;
 
-COMMENT ON COLUMN "core"."pre_account_builds"."settled_at" IS
-    'The setup cascade genuinely finished (BuildProgressReader OUTCOME_SETTLED). Stamped once by builds:settle-sweep.';
+alter table core.pre_account_builds add column if not exists setup_stalled_at timestamptz;
 
-COMMENT ON COLUMN "core"."pre_account_builds"."setup_stalled_at" IS
-    'Terminal without settling -- hit the 10-minute ceiling or failed. No email is ever sent for these; builds:stalled reads this.';
+alter table core.pre_account_builds add column if not exists welcomed_at timestamptz;
+
+comment on column core.pre_account_builds.settled_at is 'The setup cascade genuinely finished (BuildProgressReader OUTCOME_SETTLED). Stamped once by builds:settle-sweep.';
+
+comment on column core.pre_account_builds.setup_stalled_at is 'Terminal without settling -- hit the 10-minute ceiling or failed. No email is ever sent for these; builds:stalled reads this.';
+
+comment on column core.pre_account_builds.welcomed_at is 'The welcome email went out. The signup lane''s idempotency guard; cleared on release so a reclaim re-arms it.';
+
+commit;

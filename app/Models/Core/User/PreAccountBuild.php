@@ -42,6 +42,9 @@ use Illuminate\Support\Facades\Log;
  * @property bool $auto_invite false = publish the site but DEFER the claim invite for manual review + POST /builds/{build}/invite. Default true = auto-send on publish (unchanged).
  * @property Carbon|null $claimed_at NULL while the build is live (scopeLive); set once the visitor claims the site.
  * @property bool $published_by_claim T28: true while a claim's publish flip is outstanding — claim() sets it when IT published the site; release() unpublishes on it and clears it. Not fillable (forceFill, same SEC-4 posture as claimed_at).
+ * @property Carbon|null $settled_at The cascade genuinely finished (BuildProgressReader::OUTCOME_SETTLED). Stamped once by builds:settle-sweep. Not fillable (state column, SEC-4).
+ * @property Carbon|null $setup_stalled_at Terminal without settling — hit the ceiling or failed. The staff record; no email is ever sent for these. Not fillable (state column, SEC-4).
+ * @property Carbon|null $welcomed_at The welcome email went out. The signup lane's idempotency guard, replacing the old "did the welcome notification row insert" signal. Not fillable (state column, SEC-4).
  * @property Carbon $created_at
  * @property Carbon $updated_at
  * @property-read User|null $user
@@ -100,7 +103,10 @@ class PreAccountBuild extends BaseModel
     // SEC-4: build_state/claimed_at/failure_code drive the state machine and are
     // also excluded — writers use forceFill()/direct assignment (a silently
     // dropped write here strands a build in the wrong state with zero error).
-    // thin_scrape_at is a state column on the same grounds.
+    // thin_scrape_at is a state column on the same grounds, as are the three
+    // settle stamps (settled_at/setup_stalled_at/welcomed_at, 2026-09-03) —
+    // welcomed_at IS the welcome email's idempotency key, so a dropped write
+    // there double-sends.
     protected $fillable = [
         'source_type', 'source_ref', 'source_ref_lc', 'built_via',
         'created_ip_hash', 'expires_at', 'contact_email', 'auto_invite',
@@ -118,6 +124,9 @@ class PreAccountBuild extends BaseModel
         'auto_invite' => 'boolean',
         'content_filled_at' => 'datetime',
         'enriched_at' => 'datetime',
+        'settled_at' => 'datetime',
+        'setup_stalled_at' => 'datetime',
+        'welcomed_at' => 'datetime',
     ];
 
     /**

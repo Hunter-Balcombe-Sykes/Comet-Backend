@@ -38,6 +38,14 @@ final class BuildProgressReader
     /** The poll caps its feed; a build's ledger is a dozen rows, not a stream. */
     private const EVENT_CAP = 50;
 
+    public const OUTCOME_PENDING = 'pending';
+
+    public const OUTCOME_SETTLED = 'settled';
+
+    public const OUTCOME_CEILING = 'ceiling';
+
+    public const OUTCOME_FAILED = 'failed';
+
     /**
      * @return array{done: bool, stage: string|null, events: list<array<string, mixed>>, media: array{mirrored: int, total: int, failed: int}}
      */
@@ -75,6 +83,42 @@ final class BuildProgressReader
     }
 
     /**
+     * WHY it finished, not just whether. `isDone()` answers "should a loader
+     * stop spinning", which deliberately says yes for a failed build and for
+     * one that timed out — neither of which is a thing to email about.
+     *
+     * @param  list<PreAccountBuildEvent>  $events
+     * @param  array{mirrored: int, total: int, failed?: int}  $media
+     */
+    public function outcome(PreAccountBuild $build, array $events, array $media): string
+    {
+        if ($build->build_state === PreAccountBuild::STATE_FAILED) {
+            return self::OUTCOME_FAILED;
+        }
+
+        if ($this->settled($build, $events, $media)) {
+            return self::OUTCOME_SETTLED;
+        }
+
+        // Ceiling is checked AFTER settled: a build that genuinely finished at
+        // minute 9 and is read at minute 11 is settled, not timed out.
+        if ($build->created_at->lt(now()->subMinutes(self::CEILING_MINUTES))) {
+            return self::OUTCOME_CEILING;
+        }
+
+        return self::OUTCOME_PENDING;
+    }
+
+    /**
+     * @param  list<PreAccountBuildEvent>  $events
+     * @param  array{mirrored: int, total: int, failed?: int}  $media
+     */
+    public function isDone(PreAccountBuild $build, array $events, array $media): bool
+    {
+        return $this->outcome($build, $events, $media) !== self::OUTCOME_PENDING;
+    }
+
+    /**
      * Finished = every question the feed asks has an answer: content on the
      * page, the workplace settled (a landing, or the chain said skipped/
      * failed), the bio links routed (Instagram builds — the seeder always
@@ -86,14 +130,8 @@ final class BuildProgressReader
      * @param  list<PreAccountBuildEvent>  $events
      * @param  array{mirrored: int, total: int, failed?: int}  $media
      */
-    public function isDone(PreAccountBuild $build, array $events, array $media): bool
+    private function settled(PreAccountBuild $build, array $events, array $media): bool
     {
-        if ($build->build_state === PreAccountBuild::STATE_FAILED) {
-            return true;
-        }
-        if ($build->created_at->lt(now()->subMinutes(self::CEILING_MINUTES))) {
-            return true;
-        }
         if ($build->build_state !== PreAccountBuild::STATE_READY || $build->content_filled_at === null) {
             return false;
         }
@@ -215,6 +253,24 @@ final class BuildProgressReader
             PreAccountBuild::STATE_FAILED => PreAccountBuildEvent::STAGE_FAILED,
             default => PreAccountBuildEvent::STAGE_IDENTITY,
         };
+    }
+
+    /**
+     * The two reads outcome() needs, for callers that are not the poll — the
+     * settle sweep asks the same question the browser does, off the same
+     * queries, so the two answers cannot drift.
+     *
+     * @return list<PreAccountBuildEvent>
+     */
+    public function eventsFor(PreAccountBuild $build): array
+    {
+        return $this->events($build);
+    }
+
+    /** @return array{mirrored: int, total: int, failed: int} */
+    public function mediaCountsFor(PreAccountBuild $build): array
+    {
+        return $this->mediaCounts($build);
     }
 
     /**

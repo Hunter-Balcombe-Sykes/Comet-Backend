@@ -1340,6 +1340,10 @@ Staff routes are for internal staff tooling. They require a staff JWT (user must
 - GET /api/staff/sites/{subdomain}
 - GET /api/staff/professionals?q=...&status=...&per_page=...&page=... — `status=unclaimed` filters to provisional (never-claimed) pre-account users
 - GET /api/staff/professionals/{professional} — for an unclaimed user, the response includes a `pre_account_build` block (absent entirely for normal users) — see below
+  - The block carries `source_type`, `source_ref`, `built_via`, `build_state`, `failure_code`, `expires_at`, `claimed_at`, plus the setup-outcome pair added 2026-09-03:
+    - `settled_at` — the setup cascade genuinely finished (content landed, workplace answered, links routed, media settled, nothing still connecting). This is what the welcome email and the outreach claim invite now hang on, instead of `build_state = ready`.
+    - `setup_stalled_at` — the build went terminal WITHOUT settling: it passed the 10-minute ceiling, or it failed. **No email is ever sent for these**, by ruling — this field and `php artisan builds:stalled` are the only ways staff learn it happened.
+    - Both are `null` on every build created before 2026-09-03: there was no backfill, and `builds:settle-sweep` only ever looks at builds created in the last 30 minutes.
 - DELETE /api/staff/professionals/{professional} (soft delete; requires a fresh AAL2 verification, same `partna.mfa.fresh_window_seconds` window as `/force` — `401 mfa_fresh_required` if stale/missing)
 - POST /api/staff/professionals/{professional}/restore (requires a fresh AAL2 verification, same window — `401 mfa_fresh_required` if stale/missing)
 - GET /api/staff/professionals/{professional}/customers
@@ -1413,7 +1417,9 @@ survives** — no rebuild, no fresh scrape. Use this when the wrong person claim
 
 What it undoes (the exact inverse of `ClaimSiteService::claim()`): nulls `auth_user_id` and
 `primary_email`, sets `status='unclaimed'`, nulls `pre_account_builds.claimed_at` (returning the build to
-`scopeLive()`), deletes the welcome notification, and — for **self-serve** builds only — unpublishes the
+`scopeLive()`), deletes the welcome notification, clears `pre_account_builds.welcomed_at` (that stamp,
+not the notification row, is the welcome email's idempotency key since 2026-09-03 — leaving it set would
+silently deny the next rightful claimer their welcome), and — for **self-serve** builds only — unpublishes the
 site. Outreach builds stay published because that is their provisioned state. Post-commit it re-syncs KV
 (the permanent routing entry reverts to the unclaimed expiry-TTL pointer) and purges the edge.
 

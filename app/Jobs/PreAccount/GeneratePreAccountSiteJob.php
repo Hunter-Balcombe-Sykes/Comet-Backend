@@ -7,7 +7,6 @@ use App\Jobs\Concerns\ThrottlesPreAccountScraping;
 use App\Jobs\Platforms\ThrottledByProvider;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\PreAccountBuild;
-use App\Services\PreAccount\ClaimNotifier;
 use App\Services\PreAccount\ContactFormSeeder;
 use App\Services\PreAccount\PreAccountBuildService;
 use App\Services\PreAccount\SourceGenerationException;
@@ -247,11 +246,11 @@ class GeneratePreAccountSiteJob implements ShouldBeUnique, ShouldQueue, Throttle
         if ($this->publish) {
             $site->update(['is_published' => true]);
             SyncSubdomainToKvJob::dispatch($user->id);
-            // Cold/marketing builds (Flow 2) go live immediately. auto_invite=false
-            // publishes but defers the invite for manual review + send (spec §4).
-            if ($build->auto_invite) {
-                app(ClaimNotifier::class)->notify($build->fresh());
-            }
+            // The invite is NOT sent here (2026-09-03). ready means the site
+            // exists; the Fresha auto-connect, media mirror, menu fetch and
+            // workplace chain all run after it, so a lead invited now opens a
+            // half-populated page. builds:settle-sweep sends it once the
+            // cascade actually lands, still gated on auto_invite and publish.
         }
     }
 

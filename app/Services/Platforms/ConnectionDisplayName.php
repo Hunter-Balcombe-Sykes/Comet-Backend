@@ -263,7 +263,13 @@ final class ConnectionDisplayName
         return $value;
     }
 
-    private static function brandLabel(string $surfaceKey): ?string
+    /**
+     * The brand's human label for a surface key — the one part of the display
+     * name that is safe to show without any per-connection payload. Reads
+     * bootstrap/catalog/compiled.php (a repo file, not the catalog schema), so
+     * it is safe in production, which has no catalog schema.
+     */
+    public static function brandLabelFor(string $surfaceKey): ?string
     {
         $surface = CompiledCatalog::surface($surfaceKey);
         $label = $surface['display_name'] ?? null;
@@ -273,6 +279,11 @@ final class ConnectionDisplayName
         }
 
         return is_string($label) && $label !== '' ? $label : null;
+    }
+
+    private static function brandLabel(string $surfaceKey): ?string
+    {
+        return self::brandLabelFor($surfaceKey);
     }
 
     private static function isBrandLabel(string $name, ?string $brand, string $surfaceKey): bool

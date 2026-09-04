@@ -22,6 +22,7 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupPreAccountBuildsTable();
+    setupPreAccountBuildEventsTable();
     setupEmailSubscriptionsTable();
     setupNotificationsTable();
     setupSubdomainAliasesTable(); // SiteCacheService::invalidateSite reads this (post-commit cache bust)
@@ -41,7 +42,75 @@ it('claims: binds auth + email, activates, stamps claimed_at, runs side effects'
         ->and($fresh->status)->toBe('active')
         ->and($build->fresh()->claimed_at)->not->toBeNull();
 
+    // The email no longer rides the claim: an unsettled build has nothing to
+    // announce yet. The sweep sends when the cascade lands.
+    Mail::assertNotQueued(WelcomeMail::class);
+});
+
+it('sends the welcome at claim when the build already settled', function () {
+    Mail::fake();
+    [$user, $site, $build] = makeReadyBuild();
+    $build->forceFill(['settled_at' => now()])->save();
+
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
     Mail::assertQueued(WelcomeMail::class, fn ($m) => $m->recipientEmail === 'jane@example.com' && $m->handle === 'janedoe');
+    expect($build->fresh()->welcomed_at)->not->toBeNull();
+});
+
+// Settle first, claim second: the sweep sees an unclaimed build, stamps it and
+// withholds; claim is the second of the two and performs the send.
+it('sends exactly one welcome when settle lands before claim', function () {
+    Mail::fake();
+    [$user, $site, $build] = makeSettledBuild();
+
+    $this->artisan('builds:settle-sweep');
+    expect($build->fresh()->settled_at)->not->toBeNull()
+        ->and($build->fresh()->welcomed_at)->toBeNull();
+    Mail::assertNothingQueued();
+
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+
+    Mail::assertQueued(WelcomeMail::class, 1);
+});
+
+// Claim first, settle second: claim finds nothing to announce, the sweep sends.
+// This is the self-serve lane's real ordering.
+it('sends exactly one welcome when claim lands before settle', function () {
+    Mail::fake();
+    [$user, $site, $build] = makeReadyBuild();
+
+    app(ClaimSiteService::class)->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+    Mail::assertNothingQueued();
+
+    // The cascade finishes after the account bound.
+    $build->fresh()->forceFill(['content_filled_at' => now(), 'enriched_at' => now()])->save();
+    markBuildPlatformsLanded($build);
+    $this->artisan('builds:settle-sweep');
+
+    Mail::assertQueued(WelcomeMail::class, 1);
+    expect($build->fresh()->welcomed_at)->not->toBeNull();
+});
+
+// welcomed_at replaced the welcome-notification row as the email's key, so
+// release has to clear it too -- otherwise the rightful owner of a released
+// site is never welcomed, and nothing errors.
+it('re-arms the welcome after a release', function () {
+    Mail::fake();
+    [$user, $site, $build] = makeReadyBuild();
+    $build->forceFill(['settled_at' => now()])->save();
+    $svc = app(ClaimSiteService::class);
+
+    $svc->claim('auth-uid-1', 'jane@example.com', 'janedoe');
+    expect($build->fresh()->welcomed_at)->not->toBeNull();
+
+    $svc->release($user->fresh());
+
+    expect($build->fresh()->welcomed_at)->toBeNull();
+
+    $svc->claim('auth-uid-2', 'newowner@example.com', 'janedoe');
+
+    Mail::assertQueued(WelcomeMail::class, fn ($m) => $m->recipientEmail === 'newowner@example.com');
 });
 
 // EDGE-1: the claim's status flip ('unclaimed' -> 'active') never reaches
@@ -87,15 +156,18 @@ it('EDGE-1: omits a non-active custom domain from the claim-time edge purge', fu
 
 it('is idempotent for the rightful claimer (double-tap returns success, not 409)', function () {
     Mail::fake();
-    makeReadyBuild();
+    [$user, $site, $build] = makeReadyBuild();
+    // Settled, or there is no mail to be idempotent ABOUT.
+    $build->forceFill(['settled_at' => now()])->save();
     $svc = app(ClaimSiteService::class);
     $svc->claim('auth-uid-1', 'jane@example.com', 'janedoe');
 
     $again = $svc->claim('auth-uid-1', 'jane@example.com', 'janedoe');
     expect($again['professional']->auth_user_id)->toBe('auth-uid-1');
 
-    // A retry through the idempotency-first branch never sets is_new_claim,
-    // so the welcome email must fire exactly once across both calls.
+    // welcomed_at is claimed by a conditional UPDATE before the queue push, so
+    // the welcome fires exactly once across both calls whichever branch the
+    // retry takes.
     Mail::assertQueuedCount(1);
 });
 

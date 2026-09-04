@@ -13,6 +13,7 @@ use App\Models\Core\Site\SiteMedia;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\Customer;
 use App\Models\Core\User\PreAccountBuild;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\Service;
 use App\Models\Core\User\ServiceCategory;
 use App\Models\Core\User\User;
@@ -600,6 +601,10 @@ function setupPreAccountBuildsTable(): void
         // Mirrors migration 20260828010000 (T28: release restores the exact
         // pre-claim publish state).
         'published_by_claim INTEGER NOT NULL DEFAULT 0',
+        // Mirrors migration 20260903170000 (setup-settled email timing).
+        'settled_at TEXT NULL',
+        'setup_stalled_at TEXT NULL',
+        'welcomed_at TEXT NULL',
     ] as $col) {
         try {
             DB::connection('pgsql')->statement('ALTER TABLE core.pre_account_builds ADD COLUMN '.$col);
@@ -655,6 +660,43 @@ function makeReadyBuild(string $subdomain = 'janedoe'): array
     $build->save();
 
     return [$user, $site, $build];
+}
+
+/**
+ * The landed `platforms` row an Instagram build's bio-link seeder always
+ * writes — even to say "nothing to connect". BuildProgressReader holds an
+ * instagram-sourced build open until it exists, so a fixture that omits it is
+ * not settled, however many other stamps it carries.
+ * Suite-global: shared by the settle-timing tests.
+ */
+function markBuildPlatformsLanded(PreAccountBuild $build): PreAccountBuildEvent
+{
+    $event = new PreAccountBuildEvent;
+    $event->forceFill([
+        'build_id' => $build->id,
+        'stage' => PreAccountBuildEvent::STAGE_PLATFORMS,
+        'status' => PreAccountBuildEvent::STATUS_LANDED,
+        'label' => 'Links routed',
+        'payload' => '{}',
+        'created_at' => now(),
+    ])->save();
+
+    return $event;
+}
+
+/**
+ * A build BuildProgressReader::outcome() calls settled: ready, content landed,
+ * workplace answered, bio links routed, nothing started and unanswered, no
+ * media owed. Returns [$user, $site, $build] like makeReadyBuild().
+ * Suite-global: shared by the settle-timing tests.
+ */
+function makeSettledBuild(string $subdomain = 'janedoe'): array
+{
+    [$user, $site, $build] = makeReadyBuild($subdomain);
+    $build->forceFill(['content_filled_at' => now(), 'enriched_at' => now()])->save();
+    markBuildPlatformsLanded($build);
+
+    return [$user, $site, $build->fresh()];
 }
 
 /**

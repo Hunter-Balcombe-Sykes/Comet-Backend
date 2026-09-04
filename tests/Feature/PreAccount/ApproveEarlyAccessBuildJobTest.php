@@ -8,7 +8,6 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\User;
-use App\Services\PreAccount\ClaimNotifier;
 use App\Services\PreAccount\Generators\SiteSourceGenerator;
 use App\Services\PreAccount\PreAccountBuildService;
 use App\Services\PreAccount\SourceGenerationException;
@@ -23,14 +22,17 @@ beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupPreAccountBuildsTable();
+    setupPreAccountBuildEventsTable();
     setupEarlyAccessTable();
     config(['app.frontend_url' => 'https://app.partna.au']);
 });
 
-it('re-scrapes IG, opens the window, flips to invited, and emails the invite', function () {
+it('re-scrapes IG, opens the window, flips to invited, and leaves the invite to the sweep', function () {
     Mail::fake();
     $user = User::factory()->create(['status' => 'unclaimed', 'display_name' => 'Jane']);
-    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'ea_jane']);
+    // Published, as the real lane leaves it: requestBuild(publish: true) ->
+    // GeneratePreAccountSiteJob flips is_published before this job ever runs.
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'ea_jane', 'is_published' => true]);
     $build = PreAccountBuild::factory()->make([
         'source_type' => 'instagram', 'built_via' => PreAccountBuild::VIA_EARLY_ACCESS,
         'expires_at' => null, 'contact_email' => 'lead@example.com',
@@ -75,20 +77,28 @@ it('re-scrapes IG, opens the window, flips to invited, and emails the invite', f
         $mock->shouldReceive('for')->andReturn($gen);
     });
 
-    (new ApproveEarlyAccessBuildJob($signup->id, $build->source_type))->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class), app(PreAccountBuildService::class));
+    (new ApproveEarlyAccessBuildJob($signup->id, $build->source_type))->handle(app(SourceGeneratorRegistry::class), app(PreAccountBuildService::class));
 
     expect($build->fresh()->expires_at)->not->toBeNull()
         ->and($signup->fresh()->status)->toBe('invited');
+    // Moved off build_state=ready (2026-09-03): approval opens the window, the
+    // sweep sends once the cascade has actually landed.
+    Mail::assertNotQueued(ClaimInviteMail::class);
+
+    $build->fresh()->forceFill(['content_filled_at' => now(), 'enriched_at' => now()])->save();
+    markBuildPlatformsLanded($build);
+    $this->artisan('builds:settle-sweep');
+
     Mail::assertQueued(ClaimInviteMail::class, fn ($m) => $m->recipientEmail === 'lead@example.com');
 });
 
-it('does not re-scrape a GBP early-access build, but still opens the window and invites', function () {
+it('does not re-scrape a GBP early-access build, but still opens the window; the sweep invites', function () {
     Mail::fake();
     // GBP stays on the official-API refresh treadmill (spec §3.4): $needsScrape is
     // gated on build_state=failed OR source_type=instagram, so a healthy GBP build
     // must skip the registry entirely — never re-scrape on approval.
     $user = User::factory()->create(['status' => 'unclaimed', 'display_name' => 'Jane']);
-    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'ea_gbp_jane']);
+    Site::factory()->create(['user_id' => $user->id, 'subdomain' => 'ea_gbp_jane', 'is_published' => true]);
     $build = PreAccountBuild::factory()->make([
         'source_type' => 'google_business', 'built_via' => PreAccountBuild::VIA_EARLY_ACCESS,
         'expires_at' => null, 'contact_email' => 'lead-gbp@example.com',
@@ -108,11 +118,18 @@ it('does not re-scrape a GBP early-access build, but still opens the window and 
         $mock->shouldReceive('for')->never();
     });
 
-    (new ApproveEarlyAccessBuildJob($signup->id, $build->source_type))->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class), app(PreAccountBuildService::class));
+    (new ApproveEarlyAccessBuildJob($signup->id, $build->source_type))->handle(app(SourceGeneratorRegistry::class), app(PreAccountBuildService::class));
 
     expect($build->fresh()->expires_at)->not->toBeNull()
         ->and($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_READY)
         ->and($signup->fresh()->status)->toBe('invited');
+    Mail::assertNotQueued(ClaimInviteMail::class);
+
+    // A google_business build needs no platforms row -- that term is
+    // instagram-only -- so the two tier stamps are the whole settle rule here.
+    $build->fresh()->forceFill(['content_filled_at' => now(), 'enriched_at' => now()])->save();
+    $this->artisan('builds:settle-sweep');
+
     Mail::assertQueued(ClaimInviteMail::class, fn ($m) => $m->recipientEmail === 'lead-gbp@example.com');
 });
 
@@ -165,7 +182,7 @@ it('flips to failed, does not notify, and reports when the re-scrape throws (nev
         $mock->shouldReceive('for')->andReturn($gen);
     });
 
-    (new ApproveEarlyAccessBuildJob($signup->id, $build->source_type))->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class), app(PreAccountBuildService::class));
+    (new ApproveEarlyAccessBuildJob($signup->id, $build->source_type))->handle(app(SourceGeneratorRegistry::class), app(PreAccountBuildService::class));
 
     expect($build->fresh()->build_state)->toBe(PreAccountBuild::STATE_FAILED)
         ->and($build->fresh()->expires_at)->toBeNull()
@@ -183,7 +200,7 @@ it('no-ops when the signup has no linked build (user_id null)', function () {
 
     // No linked build → source_type is unused (the job early-returns); pass a
     // valid literal to satisfy the required constructor arg.
-    (new ApproveEarlyAccessBuildJob($signup->id, 'instagram'))->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class), app(PreAccountBuildService::class));
+    (new ApproveEarlyAccessBuildJob($signup->id, 'instagram'))->handle(app(SourceGeneratorRegistry::class), app(PreAccountBuildService::class));
 
     expect($signup->fresh()->status)->toBe('waitlist');
     Mail::assertNothingQueued();
@@ -208,7 +225,7 @@ it('no-ops when the build is already claimed', function () {
     ]);
     $signup->forceFill(['user_id' => $user->id])->save();
 
-    (new ApproveEarlyAccessBuildJob($signup->id, $build->source_type))->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class), app(PreAccountBuildService::class));
+    (new ApproveEarlyAccessBuildJob($signup->id, $build->source_type))->handle(app(SourceGeneratorRegistry::class), app(PreAccountBuildService::class));
 
     expect($build->fresh()->expires_at)->toBeNull()
         ->and($signup->fresh()->status)->toBe('waitlist');
@@ -241,7 +258,6 @@ it('CREATES the build when the signup has none — approval is where outreach si
     (new ApproveEarlyAccessBuildJob($signup->id, 'instagram', $staff->id))
         ->handle(
             app(SourceGeneratorRegistry::class),
-            app(ClaimNotifier::class),
             app(PreAccountBuildService::class)
         );
 
@@ -270,7 +286,6 @@ it('does not build twice when approval runs again for an already-linked signup',
     $job = fn () => (new ApproveEarlyAccessBuildJob($signup->id, 'instagram', $staff->id))
         ->handle(
             app(SourceGeneratorRegistry::class),
-            app(ClaimNotifier::class),
             app(PreAccountBuildService::class)
         );
     $job();
@@ -355,7 +370,7 @@ it('fails the job when the re-scrape throws SourceGenerationException (#JOB-3)',
     $queueJob->shouldReceive('fail')->once()->with(Mockery::type(SourceGenerationException::class));
     $job->setJob($queueJob);
 
-    $job->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class), app(PreAccountBuildService::class));
+    $job->handle(app(SourceGeneratorRegistry::class), app(PreAccountBuildService::class));
 
     // The pre-existing contract still holds: failed state, no invite.
     expect($signup->fresh()->status)->toBe('waitlist');
@@ -375,7 +390,7 @@ it('fails the job when the re-scrape throws an unclassified Throwable (#JOB-3)',
     $queueJob->shouldReceive('fail')->once()->with(Mockery::type(RuntimeException::class));
     $job->setJob($queueJob);
 
-    $job->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class), app(PreAccountBuildService::class));
+    $job->handle(app(SourceGeneratorRegistry::class), app(PreAccountBuildService::class));
 
     expect($signup->fresh()->build?->build_state ?? PreAccountBuild::STATE_FAILED)->toBe(PreAccountBuild::STATE_FAILED);
 });
@@ -418,7 +433,7 @@ it('does NOT fail the job on a happy approval — fail() is not fired indiscrimi
     $queueJob->shouldNotReceive('fail');
     $job->setJob($queueJob);
 
-    $job->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class), app(PreAccountBuildService::class));
+    $job->handle(app(SourceGeneratorRegistry::class), app(PreAccountBuildService::class));
 
     expect($signup->fresh()->status)->toBe(EarlyAccessSignup::STATUS_INVITED);
 });
@@ -452,7 +467,7 @@ it('fails the job when requestBuild() throws (#JOB-3 build_failed path)', functi
     $queueJob->shouldReceive('fail')->once()->with(Mockery::type(RuntimeException::class));
     $job->setJob($queueJob);
 
-    $job->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class), app(PreAccountBuildService::class));
+    $job->handle(app(SourceGeneratorRegistry::class), app(PreAccountBuildService::class));
 
     expect($signup->fresh()->status)->toBe('waitlist');
     Mail::assertNothingQueued();
@@ -481,7 +496,7 @@ it('does NOT fail the job on a build collision — a live build already exists (
     $queueJob->shouldNotReceive('fail');
     $job->setJob($queueJob);
 
-    $job->handle(app(SourceGeneratorRegistry::class), app(ClaimNotifier::class), app(PreAccountBuildService::class));
+    $job->handle(app(SourceGeneratorRegistry::class), app(PreAccountBuildService::class));
 
     // A legitimate no-op: not failed, not invited, not linked to the other build.
     expect($signup->fresh()->status)->toBe('waitlist');
@@ -522,7 +537,7 @@ it('re-syncs the route when it opens the claim window', function () {
     $signup->forceFill(['user_id' => $user->id])->save();
 
     (new ApproveEarlyAccessBuildJob($signup->id, $build->source_type))->handle(
-        app(SourceGeneratorRegistry::class), app(ClaimNotifier::class), app(PreAccountBuildService::class),
+        app(SourceGeneratorRegistry::class), app(PreAccountBuildService::class),
     );
 
     expect($build->fresh()->expires_at)->not->toBeNull();
