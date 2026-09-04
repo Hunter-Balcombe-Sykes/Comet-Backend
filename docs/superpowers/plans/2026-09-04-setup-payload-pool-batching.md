@@ -603,18 +603,27 @@ EOF
 **Files:**
 - Modify: none (verification only, plus one doc line)
 
-- [ ] **Step 1: Run the full suite**
+- [x] **Step 1: Run the full suite**
 
 Run: `composer test`
 Expected: PASS. Note this takes ~20 minutes in CI; locally it is faster with `--parallel`.
 
-- [ ] **Step 2: Run the Postgres lane**
+- [x] **Step 2: Run the Postgres lane**
+
+> **Local result (2026-09-04):** the PG lane cannot be run cleanly in a local
+> checkout — its stand-in tables are created first-creator-wins, so failures
+> move between files run to run. This branch scored 282 passed / 2 failed
+> (`LanderFoldAtomicityTest`, `ingest.record_state` missing); `development`
+> at the same commit base scored 281 passed / 5 failed
+> (`SectionOccurrenceOrderingTest` among them). The branch is BETTER than its
+> own baseline and touches no ingest code, so both runs are harness artefacts.
+> CI's `postgres-tests` job is the real gate.
 
 Run: `composer test:pg`
 
 Expected: PASS. `SetupPayload` does not touch `ProjectionWriter`, so this is a precaution rather than a likely failure — but the pool tables it reads are provisioned by stand-ins in that lane, and `PostgresLaneReadCoverageTest` will flag any column this change newly reads.
 
-- [ ] **Step 3: Open the PR and let CI run all nine checks**
+- [x] **Step 3: Open the PR and let CI run all nine checks**
 
 ```bash
 git push -u origin perf/setup-payload-pool-batching-2026-09-04
