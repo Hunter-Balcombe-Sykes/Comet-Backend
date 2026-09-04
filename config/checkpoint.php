@@ -19,8 +19,34 @@ return [
     */
 
     'checks' => [
-        Checks\ComposerAuditCheck::class => true,
-        Checks\NpmAuditCheck::class => true,
+        // The two ADVISORY checks are off because the `supply-chain` CI job
+        // already does both, strictly better — and these two are the only
+        // checks here that touch the network, which is what made them flaky.
+        //
+        //   supply-chain: composer audit --locked, PLUS npm audit at
+        //   --audit-level=high over BOTH the repo root and cloudflare-worker,
+        //   each through .github/scripts/npm-audit-retry.sh (backoff on
+        //   503/timeout, no relaxation of the gate).
+        //
+        //   here: the same root package.json only, no retry, and a hard 120s
+        //   Symfony Process timeout inside NpmAuditCheck.
+        //
+        // npm's bulk advisory endpoint degraded on 2026-09-03/04 and that 120s
+        // budget blew on commits touching no JS at all, failing the whole
+        // `test` job — three runs straight, including an explicit rerun, until
+        // the endpoint recovered on its own. supply-chain rode the same outage
+        // out because it retries. Pinning npm@11 (c0b469768) did not help: the
+        // timeouts continued with the pin in place.
+        //
+        // Turning them off here loses no coverage and removes a failure mode
+        // that can only ever be a false alarm. Same call, same reasoning, as
+        // the `checkpoint-suppressions` job, which already skips exactly these
+        // two (see CHECKPOINT_STALENESS_SKIPPED_CHECKS). Switched off in this
+        // map rather than suppressed by hash for the reason given down in
+        // `suppressed`: advisory findings are machine state, not repo state,
+        // so they cannot be safely content-addressed.
+        Checks\ComposerAuditCheck::class => false,
+        Checks\NpmAuditCheck::class => false,
         Checks\EnvironmentCheck::class => true,
         Checks\GitIgnoreCheck::class => true,
         Checks\FilePermissionsCheck::class => true,
