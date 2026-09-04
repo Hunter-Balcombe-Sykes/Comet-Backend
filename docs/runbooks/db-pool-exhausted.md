@@ -197,17 +197,43 @@ cloud command:run development --cmd="php artisan horizon:status"
 
 ## Switching to transaction mode (port 6543)
 
-The app is already wired for this and the wiring is **inert on 5432**, so nothing below has
-been done to a running environment yet. Two things are already in the repo:
+### TRIED AND ROLLED BACK — 2026-09-04. Read this before trying again.
 
-1. `config/database.php` sets `PDO::ATTR_EMULATE_PREPARES` **derived from `DB_PORT`** — true
-   at 6543, false otherwise. Server-side prepared statements need both halves of the exchange
-   (PREPARE, then EXECUTE) on the same backend; transaction mode cannot promise that.
-   Pinned by `tests/Feature/Architecture/PoolerModeConfigTest.php`.
-2. `supabase/migrations/20260905120000_app_backend_role_timeout_defaults.sql` puts
-   `statement_timeout` / `lock_timeout` on the **role**, because
-   `DatabaseServiceProvider::boot()`'s per-connection `SET` does not survive multiplexing.
-   The values mirror the config defaults exactly, so it changes nothing on 5432.
+Dev ran on 6543 for roughly ten minutes (08:49–09:00 UTC) and was rolled back. **The blocker
+was `PDO::ATTR_EMULATE_PREPARES => true`**, which the first cut of this work turned on
+because transaction mode cannot promise that PREPARE and EXECUTE reach the same backend.
+
+Emulation makes PDO interpolate bound values itself — and a PHP `true` interpolates as `1`,
+which Postgres refuses against a boolean column:
+
+```
+SQLSTATE[42883]: Undefined function: operator does not exist: boolean = integer
+... "platform_connections"."user_id" and "is_active" = 1 ...
+```
+
+Every `->where('some_bool', true)` in the codebase hits this, so it is not a call-site fix.
+
+**How it presented matters more than the error.** `GET /api/public/profiles/{handle}` kept
+returning **200**, with `pools: {}` — every dev sitepage silently empty, because the content
+lane fails open and logs `sitepage.content_read_failed` at warning level rather than throwing.
+Health checks were green throughout. Nothing about the response status told you anything was
+wrong. This is the exact "quiet failure" this runbook's watch section warns about, and it is
+why the flip wants an explicit pool-and-payload check, not just a smoke test.
+
+`config/database.php` now carries a comment block naming this, and
+`tests/Feature/Architecture/PoolerModeConfigTest.php` fails if the attribute is set again.
+
+**The open question for a next attempt** is whether Supavisor's own prepared-statement support
+in transaction mode is sufficient with prepares left **native** (Laravel's default). That is a
+different experiment from the one that failed — do not read the rollback as "6543 doesn't
+work", and do not reintroduce emulation to get there.
+
+### What IS in place and safe
+
+`supabase/migrations/20260905120000_app_backend_role_timeout_defaults.sql` puts
+`statement_timeout` / `lock_timeout` on the **role**, because
+`DatabaseServiceProvider::boot()`'s per-connection `SET` does not survive multiplexing. The
+values mirror the config defaults exactly, so it changes nothing on 5432. Applied to dev.
 
 **Per-environment step that is NOT in the migration — `search_path`.** Laravel issues
 `set search_path` at connect, which has the same problem as the timeouts, but the correct
@@ -215,22 +241,46 @@ value differs per environment so it cannot be baked into a shared migration. Run
 matches the env's own `DB_SEARCH_PATH` **before** flipping its port:
 
 ```sql
--- dev (glncumufgaqcmqhzwrxm)
-ALTER ROLE app_backend SET search_path = 'core,site,public,analytics,moderation';
+-- dev (glncumufgaqcmqhzwrxm)  — applied 2026-09-04
+ALTER ROLE app_backend SET search_path = core, site, public, analytics, moderation;
 
--- prod (edplucmvkcnokyygxqsb) — note the extra `audit`
-ALTER ROLE app_backend SET search_path = 'core,site,public,analytics,moderation,audit';
+-- prod (edplucmvkcnokyygxqsb) — note the extra `audit`. NOT applied.
+ALTER ROLE app_backend SET search_path = core, site, public, analytics, moderation, audit;
 ```
 
-Verify with `select rolname, rolconfig from pg_roles where rolname = 'app_backend';` — all
-three settings should be listed. **If `DB_SEARCH_PATH` is ever changed on an env, the role
+**Do not quote the list.** `SET search_path = 'core,site,public'` is one schema NAME containing
+commas, not three schemas — Postgres accepts it silently and `current_schemas(false)` then
+returns `{}`, i.e. nothing resolves. The identifiers go in bare and comma-separated. Verify
+with the effective list, never just the raw string:
+
+```sql
+select rolname, rolconfig from pg_roles where rolname = 'app_backend';
+-- and from a session that has the setting applied:
+select current_setting('search_path') as raw, current_schemas(false) as effective;
+```
+
+`effective` must list every schema individually. All three role settings should appear in
+`rolconfig`. **If `DB_SEARCH_PATH` is ever changed on an env, the role
 default must be changed with it**; they are two copies of one value and nothing enforces
 agreement.
 
-**Then the flip itself:** set `DB_PORT=6543` on the env and redeploy. **Rollback is the same
-var back to 5432** — no migration to reverse, no schema change, no data touched. The role
-defaults are harmless in session mode (they duplicate what the app already sets), so leave
-them in place across a rollback.
+**Then the flip itself:** `cloud environment:variables <env> --action=set --key=DB_PORT
+--value=6543 --force`, then `cloud deploy partna <env>` — an env-var change takes no effect
+until a redeploy, because config is baked by `php artisan optimize` at build time.
+**Rollback is the same two commands with 5432** and took 1m54s on 2026-09-04. No migration to
+reverse, no schema change, no data touched. The role defaults are harmless in session mode
+(they duplicate what the app already sets), so leave them in place across a rollback.
+
+**Check the payload, not just the status code.** Fetch a known-good profile and assert the
+pools are populated:
+
+```bash
+curl -s https://dev-api.partna.au/api/public/profiles/<handle> \
+  | python3 -c "import json,sys; p=json.load(sys.stdin)['data']['profile']; \
+      print({k: len(v.get('items',[])) for k,v in p.get('pools',{}).items()})"
+```
+
+An empty dict there is the failure signature. A 200 is not evidence of anything.
 
 **What is already safe, checked 2026-09-04:** every advisory lock in `app/` uses
 `pg_advisory_xact_lock` (transaction-scoped, released at commit), not the session-scoped

@@ -1,70 +1,37 @@
 <?php
 
-// Pins the one-flip contract for the Supavisor pooler mode.
+// Keeps PDO::ATTR_EMULATE_PREPARES OFF for the pgsql connection.
 //
-// Port 5432 is the SESSION pooler: a slot is pinned per PROCESS for the life of
-// that process, so Horizon's daemons hold ~15 of dev's 30 before a request
-// lands, and a dashboard burst exhausts it (EMAXCONNSESSION —
-// docs/runbooks/db-pool-exhausted.md). Port 6543 is the TRANSACTION pooler,
-// where a backend is borrowed per transaction; that is the standing fix.
+// It was switched ON (derived from DB_PORT) on 2026-09-04 as groundwork for
+// moving off the session pooler, and measured on dev the same day. It breaks
+// the app: emulation makes PDO interpolate bound values itself, a PHP `true`
+// interpolates as `1`, and Postgres refuses `boolean = integer` —
 //
-// Transaction mode cannot carry server-side prepared statements, because the
-// second half of the exchange may reach a backend that never saw the first. So
-// config/database.php derives PDO::ATTR_EMULATE_PREPARES from the port instead
-// of exposing a second flag that could be set inconsistently — the failure mode
-// of a mismatch is a silent wrong-backend error, not a loud one.
+//   SQLSTATE[42883] operator does not exist: boolean = integer
+//   ... "platform_connections"."user_id" and "is_active" = 1 ...
 //
-// This test exists so that coupling cannot be quietly unpicked: someone adding
-// their own `options` array, or "tidying" the derivation into a hardcoded
-// false, would otherwise leave a port flip looking complete and failing under
-// load only.
+// Every `->where('some_bool', true)` in the codebase is affected. Worse, the
+// content lane fails open, so the damage showed as `pools: {}` on every public
+// profile — an empty sitepage served with a 200, not an error page.
 //
-// What it does NOT check: that transaction mode actually works end-to-end. The
-// suite runs SQLite, which has no pooler, no search_path and no timeouts — see
-// the runbook's checklist for what has to be watched on dev after the flip.
+// Laravel's own connector already defaults this key to false
+// (Connector::$options), so the correct state is simply not to set it. This
+// test exists because the wrong value shipped once already and reads as a
+// plausible, well-commented improvement.
+//
+// This does NOT say transaction mode is abandoned — see the runbook. It says
+// emulation is not the road to it.
 
-use Illuminate\Support\Env;
+it('never enables emulated prepares on the pgsql connection', function () {
+    $options = config('database.connections.pgsql.options', []);
 
-/** Re-evaluates config/database.php with DB_PORT overridden, since config is read once at boot. */
-function pgsqlConfigWithPort(string $port): array
-{
-    $repository = Env::getRepository();
-    $previous = $repository->get('DB_PORT');
-
-    $repository->set('DB_PORT', $port);
-
-    try {
-        $config = require base_path('config/database.php');
-    } finally {
-        $previous === null
-            ? $repository->clear('DB_PORT')
-            : $repository->set('DB_PORT', $previous);
-    }
-
-    return $config['connections']['pgsql'];
-}
-
-it('leaves prepared statements native on the session pooler', function () {
-    $pgsql = pgsqlConfigWithPort('5432');
-
-    expect($pgsql['port'])->toBe('5432')
-        ->and($pgsql['options'][PDO::ATTR_EMULATE_PREPARES])->toBeFalse();
+    expect($options[PDO::ATTR_EMULATE_PREPARES] ?? false)->toBeFalse();
 });
 
-it('emulates prepared statements on the transaction pooler', function () {
-    $pgsql = pgsqlConfigWithPort('6543');
-
-    expect($pgsql['port'])->toBe('6543')
-        ->and($pgsql['options'][PDO::ATTR_EMULATE_PREPARES])->toBeTrue();
-});
-
-it('keeps the emulation derived from the port, not a separate flag', function () {
+it('keeps the config free of an emulation toggle', function () {
     $source = file_get_contents(base_path('config/database.php'));
 
-    expect($source)->toContain('PDO::ATTR_EMULATE_PREPARES');
-
-    // A literal true/false, or a flag of its own, breaks the single-flip
-    // contract this file exists to protect.
-    expect($source)->not->toMatch('/ATTR_EMULATE_PREPARES\s*=>\s*(true|false)\b/')
+    // The comment block naming the failure is welcome; a live assignment is not.
+    expect($source)->not->toMatch('/^\s*PDO::ATTR_EMULATE_PREPARES\s*=>/m')
         ->and($source)->not->toContain('DB_EMULATE_PREPARES');
 });
