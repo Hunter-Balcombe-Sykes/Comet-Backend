@@ -272,7 +272,7 @@ beforeEach(function () {
         source_id uuid NOT NULL REFERENCES content.sources(id) ON DELETE CASCADE,
         source_item_id uuid REFERENCES content.source_items(id) ON DELETE CASCADE,
         asset_id uuid REFERENCES content.media_assets(id) ON DELETE SET NULL,
-        role text NOT NULL CHECK (role IN (\'cover\',\'gallery\',\'poster\',\'avatar\',\'logo\')),
+        role text NOT NULL CHECK (role IN (\'cover\',\'gallery\',\'poster\',\'avatar\',\'logo\',\'video\')),  -- \'video\': 20260819001100_item_media_role_video.sql:26
         position integer NOT NULL DEFAULT 0,
         alt_text text,
         created_at timestamptz NOT NULL DEFAULT now()

@@ -3572,9 +3572,16 @@ function setupRoutingTables(): void
     )');
 
     try {
+        // 'verifying' is one of the FOUR live states the real predicate covers
+        // (20260904235902_source_intents_idx_live.sql:15-17). Omitting it here
+        // let a verifying row and a proposed row coexist on one
+        // (user, surface, identifier) triple, which production rejects with
+        // 23505 — a false green under the six LinkVerificationLaneTest cases
+        // that are the only tests exercising the verifying writers. Found
+        // 2026-09-04.
         $pg->statement('CREATE UNIQUE INDEX IF NOT EXISTS routing.idx_source_intents_live
             ON source_intents (user_id, surface_key, identifier)
-            WHERE state IN (\'proposed\', \'applied\', \'blocked\')');
+            WHERE state IN (\'proposed\', \'verifying\', \'applied\', \'blocked\')');
     } catch (Throwable $e) {
         // already exists / unsupported — ignore
     }
