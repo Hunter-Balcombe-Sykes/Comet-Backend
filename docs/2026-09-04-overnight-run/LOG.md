@@ -609,3 +609,36 @@ fixture's own key. **104 match; the 4 that resolve to NULL
 `partna.manual_product`) each carry ZERO detectors and `is_connectable=false`**
 — they are created manually or by API, never by URL detection, so NULL is the
 only possible answer and not a defect. F5 was the only real bug in this file.
+
+### `spotify_podcasts.show` — plan §1b's last open question, RESOLVED as NOT a gap
+
+Plan §1b left this explicitly unresolved: *"`spotify_podcasts.show` status
+still unconfirmed — resolve inline during W4 implementation (check if the
+existing `spotify` key already handles the `/show/` path, add a branch only
+if it doesn't)."* W4 never came back to it; the W9 completeness critic caught
+that it was still open. Answered now, empirically:
+
+```
+/show/4rOoJ6Egrf8K2IrywzwOMk            item=null              accountLabel='Spotify'
+/episode/512ojhOuo1ktJprKbVcKyQ         item=spotify/episode   accountLabel=NULL
+/intl-de/show/4rOoJ6Egrf8K2IrywzwOMk    item=null              accountLabel='Spotify'
+/track/11dFghVXANMlKmJXsNCbNl           item=spotify/track     accountLabel=NULL
+```
+
+The existing `spotify` key already handles it correctly and completely:
+- `classifyItem()` (`MediaPageReader.php:229`) matches `(track|album|episode)`
+  only, so a `/show/` URL is correctly NOT an item — a show is a podcast
+  SERIES, i.e. an account-like entity, not a single thing to pin.
+- `accountPlatformLabel()` (`:495`) already includes `show` in its
+  `(artist|show|user|playlist)` alternation, so a pasted show URL gets the
+  proper connect-hint ("connect Spotify to bring its content in, or paste one
+  track's link") rather than the generic "not a track" dead end.
+- An episode's parent resolves to its show URL (`:139`), so
+  `MediaParentSuggester` can offer the series.
+- The locale-prefixed form (`/intl-de/show/`) works on both sides.
+
+**No branch added — adding one would have been wrong.** `spotify_podcasts.show`
+carries `legacy_platform=NULL`, but unlike the F8 brands nothing ever emits
+`spotify_podcasts` as a platform value (the harvester and MediaPageReader both
+emit `spotify`), so it cannot reach the connection guard. Plan §1b's question
+is now closed.
