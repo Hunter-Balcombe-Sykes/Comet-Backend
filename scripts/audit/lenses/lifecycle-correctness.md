@@ -9,7 +9,7 @@ This lens is a **sibling** to `scaling-antipatterns.md`. That lens covers rebuil
 ## Scale context (every finding must justify against this)
 
 Pre-beta; no paying customers yet, but foundational code must be durable. Traffic shape:
-- **Hottest path:** public sitepage resolution — mostly served from Cloudflare edge (Worker + KV + Cache API); backend sees cache misses and cache-purge rebuilds. Keep `SiteCacheService` payloads cheap.
+- **Hottest path:** public sitepage resolution — mostly served from Cloudflare edge (Worker + KV + Cache API); backend sees cache misses and cache-purge rebuilds. Keep `IndividualProfilePayloadBuilder` payloads cheap.
 - **Write-heavy path:** analytics ingest (sitepage events, sessions, regions, platform/product breakdowns) — fire-and-forget jobs on the `analytics` queue.
 - **Fan-out paths:** per-user cache invalidation, KV sync, notification dispatch, media/video variants, streaming live-status polling.
 
@@ -133,7 +133,7 @@ These are the patterns NOT covered by `scaling-antipatterns.md` (which focuses o
 - Columns named `*_started_at` / `*_at` where the column is actually a deadline (or vice versa) — naming must match semantics, especially where anchor-decoupling matters.
 - `site.site_subdomain_aliases` and `core.user_handle_aliases` — confirm both have the expected `UNIQUE` constraints and `CHECK` on `expires_at > reclaim_until`.
 - `site.design_kits` — confirm all columns are `NULLABLE` with no `DEFAULT` expression (defaults live in the design-system package, not the DB).
-- Indexes on hot-read paths missing for the joins introduced by current resolver logic (`PublicSiteResolver`, `SiteCacheService`).
+- Indexes on hot-read paths missing for the joins introduced by current resolver logic (`PublicSiteResolver`, `IndividualProfilePayloadBuilder`).
 - `site.sites.architecture_id` — confirm the `CHECK` constraint (`sites_architecture_id_check`) constrains it to exactly `'one'` (single-architecture) with no fallback.
 
 ## Per-finding requirements

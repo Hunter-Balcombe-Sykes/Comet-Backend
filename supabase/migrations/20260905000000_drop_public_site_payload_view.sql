@@ -16,8 +16,10 @@
 -- StaffSiteController through App\Models\Views\AllSiteData. Leave it alone.
 --
 -- SAFE: dropping a view is catalog-only. No table, column or row is touched.
--- Nothing else in the database depends on it — verified with pg_depend below
--- at authoring time.
+-- Nothing else in the database depends on it: the pg_depend/pg_rewrite
+-- dependency query run against dev on 2026-09-04 returned ZERO rows, i.e. no
+-- other view or rule is built on top of this one. (The query is not reproduced
+-- here; the result is what this migration relies on.)
 --
 -- ROLLBACK: the recreate source is
 -- supabase/migrations/20260817000000_public_site_payload_services_from_content.sql

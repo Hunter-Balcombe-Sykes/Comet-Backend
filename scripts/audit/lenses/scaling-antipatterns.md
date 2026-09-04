@@ -72,7 +72,7 @@ For every finding:
 ## Out of scope — do NOT re-flag
 
 - The `CacheLockService` implementation itself and `Concerns/JitteredTtl` — these define the gold standard, not the antipattern.
-- `app/Services/Cache/SiteCacheService::getPublicSitePayload` — the canonical reference implementation.
+- `app/Http/Controllers/Api/PublicSite/IndividualProfileController` and `app/Services/PublicSite/IndividualProfilePayloadBuilder` — the canonical reference implementation of the cached public read.
 - Test-only caches (`Cache::store('array')` in `tests/`).
 - Pint/style findings — out of scope for correctness lenses.
 

@@ -24,7 +24,7 @@ Number them `TEST-1`, `TEST-2`, … sequentially.
 
 Each of the following code paths is foundational to the platform's operation. They MUST have feature tests covering happy path + at least one failure path. Flag any without.
 
-- **Public sitepage resolution**: `IndividualProfileController` → `PublicSiteResolver` / `SiteCacheService` — cache hit path, cache miss path, unknown handle → 404.
+- **Public sitepage resolution**: `IndividualProfileController` → `PublicSiteResolver` / `IndividualProfilePayloadBuilder` — cache hit path, cache miss path, unknown handle → 404.
 - **Handle alias 301s**: a renamed handle's old subdomain must 301 to the canonical URL; expired alias must return 404 (not redirect). `site.site_subdomain_aliases` / `core.user_handle_aliases` `->active()` scope.
 - **Handle rename lifecycle**: rename writes alias rows (`reclaim_until`, `expires_at`), old handle blocked during reclaim window, re-registration after expiry succeeds.
 - **Account deletion / GDPR export**: `GdprPolicy` gates, deletion audit trail in `audit` schema, export job happy path + failure path, stale-export sweep (`gdpr:sweep-stale-exports`).

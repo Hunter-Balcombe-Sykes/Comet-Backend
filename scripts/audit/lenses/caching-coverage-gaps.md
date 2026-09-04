@@ -15,11 +15,12 @@ candidate that nobody wrapped.
 A read is a coverage gap **only if every one of these holds**. Two out of three
 is not a finding — drop it.
 
-1. **Hot path** — the read sits on a named hot path: the public sitepage payload
-   resolution path (`SiteCacheService` / `PublicSiteResolver` / `SitepageDataResolverService`),
-   handle/profile resolution, `AccountCapabilities` lookups, analytics summary
-   endpoints, notification unread-count, streaming live-status (`LiveStatusPoller` /
-   `LiveStatusInjector`), dashboard controllers under
+1. **Hot path** — the read sits on a named hot path: the public profile payload
+   path (`IndividualProfileController` / `IndividualProfilePayloadBuilder` /
+   `PublicSiteResolver` / `SitepageDataResolverService`), site cache invalidation
+   (`SiteCacheService`), handle/profile resolution, `AccountCapabilities` lookups,
+   analytics summary endpoints, notification unread-count, streaming live-status
+   (`LiveStatusPoller`), dashboard controllers under
    `app/Http/Controllers/Api/{User,Staff,Internal,PublicSite}`, or middleware that
    runs on most requests. A read on an admin-only, rarely-hit, or one-shot path
    is **not** hot.
@@ -56,8 +57,10 @@ with a key from `CacheKeyGenerator`.
 
 Site, handle, profile, or account-capability resolution that hits the database
 on every request because it is not memoised. These run on nearly every request —
-the highest-leverage gaps. The public sitepage payload path (`PublicSiteResolver` →
-`SiteCacheService::getPublicSitePayload`) and the auth path (handle→user lookup via
+the highest-leverage gaps. The public profile payload path
+(`IndividualProfileController` → `IndividualProfilePayloadBuilder`, cached via
+`CacheLockService::rememberLocked` under `CacheKeyGenerator::publicProfile`) and the
+auth path (handle→user lookup via
 `LoadCurrentUser` middleware) are the canonical reference implementations — confirm
 a cache layer genuinely exists (in the resolver, in middleware, or in a service it
 delegates to) before flagging any adjacent resolution step.

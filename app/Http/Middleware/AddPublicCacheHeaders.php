@@ -52,8 +52,11 @@ class AddPublicCacheHeaders
      * public route that resolves its tenant from a header instead of the URL
      * (site-by-slug's exact shape) MUST add an entry here for its header
      * token, or it silently inherits DEFAULT_VARY and one tenant's cached
-     * response can be served to another — that was the live bug this rail
-     * closes, not a hypothetical one.
+     * response can be served to another. No cross-tenant cache hit has been
+     * observed here — the one recorded incident on this middleware was a
+     * dropped Vary on a 304 — but the shared cache and the Vary keying above
+     * are both measured facts, so the failure mode is reachable rather than
+     * theoretical. That is why the mechanism stays.
      */
     private const VARY_BY_PREFIX = [];
 

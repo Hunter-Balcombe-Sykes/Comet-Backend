@@ -487,15 +487,18 @@ All owner uploads live in the `site.site_media` table, classified by **usage** (
 | usage      | string   | yes      | —                                               | `content` (legacy alias: `pool`)                                 |
 | path       | string   | no       | `images/<proId>/<imageId>/original_abc123.jpg`  | Path to original file on the media disk                          |
 | alt_text   | string   | yes      | `Fade haircut example`                          | Max 255                                                          |
-| sort_order | integer  | no       | `0`                                             | Non-negative; used for gallery ordering                          |
+| sort_order | integer  | no       | `0`                                             | Non-negative; owner-chosen display order                         |
 | is_active  | boolean  | no       | `true`                                          | Soft visibility flag                                             |
 | created_at | datetime | yes      | `2026-03-02T10:00:00Z`                          |                                                                  |
 | updated_at | datetime | yes      | `2026-03-02T10:00:00Z`                          |                                                                  |
 | deleted_at | datetime | yes      | `null`                                          | Soft delete                                                      |
 
-**Pool limits** (configurable via env):
-- `gallery`: max 5 images (env `PARTNA_GALLERY_IMAGE_MAX`)
-- `content`: max 5 images (env `PARTNA_CONTENT_IMAGE_MAX`)
+**Usage limits** (configurable via env):
+- `content`: max 20 images (env `PARTNA_CONTENT_IMAGE_MAX`)
+
+There is no `gallery` usage and no `PARTNA_GALLERY_IMAGE_MAX` — the `gallery` pool and its
+`core.enforce_site_gallery_max6` trigger were retired 2026-09-02 (migration `20260902170000`).
+`config('partna.image_pools')` now declares `content` only.
 
 ### ImageVariant (core.image_variants)
 
@@ -919,7 +922,7 @@ endpoints below; only the payload read was removed.
 #### `POST /api/public/analytics/pageviews`
 #### `POST /api/public/analytics/clicks`
 
-- Purpose: header-based variants of the analytics endpoints (record page views and link clicks)
+- Purpose: record page views and link clicks (the same two endpoints listed above, repeated here)
 - Auth: None
 - Rate limit: analytics
 - Headers: `X-Site-Subdomain` (required if `site_id` is not in the request body): the site subdomain slug
@@ -1800,8 +1803,7 @@ Note: The frontend does not need any storage credentials — all image URLs come
 
 - PARTNA_PUBLIC_DOMAIN (no longer routes anything — no route is domain-scoped since 2026-09-04. Still required: it builds site URLs, the analytics `Origin` check, email branding, KV and Cloudflare purge, and an empty value hard-fails the production boot)
 - PARTNA_MEDIA_DISK (default: media — the Laravel filesystem disk name)
-- PARTNA_GALLERY_IMAGE_MAX (default: 6)
-- PARTNA_CONTENT_IMAGE_MAX (default: 6)
+- PARTNA_CONTENT_IMAGE_MAX (default: 20 — the only upload cap; `PARTNA_GALLERY_IMAGE_MAX` was retired with the `gallery` pool on 2026-09-02)
 - PARTNA_IMAGE_MAX_UPLOAD_KB (default: 10240 = 10 MB)
 - PARTNA_VIDEO_MAX_UPLOAD_KB (default: 204800 = 200 MB)
 - PARTNA_VIDEO_MAX_DURATION_SECONDS (default: 30)
@@ -1852,11 +1854,11 @@ Laravel Cloud auto-injects credentials via `LARAVEL_CLOUD_DISK_CONFIG`. The imag
 - Public analytics endpoints set `occurred_at` server-side (`now()`).
 - Frontend does not need to send `occurred_at`.
 
-### Gallery limits and ordering
+### Upload limits and ordering
 
-- Gallery pool: max 5 active images (configurable via `PARTNA_GALLERY_IMAGE_MAX`). Content pool: max 5 (via `PARTNA_CONTENT_IMAGE_MAX`).
-- Pool limits are enforced server-side with PostgreSQL advisory locks for race safety.
-- `POST /api/uploads` validates the pool limit before creating a new image.
-- Reorder endpoint (`POST /api/gallery/reorder`) accepts an `ids` array; any omitted ids will be appended in existing order.
+- `content` usage: max 20 active images (configurable via `PARTNA_CONTENT_IMAGE_MAX`). It is the only capped usage — the `gallery` pool was retired 2026-09-02.
+- Limits are enforced server-side with PostgreSQL advisory locks for race safety.
+- `POST /api/uploads` validates the limit before creating a new image.
+- Reorder endpoint (`POST /api/images/reorder`) accepts an `ids` array; any omitted ids will be appended in existing order.
 - Variants are generated inline (sync mode) or asynchronously (queue mode). If async, poll `GET /api/images` until `processing: false`.
 - Content-hashed variant URLs are immutable for CDN caching; re-processing generates new URLs automatically.

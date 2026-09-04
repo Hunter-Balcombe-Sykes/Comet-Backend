@@ -26,6 +26,18 @@ use Illuminate\Support\Facades\Redis;
  * time; tiered TTLs let the poller spend its API/credit budget on likely-live
  * handles. It matters MORE now: the vendor legs are one billed call per
  * handle, so the tiers are what keep an every-2-min cadence affordable.
+ *
+ * ⚠️ ORPHANED READER (2026-09-04). Nothing in the application reads the
+ * `streaming:live:<platform>:<handle>` keys any more. Their sole reader was
+ * App\Services\Streaming\LiveStatusInjector, which post-processed the legacy
+ * public-site payload and was deleted with GET /api/public/site,
+ * /api/public/site-by-slug and PublicSiteController. The canonical public lane
+ * (IndividualProfileController) never consumed live status. The writer side is
+ * untouched: CheckStreamingLiveStatusJob is still scheduled everyTwoMinutes
+ * (routes/console.php), so this poller still runs and still spends the billed
+ * vendor calls described above, and the values it writes now expire unread.
+ * Removing or pausing it is an OWNER DECISION about a live third-party billed
+ * surface, not a cleanup — do not unschedule it as a tidy-up.
  */
 class LiveStatusPoller
 {

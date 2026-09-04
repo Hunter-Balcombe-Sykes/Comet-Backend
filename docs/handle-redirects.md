@@ -77,7 +77,11 @@ IMPORTANT: Deploy in this order to avoid silent 404s:
 3. After verifying the worker handles `type=alias` correctly, the system is fully live.
 
 If the worker is deployed before the backend, `type=alias` entries don't exist yet — no harm.
-If the backend is deployed before the worker, alias entries are written but the worker returns 404 for them. This is acceptable during the transition window since the PHP fallback in `PublicSiteController` still handles the redirect.
+If the backend is deployed before the worker, alias entries are written but the worker returns 404 for them —
+there is no PHP fallback. The alias 301 is edge behaviour only: the Cloudflare Worker reads
+`SUBDOMAIN_KV`, and a `{type:"alias"}` entry (written solely by `SyncSubdomainToKvJob`) is what
+turns into the redirect. The backend serves no host-based redirect of its own; the one that used
+to live in `PublicSiteController` went with that controller on 2026-09-04.
 
 ## Audit Log Schema
 

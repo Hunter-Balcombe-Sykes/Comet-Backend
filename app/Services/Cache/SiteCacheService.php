@@ -81,8 +81,11 @@ class SiteCacheService
         // $site->subdomain — the value already written — so it has no access to
         // the previous one; the rename command does, because it holds both sides
         // of the raw UPDATE it is about to run. Do not "fix" either to match the
-        // other: adding an old-handle bust here has nothing to bust, and dropping
-        // one there would strand the pre-rename resolve entry for its full TTL.
+        // other: an old-handle bust cannot be written here — a handle.resolve:<old>
+        // entry may genuinely exist after a rename, but this method has no way to
+        // learn the old value, so ConvergeSiteSubdomainsCommand::cacheKeysFor() is
+        // where both sides get busted. Dropping the old-handle bust THERE would
+        // strand the pre-rename resolve entry for its full TTL.
         $handle = strtolower((string) ($site->subdomain ?? ''));
         if ($handle !== '') {
             $resolveKey = CacheKeyGenerator::handleResolve($handle);
