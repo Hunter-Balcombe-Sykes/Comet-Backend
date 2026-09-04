@@ -125,6 +125,23 @@ moved to the `app_backend` ROLE (migration `20260905120000`, applied to dev AND 
 Postgres applies them at backend startup. Connections are lazy again — a process takes a slot
 when it first queries. Guarded by `tests/Feature/Architecture/NoEagerDatabaseConnectTest.php`.
 
+**Measured after the deploy — it worked:**
+
+| | before | after |
+|---|---|---|
+| total `app_backend` connections | 23 | **9** |
+| holding a slot having never queried | 17 (73.9%) | **0 new** |
+
+The three that still showed the boot-`SET` signature all had `backend_start` of 05:00, 07:29
+and 08:00 — hours before the 09:58 deploy, i.e. stale connections from the old code that die
+on their own. **Every connection opened after the deploy had run real work** (`DISCARD ALL`
+after use, or `DEALLOCATE pdo_stmt_…`). Dev went from three-quarters of the pool wasted to
+none.
+
+⚠️ **Production still runs the old code** until `development` is pushed to `production` — the
+role defaults are already there (harmless duplication of what the provider sets), but the
+eager connect is not gone on prod until that deploy.
+
 **Re-measure with this**, which is the query that found it:
 
 ```sql
