@@ -475,8 +475,20 @@ trait BuildsAutoSyncFindings
             if (! is_string($platform)) {
                 continue;
             }
+            // Either-match, NOT a straight swap to surface_key. `remove` is a
+            // stored list (see the note below), so it holds legacy slugs from
+            // old findings AND — since the conflict arms store classify()
+            // values — dotted surface keys from new ones. A slug must keep
+            // matching the generated `platform` column, because a brand with
+            // several surfaces (spotify.artist / spotify.show) relies on that
+            // breadth; a dotted key can only ever match `surface_key`.
+            $surface = LegacyPlatformMap::surfaceFor($platform) ?? $platform;
+
             IntegrationConnection::query()
-                ->where('user_id', $userId)->where('platform', $platform)
+                ->where('user_id', $userId)
+                ->where(function ($q) use ($platform, $surface) {
+                    $q->where('platform', $platform)->orWhere('surface_key', $surface);
+                })
                 ->get()->each->delete();
         }
 
@@ -792,12 +804,23 @@ trait BuildsAutoSyncFindings
             ];
         }
 
+        // surface_key, NOT platform — the same correction write() carries in
+        // its own docblock, which these two sibling lookups never got. 21 of
+        // the 35 BOOKING_PLATFORM values are dotted catalog surface keys
+        // (calendly.book, acuity.book, …) with no legacy slug, and `platform`
+        // is a GENERATED column holding only the brand prefix, so this lookup
+        // could never find their incumbent. The connection was then invisible:
+        // no Swap conflict was raised, and write()'s updateOrCreate landed on
+        // the SAME row and overwrote the user's live booking URL with the
+        // newly-harvested one. Found by the 2026-09-04 adversarial review.
+        $surface = LegacyPlatformMap::surfaceFor($platform) ?? $platform;
+
         $existing = IntegrationConnection::query()
-            ->where('user_id', $userId)->where('platform', $platform)
+            ->where('user_id', $userId)->where('surface_key', $surface)
             ->first();
 
         if ($existing === null) {
-            if ($this->wasDisconnected($userId, 'platform', $platform)) {
+            if ($this->wasDisconnected($userId, 'surface_key', $surface)) {
                 return ['findings' => [], 'unmatched' => [['url' => $url, 'label' => $classified['label']]], 'consumed' => true];
             }
 
@@ -955,12 +978,18 @@ trait BuildsAutoSyncFindings
             return ['findings' => [], 'unmatched' => [['url' => $url, 'label' => $classified['label']]], 'consumed' => true];
         }
 
+        // surface_key, not the GENERATED platform column — see the note in
+        // resolveBookingLink(). Two SOCIAL_PLATFORM values are dotted surface
+        // keys (bluesky.profile, deezer.artist) with no legacy slug, so this
+        // lookup could never see their incumbent.
+        $surface = LegacyPlatformMap::surfaceFor($platform) ?? $platform;
+
         $existing = IntegrationConnection::query()
-            ->where('user_id', $userId)->where('platform', $platform)
+            ->where('user_id', $userId)->where('surface_key', $surface)
             ->first();
 
         if ($existing === null) {
-            if ($this->wasDisconnected($userId, 'platform', $platform)) {
+            if ($this->wasDisconnected($userId, 'surface_key', $surface)) {
                 return ['findings' => [], 'unmatched' => [['url' => $url, 'label' => $classified['label']]], 'consumed' => true];
             }
 
