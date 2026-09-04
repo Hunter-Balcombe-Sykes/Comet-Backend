@@ -121,7 +121,42 @@ class YoutubeRssConnector implements Connector
         $response = $io->get('https://www.youtube.com/feeds/videos.xml?'.http_build_query(['channel_id' => $channelId]));
 
         if ($response['status'] !== 200 || $response['body'] === '') {
-            yield new Unavailable("videos.xml returned {$response['status']}", $response['status']);
+            // M-13, now in THIS lane too: the feed endpoint intermittently
+            // 404/500s for channels that verifiably exist. Parking the source
+            // as unavailable meant a signup's watch pool stayed empty until
+            // the scheduler's next tick — measured 12 minutes on the
+            // 2026-09-04 simondoylehair build, whose eager at-connect run hit
+            // a 404 the legacy lane rescued two seconds later. Reuse the
+            // scraper lane's own retry-plus-vendor rescue (its budget
+            // discipline included) before conceding; shorts blending is
+            // deliberately skipped on this path — the rescue's job is a
+            // non-empty shelf now, and the next healthy RSS run blends.
+            $rescued = $this->scraper->fetchUploadsFeed($channelId, $pull->scopeLimit() ?? 15);
+            $videos = is_array($rescued) ? ($rescued['videos'] ?? null) : null;
+            if (! is_array($videos) || $videos === []) {
+                yield new Unavailable("videos.xml returned {$response['status']}", $response['status']);
+
+                return;
+            }
+
+            $better = $this->thumbnails->bestForMany(array_column($videos, 'videoId'));
+            $dates = [];
+            foreach ($videos as $video) {
+                $id = (string) $video['videoId'];
+                $published = isset($video['date']) && is_string($video['date']) && $video['date'] !== '' ? $video['date'] : null;
+                if ($published !== null) {
+                    $dates[] = $published;
+                }
+                yield new Record('watch', $id, [
+                    'id' => $id,
+                    'title' => (string) $video['name'],
+                    'url' => (string) $video['link'],
+                    'published' => $published,
+                    'thumbnail' => $better[$id] ?? ($video['thumbnail'] ?? null),
+                    'description' => (string) ($video['description'] ?? ''),
+                ]);
+            }
+            yield new Covered('watch', Coverage::prefix($dates === [] ? null : min($dates), count($videos)));
 
             return;
         }

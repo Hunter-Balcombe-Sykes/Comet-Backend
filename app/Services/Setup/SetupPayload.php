@@ -14,6 +14,7 @@ use App\Services\Platforms\MenuPayloadComposer;
 use App\Services\Platforms\Registry\PlatformRegistry;
 use App\Services\PreAccount\BuildProgressReader;
 use App\Site\Pools\PoolResolver;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -161,7 +162,7 @@ class SetupPayload
                 'id' => 'connected:'.$connected->id,
                 'name' => (string) ($payload['name'] ?? 'Your listing'),
                 'address' => isset($payload['address']) && is_string($payload['address']) ? $payload['address'] : null,
-                'photo' => isset($payload['photo']) && is_string($payload['photo']) ? $payload['photo'] : null,
+                'photo' => self::listingPhoto($payload),
                 'rating' => isset($payload['rating']) && is_numeric($payload['rating']) ? (float) $payload['rating'] : null,
                 'reviewCount' => isset($payload['reviewCount']) && is_numeric($payload['reviewCount']) ? (int) $payload['reviewCount'] : null,
                 'band' => 'auto',
@@ -297,14 +298,19 @@ class SetupPayload
         // Item 23 (owner, 2026-09-03): a connection minted WITHOUT an intent
         // (the add panel's manual connect, an OAuth return) must still render
         // in its pass — the pass rows used to come only from intents, which
-        // is why "Connect does nothing". Union visible intent-less
-        // connections in as rows of their own.
+        // is why "Connect does nothing". Union intent-less connections in as
+        // rows of their own — VISIBLE ones as already-connected rows, and
+        // (owner, 2026-09-04) HIDDEN ones the same way the intent loop above
+        // renders a hidden pre-scrape row: ticked, syncing, with an id the
+        // accept lane can reveal — reusing the mechanism the automatic
+        // pre-scrape path built, now reachable from a manual pick too
+        // (Get Started's setup-variant ConnectionSheet).
         $covered = $intents->map(fn (object $i) => $i->surface_key.'|'.$i->identifier)->flip();
         foreach ($connections as $connection) {
             if ((string) $connection->platform === 'google-business') {
                 continue; // the listing pass's job, not a platform pass row
             }
-            if ($connection->isHidden() || isset($covered[$connection->surface_key.'|'.$connection->resource_id])) {
+            if (isset($covered[$connection->surface_key.'|'.$connection->resource_id])) {
                 continue;
             }
             $surface = CompiledCatalog::surface((string) $connection->surface_key);
@@ -319,6 +325,7 @@ class SetupPayload
             }
             $payload = (array) ($connection->payload ?? []);
             $url = isset($payload['url']) && is_string($payload['url']) ? $payload['url'] : null;
+            $hidden = $connection->isHidden();
             $rows[] = [
                 '_category' => $category,
                 'id' => 'connection:'.$connection->id,
@@ -334,13 +341,18 @@ class SetupPayload
                 'originLabel' => null,
                 'band' => null,
                 'preselected' => true,
-                'syncing' => (string) ($connection->last_refresh_status ?? '') === 'pending',
+                'syncing' => $hidden && (string) ($connection->last_refresh_status ?? '') === 'pending',
                 // An intent-less connection already exists, so there is no
                 // check outstanding — the key is present on every row so the
                 // client never has to distinguish absent from false.
                 'verifying' => false,
-                'connectionId' => (string) $connection->id,
-                'actions' => [],
+                // Hidden: no real connection to report yet as far as the
+                // client's "already connected" logic is concerned — same
+                // null the hidden-intent branch above sends, which is what
+                // keeps this row travelling through accept/dismiss instead
+                // of being treated as a settled connect.
+                'connectionId' => $hidden ? null : (string) $connection->id,
+                'actions' => $hidden ? ['accept', 'dismiss'] : [],
             ];
         }
 
@@ -390,10 +402,45 @@ class SetupPayload
             return null;
         }
         $payload = (array) ($connection->payload ?? []);
-        foreach (['profilePicUrl', 'logo', 'favicon', 'avatar'] as $key) {
+        // 'thumbnail' is the youtube sync's key (a channel avatar off
+        // i.ytimg.com) — without it a youtube suggestion rendered the brand
+        // tile even after its scrape had the real face (2026-09-04).
+        foreach (['profilePicUrl', 'logo', 'favicon', 'avatar', 'thumbnail'] as $key) {
             $value = $payload[$key] ?? null;
             if (is_string($value) && str_starts_with($value, 'http')) {
                 return $value;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The connected google-business listing's card photo. The sync stores a
+     * `photos` LIST (GoogleBusinessEnrichJob); only the legacy probe wrote a
+     * singular `photo`. Reading only the singular is why a connected listing
+     * with nine synced photos still rendered the map-pin placeholder
+     * (2026-09-04, simondoylehair).
+     */
+    private static function listingPhoto(array $payload): ?string
+    {
+        if (isset($payload['photo']) && is_string($payload['photo']) && str_starts_with($payload['photo'], 'http')) {
+            return $payload['photo'];
+        }
+        $photos = $payload['photos'] ?? null;
+        if (! is_array($photos)) {
+            return null;
+        }
+        $first = $photos[array_key_first($photos) ?? 0] ?? null;
+        if (is_string($first) && str_starts_with($first, 'http')) {
+            return $first;
+        }
+        if (is_array($first)) {
+            foreach (['url', 'src'] as $key) {
+                $value = $first[$key] ?? null;
+                if (is_string($value) && str_starts_with($value, 'http')) {
+                    return $value;
+                }
             }
         }
 
@@ -628,19 +675,44 @@ class SetupPayload
     /** @return array<string, true> stages whose last ledger row is an unanswered 'started' */
     private function openStages(PreAccountBuild $build): array
     {
+        // A settled build holds no open stages, whatever the ledger says: the
+        // build pipeline has declared itself done, and a leaked STARTED row
+        // must not outrank that. Observed live (2026-09-04, simondoylehair):
+        // a link-page scan left stage 'platforms' at STARTED forever, which
+        // pinned every platforms.* pass at ready:false — the walk showed
+        // "Still looking…" 40 minutes after the build settled.
+        if ($build->settled_at !== null) {
+            return [];
+        }
+
         $rows = DB::table('core.pre_account_build_events')
             ->where('build_id', $build->id)
             ->orderBy('created_at')
-            ->get(['stage', 'status']);
+            ->get(['stage', 'status', 'created_at']);
 
         $last = [];
+        $lastAt = [];
         foreach ($rows as $row) {
             $last[(string) $row->stage] = (string) $row->status;
+            $lastAt[(string) $row->stage] = (string) $row->created_at;
         }
 
-        return array_fill_keys(
-            array_keys(array_filter($last, fn (string $s) => $s === PreAccountBuildEvent::STATUS_STARTED)),
-            true,
-        );
+        // Same leak, before settlement: a STARTED left unanswered past any
+        // plausible scrape duration is treated as answered. Ten minutes is
+        // over double the slowest stage measured on live builds; the ledger
+        // row itself is left alone (the feed still shows what happened).
+        $open = [];
+        foreach ($last as $stage => $status) {
+            if ($status !== PreAccountBuildEvent::STATUS_STARTED) {
+                continue;
+            }
+            $startedAt = CarbonImmutable::parse($lastAt[$stage]);
+            if ($startedAt->lt(now()->subMinutes(10))) {
+                continue;
+            }
+            $open[$stage] = true;
+        }
+
+        return $open;
     }
 }

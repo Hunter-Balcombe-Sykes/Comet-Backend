@@ -188,6 +188,14 @@ trait ManagesIntegrationConnection
         bool $mergePayload = false,
         ?string $canonicalKey = null,
         ?string $resourceKind = null,
+        // Get Started's setup-variant connect (owner, 2026-09-04): null leaves
+        // an already-stored visibility column untouched — same stamp-only-if-
+        // passed contract as $canonicalKey/$resourceKind — so a background
+        // refresh (ConnectFetchJob, ScheduledRefresh) that calls writeConnection/
+        // writeAccountConnection with no opinion on visibility can never flip a
+        // revealed row back to hidden. true is the only caller-supplied value in
+        // practice; reveal happens once, at accept time, via HiddenConnections.
+        ?bool $hidden = null,
     ): IntegrationConnection {
         $this->assertPlatformAvailable($user);
 
@@ -222,6 +230,9 @@ trait ManagesIntegrationConnection
         }
         if ($resourceKind !== null) {
             $values['resource_kind'] = $resourceKind;
+        }
+        if ($hidden !== null) {
+            $values['visibility'] = $hidden ? IntegrationConnection::VISIBILITY_HIDDEN : IntegrationConnection::VISIBILITY_VISIBLE;
         }
 
         $connection = IntegrationConnection::updateOrCreate(
@@ -258,7 +269,7 @@ trait ManagesIntegrationConnection
      * trap, the conditional-request trap) apply identically here — see
      * upsertConnection()'s docblock.
      */
-    protected function writeConnection(User $user, array $payload, ?string $resourceId = null, ?string $canonicalKey = null, ?string $resourceKind = null, bool $pending = false): IntegrationConnection
+    protected function writeConnection(User $user, array $payload, ?string $resourceId = null, ?string $canonicalKey = null, ?string $resourceKind = null, bool $pending = false, ?bool $hidden = null): IntegrationConnection
     {
         return $this->upsertConnection($user, [
             'payload' => $payload,
@@ -267,7 +278,7 @@ trait ManagesIntegrationConnection
             'last_refresh_status' => $pending ? 'pending' : 'ok',
             'last_refresh_error' => null,
             'consecutive_failures' => 0,
-        ], $resourceId, mergePayload: $pending, canonicalKey: $canonicalKey, resourceKind: $resourceKind);
+        ], $resourceId, mergePayload: $pending, canonicalKey: $canonicalKey, resourceKind: $resourceKind, hidden: $hidden);
     }
 
     /**
@@ -761,7 +772,7 @@ trait ManagesIntegrationConnection
      * MERGES over the existing payload rather than replacing it — see
      * upsertConnection()'s docblock for the three bugs that prevents.
      */
-    protected function writeAccountConnection(User $user, string $canonicalKey, array $payload, bool $pending = false): ?IntegrationConnection
+    protected function writeAccountConnection(User $user, string $canonicalKey, array $payload, bool $pending = false, ?bool $hidden = null): ?IntegrationConnection
     {
         $needle = $this->normalizeCanonicalKey($canonicalKey);
         $rid = $this->accountResourceId($canonicalKey);
@@ -796,6 +807,7 @@ trait ManagesIntegrationConnection
             $existing?->resource_id ?? $rid,
             mergePayload: $pending,
             canonicalKey: $needle,
+            hidden: $hidden,
         );
     }
 

@@ -707,9 +707,18 @@ class InstagramConnectionSeeder
             if ($stream === false) {
                 return null;
             }
-            $this->mediaDisk()->put($path, $stream);
+            $stored = $this->mediaDisk()->put($path, $stream);
             if (is_resource($stream)) {
                 fclose($stream);
+            }
+            // On the non-throwing public_dev alias a failed write is a false
+            // return — unchecked, this handed back a URL for an object that
+            // does not exist, which is exactly the 404 avatar/photo every
+            // signup carried on 2026-09-04. No URL without a stored object.
+            if ($stored === false) {
+                Log::warning('instagram.mirror_image.store_failed', ['path' => $path]);
+
+                return null;
             }
 
             return $this->mediaDisk()->url($path);
@@ -865,9 +874,17 @@ class InstagramConnectionSeeder
             if ($stream === false) {
                 return null;
             }
-            $this->mediaDisk()->put($path, $stream);
+            $stored = $this->mediaDisk()->put($path, $stream);
             if (is_resource($stream)) {
                 fclose($stream);
+            }
+            // Same contract as the image branch: a false return from the
+            // non-throwing disk means nothing was stored — never hand back
+            // a URL to a missing object.
+            if ($stored === false) {
+                $this->logVideoMirrorDrop('store_failed', $url);
+
+                return null;
             }
 
             return $this->mediaDisk()->url($path);

@@ -77,6 +77,12 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
         BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_STARTED, 'Checking your link page');
         $user = User::find($this->userId);
         if ($user === null) {
+            // The STARTED above is already on the ledger — leaving it
+            // unanswered pins every platforms.* setup pass at ready:false
+            // permanently (SetupPayload::openStages reads the LAST row per
+            // stage). Answer it before standing down.
+            BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_SKIPPED, "Couldn't read your link page");
+
             return;
         }
 

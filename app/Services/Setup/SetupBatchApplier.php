@@ -134,6 +134,24 @@ class SetupBatchApplier
     /** True when the id resolved to something acceptable and it was applied/revealed. */
     private function acceptOne(User $user, string $intentId): bool
     {
+        // A hidden connection with no intent behind it (owner, 2026-09-04) —
+        // Get Started's manual connect, per SetupPayload's mirror of the row
+        // below. Same shape disconnectOne() already parses for a connection
+        // without an intent; reveal is the accept-side counterpart.
+        if (str_starts_with($intentId, 'connection:')) {
+            $connection = IntegrationConnection::query()
+                ->whereKey(substr($intentId, strlen('connection:')))
+                ->where('user_id', $user->id)
+                ->whereNull('deleted_at')
+                ->first();
+            if ($connection === null) {
+                return false;
+            }
+            $this->hidden->reveal($connection);
+
+            return true;
+        }
+
         $intent = DB::table('routing.source_intents')
             ->where('id', $intentId)
             ->where('user_id', $user->id)
