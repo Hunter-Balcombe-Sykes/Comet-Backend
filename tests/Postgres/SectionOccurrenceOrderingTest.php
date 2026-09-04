@@ -162,10 +162,18 @@ function pgTenant(): array
     return [$userId, $siteId];
 }
 
-/** The raw site.sections row shape ruleCandidates() reads. */
+/**
+ * The raw site.sections row shape ruleCandidates() reads.
+ *
+ * `id` is load-bearing, not decoration: 280043507 made ruleCandidates() memoise
+ * on it, so a stub without one reads an undefined property and every section
+ * would share the memo slot. A fresh uuid per call mirrors a real row and keeps
+ * each test's lookup its own.
+ */
 function occurrenceSection(string $siteId): object
 {
     return (object) [
+        'id' => (string) Str::uuid(),
         'site_id' => $siteId,
         'order_by' => 'occurrence',
         'rule' => json_encode(['all' => [
@@ -229,6 +237,7 @@ it('sorts an undated event last rather than dropping the ordering', function () 
     $undated = pgEvent($userId, 'Undated', null);
 
     $kindOnly = (object) [
+        'id' => (string) Str::uuid(),
         'site_id' => $siteId,
         'order_by' => 'occurrence',
         'rule' => json_encode(['all' => [['op' => 'kind_is', 'values' => ['event']]]]),
