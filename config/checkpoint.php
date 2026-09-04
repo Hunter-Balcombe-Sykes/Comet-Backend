@@ -336,11 +336,17 @@ return [
         // itself (Phase 1 de-sourced Twitch); the live-status TwitchApiClient
         // above is a different lane and keeps its suppression.
 
-        // ── Command injection: false positives, vetted 2026-07-19 ──────────
-        // SET statement_timeout/lock_timeout interpolate config-derived ints
-        // (DatabaseServiceProvider:43-47), and PDO::exec is SQL, not a shell.
-        'b4adc742e4c3',
-        'c6e9e9ec265f',
+        // ── Command injection ───────────────────────────────────────────────
+        // The two entries here ('b4adc742e4c3', 'c6e9e9ec265f', vetted
+        // 2026-07-19) covered the SET statement_timeout/lock_timeout exec calls
+        // in DatabaseServiceProvider:43-47. That provider was DELETED by
+        // a6b2f3412 (#331, "Stop opening a DB connection in every process that
+        // boots") and the timeouts were not re-homed — config/database.php now
+        // records that they are set nowhere — so both entries went dead and
+        // CheckpointSuppressionStalenessTest went red. This is that guard's
+        // case (b), the code is gone, not case (a), a finding reopened under a
+        // new hash: `app/Providers/` no longer holds the file and no `SET
+        // statement_timeout` exec survives anywhere in `app/`.
 
         // ── Debug functions: false positives, vetted 2026-07-31 ───────────
         // All three use var_export()'s return-mode (`, true`) to render a value into a

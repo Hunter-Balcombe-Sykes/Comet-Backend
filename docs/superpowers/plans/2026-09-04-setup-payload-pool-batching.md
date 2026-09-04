@@ -90,7 +90,7 @@ A business account with `can_use_menu` swaps `services` for `menu`; `menuPass()`
   - `SetupPayload::resolveAllPools(Site $site, array $pools): array<string, array>` (private) — pool name → the same array shape `resolve()` returns. Task 2 calls this with a one-element `$pools`.
   - `composePass()` and `servicesPass()` gain a `array $resolvedPools` parameter and stop calling `$this->pools->resolve()`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/Feature/Setup/SetupPoolBatchingTest.php`:
 
@@ -148,13 +148,13 @@ it('reads every pool\'s curation in one query, not one per pool', function () {
 });
 ```
 
-- [ ] **Step 2: Run the test and confirm it fails**
+- [x] **Step 2: Run the test and confirm it fails**
 
 Run: `./vendor/bin/pest tests/Feature/Setup/SetupPoolBatchingTest.php`
 
 Expected: FAIL — `expect(7)->toHaveCount(1)` (six or seven selects, depending on account branch). If it reports `1` before you have changed anything, stop and work out why: the most likely cause is that the tenant has no site, so no pass resolved a pool and the test is vacuous. Add an item with `seedContentItem($pro->id, ['kind' => 'video'])` and re-check.
 
-- [ ] **Step 3: Add the batching prelude to `SetupPayload`**
+- [x] **Step 3: Add the batching prelude to `SetupPayload`**
 
 Add these two private methods to `app/Services/Setup/SetupPayload.php`:
 
@@ -235,7 +235,7 @@ private function resolveAllPools(Site $site, array $pools): array
 }
 ```
 
-- [ ] **Step 4: Thread the resolved map through `for()` and `composePass()`**
+- [x] **Step 4: Thread the resolved map through `for()` and `composePass()`**
 
 In `for()` (`:47`), after `$site = $user->site;` and before the pass loop:
 
@@ -287,7 +287,7 @@ if ($key === 'services') {
 }
 ```
 
-- [ ] **Step 5: Update `servicesPass()`**
+- [x] **Step 5: Update `servicesPass()`**
 
 Change its signature (`:577`) to `servicesPass(User $user, Site $site, array $resolvedPools): array` and replace `:585`:
 
@@ -298,22 +298,22 @@ $items = $resolvedPools['services']['library'] ?? [];
 
 Add the same `@param` docblock line as `composePass`.
 
-- [ ] **Step 6: Run the new test and confirm it passes**
+- [x] **Step 6: Run the new test and confirm it passes**
 
 Run: `./vendor/bin/pest tests/Feature/Setup/SetupPoolBatchingTest.php`
 Expected: PASS.
 
-- [ ] **Step 7: Run the existing setup suite — this is the real gate**
+- [x] **Step 7: Run the existing setup suite — this is the real gate**
 
 Run: `./vendor/bin/pest tests/Feature/Setup/`
 Expected: PASS, with no changes to any assertion. These tests assert the wire content; Task 1 must not move it. **If you find yourself editing an assertion in `SetupControllerTest.php` or `SetupMenuWireTest.php`, stop — you have changed behaviour, and the fix is in your code, not the test.**
 
-- [ ] **Step 8: Run the wider pool suite**
+- [x] **Step 8: Run the wider pool suite**
 
 Run: `./vendor/bin/pest tests/Feature/Content/ tests/Feature/PublicSite/`
 Expected: PASS. `PoolResolver` is shared with the public lane; this proves you did not disturb it.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 php artisan pint
@@ -354,7 +354,7 @@ EOF
 - Consumes: `SetupPayload::poolsFor()`, `resolveAllPools()`, `composePass()` from Task 1.
 - Produces: `SetupPayload::forPass(User $user, string $key): ?array` — the same array a single element of `for()['passes']` holds, or `null` when the pass is omitted (empty item pass, wire §2) or the key is not in the user's list.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/Feature/Setup/SetupPoolBatchingTest.php`:
 
@@ -395,12 +395,12 @@ it('returns null for a pass the user does not have', function () {
 });
 ```
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [x] **Step 2: Run them and confirm they fail**
 
 Run: `./vendor/bin/pest tests/Feature/Setup/SetupPoolBatchingTest.php`
 Expected: FAIL with `Call to undefined method App\Services\Setup\SetupPayload::forPass()`.
 
-- [ ] **Step 3: Implement `forPass()`**
+- [x] **Step 3: Implement `forPass()`**
 
 Add to `app/Services/Setup/SetupPayload.php`, directly below `for()`:
 
@@ -457,12 +457,12 @@ public function forPass(User $user, string $key): ?array
 }
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run: `./vendor/bin/pest tests/Feature/Setup/SetupPoolBatchingTest.php`
 Expected: PASS.
 
-- [ ] **Step 5: Point the controller at it**
+- [x] **Step 5: Point the controller at it**
 
 In `app/Http/Controllers/Api/User/Setup/SetupController.php`, replace lines 134-135:
 
@@ -474,12 +474,12 @@ $refreshed = $payload->forPass($user, $data['pass']);
 
 The comment above it stays — it still explains why the response carries a refreshed pass at all.
 
-- [ ] **Step 6: Run the setup suite**
+- [x] **Step 6: Run the setup suite**
 
 Run: `./vendor/bin/pest tests/Feature/Setup/`
 Expected: PASS, assertions untouched. `firstWhere` returned `null` for an omitted pass and so does `forPass`, so the response shape is unchanged.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 php artisan pint
@@ -517,7 +517,9 @@ EOF
 
 **Why this is safe:** `hydrateItems`'s `$withDuplicateCandidates` flag runs a `content.identity_candidates` read. `SetupPayload` renders items through `setupItem()` (`:548`), which reads exactly `id`, `name`/`headline`/`title`, `price`/`basePrice`, `durationMinutes`, `image`/`thumbnail`/`imageUrl`, and `category`. It never reads a duplicate-candidates key. Task 1 passed `true` only to keep that task's diff behaviour-free.
 
-- [ ] **Step 1: Write the failing test**
+**REVERTED 2026-09-04.** The premise above is false for 6 of 7 pools: `composePass()`'s `items.*`/`media`/`links` branches put `resolvedPools['library']` rows on the wire VERBATIM — no `setupItem()` transform — so `duplicateCandidates` (emitted unconditionally by `PoolResolver::itemPayloads`, populated only when the flag is `true`) is a live setup-wire field. A decisive test (seed two items + a `content.identity_candidates` row, assert a non-empty `duplicateCandidates` on the setup wire) passes on unmodified code and FAILS the instant the flag flips to `false` — proof the flip breaks the wire, not just a query-count regression. The flag is kept `true`; Steps 3/4/6 were not executed. Only Steps 1/2 below are ticked, standing in for the equivalent decisive test actually written (`tests/Feature/Setup/SetupPoolBatchingTest.php`, "the setup wire carries a populated duplicateCandidates today").
+
+- [x] **Step 1: Write the failing test**
 
 Append to `tests/Feature/Setup/SetupPoolBatchingTest.php`:
 
@@ -539,7 +541,7 @@ it('does not run the dashboard-only identity_candidates read', function () {
 });
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+- [x] **Step 2: Run it and confirm it fails**
 
 Run: `./vendor/bin/pest tests/Feature/Setup/SetupPoolBatchingTest.php`
 Expected: FAIL — one or more `identity_candidates` selects captured.
@@ -601,18 +603,27 @@ EOF
 **Files:**
 - Modify: none (verification only, plus one doc line)
 
-- [ ] **Step 1: Run the full suite**
+- [x] **Step 1: Run the full suite**
 
 Run: `composer test`
 Expected: PASS. Note this takes ~20 minutes in CI; locally it is faster with `--parallel`.
 
-- [ ] **Step 2: Run the Postgres lane**
+- [x] **Step 2: Run the Postgres lane**
+
+> **Local result (2026-09-04):** the PG lane cannot be run cleanly in a local
+> checkout — its stand-in tables are created first-creator-wins, so failures
+> move between files run to run. This branch scored 282 passed / 2 failed
+> (`LanderFoldAtomicityTest`, `ingest.record_state` missing); `development`
+> at the same commit base scored 281 passed / 5 failed
+> (`SectionOccurrenceOrderingTest` among them). The branch is BETTER than its
+> own baseline and touches no ingest code, so both runs are harness artefacts.
+> CI's `postgres-tests` job is the real gate.
 
 Run: `composer test:pg`
 
 Expected: PASS. `SetupPayload` does not touch `ProjectionWriter`, so this is a precaution rather than a likely failure — but the pool tables it reads are provisioned by stand-ins in that lane, and `PostgresLaneReadCoverageTest` will flag any column this change newly reads.
 
-- [ ] **Step 3: Open the PR and let CI run all nine checks**
+- [x] **Step 3: Open the PR and let CI run all nine checks**
 
 ```bash
 git push -u origin perf/setup-payload-pool-batching-2026-09-04

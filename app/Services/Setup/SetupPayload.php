@@ -52,10 +52,11 @@ class SetupPayload
 
         $suggestions = $this->suggestionRows($user);
         $onboarding = $this->onboarding->for($user);
+        $resolvedPools = $site === null ? [] : $this->resolveAllPools($site, $this->poolsFor($user));
 
         $passes = [];
         foreach (SetupPassRegistry::keysFor($user) as $key) {
-            $pass = $this->composePass($user, $site, $key, $suggestions, $onboarding, $openStages);
+            $pass = $this->composePass($user, $site, $key, $suggestions, $onboarding, $openStages, $resolvedPools);
             if ($pass !== null) {
                 $passes[] = $pass;
             }
@@ -71,12 +72,166 @@ class SetupPayload
     }
 
     /**
+     * One pass, for the accept response (A.9, wire §4). Continue needs only
+     * the pass it just wrote back, and composing all fifteen to return one
+     * hydrated six pools nobody read.
+     *
+     * Sections are still preloaded for EVERY pool, not just this one:
+     * preloadSections provisions a missing section row as a side effect, and
+     * narrowing that to the pass being built would silently stop provisioning
+     * the rest. It is one batched query.
+     *
+     * @return array<string, mixed>|null null when the key is not this user's,
+     *                                   or the pass is one the wire omits
+     */
+    public function forPass(User $user, string $key): ?array
+    {
+        if (! in_array($key, SetupPassRegistry::keysFor($user), true)) {
+            return null;
+        }
+
+        $site = $user->site;
+        $build = PreAccountBuild::query()->where('user_id', $user->id)->latest('created_at')->first();
+        $openStages = $build === null ? [] : $this->openStages($build);
+
+        // Only the platforms.* passes read these two, and they are the
+        // expensive half of the prelude.
+        $needsSuggestions = $this->readsSuggestions($key);
+        $suggestions = $needsSuggestions ? $this->suggestionRows($user) : [];
+        $onboarding = $needsSuggestions ? $this->onboarding->for($user) : [];
+
+        $pools = $this->poolsFor($user);
+        $pool = $this->poolForPassKey($key);
+        $needed = $pool === null ? [] : [$pool];
+
+        $resolvedPools = [];
+        if ($site !== null) {
+            // Provision every pool's section (side effect), hydrate only the
+            // one this pass renders.
+            $this->pools->preloadSections($site, $pools);
+            $resolvedPools = $this->resolveAllPools($site, $needed);
+        }
+
+        return $this->composePass($user, $site, $key, $suggestions, $onboarding, $openStages, $resolvedPools);
+    }
+
+    /**
+     * The content pool an item-bearing pass renders, or null for a pass that
+     * renders no pool. Keeps the mapping in one place — forPass() needs the
+     * same answer for a single key.
+     */
+    private function poolForPassKey(string $key): ?string
+    {
+        return SetupPassRegistry::itemPool($key) ?? match ($key) {
+            'media' => 'media',
+            'links' => 'custom_links',
+            'services' => 'services',
+            default => null,
+        };
+    }
+
+    /**
+     * The content pools this user's pass list will resolve. Derived from the
+     * pass keys rather than hardcoded so a capability difference (menu instead
+     * of services) never resolves a pool the dialog will not render.
+     *
+     * @return list<string>
+     */
+    private function poolsFor(User $user): array
+    {
+        $pools = [];
+        foreach (SetupPassRegistry::keysFor($user) as $key) {
+            $pool = $this->poolForPassKey($key);
+            if ($pool !== null) {
+                $pools[] = $pool;
+            }
+        }
+
+        return array_values(array_unique($pools));
+    }
+
+    /**
+     * plan → ONE shared hydrate → assemble, the seam PoolWire::forSite uses.
+     * Resolving each pool independently ran itemPayloads' ~20 facet queries
+     * once per pool; the ids are planned per pool (cheap), hydrated once as a
+     * union, and each pool assembles from the shared map.
+     *
+     * Unlike PoolWire this unions libraryIds too and keeps withLibrary — the
+     * setup dialog renders the LIBRARY, not the selection.
+     *
+     * @param  list<string>  $pools
+     * @return array<string, array<string, mixed>> pool => resolve()-shaped array
+     */
+    private function resolveAllPools(Site $site, array $pools): array
+    {
+        if ($pools === []) {
+            return [];
+        }
+
+        $sections = $this->pools->preloadSections($site, $pools);
+        $curationBySection = $this->pools->preloadCuration($sections);
+
+        $plans = [];
+        $ids = [];
+        foreach ($pools as $pool) {
+            $section = $sections[$pool];
+            $plans[$pool] = $this->pools->plan(
+                $site,
+                $pool,
+                $section,
+                $curationBySection[(string) $section->id] ?? collect(),
+            );
+            array_push($ids, ...$plans[$pool]['selectionIds'], ...$plans[$pool]['libraryIds']);
+        }
+
+        // withDuplicateCandidates: true keeps this byte-identical to the
+        // resolve() calls it replaces.
+        //
+        // Investigated for Task 3 (2026-09-04) and found LOAD-BEARING: the
+        // premise that setupItem() never reads a duplicate-candidates key is
+        // true for the 'services' pass only. The 'items.*'/'media'/'links'
+        // branches in composePass() put resolvedPools['library'] rows on the
+        // wire VERBATIM — no setupItem() transform — so duplicateCandidates
+        // IS a live setup-wire field for six of the seven pools. Flipping
+        // this to false was proven wire-breaking by
+        // SetupPoolBatchingTest.php's "the setup wire carries a populated
+        // duplicateCandidates today" test: it passes on this code and fails
+        // the moment the flag flips. Do not flip it without re-deriving
+        // duplicateCandidates some other way for those four pools first.
+        [$payloads, $stores] = $this->pools->hydrateItems(
+            $site,
+            array_values(array_unique($ids)),
+            withDuplicateCandidates: true,
+        );
+
+        $resolved = [];
+        foreach ($pools as $pool) {
+            $resolved[$pool] = $this->pools->assemble($site, $pool, $plans[$pool], $payloads, $stores);
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * Whether this pass reads the suggestion roster and onboarding tops. The
+     * platforms.* branch in composePass() is the only reader, and they are the
+     * expensive half of the prelude — forPass() skips them for every other pass,
+     * so the predicate lives here, next to the branch it describes, rather than
+     * inline at the skip.
+     */
+    private function readsSuggestions(string $key): bool
+    {
+        return str_starts_with($key, 'platforms.');
+    }
+
+    /**
      * @param  list<array<string, mixed>>  $suggestions
      * @param  array<string, mixed>  $onboarding
      * @param  array<string, true>  $openStages
+     * @param  array<string, array<string, mixed>>  $resolvedPools  pool => resolve() shape, hydrated once by resolveAllPools()
      * @return array<string, mixed>|null
      */
-    private function composePass(User $user, ?Site $site, string $key, array $suggestions, array $onboarding, array $openStages): ?array
+    private function composePass(User $user, ?Site $site, string $key, array $suggestions, array $onboarding, array $openStages, array $resolvedPools): ?array
     {
         $ready = ! isset($openStages[SetupPassRegistry::READY_STAGES[$key] ?? '']);
         $base = ['key' => $key, 'ready' => $ready];
@@ -89,7 +244,7 @@ class SetupPayload
             return $base + ['candidates' => $this->listingCandidates($user)];
         }
 
-        if (str_starts_with($key, 'platforms.')) {
+        if ($this->readsSuggestions($key)) {
             $categories = SetupPassRegistry::GROUP_CATEGORIES[$key] ?? [];
             $rows = array_values(array_filter($suggestions, fn (array $row) => in_array($row['_category'], $categories, true)));
             foreach ($rows as &$row) {
@@ -107,7 +262,10 @@ class SetupPayload
             if ($site === null) {
                 return null;
             }
-            $resolved = $this->pools->resolve($site, $itemPool);
+            $resolved = $resolvedPools[$itemPool] ?? null;
+            if ($resolved === null) {
+                return null;
+            }
             $items = $resolved['library'];
             if ($items === []) {
                 return null; // the server omits an empty item pass (wire §2)
@@ -124,7 +282,10 @@ class SetupPayload
                 return null;
             }
             $pool = $key === 'media' ? 'media' : 'custom_links';
-            $resolved = $this->pools->resolve($site, $pool);
+            $resolved = $resolvedPools[$pool] ?? null;
+            if ($resolved === null) {
+                return null;
+            }
 
             return $base + ['items' => $resolved['library']];
         }
@@ -133,7 +294,7 @@ class SetupPayload
             if ($site === null) {
                 return null;
             }
-            $pass = $this->servicesPass($user, $site);
+            $pass = $this->servicesPass($user, $site, $resolvedPools);
 
             return $ready && ! $this->rendersSomething($pass) ? null : $base + $pass;
         }
@@ -614,8 +775,11 @@ class SetupPayload
             && in_array($pass['platform'] ?? null, ['square', 'fresha'], true);
     }
 
-    /** @return array<string, mixed> */
-    private function servicesPass(User $user, Site $site): array
+    /**
+     * @param  array<string, array<string, mixed>>  $resolvedPools  pool => resolve() shape, hydrated once by resolveAllPools()
+     * @return array<string, mixed>
+     */
+    private function servicesPass(User $user, Site $site, array $resolvedPools): array
     {
         $booking = IntegrationConnection::query()
             ->where('user_id', $user->id)
@@ -623,8 +787,7 @@ class SetupPayload
             ->whereNull('deleted_at')
             ->first(['id', 'platform', 'payload']);
 
-        $resolved = $this->pools->resolve($site, 'services');
-        $items = $resolved['library'];
+        $items = $resolvedPools['services']['library'] ?? [];
 
         // Group by the category each row carries; uncategorised rows share one bucket.
         $categories = [];
