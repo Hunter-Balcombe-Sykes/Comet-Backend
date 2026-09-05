@@ -49,7 +49,33 @@ class Square
                 ->note('square.site is assigned to square.book only — square.order is undetectable by host alone at P1; see square.order\'s note')
                 ->detect(
                     Detector::url('squareup.com')->strength(EvidenceStrength::ProfileLink),
-                    Detector::url('square.site')->strength(EvidenceStrength::ProfileLink),
+                    // 2026-09-05: the tenant subdomain IS the account on
+                    // square.site (tough-luck-barbershop.square.site is one
+                    // studio's booking page), so the rule constrains it —
+                    // host-only, PlacementPolicy's invalid_identifier rule read
+                    // it as "matched the brand, not an account page" and Noted
+                    // the studio's own page to a card once booking stopped
+                    // taking the legacy seedBooking() lane. The path guard keeps
+                    // /s/order out of this rule entirely, so square.order's
+                    // ordering link is never contested by it (LinkProjector
+                    // relies on the bare-host fallback not constraining).
+                    Detector::url('square.site')
+                        ->subdomain('#^(?<tenant>[a-z0-9][a-z0-9-]{1,62})$#i')
+                        ->path('#^/(?!s/order(?:/|$))#')
+                        ->strength(EvidenceStrength::ProfileLink),
+                    // 2026-09-05 (regression fix, same day): the tenant-subdomain
+                    // rule above requires a subdomain to capture, which the bare
+                    // apex domain has none of — Square's own generic booking
+                    // flow (share-sheet links from the buyer app, not a tenant's
+                    // own domain) lives at the BARE square.site host with the
+                    // merchant id + slug in the PATH instead:
+                    // square.site/appointments/book/<merchant>/<slug>. Real URLs
+                    // ("the-kneading-spot-bloomington-in") were regressing to
+                    // no-match once the subdomain rule stopped covering them.
+                    // Mirrors the squareup.com/app appointments detector below.
+                    Detector::url('square.site')
+                        ->path('#^/appointments/book/(?<merchant>[A-Za-z0-9]{8,32})/(?<slug>[a-z0-9-]{1,120})/?$#i')
+                        ->strength(EvidenceStrength::DeepLinkWithSlug),
                     // 2026-09-02: the Square Appointments deep link Square's own
                     // "Book now" buttons and share sheets hand out. On the
                     // host-only rule above it scored 32 (40 − 8 deep-path), under

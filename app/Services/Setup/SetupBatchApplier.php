@@ -3,6 +3,7 @@
 namespace App\Services\Setup;
 
 use App\Catalog\CompiledCatalog;
+use App\Jobs\Platforms\CommerceProbeJob;
 use App\Jobs\Routing\VerifyLinkJob;
 use App\Models\Content\Item;
 use App\Models\Core\Site\IntegrationConnection;
@@ -185,6 +186,26 @@ class SetupBatchApplier
         $surface = CompiledCatalog::surface((string) $intent->surface_key);
         if ($surface === null) {
             return false;
+        }
+
+        // A probed storefront (Shopify / WooCommerce / Squarespace / Big
+        // Cartel) needs more than the bare connection SuggestionApplier::
+        // apply() writes: the store collection, name, logo, and the shop cap
+        // / tombstone checks StoreBrandSeeder runs — which is also the only
+        // thing that dispatches ShopInitialFillJob. Mirrors
+        // SuggestionsController::accept()'s identical arm (2026-09-05): this
+        // dialog is the OTHER accept lane, and before this fix it had no
+        // equivalent, so ticking a store here (JRLUSA, squeakprobarber
+        // signup) created a connection with no storefront, no catalogue and
+        // no products step ever appearing. Queue-only — the probe answer is
+        // cached 12h, so this is seconds — and the job settles the intent
+        // itself (applied, or blocked with the reason the inbox already
+        // renders); nothing below this block runs for a shop surface.
+        if (in_array($intent->surface_key, SuggestionApplier::PROBED_STORE_SURFACES, true)
+            && is_string($intent->canonical_url ?? null) && $intent->canonical_url !== '') {
+            CommerceProbeJob::dispatch((string) $user->id, (string) $intent->canonical_url, 'shop', acceptedIntentId: (string) $intent->id);
+
+            return true;
         }
 
         // L2, same rule as the suggestions inbox (2026-09-03). The setup dialog

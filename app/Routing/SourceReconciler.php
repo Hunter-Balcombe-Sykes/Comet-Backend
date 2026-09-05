@@ -355,9 +355,9 @@ class SourceReconciler
         // that property — so nothing here performs I/O inside the
         // transaction.
         return DB::transaction(function () use (
-            $user, $placement, $context, $iri, $routingClass, $identifier, $verdict, $blockReason, $conflictId, $aliasConnectionId
+            $user, $placement, $context, $iri, $routingClass, $surface, $identifier, $verdict, $blockReason, $conflictId, $aliasConnectionId
         ) {
-            $intentId = $this->upsertIntent($user, $placement, $context, $iri, $routingClass, $identifier, $verdict, $blockReason, $conflictId);
+            $intentId = $this->upsertIntent($user, $placement, $context, $iri, $routingClass, $identifier, $verdict, $blockReason, $conflictId, (int) $surface['max_accounts']);
 
             if ($verdict !== Verdict::Place) {
                 return [$intentId, null];
@@ -579,6 +579,7 @@ class SourceReconciler
         Verdict $verdict,
         ?string $blockReason,
         ?string $conflictId,
+        int $maxAccounts = 0,
     ): string {
         $now = now();
 
@@ -623,6 +624,21 @@ class SourceReconciler
         //    LIFE-16 transaction (SQLSTATE 25P02; see
         //    ItemSlugAllocator::allocateSlug() for the same fix already in
         //    this codebase).
+        // A single-slot surface (max_accounts <= 1, e.g. one booking brand
+        // found twice on a sign-up build) can never be cap-checked against a
+        // REAL connection above — a sign-up build never places one, so
+        // capReached() sees zero existing rows for either candidate and
+        // never downgrades anything. Left alone, every candidate would
+        // compute its OWN 'auto' band independently and the setup dialog
+        // would pre-tick two accounts for one slot, tripping the accept
+        // lane's exclusive-slot lock on Continue. Multi-slot surfaces (shop's
+        // several stores) are exempt on purpose — item 4 assumes more than
+        // one store can legitimately be pre-ticked at once.
+        $band = $placement->band;
+        if ($band === 'auto' && $maxAccounts <= 1 && $this->hasLiveAutoSibling($user, $placement->surfaceKey, $routingClass, $identifier)) {
+            $band = 'suggest';
+        }
+
         $id = (string) Str::uuid();
         $inserted = DB::table('routing.source_intents')->insertOrIgnore([
             'id' => $id,
@@ -636,7 +652,7 @@ class SourceReconciler
             'state' => $verdict->intentState(),
             'block_reason' => $blockReason,
             'conflicting_connection_id' => $conflictId,
-            'band' => $placement->band,
+            'band' => $band,
             'origin' => $context->origin,
             'import_run_id' => $context->importRunId,
             'catalog_digest' => CompiledCatalog::digest(),
@@ -660,6 +676,49 @@ class SourceReconciler
         //    bogus id.
         return $this->advanceLiveIntent($user, $placement->surfaceKey, $identifier, $fields)
             ?? throw new \RuntimeException("Could not upsert source intent for {$placement->surfaceKey}:{$identifier}");
+    }
+
+    /**
+     * Does this user already hold a LIVE, pre-ticked candidate for this
+     * surface under a DIFFERENT identifier? Scoped to the insert branch of
+     * upsertIntent() only — a re-scan of the SAME identifier advances its own
+     * row instead of reaching here, so this never fights the coalesce rule
+     * that lets a later pass with no band avoid blanking an earlier one.
+     *
+     * A narrow, accepted race: two truly concurrent first-sightings of the
+     * same surface could both run this check before either commits its
+     * insert, and both would then insert as 'auto'. Same tolerance as the
+     * "lost the race" branch a few lines below — this file already accepts
+     * that shape rather than adding cross-transaction locking for it.
+     */
+    private function hasLiveAutoSibling(User $user, ?string $surfaceKey, string $routingClass, string $excludeIdentifier): bool
+    {
+        // An exclusive class (booking / reservations / ordering) is ONE slot
+        // across all of its brands — fresha beside square in the same bio is
+        // the live shape (InstagramAutoSyncTest) — so the sibling check spans
+        // the class, and a connection already holding the slot counts too:
+        // pre-ticking a second candidate against it would only trip the cap
+        // on Continue.
+        $exclusive = $this->isExclusiveAuto($routingClass);
+
+        $intentSibling = DB::table('routing.source_intents')
+            ->where('user_id', $user->id)
+            ->when($exclusive, fn ($q) => $q->where('routing_class', $routingClass))
+            ->when(! $exclusive, fn ($q) => $q->where('surface_key', $surfaceKey))
+            ->where('identifier', '!=', $excludeIdentifier)
+            ->where('band', 'auto')
+            ->whereIn('state', ['proposed', 'verifying', 'applied', 'blocked'])
+            ->exists();
+        if ($intentSibling) {
+            return true;
+        }
+
+        return $exclusive && IntegrationConnection::query()
+            ->where('user_id', $user->id)
+            ->where('routing_class', $routingClass)
+            ->whereNull('deleted_at')
+            ->visible()
+            ->exists();
     }
 
     /**

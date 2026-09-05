@@ -324,10 +324,23 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
             confirmed: $this->acceptedIntentId !== null,
         );
 
-        // A suggest-only seed that filed its question is a RESOLUTION —
-        // handle() must not also card the link (the suggestion carries it).
+        // A placement of ANY kind other than Note is a RESOLUTION — the
+        // routing system already filed what it needed to (a Choose
+        // suggestion, a cap-reached Swap, an outright refusal), and handle()
+        // must not also card the link on top of it. Widened 2026-09-05: this
+        // used to require suggestOnly||deepPage, so a plain root-URL
+        // discovery on a sign-up build — which PlacementPolicy can only ever
+        // answer with Choose (2026-09-03: sign-up builds connect nothing by
+        // themselves) — fell through the qualifier and got BOTH a filed
+        // intent AND a duplicate custom-link card (live: jrlusa.com,
+        // squeakprobarber signup). Note is excluded on purpose: its own
+        // contract is "kept as a link, never dropped" (PlacementPolicy's own
+        // words) — a weak or ungoverned match still wants its card. 'capped'
+        // is a real connection that only lost the shop_brands DISPLAY row;
+        // the card would sit under a store that is, in fact, connected.
         return $result['outcome'] === 'placed'
-            || (($this->suggestOnly || $deepPage) && $result['outcome'] === 'not_placed' && $result['verdict'] !== null);
+            || $result['outcome'] === 'capped'
+            || ($result['outcome'] === 'not_placed' && $result['verdict'] !== null && $result['verdict'] !== 'note');
     }
 
     /**

@@ -8,6 +8,7 @@ use App\Models\Core\User\User;
 use App\Services\Content\LinkPoolReader;
 use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\RouteContext;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
@@ -17,6 +18,8 @@ beforeEach(function () {
     setupIngestTables();
     setupContentTables();
     setupSectionsTables();
+    // A routed booking link is a proposed source intent since 2026-09-05.
+    setupRoutingTables();
 });
 
 /**
@@ -117,26 +120,28 @@ it('seed() dispatches a commerce probe and writes NO custom link for an unclassi
     expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(0);
 });
 
-it('seed() routes a Booksy link to its own brand key instead of a custom link', function () {
+it('seed() proposes a Booksy link as a pre-ticked suggestion — no connection, no custom link (2026-09-05)', function () {
     Queue::fake();
     $user = seederUser(['account_type' => 'partna']);
 
     $result = app(CustomLinkSeeder::class)->seed($user, 'https://booksy.com/en-us/12345_the-salon');
 
-    // Routed, so no custom link row and a null return (Issue F: every caller
-    // already discarded this return value, which is why null is safe).
+    // Routed, so a null return (Issue F: every caller already discarded this
+    // return value, which is why null is safe) and NO custom-link card: the
+    // router answered custom(handled) — carried by the intent below — and
+    // seed() honours `handled` the same way InstagramAutoSync's pass 1 does.
     expect($result)->toBeNull();
     expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(0);
 
-    // Convergence Phase 6 retired the shared 'booking' pseudo-key. Booksy is a
-    // REGISTERED brand, so it keeps its legacy slug — a catalog-only booking
-    // brand (treatwell.book) would be named by its surface key instead. The
-    // `provider` string stays either way: it is what renders "Book with Booksy".
-    $booking = IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'booksy'])->first();
-    expect($booking)->not->toBeNull()
-        ->and($booking->routing_class)->toBe('booking');
-    expect($booking->payload['provider'])->toBe('Booksy');
-    expect($booking->payload['url'])->toBe('https://booksy.com/en-us/12345_the-salon');
+    // Owner policy (2026-09-05): a harvest never connects a booking platform,
+    // it proposes one. Booksy keeps its legacy surface slug (Convergence
+    // Phase 6 retired the shared 'booking' pseudo-key).
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'routing_class' => 'booking'])->count())->toBe(0);
+    $intent = DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'booksy.book')->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->state)->toBe('proposed')
+        ->and($intent->band)->toBe('auto')
+        ->and($intent->canonical_url)->toBe('https://booksy.com/en-us/12345_the-salon');
 });
 
 it('seed() falls through to a custom link when the routing gate denies the category', function () {
@@ -164,7 +169,10 @@ it('seed() still routes a Fresha link when the user has custom links DISABLED (I
 
     app(CustomLinkSeeder::class)->seed($user, 'https://www.fresha.com/a/the-salon');
 
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->count())->toBe(1);
+    // Routed (proposed, since booking stopped auto-connecting on 2026-09-05)
+    // rather than swallowed by the custom-link switch.
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'fresha.book')->where('state', 'proposed')->exists())->toBeTrue();
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(0);
 });
 
 it('seed() shares ONE probe budget across a loop, so a page of unclassified links cannot fan out unbounded', function () {

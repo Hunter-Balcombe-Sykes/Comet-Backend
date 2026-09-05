@@ -8,12 +8,14 @@ use App\Services\Platforms\InstagramAutoSync;
 use App\Services\Platforms\LinkRouter;
 use App\Services\Platforms\RouteContext;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
     setupIntegrationConnectionsTable();
+    setupRoutingTables();
     Queue::fake();
 });
 
@@ -100,19 +102,21 @@ it('auto-connects through InstagramAutoSync only when the caller marks the origi
     'public signup / dashboard / refresh (unmarked)' => [false, false],
 ]);
 
-it('still seeds the fresha link itself when auto-connect is off', function () use ($freshaUrl) {
-    // Not auto-connecting must not mean "drop the link" — the row is still
-    // written with selection:null so the frontend picker has a URL to work from,
-    // and it is canonical so GET /platforms/fresha/team can resolve the slug.
+it('still proposes the fresha link itself when auto-connect is off', function () use ($freshaUrl) {
+    // Not auto-connecting must not mean "drop the link" — but since the
+    // 2026-09-05 booking policy, "not dropped" means a proposed suggestion
+    // (routing.source_intents), not a written connection: nothing is a live
+    // IntegrationConnection here until the person accepts it.
     $user = User::factory()->create(['account_type' => 'partna']);
 
     app(InstagramAutoSync::class)->seed((string) $user->id, [$freshaUrl], false);
 
-    $payload = IntegrationConnection::where('user_id', $user->id)->where('platform', 'fresha')->firstOrFail()->payload;
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
 
-    expect($payload['url'])->toBe('https://www.fresha.com/a/anseo-studio-v0v92jna')
-        ->and($payload['selection'])->toBeNull()
-        ->and($payload)->not->toHaveKey('connectMode');
+    $intent = DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'booking')->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->surface_key)->toBe('fresha.book')
+        ->and($intent->canonical_url)->toBe('https://www.fresha.com/book-now/anseo-studio-v0v92jna/all-offer?pId=2835260');
 });
 
 it('claims the daily cap through DailyCounterClaim, not a private counter', function () {

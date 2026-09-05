@@ -6,6 +6,7 @@ use App\Models\Core\User\User;
 use App\Services\Platforms\LinkRouter;
 use App\Services\Platforms\RouteContext;
 use App\Services\Platforms\WebsiteLinkHarvester;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
 // B2 (spec 2026-08-18-pipeline-assurance §5): every LinkRouter category × account
@@ -89,7 +90,10 @@ it('is the gate route() actually applies — a denied booking link becomes a cus
 
     $result = app(LinkRouter::class)->route($user, 'https://www.fresha.com/a/doc-cuts', new RouteContext);
 
-    expect($result->outcome)->toBe('custom');
+    // A denial is custom AND unhandled: nothing claimed the link, so the
+    // caller writes the card. (A handled custom is the opposite — see below.)
+    expect($result->outcome)->toBe('custom')
+        ->and($result->handled)->toBeFalse();
 });
 
 it('is the gate route() actually applies — the same booking link on a partna account is not gate-denied', function () {
@@ -99,12 +103,17 @@ it('is the gate route() actually applies — the same booking link on a partna a
     setupContentTables();
     setupSectionsTables();
     setupNotificationsTable();
+    setupRoutingTables();
     Queue::fake();
 
     $user = User::factory()->create(['account_type' => 'partna', 'sector' => 'hair-salon']);
 
     $result = app(LinkRouter::class)->route($user, 'https://www.fresha.com/a/doc-cuts', new RouteContext);
 
-    // seeded / pending / conflict are all "the gate let it through"; only custom is a denial.
-    expect($result->outcome)->not->toBe('custom', "partna booking link came back {$result->outcome}");
+    // The gate let it through. Since 2026-09-05 a harvested booking link is
+    // never connected on the spot, only proposed — so the outcome string is
+    // 'custom' like a denial's, and `handled` is what tells them apart: a
+    // proposed intent carries the link, and no caller writes a card.
+    expect($result->handled)->toBeTrue("partna booking link came back unhandled {$result->outcome}");
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'fresha.book')->where('state', 'proposed')->exists())->toBeTrue();
 });

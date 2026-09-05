@@ -110,9 +110,16 @@ class LinkRouter
         // recordCapBlock Swap, idempotent per identifier) — short-circuiting
         // them here turned the SECOND OpenTable link on a restaurant's own
         // website (two venues, or just footer + button) into a junk card the
-        // seeder never got to cap. Socials/booking/shop keep the short-circuit:
-        // their seeders assume the slot check happened.
-        $slotSelfManaged = $category === 'reservations' || $category === 'online-ordering';
+        // seeder never got to cap. Booking joined them 2026-09-05:
+        // seedBooking() -> resolveBookingLink() already runs the identical
+        // existing-connection check and answers a same-surface, different-URL
+        // link with conflictFinding() (handled:true, no card) rather than a
+        // Place — the squeakprobarber signup's second Booksy profile (a
+        // personal profile beside the venue's own listing) never reached that
+        // check and fell to a bare custom-link card instead of the Swap the
+        // seeder was already able to produce. Socials/shop keep the
+        // short-circuit: their seeders assume the slot check happened.
+        $slotSelfManaged = $category === 'reservations' || $category === 'online-ordering' || $category === 'booking';
         if (! $itemCategory && ! $slotSelfManaged && isset($ctx->seenPlatforms[$platform])) {
             return RouteResult::custom();
         }
@@ -125,7 +132,26 @@ class LinkRouter
         try {
             $result = match ($category) {
                 'social' => $this->seedSocial($user, $platform, $url, $classified),
-                'booking' => $this->seedBooking($user, $platform, $url, $classified, $ctx),
+                // Owner policy (2026-09-05): a harvest never auto-adds a
+                // platform or a store, only ever suggests one — the same
+                // "nothing a harvester found ever auto-connects" rule
+                // PlacementPolicy already enforces for shop/link/social.
+                // Booking's legacy seedBooking() -> resolveBookingLink()
+                // ->write() ignored that rule and connected the FIRST
+                // booking link on the spot (live: the squeakprobarber
+                // signup's Booksy venue listing), which is why the second
+                // link needed today's slot fix at all — the first should
+                // never have connected itself either. $ctx->autoConnectBooking
+                // is the one carve-out that must survive: a staff/ManyChat
+                // build (GoogleBusinessEnrichJob/LinkInBioScanJob's own flag,
+                // never set by a self-serve Get Started flow) has nobody at
+                // a setup dialog to accept a suggestion, so it keeps the
+                // immediate connect. Everyone else routes through the same
+                // Engine-1 bridge 'link' already uses — Choose on discovery,
+                // Place only for a confirmed/direct request.
+                'booking' => $ctx->autoConnectBooking
+                    ? $this->seedBooking($user, $platform, $url, $classified, $ctx)
+                    : $this->seedCatalogLink($user, $url),
                 'event', 'event-organiser' => $this->seedEvent($user, $platform, $url, $classified),
                 'content-item' => $this->seedMediaItem($user, $url),
                 'shop' => $this->seedShop($user, $url, $ctx),

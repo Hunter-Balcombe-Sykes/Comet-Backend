@@ -6,7 +6,10 @@ use App\Jobs\Platforms\SquareAutoSelectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Routing\SuggestionApplier;
+use App\Services\Content\LinkPoolReader;
+use App\Services\Platforms\CustomLinkSeeder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 
@@ -28,6 +31,10 @@ beforeEach(function () {
     setupSitesTable();
     setupRoutingTables();
     setupIntegrationConnectionsTable();
+    setupIngestTables();
+    setupContentTables();
+    setupSectionsTables();
+    Http::fake();
 });
 
 function seedBookingIntentRow(string $userId, string $surfaceKey, string $identifier, string $url): object
@@ -57,6 +64,30 @@ function acceptFresha(User $user): IntegrationConnection
 
     return app(SuggestionApplier::class)->apply($user, $intent, $surface);
 }
+
+it('retires a pre-existing custom-link card for the same url once the accept creates a real connection (A.1b, 2026-09-05)', function () {
+    Queue::fake();
+    $user = createTenant('insetup-accept-cardguard');
+    $url = 'https://www.fresha.com/a/anseo-studio-v0v92jna';
+    app(CustomLinkSeeder::class)->seedCustom($user, $url);
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(1);
+
+    acceptFresha($user);
+
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(0);
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeTrue();
+});
+
+it('leaves an unrelated custom-link card alone when a different url is accepted (A.1b, 2026-09-05)', function () {
+    Queue::fake();
+    $user = createTenant('insetup-accept-cardguard-other');
+    app(CustomLinkSeeder::class)->seedCustom($user, 'https://someblog.example/post');
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(1);
+
+    acceptFresha($user);
+
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(1);
+});
 
 it('enriches a fresha accept in the background while the person is still in setup', function () {
     Queue::fake();
