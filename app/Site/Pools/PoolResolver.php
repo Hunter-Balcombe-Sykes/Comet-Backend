@@ -117,14 +117,23 @@ class PoolResolver
      * a single payload, so the payload builder's presence gate can afford
      * to ask per pool.
      */
-    public function hasSelection(Site $site, string $pool): bool
+    public function hasSelection(Site $site, string $pool, ?object $section = null, ?Collection $curation = null): bool
     {
-        $section = $this->provisioner->ensure($site, $pool);
+        // Both pre-reads are injectable, exactly as plan()'s are (Nightwatch
+        // #499, 2026-09-05): the presence probe asks this per pool, and each
+        // ask paid a sections read and a section_items read of its own. A
+        // caller holding preloadSections() / preloadCuration() output hands
+        // them in — two shared queries for every pool instead of two apiece.
+        // A lone call still reads its own. The per-pool fault isolation the
+        // probe depends on is unchanged: this still runs ONE pool's candidate
+        // query, so the caller can still wrap each pool separately — and a
+        // test double that overrides this method still intercepts every probe.
+        $section ??= $this->provisioner->ensure($site, $pool);
 
         // SCALE-13: `id`/`created_at` are read nowhere downstream, and excluded
         // rows have no pruning path, so a full-row select grows unbounded with
         // a site's lifetime for no benefit.
-        $curation = DB::connection('pgsql')->table('site.section_items')
+        $curation ??= DB::connection('pgsql')->table('site.section_items')
             ->where('section_id', $section->id)
             ->get(['section_id', 'item_id', 'state', 'sort_key']);
 
@@ -233,6 +242,9 @@ class PoolResolver
      * hydration happens here, so a caller batching several pools can union
      * the ids and hydrate once.
      *
+     * @param  bool  $withLibrary  false skips the LIBRARY_LIMIT-row library read and
+     *                             returns `libraryIds: []` — for a caller that will
+     *                             assemble() with withLibrary false anyway (PoolWire)
      * @return array{
      *   pinned: list<string>,
      *   ruleIds: list<string>,
@@ -241,7 +253,7 @@ class PoolResolver
      *   libraryIds: list<string>,
      * }
      */
-    public function plan(Site $site, string $pool, ?object $section = null, ?Collection $curation = null): array
+    public function plan(Site $site, string $pool, ?object $section = null, ?Collection $curation = null, bool $withLibrary = true): array
     {
         // Both pre-reads are injectable so a batching caller (PoolWire) can
         // supply every pool's sections and curation from two shared queries;
@@ -267,21 +279,27 @@ class PoolResolver
             }
         }
 
-        $libraryQuery = DB::connection('pgsql')->table('content.items')
-            ->where('user_id', $site->user_id)
-            ->whereIn('kind', PoolRegistry::kinds($pool))
-            ->whereNull('removed_at');
-        // Disconnect = hide (W2): the library lists only items with a live
-        // source (manual, or a present + active connection). #FU-2: the scope
-        // pins its own source/connection hops by correlating to the outer items
-        // row, so plan()'s liveness verdict and itemPayloads()'s can no longer
-        // disagree about the same mislinked item.
-        LiveSourceScope::apply($libraryQuery, 'content.items');
-        $libraryIds = $libraryQuery
-            ->orderByDesc('last_seen_at')
-            ->limit(self::LIBRARY_LIMIT)
-            ->pluck('id')
-            ->all();
+        // The library read is skippable (Nightwatch #499): a caller that
+        // assembles with withLibrary false — PoolWire, the public wire — never
+        // reads these ids, and this is a LIBRARY_LIMIT-row scan per pool.
+        $libraryIds = [];
+        if ($withLibrary) {
+            $libraryQuery = DB::connection('pgsql')->table('content.items')
+                ->where('user_id', $site->user_id)
+                ->whereIn('kind', PoolRegistry::kinds($pool))
+                ->whereNull('removed_at');
+            // Disconnect = hide (W2): the library lists only items with a live
+            // source (manual, or a present + active connection). #FU-2: the scope
+            // pins its own source/connection hops by correlating to the outer items
+            // row, so plan()'s liveness verdict and itemPayloads()'s can no longer
+            // disagree about the same mislinked item.
+            LiveSourceScope::apply($libraryQuery, 'content.items');
+            $libraryIds = $libraryQuery
+                ->orderByDesc('last_seen_at')
+                ->limit(self::LIBRARY_LIMIT)
+                ->pluck('id')
+                ->all();
+        }
 
         // Pins from a removed connection hide too — the pin row stays (a
         // reconnect brings it back), but it does not publish.
@@ -325,6 +343,10 @@ class PoolResolver
      */
     public function preloadSections(Site $site, array $pools): array
     {
+        if ($pools === []) {
+            return [];
+        }
+
         return $this->provisioner->ensureMany($site, $pools);
     }
 
@@ -2593,15 +2615,22 @@ class PoolResolver
      * ref-only Google assets degrade to an empty gallery (spec §3.5).
      *
      * @param  array<string, array{url: string, width: int|null, height: int|null, thumb: string|null}>  $resolved
-     * @return list<array{url: string, thumb: string|null, width: int|null, height: int|null, role: string, alt: string|null}>
+     * @return list<array{url: string, thumb: string|null, width: int|null, height: int|null, role: string, kind: string, poster: string|null, posterThumb: string|null, alt: string|null}>
      */
     private function frames(Collection $rows, array $resolved): array
     {
         // The cover (or first still) is the poster every video frame carries.
+        // `poster` stays the MASTER on purpose: the sitepage gallery rail
+        // renders a video's standing image at ~1000 physical px (measured
+        // 2026-09-05), where the 640 rung reads soft. `posterThumb` rides
+        // beside it for the small seats — the same pair every image frame
+        // carries as url/thumb.
         $poster = null;
+        $posterThumb = null;
         foreach ($rows as $row) {
             if ((string) $row->role !== 'video' && isset($resolved[(string) $row->asset_id])) {
                 $poster = $resolved[(string) $row->asset_id]['url'];
+                $posterThumb = $resolved[(string) $row->asset_id]['thumb'] ?? null;
                 break;
             }
         }
@@ -2642,6 +2671,7 @@ class PoolResolver
                 // frame and falls back to its poster; every still is `image`.
                 'kind' => $isVideo ? 'video' : 'image',
                 'poster' => $isVideo ? $poster : null,
+                'posterThumb' => $isVideo ? $posterThumb : null,
                 'alt' => $row->alt_text === null ? null : (string) $row->alt_text,
             ];
         }

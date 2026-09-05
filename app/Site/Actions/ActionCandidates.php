@@ -89,13 +89,17 @@ class ActionCandidates
 
     /**
      * @param  array<string, array<string, mixed>>|null  $pools  the PoolWire map when the caller already built it
+     * @param  list<string>|null  $presentPageIds  presentPageIds() output when the caller already ran it
+     *                                             (Nightwatch #499: the payload builder needs it for pageOrder
+     *                                             anyway, and running the probe twice per render was the
+     *                                             single largest repeated cost on a public cache miss)
      * @return list<array<string, mixed>>
      */
-    public function forSite(User $pro, Site $site, ?Collection $sections = null, ?array $pools = null): array
+    public function forSite(User $pro, Site $site, ?Collection $sections = null, ?array $pools = null, ?array $presentPageIds = null): array
     {
         $sections ??= $this->resolver->loadSections($site);
         $caps = AccountCapabilities::for($pro);
-        $present = array_flip($this->resolver->presentPageIds($site, $caps, $sections));
+        $present = array_flip($presentPageIds ?? $this->resolver->presentPageIds($site, $caps, $sections));
 
         $connections = IntegrationConnection::query()
             ->where('user_id', $pro->id)

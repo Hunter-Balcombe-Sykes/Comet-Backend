@@ -121,6 +121,12 @@ class IndividualProfilePayloadBuilder
         // smart_page_order is on (the page-score family retired 2026-08-23),
         // else the owner's manual order — canonical fallback either way.
         $pageOrder = $this->pageOrder($site, $caps, $sections);
+        // The same presence answer pageOrder() just computed, handed on to
+        // the action candidates so they do not run the probe loop a second
+        // time (Nightwatch #499). presentPageIds() memoises per build, so this
+        // read is free; the point is that ActionCandidates holds a resolver
+        // instance of its own, which that memo cannot reach.
+        $present = $this->resolver->presentPageIds($site, $caps, $sections);
 
         // Contact + workplace resolved once — the wire keys below reuse them,
         // and the policy resolver personalizes its generated texts from them
@@ -131,7 +137,7 @@ class IndividualProfilePayloadBuilder
         // ONE pool hydration feeds both the wire pools and the action
         // candidate set, so every action ref resolves against what is served.
         $pools = $this->buildPools($site);
-        $actions = $this->buildActions($pro, $site, $sections, $pools);
+        $actions = $this->buildActions($pro, $site, $sections, $pools, $present);
 
         return (new IndividualProfileResource($pro, [
             'site_id' => $site?->id,
@@ -308,16 +314,17 @@ class IndividualProfilePayloadBuilder
      * section: a candidate/rank fault yields an empty list, never a 500.
      *
      * @param  array<string, array<string, mixed>>  $pools
+     * @param  list<string>  $present  presentPageIds() for this build
      * @return array{mode: string, entries: list<array<string, mixed>>}
      */
-    private function buildActions(User $pro, ?Site $site, Collection $sections, array $pools): array
+    private function buildActions(User $pro, ?Site $site, Collection $sections, array $pools, array $present): array
     {
         $settings = ActionSettings::fromSite($site);
         if ($site === null) {
             return ['mode' => $settings->mode, 'entries' => []];
         }
         try {
-            $candidates = $this->candidates->forSite($pro, $site, $sections, $pools);
+            $candidates = $this->candidates->forSite($pro, $site, $sections, $pools, $present);
         } catch (QueryException $e) {
             Log::warning('sitepage.actions_candidates_failed', ['site_id' => $site->id, 'error' => $e->getMessage()]);
             $candidates = [];

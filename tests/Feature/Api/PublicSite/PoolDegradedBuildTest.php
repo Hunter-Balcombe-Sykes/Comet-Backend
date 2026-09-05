@@ -113,7 +113,16 @@ function degradedPoolResolver(string $failingPool, array $answers): PoolResolver
             return [];
         }
 
-        public function plan(Site $site, string $pool, ?object $section = null, ?Collection $curation = null): array
+        // The presence probe hands preloadSections()' output into
+        // hasSelection() since #499, and the stand-ins above are not section
+        // rows (no site_id, no rule). This test is about the pool BUILD, so
+        // the probe reads its own real rows exactly as it did before.
+        public function hasSelection(Site $site, string $pool, ?object $section = null, ?Collection $curation = null): bool
+        {
+            return parent::hasSelection($site, $pool);
+        }
+
+        public function plan(Site $site, string $pool, ?object $section = null, ?Collection $curation = null, bool $withLibrary = true): array
         {
             return ['pinned' => [], 'ruleIds' => [], 'autoSet' => [], 'selectionIds' => [], 'libraryIds' => []];
         }
@@ -264,7 +273,7 @@ it('bails on the whole lane — and does NOT mark degraded — when the content 
             );
         }
 
-        public function hasSelection(Site $site, string $pool): bool
+        public function hasSelection(Site $site, string $pool, ?object $section = null, ?Collection $curation = null): bool
         {
             return false;
         }
@@ -320,7 +329,7 @@ it('recognises the POSTGRES undefined-table code, not just the SQLite message', 
             throw new QueryException('pgsql', 'select * from "content"."items"', [], $previous);
         }
 
-        public function hasSelection(Site $site, string $pool): bool
+        public function hasSelection(Site $site, string $pool, ?object $section = null, ?Collection $curation = null): bool
         {
             return false;
         }

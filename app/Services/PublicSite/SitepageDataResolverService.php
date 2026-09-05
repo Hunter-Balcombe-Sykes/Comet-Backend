@@ -41,6 +41,9 @@ class SitepageDataResolverService
     /** Set by safeQuery() when a probe answered from a fault. See hasDegraded(). */
     private bool $degraded = false;
 
+    /** presentPageIds() answers for this instance's lifetime, keyed by site + object identity. See there. */
+    private array $presenceMemo = [];
+
     /**
      * Section block_type → sitepage page-id. The section block_group covers a
      * subset of the taxonomy; the platform-backed pages route via
@@ -186,6 +189,28 @@ class SitepageDataResolverService
      */
     public function presentPageIds(?Site $site, AccountCapabilitySet $caps, Collection $sections): array
     {
+        // Memoised per (site, caps, sections) on THIS instance (Nightwatch
+        // #499, 2026-09-05): one payload build asks this from pageOrder() and
+        // again from ActionCandidates, and every ask re-ran the whole probe
+        // loop — a dozen queries, half of them the slow candidate scans. The
+        // key is by object identity on purpose: the builder passes the same
+        // Collection and capability set to both calls, and a fresh sections
+        // read (a rebuild after a write) is a different object, so this can
+        // never serve a stale answer across builds.
+        $key = ($site->id ?? '-').'|'.spl_object_id($caps).'|'.spl_object_id($sections);
+        if (array_key_exists($key, $this->presenceMemo)) {
+            return $this->presenceMemo[$key];
+        }
+
+        return $this->presenceMemo[$key] = $this->computePresentPageIds($site, $caps, $sections);
+    }
+
+    /**
+     * @param  Collection<string, Block>  $sections  pre-loaded section blocks
+     * @return list<string>
+     */
+    private function computePresentPageIds(?Site $site, AccountCapabilitySet $caps, Collection $sections): array
+    {
         $present = ['home' => true];
 
         if ($site !== null) {
@@ -323,17 +348,50 @@ class SitepageDataResolverService
             // the pool is the ONLY store for a routed/manual link now — the
             // 'custom' connection rows whose PLATFORM_TO_PAGE entry used to
             // vouch for the Links page can no longer exist.
-            foreach (['watch' => 'watch', 'listen' => 'listen', 'events' => 'events', 'custom_links' => 'links'] as $pool => $poolPage) {
-                if (isset($present[$poolPage])) {
-                    continue;
+            $poolPages = ['watch' => 'watch', 'listen' => 'listen', 'events' => 'events', 'custom_links' => 'links'];
+            /** @var list<string> $toProbe */
+            $toProbe = [];
+            foreach ($poolPages as $pool => $poolPage) {
+                if (! isset($present[$poolPage])) {
+                    $toProbe[] = $pool;
                 }
+            }
+
+            // The two pre-reads every pool probe shares — its section row and
+            // its curation rows — come in as ONE sections query and ONE
+            // section_items query for all of them (Nightwatch #499; they were
+            // two round trips per pool). A fault here is NOT a pool answer and
+            // is deliberately not routed through safeQuery(): it drops back
+            // to the per-pool path below, which re-reads the same rows and
+            // reports the fault there — so the accounting the presence-probe
+            // tests pin (one reported exception per faulting pool, none for
+            // an absent content lane) is unchanged, and nothing is reported
+            // twice.
+            $resolver = app(PoolResolver::class);
+            $preloadedSections = null;
+            $preloadedCuration = [];
+            try {
+                // preloadSections() answers [] for an empty pool list without
+                // a query, so nothing is spent when every page is present.
+                $preloadedSections = $resolver->preloadSections($site, $toProbe);
+                $preloadedCuration = $resolver->preloadCuration($preloadedSections);
+            } catch (QueryException) {
+                $preloadedSections = null;
+                $preloadedCuration = [];
+            }
+
+            foreach ($toProbe as $pool) {
+                $section = $preloadedSections[$pool] ?? null;
+                $curation = $section !== null
+                    ? ($preloadedCuration[(string) $section->id] ?? collect())
+                    : null;
                 if ($this->safeQuery(
-                    fn () => app(PoolResolver::class)->hasSelection($site, $pool),
+                    fn () => $resolver->hasSelection($site, $pool, $section, $curation),
                     false,
                     "pool_{$pool}_has_selection",
                     $site,
                 )) {
-                    $present[$poolPage] = true;
+                    $present[$poolPages[$pool]] = true;
                 }
             }
         }
