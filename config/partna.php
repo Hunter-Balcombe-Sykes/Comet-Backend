@@ -1537,6 +1537,14 @@ return [
         // every frame (so item_media keeps its rows); only the byte copy is
         // budgeted. Already-mirrored posts inside the window count against
         // it, so a weekly refresh cannot creep down the backlog. 0 = unlimited.
+        // A signup gets ONE eager pass, so a new site's grid shows at most
+        // `images` mirrored pictures on arrival — and the rest do NOT trickle
+        // in behind them: scoreDue() admits a scheduled refresh only for a
+        // PUBLISHED site, and a signup stays unpublished for the setup walk.
+        // Nothing further mirrors until it publishes, and even then the window
+        // is newest-first with already-mirrored posts consuming slots, so an
+        // older backlog need not drain. Not a grid setting — the dashboard
+        // renders every item it is given and caps nothing.
         'pull_budget' => [
             'images' => (int) env('PARTNA_MEDIA_PULL_IMAGES', 10),
             'videos' => (int) env('PARTNA_MEDIA_PULL_VIDEOS', 6),
