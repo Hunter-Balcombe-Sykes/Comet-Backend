@@ -63,6 +63,19 @@ class Square
                         ->subdomain('#^(?<tenant>[a-z0-9][a-z0-9-]{1,62})$#i')
                         ->path('#^/(?!s/order(?:/|$))#')
                         ->strength(EvidenceStrength::ProfileLink),
+                    // 2026-09-05 (regression fix, same day): the tenant-subdomain
+                    // rule above requires a subdomain to capture, which the bare
+                    // apex domain has none of — Square's own generic booking
+                    // flow (share-sheet links from the buyer app, not a tenant's
+                    // own domain) lives at the BARE square.site host with the
+                    // merchant id + slug in the PATH instead:
+                    // square.site/appointments/book/<merchant>/<slug>. Real URLs
+                    // ("the-kneading-spot-bloomington-in") were regressing to
+                    // no-match once the subdomain rule stopped covering them.
+                    // Mirrors the squareup.com/app appointments detector below.
+                    Detector::url('square.site')
+                        ->path('#^/appointments/book/(?<merchant>[A-Za-z0-9]{8,32})/(?<slug>[a-z0-9-]{1,120})/?$#i')
+                        ->strength(EvidenceStrength::DeepLinkWithSlug),
                     // 2026-09-02: the Square Appointments deep link Square's own
                     // "Book now" buttons and share sheets hand out. On the
                     // host-only rule above it scored 32 (40 − 8 deep-path), under

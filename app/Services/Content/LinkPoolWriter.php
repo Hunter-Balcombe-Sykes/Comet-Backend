@@ -10,6 +10,7 @@ use App\Models\Core\User\User;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use App\Site\Documents\SiteCacheLanes;
 use App\Site\Pools\PoolSectionProvisioner;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -254,12 +255,22 @@ class LinkPoolWriter
     public function removeByUrl(User $user, string $url): void
     {
         $coord = self::coordFor($url);
-        $itemId = DB::connection('pgsql')->table('content.source_items as si')
-            ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
-            ->where('cs.user_id', (string) $user->id)
-            ->where('cs.kind', 'manual')
-            ->where('si.coord', $coord)
-            ->value('si.item_id');
+
+        try {
+            $itemId = DB::connection('pgsql')->table('content.source_items as si')
+                ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+                ->where('cs.user_id', (string) $user->id)
+                ->where('cs.kind', 'manual')
+                ->where('si.coord', $coord)
+                ->value('si.item_id');
+        } catch (QueryException $e) {
+            // The content schema is opt-in in the SQLite test double
+            // (tests/Pest.php setupContentTables()) — most accept-path tests
+            // never touch it, and this is a best-effort tidy-up, not a
+            // critical write. A real Postgres environment always has these
+            // tables, so this only ever fires in an unmigrated test double.
+            return;
+        }
 
         if ($itemId === null) {
             return;

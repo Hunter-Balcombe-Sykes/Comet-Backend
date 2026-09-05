@@ -100,6 +100,13 @@ it('holds the booking-XOR lock across BOTH the has()-check and the write during 
 });
 
 it('InstagramAutoSync::seed takes the SAME booking-XOR lock key as GoogleBusinessAutoSync — proving one shared lock, not two independent ones', function () {
+    // Booking changed shape 2026-09-05 (owner policy: a passive harvest never
+    // auto-connects booking, only ever suggests) — IG's DEFAULT seed() no
+    // longer writes a connection directly for booking, so the direct-write
+    // race this lock guards against can't happen on that path any more.
+    // The lock still matters for the one lane exempted from the policy: a
+    // staff/ManyChat-assisted build (autoConnectBooking:true), which is what
+    // this test now exercises to keep proving the shared key.
     $user = bxUser('bxig1');
     // Hard-coded string (not CacheKeyGenerator, not the trait) — the whole
     // point of this assertion is that both services derive the identical key.
@@ -117,7 +124,7 @@ it('InstagramAutoSync::seed takes the SAME booking-XOR lock key as GoogleBusines
         }
     });
 
-    app(InstagramAutoSync::class)->seed((string) $user->id, ['https://www.fresha.com/a/doc-cuts']);
+    app(InstagramAutoSync::class)->seed((string) $user->id, ['https://www.fresha.com/a/doc-cuts'], autoConnectBooking: true);
 
     expect($writeLocked)->toBeTrue();
     $fresha = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->firstOrFail();
