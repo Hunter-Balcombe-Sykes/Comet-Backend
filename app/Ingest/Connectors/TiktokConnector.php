@@ -45,7 +45,9 @@ class TiktokConnector implements Connector
         return new Manifest(
             source: SourceKey::of('tiktok'),
             identifierKind: 'username',
-            hosts: [],
+            // The public oEmbed endpoint only (refreshCovers) — the feed
+            // itself is the billed actor effect.
+            hosts: ['www.tiktok.com'],
             streams: [
                 'videos' => new StreamSpec(
                     name: 'videos',
@@ -102,6 +104,8 @@ class TiktokConnector implements Connector
             $items = array_slice($items, 0, $limit);
         }
 
+        $items = $this->refreshCovers($items, $io);
+
         foreach ($items as $item) {
             yield new Record('videos', $item['id'], $item);
         }
@@ -110,6 +114,71 @@ class TiktokConnector implements Connector
         // oldest video actually seen, never the whole account (C5).
         $dates = array_filter(array_column($items, 'created_at'));
         yield new Covered('videos', Coverage::prefix($dates === [] ? null : min($dates), count($items)));
+    }
+
+    /**
+     * A cover the mirror can actually serve (2026-09-05, st_ali retest #3:
+     * 25 of 30 TikTok cards drew the video glyph). The vendor feed hands
+     * back two kinds of unusable cover — a `.heic` render (an ISO-BMFF body
+     * MediaMirror rightly refuses for an image role, and no browser but
+     * Safari draws) and a signature that had ALREADY expired when the feed
+     * was served (24 of the 30 carried `x-expires` at that day's midnight;
+     * the vendor caches). TikTok's public oEmbed answers with a fresh,
+     * plain JPEG for the video's own URL, one GET per video, pooled.
+     * Best-effort: a refresh that fails leaves the vendor cover in place,
+     * which is exactly what shipped before.
+     *
+     * @param  list<array<string, mixed>>  $items
+     * @return list<array<string, mixed>>
+     */
+    private function refreshCovers(array $items, Io $io): array
+    {
+        $oembedUrls = [];
+        foreach ($items as $index => $item) {
+            if (self::coverNeedsRefresh($item['cover'] ?? null) && is_string($item['url'] ?? null)) {
+                $oembedUrls[$index] = 'https://www.tiktok.com/oembed?url='.rawurlencode($item['url']);
+            }
+        }
+        if ($oembedUrls === []) {
+            return $items;
+        }
+
+        try {
+            $responses = $io->getMany(array_values(array_unique($oembedUrls)), ['Accept' => 'application/json']);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return $items;
+        }
+
+        foreach ($oembedUrls as $index => $oembedUrl) {
+            $response = $responses[$oembedUrl] ?? null;
+            if ($response === null || $response['status'] !== 200) {
+                continue;
+            }
+            $decoded = json_decode((string) $response['body'], true);
+            $thumbnail = is_array($decoded) && is_string($decoded['thumbnail_url'] ?? null) ? trim($decoded['thumbnail_url']) : '';
+            if ($thumbnail !== '' && ! self::coverNeedsRefresh($thumbnail)) {
+                $items[$index]['cover'] = $thumbnail;
+            }
+        }
+
+        return $items;
+    }
+
+    private static function coverNeedsRefresh(mixed $cover): bool
+    {
+        if (! is_string($cover) || $cover === '') {
+            return true;
+        }
+        if (preg_match('/\.heic(?:$|\?)/i', $cover) === 1) {
+            return true;
+        }
+        parse_str((string) parse_url($cover, PHP_URL_QUERY), $query);
+        $expires = is_numeric($query['x-expires'] ?? null) ? (int) $query['x-expires'] : null;
+
+        // An hour of slack: the mirror runs on a queue, not in this request.
+        return $expires !== null && $expires < now()->getTimestamp() + 3600;
     }
 
     /** @return array<string, mixed>|null */

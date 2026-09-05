@@ -14,6 +14,7 @@ use App\Services\Onboarding\OnboardingSuggestions;
 use App\Services\Platforms\ConnectionDisplayName;
 use App\Services\Platforms\MenuPayloadComposer;
 use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\PreAccount\BuildProgress;
 use App\Services\PreAccount\BuildProgressReader;
 use App\Site\Pools\PoolResolver;
 use Carbon\CarbonImmutable;
@@ -955,7 +956,11 @@ class SetupPayload
         return ['candidates' => $candidates, 'slots' => ['square' => null, 'full' => null]];
     }
 
-    /** @return array<string, true> stages whose last ledger row is an unanswered 'started' */
+    /**
+     * @return array<string, true> stages with an unanswered 'started': the
+     *                             newest PLAIN row, or any TOKENED row still
+     *                             waiting on its own terminal (BuildProgress)
+     */
     private function openStages(PreAccountBuild $build): array
     {
         // A settled build holds no open stages, whatever the ledger says: the
@@ -967,13 +972,23 @@ class SetupPayload
         $rows = DB::table('core.pre_account_build_events')
             ->where('build_id', $build->id)
             ->orderBy('created_at')
-            ->get(['stage', 'status', 'created_at']);
+            ->get(['stage', 'status', 'created_at', 'payload']);
 
-        $last = [];
-        $lastAt = [];
+        // One head per plain stage (its newest row) plus one per token
+        // (2026-09-05): the Instagram scrape and each store probe run on the
+        // `platforms` stage beside the synchronous socials sync, and under
+        // last-row-wins the sync's "X synced" closed the stage while they
+        // were still in flight — the walk released its loader before YouTube
+        // and the store arrived. A tokened STARTED now waits for the
+        // terminal carrying its own token and nothing else.
+        $heads = [];
         foreach ($rows as $row) {
-            $last[(string) $row->stage] = (string) $row->status;
-            $lastAt[(string) $row->stage] = (string) $row->created_at;
+            $payload = is_string($row->payload) ? json_decode($row->payload, true) : (array) $row->payload;
+            $token = is_array($payload) && is_string($payload[BuildProgress::TOKEN] ?? null) && $payload[BuildProgress::TOKEN] !== ''
+                ? $payload[BuildProgress::TOKEN]
+                : null;
+            $key = (string) $row->stage.($token === null ? '' : "\0".$token);
+            $heads[$key] = [(string) $row->stage, (string) $row->status, (string) $row->created_at];
         }
 
         if ($build->settled_at !== null) {
@@ -986,11 +1001,11 @@ class SetupPayload
             // probe was still in flight. A stage started BEFORE settlement is
             // still the pre-settle leak the check above exists to ignore.
             $open = [];
-            foreach ($last as $stage => $status) {
+            foreach ($heads as [$stage, $status, $at]) {
                 if ($status !== PreAccountBuildEvent::STATUS_STARTED) {
                     continue;
                 }
-                if (CarbonImmutable::parse($lastAt[$stage])->lte($build->settled_at)) {
+                if (CarbonImmutable::parse($at)->lte($build->settled_at)) {
                     continue;
                 }
                 $open[$stage] = true;
@@ -1004,11 +1019,11 @@ class SetupPayload
         // over double the slowest stage measured on live builds; the ledger
         // row itself is left alone (the feed still shows what happened).
         $open = [];
-        foreach ($last as $stage => $status) {
+        foreach ($heads as [$stage, $status, $at]) {
             if ($status !== PreAccountBuildEvent::STATUS_STARTED) {
                 continue;
             }
-            $startedAt = CarbonImmutable::parse($lastAt[$stage]);
+            $startedAt = CarbonImmutable::parse($at);
             if ($startedAt->lt(now()->subMinutes(10))) {
                 continue;
             }

@@ -90,9 +90,11 @@ class SourceReconciler
         if ($routingClass === 'shop'
             && in_array($placement->verdict, [Verdict::Place, Verdict::Choose], true)
             && ! $context->isDirectRequest() && $context->origin !== 'commerce_probe') {
+            $probeUrl = $iri->canonical ?? SecretParams::redactUrl($iri->raw) ?? '';
+            CommerceProbeJob::owe((string) $user->id, $probeUrl);
             CommerceProbeJob::dispatch(
                 (string) $user->id,
-                $iri->canonical ?? SecretParams::redactUrl($iri->raw) ?? '',
+                $probeUrl,
                 // Always suggest-only now. A store is a storefront row, a
                 // catalogue, a fill and an auto-select — the biggest thing this
                 // pipeline can install — and nobody asked for it: this arm is

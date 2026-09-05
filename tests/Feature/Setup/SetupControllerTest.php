@@ -1,9 +1,12 @@
 <?php
 
 use App\Jobs\Platforms\CommerceProbeJob;
+use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\PreAccountBuild;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\PreAccount\BuildProgress;
 use App\Services\Setup\SetupPassRegistry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -165,6 +168,53 @@ it('ticking a store writes the shop STARTED note at accept, before the probe eve
     if ($shop !== null) {
         expect($shop['ready'])->toBeFalse();
     }
+});
+
+it('holds every platforms pass while a tokened producer is still out, whatever the plain rows say (2026-09-05)', function () {
+    // st_ali retest #3: the Google pull's "X synced" closed the platforms
+    // stage under the Instagram scrape and the store probe, and the walk
+    // released its loader seconds before YouTube and the store arrived.
+    $pro = createTenant('setup-tokens');
+    $build = PreAccountBuild::factory()->make(['source_type' => 'instagram']);
+    $build->user()->associate($pro);
+    $build->save();
+    $ready = fn () => collect(actingAsUser($pro)->getJson('/api/site/setup')->json('passes'))->firstWhere('key', 'platforms.social')['ready'];
+
+    BuildProgress::note($build->id, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_STARTED, 'Syncing Facebook');
+    BuildProgress::note($build->id, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_STARTED, 'Syncing Instagram', [BuildProgress::TOKEN => 'instagram']);
+    BuildProgress::note($build->id, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_LANDED, 'Facebook synced');
+    expect($ready())->toBeFalse();
+
+    BuildProgress::note($build->id, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_STARTED, 'Looking for your store', [BuildProgress::TOKEN => 'store:abc']);
+    BuildProgress::note($build->id, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_LANDED, 'Instagram synced', [BuildProgress::TOKEN => 'instagram']);
+    expect($ready())->toBeFalse();
+
+    BuildProgress::note($build->id, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_SKIPPED, 'No store there', [BuildProgress::TOKEN => 'store:abc']);
+    expect($ready())->toBeTrue();
+
+    // A plain STARTED after a plain terminal reopens the stage — the website
+    // importer's "Syncing YouTube" used to be dropped by an ever-guard.
+    BuildProgress::note($build->id, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_STARTED, 'Syncing YouTube');
+    expect($ready())->toBeFalse();
+});
+
+it('a signup-lane Instagram apply owes the scrape: pending row, tokened platforms STARTED, connect job queued (2026-09-05)', function () {
+    config(['services.apify.token' => 'test-token']);
+    $pro = createTenant('setup-ig-scrape');
+    $build = PreAccountBuild::factory()->make(['source_type' => 'instagram']);
+    $build->user()->associate($pro);
+    $build->save();
+    $intentId = setupSeedIntent($pro->id);
+
+    actingAsUser($pro)->postJson('/api/site/setup/accept', ['pass' => 'platforms.social', 'accept' => [$intentId]])->assertOk();
+
+    Queue::assertPushed(InstagramConnectJob::class, fn (InstagramConnectJob $job) => $job->username === 'someone' && $job->userId === (string) $pro->id);
+    $connection = IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'instagram.profile')->first();
+    expect($connection)->not->toBeNull()
+        ->and($connection->last_refresh_status)->toBe('pending')
+        ->and(DB::table('core.pre_account_build_events')
+            ->where('build_id', $build->id)->where('stage', 'platforms')->where('status', 'started')
+            ->where('payload->token', InstagramConnectJob::OWED_TOKEN)->exists())->toBeTrue();
 });
 
 it('a manual visible connect settles the matching standing intent (observer)', function () {

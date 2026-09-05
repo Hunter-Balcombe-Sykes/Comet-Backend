@@ -116,6 +116,44 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         return $this->userId.':'.sha1($this->url).($this->acceptedIntentId !== null ? ':accept' : '');
     }
 
+    /**
+     * Owe the setup walk this probe's answer (2026-09-05, st_ali retest #3).
+     *
+     * A discovery probe lands 15–45s after the harvest that dispatched it,
+     * and the walk's platforms loader used to release on the harvest's own
+     * terminal — the store card then appeared only on a refresh, or never
+     * caught the eye. Every discovery dispatch site calls this first, in the
+     * dispatcher's own process; handle() and failed() write the matching
+     * terminal under the same token, so overlapping probes close only
+     * themselves (BuildProgress). A no-op outside a live build.
+     */
+    public static function owe(string $userId, string $url): void
+    {
+        BuildProgress::noteForUser($userId, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_STARTED, 'Looking for your store', [
+            BuildProgress::TOKEN => self::token($url),
+        ]);
+    }
+
+    private static function token(string $url): string
+    {
+        return 'store:'.substr(sha1($url), 0, 16);
+    }
+
+    /** The discovery lane's own terminal — the accept lane answers on `shop`. */
+    private function settleOwed(bool $resolved): void
+    {
+        if ($this->acceptedIntentId !== null) {
+            return;
+        }
+        BuildProgress::noteForUser(
+            $this->userId,
+            PreAccountBuildEvent::STAGE_PLATFORMS,
+            $resolved ? PreAccountBuildEvent::STATUS_LANDED : PreAccountBuildEvent::STATUS_SKIPPED,
+            $resolved ? 'Found your store' : 'No store there',
+            [BuildProgress::TOKEN => self::token($this->url)],
+        );
+    }
+
     public function handle(
         GenericShopScraper $generic,
         StoreBrandSeeder $brands,
@@ -166,6 +204,7 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
             // a miss closes it, or the walk waits the full stale window.
             BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_SHOP, PreAccountBuildEvent::STATUS_SKIPPED, "Couldn't read your store");
         }
+        $this->settleOwed($resolved);
 
         Log::info('commerce_probe.resolved', [
             'user_id' => $this->userId,
@@ -425,6 +464,7 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
             'platform' => $this->platform,
             'error' => $e->getMessage(),
         ]);
+        $this->settleOwed(false);
 
         // Zero-loss (M-9 critic, 2026-08-21): handle()'s own miss path cards
         // the link, but a JOB-level death (timeout, worker kill after tries)

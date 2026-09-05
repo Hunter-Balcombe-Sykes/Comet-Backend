@@ -229,14 +229,15 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
             $logoFound = count(array_filter($logoDecisions, static fn (array $d) => ! str_starts_with($d['outcome'], 'rejected:')));
             // Setup progress (2026-09-05): the website stage started at
             // dispatch (WorkplaceObserver::dispatchContentScan) and is owed an
-            // answer here — this job no longer depends on a separately
-            // dispatched gallery job to close it out.
-            BuildProgress::noteForUser(
-                $this->userId,
-                PreAccountBuildEvent::STAGE_WEBSITE,
+            // answer by this job — written at the END of handle(), not here
+            // (st_ali retest #3): the importer below is what routes the
+            // site's socials, and closing the stage at the logo let the walk
+            // release its platforms loader two seconds before "YouTube
+            // synced" landed.
+            $websiteNote = [
                 $logoFound > 0 ? PreAccountBuildEvent::STATUS_LANDED : PreAccountBuildEvent::STATUS_SKIPPED,
                 $logoFound > 0 ? 'Found your logo' : 'No logo found on your website',
-            );
+            ];
 
             // Accent resolution — one immediate pass for the tiers already in
             // hand (theme-color/favicon). SiteMediaObserver chains a second
@@ -255,7 +256,7 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
                 'site_id' => $this->siteId,
                 'reason' => 'workplace_brand_is_site_identity=false',
             ]);
-            BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_WEBSITE, PreAccountBuildEvent::STATUS_SKIPPED, 'Looked at your website');
+            $websiteNote = [PreAccountBuildEvent::STATUS_SKIPPED, 'Looked at your website'];
         }
 
         // About text — plain JSON-LD/meta fill-if-empty first, then the
@@ -476,6 +477,23 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         } catch (Throwable $e) {
             report($e);
         }
+
+        // The site's OWN root as a storefront (2026-09-05, st_ali retest #3).
+        // The importer routes every link on the page, but a link back to the
+        // same domain is an unknown-domain note by design (65 of them on
+        // stali.com.au), so a business whose website IS its Shopify store
+        // only ever got a store card when an Instagram bio link happened to
+        // point at it. One suggest-only probe of the root; StoreBrandSeeder
+        // decides whether there is a store there, and a plain website files
+        // nothing. Owed on the platforms stage so the walk waits for it.
+        try {
+            CommerceProbeJob::owe($this->userId, $baseUrl);
+            CommerceProbeJob::dispatch($this->userId, $baseUrl, suggestOnly: true);
+        } catch (Throwable $e) {
+            report($e);
+        }
+
+        BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_WEBSITE, $websiteNote[0], $websiteNote[1]);
     }
 
     /**

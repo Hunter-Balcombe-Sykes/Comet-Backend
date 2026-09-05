@@ -5,9 +5,11 @@ namespace App\Routing;
 use App\Catalog\LegacyPlatformMap;
 use App\Jobs\Content\ReparentBioItemsJob;
 use App\Jobs\Platforms\ConnectFetchJob;
+use App\Jobs\Platforms\InstagramConnectJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
+use App\Services\Cache\ApifyBudget;
 use App\Services\Content\LinkPoolWriter;
 use App\Services\Platforms\AutoBookingConnectDispatcher;
 use App\Services\PreAccount\BuildProgress;
@@ -39,6 +41,7 @@ class SuggestionApplier
         private readonly ConnectionIdentity $identity,
         private readonly AutoBookingConnectDispatcher $autoBookingConnect,
         private readonly LinkPoolWriter $links,
+        private readonly ApifyBudget $apifyBudget,
     ) {}
 
     /**
@@ -192,6 +195,7 @@ class SuggestionApplier
                 ->first();
 
             if ($connection === null) {
+                $scrapeInstagram = $this->instagramScrapeOwed((string) $intent->surface_key);
                 $connection = new IntegrationConnection([
                     'surface_key' => $intent->surface_key,
                     'routing_class' => $intent->routing_class,
@@ -214,7 +218,7 @@ class SuggestionApplier
                     // an existing row's visibility is its owner's business.
                     'visibility' => $hidden ? IntegrationConnection::VISIBILITY_HIDDEN : IntegrationConnection::VISIBILITY_VISIBLE,
                     // Issue-13 fix: same predicate as the dispatch below.
-                    'last_refresh_status' => ConnectionPayload::contentIsOwed((string) $intent->surface_key, (string) $intent->routing_class) ? 'pending' : 'ok',
+                    'last_refresh_status' => $scrapeInstagram || ConnectionPayload::contentIsOwed((string) $intent->surface_key, (string) $intent->routing_class) ? 'pending' : 'ok',
                 ]);
                 // Whose this connection is. Not fillable (system-written), so
                 // it is assigned after construction, exactly as
@@ -242,6 +246,9 @@ class SuggestionApplier
                 // refresh. One STARTED per stage, so the job's own is a no-op.
                 if ((string) $intent->routing_class === 'shop') {
                     BuildProgress::noteForUser((string) $user->id, PreAccountBuildEvent::STAGE_SHOP, PreAccountBuildEvent::STATUS_STARTED, 'Syncing your store');
+                }
+                if ($scrapeInstagram) {
+                    $this->preScrapeInstagram($user, $connection, (string) $intent->identifier);
                 }
 
                 // F14 (2026-08-20, whole-run critic): F9 wired the enrichment
@@ -343,6 +350,35 @@ class SuggestionApplier
      * A row that already carries a selection is left alone — enrichment is
      * for the newborn, not a lane to overwrite a pick.
      */
+    /**
+     * Instagram is a SOCIAL surface with no catalog fetch, so a row created
+     * here used to be born bare and stay bare: no profile picture, no
+     * posts, no bio links (2026-09-05, st_ali retest #3 — the walk's card
+     * wore the Instagram glyph, and the store the bio linked to never
+     * surfaced). The direct Google lane runs InstagramConnectJob for its
+     * placeholder; the signup lane routes the same handle through here and
+     * owes the same scrape. Budgeted exactly as GoogleBusinessAutoSync::
+     * dispatchInstagram() is — no token or no allowance means a bare row,
+     * not a queued job that bills nothing.
+     */
+    private function instagramScrapeOwed(string $surfaceKey): bool
+    {
+        return $surfaceKey === 'instagram.profile'
+            && (bool) config('services.apify.token')
+            && $this->apifyBudget->tryClaim('instagram');
+    }
+
+    private function preScrapeInstagram(User $user, IntegrationConnection $connection, string $username): void
+    {
+        // The walk's platforms loader waits for this: the bio's own store
+        // link is only found inside the scrape, and the job answers under
+        // the same token on every exit (InstagramConnectJob::settleOwed).
+        BuildProgress::noteForUser((string) $user->id, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_STARTED, 'Syncing Instagram', [
+            BuildProgress::TOKEN => InstagramConnectJob::OWED_TOKEN,
+        ]);
+        InstagramConnectJob::dispatch((string) $user->id, $username, (string) $connection->id)->afterCommit();
+    }
+
     private function maybeDispatchAutoBooking(User $user, string $surfaceKey, IntegrationConnection $connection): void
     {
         if (! in_array($surfaceKey, ['fresha.book', 'square.book'], true)) {

@@ -21,11 +21,27 @@ use Illuminate\Support\Facades\Log;
  * signup lane claims first and builds second, and the Get Started walk
  * polls the ledger after the claim — and an account's Tuesday refresh must
  * not append "Grabbing 12 photos" rows to a build that finished in May.
+ *
+ * Two kinds of row share a stage (2026-09-05, st_ali retest #3):
+ *
+ *  - PLAIN rows: the stage is open while its newest plain row is STARTED.
+ *    Right for one producer at a time (the menu fetch, the listing pull).
+ *  - TOKENED rows (`payload.token`): a STARTED stays open until a terminal
+ *    carrying the SAME token, whatever else lands on the stage meanwhile.
+ *    For producers that overlap — the Instagram scrape and every store
+ *    probe run on the `platforms` stage beside the synchronous socials
+ *    sync, and "Facebook synced" used to close the stage under them, so
+ *    the walk showed the grid seconds before YouTube and the store arrived.
+ *
+ * SetupPayload::openStages() is the reader of both.
  */
 final class BuildProgress
 {
     /** How long after a build's request its producers still write here. */
     private const LIVE_WINDOW_MINUTES = 60;
+
+    /** Payload key that pairs a STARTED with its own terminal row. */
+    public const TOKEN = 'token';
 
     /**
      * @param  array<string, mixed>  $payload
@@ -52,12 +68,35 @@ final class BuildProgress
                 && PreAccountBuildEvent::query()->where('build_id', $buildId)->where('stage', $stage)->where('status', $status)->exists()) {
                 return;
             }
-            // One STARTED per stage too (2026-09-02): the connection observer
-            // dispatches a menu fetch per delivery platform, and four
-            // "Reading your menu" rows say nothing four times.
-            if ($status === PreAccountBuildEvent::STATUS_STARTED
-                && PreAccountBuildEvent::query()->where('build_id', $buildId)->where('stage', $stage)->where('status', $status)->exists()) {
-                return;
+            $token = is_string($payload[self::TOKEN] ?? null) && $payload[self::TOKEN] !== '' ? $payload[self::TOKEN] : null;
+            if ($status === PreAccountBuildEvent::STATUS_STARTED) {
+                if ($token !== null) {
+                    // One STARTED per token: a re-dispatched probe of the same
+                    // url adds nothing the first row does not say.
+                    if (PreAccountBuildEvent::query()
+                        ->where('build_id', $buildId)->where('stage', $stage)->where('status', $status)
+                        ->where('payload->'.self::TOKEN, $token)
+                        ->exists()) {
+                        return;
+                    }
+                } else {
+                    // One STARTED while the stage is OPEN (2026-09-02: the
+                    // connection observer dispatches a menu fetch per delivery
+                    // platform, and four "Reading your menu" rows say nothing
+                    // four times) — but a stage that has already closed may
+                    // reopen (2026-09-05): the website importer's "Syncing
+                    // YouTube" came after the Google pull's "X synced" and was
+                    // dropped by an ever-guard, so the walk never learned the
+                    // platforms stage was live again.
+                    $latest = PreAccountBuildEvent::query()
+                        ->where('build_id', $buildId)->where('stage', $stage)
+                        ->whereNull('payload->'.self::TOKEN)
+                        ->orderByDesc('created_at')->orderByDesc('id')
+                        ->value('status');
+                    if ($latest === PreAccountBuildEvent::STATUS_STARTED) {
+                        return;
+                    }
+                }
             }
             $event = new PreAccountBuildEvent;
             $event->forceFill([

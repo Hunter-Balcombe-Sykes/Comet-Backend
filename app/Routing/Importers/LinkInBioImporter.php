@@ -1013,9 +1013,11 @@ class LinkInBioImporter
                 // CODE: TEEGAN10"); the storefront this probe mints lands on
                 // the queue after this import ends, so the probe adopts it.
                 $title = $this->vendorTitles[strtolower(trim($url))] ?? null;
+                $probeUrl = SecretParams::redactUrl($url) ?? '';
+                CommerceProbeJob::owe((string) $context->user->id, $probeUrl);
                 CommerceProbeJob::dispatch(
                     (string) $context->user->id,
-                    SecretParams::redactUrl($url) ?? '',
+                    $probeUrl,
                     discountCode: is_string($title) ? DiscountCodeSniffer::sniff($title) : null,
                 );
                 $tally['probed']++;

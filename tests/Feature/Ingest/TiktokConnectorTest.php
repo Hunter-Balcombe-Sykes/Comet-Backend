@@ -58,7 +58,9 @@ function ttVideo(string $id, string $iso, bool $pinned = false): array
             'height' => 1022,
             'width' => 576,
             'duration' => 87,
-            'coverUrl' => "https://p16-common-sign.tiktokcdn-us.com/{$id}.image?x-expires=1788022800&x-signature=abc",
+            // A signature still good for the mirror's queue hop — an expired
+            // or .heic cover takes the oEmbed refresh path (its own tests below).
+            'coverUrl' => "https://p16-common-sign.tiktokcdn-us.com/{$id}.image?x-expires=4102444800&x-signature=abc",
         ],
     ];
 }
@@ -84,6 +86,81 @@ it('lands videos ordered by recency with pinned posts demoted', function () {
         ->and($records[0]->doc['duration'])->toBe(87)
         ->and($records[0]->doc['cover'])->toContain('x-expires')
         ->and($covered)->not->toBeNull();
+});
+
+function ttIoWithOembed(array $effect, array|Throwable $oembed): Io
+{
+    return new class($effect, $oembed) implements Io
+    {
+        public array $fetched = [];
+
+        public function __construct(private array $effect, private array|Throwable $oembed) {}
+
+        public function get(string $url, array $headers = []): array
+        {
+            throw new RuntimeException('unexpected GET');
+        }
+
+        public function post(string $url, array $body = [], array $headers = []): array
+        {
+            throw new RuntimeException('unexpected POST');
+        }
+
+        public function getMany(array $urls, array $headers = []): array
+        {
+            $this->fetched = array_merge($this->fetched, $urls);
+            if ($this->oembed instanceof Throwable) {
+                throw $this->oembed;
+            }
+            $out = [];
+            foreach ($urls as $url) {
+                $out[$url] = isset($this->oembed[$url])
+                    ? ['status' => 200, 'body' => json_encode(['thumbnail_url' => $this->oembed[$url]]), 'headers' => []]
+                    : null;
+            }
+
+            return $out;
+        }
+
+        public function effect(string $kind, string $name, array $input): array
+        {
+            return $this->effect;
+        }
+    };
+}
+
+it('refreshes an expired or .heic cover through TikTok oEmbed (2026-09-05, st_ali: 25 of 30 covers unservable)', function () {
+    $expired = ttVideo('7000000000000000001', '2024-01-01T00:00:00.000Z');
+    $expired['videoMeta']['coverUrl'] = 'https://p16-common-sign.tiktokcdn-eu.com/tos-maliva-p-85c255/aaa~tplv-tiktokx-shrink-aq:360:360:q75.heic?x-expires='.(now()->getTimestamp() - 60).'&x-signature=old';
+    $fresh = ttVideo('7341108653442829601', '2024-02-29T19:31:02.000Z');
+    $heic = ttVideo('7341108653442829602', '2024-03-01T00:00:00.000Z');
+    $heic['videoMeta']['coverUrl'] = 'https://p16-common-sign.tiktokcdn-eu.com/tos-alisg-p-0037/bbb~tplv-tiktokx-shrink-aq:360:360:q75.heic?x-expires=4102444800&x-signature=new';
+
+    $oembedFor = fn (string $id) => 'https://www.tiktok.com/oembed?url='.rawurlencode("https://www.tiktok.com/@gordonramsayofficial/video/{$id}");
+    $io = ttIoWithOembed(['status' => 'ok', 'cached' => false, 'data' => [$expired, $fresh, $heic]], [
+        $oembedFor('7000000000000000001') => 'https://p16-common-sign.tiktokcdn.com/tos-alisg-p-0037/aaa~tplv-tiktokx-origin.image?x-expires=4102444800&x-signature=fresh1',
+        $oembedFor('7341108653442829602') => 'https://p16-common-sign.tiktokcdn.com/tos-alisg-p-0037/bbb~tplv-tiktokx-origin.image?x-expires=4102444800&x-signature=fresh2',
+    ]);
+
+    $records = array_values(array_filter(iterator_to_array((new TiktokConnector)->pull(ttPull(), $io), false), fn ($m) => $m instanceof Record));
+    $byKey = collect($records)->keyBy('key');
+
+    expect($io->fetched)->toHaveCount(2)
+        ->and($io->fetched)->not->toContain($oembedFor('7341108653442829601'))
+        ->and($byKey['7000000000000000001']->doc['cover'])->toContain('x-signature=fresh1')
+        ->and($byKey['7341108653442829602']->doc['cover'])->toContain('x-signature=fresh2')
+        ->and($byKey['7341108653442829601']->doc['cover'])->toContain('x-signature=abc');
+});
+
+it('keeps the vendor cover when the oEmbed refresh fails', function () {
+    $expired = ttVideo('7000000000000000001', '2024-01-01T00:00:00.000Z');
+    $expired['videoMeta']['coverUrl'] = 'https://p16-common-sign.tiktokcdn-eu.com/x.heic?x-expires=1&x-signature=old';
+    $io = ttIoWithOembed(['status' => 'ok', 'cached' => false, 'data' => [$expired]], new RuntimeException('oembed down'));
+
+    $records = array_values(array_filter(iterator_to_array((new TiktokConnector)->pull(ttPull(), $io), false), fn ($m) => $m instanceof Record));
+
+    expect($records)->toHaveCount(1)
+        ->and($records[0]->doc['cover'])->toContain('x-signature=old');
 });
 
 it('emits a Note and no coverage when the actor result has no videos', function () {

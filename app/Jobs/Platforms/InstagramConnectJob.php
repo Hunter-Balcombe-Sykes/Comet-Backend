@@ -144,6 +144,7 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
             // seed()'s own STARTED/LANDED pair will never run. A terminal row
             // for a never-started stage is harmless (last-row-per-stage read).
             BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_MEDIA, PreAccountBuildEvent::STATUS_SKIPPED, 'That Instagram is no longer connected');
+            $this->settleOwed(false);
 
             return;
         }
@@ -175,6 +176,7 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
         // seeder — the same pipeline PreAccount\InstagramSourceGenerator reuses
         // for pre-account (site-first) builds.
         $seeder->seed($connection, $this->username, $this->userId, $profile, $this->autoConnectBooking);
+        $this->settleOwed(true);
 
         // Bell only for a dispatcher that means "the user just added this" — never
         // GoogleBusinessAutoSync (runs for an UNCLAIMED pre-account build, whose
@@ -186,6 +188,27 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
         }
     }
 
+    /**
+     * The setup walk's platforms loader waits on this scrape (2026-09-05,
+     * st_ali retest #3): the signup lane's pre-scrape apply owes a tokened
+     * `platforms` STARTED (SuggestionApplier::preScrapeInstagram) because the
+     * bio's own store link only surfaces from inside seed(). Every exit of
+     * this job answers it; a dispatcher that owed nothing (the post-claim
+     * Google connect) leaves a terminal no reader pairs — harmless.
+     */
+    public const OWED_TOKEN = 'instagram';
+
+    private function settleOwed(bool $landed): void
+    {
+        BuildProgress::noteForUser(
+            $this->userId,
+            PreAccountBuildEvent::STAGE_PLATFORMS,
+            $landed ? PreAccountBuildEvent::STATUS_LANDED : PreAccountBuildEvent::STATUS_SKIPPED,
+            $landed ? 'Instagram synced' : "Couldn't sync Instagram",
+            [BuildProgress::TOKEN => self::OWED_TOKEN],
+        );
+    }
+
     public function failed(Throwable $e): void
     {
         report($e);
@@ -195,6 +218,7 @@ class InstagramConnectJob implements ShouldBeUnique, ShouldQueue, ThrottledByPro
             'connection_id' => $this->connectionId,
             'error' => $e->getMessage(),
         ]);
+        $this->settleOwed(false);
 
         $connection = IntegrationConnection::find($this->connectionId);
         if ($connection) {
