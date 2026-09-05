@@ -135,6 +135,11 @@ class SourceScheduler
                 ->where('needs_eager_run', true)
                 ->orWhere(fn ($scheduled) => $scheduled
                     ->where('auto_sync', true)
+                    // NOT App\Site\SitePublishState (2026-09-05): this is a
+                    // correlated subquery inside a set query with a LIMIT.
+                    // A per-user boolean seam would fetch unfiltered rows and
+                    // filter in PHP — N+1, and a different set of sources
+                    // reaches the limit. The seam is for single-row callers.
                     ->whereExists(fn ($site) => $site
                         ->from('site.sites')
                         ->whereColumn('site.sites.user_id', 'ingest.sources.user_id')

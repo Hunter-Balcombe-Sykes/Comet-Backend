@@ -92,6 +92,7 @@ use App\Services\Notifications\Adapters\InAppEnquiryNotificationAdapter;
 use App\Services\Notifications\EnquiryNotificationDispatcher;
 use App\Services\PreAccount\Notifications\ClaimDmChannel;
 use App\Services\PreAccount\Notifications\NullClaimDmChannel;
+use App\Site\SitePublishState;
 use Illuminate\Cache\Events\CacheHit;
 use Illuminate\Cache\Events\CacheMissed;
 use Illuminate\Cache\Events\KeyWritten;
@@ -194,6 +195,11 @@ class AppServiceProvider extends ServiceProvider
         // healthy. scoped, not singleton, so forgetScopedInstances() resets the
         // run between queue jobs: one job = one run.
         $this->app->scoped(ProbeBudget::class);
+
+        // scoped(), not singleton(): a queue worker's container resets scoped
+        // instances between jobs, so the memo cannot outlive the projection
+        // that built it. Same reasoning as FetchBudget above.
+        $this->app->scoped(SitePublishState::class);
 
         // scoped so a single RecordCacheMetrics instance accumulates every cache
         // hit/miss/write across one HTTP request (the listener is resolved fresh

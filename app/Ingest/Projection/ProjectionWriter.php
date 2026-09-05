@@ -22,6 +22,7 @@ use App\Services\Site\AdvisoryLock;
 use App\Services\Site\AdvisoryLockTimeoutException;
 use App\Site\Documents\BuildState;
 use App\Site\Documents\SiteCacheLanes;
+use App\Site\SitePublishState;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -175,6 +176,7 @@ class ProjectionWriter
         private readonly ContentItemSlugAllocator $slugs,
         private readonly IdentityKeyDeriver $identityKeys,
         private readonly IdentityScope $scope,
+        private readonly SitePublishState $publishState,
     ) {}
 
     /**
@@ -3535,7 +3537,7 @@ class ProjectionWriter
     /**
      * True while the owner's site is unpublished — the window in which the
      * Get Started walk is the consumer, and covers matter more than reels.
-     * No site row reads as published: the 9f order is the safe default.
+     * No site row (null) reads as published: the 9f order is the safe default.
      */
     private function siteInSetup(string $userId): bool
     {
