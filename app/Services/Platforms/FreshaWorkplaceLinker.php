@@ -22,13 +22,22 @@ use Throwable;
  *
  * The venue's name is what we ask Google for; the venue's OTHER details are
  * how we know the answer is the same place and not a namesake across town:
- * a candidate must carry the name AND corroborate on at least one of
- * distance (≤ 300 m of Fresha's pin), postcode, or phone number. One
- * confident candidate → a google-business connection is written exactly as
- * the pre-account generator writes one (details fetched, Apify enrichment
+ * a candidate carries the name AND corroborates on at least one of distance
+ * (≤ 300 m of Fresha's pin), postcode, or phone number. Every name-agreeing
+ * candidate is persisted as a listing CANDIDATE (proposeCandidates()) for
+ * the setup dialog / suggestions inbox to ask about — nothing here ever
+ * connects a Google Business listing without that accept step. Adopting one
+ * (WorkplaceCandidates::adopt() → connect()) writes it exactly as the
+ * pre-account generator writes one (details fetched, Apify enrichment
  * queued), and IntegrationConnectionObserver folds the identity onto the
- * workplace fill-if-empty as it does for any partna Google connect. No
- * confident candidate → nothing happens, logged.
+ * workplace fill-if-empty as it does for any partna Google connect.
+ *
+ * Retired 2026-09-06: attempt(), the old single-confident-match AUTO-CONNECT
+ * for a claimed owner (LinkFreshaVenueToGoogleJob used to keep it for
+ * claimed users only, "they can disconnect it themselves" — an address
+ * match connecting a stranger's Google listing with no accept step is the
+ * same bug class as the GlossGenius/Fresha booking auto-connect closed the
+ * same day). Every venue now proposes candidates regardless of claim status.
  *
  * Only for accounts whose workplace is NOT their own brand
  * (workplace_brand_is_site_identity=false — the partna shape) and only when
@@ -48,35 +57,6 @@ class FreshaWorkplaceLinker
      * @param  array{name:?string, street:?string, city:?string, postcode:?string, region:?string, country:?string, lat:?float, lng:?float, phone:?string}  $venue
      * @return array{outcome:string, placeId:?string, reason:?string}
      */
-    public function attempt(User $user, array $venue): array
-    {
-        $name = trim((string) ($venue['name'] ?? ''));
-        if (($reason = $this->guardReason($user, $name)) !== null) {
-            return $this->outcome('skipped', null, $reason);
-        }
-
-        $candidates = $this->candidates($user, $venue);
-        if ($candidates === null) {
-            return $this->outcome('failed', null, 'search_unavailable');
-        }
-
-        // The old pick() contract over the shared candidate list (A.5 split):
-        // confident = the name plus at least one corroborator, and two
-        // confident candidates is ambiguity, not confidence.
-        $confident = array_values(array_filter($candidates, fn (array $c) => count((array) $c['corroboration']) >= 2));
-        if (count($confident) !== 1) {
-            Log::info('fresha.workplace_link.no_confident_match', [
-                'user_id' => (string) $user->id,
-                'venue' => $name,
-                'candidates' => count($candidates),
-            ]);
-
-            return $this->outcome('no_match', null, 'no_confident_match');
-        }
-
-        return $this->connect($user, $confident[0]);
-    }
-
     /** The shared refusals; a reason string, or null when the lane may run. */
     private function guardReason(User $user, string $name): ?string
     {
@@ -183,9 +163,10 @@ class FreshaWorkplaceLinker
     }
 
     /**
-     * Connect ONE candidate as the google-business connection — the write
-     * half of the old attempt(), unchanged: details fetched, Apify
-     * enrichment queued, and the observer folds the identity.
+     * Connect ONE candidate as the google-business connection — the accept
+     * step (WorkplaceCandidates::adopt()) calls this once the user has
+     * picked a proposed candidate: details fetched, Apify enrichment
+     * queued, and the observer folds the identity.
      *
      * @param  array{id:string, name:string, address:?string, lat:?float, lng:?float, corroboration?:mixed}  $candidate
      * @return array{outcome:string, placeId:?string, reason:?string, connectionId?:string}
@@ -286,8 +267,8 @@ class FreshaWorkplaceLinker
      * the corroborators it earned — 'name' always, plus any of distance,
      * postcode, phone, or (when the venue offers no corroborator at all)
      * the name-locality token match. No refusal on ambiguity: the caller
-     * decides — attempt() demands one confident row, proposeCandidates()
-     * writes them all for the person to pick (A.5).
+     * decides — proposeCandidates() writes them all for the person to pick
+     * (A.5; the old single-confident-match attempt() was retired 2026-09-06).
      *
      * @return list<array{id:string, name:string, address:?string, lat:?float, lng:?float, corroboration:list<string>}>|null
      *                                                                                                                       null = search unavailable
@@ -420,11 +401,5 @@ class FreshaWorkplaceLinker
         $a = sin($dLat / 2) ** 2 + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
 
         return 2 * $r * atan2(sqrt($a), sqrt(1 - $a));
-    }
-
-    /** @return array{outcome:string, placeId:?string, reason:?string} */
-    private function outcome(string $outcome, ?string $placeId, ?string $reason): array
-    {
-        return ['outcome' => $outcome, 'placeId' => $placeId, 'reason' => $reason];
     }
 }

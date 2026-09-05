@@ -250,11 +250,13 @@ it('seeds reservation, ordering and social connections from the enrichment', fun
         expect($p)->not->toHaveKey($moved);
     }
 
-    // Reservation → an OpenTable connection with the live keyless widget.
-    $ot = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'opentable')->firstOrFail()->payload;
-    expect($ot['rid'])->toBe('266537');
-    expect($ot['embedUrl'])->toContain('rid=266537');
-    expect($ot['source'])->toBe('google-business');
+    // Reservation → NOT a live connection (2026-09-06: reservations always
+    // route through the suggestion pipeline, same as booking) — an OpenTable
+    // proposed intent instead.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'opentable')->exists())->toBeFalse();
+    $ot = DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'opentable.reserve')->firstOrFail();
+    expect($ot->state)->toBe('proposed');
+    expect($ot->identifier)->toBe('266537');
 
     // Ordering → one online-ordering row per provider, carrying the metadata.
     $orders = IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->get();
@@ -264,12 +266,18 @@ it('seeds reservation, ordering and social connections from the enrichment', fun
     expect($uber['source'])->toBe('google-business');
     expect($uber['data'])->toMatchArray(['type' => 'pickup', 'time' => 'Ready in 10–25 min', 'fees' => 'No fee', 'sourcePlatform' => 'UberEats']);
 
-    // Link socials → facebook + tiktok rows (with the source tag).
-    $fb = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->firstOrFail()->payload;
-    expect($fb['url'])->toBe('https://facebook.com/fadelab');
-    expect($fb['username'])->toBe('fadelab');
-    expect($fb['source'])->toBe('google-business');
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'tiktok')->exists())->toBeTrue();
+    // Link socials → NOT live connections (2026-09-06: a Google Business
+    // social link is a harvested discovery, not a direct request, same fix
+    // as booking/reservations) — proposed facebook + tiktok intents instead.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeFalse();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'tiktok')->exists())->toBeFalse();
+    $fbIntent = DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'facebook.profile')->firstOrFail();
+    expect($fbIntent->state)->toBe('proposed');
+    expect($fbIntent->canonical_url)->toBe('https://facebook.com/fadelab');
+    expect($fbIntent->identifier)->toBe('fadelab');
+    expect($fbIntent->origin)->toBe('google_business');
+    $ttIntent = DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'tiktok.profile')->firstOrFail();
+    expect($ttIntent->state)->toBe('proposed');
 
     // Instagram → a pending placeholder + the budgeted scrape job dispatched.
     $ig = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'instagram')->firstOrFail();
@@ -300,11 +308,24 @@ it('rejects a platform-chrome link scraped as a social instead of minting a fake
         ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeFalse();
-    // The other socials still seed — one bad URL never blocks the rest.
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'tiktok')->exists())->toBeTrue();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'facebook.profile')->exists())->toBeFalse();
+    // The other socials still propose — one bad URL never blocks the rest
+    // (2026-09-06: socials propose rather than connect, same as booking).
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'tiktok.profile')->where('state', 'proposed')->exists())->toBeTrue();
 });
 
-it('still seeds a legacy facebook pages URL via the normalizer fallback', function () {
+it('drops a legacy facebook /pages/ URL to nothing routable (catalog reserves that path on purpose)', function () {
+    // 2026-09-06: the normalizer fallback here (isCanonicalFacebookHost() +
+    // socialUsername()) used to exist specifically so a legacy
+    // facebook.com/pages/<Name>/<id> Page could bypass the catalog's own
+    // projector — which reserves 'pages' deliberately (Facebook.php's
+    // RESERVED list mirrors FacebookNormalizer::RESERVED_SEGMENTS on
+    // purpose: a bare /pages/ path is ambiguous without the second,
+    // ID-bearing segment). Now that nothing bypasses the catalog, this one
+    // legacy shape has no projector rule to place OR suggest it through —
+    // same class of gap as GB's brandless direct.book booking link — so it
+    // is silently dropped rather than reconstructing a guessed
+    // facebook.com/<name> URL that may not even resolve to the same Page.
     config(['services.apify.token' => 'apify-token']);
     $item = gbApifyItem();
     $item['facebooks'] = ['https://www.facebook.com/pages/Fade-Lab/123456789'];
@@ -316,8 +337,8 @@ it('still seeds a legacy facebook pages URL via the normalizer fallback', functi
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
         ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
-    $fb = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->firstOrFail()->payload;
-    expect($fb['username'])->toBe('Fade-Lab');
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeFalse();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'facebook.profile')->exists())->toBeFalse();
 });
 
 it('skips every contacts-crawl social when the listing website is itself a platform page', function () {
@@ -417,8 +438,11 @@ it('syncs booking + workplace for a standard (partna) account, but never its soc
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
         ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
-    // Booking IS synced for every account type (Google's appointment link, only-if-empty).
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'booking')->exists())->toBeTrue();
+    // Booking is DISCOVERED for every account type (Google's appointment link,
+    // only-if-empty) but, like every other booking brand (2026-09-06), only
+    // ever proposed — never connected outright.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'booking')->exists())->toBeFalse();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'booking')->where('state', 'proposed')->exists())->toBeTrue();
 
     // Ruling R14 (overnight 2026-08-18) held that socials + workplace seed for
     // every account type. Its WORKPLACE half stands, and is asserted below.
@@ -481,19 +505,20 @@ it('drops the website from booking links but keeps a real provider link', functi
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
         ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
-    // No custom booking CARD from the website echo; the Fresha link connected.
+    // No custom booking CARD from the website echo; the Fresha link is
+    // proposed (2026-09-06: booking never connects outright, only suggests).
     // Scoped away from fresha/square explicitly: routing_class 'booking' spans
-    // the whole family including those two, and the Fresha row is exactly what
-    // the next line asserts exists.
+    // the whole family including those two, and the Fresha intent is exactly
+    // what the next line asserts exists.
     expect(IntegrationConnection::query()->where('user_id', $user->id)
         ->where('routing_class', 'booking')
         ->whereNotIn('platform', ['fresha', 'square'])->exists())->toBeFalse();
-    $fresha = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->firstOrFail()->payload;
-    expect($fresha['url'])->toBe('https://www.fresha.com/a/brother-wolf');
-    expect($fresha['selection'])->toBeNull();
+    $fresha = DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'fresha.book')->firstOrFail();
+    expect($fresha->state)->toBe('proposed');
+    expect($fresha->canonical_url)->toBe('https://www.fresha.com/a/brother-wolf');
 });
 
-it('keeps a same-domain appointment link and auto-syncs it as the booking card', function () {
+it('drops a same-domain appointment link to a Note, same as the sign-up lane already accepted (direct.book has no projector rule)', function () {
     config(['services.apify.token' => 'apify-token']);
     $item = gbApifyItem();
     $item['website'] = 'https://www.fadelab.com.au/';
@@ -511,16 +536,24 @@ it('keeps a same-domain appointment link and auto-syncs it as the booking card',
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
         ->handle(app(GoogleBusinessApifyScraper::class), app(GoogleBusinessAutoSync::class), emptyHarvester());
 
-    // The same-domain appointment link became the user's booking card — the
-    // behaviour this case was written to protect, unchanged by convergence
-    // Phase 6. What DID change is where it is stored: `direct.book`, the
-    // booking page no brand claims (owner ruling 2026-08-16), instead of the
-    // retired shared 'booking' key.
-    $booking = IntegrationConnection::query()->where('user_id', $user->id)
-        ->where('routing_class', 'booking')->firstOrFail();
-    expect($booking->surface_key)->toBe('direct.book');
-    expect($booking->payload['url'])->toBe('https://www.fadelab.com.au/book-appointment');
-    expect($booking->payload['source'])->toBe('google-business');
+    // Pre-2026-09-06 this became a live `direct.book` connection outright —
+    // the same "harvest connects with no accept step" shape as the Square/
+    // Fresha/GlossGenius bug, now closed the same way: routed through
+    // LinkRouter::routeBooking() instead of written directly. BUT `direct.book`
+    // (owner ruling 2026-08-16: "the booking page no brand claims") has no
+    // catalog projector rule — nothing in the URL alone says "this is a
+    // booking page", only GB's own same-domain-as-website heuristic knows
+    // that, and the catalog can't see it. So the suggestion pipeline can't
+    // place OR propose it either; it lands as a bare Note, exactly the
+    // limitation routeSignupFindings()'s own docblock already accepts for
+    // the sign-up lane ("a brandless custom booking link has no projector
+    // rule, so on this lane it becomes a Note observation rather than a
+    // card"). Net effect: no live connection, no suggestion card, no
+    // routing.source_intents row — a known gap (needs a catalog change to
+    // close, not a GoogleBusinessAutoSync one), not something this test
+    // pretends is fixed.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'booking')->exists())->toBeFalse();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'booking')->exists())->toBeFalse();
 });
 
 it('keeps the Google Business selection business-info-only after enrichment', function () {
@@ -541,16 +574,17 @@ it('keeps the Google Business selection business-info-only after enrichment', fu
         ->assertJsonMissingPath('selection.menu')
         ->assertJsonMissingPath('selection.socials');
 
-    // The reservation lives on its real brand connection (the category
-    // status endpoint left 2026-08-19 with the pseudo-platform retirement).
-    expect(IntegrationConnection::query()->where('user_id', $user->id)
-        ->where('platform', 'opentable')->where('is_active', true)->exists())->toBeTrue();
+    // The reservation is a proposed intent, not a live connection (2026-09-06:
+    // reservations never connect outright, only suggest — same as booking).
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'opentable')->exists())->toBeFalse();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'opentable.reserve')->where('state', 'proposed')->exists())->toBeTrue();
 
-    // ...and the seeded rows exist as real connections. (Until 2026-08-19 this
-    // read them back off the synced modal; the modal is retired, and the
-    // connections were always the thing that mattered.)
+    // ...and the ordering/social rows seed as real connections, untouched by
+    // that change. (Until 2026-08-19 this read them back off the synced
+    // modal; the modal is retired, and the connections were always the thing
+    // that mattered.)
     expect(IntegrationConnection::query()->where('user_id', $user->id)->pluck('routing_class')->unique())
-        ->toContain('reservations', 'ordering', 'social');
+        ->toContain('ordering', 'social');
 });
 
 it('only-if-empty: never overwrites a reservation or social the user already set', function () {
@@ -589,23 +623,25 @@ it('only-if-empty: never overwrites a reservation or social the user already set
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->count())->toBe(2);
 });
 
-it('seeds a legacy /pages/ Facebook link with the extracted Page name, not "pages" (G4-4)', function () {
-    // Regression for the real bug: GoogleBusinessAutoSync::socialUsername() used
-    // to run its OWN standalone regex (independent of FacebookNormalizer) that
-    // had no concept of reserved path segments, so a business whose website (or
-    // Google listing) linked a legacy facebook.com/pages/<Name>/<id> Page had
-    // "pages" itself stored as the username. socialUsername() now delegates to
-    // FacebookNormalizer so both entry points share one fix.
+it('still drops a legacy /pages/ Facebook link to nothing (G4-4\'s fix is now dead: nothing bypasses the catalog to use it)', function () {
+    // G4-4 originally fixed socialUsername() to delegate to FacebookNormalizer
+    // instead of running its own reserved-segment-blind regex, so the
+    // extracted username would be "DOC-Pizza-Carlton", not "pages". That fix
+    // mattered because this lane used to WRITE the connection directly. As of
+    // 2026-09-06 nothing here writes directly any more — every social link
+    // takes LinkRouter::routeSocial()'s suggestion-pipeline door, and the
+    // catalog's own facebook.profile detector reserves 'pages' on purpose
+    // (Facebook.php), so a /pages/<Name>/<id> link has no projector rule to
+    // place OR suggest it through at all. See the enrichment-side sibling
+    // test's docblock (GoogleBusinessApifyTest) for the full reasoning.
     $user = gbApifyUser('gbafbpages');
 
     app(GoogleBusinessAutoSync::class)->seed((string) $user->id, [
         'socials' => ['facebook' => 'https://www.facebook.com/pages/DOC-Pizza-Carlton/12345'],
     ], 'DOC Pizza');
 
-    $fb = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->firstOrFail()->payload;
-    expect($fb['username'])->toBe('DOC-Pizza-Carlton');
-    expect($fb['url'])->toBe('https://www.facebook.com/pages/DOC-Pizza-Carlton/12345');
-    expect($fb['source'])->toBe('google-business');
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeFalse();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'facebook.profile')->exists())->toBeFalse();
 });
 
 it('marks apify unavailable when the scrape returns nothing', function () {
@@ -744,13 +780,18 @@ it('connects exactly what this run found, and nothing the account cannot have', 
 
     $rows = IntegrationConnection::query()->where('user_id', $user->id)->get();
 
-    // Reservation + social seeds are written and ok; instagram's row is still
-    // pending (its scrape sits behind the faked bus).
-    expect($rows->firstWhere('platform', 'opentable')->routing_class)->toBe('reservations')
-        ->and($rows->firstWhere('platform', 'opentable')->last_refresh_status)->toBe('ok')
-        ->and($rows->firstWhere('platform', 'facebook')->last_refresh_status)->toBe('ok')
+    // Link-only socials (facebook) are proposed, not connected (2026-09-06:
+    // same fix as reservations — a Google Business social link is a
+    // harvested discovery, not a direct request). Instagram is untouched by
+    // this fix (its own Apify-budget-gated flow, out of scope here) and
+    // still connects a pending placeholder while its scrape sits behind the
+    // faked bus.
+    expect($rows->firstWhere('platform', 'opentable'))->toBeNull()
+        ->and($rows->firstWhere('platform', 'facebook'))->toBeNull()
         ->and($rows->firstWhere('platform', 'instagram')->last_refresh_status)->toBe('pending')
         ->and($rows->where('routing_class', 'ordering'))->toHaveCount(2);
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'opentable.reserve')->where('state', 'proposed')->exists())->toBeTrue();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'facebook.profile')->where('state', 'proposed')->exists())->toBeTrue();
     // Nothing booking-class: a food business books via Reservations (above),
     // even though Google's data also carried a booking link.
     expect($rows->where('routing_class', 'booking'))->toHaveCount(0);

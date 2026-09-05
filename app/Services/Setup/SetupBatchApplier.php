@@ -3,6 +3,7 @@
 namespace App\Services\Setup;
 
 use App\Catalog\CompiledCatalog;
+use App\Catalog\LegacyPlatformMap;
 use App\Jobs\Platforms\CommerceProbeJob;
 use App\Jobs\Routing\VerifyLinkJob;
 use App\Models\Content\Item;
@@ -214,6 +215,25 @@ class SetupBatchApplier
             // the job's own is a no-op.
             BuildProgress::noteForUser((string) $user->id, PreAccountBuildEvent::STAGE_SHOP, PreAccountBuildEvent::STATUS_STARTED, 'Syncing your store');
             CommerceProbeJob::dispatch((string) $user->id, (string) $intent->canonical_url, 'shop', acceptedIntentId: (string) $intent->id);
+
+            return true;
+        }
+
+        // Eventbrite/Humanitix organiser (2026-09-06), same rule as the store
+        // arm above and SuggestionsController::accept()'s identical branch:
+        // this dialog is the OTHER accept lane, and an organiser suggestion
+        // ticked here needs the real EventsSeeder::seedAccount() write
+        // (organiser name, events list, avatar), not the bare connection this
+        // applier would write for a Bespoke surface with no ConnectStrategy.
+        if (in_array($intent->surface_key, SuggestionApplier::PROBED_EVENT_ORGANISER_SURFACES, true)
+            && is_string($intent->canonical_url ?? null) && $intent->canonical_url !== '') {
+            CommerceProbeJob::dispatch(
+                (string) $user->id,
+                (string) $intent->canonical_url,
+                'event-organiser',
+                LegacyPlatformMap::legacyFor((string) $intent->surface_key),
+                acceptedIntentId: (string) $intent->id,
+            );
 
             return true;
         }

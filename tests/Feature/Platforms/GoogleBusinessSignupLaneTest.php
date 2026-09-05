@@ -9,8 +9,15 @@ use Illuminate\Support\Facades\Queue;
 // A.13 (Phase-A proof catch, 2026-09-03): the Akro Studio rebuild proved the
 // GBP enrichment still auto-connected square + instagram on a SIGN-UP build,
 // bypassing the A.2/A.3 contract. On the sign-up lane every listing link now
-// routes through LinkRoutingService as a banded intent; direct seeds remain
-// for staff builds (autoConnectBooking) and post-claim connects.
+// routes through LinkRoutingService as a banded intent.
+//
+// Corrected 2026-09-06: A.13 originally also kept a direct "post-claim
+// connect" seed for booking/reservations on a CLAIMED user, reasoning that
+// their own already-verified listing could be trusted. That carve-out WAS
+// the GlossGenius/Fresha bug (same shape as the Square bug this file's
+// booking test used to guard) — a claimed user's booking/reservation
+// discovery now ALSO always routes through the suggestion pipeline. The only
+// remaining direct-seed lane is the staff/ManyChat build (autoConnectBooking).
 
 beforeEach(function () {
     setupUsersTable();
@@ -50,7 +57,7 @@ it('routes listing links as banded intents on a sign-up build and connects nothi
         ->and($intents['instagram.profile']->band)->toBeIn(['auto', 'suggest']);
 });
 
-it('keeps the direct booking seed for a claimed user', function () {
+it('suggests rather than connects a booking discovery for a claimed user', function () {
     Queue::fake();
     $user = gbslUser('active');
 
@@ -60,8 +67,9 @@ it('keeps the direct booking seed for a claimed user', function () {
         'GBSL Claimed',
     );
 
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue()
-        ->and(DB::table('routing.source_intents')->where('user_id', $user->id)->count())->toBe(0);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
+    $intent = DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'fresha.book')->firstOrFail();
+    expect($intent->state)->toBe('proposed');
 });
 
 it('keeps the direct booking seed for an unclaimed STAFF build (autoConnectBooking)', function () {

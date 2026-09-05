@@ -32,9 +32,11 @@ use Throwable;
  *
  *  - workplace mention + user has NO workplace: chained scrape of the
  *    mentioned account → name/address/postcode/phone from ITS bio →
- *    FreshaWorkplaceLinker::attempt() (the same Places search + triple
- *    agreement + connect + workplace write the Fresha path uses; it also
- *    carries the capability gate and the GBP-already-connected skip).
+ *    FreshaWorkplaceLinker::proposeCandidates() (the same Places search +
+ *    corroboration the Fresha path uses, writing candidates for the person
+ *    to pick rather than auto-connecting; the old single-confident-match
+ *    attempt() was retired 2026-09-06). Still carries the capability gate
+ *    and the GBP-already-connected skip.
  *  - brand mention: chained scrape → the brand's website → LinkRouter (the
  *    commerce probe lane), so a real store connects with the pre-account
  *    publishing default (D10: publishing ON) and anything weaker lands in

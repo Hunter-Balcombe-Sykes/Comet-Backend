@@ -507,6 +507,31 @@ class SetupPayload
                 continue; // settled long ago, nothing to render
             }
 
+            // 2026-09-06: a blocked intent naming an incumbent on a
+            // DIFFERENT platform (booking/reservations/ordering's
+            // cross-platform XOR, or any other single-account cap) is a Swap
+            // the suggestions inbox already knows how to render — Get
+            // Started does not, and rendering it as an ordinary preselected
+            // card is indistinguishable from the duplicate-suggestion bug
+            // this walk exists to avoid (live: jordandimitriadis' GlossGenius
+            // auto-connect left a blocked Fresha intent that would otherwise
+            // have shown as a second, confusing "Book with Fresha" tick
+            // beside the one already connected). Omitted here, not
+            // dismissed — the row is untouched in routing.source_intents and
+            // still resolvable from the regular suggestions inbox post-setup.
+            //
+            // $connection === null is the distinguishing test, not the
+            // conflict alone: the st_ali marker-fold case above (line ~483)
+            // ALSO files as a blocked/cap_reached intent with a
+            // conflicting_connection_id, but its conflict is against the
+            // SAME account on the SAME surface — the alias/id/key lookup
+            // above already resolved $connection to that row, so this is a
+            // fold, not a genuine cross-platform incumbent, and must still
+            // render (as the one card, named from the resolved connection).
+            if ((string) $intent->state === 'blocked' && $intent->conflicting_connection_id !== null && $connection === null) {
+                continue;
+            }
+
             $band = $intent->band ?? null;
             // 'verifying' is the one state the PERSON cannot clear: they ticked
             // it, Continue accepted it, and we are the ones still working. A

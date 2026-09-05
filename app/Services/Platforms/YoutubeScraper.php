@@ -152,6 +152,99 @@ class YoutubeScraper extends PlatformScraper
     }
 
     /**
+     * The reverse of channelIdFrom(): a UC… id's own @handle, or null when it
+     * can't be resolved (no key/quota, no handle claimed, transport failure).
+     *
+     * F31 (2026-09-06): a /channel/UC… discovery and an @handle discovery of
+     * the SAME channel captured two different identifier shapes under one
+     * surface_key (youtube.channel's own detectors — see the catalog — each
+     * capture whichever shape the URL happened to carry), and every dedup
+     * this codebase has compares identifiers as opaque strings, so the two
+     * never matched (live: jordandimitriadis, YouTube shown twice in "Your
+     * platforms"). Resolving a raw id to its handle BEFORE anything reads
+     * the identifier — the caller is SourceReconciler::reconcile() — means
+     * the existing exact-match dedup and the naming machinery both treat it
+     * exactly as they would an @handle discovery, with no rewrite of either.
+     * Data API first (no bot-wall), a channel-page scrape as the keyless
+     * fallback — same order as resolveChannelId()'s own handle→id lookup.
+     */
+    public function handleFromChannelId(string $channelId): ?string
+    {
+        $api = $this->apiHandleForId($channelId);
+        if ($api !== null) {
+            return $api;
+        }
+
+        $page = $this->fetcher->tryFetch('https://www.youtube.com/channel/'.rawurlencode($channelId), ['User-Agent' => self::USER_AGENT]);
+        if ($page === null || $page['status'] !== 200) {
+            Log::warning('youtube.handle_resolve_failed', [
+                'channelId' => $channelId,
+                'reason' => $page === null ? 'fetch_failed' : 'non_200:'.$page['status'],
+            ]);
+
+            return null;
+        }
+
+        // "canonicalBaseUrl" is the same ytInitialData key every /@handle page
+        // also carries (it is how YouTube's own client resolves the handle it
+        // is currently rendering) — present on the /channel/UC… page too, so
+        // no second page shape to maintain.
+        if (preg_match('~"canonicalBaseUrl":"/@([^"]+)"~', $page['body'], $m) === 1) {
+            return $m[1];
+        }
+
+        Log::warning('youtube.handle_resolve_failed', ['channelId' => $channelId, 'reason' => 'no_handle_match']);
+
+        return null;
+    }
+
+    /** Data API id→handle (snippet.customUrl), or null (no key, no handle claimed, quota, miss, error). */
+    private function apiHandleForId(string $channelId): ?string
+    {
+        $key = (string) config('services.youtube.data_api_key');
+        if ($key === '') {
+            return null;
+        }
+
+        try {
+            $response = Http::timeout(10)
+                ->get('https://www.googleapis.com/youtube/v3/channels', [
+                    'part' => 'snippet',
+                    'id' => $channelId,
+                    'key' => $key,
+                ]);
+        } catch (\Throwable $e) {
+            Log::warning('youtube.api_handle_resolve_threw', ['channelId' => $channelId, 'error' => $e->getMessage()]);
+
+            return null;
+        }
+
+        if (! $response->successful()) {
+            $status = $response->status();
+            Log::warning('youtube.api_handle_resolve_not_ok', ['channelId' => $channelId, 'status' => $status]);
+
+            if (in_array($status, [401, 403], true)) {
+                ThrottledReport::once(
+                    "youtube:data_api_fault:{$status}",
+                    new VendorAccountFaultException('youtube_data_api', 'key_rejected', $status),
+                );
+            }
+
+            return null;
+        }
+
+        $customUrl = $response->json('items.0.snippet.customUrl');
+
+        // A channel that never claimed a handle carries a legacy customUrl
+        // shape ("c/name", "user/name") or none at all — neither is the
+        // @handle identity this surface stores, so both answer null rather
+        // than mint a wrong one.
+        return is_string($customUrl) && str_starts_with($customUrl, '@') && $customUrl !== '@'
+            ? substr($customUrl, 1)
+            : null;
+    }
+
+    /**
      * The channel's most-recent videos, newest first, up to $limit (the RSS
      * feed itself caps at 15). Returns null when the channel or feed can't be
      * resolved; an empty array is possible for a channel with no uploads.

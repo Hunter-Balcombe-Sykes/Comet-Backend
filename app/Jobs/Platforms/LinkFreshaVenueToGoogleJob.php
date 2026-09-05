@@ -53,18 +53,17 @@ class LinkFreshaVenueToGoogleJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        // A.5: pre-claim the venue becomes listing CANDIDATES the setup
-        // dialog asks about; a claimed owner keeps the old single-confident
-        // auto-connect (they can disconnect it themselves).
-        if ($user->isUnclaimed()) {
-            $found = $linker->proposeCandidates($user, $this->venue, 'fresha');
-            Log::info('fresha.workplace_link.result', ['user_id' => $this->userId, 'candidates' => $found]);
-
-            return;
-        }
-
-        $result = $linker->attempt($user, $this->venue);
-        Log::info('fresha.workplace_link.result', ['user_id' => $this->userId, ...$result]);
+        // A.5 originally kept a claimed owner's single-confident match on the
+        // OLD auto-connect (attempt()) — "they can disconnect it themselves"
+        // — the same "post-claim connect" reasoning that turned out to BE
+        // the GlossGenius/Fresha booking auto-connect bug (2026-09-06). An
+        // address-match here is the same class of risk: a wrong candidate
+        // silently attaches a stranger's Google listing with no accept step,
+        // regardless of claim status. Every venue now becomes listing
+        // CANDIDATES for the setup dialog / suggestions inbox to ask about —
+        // attempt()'s old direct-connect is retired.
+        $found = $linker->proposeCandidates($user, $this->venue, 'fresha');
+        Log::info('fresha.workplace_link.result', ['user_id' => $this->userId, 'candidates' => $found]);
     }
 
     /** Terminal: report and log — the user can still connect Google by hand. */

@@ -16,6 +16,11 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // 2026-09-06: GoogleBusinessAutoSync's reservation/booking harvests now
+    // route through LinkRoutingService/SourceReconciler (a discovery never
+    // auto-connects — only ever suggests), which reads/writes
+    // routing.source_intents.
+    setupRoutingTables();
 
     // seedWorkplace saves site.sites → SiteObserver. Stub the cache service + fake
     // the queue so the observer's invalidate / KV-sync side effects are no-ops.
@@ -137,7 +142,9 @@ it('clears a resdiary reservation via the provider forget', function () {
 
 // ── Google auto-sync: reservation + workplace ─────────────────────────
 
-it('auto-seeds a resdiary reservation from a google reservation link', function () {
+it('proposes (not auto-connects) a resdiary reservation from a google reservation link', function () {
+    // 2026-09-06: a Google reservation discovery is a suggestion now, same
+    // policy as booking — see LinkRouter::routeReservation()'s docblock.
     $user = resUser('rp5');
 
     app(GoogleBusinessAutoSync::class)->seed(
@@ -146,9 +153,11 @@ it('auto-seeds a resdiary reservation from a google reservation link', function 
         'Ollies',
     );
 
-    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'resdiary')->firstOrFail()->payload;
-    expect($row['embedUrl'])->toContain('widget/Standard/Ollies');
-    expect($row['source'])->toBe('google-business');
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'resdiary')->exists())->toBeFalse();
+    $intent = DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'reservations')->firstOrFail();
+    expect($intent->state)->toBe('proposed');
+    expect($intent->band)->toBe('auto');
+    expect($intent->canonical_url)->toContain('resdiary.com');
 });
 
 // ── Sector-derived AutoSync direction (2026-07-15) ──────────────────────
@@ -157,7 +166,7 @@ it('auto-seeds a resdiary reservation from a google reservation link', function 
 // online-ordering). Both branches carry all three link types in the enrichment
 // to prove it's the gate — not absent data — deciding the outcome.
 
-it('a food (restaurant) business GB connect seeds reservations + ordering but not booking', function () {
+it('a food (restaurant) business GB connect proposes reservations + ordering but not booking', function () {
     $user = resUser('rpfood', sector: 'restaurant');
 
     app(GoogleBusinessAutoSync::class)->seed((string) $user->id, [
@@ -168,13 +177,24 @@ it('a food (restaurant) business GB connect seeds reservations + ordering but no
         'booking' => ['https://www.fresha.com/a/ollies-salon'],
     ], 'Ollies');
 
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'resdiary')->exists())->toBeTrue();
+    // 2026-09-06: the reservation is a suggestion now, same as booking.
+    // Ordering is UNCHANGED here deliberately: GoogleBusinessAutoSync's own
+    // ordering lane (LinkRouter::routeOrdering() -> seedOnlineOrdering())
+    // uses its "seeded" outcome only to reserve the brand slot, then
+    // immediately overwrites the row with Google's own fees/pickup/delivery
+    // metadata that the router can't see (seedOrdering()'s own comment,
+    // GoogleBusinessAutoSync.php:827-832) — a real connection is the
+    // intended shape of that dance, not the same "harvest auto-connects" bug
+    // reservations/booking had, so it is out of scope for this fix.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'resdiary')->exists())->toBeFalse();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'reservations')->exists())->toBeTrue();
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->exists())->toBeTrue();
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'booking')->exists())->toBeFalse();
+    // Booking is gated OFF for a food business regardless — no intent at all,
+    // proposed or otherwise.
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'booking')->exists())->toBeFalse();
 });
 
-it('a non-food (barbershop) business GB connect seeds booking but not reservations/ordering', function () {
+it('a non-food (barbershop) business GB connect proposes booking but not reservations/ordering', function () {
     $user = resUser('rpnonfood', sector: 'barber');
 
     app(GoogleBusinessAutoSync::class)->seed((string) $user->id, [
@@ -185,9 +205,12 @@ it('a non-food (barbershop) business GB connect seeds booking but not reservatio
         'booking' => ['https://www.fresha.com/a/ollies-salon'],
     ], 'Ollies');
 
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'resdiary')->exists())->toBeFalse();
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->exists())->toBeFalse();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'fresha.book')->where('state', 'proposed')->exists())->toBeTrue();
+    // Reservations/ordering are gated OFF for a non-food business — no
+    // intent at all.
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'reservations')->exists())->toBeFalse();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'ordering')->exists())->toBeFalse();
 });
 
 it('a null-sector business GB connect defaults to booking-only (not-food default)', function () {
@@ -198,8 +221,9 @@ it('a null-sector business GB connect defaults to booking-only (not-food default
         'booking' => ['https://www.fresha.com/a/ollies-salon'],
     ], 'Ollies');
 
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'resdiary')->exists())->toBeFalse();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'fresha.book')->exists())->toBeTrue();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'reservations')->exists())->toBeFalse();
 });
 
 it('auto-fills workplace category, description and old website from place details', function () {
@@ -296,43 +320,56 @@ it('truncates a long Google description to the workplace field cap', function ()
     expect(mb_strlen(resWorkplace($user)['description']))->toBe(1000);
 });
 
-// ── Google booking auto-connect (Fresha pending / Square full / custom) ──
+// ── Google booking discovery (Fresha / Square / custom) — all suggestions ──
+// 2026-09-06: EVERY booking brand routes through the suggestion pipeline now
+// (LinkRouter::routeBooking()) — Fresha's "pending, Finish setup" placeholder
+// and Square's "full, no picker" write both used to reach GB's unconditional
+// $this->write() same as GlossGenius/any custom brand did (the live bug this
+// suite now exists to prevent). None of them auto-connect; all three land as
+// a proposed, pre-ticked (band:auto) routing.source_intents row instead.
 
-it('auto-connects a pending Fresha from a google booking link', function () {
+it('proposes (not auto-connects) a Fresha suggestion from a google booking link', function () {
     // Booking is a non-food-business capability (2026-07-15 sector gating) —
     // a food business books via Reservations instead. See T7 direction tests below.
     $user = resUser('gb1', sector: null);
 
     app(GoogleBusinessAutoSync::class)->seed((string) $user->id, ['booking' => ['https://www.fresha.com/a/ollies-salon']], 'Ollies');
 
-    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->firstOrFail();
-    expect($row->payload['url'])->toBe('https://www.fresha.com/a/ollies-salon');
-    expect($row->payload['selection'])->toBeNull();              // pending → "Finish setup"
-    expect($row->payload['source'])->toBe('google-business');
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
+    $intent = DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'fresha.book')->firstOrFail();
+    expect($intent->state)->toBe('proposed');
+    expect($intent->band)->toBe('auto');
+    expect($intent->canonical_url)->toContain('fresha.com/a/ollies-salon');
 });
 
-it('auto-connects Square fully (no picker) from a google booking link', function () {
+it('proposes (not auto-connects) a Square suggestion from a google booking link', function () {
     $user = resUser('gb2', sector: null);
 
-    app(GoogleBusinessAutoSync::class)->seed((string) $user->id, ['booking' => ['https://book.squareup.com/appointments/x']], 'Ollies');
+    // A real merchant-appointment path (catalog detector: app.squareup.com
+    // /appointments/book/<merchant>/<location>), not a bare squareup.com
+    // host — the catalog's own Gate 3 ("never suggest a brand match with no
+    // identifiable account") correctly demotes a host-only Square URL to a
+    // plain Note rather than a suggestion, same as it would for any brand.
+    app(GoogleBusinessAutoSync::class)->seed((string) $user->id, ['booking' => ['https://app.squareup.com/appointments/book/testmerch12/ABCDEFGH12']], 'Ollies');
 
-    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'square')->firstOrFail();
-    expect($row->payload['url'])->toBe('https://book.squareup.com/appointments/x');
-    expect($row->payload['source'])->toBe('google-business');
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'square')->exists())->toBeFalse();
+    $intent = DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'square.book')->firstOrFail();
+    expect($intent->state)->toBe('proposed');
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
 });
 
-it('seeds a custom booking card for an unknown google booking link', function () {
+it('proposes a custom booking suggestion for an unknown google booking link', function () {
     $user = resUser('gb3', sector: null);
 
     app(GoogleBusinessAutoSync::class)->seed((string) $user->id, ['booking' => ['https://calendly.com/ollies']], 'Ollies');
 
     // Convergence Phase 6: Calendly has its own catalog surface, so the Google
-    // harvest seeds calendly.book — not the retired shared 'booking' key.
-    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'booking')->firstOrFail();
-    expect($row->surface_key)->toBe('calendly.book');
-    expect($row->payload['provider'])->toBe('custom');
-    expect($row->payload['url'])->toBe('https://calendly.com/ollies');
+    // harvest proposes calendly.book — not the retired shared 'booking' key.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'booking')->exists())->toBeFalse();
+    $intent = DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'booking')->firstOrFail();
+    expect($intent->surface_key)->toBe('calendly.book');
+    expect($intent->state)->toBe('proposed');
+    expect($intent->canonical_url)->toContain('calendly.com/ollies');
 });
 
 // ── Previous-website settings endpoint ──────────────────────────────────

@@ -391,6 +391,30 @@ class SuggestionsController extends ApiController
             ], 202);
         }
 
+        // Eventbrite/Humanitix organiser (2026-09-06): same reasoning as the
+        // store arm above — both surfaces are PlatformRouteShape::Bespoke
+        // with no ConnectStrategy, so this applier's bare connection write
+        // would carry no organiser name, events list or avatar.
+        // EventsSeeder::seedAccount() is the real write, reached the same way
+        // the store arm reaches StoreBrandSeeder: queue-only, and the job
+        // settles this intent itself (applied, or blocked on a miss).
+        if (in_array($intent->surface_key, SuggestionApplier::PROBED_EVENT_ORGANISER_SURFACES, true) && is_string($intent->canonical_url ?? null) && $intent->canonical_url !== '') {
+            CommerceProbeJob::dispatch(
+                (string) $user->id,
+                (string) $intent->canonical_url,
+                'event-organiser',
+                LegacyPlatformMap::legacyFor((string) $intent->surface_key),
+                acceptedIntentId: (string) $intent->id,
+            );
+
+            return $this->success([
+                'connectionId' => null,
+                'surfaceKey' => $intent->surface_key,
+                'displayName' => $surface['display_name'],
+                'status' => 'pending',
+            ], 202);
+        }
+
         // L2 (2026-09-03). The person has said yes; the question left is
         // whether the page they said yes to actually exists.
         //

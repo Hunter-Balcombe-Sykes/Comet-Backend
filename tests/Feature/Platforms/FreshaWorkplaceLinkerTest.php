@@ -1,8 +1,14 @@
 <?php
 
 // FreshaWorkplaceLinker (owner, 2026-08-19): a partna account's Fresha venue
-// is looked up on Google and connected as Google Business when the name
-// agrees AND a second detail (distance / postcode / phone) corroborates.
+// is looked up on Google, and every name-agreeing listing is PROPOSED as a
+// workplace candidate — distance / postcode / phone corroborate how
+// confident a given candidate is, but corroboration no longer decides
+// whether to connect: nothing here connects anything without an accept
+// step (proposeCandidates() writes candidates; connect() is the accept).
+// The old single-confident-match attempt() that auto-connected for a
+// claimed owner was retired 2026-09-06 (same bug class as the
+// GlossGenius/Fresha booking auto-connect closed the same day).
 
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
@@ -56,11 +62,10 @@ function fwlPlace(string $id, string $name, float $lat, float $lng, string $post
     ];
 }
 
-it('connects google business when the name agrees and the pin is close', function () {
+it('proposes a candidate when the name agrees and the pin is close, corroborated by distance', function () {
     Http::fake([
         'places.googleapis.com/v1/places:searchText' => Http::response(['places' => [
             fwlPlace('ChIJstairs', 'Stairs Hair Salon', -37.83940, 144.99320),
-            fwlPlace('ChIJother', 'Stairs Salon Northcote', -37.7700, 145.0000, '3070', '(03) 9000 0000'),
         ]]),
         'places.googleapis.com/v1/places/*' => Http::response([
             'id' => 'ChIJstairs', 'displayName' => ['text' => 'Stairs Hair Salon'],
@@ -70,31 +75,35 @@ it('connects google business when the name agrees and the pin is close', functio
     ]);
     $user = fwlUser('linkme');
 
-    $result = app(FreshaWorkplaceLinker::class)->attempt($user, fwlVenue());
+    $written = app(FreshaWorkplaceLinker::class)->proposeCandidates($user, fwlVenue(), 'fresha');
 
-    expect($result['outcome'])->toBe('connected');
-    expect($result['placeId'])->toBe('ChIJstairs');
-    $row = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', Platform::GoogleBusiness->value)->first();
-    expect($row)->not->toBeNull();
-    expect($row->place_id)->toBe('ChIJstairs');
-    expect($row->payload['name'])->toBe('Stairs Hair Salon');
+    expect($written)->toBe(1)
+        ->and(IntegrationConnection::query()->where('user_id', $user->id)->exists())->toBeFalse();
+    $row = DB::table('site.workplace_candidates')->where('user_id', $user->id)->first();
+    expect($row)->not->toBeNull()
+        ->and($row->place_id)->toBe('ChIJstairs')
+        ->and($row->state)->toBe('proposed')
+        ->and(json_decode($row->corroboration, true))->toContain('distance');
 });
 
-it('does not connect when the name agrees but nothing corroborates', function () {
+it('still proposes the single candidate when the name agrees but nothing else corroborates', function () {
     Http::fake([
         'places.googleapis.com/v1/places:searchText' => Http::response(['places' => [
             fwlPlace('ChIJfar', 'Stairs Hair Salon', -33.8688, 151.2093, '2000', '(02) 9000 0000'),
         ]]),
+        'places.googleapis.com/v1/places/*' => Http::response(['id' => 'ChIJfar']),
     ]);
     $user = fwlUser('farsalon');
 
-    $result = app(FreshaWorkplaceLinker::class)->attempt($user, fwlVenue());
+    $written = app(FreshaWorkplaceLinker::class)->proposeCandidates($user, fwlVenue(), 'fresha');
 
-    expect($result['outcome'])->toBe('no_match');
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->exists())->toBeFalse();
+    expect($written)->toBe(1)
+        ->and(IntegrationConnection::query()->where('user_id', $user->id)->exists())->toBeFalse();
+    $row = DB::table('site.workplace_candidates')->where('user_id', $user->id)->first();
+    expect(json_decode($row->corroboration, true))->toBe(['name']);
 });
 
-it('accepts a phone match as corroboration when the pin is missing', function () {
+it('still records a phone match as a corroborator when the pin is missing', function () {
     Http::fake([
         'places.googleapis.com/v1/places:searchText' => Http::response(['places' => [
             fwlPlace('ChIJphone', 'Stairs Hair', -37.0, 144.0, '9999', '03 9827 8033'),
@@ -106,35 +115,48 @@ it('accepts a phone match as corroboration when the pin is missing', function ()
     $venue['lat'] = null;
     $venue['lng'] = null;
 
-    expect(app(FreshaWorkplaceLinker::class)->attempt($user, $venue)['outcome'])->toBe('connected');
+    $written = app(FreshaWorkplaceLinker::class)->proposeCandidates($user, $venue, 'fresha');
+
+    expect($written)->toBe(1)
+        ->and(IntegrationConnection::query()->where('user_id', $user->id)->exists())->toBeFalse();
+    $row = DB::table('site.workplace_candidates')->where('user_id', $user->id)->first();
+    expect(json_decode($row->corroboration, true))->toContain('phone');
 });
 
-it('skips a business account and an account that already has google', function () {
+it('proposeCandidates refuses an account that already has google', function () {
     Http::fake();
-    $business = fwlUser('bizsalon', 'business');
-    expect(app(FreshaWorkplaceLinker::class)->attempt($business, fwlVenue())['reason'])->toBe('business_account');
-
     $user = fwlUser('hasgoogle');
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => Platform::GoogleBusiness->value,
         'resource_id' => Platform::GoogleBusiness->value, 'payload' => ['name' => 'X', 'url' => 'https://maps.google.com'], 'is_active' => true,
     ]);
-    expect(app(FreshaWorkplaceLinker::class)->attempt($user, fwlVenue())['reason'])->toBe('google_already_connected');
+
+    expect(app(FreshaWorkplaceLinker::class)->proposeCandidates($user, fwlVenue(), 'fresha'))->toBe(0);
     Http::assertNothingSent();
 });
 
-it('treats two confident candidates as ambiguity', function () {
+it('proposes both candidates when two are equally confident (no auto-connect needed to disambiguate)', function () {
     Http::fake([
         'places.googleapis.com/v1/places:searchText' => Http::response(['places' => [
             fwlPlace('ChIJa', 'Stairs Hair Salon', -37.83940, 144.99320),
             fwlPlace('ChIJb', 'Stairs Hair Salon', -37.83950, 144.99330),
         ]]),
+        'places.googleapis.com/v1/places/*' => Http::response([]),
     ]);
     $user = fwlUser('twins');
-    expect(app(FreshaWorkplaceLinker::class)->attempt($user, fwlVenue())['outcome'])->toBe('no_match');
+
+    $written = app(FreshaWorkplaceLinker::class)->proposeCandidates($user, fwlVenue(), 'fresha');
+
+    expect($written)->toBe(2)
+        ->and(IntegrationConnection::query()->where('user_id', $user->id)->exists())->toBeFalse();
+    $rows = DB::table('site.workplace_candidates')->where('user_id', $user->id)->get();
+    expect($rows)->toHaveCount(2);
+    foreach ($rows as $row) {
+        expect(json_decode($row->corroboration, true))->toContain('distance');
+    }
 });
 
-it('accepts a locality-corroborated single hit when the venue offers no other corroborator (owner, 2026-08-27)', function () {
+it('still proposes a locality-corroborated single hit when the venue offers no other corroborator (owner, 2026-08-27)', function () {
     // The bio-mention shape: the venue's own IG bio carries only opening
     // hours — no address, postcode, phone or pin. The name token "darwin"
     // appearing in the ONE name-agreeing candidate's own address is the
@@ -151,16 +173,19 @@ it('accepts a locality-corroborated single hit when the venue offers no other co
         'places.googleapis.com/v1/places/*' => Http::response([]),
     ]);
 
-    $outcome = app(FreshaWorkplaceLinker::class)->attempt($user, [
+    $written = app(FreshaWorkplaceLinker::class)->proposeCandidates($user, [
         'name' => 'Star Barber Darwin',
         'street' => null, 'city' => null, 'postcode' => null,
         'region' => null, 'country' => 'AU', 'lat' => null, 'lng' => null, 'phone' => null,
-    ]);
+    ], 'bio_mention');
 
-    expect($outcome['outcome'])->toBe('connected');
+    expect($written)->toBe(1)
+        ->and(IntegrationConnection::query()->where('user_id', $user->id)->exists())->toBeFalse();
+    $row = DB::table('site.workplace_candidates')->where('user_id', $user->id)->first();
+    expect(json_decode($row->corroboration, true))->toContain('name-locality');
 });
 
-it('still refuses a no-corroborator venue whose name carries no locality token in the candidate address', function () {
+it('still proposes a name-only candidate when the name carries no locality token in the candidate address', function () {
     $user = fwlUser('fwl-noloc');
     Http::fake([
         'places.googleapis.com/v1/places:searchText' => Http::response(['places' => [[
@@ -170,15 +195,19 @@ it('still refuses a no-corroborator venue whose name carries no locality token i
             'location' => ['latitude' => -37.8, 'longitude' => 144.9],
             'businessStatus' => 'OPERATIONAL',
         ]]]),
+        'places.googleapis.com/v1/places/*' => Http::response([]),
     ]);
 
-    $outcome = app(FreshaWorkplaceLinker::class)->attempt($user, [
+    $written = app(FreshaWorkplaceLinker::class)->proposeCandidates($user, [
         'name' => 'Star Barber',
         'street' => null, 'city' => null, 'postcode' => null,
         'region' => null, 'country' => 'AU', 'lat' => null, 'lng' => null, 'phone' => null,
-    ]);
+    ], 'bio_mention');
 
-    expect($outcome['outcome'])->toBe('no_match');
+    expect($written)->toBe(1)
+        ->and(IntegrationConnection::query()->where('user_id', $user->id)->exists())->toBeFalse();
+    $row = DB::table('site.workplace_candidates')->where('user_id', $user->id)->first();
+    expect(json_decode($row->corroboration, true))->toBe(['name']);
 });
 
 // ── A.5: candidates persisted for the setup dialog's listing pass ───────────

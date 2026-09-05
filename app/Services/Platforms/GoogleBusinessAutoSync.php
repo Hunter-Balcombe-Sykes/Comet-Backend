@@ -136,8 +136,14 @@ class GoogleBusinessAutoSync
         // setup dialog renders, with auto-band surfaces pre-scraped into
         // hidden connections (A.3/A.4). Staff/ManyChat builds
         // ($autoConnectBooking) keep the direct seed below — they sit
-        // unclaimed for weeks with nobody to answer a dialog — and so does
-        // the post-claim dashboard connect (the user asked for the sync).
+        // unclaimed for weeks with nobody to answer a dialog. A claimed
+        // user's post-claim dashboard sync also falls through past this
+        // check (not a sign-up build), and workplace/socials below still
+        // direct-write for that case — but booking/reservations do NOT: as
+        // of 2026-09-06 those two always route through the suggestion
+        // pipeline regardless of claim status (see seedBooking()'s and
+        // seedReservation()'s own docblocks — a post-claim "direct connect"
+        // for booking was the GlossGenius/Fresha bug, not a feature).
         if (! $autoConnectBooking && RoutingContext::forUser($user, 'google_business')->isSignupBuild()) {
             $this->seedWorkplace($userId, $gbPayload ?? []);
             $this->routeSignupFindings($user, $enrichment, $capabilities, $gbPayload, $businessName);
@@ -345,9 +351,18 @@ class GoogleBusinessAutoSync
                     ])];
                 }
 
-                $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
+                // Same fix as seedBooking() above, same date (2026-09-06):
+                // this arm wrote a live connection on first discovery with no
+                // accept step. Routed through the suggestion pipeline instead
+                // — see LinkRouter::routeReservation()'s docblock for why the
+                // rich per-provider payload built above needs no threading
+                // through this call.
+                $user = User::find($userId);
+                $routed = $user === null ? null : $this->linkRouter->routeReservation($user, $this->urlOf($write));
 
-                return [$this->seededFinding($write['platform'], $write['resourceId'], 'reservations', is_string($label) ? $label : 'Reservations', $this->urlOf($write))];
+                return $routed !== null && $routed->outcome === 'seeded'
+                    ? [$this->seededFinding($write['platform'], $write['resourceId'], 'reservations', is_string($label) ? $label : 'Reservations', $this->urlOf($write))]
+                    : [];
             }, []);
         } catch (Throwable $e) {
             report($e);
@@ -464,7 +479,7 @@ class GoogleBusinessAutoSync
             // this is a best-effort auto-sync, not a user-initiated write, so a
             // dropped seed under contention is safe (the outer try/catch below
             // still applies to whatever the closure itself throws).
-            $findings = $this->withBookingXorLock($userId, function () use ($userId, $write, $label) {
+            $findings = $this->withBookingXorLock($userId, function () use ($userId, $write, $label, $autoConnectBooking) {
                 if (collect(self::BOOKING_PLATFORMS)->contains(fn ($p) => $this->has($userId, $p))) {
                     return [$this->conflictFinding($write['platform'], $write['resourceId'], 'booking', is_string($label) ? $label : 'Booking', $this->urlOf($write), [
                         'remove' => self::BOOKING_PLATFORMS,
@@ -472,30 +487,41 @@ class GoogleBusinessAutoSync
                     ])];
                 }
 
-                // Square must never auto-connect (owner policy 2026-09-05: "a
-                // harvest never auto-adds a platform... only ever suggests
-                // one" — LinkRouter::routeClassified() already enforces this
-                // for every OTHER entry into booking; this legacy Google
-                // Business arm was the one path that still wrote a live
-                // connection with no accept step, live 2026-09-05:
-                // ryanfitzsimons' Square listing connected itself on
-                // discovery). Routed through the same suggestion pipeline
-                // every other discovered platform uses instead of $this->write().
-                // Fresha is untouched — its write here is already a PENDING
-                // "Finish setup" placeholder awaiting the user's own choice,
-                // not a live connection.
-                if ($write['platform'] === Platform::Square->value) {
-                    $user = User::find($userId);
-                    $routed = $user === null ? null : $this->linkRouter->routeBooking($user, $this->urlOf($write));
+                // $autoConnectBooking is the SAME staff/ManyChat carve-out
+                // LinkRouter::routeClassified() gates its own booking arm on
+                // (there, $ctx->autoConnectBooking) — a build with nobody at
+                // a setup dialog to accept a suggestion, which is why it
+                // keeps the immediate connect (Josh's ask:
+                // GoogleBusinessFreshaAutoDispatchTest).
+                if ($autoConnectBooking) {
+                    $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
 
-                    return $routed !== null && $routed->outcome === 'seeded'
-                        ? [$this->seededFinding($write['platform'], $write['resourceId'], 'booking', is_string($label) ? $label : 'Booking', $this->urlOf($write))]
-                        : [];
+                    return [$this->seededFinding($write['platform'], $write['resourceId'], 'booking', is_string($label) ? $label : 'Booking', $this->urlOf($write))];
                 }
 
-                $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
+                // No booking brand may auto-connect on a SELF-SERVE build
+                // (owner policy 2026-09-05: "a harvest never auto-adds a
+                // platform... only ever suggests one" — LinkRouter::
+                // routeClassified() already enforces this for every OTHER
+                // entry into booking; this legacy Google Business arm was
+                // the one path that still wrote a live connection with no
+                // accept step). Originally scoped to Square only (live
+                // 2026-09-05: ryanfitzsimons' Square listing connected
+                // itself on discovery) — widened 2026-09-06 after the SAME
+                // bug reproduced live for GlossGenius (jordandimitriadis: a
+                // "recognized brand, custom card" booking link auto-connected
+                // exactly like Square used to) and, on inspection, for
+                // Fresha too: its "PENDING, Finish setup" payload still
+                // reached the unconditional write below — a real, visible
+                // connection with no accept step, just one whose picker was
+                // empty. Every booking write now takes the same suggestion-
+                // pipeline door regardless of brand.
+                $user = User::find($userId);
+                $routed = $user === null ? null : $this->linkRouter->routeBooking($user, $this->urlOf($write));
 
-                return [$this->seededFinding($write['platform'], $write['resourceId'], 'booking', is_string($label) ? $label : 'Booking', $this->urlOf($write))];
+                return $routed !== null && $routed->outcome === 'seeded'
+                    ? [$this->seededFinding($write['platform'], $write['resourceId'], 'booking', is_string($label) ? $label : 'Booking', $this->urlOf($write))]
+                    : [];
             }, []);
 
             // Auto-connect the menu, on the same terms as the Instagram side:
@@ -1021,8 +1047,23 @@ class GoogleBusinessAutoSync
 
                     continue;
                 }
-                $this->write($userId, $platform, $platform, $payload);
-                $findings[] = $this->seededFinding($platform, $platform, 'social', $label, $url);
+
+                // 2026-09-06: a Google Business social link is a harvested
+                // discovery, not a direct request — same "no harvest ever
+                // auto-connects a platform, only ever suggests one" fix
+                // already applied to booking/reservations above. This no
+                // longer writes a live connection unconditionally; it always
+                // takes LinkRouter::routeSocial()'s suggestion-pipeline door
+                // (see that method's docblock). A 'seeded' outcome there
+                // means the pipeline was confident enough to apply the intent
+                // immediately; anything less (a proposed suggestion, a
+                // blocked/conflict Swap) is not a synced-modal finding — it
+                // surfaces in the setup dialog / suggestions inbox instead.
+                $user = User::find($userId);
+                $routed = $user === null ? null : $this->linkRouter->routeSocial($user, $url);
+                if ($routed !== null && $routed->outcome === 'seeded') {
+                    $findings[] = $this->seededFinding($platform, $platform, 'social', $label, $url);
+                }
             } catch (Throwable $e) {
                 report($e);
             }

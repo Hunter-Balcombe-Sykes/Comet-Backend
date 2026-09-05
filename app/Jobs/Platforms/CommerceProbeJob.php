@@ -2,6 +2,7 @@
 
 namespace App\Jobs\Platforms;
 
+use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Routing\IriCanonicalizer;
@@ -36,7 +37,8 @@ use Throwable;
  *
  * Resolution chain:
  *   category 'event'           → EventsSeeder::seedStandalone()
- *   category 'event-organiser' → EventsSeeder::seedAccount()
+ *   category 'event-organiser' → EventsSeeder::seedAccount() (accept lane
+ *                                 only, 2026-09-06 — see settleEventOrganiser())
  *   category 'shop'            → StoreBrandSeeder (probe subsumes detection)
  *   category null (unknown)    → GenericShopScraper probe → product/store/neither
  *
@@ -174,7 +176,16 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
             // land" matters, and $resolved is logged as a bool below.
             $resolved = match ($this->category) {
                 'event' => $events->seedStandalone($user, (string) $this->platform, $this->url) !== null,
-                'event-organiser' => $events->seedAccount($user, (string) $this->platform, $this->url) !== null,
+                // 2026-09-06: reached ONLY via the accept lane now
+                // (SuggestionsController::accept() / SetupBatchApplier — see
+                // their PROBED_EVENT_ORGANISER_SURFACES branch) — a harvested
+                // organiser discovery proposes through LinkRouter::seedEvent()
+                // instead of landing here directly, same "no harvest ever
+                // auto-connects" fix already applied to shop below. Unlike
+                // shop, EventsSeeder is not wired into the routing/observer
+                // pipeline, so nothing settles the accepted intent
+                // automatically — settleEventOrganiser() does it by hand.
+                'event-organiser' => $this->settleEventOrganiser($events, $user),
                 // Same deep-page rule as the probe arm below (final critic,
                 // 2026-08-20): the classifier names 'shop' by HOST alone, so a
                 // deep path on a recognised shop host is exactly the 4barbers
@@ -418,6 +429,43 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
      *    unservable renders a Try again that can only fail the same way
      *    forever. Left alone.
      */
+    /**
+     * EventsSeeder::seedAccount() writes the connection but never touches
+     * routing.source_intents — it predates the catalog/reconciler entirely.
+     * A MISS falls through to settleAcceptedIntent() same as every other
+     * category (called from handle() below); a HIT settles the accepted
+     * intent here by hand, matching the shape SourceReconciler's own Place
+     * transition writes (connection_id, resolved_at) so the inbox reads this
+     * exactly like any other applied suggestion.
+     */
+    private function settleEventOrganiser(EventsSeeder $events, User $user): bool
+    {
+        $resourceId = $events->seedAccount($user, (string) $this->platform, $this->url);
+        if ($resourceId === null) {
+            return false;
+        }
+
+        if ($this->acceptedIntentId !== null) {
+            $connectionId = IntegrationConnection::query()
+                ->where('user_id', $user->id)
+                ->where('platform', $this->platform)
+                ->where('resource_id', $resourceId)
+                ->value('id');
+
+            DB::table('routing.source_intents')
+                ->where('id', $this->acceptedIntentId)
+                ->where('user_id', $this->userId)
+                ->update([
+                    'state' => 'applied',
+                    'connection_id' => $connectionId,
+                    'resolved_at' => now(),
+                    'updated_at' => now(),
+                ]);
+        }
+
+        return true;
+    }
+
     private function settleAcceptedIntent(): void
     {
         DB::table('routing.source_intents')

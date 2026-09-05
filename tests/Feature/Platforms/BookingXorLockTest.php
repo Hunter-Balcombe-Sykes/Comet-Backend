@@ -30,6 +30,9 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // 2026-09-06: every booking brand now routes through LinkRoutingService/
+    // SourceReconciler (routeBooking()), which reads/writes routing.source_intents.
+    setupRoutingTables();
     // A Fresha bio link now auto-dispatches ConnectFetchJob, and QUEUE_CONNECTION
     // =sync runs it INLINE — without this the seed below scrapes fresha.com for real.
     Http::fake();
@@ -55,11 +58,11 @@ function bxEnrichment(): array
     return ['booking' => ['https://www.fresha.com/a/doc-cuts']];
 }
 
-it('holds the booking-XOR lock across BOTH the has()-check and the write during GoogleBusinessAutoSync::seedBooking', function () {
+it('holds the booking-XOR lock across BOTH the has()-check and the route during GoogleBusinessAutoSync::seedBooking', function () {
     $user = bxUser('bxgb1');
     $key = "platforms:booking-xor:lock:{$user->id}"; // hard-coded, not read from the trait
 
-    // Probe A: fires on the has()-then-write check span (the group-conflict
+    // Probe A: fires on the has()-then-route check span (the group-conflict
     // exists() queries in seedBooking). If the outer lock is held, THIS probe
     // lock must fail to acquire.
     $checkLocked = false;
@@ -75,28 +78,35 @@ it('holds the booking-XOR lock across BOTH the has()-check and the write during 
         $checkLocked = $checkLocked || $heldNow;
     });
 
-    // Probe B: fires the instant the fresha row is created (the write half).
+    // Probe B (2026-09-06: every booking brand now routes through the
+    // suggestion pipeline, so a discovery never creates a live connection —
+    // it proposes a routing.source_intents row instead. Fires on THAT insert,
+    // the write half's new shape).
     $writeLocked = false;
-    IntegrationConnection::created(function (IntegrationConnection $conn) use (&$writeLocked, $key) {
-        if ($conn->platform !== 'fresha') {
+    DB::listen(function ($query) use (&$writeLocked, $key) {
+        if (! str_starts_with($query->sql, 'insert or ignore into "routing"."source_intents"')) {
             return;
         }
         $probe = Cache::lock($key, 5);
-        $writeLocked = ! $probe->get();
-        if (! $writeLocked) {
+        $heldNow = ! $probe->get();
+        if (! $heldNow) {
             $probe->release();
         }
+        $writeLocked = $writeLocked || $heldNow;
     });
 
     app(GoogleBusinessAutoSync::class)->seed((string) $user->id, bxEnrichment(), 'Doc Cuts');
 
-    // Today (pre-fix) no lock is taken at all, so both flags read false.
     expect($checkLocked)->toBeTrue();
     expect($writeLocked)->toBeTrue();
 
-    // Data assertion blocks a degenerate "acquire a lock then skip the seed".
-    $fresha = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->firstOrFail();
-    expect($fresha->payload['source'])->toBe('google-business');
+    // Data assertion blocks a degenerate "acquire a lock then skip the seed":
+    // a proposed (band:auto, pre-ticked) intent, no live connection — the
+    // 2026-09-05/06 "a harvest never auto-connects a booking platform" policy.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
+    $intent = DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'fresha.book')->firstOrFail();
+    expect($intent->state)->toBe('proposed');
+    expect($intent->band)->toBe('auto');
 });
 
 it('InstagramAutoSync::seed takes the SAME booking-XOR lock key as GoogleBusinessAutoSync — proving one shared lock, not two independent ones', function () {

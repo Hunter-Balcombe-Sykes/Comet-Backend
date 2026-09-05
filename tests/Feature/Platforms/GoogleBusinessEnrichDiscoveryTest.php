@@ -8,6 +8,7 @@ use App\Services\Platforms\GoogleBusinessApifyScraper;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -122,6 +123,17 @@ function gbdXConnection(User $user): ?IntegrationConnection
         ->first();
 }
 
+// 2026-09-06: a Google Business social link is a harvested discovery, not a
+// direct request (same fix as booking/reservations) — it no longer connects
+// outright, it proposes a routing.source_intents row instead.
+function gbdXIntent(User $user): ?object
+{
+    return DB::table('routing.source_intents')
+        ->where('user_id', $user->id)
+        ->where('surface_key', 'x.profile')
+        ->first();
+}
+
 it('discovers off the harvested IG handle and unions the x profile into the socials seed', function () {
     $user = gbdUser('gbd1');
     gbdConnection($user);
@@ -140,12 +152,14 @@ it('discovers off the harvested IG handle and unions the x profile into the soci
 
     // The discovered map arrived in the union in seedSocials' vocabulary
     // ('twitter', aliased back to platform 'x' by the seeder) and filled a
-    // network no other source carried.
-    $x = gbdXConnection($user);
-    expect($x)->not->toBeNull()
-        ->and(data_get($x->payload, 'url'))->toBe('https://x.com/mkbhd')
-        ->and(data_get($x->payload, 'username'))->toBe('mkbhd')
-        ->and(data_get($x->payload, 'source'))->toBe('google-business');
+    // network no other source carried — proposed, not connected.
+    expect(gbdXConnection($user))->toBeNull();
+    $intent = gbdXIntent($user);
+    expect($intent)->not->toBeNull()
+        ->and($intent->canonical_url)->toBe('https://x.com/mkbhd')
+        ->and($intent->identifier)->toBe('mkbhd')
+        ->and($intent->state)->toBe('proposed')
+        ->and($intent->origin)->toBe('google_business');
 
     // The run itself settled normally around the discovery.
     expect($user->integrationConnections()->where('platform', 'google-business')->first()->apify_status)->toBe('ok');
@@ -165,7 +179,7 @@ it('keeps the harvest as the higher authority — a site-published x link beats 
     ]);
 
     Http::assertSentCount(1);
-    expect(data_get(gbdXConnection($user)?->payload, 'url'))->toBe('https://x.com/fadelab');
+    expect(gbdXIntent($user)?->canonical_url)->toBe('https://x.com/fadelab');
 });
 
 it('falls to the facebook handle when the harvest carries no instagram', function () {
@@ -182,7 +196,7 @@ it('falls to the facebook handle when the harvest carries no instagram', functio
     Http::assertSent(fn ($request) => str_contains($request->url(), 'api.scrapecreators.com/v1/find-social-profiles')
         && $request['platform'] === 'facebook'
         && $request['handle'] === 'mkbhd');
-    expect(data_get(gbdXConnection($user)?->payload, 'url'))->toBe('https://x.com/mkbhd');
+    expect(gbdXIntent($user)?->canonical_url)->toBe('https://x.com/mkbhd');
 });
 
 it('reads a vendor husk as nothing discovered — the enrichment lands exactly as it was', function () {

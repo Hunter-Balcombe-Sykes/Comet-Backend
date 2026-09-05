@@ -51,10 +51,16 @@ it('files a Swap intent with a constraint-valid origin when a second reservation
 
     expect($result->handled)->toBeTrue();
 
+    // 2026-09-06: reservations from a bio-harvest/website-scan now ALSO
+    // route through the suggestion pipeline (same fix, widened, as booking)
+    // rather than seedReservation()'s own ad-hoc cap check — so the block
+    // reason the REAL reconciler reports is 'conflict', not the old
+    // GB-specific 'cap_reached' label. Still the same real-world outcome:
+    // blocked against the incumbent, no live duplicate.
     $intent = DB::table('routing.source_intents')->where('user_id', $pro->id)->first();
     expect($intent)->not->toBeNull()
         ->and($intent->state)->toBe('blocked')
-        ->and($intent->block_reason)->toBe('cap_reached')
+        ->and($intent->block_reason)->toBe('conflict')
         ->and($intent->conflicting_connection_id)->toBe((string) $incumbent->id)
         ->and(in_array($intent->origin, SOURCE_INTENT_ORIGINS, true))->toBeTrue();
 });
@@ -151,6 +157,16 @@ it('does not resurrect a reservation connection the owner disconnected', functio
     $tombstone->save();
     $tombstone->delete();
 
+    // /r/<slug> is a documented catalog gap independent of this fix (Opentable
+    // surface's own note: "slug links carry no rid server-side (WAF-blocked
+    // scrape)" — reservedPaths('/r/') refuses to place ANY /r/ link,
+    // tombstone or not). Before 2026-09-06 this reached seedReservation()'s
+    // own more lenient slug-based parser directly, bypassing the catalog
+    // entirely; now reservations route through the same suggestion pipeline
+    // as booking, so this shape can no longer be routed at all — same as a
+    // fresh (never-tombstoned) /r/ link (see the sibling test below). The
+    // original SEM-2 tombstone-vs-fresh distinction this test proved is now
+    // moot for this URL shape specifically: neither case is handled.
     $result = app(LinkRouter::class)->route(
         $pro,
         'https://www.opentable.com.au/r/ghost-diner',
@@ -158,18 +174,19 @@ it('does not resurrect a reservation connection the owner disconnected', functio
     );
 
     expect($result->outcome)->toBe('custom');
-    expect($result->handled)->toBeTrue();
-    expect($result->unmatched)->toHaveCount(1);
+    expect($result->handled)->toBeFalse();
+    expect($result->unmatched)->toHaveCount(0);
     expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
     expect(IntegrationConnection::onlyTrashed()->where('user_id', $pro->id)->count())->toBe(1);
-    // Distinguishes the tombstone outcome from a cap-block: recordCapBlock
-    // must not have fired on this path.
     expect(DB::table('routing.source_intents')->where('user_id', $pro->id)->count())->toBe(0);
 });
 
-it('still seeds a reservation when the owner has no tombstone', function () {
+it('still proposes a reservation when the owner has no tombstone', function () {
     // Anti-over-fire control (REQUIRED): without this, a mutation that makes
     // wasDisconnected() always return true would pass every other test here.
+    // Uses the restRef query shape (not /r/<slug> — see the sibling tombstone
+    // test's comment on why that shape is unroutable regardless of tombstone
+    // status) so this actually exercises the tombstone-vs-fresh branch.
     $pro = User::create([
         'handle' => 'sem2-resv-fresh', 'handle_lc' => 'sem2-resv-fresh', 'display_name' => 'SEM2Fresh',
         'first_name' => 'SEM2Fresh', 'account_type' => 'business', 'sector' => 'restaurant',
@@ -178,10 +195,12 @@ it('still seeds a reservation when the owner has no tombstone', function () {
 
     $result = app(LinkRouter::class)->route(
         $pro,
-        'https://www.opentable.com.au/r/never-connected-diner',
+        'https://www.opentable.com.au/booking/restref/availability?restRef=99001',
         new RouteContext,
     );
 
-    expect($result->outcome)->toBe('seeded');
-    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1);
+    expect($result->handled)->toBeTrue();
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0);
+    $intent = DB::table('routing.source_intents')->where('user_id', $pro->id)->where('surface_key', 'opentable.reserve')->firstOrFail();
+    expect($intent->state)->toBe('proposed');
 });

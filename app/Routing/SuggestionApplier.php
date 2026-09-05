@@ -37,6 +37,17 @@ class SuggestionApplier
      */
     public const PROBED_STORE_SURFACES = ['shopify.store', 'woocommerce.store', 'squarespace.store', 'bigcartel.store'];
 
+    /**
+     * Eventbrite/Humanitix organiser surfaces (2026-09-06): both are
+     * PlatformRouteShape::Bespoke with no ConnectStrategy of their own — the
+     * bare connection this applier writes would carry no organiser name, no
+     * events list, no avatar. Same reason PROBED_STORE_SURFACES bypasses this
+     * applier for a probed storefront; the real write is
+     * EventsSeeder::seedAccount(), reached via CommerceProbeJob exactly like
+     * the store arm reaches StoreBrandSeeder.
+     */
+    public const PROBED_EVENT_ORGANISER_SURFACES = ['eventbrite.organiser', 'humanitix.organiser'];
+
     public function __construct(
         private readonly ConnectionIdentity $identity,
         private readonly AutoBookingConnectDispatcher $autoBookingConnect,

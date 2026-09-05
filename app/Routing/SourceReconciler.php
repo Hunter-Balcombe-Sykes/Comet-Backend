@@ -10,6 +10,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\AutoBookingConnectDispatcher;
+use App\Services\Platforms\YoutubeScraper;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
@@ -43,6 +44,7 @@ class SourceReconciler
         private readonly IriCanonicalizer $canonicaliser,
         private readonly AutoBookingConnectDispatcher $autoBookingConnect,
         private readonly PreScrapeDispatcher $preScrape,
+        private readonly YoutubeScraper $youtube,
     ) {}
 
     /**
@@ -111,6 +113,21 @@ class SourceReconciler
         // failed once in this repo (#SEC-1). Never fall back to the raw,
         // possibly-secret-bearing URL.
         $identifier = $placement->identifier ?? $iri->canonical ?? SecretParams::redactUrl($iri->raw) ?? '';
+
+        // F31 (2026-09-06): youtube.channel's own detectors capture whichever
+        // identifier shape the URL happened to carry — a bare handle off an
+        // @url, or the raw UC… id off a /channel/ url — as two different
+        // strings for the SAME account, and every dedup below (matchExisting,
+        // capReached, upsertIntent's exact-identifier M-8 check) compares
+        // identifiers as opaque strings. Canonicalising the id shape to its
+        // real handle HERE, before any of them read $identifier, means the
+        // existing exact-match dedup and the naming machinery both treat it
+        // exactly as they would an @handle discovery — no rewrite needed
+        // anywhere else. Fails open (keeps the raw id) on no key/network
+        // miss, same discipline as every other live-resolve in this pipeline.
+        if ($placement->surfaceKey === 'youtube.channel' && preg_match('/^UC[A-Za-z0-9_-]{22}$/', $identifier) === 1) {
+            $identifier = $this->youtube->handleFromChannelId($identifier) ?? $identifier;
+        }
 
         $verdict = $placement->verdict;
         $blockReason = $placement->blockReason;

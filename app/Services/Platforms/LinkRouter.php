@@ -152,7 +152,7 @@ class LinkRouter
                 'booking' => $ctx->autoConnectBooking
                     ? $this->seedBooking($user, $platform, $url, $classified, $ctx)
                     : $this->seedCatalogLink($user, $url),
-                'event', 'event-organiser' => $this->seedEvent($user, $platform, $url, $classified),
+                'event', 'event-organiser' => $this->seedEvent($user, $platform, $url, $classified, $ctx),
                 'content-item' => $this->seedMediaItem($user, $url),
                 'shop' => $this->seedShop($user, $url, $ctx),
                 // Recognised host with no legacy arm of its own. Two flavours
@@ -166,12 +166,26 @@ class LinkRouter
                 // the narrow slice of the gap-9 P8 promotion, done at the one
                 // call site every Engine-2 lane shares.
                 'link' => $this->seedCatalogLink($user, $url),
-                'reservations' => $this->seedReservation($user, $platform, $url, $classified),
+                // 2026-09-06: reservations/ordering carried the SAME "harvest
+                // auto-connects a live row" bug the booking arm above was
+                // fixed for — seedReservation()/seedOnlineOrdering() wrote
+                // directly on first discovery (their own docblocks' M-5 self-
+                // managed-slot logic only ever covered a SECOND, conflicting
+                // link; the first one connected itself exactly like booking
+                // used to). Same carve-out as booking: $ctx->autoConnectBooking
+                // is the staff/ManyChat build with nobody at a setup dialog to
+                // accept a suggestion: everyone else routes through the
+                // suggestion pipeline and only auto-seeds on accept.
+                'reservations' => $ctx->autoConnectBooking
+                    ? $this->seedReservation($user, $platform, $url, $classified)
+                    : $this->seedCatalogLink($user, $url),
                 // 'bio_harvest': route() is the SCAN gateway (Instagram bio,
                 // link-in-bio unroll). routeOrdering() below is the Google
                 // listing's own door and says so itself — the origin has to be
                 // one routing.source_intents' CHECK constraint accepts.
-                'online-ordering' => $this->seedOnlineOrdering($user, $platform, $url, $classified, 'bio_harvest'),
+                'online-ordering' => $ctx->autoConnectBooking
+                    ? $this->seedOnlineOrdering($user, $platform, $url, $classified, 'bio_harvest')
+                    : $this->seedCatalogLink($user, $url),
                 default => RouteResult::custom(),
             };
 
@@ -244,6 +258,21 @@ class LinkRouter
      * mirroring routeClassified()'s own `$ctx->autoConnectBooking ? seedBooking
      * : seedCatalogLink` gate for its false branch — this caller has no
      * autoConnectBooking carve-out to honour, so there is nothing to branch on.
+     *
+     * Never confirmed, regardless of the user's claim status (2026-09-06,
+     * corrected same day): A.13's original text carved out "post-claim
+     * connects" as a second legitimate direct-seed lane alongside the staff
+     * build, on the theory that a claimed user's own, already-verified
+     * Google listing turning up a booking link could be trusted as
+     * confirmed. That carve-out WAS the GlossGenius/Fresha bug — jordandimi
+     * triadis and the Fresha "PENDING, Finish setup" account were both
+     * already-claimed users, so the discovery reached this exact
+     * post-claim path and connected with no accept step, the same shape as
+     * the Square bug this method was first written to close. A harvested
+     * link is never a direct request no matter who it belongs to; the only
+     * remaining no-suggestion lane is the staff/ManyChat autoConnectBooking
+     * flag, which never reaches this method at all (GoogleBusinessAutoSync
+     * ::seedBooking() branches around it before calling here).
      */
     public function routeBooking(User $user, string $url, string $origin = 'google_business'): RouteResult
     {
@@ -251,8 +280,83 @@ class LinkRouter
             return RouteResult::custom();
         }
 
-        $classified = $this->harvester->classify($url);
-        if ($classified === null || $classified['category'] !== 'booking') {
+        // No harvester->classify() pre-gate (removed 2026-09-06, found while
+        // generalizing past Square): classify() only recognizes a fixed list
+        // of known vendor hosts plus the catalog's own detectors — neither
+        // covers `direct.book`, GB's brandless "same-domain appointment link"
+        // surface (resolveBookingWrite()'s fallback for a merchant's OWN
+        // booking page, e.g. fadelab.com.au/book-appointment). Gating on it
+        // silently dropped every such discovery on the floor: classify()
+        // returned null, so routeBooking() bailed to RouteResult::custom()
+        // before ever reaching seedCatalogLink(). The caller here has
+        // already done its own classification (resolveBookingWrite() /
+        // brandSurfaceFor()) before calling in, so re-classifying is both
+        // redundant and — for this one shape — actively wrong.
+        // seedCatalogLink() -> LinkRoutingService::route() runs its OWN
+        // catalog-projection decision regardless, so nothing unclassifiable
+        // slips through un-vetted.
+        try {
+            return $this->seedCatalogLink($user, $url, $origin);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return RouteResult::custom();
+        }
+    }
+
+    /**
+     * routeBooking()'s reservations twin (2026-09-06): GoogleBusinessAutoSync
+     * ::seedReservation() had the identical bug — an OpenTable/ResDiary/
+     * NowBookit/custom link off the Google listing wrote a live connection
+     * directly, no accept step, same shape the booking fix above already
+     * closed. The rich per-provider payload (rid, embedUrl, microsite id…)
+     * that method built is NOT threaded through here — it never needs to be:
+     * the catalog's own detector for each of these surfaces already captures
+     * the identifier a normal paste would (opentable.reserve's `rid` query
+     * param, for one), and that surface's own connect strategy re-derives the
+     * embed/enrichment fields once the suggestion is accepted, exactly as a
+     * manually pasted reservation link already does today.
+     *
+     * Never confirmed — see routeBooking()'s docblock above: a claimed
+     * user's own listing is not a direct request either.
+     */
+    public function routeReservation(User $user, string $url, string $origin = 'google_business'): RouteResult
+    {
+        if ($user->isPendingDeletion()) {
+            return RouteResult::custom();
+        }
+
+        // Same fix as routeBooking() above, same reason: no classify() gate,
+        // so a same-domain custom reservation page isn't silently dropped.
+        try {
+            return $this->seedCatalogLink($user, $url, $origin);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return RouteResult::custom();
+        }
+    }
+
+    /**
+     * Route ONE social profile url for a caller that has already decided it
+     * wants the suggestion path, never the auto-seed one —
+     * GoogleBusinessAutoSync::seedSocials()'s legacy direct-write for
+     * facebook/tiktok/twitter/linkedin wrote a live connection
+     * unconditionally, the same "no harvest ever auto-connects a platform,
+     * only ever suggests one" bug class routeBooking() above closed for
+     * booking/reservations (2026-09-06) — a Google Business social link is
+     * exactly as unconfirmed a discovery as a booking link, and had no
+     * accept step either. Instagram is NOT routed through here:
+     * seedInstagram()/dispatchInstagram() is its own, much larger Apify-
+     * budget-gated flow and is out of scope for this pass.
+     *
+     * Deliberately always seedCatalogLink() — see routeBooking()'s docblock
+     * above for why there is no classify() pre-gate and no
+     * confirmed-by-claim-status carve-out.
+     */
+    public function routeSocial(User $user, string $url, string $origin = 'google_business'): RouteResult
+    {
+        if ($user->isPendingDeletion()) {
             return RouteResult::custom();
         }
 
@@ -391,7 +495,7 @@ class LinkRouter
     /**
      * @param  array{platform:string, category:string, label:string}  $classified
      */
-    private function seedEvent(User $user, string $platform, string $url, array $classified): RouteResult
+    private function seedEvent(User $user, string $platform, string $url, array $classified, RouteContext $ctx): RouteResult
     {
         $category = $classified['category'];
 
@@ -405,10 +509,31 @@ class LinkRouter
             return $written !== null ? RouteResult::custom(handled: true) : RouteResult::custom();
         }
 
-        $resourceId = $category === 'event-organiser'
-            ? $this->events->seedAccount($user, $platform, $url)
-            : null;
+        // Every OTHER 'event-organiser' brand (luma, ticketmaster, dice, …)
+        // has no account arm at all — EventsSeeder::PLATFORMS is just
+        // eventbrite/humanitix, so this never applied to them either way.
+        if (! in_array($platform, ['eventbrite', 'humanitix'], true)) {
+            return RouteResult::custom();
+        }
 
+        // 2026-09-06: same "no harvest ever auto-connects a platform, only
+        // ever suggests one" fix already applied to booking/reservations/
+        // online-ordering above — EventsSeeder::seedAccount() wrote a live
+        // organiser connection unconditionally on first discovery, no accept
+        // step. $ctx->autoConnectBooking is the same staff/ManyChat carve-out
+        // those arms use (a build with nobody at a setup dialog to accept a
+        // suggestion); everyone else proposes through the catalog (both
+        // eventbrite.organiser and humanitix.organiser have real /o/ and
+        // /host/ detectors) and only connects on accept — see
+        // SuggestionsController::accept()'s event-organiser branch, which
+        // dispatches CommerceProbeJob to run this same seedAccount() with the
+        // real fetch (organiser name, events list, avatar) a bare catalog
+        // connect could never build on its own.
+        if (! $ctx->autoConnectBooking) {
+            return $this->seedCatalogLink($user, $url);
+        }
+
+        $resourceId = $this->events->seedAccount($user, $platform, $url);
         if ($resourceId === null) {
             return RouteResult::custom();
         }

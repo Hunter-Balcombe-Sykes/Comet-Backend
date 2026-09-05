@@ -260,10 +260,16 @@ it('a retry after a mid-flow exception does not re-bill Apify (JOB-2)', function
 
     expect($scraper->calls)->toBe(1); // NOT re-billed on the retry
 
-    $findings = IntegrationConnection::query()
-        ->where('user_id', $user->id)->where('platform', 'google-business')
-        ->firstOrFail()->payload['syncFindings'] ?? [];
-    expect($findings)->not->toBe([]);
+    // 2026-09-06: a Google Business social link now proposes rather than
+    // connects, so seed() returns no synced-modal finding for it any more —
+    // syncFindings is no longer the right proxy for "seed() actually ran".
+    // The proposed intent is: seed() reached the routing pipeline and wrote
+    // its decision, which is exactly what this retry-idempotency test needs
+    // to prove happened (not skipped, not silently swallowed).
+    expect(DB::table('routing.source_intents')
+        ->where('user_id', $user->id)
+        ->where('surface_key', 'facebook.profile')
+        ->exists())->toBeTrue();
 });
 
 it('an orphaned inflight marker (no cached result) refuses to re-bill Apify (JOB-2)', function () {
@@ -493,10 +499,17 @@ it('still persists syncFindings for a claimed owner (PRIV-2 mirror)', function (
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
         ->handle($scraper, app(GoogleBusinessAutoSync::class), gbEnrichHarvester());
 
-    $conn = IntegrationConnection::query()
+    IntegrationConnection::query()
         ->where('user_id', $user->id)->where('platform', 'google-business')->firstOrFail();
 
-    expect($conn->payload['syncFindings'] ?? [])->not->toBe([]);
+    // 2026-09-06: a Google Business social link proposes rather than
+    // connects, so syncFindings is no longer the right proxy here — the
+    // proposed intent proves the same thing (seed() actually ran and is not
+    // vacuously passing on a run that found nothing).
+    expect(DB::table('routing.source_intents')
+        ->where('user_id', $user->id)
+        ->where('surface_key', 'facebook.profile')
+        ->exists())->toBeTrue();
 });
 
 it('clears a syncFindings already stored against an unclaimed owner (PRIV-2)', function () {
@@ -567,10 +580,16 @@ it('reads owner status at WRITE time, so a claim mid-scrape keeps the findings (
     (new GoogleBusinessEnrichJob((string) $user->id, 'ChIJtest'))
         ->handle($scraper, app(GoogleBusinessAutoSync::class), gbEnrichHarvester());
 
-    $conn = IntegrationConnection::query()
+    IntegrationConnection::query()
         ->where('user_id', $user->id)->where('platform', 'google-business')->firstOrFail();
 
     expect($user->status)->toBe('unclaimed');             // the stale in-memory view
     expect($user->fresh()->status)->toBe('active');       // the live row the guard must see
-    expect($conn->payload['syncFindings'] ?? [])->not->toBe([]);
+    // 2026-09-06: same swap as the sibling PRIV-2 tests above — a proposed
+    // intent proves seed() ran, since a social link no longer produces a
+    // synced-modal finding.
+    expect(DB::table('routing.source_intents')
+        ->where('user_id', $user->id)
+        ->where('surface_key', 'facebook.profile')
+        ->exists())->toBeTrue();
 });

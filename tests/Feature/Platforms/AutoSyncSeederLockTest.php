@@ -42,6 +42,11 @@ use Illuminate\Support\Str;
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    // 2026-09-06: seedReservation() now routes every reservation discovery
+    // through LinkRouter::routeReservation()/SourceReconciler (a proposed
+    // routing.source_intents row, never a direct write) — same fix as
+    // booking. The schema must exist for the tests below.
+    setupRoutingTables();
 });
 
 /**
@@ -111,9 +116,13 @@ it('holds the reservations-XOR lock across BOTH the hasAnyReservation check and 
         $checkLocked = $checkLocked || $heldNow;
     });
 
+    // Probe B (2026-09-06: reservations now route through the suggestion
+    // pipeline, so a discovery never creates a live connection — it
+    // proposes a routing.source_intents row instead. Fires on THAT insert,
+    // the write half's new shape).
     $writeLocked = false;
-    IntegrationConnection::created(function (IntegrationConnection $conn) use (&$writeLocked, $key) {
-        if ($conn->platform !== 'resdiary') {
+    DB::listen(function ($query) use (&$writeLocked, $key) {
+        if (! str_starts_with($query->sql, 'insert or ignore into "routing"."source_intents"')) {
             return;
         }
         $probe = Cache::lock($key, 5);
@@ -132,8 +141,9 @@ it('holds the reservations-XOR lock across BOTH the hasAnyReservation check and 
     expect($checkLocked)->toBeTrue();
     expect($writeLocked)->toBeTrue();
 
-    $resdiary = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'resdiary')->firstOrFail();
-    expect($resdiary->payload['source'])->toBe('google-business');
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'resdiary')->exists())->toBeFalse();
+    $intent = DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'reservations')->firstOrFail();
+    expect($intent->state)->toBe('proposed');
 });
 
 // ── seedOrdering() — per-platform seed lock ('online-ordering') ─────────

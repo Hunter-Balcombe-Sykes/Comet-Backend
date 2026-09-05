@@ -62,6 +62,11 @@ beforeEach(function () {
     // Slice 7 Task 8: the menu half of this scan lands in content.* through
     // MenuScanApplier → ManualMenuWriter, not in site.menu_items.
     setupContentTables();
+    // 2026-09-06: a booking link this job hands to GoogleBusinessAutoSync::
+    // seed() now routes through LinkRouter::routeBooking()/SourceReconciler
+    // (a proposed routing.source_intents row, never a direct write) — same
+    // fix as everywhere else booking auto-connected on discovery.
+    setupRoutingTables();
 });
 
 function spwcjUser(string $handle, string $accountType = 'business', string $sector = 'restaurant'): array
@@ -166,7 +171,12 @@ it('seeds a matched social link for a non-food business (booking capability inta
 
     spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
 
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeTrue();
+    // 2026-09-06: booking never connects outright on discovery, even here —
+    // it's proposed through the suggestion pipeline instead (same fix as the
+    // Square/Fresha/GlossGenius auto-connect bug closed everywhere else).
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeFalse();
+    $intent = DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'fresha.book')->firstOrFail();
+    expect($intent->state)->toBe('proposed');
 });
 
 it('dispatches WebsiteMenuPdfScanJob when a PDF menu link is found, for a food-Business account', function () {

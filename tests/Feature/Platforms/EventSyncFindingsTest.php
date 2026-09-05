@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\Platforms\CommerceProbeJob;
 use App\Jobs\Platforms\LinkInBioScanJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Site;
@@ -10,6 +11,7 @@ use App\Services\Platforms\RouteContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 // F8: the event branch wrote a real eventbrite/humanitix row but returned
 // RouteResult::seeded() with NO findings, so the "we found and connected this"
@@ -83,49 +85,85 @@ it('routes a standalone event to the POOL — no connection row, no finding (R7,
     expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'eventbrite'])->exists())->toBeFalse();
 });
 
-it('stamps an organiser finding with the resource id of the account row it actually wrote', function () {
+// F8's original concern (the finding must carry the id of the row actually
+// written, not a freshly-derived one that might not exist) moved to the
+// accept lane below, 2026-09-06: an organiser discovery no longer writes a
+// connection OR a finding directly — see the suggestion-only test right
+// after this one. The synced modal that read a RouteResult finding is
+// retired anyway (R7-adjacent); what matters now is that the ACCEPT lane
+// (CommerceProbeJob::settleEventOrganiser(), reached via
+// SuggestionsController::accept()'s PROBED_EVENT_ORGANISER_SURFACES branch)
+// reuses an existing row's resource_id rather than minting a new one, and
+// settles the accepted intent against that same row.
+
+it('proposes an organiser suggestion on discovery — no connection, no finding (2026-09-06)', function () {
+    // 2026-09-06: same "no harvest ever auto-connects a platform, only ever
+    // suggests one" fix already applied to booking/reservations/socials —
+    // EventsSeeder::seedAccount() used to write the connection straight off
+    // a harvested organiser link. Discovery now only earns a proposed
+    // routing.source_intents row through the catalog (eventbrite.organiser
+    // has a real /o/ detector); the real write only happens on accept.
     $user = User::factory()->create(['account_type' => 'partna']);
-    fakeEventbrite();
 
     $result = app(LinkRouter::class)->route($user, EB_ORG_URL, new RouteContext);
 
-    $row = IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'eventbrite'])->firstOrFail();
-    expect($result->findings)->toHaveCount(1);
-    expect($result->findings[0]['resourceId'])->toBe($row->resource_id);
-    expect($row->resource_id)->toStartWith('acct-');
+    expect($result->outcome)->toBe('custom');
+    expect($result->handled)->toBeTrue();
+    expect($result->findings)->toBeEmpty();
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'eventbrite'])->exists())->toBeFalse();
+
+    $intent = DB::table('routing.source_intents')
+        ->where('user_id', $user->id)->where('surface_key', 'eventbrite.organiser')->firstOrFail();
+    expect($intent->state)->toBe('proposed')
+        ->and($intent->identifier)->toBe('melbourne-food-collective-1234');
 });
 
-it('reuses the resource id of an existing organiser row rather than the id it would have minted', function () {
-    // seedAccount() keys updateOrCreate on `$existing?->resource_id ?? $rid` —
-    // a row matched by canonical_key keeps ITS id. A finding built from the
-    // freshly-derived $rid would point at a row that does not exist.
+it('accepting an organiser suggestion writes the real fetch and reuses an existing row\'s resource id', function () {
+    // End-to-end accept lane (mirrors ShopPlaceDelegationTest's shop
+    // equivalent): SuggestionsController::accept() dispatches CommerceProbeJob
+    // with acceptedIntentId, which is what makes settleEventOrganiser() run
+    // EventsSeeder::seedAccount() (organiser name, events list, avatar — a
+    // bare catalog connect could never build this) and settle the intent.
+    //
+    // The existing row also pins seedAccount()'s own reuse rule: it keys
+    // updateOrCreate on `$existing?->resource_id ?? $rid` — a row matched by
+    // canonical_key keeps ITS id, so a fresh accept must not mint a second row.
+    Queue::fake();
     $user = User::factory()->create(['account_type' => 'partna']);
     $existing = IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'eventbrite', 'resource_id' => 'acct-legacy-id',
         'canonical_key' => strtolower(EB_ORG_URL),
         'payload' => ['url' => EB_ORG_URL, 'upcoming' => []], 'is_active' => true,
     ]);
+    $intentId = (string) Str::uuid();
+    DB::table('routing.source_intents')->insert([
+        'id' => $intentId,
+        'user_id' => $user->id,
+        'surface_key' => 'eventbrite.organiser',
+        'routing_class' => 'events',
+        'identifier' => 'melbourne-food-collective-1234',
+        'canonical_url' => EB_ORG_URL,
+        'state' => 'proposed',
+        'origin' => 'bio_harvest',
+        'first_seen_at' => now(),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
     fakeEventbrite();
 
-    $result = app(LinkRouter::class)->route($user, EB_ORG_URL, new RouteContext);
+    actingAsUser($user)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertStatus(202);
+    Queue::assertPushed(CommerceProbeJob::class, fn ($j) => $j->userId === (string) $user->id
+        && $j->category === 'event-organiser' && $j->platform === 'eventbrite' && $j->acceptedIntentId === $intentId);
 
-    expect($result->findings[0]['resourceId'])->toBe($existing->resource_id);
-});
+    app()->call([new CommerceProbeJob((string) $user->id, EB_ORG_URL, 'event-organiser', 'eventbrite', acceptedIntentId: $intentId), 'handle']);
 
-// ── Remove path must target the one event/account ────────────────────────────
-
-// (The standalone-event remove-path pin left with the finding itself — R7:
-// a pasted event is a pool item; the pool row carries its own remove.)
-
-it('points an organiser finding at the single-account remove route', function () {
-    // removeAccount() matches on the FULL resource_id, unlike removeEvent().
-    $user = User::factory()->create(['account_type' => 'partna']);
-    fakeEventbrite();
-
-    $result = app(LinkRouter::class)->route($user, EB_ORG_URL, new RouteContext);
-
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'eventbrite')->count())->toBe(1);
     $row = IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'eventbrite'])->firstOrFail();
-    expect($result->findings[0]['removePath'])->toBe('/platforms/eventbrite/accounts/'.$row->resource_id);
+    expect($row->resource_id)->toBe($existing->resource_id);
+
+    $intent = DB::table('routing.source_intents')->where('id', $intentId)->firstOrFail();
+    expect($intent->state)->toBe('applied')
+        ->and($intent->connection_id)->toBe((string) $row->id);
 });
 
 // ── End to end: it reaches the modal ─────────────────────────────────────────
