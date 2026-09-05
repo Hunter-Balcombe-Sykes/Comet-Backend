@@ -10,6 +10,8 @@ use App\Services\Content\ManualMenuItems;
 use App\Services\Platforms\GoogleMenuImagesScraper;
 use App\Services\Platforms\MenuAiExtractor;
 use App\Services\Platforms\MenuScanApplier;
+use Illuminate\Bus\UniqueLock;
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -158,6 +160,12 @@ it('a second platforms→content crossing within a day does not re-bill the swee
 
     actingAsUser($user)->putJson('/api/site/setup', ['step' => 'menu'])->assertOk();
     Queue::assertPushed(MenuPhotoSweepJob::class, 1);
+
+    // The sweep finished: its uniqueness lock is gone, as it is in
+    // production 30s after the first crossing. Without this the fake queue
+    // holds the lock forever and the second dispatch is swallowed by
+    // ShouldBeUnique, which is exactly the guarantee it does NOT give live.
+    (new UniqueLock(app(CacheRepository::class)))->release(new MenuPhotoSweepJob((string) $user->id));
 
     actingAsUser($user)->putJson('/api/site/setup', ['step' => 'platforms.social'])->assertOk();
     actingAsUser($user)->putJson('/api/site/setup', ['step' => 'menu'])->assertOk();
