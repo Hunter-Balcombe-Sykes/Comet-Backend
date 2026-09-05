@@ -49,7 +49,20 @@ class Square
                 ->note('square.site is assigned to square.book only — square.order is undetectable by host alone at P1; see square.order\'s note')
                 ->detect(
                     Detector::url('squareup.com')->strength(EvidenceStrength::ProfileLink),
-                    Detector::url('square.site')->strength(EvidenceStrength::ProfileLink),
+                    // 2026-09-05: the tenant subdomain IS the account on
+                    // square.site (tough-luck-barbershop.square.site is one
+                    // studio's booking page), so the rule constrains it —
+                    // host-only, PlacementPolicy's invalid_identifier rule read
+                    // it as "matched the brand, not an account page" and Noted
+                    // the studio's own page to a card once booking stopped
+                    // taking the legacy seedBooking() lane. The path guard keeps
+                    // /s/order out of this rule entirely, so square.order's
+                    // ordering link is never contested by it (LinkProjector
+                    // relies on the bare-host fallback not constraining).
+                    Detector::url('square.site')
+                        ->subdomain('#^(?<tenant>[a-z0-9][a-z0-9-]{1,62})$#i')
+                        ->path('#^/(?!s/order(?:/|$))#')
+                        ->strength(EvidenceStrength::ProfileLink),
                     // 2026-09-02: the Square Appointments deep link Square's own
                     // "Book now" buttons and share sheets hand out. On the
                     // host-only rule above it scored 32 (40 − 8 deep-path), under

@@ -9,6 +9,7 @@ use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\InstagramConnectionSeeder;
 use App\Services\Platforms\InstagramScraper;
 use App\Services\Platforms\RouteContext;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
@@ -34,6 +35,7 @@ beforeEach(function () {
     setupContentTables();
     setupSectionsTables();
     setupNotificationsTable();
+    setupRoutingTables();
     // A Fresha link auto-dispatches ConnectFetchJob, and QUEUE_CONNECTION=sync
     // runs it INLINE — without this the seed below scrapes fresha.com for real.
     Http::fake();
@@ -98,14 +100,24 @@ function igParityReseed(User $user, array $bioLinks): void
     );
 }
 
-it('gives the second booking link of a bio a card, exactly as the unroll does', function () {
+it('proposes the second booking link of a bio as a suggestion, never a card or a connection (2026-09-05)', function () {
+    // Owner policy (2026-09-05): a harvest never auto-adds a platform, only
+    // suggests one — booking now routes through the same Engine-1 bridge
+    // ('link' category) every other harvested surface uses instead of
+    // seedBooking()'s legacy immediate write(). Fresha's catalog detector
+    // (Fresha.php) captures the VENUE SLUG from the path, so venue-1 and
+    // venue-1/colour resolve to the SAME identifier ('venue-1') — one
+    // proposed intent gets re-affirmed, not a second row, which is also why
+    // this is a single-item bio path rather than the two-different-accounts
+    // shape BookingConflictSlotTest covers for Booksy.
     $user = igParitySeed([
         'https://www.fresha.com/a/venue-1',
         'https://www.fresha.com/a/venue-1/colour',
     ]);
 
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->exists())->toBeTrue();
-    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(1);
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->count())->toBe(0);
+    expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(0);
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'fresha.book')->count())->toBe(1);
 });
 
 it('gives the second social link of a bio a card too', function () {
@@ -233,14 +245,15 @@ it('lets one bad link fail without abandoning the rest of the bio', function () 
 
 it('writes no card for a bio link already synced to the same url', function () {
     // The no-op case must stay a no-op: a card here would sit on top of a live
-    // connection and render the platform twice. The FIRST seed connects Fresha;
-    // the second re-scrapes the same bio, which is when the already-synced
-    // branch (LinkRouter::outcomeFrom -> skipped) actually runs.
-    $user = igParitySeed(['https://www.fresha.com/a/venue-1']);
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->count())->toBe(1);
+    // connection and render the platform twice. The FIRST seed connects
+    // YouTube (a social: still a harvest auto-connect — booking stopped being
+    // one on 2026-09-05); the second re-scrapes the same bio, which is when
+    // the already-synced branch (LinkRouter::outcomeFrom -> skipped) runs.
+    $user = igParitySeed(['https://www.youtube.com/@creator']);
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'youtube'])->count())->toBe(1);
 
-    igParityReseed($user, ['https://www.fresha.com/a/venue-1']);
+    igParityReseed($user, ['https://www.youtube.com/@creator']);
 
-    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'fresha'])->count())->toBe(1);
+    expect(IntegrationConnection::where(['user_id' => $user->id, 'platform' => 'youtube'])->count())->toBe(1);
     expect(app(LinkPoolReader::class)->cards($user->refresh()))->toHaveCount(0);
 });

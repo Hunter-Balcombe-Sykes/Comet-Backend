@@ -4,6 +4,7 @@ use App\Jobs\Platforms\LinkInBioScanJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\InstagramAutoSync;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -13,10 +14,18 @@ use Illuminate\Support\Str;
 // conflict findings carrying an `apply` swap recipe, findings returned for the
 // caller to persist as syncFindings) but for Instagram bio links, classified
 // via WebsiteLinkHarvester::classify() rather than a Google Apify enrichment.
+//
+// Booking changed shape on 2026-09-05 (owner policy: a harvest never auto-adds
+// a platform, only ever suggests one). A fresha/square bio link is no longer a
+// finding or a connection — it is a proposed routing.source_intents row, the
+// same Engine-1 bridge every other harvested surface takes. Only a staff/
+// ManyChat build ($autoConnectBooking) keeps the immediate connect, and that
+// shape is pinned in BookingConflictSlotTest, not here.
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    setupRoutingTables();
     // A Fresha bio link now auto-dispatches ConnectFetchJob, and QUEUE_CONNECTION
     // =sync runs it INLINE — without this the seed below scrapes fresha.com for real.
     Http::fake();
@@ -26,7 +35,7 @@ beforeEach(function () {
 // the capability-gated path — social auto-sync requires google_business_full_sync,
 // the SAME capability GB's socials tier gates on (mirrors gbApifyUser's default).
 // Pass 'partna' to exercise the standard-account fall-through: social links
-// route to `unmatched` (offered as custom links); booking still seeds.
+// route to `unmatched` (offered as custom links); booking is proposed either way.
 function igAutoSyncUser(string $h, string $accountType = 'business'): User
 {
     return User::create([
@@ -38,6 +47,14 @@ function igAutoSyncUser(string $h, string $accountType = 'business'): User
         'auth_user_id' => (string) Str::uuid(),
         'primary_email' => "{$h}@example.com",
     ]);
+}
+
+/** The booking intents a harvest proposed for $user, oldest first. */
+function igBookingIntents(User $user): Collection
+{
+    return DB::table('routing.source_intents')
+        ->where('user_id', $user->id)->where('routing_class', 'booking')
+        ->orderBy('first_seen_at')->get();
 }
 
 // ── social: seed only-if-empty ────────────────────────────────────────────────
@@ -125,36 +142,30 @@ it('marks conflict when a social platform exists with a DIFFERENT url, leaving t
 
 // ── booking: fresha / square ───────────────────────────────────────────────────
 
-it('seeds only the FIRST booking platform from a bio listing both fresha and square — the second conflicts, never a live second row', function () {
+it('proposes BOTH booking platforms from a bio listing fresha and square — the first pre-ticked, the second unticked, never a live row (2026-09-05)', function () {
     $user = igAutoSyncUser('igas4');
 
     // A bio listing both is the exact scenario the booking XOR guards against:
-    // FreshaController/SquareController::hasConflictingConnection() forbids two
-    // simultaneous live booking connections, so only the first-processed one
-    // (fresha) may seed — the second (square) must conflict, never write.
+    // one booking slot. Before 2026-09-05 the first-processed link (fresha)
+    // connected on the spot and square filed a conflict Swap. A harvest now
+    // proposes both, and the reconciler pre-ticks only ONE candidate of an
+    // exclusive class, so a Continue can never try to accept two into it.
     $result = app(InstagramAutoSync::class)->seed((string) $user->id, [
         'https://www.fresha.com/a/doc-cuts',
         'https://acme.square.site',
     ]);
 
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'square')->exists())->toBeFalse();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->whereIn('platform', ['fresha', 'square'])->exists())->toBeFalse();
+    expect($result['findings'])->toBe([]);
+    expect($result['unmatched'])->toBe([]);
 
-    expect(collect($result['findings'])->pluck('outcome')->all())->toBe(['seeded', 'conflict']);
-    expect(collect($result['findings'])->pluck('platform')->all())->toBe(['fresha', 'square']);
-
-    $fresha = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->firstOrFail()->payload;
-    expect($fresha)->toMatchArray(['url' => 'https://www.fresha.com/a/doc-cuts', 'selection' => null, 'source' => 'instagram']);
-
-    $squareConflict = $result['findings'][1];
-    // The XOR set covers the real booking providers only now: the 'booking'
-    // pseudo-platform left the enum 2026-08-19 and no row can carry it, so
-    // the swap has nothing of that name left to remove.
-    expect($squareConflict['apply']['remove'])->toBe(['fresha', 'square']);
-    expect($squareConflict['apply']['write']['platform'])->toBe('square');
+    $bands = igBookingIntents($user)->pluck('band', 'surface_key');
+    expect($bands)->toHaveCount(2)
+        ->and($bands['fresha.book'])->toBe('auto')
+        ->and($bands->except('fresha.book')->first())->toBe('suggest');
 });
 
-it('marks conflict for booking when the SAME platform exists with a different url', function () {
+it('proposes, never overwrites, when the SAME booking platform exists with a different url', function () {
     $user = igAutoSyncUser('igas5');
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'fresha', 'resource_id' => 'fresha',
@@ -164,18 +175,25 @@ it('marks conflict for booking when the SAME platform exists with a different ur
 
     $result = app(InstagramAutoSync::class)->seed((string) $user->id, ['https://www.fresha.com/a/doc-cuts']);
 
-    expect($result['findings'][0]['outcome'])->toBe('conflict');
-    expect($result['findings'][0]['platform'])->toBe('fresha');
-    expect($result['findings'][0]['apply']['remove'])->toBe(['fresha']); // same-platform conflict — only itself, not the whole group
+    // No finding, no card: the link is carried by an intent — and unticked,
+    // because the slot already holds a live connection.
+    expect($result['findings'])->toBe([]);
+    expect($result['unmatched'])->toBe([]);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->count())->toBe(1);
     $fresha = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->firstOrFail()->payload;
     expect($fresha['url'])->toBe('https://www.fresha.com/a/mine'); // untouched
+
+    $intent = igBookingIntents($user)->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->surface_key)->toBe('fresha.book')
+        ->and($intent->band)->toBe('suggest');
 });
 
-// ── booking XOR: mirrors GoogleBusinessAutoSync::seedBooking's group-level
-// check — Fresha and Square are mutually exclusive (FreshaController /
-// SquareController::hasConflictingConnection() both 409 the other way) ──────
+// ── booking XOR: Fresha and Square share one slot (FreshaController /
+// SquareController::hasConflictingConnection() both 409 the other way). A
+// harvest never contends for it any more — it proposes, unticked. ──────────
 
-it('never writes a second live booking provider — an existing Square connection blocks a Fresha bio-link write, emitting a conflict instead', function () {
+it('never writes a second live booking provider — an existing Square connection leaves a Fresha bio link an unticked suggestion', function () {
     $user = igAutoSyncUser('igas14');
     IntegrationConnection::create([
         'user_id' => $user->id, 'platform' => 'square', 'resource_id' => 'square',
@@ -187,27 +205,33 @@ it('never writes a second live booking provider — an existing Square connectio
 
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'square')->exists())->toBeTrue();
+    expect($result['findings'])->toBe([]);
+    expect($result['unmatched'])->toBe([]);
 
-    expect($result['findings'])->toHaveCount(1);
-    expect($result['findings'][0]['outcome'])->toBe('conflict');
-    expect($result['findings'][0]['platform'])->toBe('fresha');
-    expect($result['findings'][0]['apply']['remove'])->toBe(['fresha', 'square']); // XOR set — real providers only since 2026-08-19
-    expect($result['findings'][0]['apply']['write']['platform'])->toBe('fresha');
+    $intent = igBookingIntents($user)->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->surface_key)->toBe('fresha.book')
+        ->and($intent->band)->toBe('suggest');
 
     $square = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'square')->firstOrFail()->payload;
     expect($square['url'])->toBe('https://acme.square.site'); // untouched
 });
 
-it('seeds fresha booking when no booking provider is connected yet', function () {
+it('proposes a fresha booking link as a pre-ticked suggestion when no booking provider is connected yet', function () {
     $user = igAutoSyncUser('igas15');
 
     $result = app(InstagramAutoSync::class)->seed((string) $user->id, ['https://www.fresha.com/a/doc-cuts']);
 
-    expect($result['findings'])->toHaveCount(1);
-    expect($result['findings'][0]['outcome'])->toBe('seeded');
-    expect($result['findings'][0]['platform'])->toBe('fresha');
-    $fresha = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->firstOrFail()->payload;
-    expect($fresha['url'])->toBe('https://www.fresha.com/a/doc-cuts');
+    expect($result['findings'])->toBe([]);
+    expect($result['unmatched'])->toBe([]);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
+
+    $intent = igBookingIntents($user)->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->surface_key)->toBe('fresha.book')
+        ->and($intent->state)->toBe('proposed')
+        ->and($intent->band)->toBe('auto')
+        ->and($intent->canonical_url)->toBe('https://www.fresha.com/a/doc-cuts');
 });
 
 it('routes a booking bio link to unmatched for a FOOD-sector business (can_use_booking false) — no connection written', function () {
@@ -222,15 +246,17 @@ it('routes a booking bio link to unmatched for a FOOD-sector business (can_use_b
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
 });
 
-it('still seeds booking for a NON-food business (barbershop keeps can_use_booking)', function () {
+it('still routes booking for a NON-food business (barbershop keeps can_use_booking) — as a suggestion, not a card', function () {
     $user = igAutoSyncUser('igasbarber');
     $user->forceFill(['sector' => 'barber', 'sector_source' => 'manual'])->save();
 
     $result = app(InstagramAutoSync::class)->seed((string) $user->id, ['https://www.fresha.com/a/doc-cuts']);
 
-    expect($result['findings'])->toHaveCount(1);
-    expect($result['findings'][0]['outcome'])->toBe('seeded');
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
+    // The gate let it through (contrast the food case above, where it lands
+    // in unmatched); the proposed intent is what carries it.
+    expect($result['unmatched'])->toBe([]);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
+    expect(igBookingIntents($user))->toHaveCount(1);
 });
 
 // ── unmatched: unclassified + classified-but-not-actionable ──────────────────
@@ -354,7 +380,7 @@ it('seeds classified social links for a standard partna account — RULING 1 rep
     }
 });
 
-it('seeds BOTH booking and social for a partna account', function () {
+it('seeds social and proposes booking for a partna account', function () {
     $user = igAutoSyncUser('igascap2', 'partna');
 
     $result = app(InstagramAutoSync::class)->seed((string) $user->id, [
@@ -363,15 +389,16 @@ it('seeds BOTH booking and social for a partna account', function () {
     ]);
 
     expect($result['unmatched'])->toBe([]);
-    expect(collect($result['findings'])->pluck('platform')->all())->toBe(['fresha', 'facebook']);
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
+    expect(collect($result['findings'])->pluck('platform')->all())->toBe(['facebook']);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeTrue();
+    expect(igBookingIntents($user))->toHaveCount(1);
 });
 
 // ── DISC-7: consent gate — unclaimed (provisional) subjects have not
 // consented to auto-created platform connections from a scraped bio ─────────
 
-it('DOES auto-create social and booking connections from a scraped bio for an UNCLAIMED subject (gate removed 2026-07-25)', function () {
+it('DOES auto-create a social connection, and proposes booking, from a scraped bio for an UNCLAIMED subject (gate removed 2026-07-25)', function () {
     $user = igAutoSyncUser('discunclaimed1', 'business');
     $user->forceFill(['status' => 'unclaimed'])->save();
 
@@ -381,11 +408,12 @@ it('DOES auto-create social and booking connections from a scraped bio for an UN
     ]);
 
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeTrue();
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
     expect(collect($result['findings'])->pluck('outcome')->unique()->all())->toBe(['seeded']);
+    expect(igBookingIntents($user))->toHaveCount(1);
 });
 
-it('DOES auto-create social and booking connections from the same bio for a CLAIMED subject with the same capabilities (gate is not a blanket disable)', function () {
+it('DOES auto-create a social connection, and proposes booking, for a CLAIMED subject with the same capabilities (gate is not a blanket disable)', function () {
     $user = igAutoSyncUser('discclaimed1', 'business');
     $user->forceFill(['status' => 'active'])->save();
 
@@ -395,8 +423,9 @@ it('DOES auto-create social and booking connections from the same bio for a CLAI
     ]);
 
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'facebook')->exists())->toBeTrue();
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeFalse();
     expect(collect($result['findings'])->pluck('outcome')->unique()->all())->toBe(['seeded']);
+    expect(igBookingIntents($user))->toHaveCount(1);
 });
 
 it('seeds social links for a business account (google_business_full_sync present)', function () {
@@ -537,15 +566,20 @@ it('seed() produces the same findings/unmatched split through LinkRouter as it d
     // account is already connected, so another instagram.com URL in it is
     // someone else's, and offered against the existing primary it renders as a
     // "Change to" swap of the user's own account for their workplace's.
-    expect(collect($result['findings'])->pluck('platform')->all())->toBe(['facebook', 'fresha']);
+    //
+    // Fresha is not a finding either (2026-09-05): a harvested booking link
+    // is a proposed intent, not a seed.
+    expect(collect($result['findings'])->pluck('platform')->all())->toBe(['facebook']);
     expect($result['unmatched'])->toBe([]);
+    expect(igBookingIntents($user))->toHaveCount(1);
 });
 
 it('routes one page once when the bio carries scheme variants of the same URL (FI-12)', function () {
     // T6 live (livplumbarber): externalUrl said http://…square.site, the
     // bio-text regex yielded https://… — the second pass hit the
     // seenPlatforms slot and carded the page whose connection had just been
-    // made.
+    // made. Since 2026-09-05 the page is proposed rather than connected, and
+    // the same rule holds: ONE intent, no card.
     setupContentTables();
     $pro = createTenant('fi12-dedupe');
     Http::fake([
@@ -559,6 +593,7 @@ it('routes one page once when the bio carries scheme variants of the same URL (F
         'https://tough-luck-barbershop.square.site',
     ]);
 
-    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(1)
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->count())->toBe(0)
+        ->and(igBookingIntents($pro))->toHaveCount(1)
         ->and(DB::connection('pgsql')->table('content.items')->where('user_id', $pro->id)->where('kind', 'link')->count())->toBe(0);
 });
