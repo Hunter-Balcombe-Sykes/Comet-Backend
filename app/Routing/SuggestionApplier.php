@@ -7,6 +7,7 @@ use App\Jobs\Content\ReparentBioItemsJob;
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Content\LinkPoolWriter;
 use App\Services\Platforms\AutoBookingConnectDispatcher;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -22,9 +23,20 @@ use Illuminate\Support\Facades\DB;
  */
 class SuggestionApplier
 {
+    /**
+     * Store surfaces the probe runtime identifies (LinkProbeWorker's
+     * cascade). Homed here, not on SuggestionsController (2026-09-05): both
+     * the controller's accept() and SetupBatchApplier::acceptOne() need it —
+     * the setup dialog's Continue never had it, so a store suggestion
+     * accepted there wrote a bare connection with no storefront, no
+     * catalogue and no fill (the JRLUSA squeakprobarber gap).
+     */
+    public const PROBED_STORE_SURFACES = ['shopify.store', 'woocommerce.store', 'squarespace.store', 'bigcartel.store'];
+
     public function __construct(
         private readonly ConnectionIdentity $identity,
         private readonly AutoBookingConnectDispatcher $autoBookingConnect,
+        private readonly LinkPoolWriter $links,
     ) {}
 
     /**
@@ -227,6 +239,17 @@ class SuggestionApplier
                     ReparentBioItemsJob::dispatch((string) $connection->id)
                         ->delay(now()->addSeconds(60))
                         ->afterCommit();
+                }
+
+                // A.1b forward guard (2026-09-05): item 2 stopped a filed
+                // Choose/Hold from carding its own url a second time, but a
+                // card already sitting there from BEFORE the platform was
+                // recognised — or before this suggestion was accepted — would
+                // still sit under the connection this accept just created.
+                // Same coord CustomLinkSeeder::seedCustom() writes with, so
+                // this only ever retires a card for THIS canonical url.
+                if (is_string($intent->canonical_url ?? null) && $intent->canonical_url !== '') {
+                    $this->links->removeByUrl($user, (string) $intent->canonical_url);
                 }
             }
 

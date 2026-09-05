@@ -49,9 +49,6 @@ class SuggestionsController extends ApiController
 {
     use ResolveCurrentUser;
 
-    /** Store surfaces the probe runtime identifies (LinkProbeWorker's cascade). */
-    private const PROBED_STORE_SURFACES = ['shopify.store', 'woocommerce.store', 'squarespace.store', 'bigcartel.store'];
-
     /** The one id the Google-listing suggestion answers to — it has no ledger row. */
     private const LISTING_ID = 'listing:opentable';
 
@@ -383,7 +380,7 @@ class SuggestionsController extends ApiController
         // places the connection, builds the store and settles this intent
         // itself (applied, or blocked with the reason the inbox already
         // renders). Nothing is written here that the seeder could contradict.
-        if (in_array($intent->surface_key, self::PROBED_STORE_SURFACES, true) && is_string($intent->canonical_url ?? null) && $intent->canonical_url !== '') {
+        if (in_array($intent->surface_key, SuggestionApplier::PROBED_STORE_SURFACES, true) && is_string($intent->canonical_url ?? null) && $intent->canonical_url !== '') {
             CommerceProbeJob::dispatch((string) $user->id, (string) $intent->canonical_url, 'shop', acceptedIntentId: (string) $intent->id);
 
             return $this->success([

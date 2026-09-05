@@ -271,10 +271,34 @@ class SetupPayload
                 return null; // the server omits an empty item pass (wire §2)
             }
 
-            return $base + [
+            $pass = $base + [
                 'sources' => $this->sourcesFor($user, $itemPool),
                 'items' => $items,
             ];
+
+            // Item 4: the "Your products" step needs a store dropdown to
+            // filter by, and every product row already carries collectionIds
+            // (PoolResolver::ITEM_KEYS) to filter against. resolved['collections']
+            // will not do here — it is scoped to the CURATED selection
+            // (PoolResolver::assemble), and at setup time a freshly scraped
+            // store's products are still library-only, nothing pinned yet
+            // (the exact JRLUSA/squeakprobarber shape this item exists for) —
+            // so it queries the collections these $items actually reference
+            // directly, unscoped by curation state.
+            if ($itemPool === 'shop') {
+                $collectionIds = collect($items)->flatMap(fn (array $i) => $i['collectionIds'] ?? [])->unique()->values();
+                $pass['stores'] = $collectionIds->isEmpty() ? [] : DB::connection('pgsql')
+                    ->table('content.collections')
+                    ->whereIn('id', $collectionIds->all())
+                    ->where('user_id', $user->id)
+                    ->orderBy('label')
+                    ->get(['id', 'label'])
+                    ->map(fn ($row) => ['collectionId' => (string) $row->id, 'name' => (string) $row->label])
+                    ->values()
+                    ->all();
+            }
+
+            return $pass;
         }
 
         if ($key === 'media' || $key === 'links') {
@@ -897,10 +921,6 @@ class SetupPayload
         // a link-page scan left stage 'platforms' at STARTED forever, which
         // pinned every platforms.* pass at ready:false — the walk showed
         // "Still looking…" 40 minutes after the build settled.
-        if ($build->settled_at !== null) {
-            return [];
-        }
-
         $rows = DB::table('core.pre_account_build_events')
             ->where('build_id', $build->id)
             ->orderBy('created_at')
@@ -911,6 +931,29 @@ class SetupPayload
         foreach ($rows as $row) {
             $last[(string) $row->stage] = (string) $row->status;
             $lastAt[(string) $row->stage] = (string) $row->created_at;
+        }
+
+        if ($build->settled_at !== null) {
+            // The scrape's own stages are closed, whatever the ledger says —
+            // but item 3 (2026-09-05) has SetupBatchApplier::acceptOne()
+            // dispatch a CommerceProbeJob well after settlement, on the
+            // person's own Continue, and it logs its own started/landed pair
+            // on the SAME ledger. Dropping every stage wholesale at settle
+            // made items.shop report ready:true with no items while that
+            // probe was still in flight. A stage started BEFORE settlement is
+            // still the pre-settle leak the check above exists to ignore.
+            $open = [];
+            foreach ($last as $stage => $status) {
+                if ($status !== PreAccountBuildEvent::STATUS_STARTED) {
+                    continue;
+                }
+                if (CarbonImmutable::parse($lastAt[$stage])->lte($build->settled_at)) {
+                    continue;
+                }
+                $open[$stage] = true;
+            }
+
+            return $open;
         }
 
         // Same leak, before settlement: a STARTED left unanswered past any

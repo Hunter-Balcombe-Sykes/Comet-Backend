@@ -58,11 +58,17 @@ class CustomLinkSeeder
 
         $result = $this->router->route($user, $url, $ctx ?? new RouteContext);
 
-        if ($result->outcome === 'custom') {
+        // Same rule InstagramAutoSync applies in pass 1 (F3): custom(handled)
+        // with nothing unmatched means "carried elsewhere" — a pool item, a
+        // Swap offer, or (since booking joined the Engine-1 bridge, 2026-09-05)
+        // a proposed source intent — and no caller writes a card for it. A
+        // tombstoned platform is the one handled shape that still WANTS the
+        // card, and it says so by returning its unmatched entry.
+        if ($result->outcome === 'custom' && ($result->unmatched !== [] || ! $result->handled)) {
             return $this->seedCustom($user, $url);
         }
 
-        // 'seeded', 'pending', 'skipped' — not a custom link.
+        // 'seeded', 'pending', 'skipped', handled 'custom' — not a custom link.
         return null;
     }
 

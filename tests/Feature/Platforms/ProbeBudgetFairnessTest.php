@@ -158,11 +158,15 @@ it('still enforces the cap — the pre-filter must never loosen the bound', func
     $seeder = app(CustomLinkSeeder::class);
     $ctx = new RouteContext;
 
+    // Real-site count kept 2 past the budget so the test still exercises
+    // starvation after the cap was raised (2026-09-05).
+    $realSiteCount = RouteContext::DEFAULT_MAX_PROBES + 2;
+
     $urls = [];
     foreach (range(1, 10) as $n) {
         $urls[] = "https://bit.ly/skip{$n}";
     }
-    foreach (range(1, 8) as $n) {
+    foreach (range(1, $realSiteCount) as $n) {
         $urls[] = "https://realsite{$n}.example/";
     }
     foreach ($urls as $url) {
@@ -171,7 +175,7 @@ it('still enforces the cap — the pre-filter must never loosen the bound', func
 
     Queue::assertPushed(CommerceProbeJob::class, RouteContext::DEFAULT_MAX_PROBES);
     expect($ctx->probesUsed())->toBe(RouteContext::DEFAULT_MAX_PROBES);
-    expect($ctx->probesDenied())->toBe(2);              // the 7th and 8th real site
+    expect($ctx->probesDenied())->toBe(2);              // the last 2 real sites, past the cap
     expect($ctx->probesSkippedIneligible())->toBe(10);  // never counted against the cap
 });
 
