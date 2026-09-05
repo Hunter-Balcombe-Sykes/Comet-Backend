@@ -245,10 +245,16 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
                 // picks. Places-first one hop still runs before the paid
                 // chained scrape.
                 $handleName = ucwords(str_replace(['_', '.'], ' ', $handle));
+                // A mentioned account can be anywhere — an AU region bias here
+                // (found live 2026-09-05, membersonlychopshop/Orlando) silently
+                // drops every non-AU workplace: Google Places never surfaces
+                // it, so candidates() comes back empty and no card is ever
+                // written, with nothing in the logs to say why. The venue's
+                // OWN country is unknown at this stage; no bias is honest.
                 $oneHop = $linker->proposeCandidates($user, [
                     'name' => $handleName,
                     'street' => null, 'city' => null, 'postcode' => null,
-                    'region' => null, 'country' => 'AU',
+                    'region' => null, 'country' => null,
                     'lat' => null, 'lng' => null, 'phone' => null,
                 ], 'bio_mention');
                 Log::info('bio_mention.workplace_chain', [
@@ -512,7 +518,11 @@ class BioMentionChainsJob implements ShouldBeUnique, ShouldQueue
             'city' => null,
             'postcode' => $pc[1] ?? null,
             'region' => null,
-            'country' => 'AU',
+            // Same reasoning as the one-hop attempt above: the mentioned
+            // account's own country is unknown, so no region bias — a
+            // hardcoded 'AU' here silently killed the search for any
+            // mentioned workplace outside Australia.
+            'country' => null,
             'lat' => null,
             'lng' => null,
             'phone' => isset($ph[0]) ? trim($ph[0]) : null,

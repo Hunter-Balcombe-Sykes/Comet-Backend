@@ -383,6 +383,16 @@ class FreshaWorkplaceLinker
         if ($a === $b || str_contains($a, $b) || str_contains($b, $a)) {
             return true;
         }
+        // A bio-mention venue name can be nothing but its Instagram handle
+        // (no separators to split on — "membersonlychopshop"), which never
+        // shares a token with Google's real, spaced-out listing name
+        // ("members only chop shop") under the word-set check below. Squashed
+        // (space-free) equality catches that extremely common handle
+        // convention — handle = the business's real name with the spaces
+        // removed (found live 2026-09-05, membersonlychopshop/Orlando).
+        if (str_replace(' ', '', $a) === str_replace(' ', '', $b)) {
+            return true;
+        }
         $ta = array_unique(explode(' ', $a));
         $tb = array_unique(explode(' ', $b));
         $shared = count(array_intersect($ta, $tb));
