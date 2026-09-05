@@ -34,7 +34,18 @@ class SetupPassRegistry
         return str_starts_with($key, 'items.') ? substr($key, strlen('items.')) : null;
     }
 
-    /** Pass → the build-progress stage whose open 'started' row means not ready. */
+    /**
+     * Pass → the build-progress stages whose open 'started' row means not
+     * ready (any one of them open holds the pass).
+     *
+     * The platforms passes wait on LISTING and WEBSITE too (2026-09-05, st_ali
+     * retest #2): the Google listing pull seeds the socials it lists and the
+     * website scan seeds the ones the site links, and both START before the
+     * signup claim — but the first `platforms` STARTED row is only written
+     * when the link-page scan begins, ~40s later. In that window every
+     * platforms pass read ready with nothing in it, the walk rendered an
+     * empty "Everything we found" step, and the poll stopped.
+     */
     public const READY_STAGES = [
         // STAGE_LISTING is a real, separate stage (GoogleBusinessEnrichJob
         // pulling reviews/photos for a listing you already picked) — not the
@@ -50,17 +61,17 @@ class SetupPassRegistry
         // and let the payload's overall `busy` flag go false early, stopping
         // the dashboard's poll before a match could ever arrive on screen
         // (2026-09-05, squeakprobarber retest).
-        'listing' => 'workplace',
-        'menu' => 'menu',
-        'media' => 'media',
-        'items.shop' => 'shop',
-        'platforms.booking' => 'platforms',
-        'platforms.ordering' => 'platforms',
-        'platforms.events' => 'platforms',
-        'platforms.stores' => 'platforms',
-        'platforms.watch' => 'platforms',
-        'platforms.listen' => 'platforms',
-        'platforms.social' => 'platforms',
+        'listing' => ['workplace'],
+        'menu' => ['menu'],
+        'media' => ['media'],
+        'items.shop' => ['shop'],
+        'platforms.booking' => ['platforms', 'listing', 'website'],
+        'platforms.ordering' => ['platforms', 'listing', 'website'],
+        'platforms.events' => ['platforms', 'listing', 'website'],
+        'platforms.stores' => ['platforms', 'listing', 'website'],
+        'platforms.watch' => ['platforms', 'listing', 'website'],
+        'platforms.listen' => ['platforms', 'listing', 'website'],
+        'platforms.social' => ['platforms', 'listing', 'website'],
     ];
 
     /** @return list<string> */

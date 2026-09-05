@@ -235,7 +235,7 @@ class SetupPayload
      */
     private function composePass(User $user, ?Site $site, string $key, array $suggestions, array $onboarding, array $openStages, array $resolvedPools): ?array
     {
-        $ready = ! isset($openStages[SetupPassRegistry::READY_STAGES[$key] ?? '']);
+        $ready = array_intersect_key($openStages, array_flip(SetupPassRegistry::READY_STAGES[$key] ?? [])) === [];
         $base = ['key' => $key, 'ready' => $ready];
 
         if ($key === 'done') {

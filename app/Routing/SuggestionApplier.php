@@ -6,9 +6,11 @@ use App\Catalog\LegacyPlatformMap;
 use App\Jobs\Content\ReparentBioItemsJob;
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Services\Content\LinkPoolWriter;
 use App\Services\Platforms\AutoBookingConnectDispatcher;
+use App\Services\PreAccount\BuildProgress;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 
@@ -229,6 +231,18 @@ class SuggestionApplier
                 $connection->owner_scope = RoutingCapabilityGate::ownerScopeFor($user, (string) $intent->origin);
                 $connection->user()->associate($user);
                 $connection->save();
+
+                // The store is owed from the ACCEPT, not from the connect
+                // job's first line (2026-09-05, squeakprobarber + st_ali):
+                // ShopBrandConnectJob writes this same note when it starts,
+                // but between Continue and the queue picking it up the
+                // items.shop pass read ready with nothing in it, and the
+                // walk's "hold Continue until products are ready" had
+                // nothing to hold on — "Your products" was empty until a
+                // refresh. One STARTED per stage, so the job's own is a no-op.
+                if ((string) $intent->routing_class === 'shop') {
+                    BuildProgress::noteForUser((string) $user->id, PreAccountBuildEvent::STAGE_SHOP, PreAccountBuildEvent::STATUS_STARTED, 'Syncing your store');
+                }
 
                 // F14 (2026-08-20, whole-run critic): F9 wired the enrichment
                 // fetch into SourceReconciler::applyIntent — the AUTO-place

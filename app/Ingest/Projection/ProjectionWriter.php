@@ -3536,9 +3536,13 @@ class ProjectionWriter
      */
     private function siteInSetup(string $userId): bool
     {
-        $published = DB::table('site.sites')->where('user_id', $userId)->value('is_published');
+        // The walk's own done-bit, not is_published (2026-09-05): a signup
+        // build publishes the site at the claim, so is_published was true
+        // for the whole Get Started walk and the setup ordering/budget
+        // never applied to the one account it exists for.
+        $site = DB::table('site.sites')->where('user_id', $userId)->first(['id', 'setup_completed_at']);
 
-        return $published !== null && ! (bool) $published;
+        return $site !== null && $site->setup_completed_at === null;
     }
 
     /**

@@ -1157,7 +1157,7 @@ class GoogleBusinessAutoSync
             // key (InstagramConnectionSeeder::seed) and runs INLINE under the sync
             // queue driver; dispatching it while still holding this lock would
             // self-deadlock (or time itself out against its own holder).
-            $connection = $this->withPlatformSeedLock($userId, Platform::Instagram->value, function () use ($userId, $before) {
+            $connection = $this->withPlatformSeedLock($userId, Platform::Instagram->value, function () use ($userId, $username, $before) {
                 // #FU-3: the swap's two halves are ONE transaction — the caller's
                 // removals and the placeholder that replaces them. A throw from the
                 // placeholder write used to leave the removal standing with nothing
@@ -1172,7 +1172,7 @@ class GoogleBusinessAutoSync
                 // transaction guarantees the throw left nothing written and nothing
                 // dispatched — if this transaction is ever removed, that finally's
                 // "nothing was spent" premise goes with it.
-                return DB::connection('pgsql')->transaction(function () use ($userId, $before) {
+                return DB::connection('pgsql')->transaction(function () use ($userId, $username, $before) {
                     // The swap's destructive half, if the caller has one — inside the
                     // lock, immediately before the row that replaces what it removes.
                     if ($before !== null) {
@@ -1181,10 +1181,18 @@ class GoogleBusinessAutoSync
 
                     // Pending placeholder tagged source so the synced step + undo can find it;
                     // InstagramConnectJob preserves that tag when it writes the scrape result.
+                    // The handle rides along from the start (2026-09-05): the
+                    // walk titled this row "Instagram" with no @handle for the
+                    // ~30s until the scrape landed, and the listing already
+                    // knew it — it is what we are about to scrape.
                     return IntegrationConnection::updateOrCreate(
                         ['user_id' => $userId, 'platform' => Platform::Instagram->value, 'resource_id' => Platform::Instagram->value],
                         [
-                            'payload' => ['source' => 'google-business'],
+                            'payload' => [
+                                'source' => 'google-business',
+                                'username' => $username,
+                                'url' => 'https://www.instagram.com/'.$username,
+                            ],
                             'is_active' => false,
                             'last_refreshed_at' => null,
                             'last_refresh_status' => 'pending',

@@ -394,15 +394,16 @@ function mirrorDispatchOrder(): array
     return $order;
 }
 
+/** "Published" here means past the walk: setup_completed_at is the bit ProjectionWriter::siteInSetup reads. */
 function setSitePublished(string $userId, bool $published): void
 {
-    $updated = DB::table('site.sites')->where('user_id', $userId)->update(['is_published' => $published ? 1 : 0]);
+    $values = ['is_published' => $published ? 1 : 0, 'setup_completed_at' => $published ? now() : null];
+    $updated = DB::table('site.sites')->where('user_id', $userId)->update($values);
     if ($updated === 0) {
-        DB::table('site.sites')->insert([
+        DB::table('site.sites')->insert($values + [
             'id' => (string) Str::uuid(),
             'user_id' => $userId,
             'subdomain' => 'igm-'.Str::lower(Str::random(8)),
-            'is_published' => $published ? 1 : 0,
         ]);
     }
 }
