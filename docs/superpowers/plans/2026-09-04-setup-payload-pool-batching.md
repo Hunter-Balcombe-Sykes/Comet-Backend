@@ -659,7 +659,7 @@ EOF
 )"
 ```
 
-- [ ] **Step 4: After merge, measure on dev**
+- [x] **Step 4: After merge, measure on dev**
 
 The merge auto-deploys to `dev-api.partna.au`. Wait for `deployment.succeeded`:
 
@@ -676,7 +676,7 @@ PATH="$HOME/.composer/vendor/bin:$PATH" python3 scripts/logs/window.py "<start>"
 
 Expected: `GET /api/site/setup` well under its 716-840ms baseline, and `POST /api/site/setup/accept` down by roughly that same margin. **Record the actual before/after numbers in the PR thread** — the baselines above are from the 2026-09-04 08:04 window and are what the next person will compare against.
 
-- [ ] **Step 5: Note the outcome in CLAUDE.md if the numbers warrant it**
+- [x] **Step 5: Note the outcome in CLAUDE.md if the numbers warrant it**
 
 If the measured saving is material, add one line to the Content pools section of `CLAUDE.md` recording that `SetupPayload` composes through the batched seam and that a new pass-composing path must not reintroduce a per-pool `resolve()`. Keep it to one sentence; that file is already long.
 
