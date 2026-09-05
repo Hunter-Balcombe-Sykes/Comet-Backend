@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Setup\SetupPayload;
 use App\Site\Pools\PoolResolver;
@@ -101,6 +102,28 @@ it('hydrates every pool\'s items in one shared call, not one per pool', function
     expect($selects)->toHaveCount(1);
 });
 
+it('items.shop carries stores and each item\'s collectionIds', function () {
+    $pro = createTenant('setup-batch-shop-stores');
+    $storeA = shopStore($pro->id, ['label' => 'Zed Store']);
+    $storeB = shopStore($pro->id, ['label' => 'Acme Store']);
+    $itemA = shopProduct($pro->id, $storeA, 'Widget');
+    $itemB = shopProduct($pro->id, $storeB, 'Gadget');
+
+    $shopPass = collect(actingAsUser($pro)->getJson('/api/site/setup')->assertOk()->json('passes'))
+        ->firstWhere('key', 'items.shop');
+
+    expect($shopPass)->not->toBeNull();
+    // Sorted by name — Acme before Zed, regardless of insertion order.
+    expect($shopPass['stores'])->toBe([
+        ['collectionId' => $storeB, 'name' => 'Acme Store'],
+        ['collectionId' => $storeA, 'name' => 'Zed Store'],
+    ]);
+
+    $items = collect($shopPass['items'])->keyBy('id');
+    expect($items[$itemA]['collectionIds'])->toBe([$storeA])
+        ->and($items[$itemB]['collectionIds'])->toBe([$storeB]);
+});
+
 // The query-count test above proves the shape of the reads, not the content
 // of the response — SetupControllerTest never seeds content.items, so every
 // item pass it exercises takes the empty-pool-omits-pass branch and never
@@ -171,6 +194,54 @@ it('provisions every pool\'s section even when composing a single pass', functio
     $afterOne = DB::connection('pgsql')->table('site.sections')->count();
 
     expect($afterOne - $afterAll)->toBe($afterAll - $expected);
+});
+
+it('a settled build with a STAGE_SHOP row started AFTER settled_at reports items.shop not ready (item 3, 2026-09-05)', function () {
+    // A settled build normally closes every stage regardless of the ledger
+    // (the pre-existing STARTED-leak guard this extends). Item 3 gave
+    // SetupBatchApplier::acceptOne() a post-settle CommerceProbeJob dispatch
+    // on the person's OWN Continue, which logs its own started/landed pair —
+    // dropping every stage wholesale at settle made items.shop report
+    // ready:true with no items while that probe was still running.
+    [$user, , $build] = makeSettledBuild('setup-batch-shop-postsettle');
+    $settledAt = now()->subMinute();
+    $build->forceFill(['settled_at' => $settledAt])->save();
+    seedContentItem($user->id, ['kind' => 'product']);
+
+    $event = new PreAccountBuildEvent;
+    $event->forceFill([
+        'build_id' => $build->id,
+        'stage' => PreAccountBuildEvent::STAGE_SHOP,
+        'status' => PreAccountBuildEvent::STATUS_STARTED,
+        'label' => 'Filling your shop',
+        'payload' => '{}',
+        'created_at' => now(),
+    ])->save();
+
+    $shopPass = app(SetupPayload::class)->forPass($user->fresh(), 'items.shop');
+
+    expect($shopPass)->not->toBeNull()
+        ->and($shopPass['ready'])->toBeFalse();
+});
+
+it('a settled build with a STAGE_SHOP row started BEFORE settled_at still reports items.shop ready (the pre-existing leak guard, unchanged)', function () {
+    [$user, , $build] = makeSettledBuild('setup-batch-shop-presettle');
+    $event = new PreAccountBuildEvent;
+    $event->forceFill([
+        'build_id' => $build->id,
+        'stage' => PreAccountBuildEvent::STAGE_SHOP,
+        'status' => PreAccountBuildEvent::STATUS_STARTED,
+        'label' => 'Filling your shop',
+        'payload' => '{}',
+        'created_at' => now()->subMinutes(30),
+    ])->save();
+    $build->forceFill(['settled_at' => now()])->save();
+    seedContentItem($user->id, ['kind' => 'product']);
+
+    $shopPass = app(SetupPayload::class)->forPass($user->fresh(), 'items.shop');
+
+    expect($shopPass)->not->toBeNull()
+        ->and($shopPass['ready'])->toBeTrue();
 });
 
 it('returns null for a pass the user does not have', function () {
