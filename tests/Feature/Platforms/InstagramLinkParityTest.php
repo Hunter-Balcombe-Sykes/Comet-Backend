@@ -119,22 +119,23 @@ it('gives the second social link of a bio a card too', function () {
 });
 
 it('spends ONE probe budget across both passes, not one each', function () {
-    // Before the shared context, a bio could spend 6 probes in the auto-sync
-    // pass and 6 more in the unmatched sweep — twice the documented cap, on
-    // outbound requests aimed at other people's servers.
+    // Before the shared context, a bio could spend N probes in the auto-sync
+    // pass and N more in the unmatched sweep — twice the documented cap, on
+    // outbound requests aimed at other people's servers. Link count kept a
+    // few past the budget so this still exercises the shared-cap behaviour
+    // after the cap was raised (2026-09-05).
     Queue::fake();
-    $user = igParitySeed([
-        // 'shop'-classified: these spend budget in PASS 1 (LinkRouter::seedShop)
-        'https://one.myshopify.com/',
-        'https://two.myshopify.com/',
-        'https://three.myshopify.com/',
-        'https://four.myshopify.com/',
-        // unclassified: deferred to `unmatched`, so these spend in PASS 2
-        'https://siteone.example/',
-        'https://sitetwo.example/',
-        'https://sitethree.example/',
-        'https://sitefour.example/',
-    ]);
+    $half = intdiv(RouteContext::DEFAULT_MAX_PROBES, 2) + 1;
+    $links = [];
+    // 'shop'-classified: these spend budget in PASS 1 (LinkRouter::seedShop)
+    foreach (range(1, $half) as $n) {
+        $links[] = "https://shop{$n}.myshopify.com/";
+    }
+    // unclassified: deferred to `unmatched`, so these spend in PASS 2
+    foreach (range(1, $half) as $n) {
+        $links[] = "https://site{$n}.example/";
+    }
+    $user = igParitySeed($links);
 
     expect($user)->not->toBeNull();
     Queue::assertPushed(CommerceProbeJob::class, RouteContext::DEFAULT_MAX_PROBES);
@@ -144,20 +145,19 @@ it('logs one run card for the whole scrape, starvation included', function () {
     Queue::fake();
     Log::spy();
 
-    igParitySeed([
-        'https://one.myshopify.com/',
-        'https://two.myshopify.com/',
-        'https://three.myshopify.com/',
-        'https://four.myshopify.com/',
-        'https://siteone.example/',
-        'https://sitetwo.example/',
-        'https://sitethree.example/',
-        'https://sitefour.example/',
-    ]);
+    $half = intdiv(RouteContext::DEFAULT_MAX_PROBES, 2) + 1;
+    $links = [];
+    foreach (range(1, $half) as $n) {
+        $links[] = "https://shop{$n}.myshopify.com/";
+    }
+    foreach (range(1, $half) as $n) {
+        $links[] = "https://site{$n}.example/";
+    }
+    igParitySeed($links);
 
     Log::shouldHaveReceived('info')
         ->withArgs(fn (string $message, array $context) => $message === 'platforms.instagram.bio_links_routed'
-            && $context['links_seen'] === 8
+            && $context['links_seen'] === $half * 2
             && $context['probes_spent'] === RouteContext::DEFAULT_MAX_PROBES
             // The two links the shared cap starved — invisible before this log
             // existed, because a starved link becomes an ordinary card.
@@ -170,12 +170,14 @@ it('counts a starved link once, not once per pass', function () {
     // A CLASSIFIED link starved in pass 1 is deferred to `unmatched` and routed
     // again in pass 2, where the shared budget denies it a second time. Counting
     // attempts rather than links makes probes_denied exceed the budget itself —
-    // and this is the number the run card exists to report.
+    // and this is the number the run card exists to report. Link count kept 2
+    // past the budget so this still exercises starvation after the cap was
+    // raised (2026-09-05).
     Queue::fake();
     Log::spy();
 
     $links = [];
-    foreach (range(1, 8) as $n) {
+    foreach (range(1, RouteContext::DEFAULT_MAX_PROBES + 2) as $n) {
         $links[] = "https://shop{$n}.myshopify.com/";
     }
     igParitySeed($links);

@@ -175,14 +175,17 @@ it('seed() shares ONE probe budget across a loop, so a page of unclassified link
     // The regression this pins: LinkInBioScanJob and autoSaveUnmatchedLinks both
     // deleted their own MAX_COMMERCE_PROBES counters and called seed() per URL.
     // Because seed() built a fresh RouteContext each time, every link got its own
-    // budget of 6 — i.e. no cap. One shared context is the whole fix.
+    // budget of RouteContext::DEFAULT_MAX_PROBES — i.e. no cap. One shared
+    // context is the whole fix. Link count kept a few past the budget so the
+    // test still exercises the "past the cap" branch after the cap was raised.
     $ctx = new RouteContext;
-    for ($i = 0; $i < 10; $i++) {
+    $linkCount = RouteContext::DEFAULT_MAX_PROBES + 4;
+    for ($i = 0; $i < $linkCount; $i++) {
         $seeder->seed($user, "https://unclassified{$i}.example/page", $ctx);
     }
 
     Queue::assertPushed(CommerceProbeJob::class, RouteContext::DEFAULT_MAX_PROBES);
-    // The 4 links past the budget are not lost — they become pool links.
+    // The links past the budget are not lost — they become pool links.
     expect(app(LinkPoolReader::class)->cards($user->refresh()))
-        ->toHaveCount(10 - RouteContext::DEFAULT_MAX_PROBES);
+        ->toHaveCount($linkCount - RouteContext::DEFAULT_MAX_PROBES);
 });

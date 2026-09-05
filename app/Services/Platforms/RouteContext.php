@@ -28,11 +28,13 @@ use App\Services\Http\SafeUrlFetcher;
 final class RouteContext
 {
     /**
-     * Default probe budget per run — the value both deleted inline counters
-     * used (signup-v2 C4). Pinned by CustomLinkSeederTest and
-     * LinkInBioScanJobTest, which assert against this constant directly.
+     * Default probe budget per run — raised from 6 to 20 (2026-09-05, owner
+     * request) after a signup run legitimately needed more than 6 outbound
+     * probes to resolve every bio link in one pass. Pinned by
+     * CustomLinkSeederTest and LinkInBioScanJobTest, which assert against
+     * this constant directly.
      */
-    public const DEFAULT_MAX_PROBES = 6;
+    public const DEFAULT_MAX_PROBES = 20;
 
     /** @var array<string, true> */
     public array $seenPlatforms = [];
