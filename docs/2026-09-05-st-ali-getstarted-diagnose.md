@@ -201,7 +201,7 @@ ready, instead of revealing rows pass-by-pass as they land
 Full backend suite: 11,366 passed / 0 failed. `catalog:compile` and
 `routing:corpus` regenerated for the two new Booksy detectors.
 
-### Not fixed — flagged for the owner
+### Not fixed at the time — flagged for the owner (superseded below)
 
 - **The `website` build stage still has no terminal event** on this fresh
   St Ali retest (`started` at 04:17:37, never `landed`/`failed`), and
@@ -228,3 +228,138 @@ Full backend suite: 11,366 passed / 0 failed. `catalog:compile` and
   interaction with the Get Started dialog's own listing-search box during
   testing, not a code defect. Flagged rather than silently
   "fixed"/reverted since it wasn't clear this was unintended.
+
+  **Correction (2026-09-05, later):** this was wrong — the owner confirmed
+  squeakprobarber's real workplace is "Members Only Chop Shop", a barbershop
+  in Orlando, FL (findable by googling the Instagram handle
+  `membersonlychopshop`), and the Drysdale Village Pizza connection was a
+  real code bug, not tester interaction. See the next section for the two
+  root causes and the fix.
+
+## Update, later still: two more root causes found and fixed
+
+### squeakprobarber's wrong workplace — two compounding bugs, not manual interaction
+
+`site.workplace_candidates` being empty (noted above) wasn't evidence of
+manual interaction — it meant the automated one-hop search never even
+produced a card to show, because it was silently failing before it got
+that far, for two independent reasons that both had to be fixed:
+
+1. **A hardcoded `'AU'` region bias in the bio-mention Google Places
+   search.** `BioMentionChainsJob`'s workplace-mention handling (both the
+   one-hop attempt and the post-scrape `venueFrom()` fallback) passed
+   `'country' => 'AU'` into the candidate array that `FreshaWorkplaceLinker`
+   forwards to `GoogleBusinessService::searchText()` as a region bias. A
+   mentioned account can be anywhere — St Ali's own bio mentions are
+   Australian, but squeakprobarber's `@membersonlychopshop` mention is a
+   business in Orlando, FL. With an `AU` bias, Google Places Text Search
+   never surfaces the real (US) listing at all, so `candidates()` comes
+   back empty and no card is ever written — with nothing in the logs to
+   explain why, which is exactly why this read as "the search found
+   nothing" rather than "the search was miscalibrated". Fixed by passing
+   `'country' => null` in both places: the venue's own country is unknown
+   at this stage, so no bias is honest.
+2. **`FreshaWorkplaceLinker::namesAgree()` couldn't match a concatenated
+   handle against a spaced real name.** Even with the region bias fixed,
+   the one-hop attempt builds its search query from
+   `ucwords(str_replace(['_','.'], ' ', $handle))` — which only splits on
+   underscores/dots. `membersonlychopshop` has neither, so it stays one
+   word ("Membersonlychopshop") and never becomes "Members Only Chop
+   Shop", failing every one of `namesAgree()`'s exact/substring/token-
+   overlap checks against Google's real listing name. Fixed by adding a
+   squashed-equality check (lowercase, strip all non-alphanumerics, then
+   compare) to `namesAgree()`, so "membersonlychopshop" now correctly
+   matches "Members Only Chop Shop".
+
+Both fixed in `app/Jobs/PreAccount/BioMentionChainsJob.php` and
+`app/Services/Platforms/FreshaWorkplaceLinker.php`. Verified with 20
+targeted tests + Pint + PHPStan, and against the live Google Places API:
+searching "Membersonlychopshop" with no region bias now returns exactly
+one candidate, "Members Only Chop Shop" (Orlando, FL, place_id
+`ChIJF4LX8_t654gRWecFltnWbyg`), which the fixed `namesAgree()` accepts.
+squeakprobarber's live `site.workplaces` row and Google Business
+`platform_connections` row were corrected using the real
+`FreshaWorkplaceLinker::connect()` code path (not hand-written data) —
+the wrong Drysdale Village Pizza fields had to be explicitly cleared
+first, since `IdentitySync::applyFromGooglePayload()` only fills blank
+fields for partna accounts (`google_business_full_sync` capability is
+false for `partna`) and won't overwrite an already-populated wrong value
+on its own. Live wire post-fix (`scripts/proof/wire.sh squeakprobarber`):
+`workplace.name = "Members Only Chop Shop"`, `workplace.phone = "(407)
+745-4376"`.
+
+### `ScanPreviousWebsiteContentJob` never closing the `website` build stage
+
+Root cause, once the queue-starvation theory above was checked more
+carefully: it wasn't only infrastructure. The job's only terminal
+`STAGE_WEBSITE` progress note (`landed`/`skipped`/`failed`) lived inside
+the gallery-photo-extraction block at the very end of `handle()`. For a
+**partna** account (`workplace_brand_is_site_identity` capability false —
+a partna's workplace website is someone else's brand, not their own
+identity), the design-evidence block earlier in the method — which is
+where logo/favicon/accent extraction actually happens — returned early
+without ever reaching that trailing note. So the stage's fate depended on
+a feature (gallery photos) that has nothing to do with what the stage is
+actually named after, and a huge share of accounts (every partna account)
+structurally could never close it.
+
+Fixed per the owner's explicit instruction to fix the stuck stage
+"however you can" and to drop previous-website gallery-image extraction
+from this job entirely (logo extraction only, going forward):
+
+- Moved the design-evidence block (favicon, accent colour, logo
+  candidates, `LogoAutoGrabber::grabIfEmpty()`) to run first in
+  `handle()`, and made it write the `STAGE_WEBSITE` terminal note itself —
+  `landed` ("Found your logo") when a logo was actually grabbed, `skipped`
+  ("No logo found on your website") when none was found, for business
+  accounts; `skipped` ("Looked at your website") for partna accounts,
+  which never attempt logo extraction at all.
+- Removed the gallery-candidate-extraction block and its
+  `WebsiteGalleryScanJob::dispatch()` call from this job entirely (the
+  job class itself, `WebsiteGalleryCandidateExtractor`, and the backfill
+  command that also uses them are untouched — only this one dispatch
+  site was removed).
+- Removed a stray duplicate `STAGE_WEBSITE STARTED` note inside
+  `resolveMenuPageUrl()` that — given the reordering above — would have
+  fired *after* the new terminal note for any food-business account whose
+  homepage scan found no menu/PDF, silently re-opening the stage and
+  undoing the fix for exactly the accounts (cafes/restaurants) most
+  likely to need it.
+
+Verified with 2 new targeted tests proving the terminal note now lands
+for both outcomes, all 30 pre-existing tests in
+`ScanPreviousWebsiteContentJobTest`/`...RetryTest` still passing after
+updating their injection-point assumptions, plus Pint/PHPStan clean.
+
+**Live verification caveat:** `BuildProgress::noteForUser()` only writes
+progress events while a build is inside its "live window" (unclaimed and
+recent) — it cannot retroactively backfill a note onto a build that has
+already `settled_at`. St Ali's build settled hours before this fix
+landed, so its `pre_account_build_events` row for `website` will remain
+`started`/never-landed forever; that's expected and does not indicate the
+fix is broken. Separately, and unexpectedly: St Ali's logo *work* had
+already succeeded at original signup time regardless of the missing
+progress note — `site.site_media` shows two active, `processing_state
+= ready` logo rows (`logo_full`, `logo_square`) created seconds after the
+website scan started. The missing terminal event was purely a
+progress-feed/UI symptom for this particular account, not a sign the
+underlying logo grab had failed. Full confidence that the fix behaves
+correctly end-to-end (including the terminal note itself landing in real
+time) still needs a fresh signup, since St Ali's build is already outside
+the live window.
+
+Also checked, since the live public site initially *looked* like it was
+showing a plain-text wordmark instead of an image logo: it isn't. The
+nav's `<img class="logo-mark">` on `stalicoffeeroasters1.partna.au` is a
+real, fully-loaded 600×145 SVG pointing at the extracted `logo_full`
+vector variant (`GET .../vector_3162e767cd036f6f.svg` → 200); confirmed
+via `naturalWidth`/`naturalHeight`/`complete` on the live DOM, and via the
+public API (`profile.brand.logoFull.urlSvg` is populated and resolves).
+St Ali's actual uploaded website logo is itself a stylized text wordmark
+("ST. ALi Coffee Roasters"), which is why a screenshot reads as plain
+text — the extraction, storage, wire serialization, and frontend render
+are all working correctly end-to-end for this account. (Along the way,
+confirmed the frontend's logo gate at `apps/pages/src/pages/[...path]
+.astro:297-305` — which hard-nulls `brand` for `accountType !== 'business'`
+by deliberate 2026-08-19 platform ruling — does not affect St Ali, since
+its account type is `business`.)
