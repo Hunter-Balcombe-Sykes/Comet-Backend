@@ -1544,8 +1544,9 @@ return [
 
         // Thumbnail tier written beside every mirrored image master
         // (`{sha}.webp` → `{sha}.640.webp`): setup tiles and cards load ~32 KB
-        // instead of the 2400px master's ~260 KB.
-        'thumb_edge' => (int) env('PARTNA_MEDIA_THUMB_EDGE', 640),
+        // instead of the 2400px master's ~260 KB. The EDGE is not configurable
+        // — MediaMirror::THUMB_EDGE, frozen with THUMB_SUFFIX. Quality is,
+        // because the filename promises nothing about it.
         'thumb_quality' => (int) env('PARTNA_MEDIA_THUMB_QUALITY', 80),
     ],
 
