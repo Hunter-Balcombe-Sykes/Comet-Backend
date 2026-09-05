@@ -243,6 +243,34 @@ class LinkPoolWriter
         $pin->save();
     }
 
+    /**
+     * Retire the custom-link card for $url, if one exists — SuggestionApplier's
+     * forward guard (2026-09-05, item 2): a card a harvest carded before a
+     * platform was recognised, or before the suggestion carrying it was
+     * accepted, must not keep sitting under the real connection accept just
+     * created. Same coord seedCustom()/add() write with, so this only ever
+     * touches a card for THIS url. A no-op if none exists.
+     */
+    public function removeByUrl(User $user, string $url): void
+    {
+        $coord = self::coordFor($url);
+        $itemId = DB::connection('pgsql')->table('content.source_items as si')
+            ->join('content.sources as cs', 'cs.id', '=', 'si.source_id')
+            ->where('cs.user_id', (string) $user->id)
+            ->where('cs.kind', 'manual')
+            ->where('si.coord', $coord)
+            ->value('si.item_id');
+
+        if ($itemId === null) {
+            return;
+        }
+
+        DB::connection('pgsql')->table('content.items')
+            ->where('id', $itemId)
+            ->whereNull('removed_at')
+            ->update(['removed_at' => now(), 'updated_at' => now()]);
+    }
+
     /** The origin tag this coord's item already carries, so a null-origin re-write re-supplies it. */
     private function storedOrigin(string $userId, string $coord): ?string
     {
