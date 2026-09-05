@@ -3313,7 +3313,10 @@ class ProjectionWriter
 
                 continue;
             }
-            $bucket = (string) ($entry['role'] ?? '') === 'video' ? 'videos' : 'images';
+            // The same rule MediaMirror applies at mirror time. The reads
+            // differ by necessity — content.item_media is not written until
+            // after this method returns — so the predicate is what is shared.
+            $bucket = MediaMirror::rolesIndicateVideo([(string) ($entry['role'] ?? '')]) ? 'videos' : 'images';
             $posts[$itemId][$bucket][(string) $assetId] = $rawUrl;
         }
 

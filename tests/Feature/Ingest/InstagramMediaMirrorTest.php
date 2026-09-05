@@ -604,3 +604,24 @@ it('in setup, mirrors EVERY cover — a poster no longer needs its video to make
         'https://cdn.example/v1.mp4',
     ]);
 });
+
+// ── The queue lane flag ──────────────────────────────────────────────────────
+// video:true keeps a reel on Horizon (120s). video:false sends it to the
+// managed queue, where MirrorMediaAssetJob::MANAGED_TIMEOUT kills it at 85s —
+// which a 15 MB reel over a cold edge loses, with no reason on the row.
+
+it('dispatches a video-role asset with the horizon lane flag set', function () {
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+
+    app(ProjectionWriter::class)->writeManualItem($userId, 'manual:reel-1', [
+        'kind' => 'media',
+        'headline' => null,
+        'media' => [
+            ['role' => 'video', 'url' => 'https://scontent.cdninstagram.com/v/reel.mp4', 'ref' => 'instagram:REEL1:0'],
+            ['role' => 'cover', 'url' => 'https://scontent.cdninstagram.com/v/poster.jpg', 'ref' => 'instagram:REEL1:1'],
+        ],
+    ]);
+
+    Bus::assertDispatched(MirrorMediaAssetJob::class, fn ($job) => str_ends_with($job->sourceUrl, 'reel.mp4') && $job->video === true);
+    Bus::assertDispatched(MirrorMediaAssetJob::class, fn ($job) => str_ends_with($job->sourceUrl, 'poster.jpg') && $job->video === false);
+});

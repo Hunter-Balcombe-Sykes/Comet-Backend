@@ -423,6 +423,21 @@ final class MediaMirror
     }
 
     /**
+     * The ONE image-vs-video decision. Two call sites need different READS —
+     * this class asks about one asset from inside its job, where
+     * content.item_media is written; ProjectionWriter asks at dispatch time,
+     * before those rows exist, from the projection entries. Only the rule is
+     * shared, and it has to be: the flag it produces chooses the queue lane,
+     * and a reel on the managed queue dies at MANAGED_TIMEOUT.
+     *
+     * @param  list<string>  $roles
+     */
+    public static function rolesIndicateVideo(array $roles): bool
+    {
+        return in_array('video', $roles, true);
+    }
+
+    /**
      * True when every item_media row pointing at this asset is an image role
      * — the asset was minted as a cover/poster/logo, never as the video.
      * Fail-open (false) on any read problem: the sniff branch then stores
@@ -441,7 +456,7 @@ final class MediaMirror
             return false;
         }
 
-        return $roles !== [] && ! in_array('video', $roles, true);
+        return $roles !== [] && ! self::rolesIndicateVideo($roles);
     }
 
     /**
