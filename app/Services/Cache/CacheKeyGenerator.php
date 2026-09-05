@@ -446,6 +446,16 @@ class CacheKeyGenerator
         return 'platforms:menu:blocked:'.$platform.':'.sha1($storeUrl);
     }
 
+    /**
+     * Once-a-day stamp for the paid tier-2 menu photo sweep (Cache::add at
+     * dispatch): the job's ShouldBeUnique lock only stops an overlap and
+     * goes with the job, so it never stopped a Back/Continue bounce.
+     */
+    public static function menuPhotoSweepOnce(string $userId): string
+    {
+        return 'platforms:menu:sweep_once:'.$userId;
+    }
+
     /** Global daily AI menu-structuring spend counter across Mistral OCR + DeepSeek (mirrors apifyGlobalDailyLimit). */
     public static function aiSpendGlobalDailyLimit(string $date): string
     {

@@ -40,7 +40,9 @@ class MenuPhotoSweepJob implements ShouldBeUnique, ShouldQueue
     /** Moot at one attempt; declared for the job-hygiene policy. @var list<int> */
     public array $backoff = [60];
 
-    /** One sweep per person per setup session — a Back/Continue bounce must not re-bill. */
+    /** Overlap guard only — the lock goes with the job. The once-a-day stamp that
+     *  keeps a Back/Continue bounce from re-billing is SetupController's Cache::add
+     *  at dispatch (CacheKeyGenerator::menuPhotoSweepOnce). */
     public int $uniqueFor = 86400;
 
     public function __construct(public readonly string $userId)

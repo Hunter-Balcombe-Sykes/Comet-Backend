@@ -148,3 +148,18 @@ it('MenuPhotoSweepJob spends nothing when an ordering connection exists by run t
         app(MenuScanApplier::class),
     );
 });
+
+it('a second platforms→content crossing within a day does not re-bill the sweep (2026-09-05)', function () {
+    // st_ali retest #4: the owner bounced Back/Continue over the platforms
+    // step four times in fifteen minutes and every crossing ran the paid
+    // Apify photo sweep plus its OCR — ShouldBeUnique only stops an overlap.
+    $user = msdUser('msdonce');
+    msdGbpConnection($user);
+
+    actingAsUser($user)->putJson('/api/site/setup', ['step' => 'menu'])->assertOk();
+    Queue::assertPushed(MenuPhotoSweepJob::class, 1);
+
+    actingAsUser($user)->putJson('/api/site/setup', ['step' => 'platforms.social'])->assertOk();
+    actingAsUser($user)->putJson('/api/site/setup', ['step' => 'menu'])->assertOk();
+    Queue::assertPushed(MenuPhotoSweepJob::class, 1);
+});

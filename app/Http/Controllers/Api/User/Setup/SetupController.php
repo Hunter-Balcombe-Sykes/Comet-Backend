@@ -8,11 +8,13 @@ use App\Jobs\Platforms\MenuPhotoSweepJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Accounts\AccountCapabilities;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Setup\SetupBatchApplier;
 use App\Services\Setup\SetupPassRegistry;
 use App\Services\Setup\SetupPayload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * The setup dialog's wire (A.9). GET composes the passes; PUT records the
@@ -71,8 +73,8 @@ class SetupController extends ApiController
      * not produced a menu AND the person is live in the dialog waiting for
      * one — dispatch the deferred paid photo sweep (the tier 2 that
      * GoogleMenuPhotoScanJob skips on sign-up builds). The job re-checks the
-     * ordering connection at run time and is unique per user per day, so a
-     * Back/Continue bounce never re-bills.
+     * ordering connection at run time, and the once-a-day stamp below is
+     * what keeps a Back/Continue bounce from re-billing.
      */
     private function maybeDispatchMenuSweep(User $user, ?string $previous, string $step): void
     {
@@ -101,6 +103,15 @@ class SetupController extends ApiController
             ->where('routing_class', 'ordering')
             ->exists();
         if ($hasOrdering) {
+            return;
+        }
+
+        // One paid sweep per person per day (2026-09-05, st_ali retest #4:
+        // the owner crossed platforms → content four times in fifteen
+        // minutes and every crossing billed an Apify photo run plus its
+        // OCR). The job's ShouldBeUnique lock only stops an overlap — it is
+        // released with the job — so the stamp lives here, at dispatch.
+        if (! Cache::add(CacheKeyGenerator::menuPhotoSweepOnce((string) $user->id), now()->toIso8601String(), 86400)) {
             return;
         }
 
