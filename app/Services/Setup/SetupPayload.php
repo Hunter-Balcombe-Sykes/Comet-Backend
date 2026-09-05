@@ -971,7 +971,15 @@ class SetupPayload
         // "Still looking…" 40 minutes after the build settled.
         $rows = DB::table('core.pre_account_build_events')
             ->where('build_id', $build->id)
+            // The ordered UUID breaks ties in write order (2026-09-05, st_ali
+            // retest #4): created_at is written to the second, a socials
+            // sync logs STARTED and LANDED inside one, and Postgres returns
+            // tied rows in whatever order the scan finds them — live it
+            // handed back "YouTube synced" BEFORE "Syncing YouTube", the
+            // head read STARTED, and every platforms pass sat at ready:false
+            // behind a skeleton until a reload happened to sort the other way.
             ->orderBy('created_at')
+            ->orderBy('id')
             ->get(['stage', 'status', 'created_at', 'payload']);
 
         // One head per plain stage (its newest row) plus one per token

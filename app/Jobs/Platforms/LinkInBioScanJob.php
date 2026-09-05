@@ -102,9 +102,14 @@ class LinkInBioScanJob implements ShouldBeUnique, ShouldQueue
             BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_PLATFORMS, PreAccountBuildEvent::STATUS_SKIPPED, "Couldn't read your link page — add platforms from the dashboard");
         }
         if (($result['outcome'] ?? null) === 'ok') {
-            $label = $placed === []
-                ? 'Checked your link page — nothing new to connect'
-                : 'Connected '.BuildProgress::count(count($placed), 'platform', 'platforms').' from your link page';
+            // A link page that only SUGGESTED platforms (the setup walk asks
+            // before connecting them) is not "nothing new" — st_ali's
+            // linktree found YouTube under that line (2026-09-05).
+            $label = $placed !== []
+                ? 'Connected '.BuildProgress::count(count($placed), 'platform', 'platforms').' from your link page'
+                : ((int) ($result['suggested'] ?? 0) > 0
+                    ? 'Checked your link page — platforms to confirm in setup'
+                    : 'Checked your link page — nothing new to connect');
             if ((int) ($result['contacts'] ?? 0) > 0) {
                 $label .= ' — saved your contact details';
             }

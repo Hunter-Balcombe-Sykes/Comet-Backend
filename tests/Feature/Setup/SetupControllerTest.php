@@ -198,6 +198,30 @@ it('holds every platforms pass while a tokened producer is still out, whatever t
     expect($ready())->toBeFalse();
 });
 
+it('a terminal written in the same second as its STARTED closes the stage whatever order the rows come back in (2026-09-05)', function () {
+    // st_ali retest #4: "Syncing YouTube" and "YouTube synced" share a
+    // created_at (second precision) and Postgres returned the LANDED row
+    // first, so the plain head read STARTED and the platforms grid sat
+    // behind a skeleton until a reload. Rows inserted terminal-first, ids in
+    // write order: the ordered UUID must decide the tie, not the scan.
+    $pro = createTenant('setup-tie');
+    $build = PreAccountBuild::factory()->make(['source_type' => 'instagram']);
+    $build->user()->associate($pro);
+    $build->save();
+    $at = now()->format('Y-m-d H:i:s');
+    DB::table('core.pre_account_build_events')->insert([
+        'id' => '01a00000-0000-7000-8000-000000000002', 'build_id' => $build->id, 'stage' => 'platforms',
+        'status' => 'landed', 'label' => 'YouTube synced', 'payload' => '[]', 'created_at' => $at,
+    ]);
+    DB::table('core.pre_account_build_events')->insert([
+        'id' => '01a00000-0000-7000-8000-000000000001', 'build_id' => $build->id, 'stage' => 'platforms',
+        'status' => 'started', 'label' => 'Syncing YouTube', 'payload' => '[]', 'created_at' => $at,
+    ]);
+
+    $pass = collect(actingAsUser($pro)->getJson('/api/site/setup')->json('passes'))->firstWhere('key', 'platforms.social');
+    expect($pass['ready'])->toBeTrue();
+});
+
 it('a signup-lane Instagram apply owes the scrape: pending row, tokened platforms STARTED, connect job queued (2026-09-05)', function () {
     config(['services.apify.token' => 'test-token']);
     $pro = createTenant('setup-ig-scrape');

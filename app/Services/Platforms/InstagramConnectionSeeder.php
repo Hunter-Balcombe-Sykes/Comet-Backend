@@ -295,7 +295,9 @@ class InstagramConnectionSeeder
             $userId,
             PreAccountBuildEvent::STAGE_MEDIA,
             PreAccountBuildEvent::STATUS_LANDED,
-            'Grabbing your latest photos and reels',
+            // Past tense: this is the stage's closing line under a STARTED
+            // that reads "Saving your latest photos and reels" (2026-09-05).
+            'Saved your latest photos and reels',
             [
                 // The seed artwork only — the mirrored photo and the reel
                 // poster. The latest posts' own covers used to ride along,
