@@ -76,6 +76,32 @@ it('lists the booking page team and suggests the team member the url names', fun
     expect(squareRow($user)->payload['teamMember']['displayName'])->toBe('Jesse Jensz');
 });
 
+it('serves /team from a router-placed row keyed by URL, not the legacy square marker (2026-09-06, Akro Studio)', function () {
+    // The routing lane (SourceReconciler / SuggestionApplier) keys a Square
+    // connection by the accepted URL — a Google Business or website-import
+    // suggestion, accepted from Get Started — not resource_id='square' (the
+    // legacy marker connect() uses). The controller used to look only under
+    // the legacy marker, 404 "No Square link connected yet" for a user who
+    // very much had Square connected and showing on their site. FreshaController
+    // got this exact fix 2026-08-18 (gsnwilliams); it was never carried to
+    // Square, its booking-XOR sibling with the identical two-writer shape.
+    squareWidgetFake();
+    $user = squareTeamUser('sqrouterlane');
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'square',
+        'resource_id' => SQ_ROOT_URL,
+        'payload' => ['url' => SQ_ROOT_URL, 'source' => 'suggestion'],
+        'is_active' => true,
+    ]);
+
+    actingAsUser($user)->getJson('/api/platforms/square/team')
+        ->assertOk()
+        ->assertJsonPath('suggestedEmployeeId', 'TM-qREuvGrHGnJ5Z');
+
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'square')->count())->toBe(1);
+});
+
 it('suggests the team member by name when the url names none', function () {
     squareWidgetFake();
     $user = squareTeamUser('sqteam2');
@@ -92,6 +118,27 @@ it('422s the team roster for a square.site root that links to no booking page', 
     connectSquare($user, 'https://akro-studio.square.site/');
 
     actingAsUser($user)->getJson('/api/platforms/square/team')->assertStatus(422);
+});
+
+it('422s the team roster when Square itself 404s the merchant, distinct from an unreachable Square (2026-09-06, issue #519)', function () {
+    squareWidgetFake(['app.squareup.com/*' => Http::response('Not Found', 404)]);
+    $user = squareTeamUser('sqteam3b');
+    connectSquare($user, SQ_ROOT_URL);
+
+    actingAsUser($user)->getJson('/api/platforms/square/team')
+        ->assertStatus(422)
+        ->assertJsonPath('message', "Square couldn't find that booking page — it may have been disabled, moved, or never finished connecting. Paste a fresh \"Book now\" link from Square Appointments to reconnect.");
+});
+
+it('502s the team roster when Square is unreachable for a reason other than 404', function () {
+    squareWidgetFake(['app.squareup.com/*' => Http::response('Server Error', 500)]);
+    $user = squareTeamUser('sqteam3c');
+    connectSquare($user, SQ_ROOT_URL);
+
+    // Laravel's handler masks a 5xx abort message outside debug mode — the
+    // point of this test is the status code stays 502 (retry-worded),
+    // distinct from the 422 the test above asserts for a genuine 404.
+    actingAsUser($user)->getJson('/api/platforms/square/team')->assertStatus(502);
 });
 
 it('resolves a square.site root to the Appointments deep link the site links out to', function () {

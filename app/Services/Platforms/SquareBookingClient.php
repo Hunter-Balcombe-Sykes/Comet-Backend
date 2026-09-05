@@ -27,6 +27,14 @@ final class SquareBookingClient
         // budget, size cap and redirect policy in one place.
         $response = $this->fetcher->fetch(SquareBookingPage::widgetUrl($merchant, $unit), ['Accept' => 'application/json']);
 
+        // 404 is not a transient failure — Square is telling us definitively
+        // that this booking page doesn't exist (disabled, moved, or a stale
+        // merchant token). Distinguished from other statuses so the
+        // controller can give the user an actionable message instead of
+        // "try again" (2026-09-05 production incident, issue #519).
+        if ($response['status'] === 404) {
+            throw new SquareWidgetNotFound("square widget returned 404 for merchant {$merchant}");
+        }
         if ($response['status'] !== 200) {
             throw new RuntimeException("square widget returned {$response['status']}");
         }

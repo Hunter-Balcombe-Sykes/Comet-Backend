@@ -15,6 +15,7 @@ use App\Services\Platforms\Registry\Platform;
 use App\Services\Platforms\SquareBookingClient;
 use App\Services\Platforms\SquareBookingPage;
 use App\Services\Platforms\SquareSiteBookingResolver;
+use App\Services\Platforms\SquareWidgetNotFound;
 use App\Services\Platforms\StaffNameMatcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -39,6 +40,8 @@ class SquareController extends ApiController
 
     private const NOT_A_BOOKING_PAGE = 'That Square link is a website, not a booking page — paste the "Book now" link from Square Appointments (book.squareup.com/appointments/…).';
 
+    private const PAGE_NOT_FOUND = "Square couldn't find that booking page — it may have been disabled, moved, or never finished connecting. Paste a fresh \"Book now\" link from Square Appointments to reconnect.";
+
     public function __construct(
         private readonly SquareBookingClient $client,
         private readonly StaffNameMatcher $staffMatcher,
@@ -48,6 +51,37 @@ class SquareController extends ApiController
     protected function platform(): string
     {
         return Platform::Square->value;
+    }
+
+    /**
+     * Square is single-selection (booking XOR) but has TWO writers: this
+     * controller keys the row `resource_id = 'square'` (the legacy marker,
+     * via ManagesIntegrationConnection::defaultResourceId), the routing lane
+     * keys it by the accepted URL (SuggestionApplier::apply /
+     * SourceReconciler::settleAndApply — a Google Business or website-import
+     * suggestion, accepted from Get Started). One user, one Square row — so
+     * every unnamed read and write here should address whichever row exists,
+     * falling back to the legacy slot only when there is none. FreshaController
+     * got this exact fix 2026-08-18 (gsnwilliams: "/team, /selection and
+     * saveSelection 404 on a router-placed connection") but it was never
+     * carried to Square, its booking-XOR sibling with the identical two-writer
+     * shape — live, 2026-09-06 (Akro Studio): a suggestion-accepted Square
+     * connection (resource_id the raw URL, not 'square') made every one of
+     * this controller's own endpoints answer "No Square link connected yet"
+     * for a user who very much had one connected and showing on their site.
+     */
+    protected function resolveResourceId(User $user, ?string $resourceId): string
+    {
+        if ($resourceId !== null) {
+            return $resourceId;
+        }
+
+        $existing = $user->integrationConnections()
+            ->where('platform', $this->platform())
+            ->orderBy('created_at')
+            ->value('resource_id');
+
+        return is_string($existing) && $existing !== '' ? $existing : $this->defaultResourceId();
     }
 
     // POST /api/platforms/square/connect
@@ -257,6 +291,11 @@ class SquareController extends ApiController
     {
         try {
             return $this->client->widget($merchant, $unit);
+        } catch (SquareWidgetNotFound) {
+            // A genuine "this page is gone" from Square, not a network blip —
+            // 422, same class as NOT_A_BOOKING_PAGE, so the frontend can show
+            // the real reason instead of a retry-worded generic failure.
+            abort(422, self::PAGE_NOT_FOUND);
         } catch (Throwable) {
             abort(502, 'Could not reach Square — please try again.');
         }
