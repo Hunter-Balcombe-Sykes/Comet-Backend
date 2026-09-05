@@ -132,3 +132,99 @@ for this particular test business.
 `vintageboutiquedarwin@gmail.com` (user id
 `01a06f34-8fa9-73fb-9385-4319cc98625a`) purged after this was recorded —
 see git history / deletion service run for confirmation.
+
+## Update, later the same day: owner re-tested and fixed
+
+Owner did two fresh manual signups — `tobiasindarwin@gmail.com`
+(`stalicoffeeroasters1`, business) and `vintageboutiquedarwin@gmail.com`
+(`squeakprobarber`, partna, second account of that name) — and reported the
+duplicate Instagram, a nameless Uber Eats card, squeakprobarber's workplace
+never appearing, and two extra Booksy links. Re-diagnosed live against these
+accounts (not the harness) and shipped four fixes, commit `249073014`
+(merged/pushed as `9f056cb98d` on `development`, deployed
+`depl-a2abc0b0`):
+
+1. **Duplicate Instagram card (issue 2/5 above, confirmed still live and
+   platform-agnostic as predicted)** — root-caused precisely:
+   `SetupPayload::suggestionRows()`'s connection-loop skipped a connection
+   already claimed by an intent by re-deriving `surface_key|identifier` and
+   comparing it against each connection's `surface_key|resource_id` — but
+   the legacy Google-Business writer keys its connection by the bare
+   platform name (`resource_id='instagram'`) while the newer
+   suggestion-applier lane links the intent's own `connection_id` to a
+   connection keyed by the real handle (`resource_id='st_ali'`). Both are
+   the same account and the FK already says so, but the two string forms
+   never match, so the legacy row slipped through as a second card. Fixed
+   by tracking covered connections by the ID each intent actually resolved
+   to (preferring `connection_id`, falling back to the identifier match),
+   not re-derived strings. Verified live post-deploy: 1 Instagram row
+   (was 2).
+2. **Uber Eats card showing no store name** — a different manifestation of
+   a naming bug, not the identity mismatch above: the Uber Eats sync
+   writes `payload.name = "UberEats"` (the brand, compact form).
+   `ConnectionDisplayName::isBrandLabel()` compared it against the
+   catalog's spaced label ("Uber Eats") by exact string equality, missed
+   the match, and treated the brand placeholder as a genuine custom name —
+   short-circuiting the store-name-from-url fallback that would have read
+   "St Ali" off `ubereats.com/au/store/st-ali/...`. Fixed by comparing
+   squashed (case- and separator-insensitive) forms. Verified live
+   post-deploy: accountName "St Ali" (was "UberEats").
+3. **squeakprobarber's workplace pass never showing anything on load** —
+   `SetupPassRegistry::READY_STAGES` mapped the listing pass's readiness to
+   a stage literally named `'listing'` — a real stage, but the wrong one
+   (`GoogleBusinessEnrichJob` enriching an already-connected listing, not
+   searching for one). The stage that actually gates "have we finished
+   searching for your workplace" is `STAGE_WORKPLACE`
+   (`InstagramSourceGenerator`/`BioMentionChainsJob`'s bio-mention search
+   feeding `site.workplace_candidates`). The pass reported `ready:true`
+   from the very first poll, before that search had run, hiding its
+   loading skeleton and letting the payload's overall `busy` flag go false
+   early — stopping the dashboard's 3s poll before a match could ever
+   reach the screen. Fixed the mapping.
+4. **squeakprobarber's two extra Booksy links** — Booksy's catalog surface
+   only detected the numeric-id directory path
+   (`booksy.com/en-us/{id}_...`); the business's own tenant subdomain
+   (`squeakprobarber.booksy.com`) and Booksy's "powered by / learn more"
+   badge domain (`booksy.info`) had no detector, so `CustomLinkSeeder`'s
+   route-first gate let both through as raw custom links duplicating the
+   already-connected Booksy card. Added sibling detectors (mirrors
+   `Square.book`'s identical tenant-subdomain fix shipped earlier the same
+   day) so both route through the booking policy instead of the links
+   pool. The two already-written junk rows on the live squeakprobarber
+   test account were also soft-removed directly.
+
+Also shipped the same day: the Get Started dialog's platforms step now
+holds behind one loading skeleton until every `platforms.*` pass reports
+ready, instead of revealing rows pass-by-pass as they land
+(`partna-monorepo` commit `bc1eaa0f`).
+
+Full backend suite: 11,366 passed / 0 failed. `catalog:compile` and
+`routing:corpus` regenerated for the two new Booksy detectors.
+
+### Not fixed — flagged for the owner
+
+- **The `website` build stage still has no terminal event** on this fresh
+  St Ali retest (`started` at 04:17:37, never `landed`/`failed`), and
+  `site.logo_candidates` is still empty — the exact issue flagged above,
+  reproduced on a completely fresh account, confirming it is not
+  incidental. Traced to an infrastructure gap, not application code: the
+  job `ScanPreviousWebsiteContentJob` dispatches onto the `scraping` queue
+  (Horizon's `supervisor-long`), and the dev environment's log shows the
+  Horizon worker cluster instance receiving repeated "asked the supervisor
+  to tear the stack down" hibernation messages a few minutes into the
+  build (the environment has `usesHibernation: true`), with zero trace of
+  this job class ever running in the following 40+ minutes — while other
+  queues' jobs (streaming, ingest) keep running fine. This is the same
+  class of problem `media_mirror` was already split onto Laravel Cloud's
+  scale-to-zero managed queue to solve (2026-09-04) — `scraping` hasn't
+  had that migration. Needs an owner decision (disable hibernation on
+  dev, or migrate `scraping` onto a managed queue) — not something to
+  silently patch via a code commit.
+- **squeakprobarber's live public workplace is "Drysdale Village Pizza"**
+  (`(03) 5251 3937`, Drysdale VIC) — confirmed live on the published wire,
+  not just a dialog candidate. `site.workplace_candidates` has zero rows
+  for this account (the bio-mention auto-search found nothing), so this
+  connection did not come from an automated match — it looks like manual
+  interaction with the Get Started dialog's own listing-search box during
+  testing, not a code defect. Flagged rather than silently
+  "fixed"/reverted since it wasn't clear this was unintended.
