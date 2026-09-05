@@ -9,12 +9,14 @@ use App\Models\Content\Item;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\SectionItem;
 use App\Models\Core\Site\Site;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Routing\HiddenConnections;
 use App\Routing\SuggestionApplier;
 use App\Routing\Verification\LinkVerifier;
 use App\Routing\WorkplaceCandidates;
 use App\Services\Design\LogoCandidates;
+use App\Services\PreAccount\BuildProgress;
 use App\Site\Documents\SiteCacheLanes;
 use App\Site\Pools\PoolRegistry;
 use App\Site\Pools\PoolSectionProvisioner;
@@ -203,6 +205,14 @@ class SetupBatchApplier
         // renders); nothing below this block runs for a shop surface.
         if (in_array($intent->surface_key, SuggestionApplier::PROBED_STORE_SURFACES, true)
             && is_string($intent->canonical_url ?? null) && $intent->canonical_url !== '') {
+            // Owed from the tick (2026-09-05): ShopInitialFillJob writes this
+            // same note when it starts, but that is a probe + a seeder + a
+            // queue hop away, and until then items.shop read ready-and-empty
+            // — so the dialog's "hold Continue until the products are ready"
+            // had nothing to hold on and "Your products" was empty until a
+            // refresh (squeakprobarber, st_ali). One STARTED per stage, so
+            // the job's own is a no-op.
+            BuildProgress::noteForUser((string) $user->id, PreAccountBuildEvent::STAGE_SHOP, PreAccountBuildEvent::STATUS_STARTED, 'Syncing your store');
             CommerceProbeJob::dispatch((string) $user->id, (string) $intent->canonical_url, 'shop', acceptedIntentId: (string) $intent->id);
 
             return true;

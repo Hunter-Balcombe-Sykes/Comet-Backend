@@ -2,6 +2,7 @@
 
 namespace App\Jobs\Platforms;
 
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Routing\IriCanonicalizer;
 use App\Routing\LinkObserver;
@@ -14,6 +15,7 @@ use App\Services\Platforms\CustomLinkSeeder;
 use App\Services\Platforms\EventsSeeder;
 use App\Services\Platforms\GenericShopScraper;
 use App\Services\Platforms\ShopProductSeeder;
+use App\Services\PreAccount\BuildProgress;
 use App\Services\Shop\DiscountCodeAdopter;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -160,6 +162,9 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         // is ours to answer — see settleAcceptedIntent().
         if (! $resolved && $this->acceptedIntentId !== null) {
             $this->settleAcceptedIntent();
+            // The accept lane wrote `shop` STARTED at the tick (2026-09-05);
+            // a miss closes it, or the walk waits the full stale window.
+            BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_SHOP, PreAccountBuildEvent::STATUS_SKIPPED, "Couldn't read your store");
         }
 
         Log::info('commerce_probe.resolved', [
@@ -338,9 +343,18 @@ class CommerceProbeJob implements ShouldBeUnique, ShouldQueue
         // words) — a weak or ungoverned match still wants its card. 'capped'
         // is a real connection that only lost the shop_brands DISPLAY row;
         // the card would sit under a store that is, in fact, connected.
-        return $result['outcome'] === 'placed'
+        $resolved = $result['outcome'] === 'placed'
             || $result['outcome'] === 'capped'
             || ($result['outcome'] === 'not_placed' && $result['verdict'] !== null && $result['verdict'] !== 'note');
+
+        // Resolved without a store to fill (a cap Swap, a hold): nothing
+        // will write the `shop` terminal the accept lane's STARTED is
+        // waiting on, so close it here (2026-09-05).
+        if ($resolved && $this->acceptedIntentId !== null && $result['outcome'] !== 'placed') {
+            BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_SHOP, PreAccountBuildEvent::STATUS_SKIPPED, "Couldn't connect your store yet");
+        }
+
+        return $resolved;
     }
 
     /**

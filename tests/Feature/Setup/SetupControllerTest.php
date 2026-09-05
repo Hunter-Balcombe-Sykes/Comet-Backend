@@ -1,6 +1,8 @@
 <?php
 
+use App\Jobs\Platforms\CommerceProbeJob;
 use App\Models\Core\Site\IntegrationConnection;
+use App\Models\Core\User\PreAccountBuild;
 use App\Services\Accounts\AccountCapabilities;
 use App\Services\Setup\SetupPassRegistry;
 use Illuminate\Support\Facades\DB;
@@ -138,6 +140,31 @@ it('batch accept applies a proposed suggestion and reveals a hidden one', functi
         ->and(DB::table('routing.source_intents')->where('id', $proposedId)->value('state'))->toBe('applied')
         ->and(IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'instagram.profile')->value('visibility'))->toBe('visible')
         ->and($hiddenConn->fresh()->visibility)->toBe('visible');
+});
+
+it('ticking a store writes the shop STARTED note at accept, before the probe ever runs (2026-09-05)', function () {
+    // Between Continue and the queue picking the probe up, items.shop used
+    // to read ready-and-empty, so the dialog's "hold Continue until the
+    // products are ready" returned at once and "Your products" was blank
+    // until a refresh (squeakprobarber, st_ali).
+    $pro = createTenant('setup-store-note');
+    $build = PreAccountBuild::factory()->make(['source_type' => 'instagram']);
+    $build->user()->associate($pro);
+    $build->save();
+    $intentId = setupSeedIntent($pro->id, [
+        'surface_key' => 'shopify.store', 'routing_class' => 'shop',
+        'identifier' => '64035750019', 'canonical_url' => 'https://64035750019.myshopify.com',
+    ]);
+
+    actingAsUser($pro)->postJson('/api/site/setup/accept', ['pass' => 'platforms.stores', 'accept' => [$intentId]])->assertOk();
+
+    Queue::assertPushed(CommerceProbeJob::class);
+    expect(DB::table('core.pre_account_build_events')
+        ->where('build_id', $build->id)->where('stage', 'shop')->where('status', 'started')->exists())->toBeTrue();
+    $shop = collect(actingAsUser($pro)->getJson('/api/site/setup')->json('passes'))->firstWhere('key', 'items.shop');
+    if ($shop !== null) {
+        expect($shop['ready'])->toBeFalse();
+    }
 });
 
 it('a manual visible connect settles the matching standing intent (observer)', function () {
