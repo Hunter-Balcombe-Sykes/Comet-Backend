@@ -2,6 +2,7 @@
 
 namespace App\Routing;
 
+use App\Catalog\Enums\RoutingClass;
 use App\Catalog\LegacyPlatformMap;
 use App\Jobs\Content\ReparentBioItemsJob;
 use App\Jobs\Platforms\ConnectFetchJob;
@@ -332,6 +333,39 @@ class SuggestionApplier
 
             if ($settled === 0) {
                 throw new \RuntimeException("Could not settle source intent {$intent->id} for user {$user->id}");
+            }
+
+            // Booking/reservations/ordering are exclusive: only one incumbent
+            // connection per class. A sibling intent under a DIFFERENT
+            // identifier (same class, same user) can be legitimately
+            // 'proposed' at the same time as this one — neither had a
+            // connection to check against when either was first seen, so
+            // SourceReconciler's cap check never held either against the
+            // other (live: Akro Studio, 2026-09-06 — Google Business's
+            // generic book.squareup.com/appointments/… link and the
+            // website's own akro-studio.square.site both proposed for
+            // square.book before this accept, and rendered as two
+            // unrelated-looking "Square" cards). Accepting ONE settles the
+            // class; every OTHER live sibling must stop rendering as an
+            // independent suggestion. Blocked with the same cap_reached
+            // shape SourceReconciler::recordCapBlock() uses, so it renders
+            // (or doesn't, mid-setup — SetupPayload's blocked-intent guard)
+            // through the identical machinery and stays resolvable later as
+            // a Swap from the suggestions inbox.
+            if (RoutingClass::from((string) $intent->routing_class)->isExclusiveAuto()) {
+                DB::table('routing.source_intents')
+                    ->where('user_id', $user->id)
+                    ->where('routing_class', $intent->routing_class)
+                    ->where('id', '!=', $intent->id)
+                    ->whereIn('state', ['proposed', 'verifying'])
+                    ->whereRaw('lower(identifier) != ?', [mb_strtolower((string) $intent->identifier)])
+                    ->update([
+                        'state' => 'blocked',
+                        'block_reason' => 'cap_reached',
+                        'conflicting_connection_id' => $connection->id,
+                        'resolved_at' => now(),
+                        'updated_at' => now(),
+                    ]);
             }
 
             return $connection;

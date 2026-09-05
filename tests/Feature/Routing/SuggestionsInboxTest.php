@@ -365,6 +365,50 @@ it('un-blocks a cap-blocked link once the cap is no longer reached', function ()
     expect(DB::table('routing.source_intents')->where('id', $intentId)->value('state'))->toBe('blocked');
 });
 
+it('accepting one of two proposed booking siblings blocks the other, instead of leaving two live Square cards (2026-09-06, Akro Studio)', function () {
+    // Live: Google Business's generic book.squareup.com/appointments/… link
+    // and the website's own akro-studio.square.site both proposed for
+    // square.book before either was accepted — neither had a connection to
+    // check against when either was first seen, so the exclusive-class cap
+    // check never held either against the other (it only guards a NEW
+    // candidate against an EXISTING connection). Accepting the website one
+    // left the Google one sitting 'proposed' forever, rendering as a second,
+    // unrelated-looking "Square" card. SuggestionApplier::apply() now
+    // retroactively blocks every other live sibling in the same exclusive
+    // routing_class once one of them settles the slot.
+    $pro = createTenant('inbox-booking-sibling');
+    $googleId = seedIntent($pro->id, [
+        'surface_key' => 'square.book', 'routing_class' => 'booking',
+        'identifier' => 'https://book.squareup.com/appointments/mlse36v5angcz',
+        'canonical_url' => 'https://book.squareup.com/appointments/mlse36v5angcz',
+        'origin' => 'google_business',
+    ]);
+    $websiteId = seedIntent($pro->id, [
+        'surface_key' => 'square.book', 'routing_class' => 'booking',
+        'identifier' => 'https://akro-studio.square.site/',
+        'canonical_url' => 'https://akro-studio.square.site/',
+        'origin' => 'website_import',
+    ]);
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$websiteId}/accept")->assertOk();
+
+    $connection = IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'square.book')->first();
+    expect($connection)->not->toBeNull()
+        ->and(IntegrationConnection::query()->where('user_id', $pro->id)->where('surface_key', 'square.book')->count())->toBe(1);
+
+    $google = DB::table('routing.source_intents')->where('id', $googleId)->first();
+    expect($google->state)->toBe('blocked')
+        ->and($google->block_reason)->toBe('cap_reached')
+        ->and($google->conflicting_connection_id)->toBe((string) $connection->id);
+
+    // The now-blocked sibling drops out of the live inbox (SetupPayload's
+    // Get Started walk hides it the same way; the suggestions inbox still
+    // renders it, as a Swap, via the same cap_reached shape any other
+    // single-account cap conflict uses).
+    $suggestions = actingAsUser($pro)->getJson('/api/routing/suggestions')->json('suggestions');
+    expect(collect($suggestions)->firstWhere('id', $googleId)['actions'] ?? null)->toBe(['replace', 'dismiss']);
+});
+
 it('never re-asks a question the user already dismissed', function () {
     $pro = createTenant('inbox-dismiss');
     $intentId = seedIntent($pro->id);

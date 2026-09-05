@@ -404,6 +404,32 @@ class SourceReconciler
                 ->whereRaw('lower(identifier) = ?', [mb_strtolower($identifier)])
                 ->update(['state' => 'superseded', 'resolved_at' => now(), 'updated_at' => now()]);
 
+            // Same exclusive-class settlement as SuggestionApplier::apply()'s
+            // sibling-supersede (2026-09-06, Akro Studio): a sibling intent
+            // under a DIFFERENT identifier (same class, same user) can be
+            // legitimately 'proposed' at the same time as this one — neither
+            // had a connection to check against when either was first seen,
+            // so the incumbentFor()/capReached() checks above never held
+            // either against the other. Placing/applying one settles the
+            // class; every OTHER live sibling must stop rendering as an
+            // independent suggestion. recordCapBlock()'s own shape, applied
+            // retroactively.
+            if ($this->isExclusiveAuto($routingClass)) {
+                DB::table('routing.source_intents')
+                    ->where('user_id', $user->id)
+                    ->where('routing_class', $routingClass)
+                    ->where('id', '!=', $intentId)
+                    ->whereIn('state', ['proposed', 'verifying'])
+                    ->whereRaw('lower(identifier) != ?', [mb_strtolower($identifier)])
+                    ->update([
+                        'state' => 'blocked',
+                        'block_reason' => 'cap_reached',
+                        'conflicting_connection_id' => $connectionId,
+                        'resolved_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+            }
+
             return [$intentId, $connectionId];
         });
     }
