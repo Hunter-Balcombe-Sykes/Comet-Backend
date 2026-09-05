@@ -28,7 +28,6 @@ use App\Services\WebsiteScan\PdfLinkDetector;
 use App\Services\WebsiteScan\SquarespaceMenuExtractor;
 use App\Services\WebsiteScan\VisibleTextExtractor;
 use App\Services\WebsiteScan\WebsiteAccentExtractor;
-use App\Services\WebsiteScan\WebsiteGalleryCandidateExtractor;
 use App\Services\WebsiteScan\WebsiteLogoCandidateExtractor;
 use App\Services\WebsiteScan\WorkplaceContentApplier;
 use Illuminate\Bus\Queueable;
@@ -42,12 +41,15 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 // Single entry point for everything that happens when a user's
-// previous_website is set/changed: about text (JSON-LD/meta + a richer
-// heading-prose heuristic), contact email, menu (HTML + PDF),
-// general link-harvesting, accent colour, logo candidates, and gallery
-// photos — one plain fetch, no headless render, no separate "design scan"
-// job. Independent of (and, since Part B, the sole replacement for) the old
-// headless-browser website-style-analysis pipeline.
+// previous_website is set/changed: logo candidates + accent colour + font
+// (business accounts only — done FIRST, see the docblock at the top of
+// handle()), about text (JSON-LD/meta + a richer heading-prose heuristic),
+// contact email, menu (HTML + PDF), and general link-harvesting — one plain
+// fetch, no headless render, no separate "design scan" job. Independent of
+// (and, since Part B, the sole replacement for) the old headless-browser
+// website-style-analysis pipeline. Gallery/content-photo grabbing from a
+// previous website was dropped from this job entirely (owner, 2026-09-05) —
+// logos only.
 //
 // Consciously-accepted side effect: GoogleBusinessAutoSync::seed()'s social
 // branch, when it finds an Instagram link among the harvested links,
@@ -149,7 +151,6 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         MetadataParser $metadataParser,
         SquarespaceMenuExtractor $squarespaceExtractor,
         VisibleTextExtractor $visibleTextExtractor,
-        WebsiteGalleryCandidateExtractor $galleryCandidateExtractor,
     ): void {
         $user = User::find($this->userId);
         $site = Site::find($this->siteId);
@@ -183,6 +184,80 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         }
         $baseUrl = $response['finalUrl'] ?? $this->url;
 
+        // Design evidence (logo/accent/font) runs FIRST, right after the
+        // fetch, off only $html/$baseUrl already in hand — no further network
+        // call needed to reach it. Moved here 2026-09-05: it used to run LAST,
+        // after menu OCR dispatch, general link-harvesting
+        // (GoogleBusinessAutoSync::seed()) and WebsiteImporter's own network
+        // calls — several more round trips a worker torn down mid-job
+        // (Laravel Cloud hibernation, suspected live on St Ali/squeakprobarber
+        // retests) could lose before ever reaching the logo. The highest-
+        // value, fastest part of this job now runs while the worker is most
+        // likely still alive, and answers the 'website' stage itself instead
+        // of leaning on the gallery scan's terminal note to close it out —
+        // gallery/content-photo grabbing is dropped from this job entirely
+        // (owner, 2026-09-05): logos only from here on.
+        //
+        // Only makes sense when the workplace's brand IS the site's identity
+        // (a business) — a partna account's workplace website is someone
+        // else's brand (owner, 2026-08-19): its logo must never become the
+        // site's mark and its colours must never become the site's accent.
+        if (AccountCapabilities::for($user)->workplace_brand_is_site_identity) {
+            $favicon = $faviconFetcher->fetch($html, $baseUrl);
+            $themeColor = $accentExtractor->themeColorFromHtml($html);
+            $faviconColor = isset($favicon['bytes']) ? $accentExtractor->dominantColorFromImage($favicon['bytes']) : null;
+
+            $logoCandidates = $logoCandidateExtractor->extract($html, $baseUrl);
+            if ($favicon !== null) {
+                $logoCandidates[] = ['kind' => 'icon', 'url' => $favicon['url'], 'sizes' => '', 'type' => ''];
+            }
+
+            $logoDecisions = [];
+            if ($logoCandidates !== []) {
+                // The decisions array is the grabber's per-candidate audit trail
+                // (LogoAutoGrabber's docblock expects the caller to keep it) —
+                // logged, not persisted: "why didn't my logo get picked up" is a
+                // support question answered from logs, not a product surface.
+                $logoDecisions = $logoAutoGrabber->grabIfEmpty($user, $site, $logoCandidates);
+                Log::info('website_scan.logo_grab', [
+                    'user_id' => $this->userId,
+                    'site_id' => $this->siteId,
+                    'decisions' => $logoDecisions,
+                ]);
+            }
+
+            $logoFound = count(array_filter($logoDecisions, static fn (array $d) => ! str_starts_with($d['outcome'], 'rejected:')));
+            // Setup progress (2026-09-05): the website stage started at
+            // dispatch (WorkplaceObserver::dispatchContentScan) and is owed an
+            // answer here — this job no longer depends on a separately
+            // dispatched gallery job to close it out.
+            BuildProgress::noteForUser(
+                $this->userId,
+                PreAccountBuildEvent::STAGE_WEBSITE,
+                $logoFound > 0 ? PreAccountBuildEvent::STATUS_LANDED : PreAccountBuildEvent::STATUS_SKIPPED,
+                $logoFound > 0 ? 'Found your logo' : 'No logo found on your website',
+            );
+
+            // Accent resolution — one immediate pass for the tiers already in
+            // hand (theme-color/favicon). SiteMediaObserver chains a second
+            // pass once a logo asset reaches READY with a dominant colour.
+            ResolveSiteAccentJob::dispatch($this->siteId, $themeColor, $faviconColor);
+
+            // §13's second half of website evidence: the font keyword
+            // classifier. Same $html as above (no extra fetch), same
+            // fill-if-empty discipline as the accent — a font the user (or an
+            // earlier scan) already chose is never touched.
+            $autopilot = app(DesignKitAutopilot::class);
+            $autopilot->persistFillIfEmpty($this->siteId, $autopilot->fromWebsiteEvidence($html)['proposals']);
+        } else {
+            Log::info('website_scan.design_evidence_skipped', [
+                'user_id' => $this->userId,
+                'site_id' => $this->siteId,
+                'reason' => 'workplace_brand_is_site_identity=false',
+            ]);
+            BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_WEBSITE, PreAccountBuildEvent::STATUS_SKIPPED, 'Looked at your website');
+        }
+
         // About text — plain JSON-LD/meta fill-if-empty first, then the
         // richer heading-prose heuristic (preferred when found — see
         // WorkplaceContentApplier::applyProseDescription()'s precedence).
@@ -196,7 +271,7 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
 
         // One-hop /about + /contact — only for whichever came up empty on the
         // homepage, fetched CONCURRENTLY (stacking sequential one-hop fetches
-        // risks this job's 60s timeout before reaching accent/logo below).
+        // risks this job's 60s timeout).
         if ($proseText === null || $email === null) {
             $outboundLinks = $harvester->allOutboundLinks($html, $baseUrl);
             $hopUrls = [];
@@ -331,7 +406,7 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         // capability-gate-bypass bug class this job's design deliberately avoids).
         $harvested = $harvester->harvestHtml($html, $baseUrl);
 
-        // Same ruling as the design-evidence gate at the foot of this method,
+        // Same ruling as the design-evidence gate at the top of this method,
         // applied to IDENTITY instead of brand: when this website is the
         // workplace's, the socials on it are the venue's and (on a staff page)
         // its staff's. seed()'s social branch would file them as this
@@ -401,79 +476,6 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         } catch (Throwable $e) {
             report($e);
         }
-
-        // Gallery photos — its own dispatched job (like the PDF/HTML menu
-        // scans above): downloading+validating+uploading several candidate
-        // photos can run long, same rationale as those jobs being split out
-        // of this job's own 60s window. Fills an EMPTY gallery pool only.
-        $galleryCandidates = $galleryCandidateExtractor->extract($html, $baseUrl);
-        if ($galleryCandidates !== []) {
-            // 9e: candidates already extracted — the old +30s was dead time.
-            WebsiteGalleryScanJob::dispatch($this->userId, $this->siteId, $galleryCandidates);
-        } else {
-            // Setup progress (2026-09-02): the website stage started above and
-            // is owed an answer — nothing to grab is an answer.
-            BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_WEBSITE, PreAccountBuildEvent::STATUS_SKIPPED, 'No photos to grab from your website');
-        }
-
-        // Everything below is DESIGN evidence — the site's logo, accent and
-        // font read off this website. That only makes sense when the
-        // workplace's brand IS the site's identity (a business). A partna
-        // account's workplace website is someone else's brand (owner,
-        // 2026-08-19): its logo must never become the site's mark and its
-        // colours must never become the site's accent.
-        if (! AccountCapabilities::for($user)->workplace_brand_is_site_identity) {
-            Log::info('website_scan.design_evidence_skipped', [
-                'user_id' => $this->userId,
-                'site_id' => $this->siteId,
-                'reason' => 'workplace_brand_is_site_identity=false',
-            ]);
-
-            return;
-        }
-
-        // Accent colour candidates + logo candidates — one shared favicon
-        // fetch, no headless render, reuses the exact $html/$baseUrl already
-        // fetched above (no second main-page request). Accent RESOLUTION
-        // itself is deferred to ResolveSiteAccentJob (dispatched below, after
-        // the logo/gallery work is kicked off) so those async palette tiers
-        // get a real shot once their processing has landed.
-        $favicon = $faviconFetcher->fetch($html, $baseUrl);
-        $themeColor = $accentExtractor->themeColorFromHtml($html);
-        $faviconColor = isset($favicon['bytes']) ? $accentExtractor->dominantColorFromImage($favicon['bytes']) : null;
-
-        $logoCandidates = $logoCandidateExtractor->extract($html, $baseUrl);
-        if ($favicon !== null) {
-            $logoCandidates[] = ['kind' => 'icon', 'url' => $favicon['url'], 'sizes' => '', 'type' => ''];
-        }
-        if ($logoCandidates !== []) {
-            // The decisions array is the grabber's per-candidate audit trail
-            // (LogoAutoGrabber's docblock expects the caller to keep it) —
-            // logged, not persisted: "why didn't my logo get picked up" is a
-            // support question answered from logs, not a product surface.
-            $decisions = $logoAutoGrabber->grabIfEmpty($user, $site, $logoCandidates);
-            Log::info('website_scan.logo_grab', [
-                'user_id' => $this->userId,
-                'site_id' => $this->siteId,
-                'decisions' => $decisions,
-            ]);
-        }
-
-        // Accent resolution — one immediate pass for the tiers already in hand
-        // (theme-color/favicon). The logo/gallery tiers no longer ride a blind
-        // +120s re-dispatch: 9e moved them onto the real event — SiteMediaObserver
-        // chains ResolveSiteAccentJob the moment a logo/gallery asset reaches
-        // READY with a dominant colour (exactly the state SiteAccentResolver
-        // queries), so a slow cold-container variant run can't miss its pass
-        // any more, and a fast one isn't held for two minutes.
-        ResolveSiteAccentJob::dispatch($this->siteId, $themeColor, $faviconColor);
-
-        // §13's second half of website evidence: the font keyword classifier.
-        // Same $html as everything above (no extra fetch), same fill-if-empty
-        // discipline as the accent — a font the user (or an earlier scan)
-        // already chose is never touched.
-        $autopilot = app(DesignKitAutopilot::class);
-        $autopilot->persistFillIfEmpty($this->siteId, $autopilot->fromWebsiteEvidence($html)['proposals']);
     }
 
     /**
@@ -485,10 +487,6 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
      */
     private function resolveMenuPageUrl(string $html, string $baseUrl, WebsiteLinkHarvester $harvester, MetadataParser $metadataParser): ?string
     {
-        // Setup progress (2026-09-02): the website is owed from the scan's
-        // first line; WebsiteGalleryScanJob lands (or skips) it.
-        BuildProgress::noteForUser($this->userId, PreAccountBuildEvent::STAGE_WEBSITE, PreAccountBuildEvent::STATUS_STARTED, 'Looking at your website');
-
         return $this->menuPointerUrl($html, $baseUrl, $metadataParser)
             ?? $this->findPageLink($harvester->allOutboundLinks($html, $baseUrl), $baseUrl, 'menu');
     }

@@ -10,6 +10,8 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\Site\Menu;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
+use App\Models\Core\User\PreAccountBuild;
+use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
 use App\Services\Cache\ApifyBudget;
 use App\Services\Content\ManualMenuItems;
@@ -28,7 +30,6 @@ use App\Services\WebsiteScan\PdfLinkDetector;
 use App\Services\WebsiteScan\SquarespaceMenuExtractor;
 use App\Services\WebsiteScan\VisibleTextExtractor;
 use App\Services\WebsiteScan\WebsiteAccentExtractor;
-use App\Services\WebsiteScan\WebsiteGalleryCandidateExtractor;
 use App\Services\WebsiteScan\WebsiteLogoCandidateExtractor;
 use App\Services\WebsiteScan\WorkplaceContentApplier;
 use Illuminate\Support\Facades\Bus;
@@ -96,7 +97,6 @@ function spwcjRun(string $userId, string $siteId, string $url): void
         app(MetadataParser::class),
         app(SquarespaceMenuExtractor::class),
         app(VisibleTextExtractor::class),
-        app(WebsiteGalleryCandidateExtractor::class),
     );
 }
 
@@ -408,6 +408,58 @@ it('skips the design evidence (accent, logo, font) for a partna account — the 
     Queue::assertNotPushed(ResolveSiteAccentJob::class);
 });
 
+// ── 'website' build-stage terminal note (2026-09-05 fix) ──────────────────────
+//
+// Before this fix, the ONLY terminal STAGE_WEBSITE note this job ever wrote
+// was "No photos to grab" (the now-removed gallery section) — a business
+// account whose page carried gallery-shaped photos, or whose design-evidence
+// section ran at all, left the stage open forever (reproduced live on St Ali,
+// 2026-09-05: `started`, never `landed`/`failed`, and site.logo_candidates
+// stayed empty). Design evidence now answers the stage itself, synchronously,
+// regardless of gallery content.
+it('lands the website stage as skipped, with a logo-specific label, when the page has no logo signal at all', function () {
+    setupPreAccountBuildsTable();
+    setupPreAccountBuildEventsTable();
+    [$user, $site] = spwcjUser('spwcj7d', 'business');
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
+    $build = PreAccountBuild::factory()->make(['source_type' => 'instagram']);
+    $build->user()->associate($user);
+    $build->save();
+
+    Http::fake(['example.com' => Http::response('<meta name="theme-color" content="#ff5500">', 200)]);
+
+    spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
+
+    $event = PreAccountBuildEvent::query()->where('build_id', $build->id)
+        ->where('stage', PreAccountBuildEvent::STAGE_WEBSITE)->latest('created_at')->first();
+    expect($event)->not->toBeNull();
+    expect($event->status)->toBe(PreAccountBuildEvent::STATUS_SKIPPED);
+    expect($event->label)->toBe('No logo found on your website');
+});
+
+it('lands the website stage as skipped for a partna account, without ever depending on the gallery job', function () {
+    setupPreAccountBuildsTable();
+    setupPreAccountBuildEventsTable();
+    [$user, $site] = spwcjUser('spwcj7e', 'partna');
+    Workplace::forceCreate(['site_id' => (string) $site->id]);
+    $build = PreAccountBuild::factory()->make(['source_type' => 'instagram']);
+    $build->user()->associate($user);
+    $build->save();
+
+    Http::fake(['example.com' => Http::response(
+        '<body><img src="/photos/dining-room.jpg" width="800" height="600"></body>',
+        200
+    )]);
+
+    spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
+
+    $event = PreAccountBuildEvent::query()->where('build_id', $build->id)
+        ->where('stage', PreAccountBuildEvent::STAGE_WEBSITE)->latest('created_at')->first();
+    expect($event)->not->toBeNull();
+    expect($event->status)->toBe(PreAccountBuildEvent::STATUS_SKIPPED);
+    expect($event->label)->toBe('Looked at your website');
+});
+
 it('does nothing when the fetch fails, without throwing', function () {
     [$user, $site] = spwcjUser('spwcj8', 'partna');
     Workplace::forceCreate(['site_id' => (string) $site->id]);
@@ -497,9 +549,17 @@ it('follows one-hop /about and /contact links concurrently when the homepage has
     expect($workplace->contact_email)->toBe('hello@example.com');
 });
 
-// ── Gallery photos (item 8) ────────────────────────────────────────────────────
+// ── Gallery photos (dropped 2026-09-05 — logos only from here on) ─────────────
+//
+// Gallery/content-photo grabbing from a previous website was removed from this
+// job entirely (owner instruction, 2026-09-05 — the 'website' build stage was
+// leaning on WebsiteGalleryScanJob's own terminal note to close out, and that
+// separately-dispatched job was one more thing a queue-starved worker could
+// lose before ever landing). This regression guard uses the SAME
+// gallery-photo fixture the old positive test used, to prove the dispatch is
+// genuinely gone rather than merely untriggered by an empty-page fixture.
 
-it('dispatches WebsiteGalleryScanJob when the homepage carries gallery-candidate photos', function () {
+it('never dispatches WebsiteGalleryScanJob, even when the homepage carries gallery-candidate photos', function () {
     Queue::fake();
     [$user, $site] = spwcjUser('spwcj22', 'partna');
     Workplace::forceCreate(['site_id' => (string) $site->id]);
@@ -508,19 +568,6 @@ it('dispatches WebsiteGalleryScanJob when the homepage carries gallery-candidate
         '<body><img src="/photos/dining-room.jpg" width="800" height="600"></body>',
         200
     )]);
-
-    spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
-
-    Queue::assertPushed(WebsiteGalleryScanJob::class, fn ($job) => $job->userId === (string) $user->id
-        && in_array('https://example.com/photos/dining-room.jpg', $job->candidateUrls, true));
-});
-
-it('does not dispatch WebsiteGalleryScanJob when the homepage has no gallery-candidate photos', function () {
-    Queue::fake();
-    [$user, $site] = spwcjUser('spwcj23', 'partna');
-    Workplace::forceCreate(['site_id' => (string) $site->id]);
-
-    Http::fake(['example.com' => Http::response('<p>No photos here.</p>', 200)]);
 
     spwcjRun((string) $user->id, (string) $site->id, 'https://example.com');
 

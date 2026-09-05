@@ -6,7 +6,8 @@ use App\Jobs\Platforms\WebsiteMenuPdfScanJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Site\Workplace;
 use App\Models\Core\User\User;
-use App\Services\Design\DesignKitAutopilot;
+use App\Services\Http\SafeUrlFetcher;
+use App\Services\Platforms\WebsiteLinkHarvester;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -140,17 +141,20 @@ it('does not re-dispatch the billed OCR sub-job on retry — real queue-drain pr
 
     Http::fake(['example.com' => Http::response('<a href="/menu.pdf">Menu (PDF)</a>', 200)]);
 
-    // Correct injection point per the plan: DesignKitAutopilot::persistFillIfEmpty()
-    // is the LAST statement in handle() (:342-343), strictly after every sub-job
-    // dispatch (WebsiteMenuPdfScanJob included). Forcing a throw here means
-    // attempt 1 completes the WHOLE paid fan-out and only THEN fails — exactly
-    // the "retry after side effects already happened" state under test. It's
-    // resolved via app(DesignKitAutopilot::class) (not constructor-injected),
-    // so a duck-typed container swap is enough — no need to fight its real
-    // constructor dependencies.
-    app()->bind(DesignKitAutopilot::class, fn () => new class
+    // Injection point (2026-09-05: design evidence — logo/accent/font — moved
+    // to the TOP of handle(), before the menu section, so DesignKitAutopilot
+    // no longer runs last). WebsiteLinkHarvester::harvestHtml() is now the
+    // first call structurally AFTER the PDF menu dispatch that both (a) is
+    // unconditional and (b) isn't wrapped in a try/catch that would swallow
+    // the throw (unlike WebsiteImporter::import() further down). Forcing a
+    // throw here means attempt 1 completes the WHOLE paid fan-out (PDF
+    // dispatch included) and only THEN fails — exactly the "retry after side
+    // effects already happened" state under test. allOutboundLinks() is left
+    // real (extends the concrete class) since the one-hop /about+/contact
+    // branch above the menu section also calls it on this same instance.
+    app()->bind(WebsiteLinkHarvester::class, fn () => new class(app(SafeUrlFetcher::class)) extends WebsiteLinkHarvester
     {
-        public function fromWebsiteEvidence(string $html): array
+        public function harvestHtml(string $html, string $baseUrl): array
         {
             throw new RuntimeException('forced failure after fan-out — proves a retry does not re-run the fan-out');
         }
