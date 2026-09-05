@@ -271,6 +271,23 @@ class SetupPayload
             }
             $items = $resolved['library'];
             if ($items === []) {
+                // An empty pool is not always a DONE pool — a platform that
+                // feeds it may be connected but not yet ingested (its first
+                // ingest.sources run hasn't landed, or the connection itself
+                // is still 'pending'). Omitting the pass here indistinguishably
+                // from "genuinely nothing to show" is what let a Get-Started
+                // Apple Music add never populate "Your music": the walk
+                // never learns items.listen exists, so it can neither show a
+                // loading state for it nor poll for it to arrive (2026-09-05).
+                $categories = SetupPassRegistry::GROUP_CATEGORIES['platforms.'.$itemPool] ?? [];
+                if ($categories !== [] && $this->itemPoolCatchingUp($user, $categories)) {
+                    return array_merge($base, [
+                        'ready' => false,
+                        'sources' => $this->sourcesFor($user, $itemPool),
+                        'items' => [],
+                    ]);
+                }
+
                 return null; // the server omits an empty item pass (wire §2)
             }
 
@@ -594,6 +611,56 @@ class SetupPayload
     }
 
     /**
+     * True when a connection feeding this item pool exists but has not
+     * produced any content yet — either the connection itself is still
+     * 'pending' (a deferred-connect platform's account hasn't resolved), or
+     * its ingest.sources row has never completed a run (last_run_at is
+     * null: provisioned, but the fetch — and the projection that follows it,
+     * IngestProjectCommand's job — hasn't landed). A connection with no
+     * matching ingest.sources row at all (no connector registered, or
+     * provisioning genuinely skipped) does not count; that pool really is
+     * just empty.
+     */
+    private function itemPoolCatchingUp(User $user, array $categories): bool
+    {
+        $connections = IntegrationConnection::query()
+            ->where('user_id', $user->id)
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->get(['id', 'surface_key', 'last_refresh_status']);
+
+        $pending = [];
+        $ids = [];
+        foreach ($connections as $connection) {
+            $legacy = LegacyPlatformMap::legacyFor((string) $connection->surface_key);
+            $surface = CompiledCatalog::surface((string) $connection->surface_key);
+            $category = $this->registry->get((string) $legacy)?->getCategory()->value
+                ?? ((($surface['routing_class'] ?? '') !== '') ? (string) $surface['routing_class'] : null);
+            if ($category === null || ! in_array($category, $categories, true)) {
+                continue;
+            }
+            if ((string) $connection->last_refresh_status === 'pending') {
+                $pending[] = (string) $connection->id;
+
+                continue;
+            }
+            $ids[] = (string) $connection->id;
+        }
+
+        if ($pending !== []) {
+            return true;
+        }
+        if ($ids === []) {
+            return false;
+        }
+
+        return DB::table('ingest.sources')
+            ->whereIn('connection_id', $ids)
+            ->whereNull('last_run_at')
+            ->exists();
+    }
+
+    /**
      * Item 14 (owner, 2026-09-03): a store card must wear the store's own
      * mark. When neither the probe nor the sync produced an icon, the
      * storefront's favicon (via Google's favicon service — a plain image URL
@@ -697,6 +764,25 @@ class SetupPayload
      */
     private static function derivedAccountName(string $surfaceKey, ?string $url, string $identifier): ?string
     {
+        if (str_starts_with($surfaceKey, 'square.') && is_string($url)) {
+            // A *.square.site root is the merchant's own subdomain slug —
+            // "akro-studio.square.site" -> "Akro Studio". No catalog detector
+            // captures this (identifier_capture is null for both square.book
+            // detectors), so this is the only place the name comes from until
+            // Engine 1 grows one (2026-09-05, live: akro-studio's suggestion
+            // card showed literal "Square" for both its title and secondary
+            // line — the same generic-label bug the fresha case above exists
+            // to avoid).
+            if (preg_match('#^https?://([a-z0-9-]+)\.square\.site#i', $url, $m) === 1) {
+                $tokens = array_values(array_filter(explode('-', strtolower($m[1]))));
+                if ($tokens !== []) {
+                    return ucwords(implode(' ', $tokens));
+                }
+            }
+
+            return null;
+        }
+
         if (str_starts_with($surfaceKey, 'fresha.') && is_string($url)) {
             if (preg_match('#fresha\.com/(?:book-now|a)/([a-z0-9-]+)#i', $url, $m) === 1) {
                 $tokens = array_values(array_filter(explode('-', strtolower($m[1]))));

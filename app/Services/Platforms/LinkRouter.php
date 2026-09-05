@@ -234,6 +234,37 @@ class LinkRouter
         }
     }
 
+    /**
+     * Route ONE booking url for a caller that has already decided it wants the
+     * suggestion path, never the auto-seed one — GoogleBusinessAutoSync's own
+     * booking finding, whose legacy seedBooking()/resolveBookingWrite() wrote a
+     * live connection unconditionally regardless of $autoConnectBooking (owner
+     * policy 2026-09-05, live: a Google Business Square listing connected
+     * itself with no accept step). Deliberately always seedCatalogLink(),
+     * mirroring routeClassified()'s own `$ctx->autoConnectBooking ? seedBooking
+     * : seedCatalogLink` gate for its false branch — this caller has no
+     * autoConnectBooking carve-out to honour, so there is nothing to branch on.
+     */
+    public function routeBooking(User $user, string $url, string $origin = 'google_business'): RouteResult
+    {
+        if ($user->isPendingDeletion()) {
+            return RouteResult::custom();
+        }
+
+        $classified = $this->harvester->classify($url);
+        if ($classified === null || $classified['category'] !== 'booking') {
+            return RouteResult::custom();
+        }
+
+        try {
+            return $this->seedCatalogLink($user, $url, $origin);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return RouteResult::custom();
+        }
+    }
+
     private function routeUnclassified(User $user, string $url, RouteContext $ctx): RouteResult
     {
         if (! $ctx->consumeProbeFor($url)) {
@@ -415,11 +446,11 @@ class LinkRouter
      * handled — the suggestions inbox owns the link now, and a card beside
      * an open question would double it (the same reason F3 exists).
      */
-    private function seedCatalogLink(User $user, string $url): RouteResult
+    private function seedCatalogLink(User $user, string $url, string $origin = 'bio_harvest'): RouteResult
     {
         try {
             $result = app(LinkRoutingService::class)
-                ->route($url, RoutingContext::forUser($user, 'bio_harvest'));
+                ->route($url, RoutingContext::forUser($user, $origin));
         } catch (\Throwable $e) {
             report($e);
 

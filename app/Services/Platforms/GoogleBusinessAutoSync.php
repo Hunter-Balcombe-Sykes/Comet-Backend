@@ -472,6 +472,27 @@ class GoogleBusinessAutoSync
                     ])];
                 }
 
+                // Square must never auto-connect (owner policy 2026-09-05: "a
+                // harvest never auto-adds a platform... only ever suggests
+                // one" — LinkRouter::routeClassified() already enforces this
+                // for every OTHER entry into booking; this legacy Google
+                // Business arm was the one path that still wrote a live
+                // connection with no accept step, live 2026-09-05:
+                // ryanfitzsimons' Square listing connected itself on
+                // discovery). Routed through the same suggestion pipeline
+                // every other discovered platform uses instead of $this->write().
+                // Fresha is untouched — its write here is already a PENDING
+                // "Finish setup" placeholder awaiting the user's own choice,
+                // not a live connection.
+                if ($write['platform'] === Platform::Square->value) {
+                    $user = User::find($userId);
+                    $routed = $user === null ? null : $this->linkRouter->routeBooking($user, $this->urlOf($write));
+
+                    return $routed !== null && $routed->outcome === 'seeded'
+                        ? [$this->seededFinding($write['platform'], $write['resourceId'], 'booking', is_string($label) ? $label : 'Booking', $this->urlOf($write))]
+                        : [];
+                }
+
                 $this->write($userId, $write['platform'], $write['resourceId'], $write['payload']);
 
                 return [$this->seededFinding($write['platform'], $write['resourceId'], 'booking', is_string($label) ? $label : 'Booking', $this->urlOf($write))];

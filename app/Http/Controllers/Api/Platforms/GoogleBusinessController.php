@@ -19,7 +19,9 @@ use App\Services\Platforms\Registry\Platform;
 use App\Support\BusinessName;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 // Google Business — connect via the Places picker (canonical) or a pasted
 // Maps share link (legacy). Picker connects are enriched server-side with the
@@ -143,6 +145,54 @@ class GoogleBusinessController extends ApiController
             // and dispatching it from inside would self-deadlock under a sync
             // queue connection (the job blocks on the identical lock key).
             $response = $this->withConnectionLock($user, function () use ($user, $merged, $data, $enrich): JsonResponse {
+                // Google Business is single-account: writeConnection() below
+                // UPSERTS the one connection row, so picking a DIFFERENT
+                // business from search used to silently overwrite whichever
+                // one was already connected (the auto-matched workplace from
+                // signup, or an earlier pick), with nothing left behind to
+                // show it was ever an option — live 2026-09-05: "Select your
+                // workplace" replaced the suggested listing instead of
+                // offering both with the new one selected. Preserve the
+                // outgoing business as a `site.workplace_candidates` row
+                // (state 'proposed', unselected) before the overwrite, the
+                // same shape FreshaWorkplaceLinker::seed() already writes —
+                // SetupPayload::listingCandidates() unions it back in
+                // alongside the new connection.
+                $current = $user->integrationConnections()
+                    ->where('platform', 'google-business')
+                    ->whereNull('deleted_at')
+                    ->first();
+                if ($current !== null && (string) $current->place_id !== (string) $data['placeId']) {
+                    $outgoing = (array) ($current->payload ?? []);
+                    $placeId = (string) ($current->place_id ?? '');
+                    if ($placeId !== '' && ! DB::table('site.workplace_candidates')
+                        ->where('user_id', $user->id)->where('place_id', $placeId)->exists()) {
+                        $photo = null;
+                        foreach ((array) ($outgoing['photos'] ?? []) as $p) {
+                            if (is_array($p) && is_string($p['url'] ?? null) && $p['url'] !== '') {
+                                $photo = $p['url'];
+                                break;
+                            }
+                        }
+                        DB::table('site.workplace_candidates')->insert([
+                            'id' => (string) Str::uuid(),
+                            'user_id' => $user->id,
+                            'place_id' => $placeId,
+                            'name' => (string) ($outgoing['name'] ?? 'Your listing'),
+                            'address' => is_string($outgoing['address'] ?? null) ? $outgoing['address'] : null,
+                            'lat' => is_numeric($outgoing['lat'] ?? null) ? (float) $outgoing['lat'] : null,
+                            'lng' => is_numeric($outgoing['lng'] ?? null) ? (float) $outgoing['lng'] : null,
+                            'photo_url' => $photo,
+                            'rating' => is_numeric($outgoing['rating'] ?? null) ? (float) $outgoing['rating'] : null,
+                            'review_count' => is_numeric($outgoing['reviewCount'] ?? null) ? (int) $outgoing['reviewCount'] : null,
+                            'source' => 'previously_connected',
+                            'corroboration' => json_encode([]),
+                            'state' => 'proposed',
+                            'created_at' => now(),
+                        ]);
+                    }
+                }
+
                 $row = $this->writeConnection($user, $merged);
                 $row->forceFill([
                     'place_id' => $data['placeId'],

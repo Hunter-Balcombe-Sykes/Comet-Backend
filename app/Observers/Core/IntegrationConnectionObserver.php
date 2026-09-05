@@ -518,12 +518,32 @@ class IntegrationConnectionObserver
      */
     private function maybeRunEagerly(IntegrationConnection $connection, array $result): void
     {
+        // A deferred-connect platform (apple-music, spotify, fresha, shop, …)
+        // writes twice: a 'pending' placeholder first (identifierFor() can
+        // already resolve it, so THIS is what reports 'created' — and
+        // eagerNeedsFetchedPayload correctly defers below, since there is no
+        // payload yet), then ConnectFetchJob's completion write, which is
+        // what actually carries content. That second write's sync() call sees
+        // an EXISTING ingest.sources row with an unchanged identifier, so it
+        // reports 'updated' or 'unchanged' — neither of which the gate below
+        // used to accept, so the deferred eager run was never resumed and the
+        // source waited out its normal schedule (up to an hour) before its
+        // first real fetch. Live 2026-09-05: an Apple Music account added
+        // during Get Started never populated the "Your music" step in the
+        // session it was connected in. A completing pending->ok transition
+        // is exactly the fetch the deferral below was waiting for, so it is
+        // treated the same as a fresh 'created' row regardless of what
+        // sync() itself reported.
+        $justFetched = $connection->wasChanged('last_refresh_status')
+            && $connection->last_refresh_status === 'ok'
+            && $connection->getOriginal('last_refresh_status') === 'pending';
+
         // Not `?? null`: every SourceProvisioner::sync() return path sets
         // `status`, so the coalesce was dead code (phpstan nullCoalesce.offset).
         // 'reselected' = the source's selection_ref changed (a Fresha team
         // member re-pick). The connector's manifest still gates the run, so a
         // paid connector never gets a bonus call from a payload write.
-        if (! in_array($result['status'], ['created', 'reselected'], true)) {
+        if (! in_array($result['status'], ['created', 'reselected'], true) && ! $justFetched) {
             return;
         }
 
