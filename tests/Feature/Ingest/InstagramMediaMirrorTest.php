@@ -581,3 +581,25 @@ it('counts an already-mirrored post against the window so a refresh cannot creep
 
     Bus::assertNotDispatched(MirrorMediaAssetJob::class);
 });
+
+it('in setup, mirrors EVERY cover — a poster no longer needs its video to make the cut (2026-09-05)', function () {
+    config(['partna.media.pull_budget.images' => 1, 'partna.media.pull_budget.videos' => 1]);
+    $userId = createTenant('igm-'.Str::lower(Str::random(6)))->id;
+    setSitePublished($userId, false);
+    [$source, $streamId] = instagramSourceForMirror($userId);
+    writeInstagramRecords($source, $streamId, [
+        'r1' => ['taken_at' => '2026-09-04T00:00:00Z', 'images' => ['https://cdn.example/p1.jpg'], 'video_url' => 'https://cdn.example/v1.mp4'],
+        'r2' => ['taken_at' => '2026-09-03T00:00:00Z', 'images' => ['https://cdn.example/p2.jpg'], 'video_url' => 'https://cdn.example/v2.mp4'],
+        'still' => ['taken_at' => '2026-09-02T00:00:00Z', 'images' => ['https://cdn.example/s.jpg', 'https://cdn.example/s-2.jpg']],
+    ]);
+    // st_ali's walk: 30 TikTok cards, 10 image slots, 20 covers left on
+    // signed URLs that had expired. In setup the cover of every post is
+    // what the card shows, so the image cap is lifted; the video cap holds
+    // (one video), and a second carousel frame is still budgeted out.
+    expect(mirrorDispatchOrder())->toBe([
+        'https://cdn.example/p1.jpg',
+        'https://cdn.example/p2.jpg',
+        'https://cdn.example/s.jpg',
+        'https://cdn.example/v1.mp4',
+    ]);
+});

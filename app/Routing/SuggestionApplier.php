@@ -125,12 +125,27 @@ class SuggestionApplier
             //    (observers fire: purge, ingest source, selections), and its
             //    primary flag, if it held one, carries over below.
             $inheritsPrimary = false;
+            $sameAccountIncumbent = null;
             if ($intent->conflicting_connection_id !== null) {
                 $incumbent = IntegrationConnection::query()
                     ->where('id', $intent->conflicting_connection_id)
                     ->where('user_id', $user->id)
                     ->first();
-                if ($incumbent !== null && $intent->block_reason === 'cap_reached') {
+                // A cap "swap" whose incumbent IS this account is not a swap
+                // (2026-09-05, st_ali): the Google listing seeds Instagram as
+                // a legacy marker row (resource_id='instagram') with no
+                // username yet, the reconciler files the bio's @st_ali as
+                // cap_reached against it, and by apply time the scrape has
+                // filled the marker's username in. Deleting it here threw
+                // away the scraped name and avatar and minted a bare
+                // duplicate keyed by handle — the walk showed both for a
+                // beat, then a nameless "@st_ali" with no picture. Same
+                // three-scheme identity read the alias lookup below uses.
+                if ($incumbent !== null
+                    && $intent->block_reason === 'cap_reached'
+                    && $this->identity->matchWithin(collect([$incumbent]), (string) $intent->surface_key, (string) $intent->identifier) !== null) {
+                    $sameAccountIncumbent = $incumbent;
+                } elseif ($incumbent !== null && $intent->block_reason === 'cap_reached') {
                     $inheritsPrimary = (bool) $incumbent->is_primary;
                     if ($inheritsPrimary) {
                         // The partial unique index (one primary per class)
@@ -153,16 +168,19 @@ class SuggestionApplier
             //
             // The incumbent being REPLACED is excluded: a Replace must resolve
             // to some other row, never to the very connection it just demoted.
-            $aliasConnectionId = $this->identity->matchExisting(
-                $user,
-                (string) $intent->surface_key,
-                (string) $intent->identifier,
-                $intent->conflicting_connection_id !== null ? (string) $intent->conflicting_connection_id : null,
-            );
-
-            $connection = $aliasConnectionId !== null
-                ? IntegrationConnection::query()->whereKey($aliasConnectionId)->first()
+            $aliasConnectionId = $sameAccountIncumbent === null
+                ? $this->identity->matchExisting(
+                    $user,
+                    (string) $intent->surface_key,
+                    (string) $intent->identifier,
+                    $intent->conflicting_connection_id !== null ? (string) $intent->conflicting_connection_id : null,
+                )
                 : null;
+
+            $connection = $sameAccountIncumbent
+                ?? ($aliasConnectionId !== null
+                    ? IntegrationConnection::query()->whereKey($aliasConnectionId)->first()
+                    : null);
 
             $connection ??= IntegrationConnection::query()
                 ->where('user_id', $user->id)

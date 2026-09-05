@@ -208,6 +208,32 @@ it('a visible connection WITHOUT an intent still renders in its pass, connected 
         ->and($row['connectionId'])->toBe((string) $connection->id);
 });
 
+it('a legacy marker connection and the intent naming the same handle render as ONE card (2026-09-05, st_ali)', function () {
+    // The Google listing seeds Instagram as resource_id='instagram' with the
+    // handle only in its payload; the bio's @someone intent is filed as a
+    // cap conflict against it. Two writers, one account — one card, named
+    // from the scrape, never the bare "instagram" slug.
+    $pro = createTenant('setup-marker');
+    $marker = new IntegrationConnection([
+        'user_id' => $pro->id, 'surface_key' => 'instagram.profile', 'routing_class' => 'social',
+        'resource_id' => 'instagram',
+        'payload' => ['username' => 'someone', 'url' => 'https://www.instagram.com/someone', 'source' => 'google-business'],
+        'is_active' => true, 'visibility' => 'visible',
+    ]);
+    $marker->save();
+    setupSeedIntent($pro->id, [
+        'state' => 'blocked', 'block_reason' => 'cap_reached', 'conflicting_connection_id' => (string) $marker->id,
+    ]);
+
+    $passes = collect(actingAsUser($pro)->getJson('/api/site/setup')->json('passes'));
+    $rows = collect($passes->firstWhere('key', 'platforms.social')['suggestions'])->where('surfaceKey', 'instagram.profile')->values();
+
+    expect($rows)->toHaveCount(1)
+        ->and($rows[0]['connectionId'])->toBe((string) $marker->id)
+        ->and($rows[0]['accountName'])->not->toBeNull()
+        ->and($rows[0]['accountName'])->not->toBe('instagram');
+});
+
 it('a hidden connection WITHOUT an intent renders as a preselected, syncing suggestion (setup-variant manual connect, 2026-09-04)', function () {
     $pro = createTenant('setup-manual-hidden');
     $connection = new IntegrationConnection([

@@ -9,6 +9,7 @@ use App\Models\Core\Site\Site;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
+use App\Routing\ConnectionIdentity;
 use App\Services\Onboarding\OnboardingSuggestions;
 use App\Services\Platforms\ConnectionDisplayName;
 use App\Services\Platforms\MenuPayloadComposer;
@@ -41,6 +42,7 @@ class SetupPayload
         private readonly OnboardingSuggestions $onboarding,
         private readonly PlatformRegistry $registry,
         private readonly MenuPayloadComposer $menus,
+        private readonly ConnectionIdentity $identity,
     ) {}
 
     /** @return array<string, mixed> */
@@ -460,6 +462,23 @@ class SetupPayload
 
             $connection = ($intent->connection_id !== null ? $byId->get((string) $intent->connection_id) : null)
                 ?? $byKey->get($intent->surface_key.'|'.$intent->identifier);
+            // Third scheme (2026-09-05): a legacy marker row the Google
+            // listing seeded (resource_id='instagram', the handle only in
+            // its payload once the scrape lands) is the SAME account as the
+            // bio's @st_ali intent, which the reconciler filed as a cap
+            // conflict against it. Until the applier reconciles them, the
+            // walk used to render both — the marker as a bare "instagram"
+            // card from the loop below, the intent as a second one here.
+            // ConnectionIdentity reads the marker's identity the same way
+            // the applier does, so one card carries the scraped name.
+            if ($connection === null) {
+                $aliasId = $this->identity->matchWithin(
+                    $connections->where('surface_key', (string) $intent->surface_key),
+                    (string) $intent->surface_key,
+                    (string) $intent->identifier,
+                );
+                $connection = $aliasId !== null ? $byId->get($aliasId) : null;
+            }
             if ($connection !== null) {
                 $coveredConnectionIds[(string) $connection->id] = true;
             }
@@ -693,6 +712,12 @@ class SetupPayload
 
         if (str_ends_with($surfaceKey, '.profile') || str_ends_with($surfaceKey, '.channel')) {
             $handle = ltrim($identifier, '@');
+            // A legacy marker row's resource_id is the platform slug, not a
+            // handle — "instagram" titled st_ali's card while the scrape
+            // was still pending (2026-09-05). No name beats a wrong one.
+            if ($handle === LegacyPlatformMap::legacyFor($surfaceKey)) {
+                return null;
+            }
             $opaque = preg_match('/^UC[A-Za-z0-9_-]{20,}$/', $handle) === 1;
             if (! $opaque && preg_match('/^[A-Za-z0-9._-]{2,30}$/', $handle) === 1) {
                 return $handle;

@@ -23,12 +23,12 @@ beforeEach(function () {
 });
 
 /** @return array{User, Site} */
-function lcandSignupBusiness(string $h): array
+function lcandSignupBusiness(string $h, string $status = 'unclaimed'): array
 {
     $user = User::factory()->create([
         'handle' => $h, 'handle_lc' => strtolower($h),
         'account_type' => 'business', 'sector' => 'restaurant',
-        'status' => 'unclaimed', 'auth_user_id' => null, 'primary_email' => null,
+        'status' => $status, 'auth_user_id' => null, 'primary_email' => null,
     ]);
     $site = Site::factory()->create(['user_id' => $user->id, 'subdomain' => $h]);
     $build = PreAccountBuild::factory()->make(['source_type' => 'instagram']); // built_via defaults to signup
@@ -43,6 +43,24 @@ function lcandRows(Site $site): array
     return DB::connection('pgsql')->table('site.logo_candidates')
         ->where('site_id', $site->id)->orderBy('created_at')->get()->all();
 }
+
+it('still collects after the signup claim while the walk is unfinished (2026-09-05)', function () {
+    // The signup lane claims BEFORE the website scan runs; gating collect
+    // mode on "unclaimed" auto-picked st_ali's logo into both slots and
+    // left "Your logo" with nothing to offer.
+    [$user, $site] = lcandSignupBusiness('lcandclaimed', 'active');
+    expect($user->isUnclaimed())->toBeFalse()->and($user->isInSetup())->toBeTrue();
+
+    $fake = UploadedFile::fake()->image('logo.png', 200, 200);
+    Http::fake(['example.com/*' => Http::response(file_get_contents($fake->getRealPath()), 200, ['Content-Type' => 'image/png'])]);
+
+    app(LogoAutoGrabber::class)->grabIfEmpty($user, $site, [
+        ['kind' => 'icon', 'url' => 'https://example.com/icon-a.png', 'sizes' => ''],
+    ]);
+
+    expect(lcandRows($site))->toHaveCount(1)
+        ->and(SiteMedia::query()->count())->toBe(0);
+});
 
 it('stores every slot-passing candidate on a sign-up business build and uploads nothing', function () {
     [$user, $site] = lcandSignupBusiness('lcandcollect');

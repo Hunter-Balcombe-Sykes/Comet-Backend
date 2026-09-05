@@ -71,10 +71,16 @@ class LogoAutoGrabber
      * site's identity, so auto-picking one candidate is a real decision made
      * silently. Collect mode stores every slot-passing candidate instead and
      * uploads nothing — the setup dialog's logo pass offers them.
+     *
+     * Gated on isInSetup(), not isUnclaimed() (2026-09-05): the signup lane
+     * claims the account BEFORE the website scan runs, so the unclaimed test
+     * was false for every signup build and this auto-picked stali.com.au's
+     * logo into both slots ~25s after signup — grabIfEmpty then had nothing
+     * to collect and "Your logo" offered no candidates at all.
      */
     private function collectMode(User $pro): bool
     {
-        return $pro->isUnclaimed()
+        return $pro->isInSetup()
             && AccountCapabilities::for($pro)->workplace_brand_is_site_identity
             && PreAccountBuild::latestIsSignup((string) $pro->id);
     }

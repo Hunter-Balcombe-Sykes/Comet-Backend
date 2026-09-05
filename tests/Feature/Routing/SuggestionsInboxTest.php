@@ -204,6 +204,31 @@ it('does not re-dispatch the fetch when the accept resolves to an existing row (
     Queue::assertNotPushed(ConnectFetchJob::class);
 });
 
+it('keeps a cap-swap incumbent that IS the same account under the legacy marker (2026-09-05, st_ali)', function () {
+    // The swap used to delete the Google-seeded marker (with the scraped
+    // name and avatar) and mint a bare handle-keyed duplicate.
+    Queue::fake();
+    $pro = createTenant('inbox-swap-same');
+    $marker = new IntegrationConnection([
+        'user_id' => $pro->id, 'surface_key' => 'instagram.profile', 'routing_class' => 'social',
+        'resource_id' => 'instagram',
+        'payload' => ['username' => 'someone', 'url' => 'https://www.instagram.com/someone', 'fullName' => 'Someone', 'source' => 'google-business'],
+        'is_active' => true, 'visibility' => 'visible',
+    ]);
+    $marker->save();
+    $intentId = seedIntent($pro->id, [
+        'state' => 'blocked', 'block_reason' => 'cap_reached', 'conflicting_connection_id' => (string) $marker->id,
+    ]);
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
+
+    $live = IntegrationConnection::query()->where('user_id', $pro->id)->whereNull('deleted_at')->get();
+    expect($live)->toHaveCount(1)
+        ->and((string) $live[0]->id)->toBe((string) $marker->id)
+        ->and($live[0]->payload['fullName'])->toBe('Someone')
+        ->and(DB::table('routing.source_intents')->where('id', $intentId)->value('connection_id'))->toBe((string) $marker->id);
+});
+
 it('does not dispatch the enrichment fetch for a non-content accept (F14)', function () {
     // Same class rule as SourceReconciler::applyIntent: booking enrichment is
     // owned by AutoBookingConnectDispatcher's claimed/unclaimed rule, shop by

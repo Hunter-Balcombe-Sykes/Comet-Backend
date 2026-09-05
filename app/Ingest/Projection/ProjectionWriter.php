@@ -3439,10 +3439,20 @@ class ProjectionWriter
      */
     private function budgetMirrors(string $userId, array $posts, array $publishedByItem): array
     {
+        $inSetup = $this->siteInSetup($userId);
         $imageBudget = (int) config('partna.media.pull_budget.images', 10);
         $videoBudget = (int) config('partna.media.pull_budget.videos', 6);
         $imageBudget = $imageBudget > 0 ? $imageBudget : PHP_INT_MAX;
         $videoBudget = $videoBudget > 0 ? $videoBudget : PHP_INT_MAX;
+        // In setup the one frame each card needs is uncapped (2026-09-05):
+        // the walk's "Your videos" step is 30 covers, and with 10 image
+        // slots st_ali's other 20 TikTok cards rendered from signed CDN
+        // URLs that had already expired — a glyph, not a picture. The
+        // video cap still holds; a poster no longer needs its video to have
+        // made the cut, because the cover is what the card shows either way.
+        if ($inSetup) {
+            $imageBudget = PHP_INT_MAX;
+        }
 
         $order = array_keys($posts);
         $arrival = array_flip($order);
@@ -3467,16 +3477,20 @@ class ProjectionWriter
             $postVideos = $posts[$itemId]['videos'] ?? [];
             $postImages = $posts[$itemId]['images'] ?? [];
             if ($postVideos !== []) {
-                if ($videoBudget <= 0) {
+                if ($videoBudget <= 0 && ! $inSetup) {
                     $budgeted += count($postVideos) + count($postImages);
 
                     continue;
                 }
-                $videoBudget--;
-                $videoId = array_key_first($postVideos);
-                $videos[$videoId] = $postVideos[$videoId];
-                $videoIds[$videoId] = true;
-                $budgeted += count($postVideos) - 1;
+                if ($videoBudget > 0) {
+                    $videoBudget--;
+                    $videoId = array_key_first($postVideos);
+                    $videos[$videoId] = $postVideos[$videoId];
+                    $videoIds[$videoId] = true;
+                    $budgeted += count($postVideos) - 1;
+                } else {
+                    $budgeted += count($postVideos);
+                }
                 // The poster spends an IMAGE slot. It is an image by every
                 // measure that matters here — a fetch, a decode, two puts —
                 // so exempting it would let a video-heavy pull mirror
@@ -3510,7 +3524,7 @@ class ProjectionWriter
 
         // Union, not merge: keys are asset ids and must not renumber; an
         // asset lands in exactly one bucket, so no key collides.
-        $candidates = $this->siteInSetup($userId) ? $images + $videos : $videos + $images;
+        $candidates = $inSetup ? $images + $videos : $videos + $images;
 
         return [$candidates, $videoIds, $budgeted];
     }

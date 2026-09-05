@@ -17,9 +17,10 @@ use Illuminate\Support\Facades\Log;
  *
  * Most producers know the USER, not the build (they are the same jobs that
  * run on every scheduled refresh for every account). noteForUser() writes
- * only while the user has a live, unclaimed, recent build — after the claim
- * nothing polls the ledger, and an account's Tuesday refresh must not
- * append "Grabbing 12 photos" rows to a build that finished in May.
+ * only while the user has a recent build — claimed or not, because the
+ * signup lane claims first and builds second, and the Get Started walk
+ * polls the ledger after the claim — and an account's Tuesday refresh must
+ * not append "Grabbing 12 photos" rows to a build that finished in May.
  */
 final class BuildProgress
 {
@@ -78,10 +79,18 @@ final class BuildProgress
     public static function noteForUser(string $userId, string $stage, string $status, string $label, array $payload = []): void
     {
         try {
+            // The user's newest build inside the window, claimed or not
+            // (2026-09-05). The signup lane claims its build ~20s after
+            // creation and the cascade runs AFTER that, so a claimed_at
+            // filter here dropped every "platforms started / workplace
+            // landed / website landed" note the Get Started walk gates on
+            // (SetupPayload::openStages reads the same newest build) —
+            // st_ali's walk showed six platforms as "ready" while the sync
+            // was still running, then nine on a manual refresh.
             $buildId = PreAccountBuild::query()
                 ->where('user_id', $userId)
-                ->whereNull('claimed_at')
                 ->where('created_at', '>=', now()->subMinutes(self::LIVE_WINDOW_MINUTES))
+                ->latest('created_at')
                 ->value('id');
         } catch (\Throwable $e) {
             // Feed decoration only (2026-09-02): a lookup that cannot run —

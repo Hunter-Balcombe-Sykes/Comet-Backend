@@ -389,7 +389,7 @@ it('carries a progress block from the first poll, fills it from the ledger, and 
         ->assertJsonPath('progress.done', true);
 });
 
-it('noteForUser writes nothing for a claimed or stale build, and note() never throws', function () {
+it('noteForUser still writes after the claim, writes nothing for a stale build, and note() never throws', function () {
     setupPreAccountBuildEventsTable();
 
     $this->postJson('/api/public/signup/build', ['account_type' => 'partna', 'source_type' => 'instagram', 'source_ref' => 'quietjane']);
@@ -398,13 +398,15 @@ it('noteForUser writes nothing for a claimed or stale build, and note() never th
     $build->refresh();
     expect(PreAccountBuildEvent::query()->where('build_id', $build->id)->count())->toBe(1);
 
+    // The signup lane claims BEFORE the cascade runs; the walk's readiness
+    // reads these notes, so a claimed build keeps receiving them.
     $build->forceFill(['claimed_at' => now()])->save();
     BuildProgress::noteForUser((string) $build->user_id, PreAccountBuildEvent::STAGE_MENU, PreAccountBuildEvent::STATUS_LANDED, 'Menu: 3 dishes');
-    expect(PreAccountBuildEvent::query()->where('build_id', $build->id)->count())->toBe(1);
+    expect(PreAccountBuildEvent::query()->where('build_id', $build->id)->count())->toBe(2);
 
     $build->forceFill(['claimed_at' => null, 'created_at' => now()->subHours(2)])->save();
     BuildProgress::noteForUser((string) $build->user_id, PreAccountBuildEvent::STAGE_MENU, PreAccountBuildEvent::STATUS_LANDED, 'Menu: 3 dishes');
-    expect(PreAccountBuildEvent::query()->where('build_id', $build->id)->count())->toBe(1);
+    expect(PreAccountBuildEvent::query()->where('build_id', $build->id)->count())->toBe(2);
 
     // A ledger write that cannot succeed (no such build) is reported, not thrown.
     BuildProgress::note((string) Str::uuid(), PreAccountBuildEvent::STAGE_MENU, PreAccountBuildEvent::STATUS_LANDED, 'orphan');
