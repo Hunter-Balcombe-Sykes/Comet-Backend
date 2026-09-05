@@ -36,7 +36,21 @@ class SetupPassRegistry
 
     /** Pass → the build-progress stage whose open 'started' row means not ready. */
     public const READY_STAGES = [
-        'listing' => 'listing',
+        // STAGE_LISTING is a real, separate stage (GoogleBusinessEnrichJob
+        // pulling reviews/photos for a listing you already picked) — not the
+        // one this PASS's own readiness should track. The pass's job is
+        // "have we finished trying to find you a workplace", which is
+        // STAGE_WORKPLACE (InstagramSourceGenerator/BioMentionChainsJob's
+        // bio-mention candidate search feeding site.workplace_candidates).
+        // Pointing this at the wrong-but-real 'listing' stage meant
+        // openStages()['listing'] was never set by the search that actually
+        // gates this pass, so it reported ready:true from the very first
+        // poll, before the search had even run. That both hid the loading
+        // skeleton the pass otherwise gets (matching the platforms.* passes)
+        // and let the payload's overall `busy` flag go false early, stopping
+        // the dashboard's poll before a match could ever arrive on screen
+        // (2026-09-05, squeakprobarber retest).
+        'listing' => 'workplace',
         'menu' => 'menu',
         'media' => 'media',
         'items.shop' => 'shop',

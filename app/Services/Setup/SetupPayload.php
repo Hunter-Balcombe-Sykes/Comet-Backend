@@ -424,7 +424,22 @@ class SetupPayload
             ->whereNull('deleted_at')
             ->get(['id', 'surface_key', 'resource_id', 'platform', 'visibility', 'last_refresh_status', 'payload']);
         $byKey = $connections->keyBy(fn (IntegrationConnection $c) => $c->surface_key.'|'.$c->resource_id);
+        $byId = $connections->keyBy(fn (IntegrationConnection $c) => (string) $c->id);
 
+        // Which connection each intent actually resolved to, tracked by ID —
+        // NOT re-derived from surface_key|identifier string equality below.
+        // A legacy writer (GoogleBusinessAutoSync et al.) mints its connection
+        // keyed by the bare platform name (resource_id='instagram'); the
+        // newer suggestion-applier lane links the intent's OWN connection_id
+        // to a connection keyed by the real handle (resource_id='st_ali').
+        // Both are the same account, and the FK already says so — but the two
+        // string forms never match each other, so re-deriving "covered" from
+        // identifier strings missed this pairing and let the connection loop
+        // below union the legacy row back in as a second, duplicate card
+        // (2026-09-05, stalicoffeeroasters1 retest: one bare Instagram card
+        // from this loop's failed key lookup, one rich one from the
+        // "uncovered" legacy connection).
+        $coveredConnectionIds = [];
         $rows = [];
         foreach ($intents as $intent) {
             $surface = CompiledCatalog::surface((string) $intent->surface_key);
@@ -443,7 +458,11 @@ class SetupPayload
                 continue;
             }
 
-            $connection = $byKey->get($intent->surface_key.'|'.$intent->identifier);
+            $connection = ($intent->connection_id !== null ? $byId->get((string) $intent->connection_id) : null)
+                ?? $byKey->get($intent->surface_key.'|'.$intent->identifier);
+            if ($connection !== null) {
+                $coveredConnectionIds[(string) $connection->id] = true;
+            }
             $hidden = $connection !== null && $connection->isHidden();
             $visible = $connection !== null && ! $connection->isHidden();
 
@@ -501,12 +520,11 @@ class SetupPayload
         // accept lane can reveal — reusing the mechanism the automatic
         // pre-scrape path built, now reachable from a manual pick too
         // (Get Started's setup-variant ConnectionSheet).
-        $covered = $intents->map(fn (object $i) => $i->surface_key.'|'.$i->identifier)->flip();
         foreach ($connections as $connection) {
             if ((string) $connection->platform === 'google-business') {
                 continue; // the listing pass's job, not a platform pass row
             }
-            if (isset($covered[$connection->surface_key.'|'.$connection->resource_id])) {
+            if (isset($coveredConnectionIds[(string) $connection->id])) {
                 continue;
             }
             $surface = CompiledCatalog::surface((string) $connection->surface_key);

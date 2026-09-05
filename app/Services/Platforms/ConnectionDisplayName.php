@@ -288,13 +288,27 @@ final class ConnectionDisplayName
 
     private static function isBrandLabel(string $name, ?string $brand, string $surfaceKey): bool
     {
-        $n = mb_strtolower(trim($name));
-        if ($brand !== null && $n === mb_strtolower($brand)) {
+        // Squashed (case + separators stripped), not just lowercased: a sync
+        // writer stamps payload.name as the compact brand form ("UberEats"),
+        // which never string-equalled the catalog's spaced display name
+        // ("Uber Eats") — this method returned false, so the compact brand
+        // placeholder was treated as a genuine custom name and short-circuited
+        // the store-name-from-url fallback below it that would have read the
+        // real store off the connection's own URL (2026-09-05, St Ali's Uber
+        // Eats card read "UberEats" instead of "St Ali").
+        $n = self::squash($name);
+        if ($brand !== null && $n === self::squash($brand)) {
             return true;
         }
         $brandKey = explode('.', $surfaceKey)[0];
 
-        return $n === str_replace(['_', '-'], ' ', $brandKey) || $n === $brandKey;
+        return $n === self::squash($brandKey);
+    }
+
+    /** Case- and separator-insensitive form for brand-label comparisons. */
+    private static function squash(string $value): string
+    {
+        return preg_replace('/[\s_-]+/', '', mb_strtolower(trim($value))) ?? '';
     }
 
     /** "torvalds - Overview" → "torvalds"; "Acme | Patreon" → "Acme"; "Acme (@acme) • Instagram" → "Acme". */
