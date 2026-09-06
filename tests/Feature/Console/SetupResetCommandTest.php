@@ -107,12 +107,68 @@ function seededSetupUser(string $handle): User
     ]);
 
     // Create an ingest source with correct columns
+    $ingestSourceId = (string) \Illuminate\Support\Str::uuid();
     DB::table('ingest.sources')->insert([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'id' => $ingestSourceId,
         'user_id' => $user->id,
         'source_key' => 'instagram:testuser',
         'surface_key' => 'instagram.profile',
         'identifier' => 'testuser',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    // Exercises the command's `user_id` direct-column branch on a table other
+    // than the ones already covered above (content.items has no other FK path
+    // to the user).
+    DB::table('content.items')->insert([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'user_id' => $user->id,
+        'kind' => 'article',
+        'first_seen_at' => now(),
+        'last_seen_at' => now(),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    // Exercises the command's `source_id`-via-`ingest.sources` branch
+    // (ingest.anomalies.source_id -> ingest.sources.id, NOT content.sources).
+    DB::table('ingest.anomalies')->insert([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'source_id' => $ingestSourceId,
+        'kind' => 'drift',
+        'summary' => 'test anomaly',
+        'detected_at' => now(),
+    ]);
+
+    // Exercises the command's `site_id` branch on a table with NO user_id
+    // column at all (site.workplaces.site_id is its primary key).
+    DB::table('site.workplaces')->insert([
+        'site_id' => $siteId,
+        'name' => 'Test Workplace',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    // content.storefronts: confirmed against the live dev schema (migration
+    // 20260819000100_content_storefronts_user_id.sql) to carry its own
+    // NOT NULL user_id column, denormalised from content.collections.user_id —
+    // it is cleaned by the command's direct `user_id` branch, not by an FK
+    // cascade from content.collections as previously assumed. Seeded here
+    // (with a parent collection row) so that is exercised too.
+    $collectionId = (string) \Illuminate\Support\Str::uuid();
+    DB::table('content.collections')->insert([
+        'id' => $collectionId,
+        'user_id' => $user->id,
+        'label' => 'Test Storefront Collection',
+        'kind' => 'storefront',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    DB::table('content.storefronts')->insert([
+        'collection_id' => $collectionId,
+        'provider' => 'shopify',
+        'user_id' => $user->id,
         'created_at' => now(),
         'updated_at' => now(),
     ]);
@@ -150,13 +206,34 @@ function seededSetupUser(string $handle): User
 it('clears discovery state for one user and leaves another untouched', function () {
     [$a, $b] = [seededSetupUser('alpha'), seededSetupUser('beta')];
 
+    // ingest.sources rows themselves get wiped by the reset (they have a
+    // direct user_id column), so the ids that ingest.anomalies.source_id
+    // points at must be captured BEFORE the command runs — the source_id
+    // branch's join target won't exist to query afterward.
+    $aSourceId = DB::table('ingest.sources')->where('user_id', $a->id)->value('id');
+    $bSourceId = DB::table('ingest.sources')->where('user_id', $b->id)->value('id');
+
     $this->artisan('setup:reset', ['user' => $a->handle, '--yes' => true, '--rediscover' => true])->assertSuccessful();
 
-    // Check user-scoped tables are cleared for $a but not $b
-    foreach (['site.platform_connections', 'routing.source_intents', 'ingest.sources'] as $t) {
+    // Check user-scoped tables are cleared for $a but not $b. content.items
+    // and content.storefronts both exercise the command's direct `user_id`
+    // branch (storefronts carries its own NOT NULL user_id since migration
+    // 20260819000100 — confirmed against live dev schema — not merely an FK
+    // cascade target from content.collections).
+    foreach (['site.platform_connections', 'routing.source_intents', 'ingest.sources', 'content.items', 'content.storefronts'] as $t) {
         expect(DB::table($t)->where('user_id', $a->id)->count())->toBe(0, $t)
             ->and(DB::table($t)->where('user_id', $b->id)->count())->toBeGreaterThan(0, $t);
     }
+
+    // ingest.anomalies has no user_id/site_id/build_id column — it is only
+    // reached via the command's `source_id`-via-`ingest.sources` branch.
+    expect(DB::table('ingest.anomalies')->where('source_id', $aSourceId)->count())->toBe(0)
+        ->and(DB::table('ingest.anomalies')->where('source_id', $bSourceId)->count())->toBeGreaterThan(0);
+
+    // site.workplaces has no user_id column at all — site_id is its PRIMARY
+    // KEY, so this exercises the command's `site_id`-only branch.
+    expect(DB::table('site.workplaces')->where('site_id', $a->site->id)->count())->toBe(0)
+        ->and(DB::table('site.workplaces')->where('site_id', $b->site->id)->count())->toBeGreaterThan(0);
 
     // Check pre_account_build_events via build relationship
     $aBuildIds = DB::table('core.pre_account_builds')->where('user_id', $a->id)->pluck('id')->all();

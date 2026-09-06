@@ -29,7 +29,7 @@ class SetupResetCommand extends Command
         'routing.item_tombstones', 'routing.import_runs', 'routing.source_intents',
         'ingest.anomalies', 'ingest.effects', 'ingest.record_versions', 'ingest.record_state', 'ingest.runs', 'ingest.streams', 'ingest.sources',
         'site.workplace_candidates', 'site.workplaces', 'site.menus',
-        'core.integration_connections', 'site.platform_connections',
+        'site.platform_connections',
         'core.pre_account_build_events',
     ];
 
@@ -53,8 +53,9 @@ class SetupResetCommand extends Command
 
         DB::transaction(function () use ($user) {
             foreach (self::USER_TABLES as $table) {
-                [$schema, $name] = explode('.', $table, 2);
                 if (! Schema::hasTable($table) && ! Schema::connection('pgsql')->hasTable($table)) {
+                    $this->warn("Skipping [$table]: table does not exist (renamed or removed?).");
+
                     continue;
                 }
                 if (Schema::hasColumn($table, 'user_id')) {
@@ -87,6 +88,18 @@ class SetupResetCommand extends Command
                 'user_id' => $user->id,
                 'source_type' => $latest->source_type,
                 'source_ref' => $latest->source_ref,
+                // source_ref_lc/built_via are NOT NULL with no default (built_via
+                // also CHECK-constrained). Both are copied straight from $latest
+                // rather than recomputed: source_ref_lc is derived per-source-type
+                // via SiteSourceGenerator::dedupeKey() (not a plain strtolower() —
+                // e.g. GBP keys on place_id), and since source_ref is copied
+                // unchanged from the same $latest row, its source_ref_lc is already
+                // the correct value for that ref — recomputing it here would mean
+                // re-implementing generator-specific normalization the command has
+                // no business owning. built_via is likewise copied verbatim so a
+                // rediscover never invents a via lane the original build didn't have.
+                'source_ref_lc' => $latest->source_ref_lc,
+                'built_via' => $latest->built_via,
                 'source_name' => $latest->source_name,
                 'build_state' => PreAccountBuild::STATE_PENDING,
                 'created_at' => now(),

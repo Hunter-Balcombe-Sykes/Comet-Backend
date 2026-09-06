@@ -918,6 +918,13 @@ function kvUnclaimedWithBuild(string $handle, ?string $buildState): string
             'user_id' => $proId,
             'source_type' => 'instagram',
             'source_ref' => $handle,
+            'source_ref_lc' => mb_strtolower($handle),
+            // Not VIA_SIGNUP: kvUnclaimedSignup() below explicitly overrides this
+            // to VIA_SIGNUP for the A.8 sign-up-specific cases, which only makes
+            // sense against a non-signup default here (mirrors the pre-NOT-NULL
+            // behaviour, where a NULL built_via also read as "not signup" to the
+            // job's `=== VIA_SIGNUP` check at SyncSubdomainToKvJob.php:264).
+            'built_via' => PreAccountBuild::VIA_STAFF,
             'build_state' => $buildState,
             'expires_at' => now()->addDays(7)->toDateTimeString(),
             'created_at' => now()->toDateTimeString(),
