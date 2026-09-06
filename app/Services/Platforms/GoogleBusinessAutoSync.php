@@ -837,18 +837,19 @@ class GoogleBusinessAutoSync
                         continue;
                     }
                     $name = $this->clean(data_get($primary, 'name'));
-                    $rid = 'order-'.substr(sha1(strtolower($repUrl)), 0, 16);
-
-                    // Gather the pickup + delivery URLs across the store's providers.
-                    $pickupUrl = $this->modeUrl($group, 'pickup');
-                    $deliveryUrl = $this->modeUrl($group, 'delivery');
 
                     // Convergence Phase 6: LinkRouter decides the brand surface
                     // and refuses a second store for a brand this user already
-                    // has (owner ruling 1). It writes its own auto-seeded card
-                    // first; the Google card below replaces it, because only this
-                    // path knows the fees/time/pickup/delivery metadata Google
-                    // gave us — none of which the router can see.
+                    // has (owner ruling 1).
+                    //
+                    // A1 (2026-09-06): this used to say the Google card below
+                    // "replaces" the router's write, because only this path
+                    // knows the fees/time/pickup/delivery metadata Google gave
+                    // us. That second write is gone now (see the comment below
+                    // this loop) — the router's own propose-only write is what
+                    // persists, so that metadata has nowhere left to go. Same
+                    // accepted information-loss tradeoff already shipped for
+                    // reservations (resolveReservationWrite()'s docblock).
                     $user = User::find($userId);
                     $routed = $user === null
                         ? null
@@ -882,35 +883,23 @@ class GoogleBusinessAutoSync
                         continue;
                     }
 
-                    $surface = $routed->platform;
-                    $rid = $routed->resourceId;
-
-                    $this->write($userId, $surface, $rid, [
-                        'id' => $rid,
-                        'provider' => 'custom',
-                        'url' => $repUrl,
-                        'name' => $name ?? 'Order online',
-                        'favicon' => null,
-                        'logo' => null,
-                        'source' => 'google-business',
-                        'data' => array_filter([
-                            'type' => $this->clean(data_get($primary, 'type')),
-                            'fees' => $this->clean(data_get($primary, 'fees')),
-                            'time' => $this->clean(data_get($primary, 'time')),
-                            'sourcePlatform' => $name,
-                            'pickupUrl' => $pickupUrl,
-                            'deliveryUrl' => $deliveryUrl,
-                        ], fn ($v) => $v !== null),
-                    ]);
-                    // Track the newly written store in-memory so the cap and dupe
-                    // checks stay accurate without re-querying on each iteration.
+                    // A1 (2026-09-06): this used to $this->write() its OWN
+                    // richer copy right here — fees/time/pickup/delivery
+                    // Google metadata — even after LinkRouter's write above,
+                    // clobbering it. Same "no accept step" bug wearing this
+                    // call's own clothes. Same fix shape as seedReservation()
+                    // above: the router's generic propose-only write is what
+                    // persists now, so the rich payload this loop builds
+                    // ($name/$pickupUrl/$deliveryUrl/fees/time) has nowhere
+                    // left to go — the same accepted information-loss
+                    // tradeoff already shipped for reservations (see
+                    // resolveReservationWrite()'s docblock).
+                    // Track the newly proposed store in-memory so the cap and
+                    // dupe checks stay accurate without re-querying on each
+                    // iteration.
                     $existingCount++;
                     $existingStoreKeys[$storeKey] = true;
-                    // Online-ordering is multi-entry — every new store is just added (no
-                    // conflict concept), so each is a 'seeded' finding. The finding's
-                    // `platform` is the BRAND surface now; its category stays
-                    // 'online-ordering', which is what the modal keys its copy on.
-                    $findings[] = $this->seededFinding($surface, $rid, 'online-ordering', $name ?? 'Order online', $repUrl);
+                    $findings[] = $this->seededFinding($routed->platform, $routed->resourceId, 'online-ordering', $name ?? 'Order online', $repUrl);
                 }
 
                 return $findings;
@@ -949,23 +938,6 @@ class GoogleBusinessAutoSync
         }
 
         return $group[0];
-    }
-
-    /**
-     * The first URL in a store's providers carrying the given mode (pickup /
-     * delivery), or null.
-     *
-     * @param  list<array<string,mixed>>  $group
-     */
-    private function modeUrl(array $group, string $mode): ?string
-    {
-        foreach ($group as $p) {
-            if ($this->clean(data_get($p, 'type')) === $mode) {
-                return $this->safeUrl(data_get($p, 'url'));
-            }
-        }
-
-        return null;
     }
 
     /**

@@ -5,8 +5,10 @@ use App\Jobs\Platforms\CommerceProbeJob;
 use App\Jobs\Platforms\ConnectFetchJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Routing\SuggestionApplier;
+use App\Services\Cache\CacheKeyGenerator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -407,6 +409,155 @@ it('accepting one of two proposed booking siblings blocks the other, instead of 
     // single-account cap conflict uses).
     $suggestions = actingAsUser($pro)->getJson('/api/routing/suggestions')->json('suggestions');
     expect(collect($suggestions)->firstWhere('id', $googleId)['actions'] ?? null)->toBe(['replace', 'dismiss']);
+});
+
+it('a manual connect settling its own proposed intent (IntegrationConnectionObserver) blocks a live booking sibling too (D4, 2026-09-06)', function () {
+    // The Akro Studio fix directly above closed this gap for the two writers
+    // that already run through routing (SuggestionApplier::apply — the
+    // accept lane — and SourceReconciler::reconcile — the harvest/auto-place
+    // lane). IntegrationConnectionObserver::settleMatchingIntents() is a
+    // THIRD writer that can settle an exclusive-class intent: any connect
+    // whose identity happens to match a standing proposal (a manual
+    // dashboard connect, a deferred connect completing, HiddenConnections::
+    // reveal()) settles that ONE intent but, until now, never ran the
+    // sibling-supersede query — so a sibling proposed under a different
+    // identifier in the same exclusive class kept rendering as a second,
+    // unrelated-looking card even though the slot was now genuinely filled.
+    $pro = createTenant('inbox-observer-sibling');
+    $googleId = seedIntent($pro->id, [
+        'surface_key' => 'square.book', 'routing_class' => 'booking',
+        'identifier' => 'https://book.squareup.com/appointments/mlse36v5angcz',
+        'canonical_url' => 'https://book.squareup.com/appointments/mlse36v5angcz',
+        'origin' => 'google_business',
+    ]);
+    $websiteIdentifier = 'https://akro-studio.square.site/';
+    seedIntent($pro->id, [
+        'surface_key' => 'square.book', 'routing_class' => 'booking',
+        'identifier' => $websiteIdentifier,
+        'canonical_url' => $websiteIdentifier,
+        'origin' => 'website_import',
+    ]);
+
+    // A manual connect whose identity (resource_id, scheme 1 of
+    // ConnectionIdentity::matchWithin) matches the website intent's
+    // identifier exactly — settleMatchingIntents() fires on this save().
+    $connection = IntegrationConnection::query()->create([
+        'user_id' => $pro->id, 'platform' => 'square', 'surface_key' => 'square.book',
+        'routing_class' => 'booking', 'resource_id' => $websiteIdentifier,
+        'payload' => ['url' => $websiteIdentifier], 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+
+    $website = DB::table('routing.source_intents')->where('identifier', $websiteIdentifier)->first();
+    expect($website->state)->toBe('applied')
+        ->and($website->connection_id)->toBe((string) $connection->id);
+
+    $google = DB::table('routing.source_intents')->where('id', $googleId)->first();
+    expect($google->state)->toBe('blocked')
+        ->and($google->block_reason)->toBe('cap_reached')
+        ->and($google->conflicting_connection_id)->toBe((string) $connection->id);
+});
+
+it('a live rival connection under a DIFFERENT surface blocks the accept instead of minting a duplicate (D5, 2026-09-06)', function () {
+    // Neither writer that already retroactively supersedes siblings ever
+    // touches this pair: the sibling-supersede blocks (SuggestionApplier /
+    // SourceReconciler / IntegrationConnectionObserver, D4) only fire on a
+    // SETTLE through one of those three lanes, and the observer's own query
+    // is scoped to intents sharing the NEW connection's surface_key — a
+    // Fresha connection created with no 'fresha.book' intent at all leaves a
+    // plain 'proposed' Square intent (no block_reason, no
+    // conflicting_connection_id — the ordinary shape of a suggestion nobody
+    // has ever contested) with no idea a booking slot is already filled.
+    // resolveSwapIncumbent()'s own accept-time re-check would not catch this
+    // either — it only re-derives within $intent->surface_key, never the
+    // whole exclusive routing_class.
+    $pro = createTenant('inbox-cross-surface-rival');
+    $fresha = IntegrationConnection::query()->create([
+        'user_id' => $pro->id, 'platform' => 'fresha', 'surface_key' => 'fresha.book',
+        'routing_class' => 'booking', 'resource_id' => 'some-fresha-venue',
+        'payload' => ['url' => 'https://fresha.com/some-fresha-venue'], 'is_active' => true, 'last_refresh_status' => 'ok',
+    ]);
+
+    $squareId = seedIntent($pro->id, [
+        'surface_key' => 'square.book', 'routing_class' => 'booking',
+        'identifier' => 'https://akro-studio.square.site/',
+        'canonical_url' => 'https://akro-studio.square.site/',
+        'origin' => 'website_import',
+    ]);
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$squareId}/accept")
+        ->assertStatus(409);
+
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('routing_class', 'booking')->count())->toBe(1);
+
+    $square = DB::table('routing.source_intents')->where('id', $squareId)->first();
+    expect($square->state)->toBe('blocked')
+        ->and($square->block_reason)->toBe('conflict')
+        ->and($square->conflicting_connection_id)->toBe((string) $fresha->id);
+
+    // Now actionable as a Swap from the inbox, same as any other
+    // conflict-blocked intent.
+    $suggestions = actingAsUser($pro)->getJson('/api/routing/suggestions')->json('suggestions');
+    expect(collect($suggestions)->firstWhere('id', $squareId)['actions'] ?? null)->toBe(['replace', 'dismiss']);
+});
+
+it('the exclusive-slot lock is held for the whole settle write, not released before it (D6, 2026-09-06)', function () {
+    $pro = createTenant('inbox-exclusive-lock-probe');
+    $intentId = seedIntent($pro->id, [
+        'surface_key' => 'square.book', 'routing_class' => 'booking',
+        'identifier' => 'https://akro-studio.square.site/',
+        'canonical_url' => 'https://akro-studio.square.site/',
+        'origin' => 'website_import',
+    ]);
+
+    $key = CacheKeyGenerator::bookingXorLock((string) $pro->id);
+    $checkedLocked = false;
+    DB::listen(function ($query) use (&$checkedLocked, $key) {
+        if (! str_contains($query->sql, 'update "routing"."source_intents"') || ! in_array('applied', $query->bindings, true)) {
+            return;
+        }
+        $probe = Cache::lock($key, 5);
+        $heldNow = ! $probe->get();
+        if (! $heldNow) {
+            $probe->release();
+        }
+        $checkedLocked = $checkedLocked || $heldNow;
+    });
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$intentId}/accept")->assertOk();
+
+    expect($checkedLocked)->toBeTrue();
+});
+
+it('interleaved accepts of sibling booking intents — the second contends on the exclusive-slot lock the first is still holding (D6, 2026-09-06)', function () {
+    $pro = createTenant('inbox-exclusive-lock-race');
+    $squareId = seedIntent($pro->id, [
+        'surface_key' => 'square.book', 'routing_class' => 'booking',
+        'identifier' => 'https://akro-studio.square.site/',
+        'canonical_url' => 'https://akro-studio.square.site/',
+        'origin' => 'website_import',
+    ]);
+    $freshaId = seedIntent($pro->id, [
+        'surface_key' => 'fresha.book', 'routing_class' => 'booking',
+        'identifier' => 'https://fresha.com/some-fresha-venue',
+        'canonical_url' => 'https://fresha.com/some-fresha-venue',
+        'origin' => 'website_import',
+    ]);
+
+    $innerStatus = null;
+    $fired = false;
+    Event::listen('eloquent.creating: '.IntegrationConnection::class, function ($model) use ($pro, $freshaId, &$innerStatus, &$fired) {
+        if ($fired || $model->surface_key !== 'square.book') {
+            return;
+        }
+        $fired = true;
+
+        $innerStatus = actingAsUser($pro)->postJson("/api/routing/suggestions/{$freshaId}/accept")->getStatusCode();
+    });
+
+    actingAsUser($pro)->postJson("/api/routing/suggestions/{$squareId}/accept")->assertOk();
+
+    expect($innerStatus)->toBe(423);
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('routing_class', 'booking')->count())->toBe(1);
 });
 
 it('never re-asks a question the user already dismissed', function () {

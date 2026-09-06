@@ -84,8 +84,14 @@ it('falls back to host-pattern resolution when the surface is not a menu brand',
     // A non-menu ordering surface carrying a menu-platform URL: surfaceSlug()
     // yields nothing, so the host pattern answers — the pre-D7 behaviour,
     // kept as the fallback.
+    //
+    // A.14 (2026-09-06): order_online.order carries Lifecycle::Retired in the
+    // catalog, so IntegrationConnectionGuard now refuses to create one —
+    // grubhub.order is a real, active, non-retired ordering surface that
+    // MenuSource's scraper registry equally doesn't recognise, so it still
+    // exercises this test's "not a menu brand" case.
     $user = sqoUser('sqo2');
-    sqoConnection($user, 'https://ischia-restaurant.square.site/', 'order_online.order');
+    sqoConnection($user, 'https://ischia-restaurant.square.site/', 'grubhub.order');
 
     $links = app(MenuSource::class)->storeLinks($user);
 
@@ -95,8 +101,10 @@ it('falls back to host-pattern resolution when the surface is not a menu brand',
 
 it('never resolves a non-menu ordering surface into the scrape plan', function () {
     $user = sqoUser('sqo3');
-    // menulog.order is a real ordering surface but NOT a menu-scrape platform.
-    sqoConnection($user, 'https://www.menulog.com.au/restaurants-x', 'menulog.order');
+    // grubhub.order is a real, active ordering surface but NOT a menu-scrape
+    // platform. (A.14, 2026-09-06: menulog.order used to stand in for this,
+    // but it carries Lifecycle::Retired and can no longer be connected.)
+    sqoConnection($user, 'https://www.grubhub.com/restaurants-x', 'grubhub.order');
 
     expect(app(MenuSource::class)->storeLinks($user))->toBe([]);
 });

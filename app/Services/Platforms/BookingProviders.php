@@ -25,8 +25,10 @@ use App\Services\Platforms\Registry\PlatformRegistry;
  * not "tidy" that literal into this class.
  *
  * The reservations family (opentable/resdiary/nowbookit) is the same shape on
- * a different slot and has its own lock; it is not modelled here because
- * nothing yet needs it to be.
+ * a different slot and has its own lock — modelled separately in
+ * ReservationsProviders (D2, 2026-09-06), once GenericPlatformController's
+ * ordinary connect endpoint needed the same cross-brand check this class
+ * gives booking.
  */
 final class BookingProviders
 {

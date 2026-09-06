@@ -5,6 +5,7 @@ namespace App\Services\Site;
 use App\Console\Commands\PurgeRawAnalyticsEvents;
 use App\Models\Core\Site\Site;
 use App\Models\Core\User\User;
+use App\Services\Accounts\AccountCapabilities;
 use App\Services\Analytics\Writers\PostgresEventWriter;
 
 /**
@@ -123,7 +124,11 @@ class SitePolicyResolver
     private function siteName(User $pro, ?string $workplaceName): string
     {
         $workplace = trim((string) $workplaceName);
-        if ($pro->isBusiness() && $workplace !== '') {
+        // Only AccountCapabilities touches account_type (2026-09-06 — this
+        // read a raw isBusiness() with no documented exception, unlike
+        // LinkRouter::gateAllows()'s equivalent read, which spells out why it
+        // must diverge from the capability).
+        if (AccountCapabilities::for($pro)->workplace_brand_is_site_identity && $workplace !== '') {
             return $workplace;
         }
 

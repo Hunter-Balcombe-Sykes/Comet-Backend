@@ -10,11 +10,13 @@ use App\Jobs\Platforms\ConnectFetchJob;
 use App\Jobs\Platforms\EnrichLinkCardJob;
 use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
+use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Platforms\ConnectResolver;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Payloads\LinkPayload;
 use App\Services\Platforms\Registry\PlatformDescriptor;
 use App\Services\Platforms\Registry\PlatformRegistry;
+use App\Services\Platforms\ReservationsProviders;
 use App\Services\Platforms\StrandedPendingWindow;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -158,6 +160,15 @@ class GenericPlatformController extends ApiController
         // exists so future paid-tier/account-type rules are a per-descriptor flag.
         $this->authorizeForUser($user, 'connect', [new IntegrationConnection(['user_id' => $user->id]), $descriptor]);
 
+        // D2 (2026-09-06): OpenTable/ResDiary/NowBookit are mutually exclusive
+        // reservations providers (XOR), same shape as Fresha/Square's booking
+        // XOR — cheap early check before paying for the connect strategy's own
+        // fetch, re-asserted under reservationsXorLock below (this alone races
+        // outside the lock, same contract as bookingProviderConflict()).
+        if (($conflict = $this->reservationsProviderConflict($user)) !== null) {
+            return $conflict;
+        }
+
         $strategy = $descriptor->connectStrategy();
         abort_if($strategy === null, 404);
 
@@ -208,7 +219,7 @@ class GenericPlatformController extends ApiController
         // behind platformConnectionLock — the write (writeAccountConnection/
         // writeConnection) must serialise against them, or a background
         // refresh can clobber this connect.
-        return $this->withConnectionLock($user, function () use ($user, $descriptor, $selection, $resourceClass, $accountKey, $hidden): JsonResponse {
+        $write = function () use ($user, $descriptor, $selection, $resourceClass, $accountKey, $hidden): JsonResponse {
             if ($descriptor->multiAccount()) {
                 $key = $accountKey ?? $this->defaultAccountKey($selection);
                 if ($key !== null) {
@@ -224,7 +235,24 @@ class GenericPlatformController extends ApiController
             $this->writeConnection($user, $selection, hidden: $hidden);
 
             return $this->success((new $resourceClass($selection))->resolve());
-        });
+        };
+
+        // D2: reservationsXorLock OUTER, platformConnectionLock INNER — same
+        // fixed order FreshaController's booking XOR uses (see
+        // ManagesIntegrationConnection::withCrossPlatformLock's docblock) —
+        // re-asserting the conflict check once the lock is actually held,
+        // since the pre-check above races outside it.
+        if (ReservationsProviders::includes($this->platform())) {
+            return $this->withCrossPlatformLock(CacheKeyGenerator::reservationsXorLock((string) $user->id), function () use ($user, $write): JsonResponse {
+                if (($conflict = $this->reservationsProviderConflict($user)) !== null) {
+                    return $conflict;
+                }
+
+                return $this->withConnectionLock($user, $write);
+            });
+        }
+
+        return $this->withConnectionLock($user, $write);
     }
 
     /**

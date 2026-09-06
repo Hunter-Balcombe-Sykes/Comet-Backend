@@ -69,7 +69,7 @@ function menuSurfaceFor(string $url): string
 
     return match (true) {
         str_contains($host, 'doordash') => 'doordash.order',
-        str_contains($host, 'menulog') => 'menulog.order',
+        str_contains($host, 'grubhub') => 'grubhub.order',
         str_contains($host, 'square') => 'square.order',
         default => 'uber_eats.order',
     };
@@ -264,8 +264,13 @@ it('falls back to doordash when there is no uber eats link', function () {
 });
 
 it('resolves no menu source for non uber/doordash ordering links', function () {
+    // A.14 (2026-09-06): menulog.order carries Lifecycle::Retired in the
+    // catalog, so IntegrationConnectionGuard now refuses to create one —
+    // grubhub.order is a real, active, non-retired ordering surface that
+    // MenuSource's scraper registry equally doesn't recognise, so it still
+    // exercises this test's "not uber eats/doordash" case.
     $user = menuUser('m3');
-    ordering($user, 'https://www.menulog.com.au/restaurants-ollies', null, '2026-06-17 10:00:00');
+    ordering($user, 'https://www.grubhub.com/restaurants-ollies', null, '2026-06-17 10:00:00');
 
     expect(app(MenuSource::class)->resolve($user))->toBeNull();
 });

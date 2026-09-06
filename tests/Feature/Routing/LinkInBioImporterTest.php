@@ -90,6 +90,33 @@ it('counts one decision per distinct link', function () {
     expect($result['observations'])->toBe(1);
 });
 
+// B1 (2026-09-06): an event-organiser link (an Eventbrite /o/<org> page, a
+// Humanitix /host/<org> page) used to seed a live organiser account right
+// here via EventsSeeder::seedAccount() — the same "no harvest ever
+// auto-connects, only ever suggests" bug already fixed for
+// LinkRouter::seedEvent()'s own eventbrite/humanitix arm. This importer has
+// no staff/no-dialog flag, so the connect branch was deleted outright.
+//
+// Every brand WebsiteLinkHarvester::classify() tags 'event-organiser' now
+// also has its own catalog surface, so route() already resolves an organiser
+// link to a real 'choose' verdict before this importer's now-deleted
+// 'note'+organiser branch would ever have been reached — confirmed
+// empirically below (an Eventbrite /o/<org> URL verdicts 'choose', a
+// proposed source_intent, no card). The deleted branch was defence-in-depth
+// for a brand classify() recognises before its catalog surface ships; what
+// this test pins is the outcome that matters either way: zero live
+// connections for an organiser link found on a bio page.
+it('never auto-connects an organiser link found on a bio page', function () {
+    $pro = createTenant('bio-organiser-noconnect');
+    bioPage('<html><body><a href="https://www.eventbrite.com.au/o/some-organiser-12345">Our events</a></body></html>');
+
+    $result = app(LinkInBioImporter::class)->import($pro, 'https://example.com/theartist');
+
+    expect($result['connected'])->toBe(0)
+        ->and($result['suggested'])->toBe(1);
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'eventbrite')->exists())->toBeFalse();
+});
+
 it('records the run under its own kind so imports stay accountable', function () {
     $pro = createTenant('bio-run');
     bioPage('<html><body><a href="https://x.com/theartist">X</a></body></html>');

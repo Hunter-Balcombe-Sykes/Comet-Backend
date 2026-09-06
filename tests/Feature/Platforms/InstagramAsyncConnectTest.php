@@ -114,6 +114,53 @@ it('still rejects a pasted bare instagram.com host with no username', function (
     Queue::assertNothingPushed();
 });
 
+// ── D3 (2026-09-06): two-writer convergence, the Fresha/Square fix carried
+// to Instagram ────────────────────────────────────────────────────────────
+// The routing lane (SourceReconciler / SuggestionApplier::preScrapeInstagram
+// — auto-placed via GoogleBusinessAutoSync/InstagramAutoSync and the signup
+// pre-scrape flow, all more common than a manual connect) keys an Instagram
+// connection by the real handle, not resource_id='instagram' (the legacy
+// marker connect() used unconditionally). Without resolveResourceId()
+// converging onto that row, a manual connect after a router-placed one
+// created a SECOND row under the legacy marker, and /selection (which scopes
+// on platform alone) would show whichever row it happened to read.
+
+it('selection() reads a router-placed row keyed by the real handle, not the legacy instagram marker', function () {
+    $user = igAsyncUser('igrouterlane');
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'theartist',
+        'payload' => ['username' => 'theartist', 'url' => 'https://www.instagram.com/theartist', 'source' => 'google-business'],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+
+    actingAsUser($user)->getJson('/api/platforms/instagram/selection')
+        ->assertOk()
+        ->assertJsonPath('selection.username', 'theartist');
+});
+
+it('connect() converges onto the router-placed row instead of creating a second legacy-keyed one', function () {
+    Queue::fake();
+    config(['services.apify.token' => 'test-token']);
+    $user = igAsyncUser('igconverge');
+    IntegrationConnection::create([
+        'user_id' => $user->id,
+        'platform' => 'instagram',
+        'resource_id' => 'theartist',
+        'payload' => ['username' => 'theartist', 'url' => 'https://www.instagram.com/theartist', 'source' => 'google-business'],
+        'is_active' => true,
+        'last_refresh_status' => 'ok',
+    ]);
+
+    actingAsUser($user)->postJson('/api/platforms/instagram/connect', ['username' => 'theartist'])
+        ->assertStatus(202);
+
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'instagram')->count())->toBe(1);
+    Queue::assertPushed(InstagramConnectJob::class, fn ($job) => $job->username === 'theartist');
+});
+
 // ── no per-user cooldown: rapid re-connect is allowed ────────────────────────
 
 it('allows a rapid second connect (no per-user cooldown)', function () {

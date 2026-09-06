@@ -194,3 +194,33 @@ it('does not throw when a non-anchor field is updated on a persisted row', funct
 
     expect($conn->fresh()->last_refresh_status)->toBe('ok');
 });
+
+// A.14 (2026-09-06, the Famished Wolf proof): order_online.order is a KNOWN
+// catalog surface whose own definition already says Lifecycle::Retired
+// (order.online stopped resolving in DNS on 2026-09-03) — nothing checked
+// that flag before this guard, so a harvest happily minted a dead brand
+// alongside the real DoorDash storefront it duplicated.
+
+it('rejects create of a surface the catalog itself marks Lifecycle::Retired', function () {
+    Exceptions::fake();
+    $user = makeGuardTestUser('retired-surface-1');
+
+    expect(fn () => IntegrationConnection::create([
+        'user_id' => $user->id,
+        'surface_key' => 'order_online.order',
+        'resource_id' => 'order-online-test',
+        'payload' => [],
+    ]))->toThrow(ValidationException::class);
+
+    Exceptions::assertReported(UnregisteredPlatformException::class);
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->exists())->toBeFalse();
+});
+
+it('rejects updateOrCreate of a Lifecycle::Retired surface too', function () {
+    $user = makeGuardTestUser('retired-surface-2');
+
+    expect(fn () => IntegrationConnection::updateOrCreate(
+        ['user_id' => $user->id, 'surface_key' => 'order_online.order'],
+        ['resource_id' => 'order-online-test-2', 'payload' => []]
+    ))->toThrow(ValidationException::class);
+});

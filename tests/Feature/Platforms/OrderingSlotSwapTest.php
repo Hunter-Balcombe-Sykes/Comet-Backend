@@ -14,6 +14,14 @@ use Illuminate\Support\Str;
  * cap-blocked intent the suggestions inbox renders as **Swap**, naming the
  * incumbent it would replace.
  *
+ * A1 (2026-09-06): a FIRST/fresh store used to seed a live connection too —
+ * same "no harvest ever auto-connects, only ever suggests" bug already fixed
+ * for booking/reservations. It now records a plain proposed intent instead
+ * (band 'auto', pre-ticked in the setup dialog, still needing an accept step)
+ * — so these tests seed the "incumbent" a real store's connection DIRECTLY
+ * (as `ordConnection()` below), the way a genuinely-accepted first store would
+ * exist, rather than by routing a first URL through routeOrdering() itself.
+ *
  * These pin the legacy lane (LinkRouter::seedOnlineOrdering) because that is
  * what the Google Business and Instagram harvests still come through; when they
  * move onto LinkRoutingService the reconciler answers the same way natively
@@ -49,13 +57,40 @@ function orderingUser(string $handle): User
     return $user->refresh();
 }
 
+/** A genuinely-accepted ordering connection — same shape routeOrdering() itself no longer writes. */
+function ordConnection(User $user, string $url): IntegrationConnection
+{
+    $connection = new IntegrationConnection([
+        'surface_key' => 'uber_eats.order', 'routing_class' => 'ordering',
+        'resource_id' => 'order-'.substr(sha1(strtolower($url)), 0, 16),
+        'payload' => ['url' => $url, 'provider' => 'Uber Eats', 'name' => 'Uber Eats', 'source' => 'auto'],
+        'is_active' => true,
+    ]);
+    $connection->user_id = $user->id;
+    $connection->save();
+
+    return $connection;
+}
+
+it('proposes, rather than connects, a fresh ordering store found on a harvest', function () {
+    $user = orderingUser('ord-fresh');
+
+    $result = app(LinkRouter::class)->routeOrdering($user, 'https://www.ubereats.com/au/store/first/abc');
+
+    expect($result->outcome)->toBe('custom')
+        ->and($result->handled)->toBeTrue()
+        ->and(IntegrationConnection::query()->where('user_id', $user->id)->exists())->toBeFalse();
+
+    $intent = DB::connection('pgsql')->table('routing.source_intents')->where('user_id', $user->id)->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->state)->toBe('proposed')
+        ->and($intent->routing_class)->toBe('ordering')
+        ->and($intent->band)->toBe('auto');
+});
+
 it('offers a swap instead of pooling when the ordering brand already holds a different store', function () {
     $user = orderingUser('ord-swap');
-
-    $first = app(LinkRouter::class)->routeOrdering($user, 'https://www.ubereats.com/au/store/first/abc');
-    expect($first->outcome)->toBe('seeded');
-
-    $incumbent = IntegrationConnection::query()->where('user_id', $user->id)->firstOrFail();
+    $incumbent = ordConnection($user, 'https://www.ubereats.com/au/store/first/abc');
 
     $second = app(LinkRouter::class)->routeOrdering($user, 'https://www.ubereats.com/au/store/second/xyz');
 
@@ -83,20 +118,22 @@ it('re-syncing the SAME store is not a second store', function () {
     app(LinkRouter::class)->routeOrdering($user, 'https://www.ubereats.com/au/store/only/abc');
     $again = app(LinkRouter::class)->routeOrdering($user, 'https://www.ubereats.com/au/store/only/abc');
 
-    expect($again->outcome)->toBe('seeded')
-        ->and(IntegrationConnection::query()->where('user_id', $user->id)->count())->toBe(1)
-        ->and(DB::connection('pgsql')->table('routing.source_intents')->count())->toBe(0);
+    // Neither call connects (A1) — both merely propose the same store, so the
+    // second converges onto the first's intent row instead of duplicating it.
+    expect($again->outcome)->toBe('custom')
+        ->and(IntegrationConnection::query()->where('user_id', $user->id)->count())->toBe(0)
+        ->and(DB::connection('pgsql')->table('routing.source_intents')->where('user_id', $user->id)->count())->toBe(1);
 });
 
 it('states the same block once when a nightly re-sync finds the second store again', function () {
     // Idempotence matters more here than anywhere: this runs on every sync.
     $user = orderingUser('ord-repeat');
+    ordConnection($user, 'https://www.ubereats.com/au/store/first/abc');
 
-    app(LinkRouter::class)->routeOrdering($user, 'https://www.ubereats.com/au/store/first/abc');
     app(LinkRouter::class)->routeOrdering($user, 'https://www.ubereats.com/au/store/second/xyz');
     app(LinkRouter::class)->routeOrdering($user, 'https://www.ubereats.com/au/store/second/xyz');
 
-    expect(DB::connection('pgsql')->table('routing.source_intents')->count())->toBe(1);
+    expect(DB::connection('pgsql')->table('routing.source_intents')->where('user_id', $user->id)->count())->toBe(1);
 });
 
 it('does not resurrect an ordering store the owner disconnected', function () {

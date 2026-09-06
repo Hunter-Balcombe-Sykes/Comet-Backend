@@ -115,15 +115,22 @@ class WebsiteImporter
 
             if ($result['verdict'] === 'note') {
                 try {
-                    if (in_array($category, ['event', 'event-organiser'], true)) {
-                        $seeded = $category === 'event'
-                            ? $this->events->seedStandalone($user, (string) $classified['platform'], $link, origin: 'website_import')
-                            : $this->events->seedAccount($user, (string) $classified['platform'], $link);
-                        if ($seeded !== null) {
-                            $tally['connected']++;
+                    // 2026-09-06: an 'event-organiser' link used to seed a
+                    // live organiser account right here — the same "no
+                    // harvest ever auto-connects, only ever suggests" bug
+                    // already fixed tonight for LinkRouter::seedEvent()'s own
+                    // eventbrite/humanitix arm (gated behind
+                    // $ctx->autoConnectBooking there). This importer has no
+                    // equivalent staff/no-dialog flag for any caller, so an
+                    // organiser link no longer auto-connects here either — it
+                    // falls through to the ordinary 'noted' tally below, the
+                    // same outcome any other link this importer can't place
+                    // already gets (this lane deliberately writes no card).
+                    if ($category === 'event'
+                        && $this->events->seedStandalone($user, (string) $classified['platform'], $link, origin: 'website_import') !== null) {
+                        $tally['connected']++;
 
-                            continue;
-                        }
+                        continue;
                     }
                 } catch (\Throwable $e) {
                     report($e);

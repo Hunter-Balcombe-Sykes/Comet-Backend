@@ -397,6 +397,95 @@ it('lets exactly one of 8 concurrently forked claimers win the same subdomain �
     expect((bool) DB::connection('pgsql')->table('site.sites')->where('id', $ids['site_id'])->value('is_published'))->toBeTrue();
 });
 
+// C3 (2026-09-06): a DIFFERENT race from the two above — the same person
+// racing claims for two DIFFERENT subdomains. Each targets its OWN user row
+// (no shared lockForUpdate contention), so both pre-checks at the top of
+// claim() ("does this uid already own a row?") can read false before either
+// commits; the loser then hits users_auth_user_id_unique at save() time.
+// Before the C3 fix that 23505 fell through the catch block's
+// isClaimedByAnotherAuthUser() re-check (which asks about the WINNING row's
+// auth_user_id, always this same uid — never "another" auth user) as a raw,
+// unhandled QueryException. The fix adds a second re-check
+// (authUserAlreadyBound()) that turns it into a clean ACCOUNT_EXISTS, the
+// same answer a non-racing double-claim already got from the pre-check.
+it('gives a clean ACCOUNT_EXISTS, not a raw 500, when the same person races claims for two different subdomains', function () {
+    if (! function_exists('pcntl_fork')) {
+        $this->markTestSkipped('pcntl_fork is not available in this runtime');
+    }
+
+    $childCount = 6;
+    $targets = [];
+    for ($i = 0; $i < $childCount; $i++) {
+        $targets[] = seedClaimTarget("claimrace-multisub-{$i}");
+    }
+
+    $uid = (string) Str::uuid();
+    $startAt = microtime(true) + 0.25;
+
+    $pids = [];
+    for ($i = 0; $i < $childCount; $i++) {
+        $pid = pcntl_fork();
+        if ($pid === -1) {
+            $this->fail('pcntl_fork failed');
+        }
+
+        if ($pid === 0) {
+            DB::purge('pgsql');
+            DB::reconnect('pgsql');
+            usleep((int) max(0, ($startAt - microtime(true)) * 1_000_000));
+
+            // Every child is the SAME person (same uid, same verified email)
+            // claiming a DIFFERENT subdomain — only the unique index decides
+            // which one wins.
+            try {
+                app(ClaimSiteService::class)->claim($uid, 'racer@claimrace.test', "claimrace-multisub-{$i}");
+                $outcome = 'claimed';
+            } catch (Throwable $e) {
+                $outcome = $e->getMessage();
+            }
+
+            DB::connection('pgsql')->table('core.claim_race_probe')->insert([
+                'child_idx' => $i,
+                'outcome' => $outcome,
+                'uid' => $uid,
+            ]);
+
+            exit(0);
+        }
+
+        $pids[] = $pid;
+    }
+
+    foreach ($pids as $pid) {
+        pcntl_waitpid($pid, $status);
+    }
+
+    $probes = DB::connection('pgsql')->table('core.claim_race_probe')->orderBy('child_idx')->get();
+    expect($probes)->toHaveCount($childCount, 'A child died before recording its outcome');
+
+    $winners = $probes->filter(fn ($p) => $p->outcome === 'claimed');
+    $losers = $probes->filter(fn ($p) => $p->outcome !== 'claimed');
+
+    // Exactly one subdomain ends up bound to this person — the others must
+    // be refused cleanly, never with a raw SQL/QueryException message.
+    expect($winners)->toHaveCount(1, 'Outcomes were: '.$probes->pluck('outcome')->implode(', '));
+    foreach ($losers as $loser) {
+        expect($loser->outcome)->toBe('ACCOUNT_EXISTS',
+            "Child {$loser->child_idx} lost for the wrong reason (a raw 500 leaking out means the C3 backstop regressed): {$loser->outcome}");
+    }
+
+    // Only the winner's target user row actually got the auth_user_id.
+    $winnerIdx = (int) $winners->first()->child_idx;
+    foreach ($targets as $i => $ids) {
+        $user = DB::connection('pgsql')->table('core.users')->where('id', $ids['user_id'])->first();
+        if ($i === $winnerIdx) {
+            expect($user->auth_user_id)->toBe($uid);
+        } else {
+            expect($user->auth_user_id)->toBeNull();
+        }
+    }
+});
+
 it('never lets two forked claimers both satisfy an email-gated build', function () {
     if (! function_exists('pcntl_fork')) {
         $this->markTestSkipped('pcntl_fork is not available in this runtime');

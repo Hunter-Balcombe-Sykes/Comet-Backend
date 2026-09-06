@@ -258,13 +258,24 @@ it('seeds reservation, ordering and social connections from the enrichment', fun
     expect($ot->state)->toBe('proposed');
     expect($ot->identifier)->toBe('266537');
 
-    // Ordering → one online-ordering row per provider, carrying the metadata.
-    $orders = IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->get();
-    expect($orders)->toHaveCount(2);              // UberEats pickup + DoorDash delivery; javascript: dropped
-    $uber = $orders->first(fn ($r) => ($r->payload['name'] ?? null) === 'UberEats')->payload;
-    expect($uber['url'])->toBe('https://www.ubereats.com/au/store/fadelab/abc?mode=pickup');
-    expect($uber['source'])->toBe('google-business');
-    expect($uber['data'])->toMatchArray(['type' => 'pickup', 'time' => 'Ready in 10–25 min', 'fees' => 'No fee', 'sourcePlatform' => 'UberEats']);
+    // Ordering → NOT live connections (A1, 2026-09-06: a fresh store found on
+    // a harvest always routes through the suggestion pipeline too, same fix
+    // as booking/reservations) — one proposed 'ordering' intent per store
+    // (UberEats pickup + DoorDash delivery; javascript: dropped). The rich
+    // per-provider metadata (fees/time/pickupUrl/deliveryUrl) is no longer
+    // threaded through — same accepted information-loss tradeoff already
+    // shipped for reservations.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->exists())->toBeFalse();
+    $orderIntents = DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'ordering')->get();
+    expect($orderIntents)->toHaveCount(2);
+    expect($orderIntents->pluck('surface_key')->sort()->values()->all())->toBe(['doordash.order', 'uber_eats.order']);
+    expect($orderIntents->pluck('state')->unique()->all())->toBe(['proposed']);
+    // Ordering is an exclusive-auto class (RoutingClass::isExclusiveAuto): at
+    // most one candidate is ever pre-ticked in the setup dialog at a time —
+    // SourceReconciler::hasLiveAutoSibling() downgrades every sibling after
+    // the first to 'suggest', even though every brand still lands as its own
+    // (non-pre-ticked) suggestion.
+    expect($orderIntents->pluck('band')->sort()->values()->all())->toBe(['auto', 'suggest']);
 
     // Link socials → NOT live connections (2026-09-06: a Google Business
     // social link is a harvested discovery, not a direct request, same fix
@@ -393,14 +404,19 @@ it('consolidates same-store pickup and delivery ordering providers into one row'
 
     app(GoogleBusinessAutoSync::class)->seed((string) $user->id, $enrichment, 'Ollies');
 
-    $orders = IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->get();
-    expect($orders)->toHaveCount(2);  // UE (pickup+delivery collapsed) + DoorDash
+    // A1 (2026-09-06): NOT live connections any more — a fresh store always
+    // routes through the suggestion pipeline, same fix as booking/
+    // reservations. Still proves the same consolidation (pickup+delivery
+    // collapse into one store) via the proposed-intent count, and which URL
+    // won as the store's identity, rather than via a written payload.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->exists())->toBeFalse();
+    $orderIntents = DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'ordering')->get();
+    expect($orderIntents)->toHaveCount(2);  // UE (pickup+delivery collapsed) + DoorDash
 
-    $uber = $orders->first(fn ($r) => ($r->payload['name'] ?? null) === 'UberEats')->payload;
-    expect($uber['data']['pickupUrl'])->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=PICKUP');
-    expect($uber['data']['deliveryUrl'])->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY');
+    $uber = $orderIntents->firstWhere('surface_key', 'uber_eats.order');
+    expect($uber)->not->toBeNull();
     // The representative row prefers the delivery-typed provider.
-    expect($uber['url'])->toBe('https://www.ubereats.com/au/store/ollies/abc?diningMode=DELIVERY');
+    expect($uber->canonical_url)->toContain('diningMode=DELIVERY');
 });
 
 it('does not re-seed an ordering store the user already has (only-if-empty per store)', function () {
@@ -579,12 +595,14 @@ it('keeps the Google Business selection business-info-only after enrichment', fu
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'opentable')->exists())->toBeFalse();
     expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'opentable.reserve')->where('state', 'proposed')->exists())->toBeTrue();
 
-    // ...and the ordering/social rows seed as real connections, untouched by
-    // that change. (Until 2026-08-19 this read them back off the synced
-    // modal; the modal is retired, and the connections were always the thing
-    // that mattered.)
+    // ...and social still seeds a real connection (via Instagram specifically
+    // — dispatchInstagram()'s own, deliberately-direct budget-metered path).
+    // A1 (2026-09-06): ordering no longer does — same fix as reservations/
+    // booking above — it shows up as a proposed intent instead.
     expect(IntegrationConnection::query()->where('user_id', $user->id)->pluck('routing_class')->unique())
-        ->toContain('ordering', 'social');
+        ->toContain('social')
+        ->not->toContain('ordering');
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'ordering')->where('state', 'proposed')->exists())->toBeTrue();
 });
 
 it('only-if-empty: never overwrites a reservation or social the user already set', function () {
@@ -619,8 +637,10 @@ it('only-if-empty: never overwrites a reservation or social the user already set
     expect($fb['username'])->toBe('mine');
     expect($fb['source'])->toBe('manual');
 
-    // The empty slots (ordering) still seed.
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->count())->toBe(2);
+    // The empty slots (ordering) still get proposed — A1 (2026-09-06): not as
+    // live connections any more, same fix as reservations/booking.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->exists())->toBeFalse();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'ordering')->where('state', 'proposed')->count())->toBe(2);
 });
 
 it('still drops a legacy /pages/ Facebook link to nothing (G4-4\'s fix is now dead: nothing bypasses the catalog to use it)', function () {
@@ -786,12 +806,14 @@ it('connects exactly what this run found, and nothing the account cannot have', 
     // this fix (its own Apify-budget-gated flow, out of scope here) and
     // still connects a pending placeholder while its scrape sits behind the
     // faked bus.
+    // Ordering is ALSO proposed, not connected — A1 (2026-09-06), same fix.
     expect($rows->firstWhere('platform', 'opentable'))->toBeNull()
         ->and($rows->firstWhere('platform', 'facebook'))->toBeNull()
         ->and($rows->firstWhere('platform', 'instagram')->last_refresh_status)->toBe('pending')
-        ->and($rows->where('routing_class', 'ordering'))->toHaveCount(2);
+        ->and($rows->where('routing_class', 'ordering'))->toHaveCount(0);
     expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'opentable.reserve')->where('state', 'proposed')->exists())->toBeTrue();
     expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'facebook.profile')->where('state', 'proposed')->exists())->toBeTrue();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'ordering')->where('state', 'proposed')->count())->toBe(2);
     // Nothing booking-class: a food business books via Reservations (above),
     // even though Google's data also carried a booking link.
     expect($rows->where('routing_class', 'booking'))->toHaveCount(0);

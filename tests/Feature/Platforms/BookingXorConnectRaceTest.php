@@ -661,3 +661,131 @@ it('RESERVATIONS_SLOT_PLATFORMS mirrors GoogleBusinessAutoSync::RESERVATION_PLAT
 
     expect($traitConst)->toBe($gbConst);
 });
+
+// ── D2 (2026-09-06): the connect()-vs-connect() half of the reservations seam ──
+//
+// The "orchestrator's one addition" section above proved the reservations
+// XOR held for the "Change to" (applyFinding) path. It never covered the
+// ORDINARY GenericPlatformController::connect() endpoint all three
+// reservations platforms share — that path took no lock and ran no
+// cross-brand check at all, so an ordinary POST .../opentable/connect
+// followed by POST .../resdiary/connect (no race required — a plain
+// sequential double-submit) left both simultaneously live. Same shape as
+// bxr1-bxr7's booking proof above, minus the scraper mock: OpenTable/
+// ResDiary/NowBookit connects are pure URL parses (OpenTableConnect::resolve,
+// no HTTP fetch), so the interleave can fire from 'eloquent.creating' alone.
+
+function bxRaceOpenTableUrl(): string
+{
+    return 'https://www.opentable.com.au/restaurant/profile/266537?ref=11025';
+}
+
+function bxRaceResdiaryUrl(): string
+{
+    return 'https://booking.resdiary.com/widget/Standard/Ollies';
+}
+
+it('a plain sequential double-submit — OpenTable then ResDiary — is refused with 409, no race required', function () {
+    $user = bxRaceUser('bxr18');
+
+    actingAsUser($user)->postJson('/api/platforms/opentable/connect', ['url' => bxRaceOpenTableUrl()])
+        ->assertOk();
+
+    actingAsUser($user)->postJson('/api/platforms/resdiary/connect', ['url' => bxRaceResdiaryUrl()])
+        ->assertStatus(409);
+
+    expect(IntegrationConnection::whereIn('platform', ['opentable', 'resdiary', 'nowbookit'])->count())->toBe(1);
+});
+
+it('interleaved connects — OpenTable first: a ResDiary connect landing inside OpenTable\'s write cannot leave both providers active', function () {
+    $user = bxRaceUser('bxr19');
+
+    $innerStatus = null;
+    $fired = false;
+    // 'creating' fires inside writeConnection()'s updateOrCreate — i.e.
+    // INSIDE OpenTable's new reservationsXorLock, before its row is visible
+    // to any hasConflictingConnection() query.
+    Event::listen('eloquent.creating: '.IntegrationConnection::class, function ($model) use ($user, &$innerStatus, &$fired) {
+        if ($fired || $model->platform !== 'opentable') {
+            return;
+        }
+        $fired = true;
+
+        $innerStatus = actingAsUser($user)->postJson('/api/platforms/resdiary/connect', [
+            'url' => bxRaceResdiaryUrl(),
+        ])->getStatusCode();
+    });
+
+    actingAsUser($user)->postJson('/api/platforms/opentable/connect', ['url' => bxRaceOpenTableUrl()])
+        ->assertOk();
+
+    // Fail-before: OpenTable held no lock, so the nested ResDiary passes its
+    // own (stale) check — the opentable row isn't inserted yet — writes, and
+    // returns 200 -> count 2.
+    expect($innerStatus)->toBe(423);
+    expect(IntegrationConnection::whereIn('platform', ['opentable', 'resdiary'])->count())->toBe(1);
+});
+
+it('opentable connect: a held reservations-XOR lock 423s and writes nothing', function () {
+    $user = bxRaceUser('bxr20');
+
+    $lock = Cache::lock(CacheKeyGenerator::reservationsXorLock((string) $user->id), 10);
+    expect($lock->get())->toBeTrue();
+
+    try {
+        actingAsUser($user)->postJson('/api/platforms/opentable/connect', ['url' => bxRaceOpenTableUrl()])
+            ->assertStatus(423)
+            ->assertJson(['message' => 'Another change is still saving — please retry in a moment.']);
+    } finally {
+        $lock->release();
+    }
+
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'opentable')->exists())->toBeFalse();
+});
+
+it('opentable connect: the conflict check itself is inside the lock, not before it', function () {
+    $user = bxRaceUser('bxr21');
+    $key = CacheKeyGenerator::reservationsXorLock((string) $user->id);
+
+    // Mirrors bxr5's Square probe above, on the reservations key instead.
+    $checkLocked = false;
+    DB::listen(function ($query) use (&$checkLocked, $key) {
+        if (! str_contains($query->sql, 'select exists(') || ! str_contains($query->sql, 'platform_connections')) {
+            return;
+        }
+        $probe = Cache::lock($key, 5);
+        $heldNow = ! $probe->get();
+        if (! $heldNow) {
+            $probe->release();
+        }
+        $checkLocked = $checkLocked || $heldNow;
+    });
+
+    actingAsUser($user)->postJson('/api/platforms/opentable/connect', ['url' => bxRaceOpenTableUrl()])
+        ->assertOk();
+
+    // Fail-before: today's code runs this exists() query with no lock held
+    // at all, so $checkLocked stays false.
+    expect($checkLocked)->toBeTrue();
+});
+
+it('a booking connect is unaffected by a held reservations-XOR lock — independent slot families, different keys', function () {
+    $user = bxRaceUser('bxr22');
+
+    $this->mock(FreshaScraper::class, function ($m) {
+        $m->shouldReceive('stripLocale')->andReturnUsing(fn ($u) => $u);
+        $m->shouldReceive('fetchMenu')->andReturn(bxRaceFreshaMenu());
+    });
+
+    $lock = Cache::lock(CacheKeyGenerator::reservationsXorLock((string) $user->id), 10);
+    expect($lock->get())->toBeTrue();
+
+    try {
+        actingAsUser($user)->postJson('/api/platforms/fresha/connect', ['url' => bxRaceFreshaUrl()])
+            ->assertOk();
+    } finally {
+        $lock->release();
+    }
+
+    expect(IntegrationConnection::where('user_id', $user->id)->where('platform', 'fresha')->exists())->toBeTrue();
+});
