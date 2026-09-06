@@ -1,12 +1,12 @@
 <?php
 
+use App\Exceptions\Site\SubdomainUnavailableException;
 use App\Jobs\PreAccount\GeneratePreAccountSiteJob;
 use App\Models\Core\Site\Site;
 use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
-use App\Exceptions\Site\SubdomainUnavailableException;
 use App\Services\PreAccount\PreAccountBuildException;
 use App\Services\PreAccount\PreAccountBuildService;
 use App\Services\PreAccount\SourcePrefetch;
