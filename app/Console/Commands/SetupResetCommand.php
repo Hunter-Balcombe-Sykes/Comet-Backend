@@ -47,7 +47,7 @@ class SetupResetCommand extends Command
 
             return self::FAILURE;
         }
-        if (! $this->option('yes') && ! $this->confirm("Wipe discovery/setup state for {$user->handle} ({$user->email})?")) {
+        if (! $this->option('yes') && ! $this->confirm("Wipe discovery/setup state for {$user->handle} ({$user->primary_email})?")) {
             return self::SUCCESS;
         }
 
@@ -63,7 +63,12 @@ class SetupResetCommand extends Command
                 } elseif (Schema::hasColumn($table, 'build_id')) {
                     DB::table($table)->whereIn('build_id', DB::table('core.pre_account_builds')->where('user_id', $user->id)->select('id'))->delete();
                 } elseif (Schema::hasColumn($table, 'source_id')) {
-                    DB::table($table)->whereIn('source_id', DB::table('ingest.sources')->where('user_id', $user->id)->select('id'))->delete();
+                    // content.*'s source_id references content.sources; everywhere
+                    // else it references ingest.sources — two different parents,
+                    // same column name (found in Task 1 review: content.collection_items
+                    // and content.source_items were silently no-ops against ingest.sources).
+                    $sourcesTable = str_starts_with($table, 'content.') ? 'content.sources' : 'ingest.sources';
+                    DB::table($table)->whereIn('source_id', DB::table($sourcesTable)->where('user_id', $user->id)->select('id'))->delete();
                 } elseif (Schema::hasColumn($table, 'site_id') && $user->site !== null) {
                     DB::table($table)->where('site_id', $user->site->id)->delete();
                 }

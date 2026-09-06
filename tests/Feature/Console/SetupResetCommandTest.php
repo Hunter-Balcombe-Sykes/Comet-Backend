@@ -1,8 +1,10 @@
 <?php
 
+use App\Jobs\PreAccount\GeneratePreAccountSiteJob;
 use App\Models\Core\User\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 beforeEach(function () {
     setupUsersTable();
@@ -31,7 +33,7 @@ function seededSetupUser(string $handle): User
         'status' => 'active',
     ]);
 
-    $siteId = (string) \Illuminate\Support\Str::uuid();
+    $siteId = (string) Str::uuid();
     DB::table('site.sites')->insert([
         'id' => $siteId,
         'user_id' => $user->id,
@@ -44,7 +46,7 @@ function seededSetupUser(string $handle): User
     ]);
 
     // Create a page for sections to attach to
-    $pageId = (string) \Illuminate\Support\Str::uuid();
+    $pageId = (string) Str::uuid();
     DB::table('site.pages')->insert([
         'id' => $pageId,
         'site_id' => $siteId,
@@ -56,7 +58,7 @@ function seededSetupUser(string $handle): User
     ]);
 
     // Create section and section_items
-    $sectionId = (string) \Illuminate\Support\Str::uuid();
+    $sectionId = (string) Str::uuid();
     DB::table('site.sections')->insert([
         'id' => $sectionId,
         'page_id' => $pageId,
@@ -69,16 +71,16 @@ function seededSetupUser(string $handle): User
     ]);
 
     DB::table('site.section_items')->insert([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'id' => (string) Str::uuid(),
         'section_id' => $sectionId,
-        'item_id' => (string) \Illuminate\Support\Str::uuid(),
+        'item_id' => (string) Str::uuid(),
         'state' => 'pinned',
         'created_at' => now(),
     ]);
 
     // Create a routing source intent
     DB::table('routing.source_intents')->insert([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'id' => (string) Str::uuid(),
         'user_id' => $user->id,
         'surface_key' => 'instagram.profile',
         'routing_class' => 'social',
@@ -94,7 +96,7 @@ function seededSetupUser(string $handle): User
 
     // Create an integration connection (platform_connections)
     DB::table('site.platform_connections')->insert([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'id' => (string) Str::uuid(),
         'user_id' => $user->id,
         'surface_key' => 'instagram.profile',
         'routing_class' => 'social',
@@ -107,7 +109,7 @@ function seededSetupUser(string $handle): User
     ]);
 
     // Create an ingest source with correct columns
-    $ingestSourceId = (string) \Illuminate\Support\Str::uuid();
+    $ingestSourceId = (string) Str::uuid();
     DB::table('ingest.sources')->insert([
         'id' => $ingestSourceId,
         'user_id' => $user->id,
@@ -122,7 +124,7 @@ function seededSetupUser(string $handle): User
     // than the ones already covered above (content.items has no other FK path
     // to the user).
     DB::table('content.items')->insert([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'id' => (string) Str::uuid(),
         'user_id' => $user->id,
         'kind' => 'article',
         'first_seen_at' => now(),
@@ -134,11 +136,33 @@ function seededSetupUser(string $handle): User
     // Exercises the command's `source_id`-via-`ingest.sources` branch
     // (ingest.anomalies.source_id -> ingest.sources.id, NOT content.sources).
     DB::table('ingest.anomalies')->insert([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'id' => (string) Str::uuid(),
         'source_id' => $ingestSourceId,
         'kind' => 'drift',
         'summary' => 'test anomaly',
         'detected_at' => now(),
+    ]);
+
+    // Exercises the command's `source_id`-via-`content.sources` branch
+    // (content.source_items.source_id -> content.sources.id, a DIFFERENT
+    // parent than ingest.anomalies.source_id above — found in Task 1 review:
+    // both were resolved against ingest.sources, making this one a no-op).
+    $contentSourceId = (string) Str::uuid();
+    DB::table('content.sources')->insert([
+        'id' => $contentSourceId,
+        'user_id' => $user->id,
+        'kind' => 'manual',
+        'priority' => 100,
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    DB::table('content.source_items')->insert([
+        'id' => (string) Str::uuid(),
+        'source_id' => $contentSourceId,
+        'coord' => 'test-coord',
+        'kind' => 'article',
+        'first_seen_at' => now(),
+        'last_seen_at' => now(),
     ]);
 
     // Exercises the command's `site_id` branch on a table with NO user_id
@@ -156,7 +180,7 @@ function seededSetupUser(string $handle): User
     // it is cleaned by the command's direct `user_id` branch, not by an FK
     // cascade from content.collections as previously assumed. Seeded here
     // (with a parent collection row) so that is exercised too.
-    $collectionId = (string) \Illuminate\Support\Str::uuid();
+    $collectionId = (string) Str::uuid();
     DB::table('content.collections')->insert([
         'id' => $collectionId,
         'user_id' => $user->id,
@@ -174,7 +198,7 @@ function seededSetupUser(string $handle): User
     ]);
 
     // Create a pre-account build for rediscovery
-    $buildId = (string) \Illuminate\Support\Str::uuid();
+    $buildId = (string) Str::uuid();
     DB::table('core.pre_account_builds')->insert([
         'id' => $buildId,
         'user_id' => $user->id,
@@ -191,7 +215,7 @@ function seededSetupUser(string $handle): User
 
     // Create a pre-account build event for tracking
     DB::table('core.pre_account_build_events')->insert([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'id' => (string) Str::uuid(),
         'build_id' => $buildId,
         'stage' => 'platforms',
         'status' => 'landed',
@@ -212,6 +236,8 @@ it('clears discovery state for one user and leaves another untouched', function 
     // branch's join target won't exist to query afterward.
     $aSourceId = DB::table('ingest.sources')->where('user_id', $a->id)->value('id');
     $bSourceId = DB::table('ingest.sources')->where('user_id', $b->id)->value('id');
+    $aContentSourceId = DB::table('content.sources')->where('user_id', $a->id)->value('id');
+    $bContentSourceId = DB::table('content.sources')->where('user_id', $b->id)->value('id');
 
     $this->artisan('setup:reset', ['user' => $a->handle, '--yes' => true, '--rediscover' => true])->assertSuccessful();
 
@@ -229,6 +255,12 @@ it('clears discovery state for one user and leaves another untouched', function 
     // reached via the command's `source_id`-via-`ingest.sources` branch.
     expect(DB::table('ingest.anomalies')->where('source_id', $aSourceId)->count())->toBe(0)
         ->and(DB::table('ingest.anomalies')->where('source_id', $bSourceId)->count())->toBeGreaterThan(0);
+
+    // content.source_items has no user_id/site_id/build_id column — it is only
+    // reached via the command's `source_id`-via-`content.sources` branch,
+    // which must resolve against content.sources, NOT ingest.sources.
+    expect(DB::table('content.source_items')->where('source_id', $aContentSourceId)->count())->toBe(0)
+        ->and(DB::table('content.source_items')->where('source_id', $bContentSourceId)->count())->toBeGreaterThan(0);
 
     // site.workplaces has no user_id column at all — site_id is its PRIMARY
     // KEY, so this exercises the command's `site_id`-only branch.
@@ -265,5 +297,5 @@ it('clears discovery state for one user and leaves another untouched', function 
     expect($unclaimedBuilds)->toHaveCount(1);
 
     // Check the job was dispatched
-    Queue::assertPushed(\App\Jobs\PreAccount\GeneratePreAccountSiteJob::class);
+    Queue::assertPushed(GeneratePreAccountSiteJob::class);
 });
