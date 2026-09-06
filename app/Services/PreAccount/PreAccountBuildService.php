@@ -265,10 +265,23 @@ class PreAccountBuildService
      * the same seed. Each attempt runs in its own nested transaction (mirrors
      * SiteProvisioningService::tryCreateSite() / UserBootstrapService) so a
      * core_users_handle_lc_unique violation only rolls back to the SAVEPOINT,
-     * leaving the outer build transaction healthy for the retry to re-allocate
-     * (now seeing the just-committed colliding row) instead of poisoning it or
-     * surfacing to the outer catch (UniqueConstraintViolationException), which
-     * assumes any such violation is pre_account_builds_live_source_unique.
+     * leaving the outer transaction healthy for the retry to re-allocate (now
+     * seeing the just-committed colliding row) instead of poisoning it.
+     *
+     * C2 (2026-09-06): "the outer transaction" used to mean nothing — this
+     * method's caller, materializeIdentity(), ran it standalone, so an attempt
+     * committed the user row for real the moment it returned. If
+     * createSiteForHandle() then threw (a genuine handle/subdomain race), the
+     * build was marked failed with user_id still null and the user row
+     * survived forever, permanently squatting its handle_lc —
+     * PruneExpiredPreAccountBuilds only hard-deletes the BUILD, and a
+     * null-user_id failed build reads as having no footprint to clean up.
+     * materializeIdentity() now opens the real outer transaction this
+     * docblock always assumed existed, so a later createSiteForHandle()
+     * failure rolls the just-created user back too — reopening the exact
+     * handle-squatting class Item 1a's scrape-first redesign closed, in the
+     * one seam where user-create and site-create weren't yet in the same
+     * transaction.
      */
     /**
      * Item 1a: materialize the identity AFTER the scrape verified the source.
@@ -306,26 +319,38 @@ class PreAccountBuildService
             $untrimmedSeed = $prefetch->displayName;
         }
 
-        $user = $this->createProvisionalUserWithRetry($seed, $accountType, $sourceName, $untrimmedSeed);
+        // C2 (2026-09-06): user-create and site-create now share ONE
+        // transaction — see the LIFE-3 docblock on createProvisionalUserWithRetry()
+        // above for why. A createSiteForHandle() failure rolls the just-created
+        // user back too, instead of leaving it committed and permanently
+        // squatting its handle_lc under a build stuck at user_id=null.
+        $user = DB::connection('pgsql')->transaction(function () use ($build, $seed, $accountType, $sourceName, $untrimmedSeed) {
+            $user = $this->createProvisionalUserWithRetry($seed, $accountType, $sourceName, $untrimmedSeed);
 
-        try {
-            $this->siteProvisioning->createSiteForHandle(
-                $user->id,
-                (string) $user->handle_lc,
-                published: false,
-            );
-        } catch (SubdomainUnavailableException $e) {
-            // HandleAllocator already required the handle to be free as a
-            // subdomain — a refusal means that guarantee broke: alarm, not input.
-            report($e);
+            try {
+                $this->siteProvisioning->createSiteForHandle(
+                    $user->id,
+                    (string) $user->handle_lc,
+                    published: false,
+                );
+            } catch (SubdomainUnavailableException $e) {
+                // HandleAllocator already required the handle to be free as a
+                // subdomain — a refusal means that guarantee broke: alarm, not input.
+                report($e);
 
-            throw $e;
-        }
+                throw $e;
+            }
 
-        $build->user()->associate($user);
-        $build->save();
+            $build->user()->associate($user);
+            $build->save();
+
+            return $user;
+        });
 
         // Setup progress (2026-09-02): the first thing the signup feed says.
+        // Deliberately AFTER the transaction: the identity is only "found" once
+        // it actually committed, and this is a plain informational event row —
+        // nothing downstream depends on it being atomic with the create.
         BuildProgress::note(
             (string) $build->id,
             PreAccountBuildEvent::STAGE_IDENTITY,

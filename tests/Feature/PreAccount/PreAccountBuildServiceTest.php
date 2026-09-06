@@ -6,6 +6,7 @@ use App\Models\Core\Staff\PartnaStaff;
 use App\Models\Core\User\PreAccountBuild;
 use App\Models\Core\User\PreAccountBuildEvent;
 use App\Models\Core\User\User;
+use App\Exceptions\Site\SubdomainUnavailableException;
 use App\Services\PreAccount\PreAccountBuildException;
 use App\Services\PreAccount\PreAccountBuildService;
 use App\Services\PreAccount\SourcePrefetch;
@@ -70,6 +71,33 @@ it('creates a pending, identity-less build and dispatches the job; materializati
         ->and($user->site->subdomain)->toBe('janedoe');
 
     Queue::assertPushed(GeneratePreAccountSiteJob::class, fn ($job) => $job->buildId === $build->id);
+});
+
+it('rolls back the provisional user, not just the build, when site creation fails after the user already exists (C2, 2026-09-06)', function () {
+    // Before this fix: createProvisionalUserWithRetry() committed the user row
+    // in its own standalone transaction, so a createSiteForHandle() failure
+    // (a genuine handle/subdomain race — HandleAllocator already required the
+    // handle to be free as a site subdomain too, so this is anomalous, not
+    // ordinary input) left the user permanently squatting its handle_lc while
+    // the build sat failed with user_id still null — invisible to
+    // PruneExpiredPreAccountBuilds, which assumes a null-user_id failed build
+    // has no footprint to clean up.
+    $result = app(PreAccountBuildService::class)->requestBuild(
+        accountType: 'partna', sourceType: 'instagram', rawSourceRef: '@JaneDoe',
+        sourceName: null, ipHash: hash('sha256', '1.2.3.6'),
+    );
+    $build = $result['build'];
+
+    $this->mock(SiteProvisioningService::class, function ($mock) {
+        $mock->shouldReceive('createSiteForHandle')->andThrow(new SubdomainUnavailableException('forced for test'));
+    });
+
+    expect(fn () => app(PreAccountBuildService::class)->materializeIdentity($build, new SourcePrefetch(payload: [])))
+        ->toThrow(SubdomainUnavailableException::class);
+
+    $build->refresh();
+    expect($build->user_id)->toBeNull()
+        ->and(User::query()->where('handle_lc', 'janedoe')->exists())->toBeFalse();
 });
 
 // Sign-up preview (2026-09-02, A.5): the identity note now also carries

@@ -12,6 +12,7 @@ use App\Services\Notifications\Dispatchers\IntegrationNotifier;
 use App\Services\Platforms\BookingProviders;
 use App\Services\Platforms\Payloads\CardPayload;
 use App\Services\Platforms\Payloads\LinkPayload;
+use App\Services\Platforms\ReservationsProviders;
 use App\Services\Site\AdvisoryLockTimeoutException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Collection;
@@ -493,6 +494,37 @@ trait ManagesIntegrationConnection
                     'Disconnect %s before connecting %s — only one booking provider can be active at a time.',
                     BookingProviders::label($rival),
                     BookingProviders::label($this->platform()),
+                ), 409);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * D2 (2026-09-06): reservations' sibling of bookingProviderConflict()
+     * above — OpenTable/ResDiary/NowBookit are the same single-slot shape on
+     * a different lock (CacheKeyGenerator::reservationsXorLock), but until
+     * now GenericPlatformController::connect() (the ordinary dashboard
+     * connect endpoint all three share) never checked it: only the
+     * auto-sync seeder path did. An ordinary POST .../opentable/connect
+     * then POST .../resdiary/connect left both simultaneously live, no race
+     * required. Callers must ALREADY hold reservationsXorLock — this is the
+     * check half of a check-then-write, same contract as
+     * bookingProviderConflict().
+     */
+    protected function reservationsProviderConflict(User $user): ?JsonResponse
+    {
+        if (! ReservationsProviders::includes($this->platform())) {
+            return null;
+        }
+
+        foreach (ReservationsProviders::others($this->platform()) as $rival) {
+            if ($this->hasConflictingConnection($user, $rival)) {
+                return $this->error(sprintf(
+                    'Disconnect %s before connecting %s — only one reservations provider can be active at a time.',
+                    ReservationsProviders::label($rival),
+                    ReservationsProviders::label($this->platform()),
                 ), 409);
             }
         }

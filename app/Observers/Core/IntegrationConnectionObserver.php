@@ -2,6 +2,7 @@
 
 namespace App\Observers\Core;
 
+use App\Catalog\Enums\RoutingClass;
 use App\Ingest\ConnectorRegistry;
 use App\Ingest\FacebookEventsSourceProvisioner;
 use App\Ingest\Runtime\SourceScheduler;
@@ -201,7 +202,7 @@ class IntegrationConnectionObserver
                 }
                 // Live-state re-check in the WHERE, same as routing:settle-connected:
                 // the person can answer the card between read and write.
-                DB::table('routing.source_intents')
+                $updated = DB::table('routing.source_intents')
                     ->where('id', $intent->id)
                     ->whereIn('state', ['proposed', 'blocked'])
                     ->update([
@@ -211,6 +212,38 @@ class IntegrationConnectionObserver
                         'resolved_at' => now(),
                         'updated_at' => now(),
                     ]);
+
+                // D4 (2026-09-06): this observer is a THIRD writer that can
+                // settle an exclusive-class intent — any connect/refresh
+                // that fills in identity keys after the fact (a deferred
+                // connect, HiddenConnections::reveal(), a manual dashboard
+                // connect that happens to match a standing proposal), not
+                // just SuggestionApplier::apply()'s accept lane or
+                // SourceReconciler::reconcile()'s harvest/auto-place lane.
+                // Both of those already run this same sibling-supersede
+                // query (ec89e6fe5, the Akro Studio fix) — this one didn't,
+                // so a sibling proposed under a DIFFERENT identifier in the
+                // same exclusive class could still render as a second,
+                // unrelated-looking card after a settle through THIS path
+                // specifically. Same cap_reached shape, same exclusion by
+                // identifier, applied only when this intent actually
+                // transitioned (not a stale/already-settled row losing the
+                // race above).
+                if ($updated > 0 && RoutingClass::from((string) $connection->routing_class)->isExclusiveAuto()) {
+                    DB::table('routing.source_intents')
+                        ->where('user_id', $connection->user_id)
+                        ->where('routing_class', $connection->routing_class)
+                        ->where('id', '!=', $intent->id)
+                        ->whereIn('state', ['proposed', 'verifying'])
+                        ->whereRaw('lower(identifier) != ?', [mb_strtolower((string) $intent->identifier)])
+                        ->update([
+                            'state' => 'blocked',
+                            'block_reason' => 'cap_reached',
+                            'conflicting_connection_id' => $connection->id,
+                            'resolved_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                }
             }
         } catch (\Throwable) {
             // Silent, deliberately (same pattern as Site::designKitVars): the
