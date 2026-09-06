@@ -171,6 +171,12 @@ final class RawCacheCallScanner
         // job was already failing, so GS-1 never ran on it; the fifth round of
         // the same story the sections above record.
         'app/Services/Media/MediaMirror.php', // Cache::add SETNX debouncing the edge purge to one per site per 15s, because a build wave lands hundreds of mirrors and each would otherwise dispatch its own CloudflareCachePurgeJob. Key is 'media_mirror:purge:{subdomain}' — a subdomain is globally unique and publicly addressable (it IS the site's URL), so the key is site-scoped by construction, carries no tenant-private identity, and cannot collide across tenants. Same idiom and same reasoning as ProjectionWriter's media_mirror log throttle directly above and LogLeadRateLimits/AnalyticsDedupGuard. The whole block sits inside landed()'s try/catch, so a cache outage costs the debounce — an extra purge — not the mirror.
+
+        // Added 2026-09-06. Landed in f2786a9b6 (2026-09-05) while this lane's
+        // required check was already red on `development` for an unrelated
+        // reason, so GS-1 never ran on it before merge — the same story the
+        // sections above record.
+        'app/Http/Controllers/Api/User/Setup/SetupController.php', // Cache::add SETNX claim stamping one paid Apify menu-photo sweep per user per day, so a Back/Continue bounce across the platforms→content crossing can't re-bill the sweep — key via CacheKeyGenerator::menuPhotoSweepOnce($userId), same pattern as ScanPreviousWebsiteContentJob's re-dispatch/re-bill guard above.
     ];
 
     /**
