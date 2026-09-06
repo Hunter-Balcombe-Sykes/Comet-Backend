@@ -49,9 +49,10 @@ side.
 
 > **Superseded 2026-09-05 (see plan Correction 4).** The live-impact claim below is false —
 > `MediaUrlResolver` blocks raw passthrough for Meta hosts only, so the 25 non-Meta in-flight
-> assets render their vendor url and `pending:false` is correct for them. Note this also
-> contradicts the evidence table above, which records that the dashboard consumes `pending`
-> at all. Both bugs Unit 1 fixes are latent. The fix shipped; the framing did not.
+> assets render their vendor url and `pending:false` is correct for them. Note the evidence
+> table above already records that the dashboard consumes neither `pending` nor
+> `thumb`/`posterThumb` — so no frame renders either way, and that row and this claim could
+> not both have been true. Both bugs Unit 1 fixes are latent. The fix shipped; the framing did not.
 
 **Defect (live).** `PoolResolver::pending()` decides "bytes genuinely in
 flight" by matching the source URL against `InstagramMediaUrl::isMetaCdn()`,

@@ -8,8 +8,9 @@ use Illuminate\Support\Facades\Storage;
 
 // `pending` answers "are bytes genuinely still coming for this item?" from the
 // row's own mirror state. It used to answer it by matching the source url
-// against the Meta CDN hosts, which is a different question with a different
-// answer for the three non-Meta platforms the mirror lane owns.
+// against the Meta CDN hosts — which gave the same answer for a non-Meta row
+// that renders anyway, but the wrong one for a row whose retries were spent
+// and for one that can never be fetched at all.
 
 beforeEach(function () {
     setupUsersTable();
