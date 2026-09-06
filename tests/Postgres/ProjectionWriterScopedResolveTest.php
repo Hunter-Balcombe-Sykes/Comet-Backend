@@ -85,7 +85,9 @@ beforeEach(function () {
         user_id uuid NOT NULL REFERENCES core.users(id) ON DELETE CASCADE,
         subdomain text NOT NULL DEFAULT '',
         is_published boolean NOT NULL DEFAULT false,
-        updated_at timestamptz
+        updated_at timestamptz,
+        setup_step text,
+        setup_completed_at timestamptz
     )");
 
     $pg->statement('CREATE TABLE site.site_build_state (
