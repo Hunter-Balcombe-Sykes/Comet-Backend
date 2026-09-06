@@ -48,11 +48,20 @@ final class MediaMirror
     /**
      * The thumbnail tier's key is DERIVED from the master's, not stored: no
      * schema change, and `storage_path` stays the one column that says
-     * "bytes are ours". The suffix is fixed even though the rendered edge is
-     * config (partna.media.thumb_edge) — a later edge change must not orphan
-     * every existing thumbnail.
+     * "bytes are ours". MediaUrlResolver derives the thumb url by string
+     * substitution with no existence check, so it cannot know which edge a
+     * given row used — which is why the edge is a CONST, not config.
+     *
+     * THUMB_SUFFIX and THUMB_EDGE are frozen TOGETHER. Changing the tier means
+     * a new suffix AND a re-encode of every object already on R2; editing one
+     * of these alone either mislabels new bytes or orphans old ones. The
+     * flexibility worth having one day is MORE tiers (320, 1280) each in its
+     * own filename with a map on the wire — the srcset shape, a different
+     * design. Build it when a consumer asks.
      */
     public const THUMB_SUFFIX = '.640.webp';
+
+    public const THUMB_EDGE = 640;
 
     /**
      * Gallery photos, not logos: the upload pipeline's own `optimized` tier
@@ -414,6 +423,21 @@ final class MediaMirror
     }
 
     /**
+     * The ONE image-vs-video decision. Two call sites need different READS —
+     * this class asks about one asset from inside its job, where
+     * content.item_media is written; ProjectionWriter asks at dispatch time,
+     * before those rows exist, from the projection entries. Only the rule is
+     * shared, and it has to be: the flag it produces chooses the queue lane,
+     * and a reel on the managed queue dies at MANAGED_TIMEOUT.
+     *
+     * @param  list<string>  $roles
+     */
+    public static function rolesIndicateVideo(array $roles): bool
+    {
+        return in_array('video', $roles, true);
+    }
+
+    /**
      * True when every item_media row pointing at this asset is an image role
      * — the asset was minted as a cover/poster/logo, never as the video.
      * Fail-open (false) on any read problem: the sniff branch then stores
@@ -432,7 +456,7 @@ final class MediaMirror
             return false;
         }
 
-        return $roles !== [] && ! in_array('video', $roles, true);
+        return $roles !== [] && ! self::rolesIndicateVideo($roles);
     }
 
     /**
@@ -506,9 +530,7 @@ final class MediaMirror
 
     private function thumbEdge(): int
     {
-        $configured = (int) config('partna.media.thumb_edge', 640);
-
-        return $configured > 0 ? $configured : 640;
+        return self::THUMB_EDGE;
     }
 
     private function thumbQuality(): int

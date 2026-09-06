@@ -135,6 +135,11 @@ class SourceScheduler
                 ->where('needs_eager_run', true)
                 ->orWhere(fn ($scheduled) => $scheduled
                     ->where('auto_sync', true)
+                    // Deliberately a correlated subquery, not a per-user helper
+                    // (2026-09-05): this is a set query with a LIMIT. Resolving
+                    // publish state per user would fetch unfiltered rows and
+                    // filter in PHP — N+1, and a different set of sources
+                    // reaches the limit.
                     ->whereExists(fn ($site) => $site
                         ->from('site.sites')
                         ->whereColumn('site.sites.user_id', 'ingest.sources.user_id')
