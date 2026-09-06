@@ -11,7 +11,10 @@
 // row: a conflict finding whose `apply` payload swapped their own Instagram
 // for the shop's @Youthofdulwich. R14 is NARROWED here, not revoked — its
 // workplace, booking and website-scan clauses are untouched, and a business
-// account still seeds socials exactly as before.
+// account still SEES its own listing's socials as before (A5, 2026-09-06:
+// now as a proposed suggestion rather than an unconditional direct connect —
+// the same "no harvest ever auto-connects a platform" fix already applied to
+// facebook/tiktok/twitter/linkedin here now covers Instagram too).
 //
 // Both of the listing's doors are covered: the legacy seedSocials() path
 // (claimed accounts) and the signup-build path, which routes through
@@ -83,9 +86,14 @@ it('still seeds a business account\'s own listing socials — R14 is narrowed, n
     Bus::fake([InstagramConnectJob::class]);
     $user = wlsgUser('wlsg-business', 'business');
 
-    $findings = app(GoogleBusinessAutoSync::class)->seed((string) $user->id, wlsgListingSocials(), 'Youth Of Dulwich');
+    app(GoogleBusinessAutoSync::class)->seed((string) $user->id, wlsgListingSocials(), 'Youth Of Dulwich');
 
-    expect(collect($findings)->where('category', 'social'))->not->toBeEmpty();
+    // A5 (2026-09-06): "seeds" now means "proposes" for every social,
+    // Instagram included — no live connection, no accept-free scrape.
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'facebook.profile')->where('state', 'proposed')->exists())->toBeTrue();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'instagram.profile')->where('state', 'proposed')->exists())->toBeTrue();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'instagram')->exists())->toBeFalse();
+    Bus::assertNotDispatched(InstagramConnectJob::class);
 });
 
 it('refuses the listing\'s socials on the signup-build path too, where they route instead of seeding', function () {

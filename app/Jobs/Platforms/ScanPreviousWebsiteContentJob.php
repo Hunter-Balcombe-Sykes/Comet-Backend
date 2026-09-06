@@ -54,17 +54,24 @@ use Throwable;
 // Consciously-accepted side effect: GoogleBusinessAutoSync::seed()'s social
 // branch, when it finds an Instagram link among the harvested links,
 // dispatches its own real, budget-metered Apify scrape of that Instagram
-// profile. Calling seed() wholesale here means ANY account with a
-// previous_website — not only accounts that connected an actual Google
-// Business Profile — can trigger that paid Instagram scrape, if their
-// website happens to link to Instagram. Accepted: this is exactly the kind
-// of gap-fill this job exists for, the call is already budget-capped at the
-// seed() level, and the alternative (reinventing a partial, ungated copy of
-// seed()'s social handling to exclude this one branch) reintroduces the
-// capability-bypass bug class this job's own design specifically avoids by
-// calling the real seed() wholesale instead of its private sub-methods. NOTE
-// for future readers: seedInstagram() (GoogleBusinessAutoSync) guards this
-// with an existing-connection has() check BEFORE any budget claim — a
+// profile — passed instagramDirectDispatch: true (A5, 2026-09-06) at the
+// call site below specifically to keep this. Calling seed() wholesale here
+// means ANY account with a previous_website — not only accounts that
+// connected an actual Google Business Profile — can trigger that paid
+// Instagram scrape, if their website happens to link to Instagram. Accepted:
+// this is exactly the kind of gap-fill this job exists for, the call is
+// already budget-capped at the seed() level, and the alternative
+// (reinventing a partial, ungated copy of seed()'s social handling to
+// exclude this one branch) reintroduces the capability-bypass bug class this
+// job's own design specifically avoids by calling the real seed() wholesale
+// instead of its private sub-methods — instagramDirectDispatch is an
+// explicit parameter on that same wholesale call, not a fork of it, so every
+// other capability gate above still applies unchanged. Every OTHER seed()
+// caller (the ordinary dashboard Google-Business connect included) no
+// longer keeps this direct-dispatch behavior at all — a fresh Instagram
+// discovery there now proposes, same as facebook/tiktok/twitter/linkedin.
+// NOTE for future readers: seedInstagram() (GoogleBusinessAutoSync) guards
+// this with an existing-connection has() check BEFORE any budget claim — a
 // second run of this job finds that placeholder and short-circuits to a
 // (harmless, if confusing) conflict finding rather than a second charge. Do
 // not "simplify away" that has() guard; it is the only thing standing
@@ -431,7 +438,11 @@ class ScanPreviousWebsiteContentJob implements ShouldBeUnique, ShouldQueue
         if ($harvested !== []) {
             // seed() returns the findings LIST directly (unlike InstagramAutoSync's
             // ['findings' => …, 'unmatched' => …] wrapper).
-            $findings = array_filter($googleBusinessAutoSync->seed($this->userId, $harvested, null, null), 'is_array');
+            // instagramDirectDispatch: true (A5, 2026-09-06) — this job's own
+            // accepted reuse of seedInstagram()'s direct, budget-metered
+            // dispatch (see class docblock above); every OTHER seed() caller
+            // now proposes a fresh Instagram discovery instead.
+            $findings = array_filter($googleBusinessAutoSync->seed($this->userId, $harvested, null, null, instagramDirectDispatch: true), 'is_array');
 
             // This job runs from an observer on website change — no modal, no
             // HTTP response. A conflict finding (found link clashing with an

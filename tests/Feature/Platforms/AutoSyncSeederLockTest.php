@@ -17,7 +17,11 @@
 //     around the placeholder write; the job dispatch stays outside the lock
 //     because InstagramConnectJob (via InstagramConnectionSeeder::seed) takes
 //     the SAME key and runs INLINE under the sync queue driver, so holding the
-//     lock across the dispatch would self-deadlock.
+//     lock across the dispatch would self-deadlock. A5 (2026-09-06): the
+//     ordinary claimed-account seed() call no longer reaches dispatchInstagram()
+//     at all (a fresh discovery now proposes, like every other social) — the
+//     two tests below pass instagramDirectDispatch: true to keep exercising
+//     this lock through one of the two callers that still take it.
 //
 // Each test below pre-acquires the real lock the seed path now takes and
 // holds it, proving: (1) the write is actually gated behind the lock, not
@@ -227,6 +231,7 @@ it('a concurrent holder of the instagram platform lock makes the GB instagram se
             (string) $user->id,
             ['socials' => ['instagram' => 'https://instagram.com/fadelab']],
             'Fade Lab',
+            instagramDirectDispatch: true,
         );
     } finally {
         $held->release();
@@ -311,6 +316,7 @@ it('seeds the Instagram placeholder and dispatches the scrape when the lock is f
         (string) $user->id,
         ['socials' => ['instagram' => 'https://instagram.com/fadelab']],
         'Fade Lab',
+        instagramDirectDispatch: true,
     );
 
     $ig = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'instagram')->firstOrFail();
