@@ -41,7 +41,15 @@ class SetupResetCommand extends Command
             return self::FAILURE;
         }
         $needle = (string) $this->argument('user');
-        $user = User::query()->where('id', $needle)->orWhere('handle', $needle)->orWhere('primary_email', $needle)->first();
+        // Postgres type-checks every predicate's literal, OR or not: `id = 'handle-text'`
+        // throws invalid-input-syntax-for-uuid before handle/primary_email are ever
+        // reached, for every non-UUID lookup. SQLite's test lane doesn't enforce this,
+        // so it passed tests but broke every real (non-uuid) invocation.
+        $query = User::query()->where('handle', $needle)->orWhere('primary_email', $needle);
+        if (Str::isUuid($needle)) {
+            $query->orWhere('id', $needle);
+        }
+        $user = $query->first();
         if ($user === null) {
             $this->error("No user matches [$needle].");
 
@@ -87,27 +95,30 @@ class SetupResetCommand extends Command
 
                 return self::FAILURE;
             }
-            $buildId = (string) Str::orderedUuid();
-            DB::table('core.pre_account_builds')->insert([
-                'id' => $buildId,
-                'user_id' => $user->id,
-                'source_type' => $latest->source_type,
-                'source_ref' => $latest->source_ref,
-                // source_ref_lc/built_via are NOT NULL with no default (built_via
-                // also CHECK-constrained). Both are copied straight from $latest
-                // rather than recomputed: source_ref_lc is derived per-source-type
-                // via SiteSourceGenerator::dedupeKey() (not a plain strtolower() —
-                // e.g. GBP keys on place_id), and since source_ref is copied
-                // unchanged from the same $latest row, its source_ref_lc is already
-                // the correct value for that ref — recomputing it here would mean
-                // re-implementing generator-specific normalization the command has
-                // no business owning. built_via is likewise copied verbatim so a
-                // rediscover never invents a via lane the original build didn't have.
-                'source_ref_lc' => $latest->source_ref_lc,
-                'built_via' => $latest->built_via,
-                'source_name' => $latest->source_name,
+            $buildId = $latest->id;
+            // core.pre_account_builds.user_id is UNIQUE (confirmed against the live
+            // dev schema) — one build row per user, ever. A rediscover therefore
+            // UPDATEs $latest back to a fresh/unclaimed state rather than INSERTing
+            // a second row, which would throw a unique-constraint violation on every
+            // real invocation for an account that has already been claimed once
+            // (found live, 2026-09-07, replaying against stalicoffeeroasters).
+            // GeneratePreAccountSiteJob::handle() only re-runs a build when
+            // claimed_at is null AND build_state !== STATE_READY (its early-return
+            // guard) — those two plus the terminal/progress markers a completed
+            // build would otherwise still carry are what must be cleared.
+            DB::table('core.pre_account_builds')->where('id', $buildId)->update([
+                // source_type/source_ref/source_ref_lc/built_via/source_name are
+                // already correct on $latest — this IS that same row, just reset.
                 'build_state' => PreAccountBuild::STATE_PENDING,
-                'created_at' => now(),
+                'failure_code' => null,
+                'claimed_at' => null,
+                'content_filled_at' => null,
+                'enriched_at' => null,
+                'settled_at' => null,
+                'setup_stalled_at' => null,
+                'welcomed_at' => null,
+                'thin_scrape_at' => null,
+                'published_by_claim' => false,
                 'updated_at' => now(),
             ]);
             GeneratePreAccountSiteJob::dispatch($buildId, $latest->source_type, false)->afterCommit();

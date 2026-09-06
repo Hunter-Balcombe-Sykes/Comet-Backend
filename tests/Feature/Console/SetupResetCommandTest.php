@@ -209,6 +209,7 @@ function seededSetupUser(string $handle): User
         'built_via' => 'signup',
         'build_state' => 'ready',
         'claimed_at' => now(),
+        'settled_at' => now(),
         'created_at' => now(),
         'updated_at' => now(),
     ]);
@@ -238,6 +239,7 @@ it('clears discovery state for one user and leaves another untouched', function 
     $bSourceId = DB::table('ingest.sources')->where('user_id', $b->id)->value('id');
     $aContentSourceId = DB::table('content.sources')->where('user_id', $a->id)->value('id');
     $bContentSourceId = DB::table('content.sources')->where('user_id', $b->id)->value('id');
+    $aOriginalBuildId = DB::table('core.pre_account_builds')->where('user_id', $a->id)->value('id');
 
     $this->artisan('setup:reset', ['user' => $a->handle, '--yes' => true, '--rediscover' => true])->assertSuccessful();
 
@@ -295,6 +297,17 @@ it('clears discovery state for one user and leaves another untouched', function 
     // Check rediscovery created an unclaimed pre-account build
     $unclaimedBuilds = DB::table('core.pre_account_builds')->where('user_id', $a->id)->whereNull('claimed_at')->get();
     expect($unclaimedBuilds)->toHaveCount(1);
+
+    // core.pre_account_builds.user_id is UNIQUE on the real schema (confirmed
+    // live, 2026-09-07) — rediscover must UPDATE the existing row back to
+    // pending/unclaimed, never INSERT a second one, or every real invocation
+    // for an already-claimed account throws a unique-constraint violation.
+    // SQLite's fake schema doesn't enforce the constraint, so this assertion
+    // (same build id survives, reset in place) is what actually locks the
+    // behaviour in for this test lane.
+    expect($unclaimedBuilds->first()->id)->toBe($aOriginalBuildId)
+        ->and($unclaimedBuilds->first()->build_state)->toBe('pending')
+        ->and($unclaimedBuilds->first()->settled_at)->toBeNull();
 
     // Check the job was dispatched
     Queue::assertPushed(GeneratePreAccountSiteJob::class);
