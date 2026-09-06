@@ -5,6 +5,7 @@ use App\Models\Core\Site\IntegrationConnection;
 use App\Models\Core\User\User;
 use App\Services\Platforms\GoogleBusinessAutoSync;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 
 // Retest 2026-08-20 (T9 follow-up): a business listing carried an
 // instagram.com/reel/<shortcode> link, and seedInstagram()'s standalone regex
@@ -12,10 +13,18 @@ use Illuminate\Support\Facades\Bus;
 // 9M-follower stranger into an auto-connected account. The seed now delegates
 // identity to the catalog projection (same G4-4 lesson as the facebook arm),
 // which only yields an identifier for a real profile path.
+//
+// A5 (2026-09-06): a fresh Instagram discovery on a claimed account no longer
+// connects directly either way — it proposes, like every other social. The
+// two "still seeds a real profile" tests below now assert the projection
+// identifier landed correctly in routing.source_intents rather than on a
+// live IntegrationConnection; the reserved-segment rejection above is
+// unaffected (it was already blocked before reaching that fork).
 
 beforeEach(function () {
     setupUsersTable();
     setupSitesTable();
+    setupRoutingTables();
 });
 
 function gbigrUser(string $h): User
@@ -63,9 +72,11 @@ it('still seeds a real profile URL, tracking params and all, via the projection 
         'Fade Lab',
     );
 
-    $ig = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'instagram')->firstOrFail();
-    expect($ig->last_refresh_status)->toBe('pending');
-    Bus::assertDispatched(InstagramConnectJob::class, fn ($job) => $job->username === 'fadelab');
+    $intent = DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'instagram.profile')->firstOrFail();
+    expect($intent->state)->toBe('proposed')
+        ->and($intent->identifier)->toBe('fadelab');
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'instagram')->exists())->toBeFalse();
+    Bus::assertNotDispatched(InstagramConnectJob::class);
 });
 
 it('still seeds from a profile sub-tab share link — the projection retry cuts the path to the handle', function (string $url) {
@@ -82,7 +93,10 @@ it('still seeds from a profile sub-tab share link — the projection retry cuts 
         'Fade Lab',
     );
 
-    Bus::assertDispatched(InstagramConnectJob::class, fn ($job) => $job->username === 'fadelab');
+    $intent = DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'instagram.profile')->firstOrFail();
+    expect($intent->state)->toBe('proposed')
+        ->and($intent->identifier)->toBe('fadelab');
+    Bus::assertNotDispatched(InstagramConnectJob::class);
 })->with([
     'reels tab' => 'https://www.instagram.com/fadelab/reels/',
     'tagged tab' => 'https://www.instagram.com/fadelab/tagged/',

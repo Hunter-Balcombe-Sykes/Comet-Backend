@@ -113,7 +113,24 @@ class GoogleBusinessAutoSync
     // present to answer "whose menu is this?". Defaults FALSE so the dashboard
     // Google-Business connect and the public site-first signup keep showing the
     // account holder a picker.
-    public function seed(string $userId, array $enrichment, ?string $businessName, ?array $gbPayload = null, bool $autoConnectBooking = false): array
+    //
+    // $instagramDirectDispatch (A5, 2026-09-06): TRUE only for
+    // ScanPreviousWebsiteContentJob's accepted reuse of this method (see that
+    // job's own class docblock) — it deliberately calls seed() wholesale
+    // rather than a narrower private copy, specifically so it inherits every
+    // capability gate above unchanged; this flag is the one, explicit way it
+    // keeps its own previously-accepted side effect (an Instagram link found
+    // on a changed website still gets scraped immediately, budget-capped at
+    // seedInstagram() itself) without reopening that capability-bypass risk.
+    // Unrelated to $autoConnectBooking, which is about "is anyone there to
+    // accept a suggestion" — here, someone plainly is; the direct dispatch is
+    // just an already-reasoned-through tradeoff for THIS one caller. Every
+    // other caller (the ordinary dashboard "connect your Google Business
+    // listing" action included — GoogleBusinessController::connect(), A5's
+    // actual reported bug) now proposes an Instagram discovery through the
+    // same suggestion-pipeline door seedSocials() already uses for
+    // facebook/tiktok/twitter/linkedin, no accept-step carve-out survives.
+    public function seed(string $userId, array $enrichment, ?string $businessName, ?array $gbPayload = null, bool $autoConnectBooking = false, bool $instagramDirectDispatch = false): array
     {
         $findings = [];
 
@@ -197,7 +214,7 @@ class GoogleBusinessAutoSync
                 'host' => parse_url($website, PHP_URL_HOST),
             ]);
         } else {
-            $findings = [...$findings, ...$this->seedSocials($userId, $enrichment, $autoConnectBooking)];
+            $findings = [...$findings, ...$this->seedSocials($userId, $enrichment, $autoConnectBooking, $instagramDirectDispatch)];
         }
 
         if (! $capabilities->google_business_full_sync) {
@@ -963,7 +980,7 @@ class GoogleBusinessAutoSync
     // ── socials ──────────────────────────────────────────────────
 
     /** @return list<array<string,mixed>> */
-    private function seedSocials(string $userId, array $enrichment, bool $autoConnectBooking = false): array
+    private function seedSocials(string $userId, array $enrichment, bool $autoConnectBooking = false, bool $instagramDirectDispatch = false): array
     {
         $socials = data_get($enrichment, 'socials');
         if (! is_array($socials)) {
@@ -1043,7 +1060,7 @@ class GoogleBusinessAutoSync
 
         try {
             $igUrl = $this->safeUrl(data_get($socials, 'instagram'));
-            $igFinding = $this->seedInstagram($userId, $igUrl, $autoConnectBooking);
+            $igFinding = $this->seedInstagram($userId, $igUrl, $autoConnectBooking, $instagramDirectDispatch);
             if ($igFinding !== null) {
                 $findings[] = $igFinding;
             }
@@ -1055,7 +1072,7 @@ class GoogleBusinessAutoSync
     }
 
     /** @return array<string,mixed>|null */
-    private function seedInstagram(string $userId, ?string $url, bool $autoConnectBooking = false): ?array
+    private function seedInstagram(string $userId, ?string $url, bool $autoConnectBooking = false, bool $directDispatch = false): ?array
     {
         if ($url === null) {
             return null;
@@ -1111,6 +1128,37 @@ class GoogleBusinessAutoSync
             return $this->conflictFinding(Platform::Instagram->value, Platform::Instagram->value, 'social', 'Instagram', $url, [
                 'remove' => [Platform::Instagram->value], 'instagram' => ['username' => $username],
             ]);
+        }
+
+        // A5 (2026-09-06): a fresh Instagram discovery is exactly as
+        // unconfirmed as the facebook/tiktok/twitter/linkedin discoveries
+        // just above — the same "no harvest ever auto-connects a platform,
+        // only ever suggests one" rule, closed for those four but left open
+        // here because the Apify-budget mechanics didn't fit LinkRouter's
+        // shape at the time. They do: the catalog projection above already
+        // rejects the same reserved segments LinkRoutingService's own
+        // detector would, and SuggestionApplier::instagramScrapeOwed()
+        // already claims the identical budget and dispatches the identical
+        // InstagramConnectJob at ACCEPT time for any other instagram.profile
+        // suggestion in the inbox — this just routes through that existing,
+        // shipped door instead of dispatching for real on mere discovery.
+        // $autoConnectBooking (staff/ManyChat, nobody to accept) and
+        // $directDispatch (ScanPreviousWebsiteContentJob's own accepted
+        // reuse, see seed()'s docblock) are the only two callers that keep
+        // the immediate scrape.
+        if (! $autoConnectBooking && ! $directDispatch) {
+            // Route the RESOLVED profile URL, not the raw $url: routeSocial()'s
+            // own classifier (LinkRoutingService's catalog detector) has no
+            // sub-tab retry, so a share link like /<handle>/reels/ would
+            // project to nothing on its first pass and silently drop — the
+            // projection above already paid for that retry once via $username,
+            // so hand it the bare profile form it's guaranteed to match.
+            $user = User::find($userId);
+            $routed = $user === null ? null : $this->linkRouter->routeSocial($user, 'https://www.instagram.com/'.$username);
+
+            return $routed !== null && $routed->outcome === 'seeded'
+                ? $this->seededFinding(Platform::Instagram->value, Platform::Instagram->value, 'social', 'Instagram', $url)
+                : null;
         }
 
         if (! $this->dispatchInstagram($userId, $username, $autoConnectBooking)) {

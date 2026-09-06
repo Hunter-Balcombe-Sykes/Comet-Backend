@@ -171,14 +171,14 @@ function gbEnrichFlakySeedAutoSync(): GoogleBusinessAutoSync
 
         public function __construct(private readonly GoogleBusinessAutoSync $real) {}
 
-        public function seed(string $userId, array $enrichment, ?string $businessName, ?array $gbPayload = null, bool $autoConnectBooking = false): array
+        public function seed(string $userId, array $enrichment, ?string $businessName, ?array $gbPayload = null, bool $autoConnectBooking = false, bool $instagramDirectDispatch = false): array
         {
             $this->calls++;
             if ($this->calls === 1) {
                 throw new RuntimeException('seed boom');
             }
 
-            return $this->real->seed($userId, $enrichment, $businessName, $gbPayload, $autoConnectBooking);
+            return $this->real->seed($userId, $enrichment, $businessName, $gbPayload, $autoConnectBooking, $instagramDirectDispatch);
         }
     };
 }

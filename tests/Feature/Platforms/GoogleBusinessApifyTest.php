@@ -290,11 +290,15 @@ it('seeds reservation, ordering and social connections from the enrichment', fun
     $ttIntent = DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'tiktok.profile')->firstOrFail();
     expect($ttIntent->state)->toBe('proposed');
 
-    // Instagram → a pending placeholder + the budgeted scrape job dispatched.
-    $ig = IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'instagram')->firstOrFail();
-    expect($ig->last_refresh_status)->toBe('pending');
-    expect($ig->payload['source'])->toBe('google-business');
-    Bus::assertDispatched(InstagramConnectJob::class, fn ($job) => $job->username === 'fadelab' && $job->userId === (string) $user->id);
+    // Instagram → proposed too now (A5, 2026-09-06: the same "no harvest ever
+    // auto-connects a platform" fix as facebook/tiktok above — Instagram's
+    // own carve-out for the ordinary dashboard-connect path is closed). No
+    // live connection, no scrape spent until the owner actually accepts.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'instagram')->exists())->toBeFalse();
+    $igIntent = DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'instagram.profile')->firstOrFail();
+    expect($igIntent->state)->toBe('proposed');
+    expect($igIntent->identifier)->toBe('fadelab');
+    Bus::assertNotDispatched(InstagramConnectJob::class);
 
     // Booking → NOT seeded: a food business books via Reservations (above),
     // even though Google's data also carried a booking link (proves the gate,
@@ -595,14 +599,14 @@ it('keeps the Google Business selection business-info-only after enrichment', fu
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'opentable')->exists())->toBeFalse();
     expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'opentable.reserve')->where('state', 'proposed')->exists())->toBeTrue();
 
-    // ...and social still seeds a real connection (via Instagram specifically
-    // — dispatchInstagram()'s own, deliberately-direct budget-metered path).
-    // A1 (2026-09-06): ordering no longer does — same fix as reservations/
-    // booking above — it shows up as a proposed intent instead.
+    // ...and social (Instagram included, A5 2026-09-06 closed its own
+    // remaining direct-dispatch carve-out) no longer seeds a live connection
+    // either — same fix as reservations/booking/ordering above.
     expect(IntegrationConnection::query()->where('user_id', $user->id)->pluck('routing_class')->unique())
-        ->toContain('social')
+        ->not->toContain('social')
         ->not->toContain('ordering');
     expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'ordering')->where('state', 'proposed')->exists())->toBeTrue();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'instagram.profile')->where('state', 'proposed')->exists())->toBeTrue();
 });
 
 it('only-if-empty: never overwrites a reservation or social the user already set', function () {
@@ -800,19 +804,18 @@ it('connects exactly what this run found, and nothing the account cannot have', 
 
     $rows = IntegrationConnection::query()->where('user_id', $user->id)->get();
 
-    // Link-only socials (facebook) are proposed, not connected (2026-09-06:
-    // same fix as reservations — a Google Business social link is a
-    // harvested discovery, not a direct request). Instagram is untouched by
-    // this fix (its own Apify-budget-gated flow, out of scope here) and
-    // still connects a pending placeholder while its scrape sits behind the
-    // faked bus.
+    // Link-only socials (facebook, instagram — A5 2026-09-06 closed
+    // Instagram's own remaining direct-dispatch carve-out) are proposed, not
+    // connected: a Google Business social link is a harvested discovery, not
+    // a direct request.
     // Ordering is ALSO proposed, not connected — A1 (2026-09-06), same fix.
     expect($rows->firstWhere('platform', 'opentable'))->toBeNull()
         ->and($rows->firstWhere('platform', 'facebook'))->toBeNull()
-        ->and($rows->firstWhere('platform', 'instagram')->last_refresh_status)->toBe('pending')
+        ->and($rows->firstWhere('platform', 'instagram'))->toBeNull()
         ->and($rows->where('routing_class', 'ordering'))->toHaveCount(0);
     expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'opentable.reserve')->where('state', 'proposed')->exists())->toBeTrue();
     expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'facebook.profile')->where('state', 'proposed')->exists())->toBeTrue();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('surface_key', 'instagram.profile')->where('state', 'proposed')->exists())->toBeTrue();
     expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'ordering')->where('state', 'proposed')->count())->toBe(2);
     // Nothing booking-class: a food business books via Reservations (above),
     // even though Google's data also carried a booking link.

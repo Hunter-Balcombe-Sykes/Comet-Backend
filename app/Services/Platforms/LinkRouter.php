@@ -346,9 +346,12 @@ class LinkRouter
      * only ever suggests one" bug class routeBooking() above closed for
      * booking/reservations (2026-09-06) — a Google Business social link is
      * exactly as unconfirmed a discovery as a booking link, and had no
-     * accept step either. Instagram is NOT routed through here:
-     * seedInstagram()/dispatchInstagram() is its own, much larger Apify-
-     * budget-gated flow and is out of scope for this pass.
+     * accept step either. Instagram (A5, 2026-09-06) now takes this same
+     * door too — seedSocials() calls routeSocial() for it directly, not
+     * through this generic route() dispatch, since it still needs its own
+     * catalog-projection reserved-segment check first; the eventual accept
+     * still claims and scrapes through the identical Apify-budget-gated
+     * flow via SuggestionApplier::instagramScrapeOwed().
      *
      * Deliberately always seedCatalogLink() — see routeBooking()'s docblock
      * above for why there is no classify() pre-gate and no
