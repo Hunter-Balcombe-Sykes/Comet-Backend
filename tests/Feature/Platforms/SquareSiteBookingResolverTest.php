@@ -8,18 +8,44 @@ use Illuminate\Support\Facades\Http;
 // deep-link regex found nothing and the listing's booking link stayed a
 // website. The resolver now reads the config JSON's merchant token — but only
 // when the site declares the appointments feature.
+//
+// A.12 follow-up (2026-09-06, live Akro Studio proof): a bare merchant_id is
+// not actually a resolvable booking page — book.squareup.com's own path
+// validator reports it "invalid" with no /location/ suffix, even for this
+// real single-location merchant, while the identical merchant_id paired with
+// the site's own published location id validates. The resolver now also
+// requires that location token (published under some *_location_ids array —
+// whichever ecommerce feature happens to be on) before it will build a URL.
 
-it('resolves an embedded-appointments square.site via its config merchant token', function () {
+it('resolves an embedded-appointments square.site via its config merchant token and published location', function () {
     Http::fake([
         'ssbr-embed.square.site/*' => Http::response(
-            '{"featuresets":["appointments"],"homepage":{"type":"template","typeID":"appointments"},"merchant_id":"MLSE36V5ANGCZ"}',
+            '{"featuresets":["appointments"],"homepage":{"type":"template","typeID":"appointments"},"merchant_id":"MLSE36V5ANGCZ","shipping_location_ids":["ABCD1234EFGH"]}',
             200,
             ['Content-Type' => 'text/html'],
         ),
     ]);
 
     expect(app(SquareSiteBookingResolver::class)->resolve('https://ssbr-embed.square.site/'))
-        ->toBe('https://book.squareup.com/appointments/mlse36v5angcz');
+        ->toBe('https://book.squareup.com/appointments/mlse36v5angcz/location/ABCD1234EFGH');
+});
+
+it('leaves an embedded-appointments square.site unresolved when no location token is published anywhere', function () {
+    // The exact A.12 (2026-09-03) fixture — merchant_id alone, no *_location_ids
+    // array at all. Building book.squareup.com/appointments/{merchant_id} with
+    // no location from this would be the pre-2026-09-06 behaviour, and that
+    // URL is proven broken (see the file docblock) — null (stay a website) is
+    // the honest answer until a real location token turns up.
+    Http::fake([
+        'ssbr-embed-no-location.square.site/*' => Http::response(
+            '{"featuresets":["appointments"],"homepage":{"type":"template","typeID":"appointments"},"merchant_id":"MLSE36V5ANGCZ"}',
+            200,
+            ['Content-Type' => 'text/html'],
+        ),
+    ]);
+
+    expect(app(SquareSiteBookingResolver::class)->resolve('https://ssbr-embed-no-location.square.site/'))
+        ->toBeNull();
 });
 
 it('leaves a plain storefront with a stray merchant token as a website', function () {

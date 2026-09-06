@@ -56,11 +56,32 @@ final class SquareSiteBookingResolver
             // plain storefront with a stray merchant_id stays a website.
             $embedsAppointments = preg_match('~"featuresets"\s*:\s*\[[^\]]*"appointments"~', $html) === 1
                 || preg_match('~"(?:homePage|typeID)"\s*:\s*"appointments"~', $html) === 1;
-            if ($embedsAppointments && preg_match('~"merchant_id"\s*:\s*"(ML[A-Z0-9]{8,24})"~', $html, $t) === 1) {
-                return SquareBookingPage::bookingUrl($t[1], null, null);
+            if (! $embedsAppointments || preg_match('~"merchant_id"\s*:\s*"(ML[A-Z0-9]{8,24})"~', $html, $t) !== 1) {
+                return null;
             }
 
-            return null;
+            // A bare merchant_id is NOT a resolvable booking page on its own —
+            // Square's own path validator reports it "invalid" even for a
+            // real, single-location merchant (Akro Studio proof, 2026-09-06:
+            // book.squareup.com/appointments/{merchant_id} served a client-
+            // rendered "invalid" shell with no /location/ suffix, while
+            // pairing the SAME merchant_id with this site's own published
+            // location id served "valid"). These single-purpose "homepage IS
+            // the appointments widget" sites publish that location under
+            // whichever ecommerce feature's *_location_ids array happens to
+            // be on (shipping/pickup/store, all the same physical place for
+            // the one-location business this template shape implies — a
+            // genuinely multi-location business doesn't render as a single
+            // template-typed homepage) — reusing it here, not because it's
+            // conceptually the right field, but because it's the only place
+            // this site shape publishes the token at all. No such token
+            // published → stay a website rather than link to a page already
+            // proven to read as broken.
+            if (preg_match('~"[a-z_]*location_ids?"\s*:\s*\[\s*"([A-Z0-9]{8,32})"~', $html, $u) !== 1) {
+                return null;
+            }
+
+            return SquareBookingPage::bookingUrl($t[1], $u[1], null);
         }
         $parsed = SquareBookingPage::parseUrl($m[0]);
         if ($parsed['merchant'] === null) {

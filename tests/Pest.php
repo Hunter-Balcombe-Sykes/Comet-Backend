@@ -1277,7 +1277,8 @@ function setupSitesTable(): void
     }
 
     // site.workplace_candidates — the listing pass's offer rows (A.5). CHECKs
-    // copied from 20260902210000_workplace_candidates.sql.
+    // copied from 20260902210000_workplace_candidates.sql, source widened per
+    // 20260906090000_workplace_candidates_previously_connected_source.sql.
     DB::connection('pgsql')->statement('CREATE TABLE IF NOT EXISTS site.workplace_candidates (
         id TEXT PRIMARY KEY NOT NULL,
         user_id TEXT NOT NULL,
@@ -1290,7 +1291,7 @@ function setupSitesTable(): void
         photo_url TEXT NULL,
         rating REAL NULL,
         review_count INTEGER NULL,
-        source TEXT NOT NULL CHECK (source IN (\'bio_mention\', \'fresha\')),
+        source TEXT NOT NULL CHECK (source IN (\'bio_mention\', \'fresha\', \'previously_connected\')),
         corroboration TEXT NOT NULL DEFAULT \'[]\',
         state TEXT NOT NULL DEFAULT \'proposed\' CHECK (state IN (\'proposed\', \'adopted\', \'dismissed\', \'superseded\')),
         created_at TEXT NOT NULL,

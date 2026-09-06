@@ -51,6 +51,32 @@ final readonly class GoogleBusinessPayload
         return is_string($this->raw['category'] ?? null) ? $this->raw['category'] : null;
     }
 
+    /** The stored street address (Place Details or link-parse), or null. */
+    public function address(): ?string
+    {
+        return is_string($this->raw['address'] ?? null) ? $this->raw['address'] : null;
+    }
+
+    public function lat(): ?float
+    {
+        return is_numeric($this->raw['lat'] ?? null) ? (float) $this->raw['lat'] : null;
+    }
+
+    public function lng(): ?float
+    {
+        return is_numeric($this->raw['lng'] ?? null) ? (float) $this->raw['lng'] : null;
+    }
+
+    public function rating(): ?float
+    {
+        return is_numeric($this->raw['rating'] ?? null) ? (float) $this->raw['rating'] : null;
+    }
+
+    public function reviewCount(): ?int
+    {
+        return is_numeric($this->raw['reviewCount'] ?? null) ? (int) $this->raw['reviewCount'] : null;
+    }
+
     /** @return list<mixed> the recorded auto-sync findings, verbatim, or [] */
     public function syncFindings(): array
     {

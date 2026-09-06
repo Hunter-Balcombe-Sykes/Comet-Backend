@@ -163,14 +163,14 @@ class GoogleBusinessController extends ApiController
                     ->whereNull('deleted_at')
                     ->first();
                 if ($current !== null && (string) $current->place_id !== (string) $data['placeId']) {
-                    $outgoing = (array) ($current->payload ?? []);
+                    $outgoing = GoogleBusinessPayload::fromArray($current->payload);
                     $placeId = (string) ($current->place_id ?? '');
                     if ($placeId !== '' && ! DB::table('site.workplace_candidates')
                         ->where('user_id', $user->id)->where('place_id', $placeId)->exists()) {
                         $photo = null;
-                        foreach ((array) ($outgoing['photos'] ?? []) as $p) {
-                            if (is_array($p) && is_string($p['url'] ?? null) && $p['url'] !== '') {
-                                $photo = $p['url'];
+                        foreach ($outgoing->photos() as $p) {
+                            if ($p['photoPicUrl'] !== null) {
+                                $photo = $p['photoPicUrl'];
                                 break;
                             }
                         }
@@ -178,13 +178,13 @@ class GoogleBusinessController extends ApiController
                             'id' => (string) Str::uuid(),
                             'user_id' => $user->id,
                             'place_id' => $placeId,
-                            'name' => (string) ($outgoing['name'] ?? 'Your listing'),
-                            'address' => is_string($outgoing['address'] ?? null) ? $outgoing['address'] : null,
-                            'lat' => is_numeric($outgoing['lat'] ?? null) ? (float) $outgoing['lat'] : null,
-                            'lng' => is_numeric($outgoing['lng'] ?? null) ? (float) $outgoing['lng'] : null,
+                            'name' => $outgoing->name() ?? 'Your listing',
+                            'address' => $outgoing->address(),
+                            'lat' => $outgoing->lat(),
+                            'lng' => $outgoing->lng(),
                             'photo_url' => $photo,
-                            'rating' => is_numeric($outgoing['rating'] ?? null) ? (float) $outgoing['rating'] : null,
-                            'review_count' => is_numeric($outgoing['reviewCount'] ?? null) ? (int) $outgoing['reviewCount'] : null,
+                            'rating' => $outgoing->rating(),
+                            'review_count' => $outgoing->reviewCount(),
                             'source' => 'previously_connected',
                             'corroboration' => json_encode([]),
                             'state' => 'proposed',
