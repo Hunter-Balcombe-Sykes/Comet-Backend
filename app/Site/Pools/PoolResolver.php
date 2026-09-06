@@ -11,6 +11,7 @@ use App\Services\Cache\CacheKeyGenerator;
 use App\Services\Cache\CacheLockService;
 use App\Services\Content\ContentItemSlugAllocator;
 use App\Services\Media\InstagramMediaUrl;
+use App\Services\Media\MediaMirror;
 use App\Services\Media\MediaUrlResolver;
 use App\Services\Platforms\ConnectionDisplayName;
 use App\Services\Platforms\DisplaySettingsFilter;
@@ -1558,6 +1559,9 @@ class PoolResolver
                 'content.media_assets.width',
                 'content.media_assets.height',
                 'content.media_assets.mime_type',
+                // pending() asks the ROW whether bytes are still coming.
+                'content.media_assets.mirror_eligible',
+                'content.media_assets.mirror_attempts',
             ]);
 
         // ONE resolver call for the page — MediaUrlResolver batches its
@@ -1709,7 +1713,7 @@ class PoolResolver
                 // and cards should load; null when the cover has no thumb
                 // (upload, vendor link) and consumers fall back to thumbnail.
                 'thumb' => $this->thumb($covers->get($itemId, collect()), $resolvedUrls),
-                // Dashboard-only: no cover renders YET because its Meta bytes
+                // Dashboard-only: no cover renders YET because its bytes
                 // are still being mirrored — the setup tile shows a skeleton
                 // instead of an empty card. False once anything resolves.
                 'pending' => $this->pending($covers->get($itemId, collect()), $resolvedUrls),
@@ -2540,9 +2544,13 @@ class PoolResolver
     }
 
     /**
-     * No cover resolves, and at least one cover-role row is an owned Meta
-     * image whose mirror has not landed (MediaUrlResolver omits those until
-     * the bytes are ours). Distinguishes "loading" from "has no image".
+     * No cover resolves, and at least one cover-role row is still expecting
+     * bytes — eligible, unmirrored, not an upload, retries left, and actually
+     * fetchable. Read from the ROW, not from the source url: the url test
+     * could not tell a row whose retries were spent from one still in flight,
+     * and it read a vendor host where the answer was already on the row.
+     *
+     * @param  array<string, array{url: string, width: int|null, height: int|null, thumb: string|null}>  $resolved
      */
     private function pending(Collection $rows, array $resolved): bool
     {
@@ -2552,11 +2560,25 @@ class PoolResolver
                 return false;
             }
         }
+
+        $max = MediaMirror::maxAttempts();
         foreach ($coverRows as $row) {
-            if ($row->storage_path === null
+            // Casts, not ===: SQLite hands a boolean back as 1/0. (PDO_PGSQL
+            // returns native bools, which is what makes the cast sufficient
+            // here — it would not rescue a 't'/'f' string.)
+            if ((bool) $row->mirror_eligible
+                && $row->storage_path === null
                 && $row->site_media_id === null
-                && is_string($row->source_url)
-                && InstagramMediaUrl::isMetaCdn($row->source_url)) {
+                // storage_path never becomes non-null for a link that cannot
+                // be fetched, so a capped row is a skeleton that never
+                // resolves — it is not coming, and must not claim to be.
+                && (int) $row->mirror_attempts < $max
+                // Dispatch skips a row with no source url (ProjectionWriter's
+                // no_source_url branch) BEFORE the attempts counter moves, so
+                // this row can never be fetched and never becomes non-pending.
+                // Without this clause it is a skeleton that never resolves —
+                // exactly what the attempts cap above exists to prevent.
+                && is_string($row->source_url) && $row->source_url !== '') {
                 return true;
             }
         }

@@ -3313,7 +3313,10 @@ class ProjectionWriter
 
                 continue;
             }
-            $bucket = (string) ($entry['role'] ?? '') === 'video' ? 'videos' : 'images';
+            // The same rule MediaMirror applies at mirror time. The reads
+            // differ by necessity — content.item_media is not written until
+            // after this method returns — so the predicate is what is shared.
+            $bucket = MediaMirror::rolesIndicateVideo([(string) ($entry['role'] ?? '')]) ? 'videos' : 'images';
             $posts[$itemId][$bucket][(string) $assetId] = $rawUrl;
         }
 
@@ -3425,6 +3428,11 @@ class ProjectionWriter
      * Posts already mirrored still occupy their slot, which is what stops a
      * weekly refresh from creeping down the backlog one window at a time.
      *
+     * The anti-creep guarantee DEPENDS on $publishedByItem being populated.
+     * With both sides null the comparator falls through to arrival order, so
+     * "newest first" quietly becomes projection order — the window still
+     * bounds the bytes, but stops meaning what it says.
+     *
      * Ordering is the second job here. While the site is still in setup
      * (site.sites.is_published = false) images go first, newest first: the
      * Get Started walk's media step is tiles of covers, and that is the
@@ -3532,7 +3540,7 @@ class ProjectionWriter
     /**
      * True while the owner's site is unpublished — the window in which the
      * Get Started walk is the consumer, and covers matter more than reels.
-     * No site row reads as published: the 9f order is the safe default.
+     * No site row (null) reads as published: the 9f order is the safe default.
      */
     private function siteInSetup(string $userId): bool
     {

@@ -877,3 +877,22 @@ it('still emits gave_up for the legitimate owner once the scoped read-back cross
             && $context['asset_id'] === $assetId)
         ->once();
 });
+
+// ── The frozen thumbnail tier ────────────────────────────────────────────────
+// The suffix is a promise about SIZE. Moving the edge without moving the
+// suffix writes mislabelled bytes indistinguishable from genuine 640s; moving
+// the suffix without a backfill orphans every object already on R2. So the
+// two are frozen together, and a tier change is a NEW suffix plus a backfill,
+// never an edit to one of these.
+
+it('encodes the thumb edge in the thumb suffix', function () {
+    expect(MediaMirror::THUMB_SUFFIX)->toBe('.'.MediaMirror::THUMB_EDGE.'.webp');
+});
+
+it('has no configurable thumb edge', function () {
+    // A setting that needs a re-encode of the whole bucket to take effect is a
+    // constant with extra steps. thumb_quality stays configurable because the
+    // filename promises nothing about quality.
+    expect(config()->has('partna.media.thumb_edge'))->toBeFalse()
+        ->and(config('partna.media.thumb_quality'))->toBeInt();
+});
