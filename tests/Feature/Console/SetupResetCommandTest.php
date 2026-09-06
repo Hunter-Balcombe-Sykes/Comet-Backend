@@ -299,3 +299,11 @@ it('clears discovery state for one user and leaves another untouched', function 
     // Check the job was dispatched
     Queue::assertPushed(GeneratePreAccountSiteJob::class);
 });
+
+it('resolves the user argument by primary_email, not a nonexistent email column', function () {
+    $user = seededSetupUser('emaillookup');
+
+    $this->artisan('setup:reset', ['user' => $user->primary_email, '--yes' => true])->assertSuccessful();
+
+    expect(DB::table('site.platform_connections')->where('user_id', $user->id)->count())->toBe(0);
+});

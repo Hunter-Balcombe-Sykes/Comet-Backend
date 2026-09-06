@@ -41,7 +41,7 @@ class SetupResetCommand extends Command
             return self::FAILURE;
         }
         $needle = (string) $this->argument('user');
-        $user = User::query()->where('id', $needle)->orWhere('handle', $needle)->orWhere('email', $needle)->first();
+        $user = User::query()->where('id', $needle)->orWhere('handle', $needle)->orWhere('primary_email', $needle)->first();
         if ($user === null) {
             $this->error("No user matches [$needle].");
 
