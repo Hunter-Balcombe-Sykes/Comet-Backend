@@ -110,6 +110,17 @@ class SetupResetCommand extends Command
                 // source_type/source_ref/source_ref_lc/built_via/source_name are
                 // already correct on $latest — this IS that same row, just reset.
                 'build_state' => PreAccountBuild::STATE_PENDING,
+                // created_at MUST become "now" too: BuildProgressReader's ceiling
+                // check (CEILING_MINUTES from created_at) and setup:timing's
+                // identity_s/all_ready_s marks both treat created_at as "when this
+                // run started". Left stale (the original signup's timestamp), the
+                // live poll would see every replay as already past its 10-minute
+                // ceiling from the moment it's dispatched, and setup:timing would
+                // report elapsed marks inflated by however long since the original
+                // signup — found live, 2026-09-07: a same-hour replay against
+                // stalicoffeeroasters reported all_ready_s = 3199s against an
+                // actual ~256s run.
+                'created_at' => now(),
                 'failure_code' => null,
                 'claimed_at' => null,
                 'content_filled_at' => null,

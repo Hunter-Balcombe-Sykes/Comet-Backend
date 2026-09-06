@@ -2,6 +2,7 @@
 
 use App\Jobs\PreAccount\GeneratePreAccountSiteJob;
 use App\Models\Core\User\User;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -210,8 +211,13 @@ function seededSetupUser(string $handle): User
         'build_state' => 'ready',
         'claimed_at' => now(),
         'settled_at' => now(),
-        'created_at' => now(),
-        'updated_at' => now(),
+        // Stale on purpose — an hour old, like a real replay against an
+        // account whose original signup was long ago. Proves the reset
+        // actually refreshes created_at rather than leaving it stale
+        // (found live, 2026-09-07: a stale created_at fed straight into
+        // BuildProgressReader's ceiling check and setup:timing's marks).
+        'created_at' => now()->subHour(),
+        'updated_at' => now()->subHour(),
     ]);
 
     // Create a pre-account build event for tracking
@@ -308,6 +314,12 @@ it('clears discovery state for one user and leaves another untouched', function 
     expect($unclaimedBuilds->first()->id)->toBe($aOriginalBuildId)
         ->and($unclaimedBuilds->first()->build_state)->toBe('pending')
         ->and($unclaimedBuilds->first()->settled_at)->toBeNull();
+
+    // created_at must be refreshed to "now", not left at the original (here,
+    // seeded an hour stale) signup timestamp — BuildProgressReader's ceiling
+    // check and setup:timing's elapsed marks both key off it as "run start".
+    expect(Carbon::parse($unclaimedBuilds->first()->created_at))
+        ->toBeGreaterThan(now()->subMinute());
 
     // Check the job was dispatched
     Queue::assertPushed(GeneratePreAccountSiteJob::class);
