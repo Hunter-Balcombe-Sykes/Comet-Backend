@@ -10,6 +10,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * Test harness (Get Started rebuild, 2026-09-07): the read-side counterpart
@@ -72,17 +73,18 @@ class SetupTimingCommand extends Command
         $needle = (string) $this->argument('user');
         // Same three-way resolution as setup:reset (id / handle / email), but
         // against the REAL column: core.users has no `email` column, only
-        // `primary_email` — SetupResetCommand's ->orWhere('email', $needle)
-        // is a latent bug (silently defanged only by SQLite's double-quoted
-        // string-literal fallback in tests; a real Postgres run throws
-        // "column email does not exist" on every invocation, found while
-        // building this command). Not fixed here — out of this task's scope
-        // — but not copied either.
-        $user = User::query()
-            ->where('id', $needle)
-            ->orWhere('handle', $needle)
-            ->orWhere('primary_email', $needle)
-            ->first();
+        // `primary_email`. Postgres type-checks every predicate's literal
+        // regardless of OR precedence, so `id = 'a-handle'` throws
+        // invalid-input-syntax-for-uuid for any non-UUID needle before
+        // handle/primary_email are ever reached — found live running this
+        // command (2026-09-07), the same root cause as SetupResetCommand's
+        // sibling fix. Only add the `id` predicate when the needle is
+        // actually UUID-shaped.
+        $query = User::query()->where('handle', $needle)->orWhere('primary_email', $needle);
+        if (Str::isUuid($needle)) {
+            $query->orWhere('id', $needle);
+        }
+        $user = $query->first();
         if ($user === null) {
             $this->error("No user matches [$needle].");
 

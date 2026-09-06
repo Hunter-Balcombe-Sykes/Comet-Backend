@@ -89,11 +89,15 @@ it('prints the timing table and computes the identity/all-ready marks', function
         ->expectsOutputToContain('Total (first-open to last-close): 14s');
 });
 
-it('resolves the user by id and by primary_email too', function () {
+it('resolves the user by id, by handle, and by primary_email too', function () {
     $seed = seedTimingLedger('resolveuser');
     $seed['user']->forceFill(['primary_email' => 'resolveuser@example.test'])->saveQuietly();
 
+    // The everyday invocation (`setup:timing <handle>`) is the one Postgres's
+    // per-predicate type-checking actually broke live, 2026-09-07 — id/email
+    // alone don't exercise the non-UUID-needle path the fix guards.
     $this->artisan('setup:timing', ['user' => $seed['user']->id])->assertSuccessful();
+    $this->artisan('setup:timing', ['user' => $seed['user']->handle])->assertSuccessful();
     $this->artisan('setup:timing', ['user' => 'resolveuser@example.test'])->assertSuccessful();
 });
 
@@ -122,6 +126,103 @@ it('appends one JSON line with the tokened pair disambiguated and the still-open
             ->and($line['stages']['identity']['status'])->toBe('landed')
             ->and($line['stages']['workplace']['closed'])->toBeNull()
             ->and($line['stages']['workplace']['status'])->toBe('started');
+    } finally {
+        @unlink($path);
+    }
+});
+
+it('disambiguates a stage that closes and reopens untokened with an ordinal suffix', function () {
+    $user = User::factory()->create([
+        'handle' => 'reopenuser',
+        'handle_lc' => 'reopenuser',
+        'account_type' => 'partna',
+        'status' => 'active',
+    ]);
+    $base = now()->startOfSecond();
+    $buildId = (string) Str::orderedUuid();
+    DB::table('core.pre_account_builds')->insert([
+        'id' => $buildId,
+        'user_id' => $user->id,
+        'source_type' => 'instagram',
+        'source_ref' => 'reopenuser',
+        'source_ref_lc' => 'reopenuser',
+        'built_via' => 'signup',
+        'build_state' => 'building',
+        'created_at' => $base,
+        'updated_at' => $base,
+    ]);
+    $insert = function (string $stage, string $status, int $offsetSeconds) use ($buildId, $base) {
+        DB::table('core.pre_account_build_events')->insert([
+            'id' => (string) Str::orderedUuid(),
+            'build_id' => $buildId,
+            'stage' => $stage,
+            'status' => $status,
+            'label' => "$stage $status",
+            'payload' => json_encode([]),
+            'created_at' => $base->copy()->addSeconds($offsetSeconds),
+        ]);
+    };
+    // media closes plain at @5, then reopens and closes again plain at @12 —
+    // e.g. a re-served build re-running the same stage.
+    $insert('media', 'started', 0);
+    $insert('media', 'landed', 5);
+    $insert('media', 'started', 8);
+    $insert('media', 'landed', 12);
+
+    $path = sys_get_temp_dir().'/setup-timing-test-'.Str::random(8).'.jsonl';
+    try {
+        $this->artisan('setup:timing', ['user' => $user->handle, '--json' => $path])->assertSuccessful();
+
+        $line = json_decode(file_get_contents($path), true);
+        expect($line['stages'])->toHaveKeys(['media', 'media#2'])
+            ->and($line['stages']['media']['status'])->toBe('landed')
+            ->and($line['stages']['media#2']['status'])->toBe('landed')
+            ->and($line['stages']['media']['closed'])->not->toBe($line['stages']['media#2']['closed']);
+    } finally {
+        @unlink($path);
+    }
+});
+
+it('represents an orphan terminal (no preceding STARTED) with a null started time', function () {
+    $user = User::factory()->create([
+        'handle' => 'orphanuser',
+        'handle_lc' => 'orphanuser',
+        'account_type' => 'partna',
+        'status' => 'active',
+    ]);
+    $base = now()->startOfSecond();
+    $buildId = (string) Str::orderedUuid();
+    DB::table('core.pre_account_builds')->insert([
+        'id' => $buildId,
+        'user_id' => $user->id,
+        'source_type' => 'instagram',
+        'source_ref' => 'orphanuser',
+        'source_ref_lc' => 'orphanuser',
+        'built_via' => 'signup',
+        'build_state' => 'building',
+        'created_at' => $base,
+        'updated_at' => $base,
+    ]);
+    // A one-shot producer that only logs the terminal row, never a STARTED.
+    DB::table('core.pre_account_build_events')->insert([
+        'id' => (string) Str::orderedUuid(),
+        'build_id' => $buildId,
+        'stage' => 'shop',
+        'status' => 'skipped',
+        'label' => 'shop skipped',
+        'payload' => json_encode([]),
+        'created_at' => $base->copy()->addSeconds(4),
+    ]);
+
+    $path = sys_get_temp_dir().'/setup-timing-test-'.Str::random(8).'.jsonl';
+    try {
+        $this->artisan('setup:timing', ['user' => $user->handle, '--json' => $path])->assertSuccessful();
+
+        $line = json_decode(file_get_contents($path), true);
+        expect($line['stages'])->toHaveKey('shop')
+            ->and($line['stages']['shop']['started'])->toBeNull()
+            ->and($line['stages']['shop']['closed'])->not->toBeNull()
+            ->and($line['stages']['shop']['status'])->toBe('skipped');
     } finally {
         @unlink($path);
     }
