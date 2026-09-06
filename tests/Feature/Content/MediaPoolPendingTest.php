@@ -41,23 +41,29 @@ function pendingFlag(string $siteId, string $itemId): ?bool
     return $item['pending'] ?? null;
 }
 
-it('reports pending whenever the row is still expecting bytes', function () {
-    // Two rows that both mean "loading", for different reasons. The Meta one is
-    // what the old url predicate already got right (6 such rows on dev,
-    // 2026-09-05). The url-less one is the delta: the old predicate required the
-    // source url to BE a Meta CDN string, so it reported "no image" here instead.
-    // Platform cannot vary that second case — MediaUrlResolver passes through any
-    // non-empty non-Meta url without checking reachability, so such a row always
-    // resolves and never reaches the row-state branch at all. The companion test
-    // below pins that.
+it('reports pending for a meta row whose bytes are genuinely still coming', function () {
+    // Held back by MediaUrlResolver until the mirror lands, eligible, retries
+    // left: the one shape that is honestly still loading. 6 such rows on dev,
+    // 2026-09-05.
+    [$pro, $siteId] = poolTenant();
+    $sourceId = poolSource($pro->id, null);
+
+    $meta = pendingItem($pro->id, $sourceId, ['source_url' => 'https://scontent.cdninstagram.com/v/one.jpg']);
+
+    expect(pendingFlag($siteId, $meta))->toBeTrue();
+});
+
+it('never claims a url-less row is loading, because dispatch cannot fetch it', function () {
+    // mirror_eligible comes from the REF, so an owned entry with no usable url
+    // mints eligible + source_url NULL. dispatchMirrors skips it before the
+    // attempts counter moves, so it can never be fetched and never stops being
+    // "pending" — a permanent skeleton, which is the thing this flag must not be.
     [$pro, $siteId] = poolTenant();
     $sourceId = poolSource($pro->id, null);
 
     $noUrl = pendingItem($pro->id, $sourceId, ['source_url' => null]);
-    $meta = pendingItem($pro->id, $sourceId, ['source_url' => 'https://scontent.cdninstagram.com/v/one.jpg']);
 
-    expect(pendingFlag($siteId, $noUrl))->toBeTrue()
-        ->and(pendingFlag($siteId, $meta))->toBeTrue();
+    expect(pendingFlag($siteId, $noUrl))->toBeFalse();
 });
 
 it('leaves a still-rendering non-meta asset un-pending', function () {

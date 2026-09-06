@@ -41,6 +41,8 @@ final class SitePublishState
     {
         $published = DB::table('site.sites')->where('user_id', $userId)->value('is_published');
 
+        // is_published is NOT NULL DEFAULT true, so a null here only ever means
+        // "no site row" — never "row present, column unset".
         return $published === null ? null : (bool) $published;
     }
 }

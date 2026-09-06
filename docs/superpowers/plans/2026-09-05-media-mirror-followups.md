@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fix one live defect and four latent/structural weaknesses in the media-mirror lane, shipping all five units in one PR.
+**Goal:** Fix five latent/structural weaknesses in the media-mirror lane, shipping all five units in one PR. (Unit 1 was scoped as fixing one live defect; Correction 4 below found that claim false — both bugs it fixes are latent.)
 
 **Architecture:** Five independent, code-only changes. Unit 1 replaces a vendor-URL predicate in `PoolResolver::pending()` with a row-state one. Unit 2 freezes the thumbnail edge as a const and deletes its config knob. Unit 3 extracts the shared "is this a video" rule to one place. Unit 4 puts a memoised seam in front of `ProjectionWriter`'s cross-domain `site.sites.is_published` read. Unit 5 is comments only. No migration, no data write, no config default change that alters behaviour.
 
@@ -36,6 +36,17 @@ Three of the spec's statements were checked against the code and are false. This
 
 3. **Unit 1's PG-lane risk is overstated — it is zero.** `AppColumnReadScanner::BARE_COLUMN_METHODS` includes `select` (which `PoolResolver` uses) but not `get([...])`. Of the 12 `tests/Postgres/` files provisioning `content.media_assets`, exactly one imports `PoolResolver` — `MergeFacetFoldTest.php` — and it already declares both columns at lines 264-265. Expect no new findings. Run the guard anyway (Task 1 Step 8) and fix by ADDING if one appears.
 
+4. **Unit 1's live-impact claim is FALSE.** The spec says 25 of 29 in-flight assets are
+   TikTok, report `pending:false`, and render "the empty frame the flag exists to prevent".
+   They do not render an empty frame: `MediaUrlResolver::unservableMetaImage()` blocks raw
+   passthrough for the two Meta hosts ONLY, so a non-Meta cover is served straight from the
+   vendor CDN and `pending:false` is correct for it. Measured on dev 2026-09-05: of the
+   in-flight assets, 25 non-Meta all carry a `source_url`, 6 are Meta, 0 have no url. **Both
+   bugs Unit 1 fixes are therefore LATENT, not live**, and its only behavioural delta is the
+   false side — a capped row and a borrowed row stop claiming "loading". Holding the other
+   three platforms back until their bytes are ours would change what the public wire serves
+   and is a separate product decision, not taken here.
+
 Two smaller notes:
 
 - **`PARTNA_MEDIA_THUMB_EDGE` is not in `.env.example`.** The spec's deletion step there is a no-op. Only `config/partna.php:1548` exists.
@@ -64,7 +75,7 @@ Two smaller notes:
 
 ### Task 1: `pending` derives from row state
 
-The live defect. `PoolResolver::pending()` asks "is this URL a Meta CDN URL?" when the question is "is this row still expecting bytes?". `InstagramMediaUrl::isMetaCdn()` knows `cdninstagram.com` and `fbcdn.net`; the mirror lane owns four platforms (`MediaMirror::OWNED_REF_PREFIXES` — instagram, tiktok, facebook, threads). On dev, 25 of 29 in-flight assets are TikTok CDN and report `pending: false`, so the dashboard renders the empty frame the flag exists to prevent.
+The latent defect (see Correction 4 — not live, contrary to what this section originally claimed). `PoolResolver::pending()` asks "is this URL a Meta CDN URL?" when the question is "is this row still expecting bytes?". `InstagramMediaUrl::isMetaCdn()` knows `cdninstagram.com` and `fbcdn.net`; the mirror lane owns four platforms (`MediaMirror::OWNED_REF_PREFIXES` — instagram, tiktok, facebook, threads). On dev, 25 of 29 in-flight assets are TikTok CDN and report `pending: false` — correctly, since `MediaUrlResolver` serves their vendor url straight through and something is on screen — while a capped or url-less row would wrongly report `pending: true` forever, which is the bug actually fixed here.
 
 `InstagramMediaUrl::isMetaCdn` is **NOT deleted** — `MediaMirror` still uses it for the expired-URL pre-flight, and `PoolResolver` still injects `InstagramMediaUrl` for `isExpired()` at `:2656`. Only `pending()` stops calling it.
 
@@ -126,8 +137,9 @@ function pendingFlag(string $siteId, string $itemId): ?bool
 }
 
 it('reports pending for an in-flight tiktok asset, not just a meta one', function () {
-    // The live defect. The mirror lane owns four platforms; the url test knew
-    // two, so three quarters of dev's in-flight media rendered as "no image".
+    // The latent defect (Correction 4: not live — MediaUrlResolver serves a
+    // non-Meta url straight through, so this case already rendered correctly
+    // in practice; the row-state rewrite is still the right fix).
     [$pro, $siteId] = poolTenant();
     $sourceId = poolSource($pro->id, null);
 
@@ -310,14 +322,22 @@ git commit -m "$(cat <<'MSG'
 Derive the media pending flag from row state, not the CDN host
 
 pending() matched the source url against InstagramMediaUrl::isMetaCdn,
-which knows two Meta hosts, while the mirror lane owns four platforms.
-On dev 25 of 29 in-flight assets are TikTok and reported pending:false,
-rendering the empty frame the flag exists to prevent. A capped row also
-reported pending:true forever — a skeleton that never resolves.
+which knows two Meta hosts, while the mirror lane owns four platforms, so
+an owned asset on any other platform reported "no image" rather than
+"loading" the moment its cover could not render. A row whose retries were
+spent also reported pending:true forever — a skeleton that never resolves.
 
 The row already carries the answer: mirror_eligible, storage_path,
 site_media_id, mirror_attempts. Costs two columns on a select that was
 already fetching those rows.
+
+Scope correction, measured on dev 2026-09-05 (Correction 4): the design
+claimed 25 of 29 in-flight assets render an empty frame. They do not.
+MediaUrlResolver blocks raw passthrough for the two Meta hosts only, so
+those 25 serve their vendor url and pending:false is correct for them.
+Both bugs fixed here are therefore latent, not live. Holding the other
+three platforms back until their bytes are ours would change what the
+public wire serves and is left as a separate decision.
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01Fo1Gn9bVHv8SG5ivrwZGxd
@@ -1062,16 +1082,20 @@ Expected: empty. Every column Unit 1 reads already exists; nothing to push to Su
 
 ```bash
 gh pr create --base development --title "Media mirror follow-ups: pending state, frozen thumb tier, one role rule, publish seam" --body "$(cat <<'MSG'
-Five follow-ups from the review of PR #335. One live defect, four latent
-or structural. Spec: `docs/superpowers/specs/2026-09-05-media-mirror-followups-design.md`.
+Five follow-ups from the review of PR #335, all latent or structural (Unit 1
+was scoped as fixing one live defect; measurement against dev found that
+claim false — see Correction 4 in the plan). Spec:
+`docs/superpowers/specs/2026-09-05-media-mirror-followups-design.md`.
 
-**1. `pending` derives from row state (live).** It matched the source url
-against two Meta CDN hosts while the mirror lane owns four platforms, so
-25 of 29 in-flight assets on dev reported `pending: false` and rendered
-the empty frame the flag exists to prevent. A capped row also reported
-`pending: true` forever. Now read from `mirror_eligible` /
-`storage_path` / `site_media_id` / `mirror_attempts` — two extra columns
-on a select already fetching those rows. Dashboard-only key; no wire change.
+**1. `pending` derives from row state (latent).** It matched the source url
+against two Meta CDN hosts while the mirror lane owns four platforms. On dev,
+25 of 29 in-flight assets are TikTok and reported `pending: false` —
+correctly, since `MediaUrlResolver` blocks raw passthrough for Meta hosts
+only and serves a TikTok cover straight from its vendor CDN. A capped or
+url-less row, however, reported `pending: true` forever — a permanent
+skeleton, which is the real bug. Now read from `mirror_eligible` /
+`storage_path` / `site_media_id` / `mirror_attempts` / `source_url` — extra
+columns on a select already fetching those rows. Dashboard-only key; no wire change.
 
 **2. Frozen thumb tier.** `THUMB_SUFFIX` promised 640 while the rendered
 edge read config, so setting the var wrote mislabelled bytes with no
