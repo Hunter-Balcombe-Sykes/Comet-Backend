@@ -962,15 +962,23 @@ class LinkInBioImporter
             // the pool item only (withConnectionRow: false — same write as
             // the interactive addEvent verb). It records no payload finding,
             // so nothing would have read a connection row anyway
-            // (EventSyncFindingsTest pins the modal contract). An ORGANISER
-            // link is a real account and does connect. Spends NO commerce
-            // budget: events were never probes. A seeder failure cards the
-            // link, never drops it.
+            // (EventSyncFindingsTest pins the modal contract).
+            //
+            // 2026-09-06: an ORGANISER link used to "connect" here — this
+            // docblock said so — which was the same "no harvest ever
+            // auto-connects, only ever suggests" bug already fixed tonight
+            // for LinkRouter::seedEvent()'s own eventbrite/humanitix arm
+            // (gated behind $ctx->autoConnectBooking there). This importer
+            // has no equivalent staff/no-dialog flag for any caller, so an
+            // organiser link never auto-connects here either — it falls
+            // through to the same custom-link card a seed failure already
+            // produces below, exactly like a link the router couldn't place.
+            // Spends NO commerce budget: events were never probes.
             if (in_array($classified['category'] ?? null, ['event', 'event-organiser'], true)) {
                 try {
                     $seeded = $classified['category'] === 'event'
                         ? $this->events->seedStandalone($context->user, $classified['platform'], $url, origin: $context->origin)
-                        : $this->events->seedAccount($context->user, $classified['platform'], $url);
+                        : null;
                 } catch (\Throwable $e) {
                     report($e);
                     $seeded = null;

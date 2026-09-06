@@ -170,6 +170,10 @@ it('a concurrent holder of the online-ordering platform lock makes seedOrdering 
     }
 
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->exists())->toBeFalse();
+    // A1 (2026-09-06): a free-lock run no longer writes a live connection
+    // either (see below) — the intent row is what proves "the seed ran" now,
+    // so the lock-held path must produce neither.
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->exists())->toBeFalse();
     Bus::assertNotDispatched(MenuFetchJob::class); // dropped seed → nothing changed → nothing to re-derive
     Log::shouldHaveReceived('warning')
         ->once()
@@ -190,7 +194,12 @@ it('seedOrdering still dispatches MenuFetchJob when the lock is free (contention
         'Ollies',
     );
 
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->exists())->toBeTrue();
+    // A1 (2026-09-06): seedOrdering() no longer writes a live connection on
+    // first discovery (same "no harvest ever auto-connects" fix already
+    // shipped for booking/reservations) — a proposed intent is what proves
+    // the seed ran now, alongside the MenuFetchJob dispatch below.
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->exists())->toBeFalse();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'ordering')->where('state', 'proposed')->exists())->toBeTrue();
     Bus::assertDispatched(MenuFetchJob::class, fn ($job) => $job->userId === (string) $user->id);
 });
 

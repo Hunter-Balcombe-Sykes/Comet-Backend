@@ -143,6 +143,33 @@ it('never creates a connection for the scraped page itself', function () {
         ->not->toContain('https://example.com/');
 });
 
+// B1 (2026-09-06): an event-organiser link used to seed a live organiser
+// account right here via EventsSeeder::seedAccount() — the same "no harvest
+// ever auto-connects, only ever suggests" bug already fixed for
+// LinkRouter::seedEvent()'s own eventbrite/humanitix arm. This importer has
+// no staff/no-dialog flag, so the connect branch was deleted outright.
+//
+// Every brand WebsiteLinkHarvester::classify() tags 'event-organiser'
+// (Eventbrite, Humanitix, Luma, Skiddle, TicketWeb, …) now also has its own
+// catalog surface, so route() already resolves these to a real 'choose'
+// verdict before this importer's now-deleted 'note'+organiser branch would
+// ever have been reached — confirmed empirically for the shape below (an
+// Eventbrite /o/<org> URL projects to eventbrite.organiser and verdicts
+// 'choose', tallied as 'suggested', not 'noted'). The deleted branch was
+// defence-in-depth for a brand classify() recognises before its catalog
+// surface ships; what this test pins is the outcome that matters either
+// way: zero live connections for an organiser link found on a scan.
+it('never auto-connects an organiser link found on a website scan', function () {
+    $pro = createTenant('importer-organiser-noconnect');
+    websitePage('<html><body><a href="https://www.eventbrite.com.au/o/some-organiser-12345">Our events</a></body></html>');
+
+    $result = app(WebsiteImporter::class)->import($pro, 'https://example.com/');
+
+    expect($result['connected'])->toBe(0)
+        ->and($result['suggested'])->toBe(1);
+    expect(IntegrationConnection::query()->where('user_id', $pro->id)->where('platform', 'eventbrite')->exists())->toBeFalse();
+});
+
 it('redacts a secret-shaped param from the recorded source_url (#SEC-1)', function () {
     $pro = createTenant('importer-secret-url');
     websitePage('<html><body><a href="https://x.com/someshop">X</a></body></html>');

@@ -27,6 +27,7 @@
 // _unique_active), so it lives in
 // tests/Postgres/SourceReconcilerConnectionRacePgTest.php.
 
+use App\Models\Core\Site\IntegrationConnection;
 use App\Routing\Iri;
 use App\Routing\Placement;
 use App\Routing\RoutingContext;
@@ -151,10 +152,22 @@ it('a non-exclusive class is unaffected by a held booking lock', function () {
     expect(DB::table('routing.source_intents')->where('user_id', $user->id)->count())->toBe(1);
 });
 
-it('a DIRECT paste bypasses the lock — the XOR is an AUTO-write rule', function () {
-    // Same shape as the reconciler's own condition (`! isDirectRequest()`):
-    // a user pasting a booking link is not a background harvest racing another
-    // one, and holding them behind a stuck seed lock would 423 a human.
+it('a direct paste takes the SAME exclusive-slot lock a harvest does — no free pass for a duplicate live connection', function () {
+    // D1 (2026-09-06, the single most serious finding in the sweep): this
+    // used to bypass the lock entirely (`! isDirectRequest()`), reasoned as
+    // "a paste is not a background harvest racing another one, don't 423 a
+    // human behind a stuck seed lock". The real cost of that exemption was
+    // worse than the UX it was protecting: pasting a second exclusive-class
+    // link (e.g. Fresha, with Square already connected) resolved straight to
+    // Place and created a SECOND live booking connection, the incumbent
+    // never even consulted — defeating even booking's own dedicated-endpoint
+    // XOR lock, since RoutingController never touches FreshaController. The
+    // lock's own block-then-timeout window is a bounded 3s
+    // (EXCLUSIVE_SLOT_LOCK_BLOCK) — not a hard 423 — and RoutingController's
+    // outcome match already treats the resulting "nothing applied" the same
+    // graceful way a contention-hit harvest gets, so widening this costs an
+    // occasional bounded wait in exchange for closing a real duplicate-
+    // connection bug.
     $user = createTenant('srcslot-direct');
     $identifier = 'direct'.Str::lower(Str::random(6));
 
@@ -171,8 +184,58 @@ it('a DIRECT paste bypasses the lock — the XOR is an AUTO-write rule', functio
         $lock->release();
     }
 
+    // Contended: nothing applied, exactly like the other three exclusive
+    // families above — a paste is no longer exempt from the family lock.
+    expect($result['intent_id'])->toBeNull()
+        ->and($result['connection_id'])->toBeNull();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->count())->toBe(0)
+        ->and(DB::table('site.platform_connections')->where('user_id', $user->id)->count())->toBe(0);
+});
+
+it('a direct paste still connects normally when the exclusive-slot lock is free', function () {
+    $user = createTenant('srcslot-direct-free');
+    $identifier = 'directfree'.Str::lower(Str::random(6));
+
+    $result = app(SourceReconciler::class)->reconcile(
+        srcSlotPlacement('fresha.book', $identifier),
+        RoutingContext::forUser($user, 'paste'),
+        srcSlotIri('www.fresha.com', '/'.$identifier),
+    );
+
     expect($result['verdict'])->toBe('place')
         ->and($result['connection_id'])->not->toBeNull();
+});
+
+it('a direct paste of a SECOND exclusive-class link is held as a Swap, not a silent duplicate connection', function () {
+    // The actual D1 repro, at the reconcile() layer: an incumbent Square
+    // booking connection already exists, then a paste of a Fresha link
+    // arrives — same shape as pasting a second booking provider into
+    // "Add a link" while a dedicated connect endpoint (FreshaController) was
+    // never touched, so its own bookingXorLock never even ran.
+    $user = createTenant('srcslot-direct-swap');
+    $incumbent = new IntegrationConnection([
+        'surface_key' => 'square.book', 'routing_class' => 'booking',
+        'resource_id' => 'square', 'payload' => ['url' => 'https://square.site/book/incumbent'],
+        'is_active' => true,
+    ]);
+    $incumbent->user_id = $user->id;
+    $incumbent->save();
+
+    $result = app(SourceReconciler::class)->reconcile(
+        srcSlotPlacement('fresha.book', 'a-second-provider'),
+        RoutingContext::forUser($user, 'paste'),
+        srcSlotIri('www.fresha.com', '/a-second-provider'),
+    );
+
+    // Held as a conflict, not connected — the incumbent is untouched and
+    // there is exactly one live booking connection, not two.
+    expect($result['verdict'])->toBe('hold')
+        ->and($result['connection_id'])->toBeNull();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'booking')->count())->toBe(1);
+    $intent = DB::table('routing.source_intents')->where('user_id', $user->id)->where('identifier', 'a-second-provider')->first();
+    expect($intent)->not->toBeNull()
+        ->and($intent->state)->toBe('blocked')
+        ->and($intent->conflicting_connection_id)->toBe($incumbent->id);
 });
 
 // ── Key identity: the drift this seam exists to prevent ───────────────────

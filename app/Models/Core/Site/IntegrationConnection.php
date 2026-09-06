@@ -2,6 +2,8 @@
 
 namespace App\Models\Core\Site;
 
+use App\Catalog\CompiledCatalog;
+use App\Catalog\Enums\Lifecycle;
 use App\Catalog\LegacyPlatformMap;
 use App\Exceptions\Platforms\TenantAnchorImmutableException;
 use App\Exceptions\Platforms\UnregisteredPlatformException;
@@ -242,6 +244,26 @@ class IntegrationConnection extends BaseModel
 
                 throw ValidationException::withMessages([
                     'platform' => 'The selected platform is not a supported platform.',
+                ]);
+            }
+
+            // A.14 (2026-09-06, the Famished Wolf proof): a surface can still be
+            // a KNOWN catalog entry while its own definition says Lifecycle::
+            // Retired — order_online.order's docblock is explicit that
+            // order.online stopped resolving in DNS entirely on 2026-09-03, yet
+            // nothing anywhere checked that flag before this, so an auto-sync
+            // harvest happily connected a brand its own catalog already knows
+            // is dead. Creates only, same as the RETIRED_SURFACES guard above:
+            // an existing retired row (soft-deleted or not) must stay readable,
+            // this only stops a NEW one from being minted.
+            if (! $connection->exists && (CompiledCatalog::surface((string) $surfaceKey)['lifecycle'] ?? null) === Lifecycle::Retired->value) {
+                report(new UnregisteredPlatformException(
+                    platform: (string) $surfaceKey,
+                    userId: $connection->user_id,
+                ));
+
+                throw ValidationException::withMessages([
+                    'platform' => 'That platform has been retired and can no longer be connected.',
                 ]);
             }
 

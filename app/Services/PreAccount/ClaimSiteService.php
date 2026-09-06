@@ -170,6 +170,19 @@ class ClaimSiteService
                 if ($this->emailGuard->isClaimedByAnotherAuthUser($verifiedEmail, $uid)) {
                     throw new RuntimeException('EMAIL_ALREADY_REGISTERED', 0, $e);
                 }
+                // C3 (2026-09-06): the SAME person racing two claims for two
+                // DIFFERENT subdomains both pass the pre-check at the top of
+                // this method (line ~136, neither has committed yet), then
+                // race users_auth_user_id_unique — the loser lands here with
+                // isClaimedByAnotherAuthUser() false (the winning row's
+                // auth_user_id IS $uid, not "another" auth user), and used to
+                // fall through to the raw QueryException as an unhandled 500.
+                // Same re-check shape as the email race above, same clean
+                // error the top-of-method pre-check already gives a
+                // non-racing double-claim.
+                if ($this->authUserAlreadyBound($uid)) {
+                    throw new RuntimeException('ACCOUNT_EXISTS', 0, $e);
+                }
                 throw $e;
             }
 
@@ -576,5 +589,19 @@ class ClaimSiteService
             'handle' => $incoming,
             'handle_lc' => $incoming,
         ]);
+    }
+
+    /**
+     * C3 (2026-09-06): re-checked post-23505, after the first (pre-write)
+     * check of this same question already returned false — PHPStan assumes
+     * the second call must return the same result as the first and flags the
+     * re-check as always-false dead code without this tag. Same shape as
+     * EmailReuseGuard::isClaimedByAnotherAuthUser()'s own note.
+     *
+     * @phpstan-impure
+     */
+    private function authUserAlreadyBound(string $uid): bool
+    {
+        return User::query()->where('auth_user_id', $uid)->exists();
     }
 }

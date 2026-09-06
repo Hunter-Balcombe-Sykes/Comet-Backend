@@ -84,18 +84,29 @@ function registrySurfaceFor(string $url): string
     };
 }
 
+/**
+ * A.14 (2026-09-06): 'menulog.order' is now a REAL catalog surface — and a
+ * Lifecycle::Retired one — so the ordinary create path (IntegrationConnection's
+ * own saving() guard) refuses it outright. This helper predates that catalog
+ * entry: it never meant to exercise the catalog's own connect-time rules, only
+ * to seed a row MenuSource can read, using a host that happens to also be a
+ * real (dead) brand today. withoutEvents() skips just that guard — the
+ * platform mutator (setPlatformAttribute) still runs inline and stamps
+ * routing_class correctly, so MenuSource's routing_class-scoped query still
+ * finds this row.
+ */
 function registryOrdering(User $user, string $url): IntegrationConnection
 {
     $rid = 'order-'.substr(sha1(strtolower($url)), 0, 16);
 
-    return IntegrationConnection::create([
+    return IntegrationConnection::withoutEvents(fn () => IntegrationConnection::create([
         'user_id' => $user->id,
         'platform' => registrySurfaceFor($url),
         'resource_id' => $rid,
         'payload' => ['id' => $rid, 'provider' => 'custom', 'url' => $url, 'name' => 'Order'],
         'is_active' => true,
         'last_refresh_status' => 'ok',
-    ]);
+    ]));
 }
 
 /** Registers a fake 'menulog' menu platform at runtime — config only, zero code change. */

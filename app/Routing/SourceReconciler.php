@@ -180,7 +180,17 @@ class SourceReconciler
         // (ManagesIntegrationConnection::withCrossPlatformLock,
         // BuildsAutoSyncFindings::runUnderSeedLock), and the only ordering that
         // cannot deadlock against them.
-        $exclusiveLockKey = $verdict === Verdict::Place && $this->isExclusiveAuto($routingClass) && ! $context->isDirectRequest()
+        //
+        // D1 (2026-09-06): this used to also require ! $context->isDirectRequest()
+        // — a paste took NO lock at all for an exclusive class. That is not a
+        // deliberate "a paste is trusted to replace outright" design: preview()
+        // (the debounced typing preview a paste's own UI shows) calls
+        // PlacementPolicy::decide() only — a pure projection, no DB read of any
+        // kind — so it cannot see an incumbent connection either, and never
+        // warned the user. The single caller of a 'paste'-origin reconcile()
+        // (RoutingController::store()) holds no other lock around this call, so
+        // widening this to cover paste too cannot deadlock against it.
+        $exclusiveLockKey = $verdict === Verdict::Place && $this->isExclusiveAuto($routingClass)
             ? $this->exclusiveSlotLockKey($routingClass, (string) $user->id)
             : null;
 
@@ -196,8 +206,20 @@ class SourceReconciler
             // the widening, accepting the suggestion would insert a second
             // is_primary row and raise 23505 on
             // idx_platform_connections_primary_per_class at accept time.
+            //
+            // D1 (2026-09-06): this used to also require ! $context->isDirectRequest()
+            // — the single most serious finding in the sweep. Pasting a second
+            // exclusive-class link (e.g. Fresha, with Square already connected)
+            // resolved straight to Place and created a SECOND live booking
+            // connection with the first left untouched — defeating even
+            // booking's own dedicated-endpoint XOR lock, since RoutingController
+            // never touches FreshaController. A direct request now gets the
+            // exact same Swap-offer treatment a harvest already gets, instead
+            // of an un-mitigated duplicate: the RoutingController::store() outcome
+            // match already treats a downgraded Hold as 'review', so the caller
+            // needs no change.
             if (in_array($verdict, [Verdict::Place, Verdict::Choose], true)
-                && $this->isExclusiveAuto($routingClass) && ! $context->isDirectRequest()) {
+                && $this->isExclusiveAuto($routingClass)) {
                 $incumbent = $this->incumbentFor($user, $routingClass, $placement->surfaceKey, $identifier, $aliasConnectionId);
                 if ($incumbent !== null) {
                     $verdict = Verdict::Hold;
@@ -611,6 +633,47 @@ class SourceReconciler
             Verdict::Hold,
             'cap_reached',
             $incumbentConnectionId,
+        );
+    }
+
+    /**
+     * A1 (2026-09-06): the propose-only sibling of recordCapBlock() above, for
+     * a caller whose OWN per-surface dedup (LinkRouter::seedOnlineOrdering())
+     * has already ruled out a same-brand conflict — this writes the plain
+     * accepted case: a fresh, uncontested candidate. Deliberately NOT routed
+     * through reconcile(): its incumbentFor() is scoped CLASS-WIDE (correct
+     * for booking/reservations' true single-slot design), which would
+     * wrongly treat a second ordering BRAND as a conflict with the first.
+     *
+     * band 'auto' — a captured identifier, same as a generic Choose verdict
+     * earns elsewhere — but upsertIntent()'s own class-wide
+     * hasLiveAutoSibling() downgrade still applies underneath this, so at
+     * most one ordering candidate is ever pre-ticked in the setup dialog at
+     * once, even though every brand's own store still lands as a (non-
+     * pre-ticked) suggestion in the inbox.
+     */
+    public function recordProposal(
+        User $user,
+        string $surfaceKey,
+        string $routingClass,
+        string $identifier,
+        string $url,
+        ?string $identifierLabel = null,
+        string $origin = 'google_business',
+    ): void {
+        $iri = $this->canonicaliser->canonicalize($url);
+        $placement = new Placement(Verdict::Choose, $surfaceKey, $identifier, null, null, null, $identifierLabel, 'auto');
+
+        $this->upsertIntent(
+            $user,
+            $placement,
+            RoutingContext::forUser($user, $origin),
+            $iri,
+            $routingClass,
+            $identifier,
+            Verdict::Choose,
+            null,
+            null,
         );
     }
 

@@ -41,6 +41,32 @@ class InstagramController extends ApiController
         return Platform::Instagram->value;
     }
 
+    /**
+     * The exact FreshaController/SquareController fix (2026-09-06), applied to
+     * the one bespoke platform the audit found it had been missed for: Instagram
+     * has two writers too — this controller keys the row `resource_id =
+     * 'instagram'`, the routing/accept lane keys it by the real handle
+     * (SourceReconciler::applyIntent, SuggestionApplier::preScrapeInstagram —
+     * both auto-placed via GoogleBusinessAutoSync/InstagramAutoSync and the
+     * signup pre-scrape flow, all more common than a manual connect). Without
+     * this, /selection and DELETE silently miss a router-placed connection —
+     * the dashboard's Platforms index (which scopes on `platform` alone) shows
+     * Instagram connected while this controller finds nothing.
+     */
+    protected function resolveResourceId(User $user, ?string $resourceId): string
+    {
+        if ($resourceId !== null) {
+            return $resourceId;
+        }
+
+        $existing = $user->integrationConnections()
+            ->where('platform', $this->platform())
+            ->orderBy('created_at')
+            ->value('resource_id');
+
+        return is_string($existing) && $existing !== '' ? $existing : $this->defaultResourceId();
+    }
+
     // POST /api/platforms/instagram/connect — queue a scrape + mirror job and
     // return 202 immediately. The cooldown guard runs HERE (not in the job) so
     // rapid re-connects are throttled before anything is queued.
@@ -79,17 +105,23 @@ class InstagramController extends ApiController
         $connection = null;
         try {
             $connection = Cache::lock(CacheKeyGenerator::platformConnectionLock($this->platform(), $user->id), 10)->block(5, function () use ($user) {
+                // resolveResourceId() converges this write onto whatever row
+                // the routing/accept lane already placed (D3 fix, 2026-09-06)
+                // — without it a manual connect after an auto-suggested one
+                // created a SECOND row under the legacy 'instagram' marker.
+                $resourceId = $this->resolveResourceId($user, null);
+
                 // Gate the placeholder write: determine create vs. update so the correct
                 // policy ability fires. This is a direct write (not via writeConnection)
                 // because the placeholder shape differs from a normal selection row.
-                $existing = $this->connectionFor($user);
+                $existing = $this->connectionFor($user, $resourceId);
                 if ($existing) {
                     $this->authorizeForUser($user, 'update', $existing);
                 } else {
                     $skeleton = new IntegrationConnection([
                         'user_id' => $user->id,
                         'platform' => $this->platform(),
-                        'resource_id' => $this->defaultResourceId(),
+                        'resource_id' => $resourceId,
                     ]);
                     $this->authorizeForUser($user, 'create', $skeleton);
                 }
@@ -100,7 +132,7 @@ class InstagramController extends ApiController
                     [
                         'user_id' => $user->id,
                         'platform' => $this->platform(),
-                        'resource_id' => $this->defaultResourceId(),
+                        'resource_id' => $resourceId,
                     ],
                     [
                         // Empty (not null): platform_connections.payload is NOT NULL, so a

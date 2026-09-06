@@ -178,17 +178,22 @@ it('a food (restaurant) business GB connect proposes reservations + ordering but
     ], 'Ollies');
 
     // 2026-09-06: the reservation is a suggestion now, same as booking.
-    // Ordering is UNCHANGED here deliberately: GoogleBusinessAutoSync's own
-    // ordering lane (LinkRouter::routeOrdering() -> seedOnlineOrdering())
-    // uses its "seeded" outcome only to reserve the brand slot, then
-    // immediately overwrites the row with Google's own fees/pickup/delivery
-    // metadata that the router can't see (seedOrdering()'s own comment,
-    // GoogleBusinessAutoSync.php:827-832) — a real connection is the
-    // intended shape of that dance, not the same "harvest auto-connects" bug
-    // reservations/booking had, so it is out of scope for this fix.
+    // A1 (2026-09-06, same day, later fix): ordering is ALSO a suggestion
+    // now, not a real connection. It used to be treated as unchanged here —
+    // GoogleBusinessAutoSync's own ordering lane (LinkRouter::routeOrdering()
+    // -> seedOnlineOrdering()) used its "seeded" outcome only to reserve the
+    // brand slot, then immediately overwrote the row with Google's own fees/
+    // pickup/delivery metadata the router can't see — but that dance IS the
+    // same "harvest auto-connects with zero accept step" bug reservations/
+    // booking had (in fact, the very DoorDash-ordering duplicate that started
+    // this whole sweep — see the plan's Famished Wolf case). The rich
+    // metadata is lost the same way reservations' per-provider payload
+    // already was (resolveReservationWrite()'s docblock) — an accepted
+    // tradeoff, not an oversight.
     expect(IntegrationConnection::query()->where('user_id', $user->id)->where('platform', 'resdiary')->exists())->toBeFalse();
     expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'reservations')->exists())->toBeTrue();
-    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->exists())->toBeTrue();
+    expect(IntegrationConnection::query()->where('user_id', $user->id)->where('routing_class', 'ordering')->exists())->toBeFalse();
+    expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'ordering')->where('state', 'proposed')->exists())->toBeTrue();
     // Booking is gated OFF for a food business regardless — no intent at all,
     // proposed or otherwise.
     expect(DB::table('routing.source_intents')->where('user_id', $user->id)->where('routing_class', 'booking')->exists())->toBeFalse();

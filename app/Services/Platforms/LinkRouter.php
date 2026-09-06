@@ -734,24 +734,34 @@ class LinkRouter
             return RouteResult::custom([['url' => $url, 'label' => $classified['label']]], handled: true);
         }
 
-        $payload = [
-            'url' => $url,
-            'provider' => $classified['label'],
-            'name' => $classified['label'],
-            'source' => 'auto',
-        ];
-
         // Ordering is a MULTI-entry family across brands, so the resource id is
         // url-derived rather than the brand — and it is byte-identical to
         // OnlineOrderingController::entryResourceId(), because the actions layer
         // emits `ordering:<resource_id>` action ids that users store preferences
         // against. A different shape here would fork those ids by write path.
         $resourceId = 'order-'.substr(sha1(strtolower($url)), 0, 16);
-        $this->write((string) $user->id, $platform, $resourceId, $payload);
 
-        return RouteResult::seeded($platform, $resourceId, $classified['category'], [
-            $this->seededFinding($platform, $resourceId, $classified['category'], $classified['label'], $url),
-        ]);
+        // A1 (2026-09-06): this used to $this->write() a LIVE connection right
+        // here — the same "no harvest ever auto-connects, only ever suggests"
+        // fix already applied to booking/reservations above. The same-brand
+        // conflict check above (recordCapBlock) and the wasDisconnected floor
+        // below are unchanged; only this terminal "fresh, uncontested store"
+        // case changes, from a direct write to a proposed intent. Not routed
+        // through the generic seedCatalogLink()/reconcile() pipeline: its
+        // incumbentFor() is scoped CLASS-WIDE, which would wrongly treat a
+        // second ordering BRAND as a conflict with the first — this class's
+        // own per-surface dedup (just above) already answered that question.
+        app(SourceReconciler::class)->recordProposal(
+            $user,
+            $surface,
+            'ordering',
+            $resourceId,
+            $url,
+            $classified['label'],
+            $origin,
+        );
+
+        return RouteResult::custom(handled: true);
     }
 
     /**
